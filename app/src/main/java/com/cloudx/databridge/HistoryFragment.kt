@@ -314,12 +314,8 @@ class HistoryFragment : Fragment() {
     }
 
     private fun dialNumber(number: String, record: CallRecord) {
-        try {
-            startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number")))
-            saveAction(record, "dial", "")
-        } catch (e: Exception) {
-            Toast.makeText(requireContext(), "No dialer app found", Toast.LENGTH_SHORT).show()
-        }
+        AutoDialHelper.dial(this, number) // ✅ auto-dial / dialpad / SIM chooser
+        saveAction(record, "dial", "")
     }
 
     private fun saveRemark(record: CallRecord) {
