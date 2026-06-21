@@ -15,9 +15,15 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.widget.ImageViewCompat
 
 /**
- * 🌙 DarkModeToggleView
- * — Animation plays first (350ms), THEN theme changes (no mid-animation crash)
- * — Animator is cancelled on detach to prevent IllegalStateException
+ * 🌙 DarkModeToggleView — v3 (crash-safe)
+ *
+ * Fix: The previous version called setDefaultNightMode() in onAnimationCancel,
+ * which triggered a recreation loop (detach → cancel → setDefaultNightMode → detach → ...).
+ * Now:
+ * — Click is disabled while animation runs (no rapid re-triggers)
+ * — setDefaultNightMode() is called ONLY in onAnimationEnd
+ * — onAnimationCancel does NOTHING (pref already saved; new activity reads it on create)
+ * — onDetachedFromWindow just cancels the animator silently
  */
 class DarkModeToggleView @JvmOverloads constructor(
     context: Context,
@@ -49,29 +55,32 @@ class DarkModeToggleView @JvmOverloads constructor(
         isClickable   = true
         isFocusable   = true
 
-        applyState(isDark, animate = false, applyTheme = false)
+        applyState(isDark, animate = false)
         setOnClickListener { onToggleClicked() }
     }
 
     fun syncState() {
         isDark = prefs.getBoolean("dark_mode", true)
-        applyState(isDark, animate = false, applyTheme = false)
+        applyState(isDark, animate = false)
     }
 
     private fun onToggleClicked() {
         isDark = !isDark
         prefs.edit().putBoolean("dark_mode", isDark).apply()
-        // ✅ Animate first — apply theme AFTER animation ends (prevents crash)
-        applyState(isDark, animate = true, applyTheme = true)
+
+        // ✅ Disable click while animating — prevents rapid re-trigger cascade
+        isClickable = false
+
+        applyState(isDark, animate = true)
     }
 
-    private fun applyState(dark: Boolean, animate: Boolean, applyTheme: Boolean) {
+    private fun applyState(dark: Boolean, animate: Boolean) {
         // Track background
         setBackgroundResource(
             if (dark) R.drawable.bg_toggle_track_dark else R.drawable.bg_toggle_track_light
         )
 
-        // Thumb icon (always white on blue)
+        // Thumb icon (white on blue)
         thumbIcon.setImageResource(if (dark) R.drawable.ic_moon_toggle else R.drawable.ic_sun_toggle)
         ImageViewCompat.setImageTintList(thumbIcon, ColorStateList.valueOf(Color.WHITE))
 
@@ -85,8 +94,7 @@ class DarkModeToggleView @JvmOverloads constructor(
         )
 
         // Idle icon gravity
-        val dp = resources.displayMetrics.density
-        val marginPx = (5 * dp).toInt()
+        val marginPx = (5 * resources.displayMetrics.density).toInt()
         val idleParams = idleIcon.layoutParams as LayoutParams
         if (dark) {
             idleParams.gravity     = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
@@ -108,32 +116,30 @@ class DarkModeToggleView @JvmOverloads constructor(
                 interpolator = DecelerateInterpolator(1.5f)
 
                 addUpdateListener { anim ->
-                    // Guard: only update if view is still attached
                     if (isAttachedToWindow) {
                         thumb.translationX = anim.animatedValue as Float
                     }
                 }
 
-                if (applyTheme) {
-                    addListener(object : AnimatorListenerAdapter() {
-                        override fun onAnimationEnd(animation: Animator) {
-                            // ✅ Theme changes AFTER animation — no crash
-                            if (isAttachedToWindow) {
-                                AppCompatDelegate.setDefaultNightMode(
-                                    if (isDark) AppCompatDelegate.MODE_NIGHT_YES
-                                    else        AppCompatDelegate.MODE_NIGHT_NO
-                                )
-                            }
-                        }
-                        override fun onAnimationCancel(animation: Animator) {
-                            // Cancelled (e.g. view detached) — apply theme immediately
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        // ✅ Apply theme ONLY here — after animation fully completes
+                        if (isAttachedToWindow) {
                             AppCompatDelegate.setDefaultNightMode(
                                 if (isDark) AppCompatDelegate.MODE_NIGHT_YES
                                 else        AppCompatDelegate.MODE_NIGHT_NO
                             )
                         }
-                    })
-                }
+                        // Note: if not attached, activity is already recreating — no need to call again.
+                        // The pref is saved; MainActivity.onCreate() will apply the correct theme.
+                    }
+
+                    override fun onAnimationCancel(animation: Animator) {
+                        // ✅ Do NOTHING here — this fires when onDetachedFromWindow cancels
+                        // the animator during activity recreation. The pref is already saved.
+                        // Calling setDefaultNightMode() here caused the recreation loop crash.
+                    }
+                })
                 start()
             }
         } else {
@@ -145,7 +151,7 @@ class DarkModeToggleView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        // ✅ Cancel animator on detach — prevents update on destroyed view
+        // ✅ Silently cancel — onAnimationCancel will fire but does nothing (safe)
         currentAnimator?.cancel()
         currentAnimator = null
     }
