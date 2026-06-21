@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/cardParcelRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#0d1627"
+    android:padding="14dp"
+    android:paddingStart="18dp"
+    android:layout_marginBottom="10dp"
+    android:clickable="true"
+    android:focusable="true">
+
+    <!-- Color bar on left - drawn programmatically -->
+
+    <!-- Top row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- Left content -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <!-- Customer name + validation badge -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/twCardCustomer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Rahim Mia"
+                    android:textSize="13sp"
+                    android:textColor="#e2e8f0"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:id="@+id/twCardValidationBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⚡ Validation Requested"
+                    android:textSize="11sp"
+                    android:textColor="#a78bfa"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:background="#1a1040"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- ID · Phone · Time -->
+            <TextView
+                android:id="@+id/twCardMeta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DB-2201 · 01885580909 · 9:15 AM"
+                android:textSize="11sp"
+                android:textColor="#00d4e8"
+                android:textStyle="bold"
+                android:layout_marginTop="2dp" />
+
+            <!-- Address -->
+            <TextView
+                android:id="@+id/twCardAddress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📍 House 12, Mograpara Bazar"
+                android:textSize="12sp"
+                android:textColor="#64748b"
+                android:layout_marginTop="2dp" />
+
+            <!-- Remarks -->
+            <TextView
+                android:id="@+id/twCardRemarks"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="💬 Customer want to receive today"
+                android:textSize="11sp"
+                android:textColor="#64748b"
+                android:layout_marginTop="6dp"
+                android:padding="4dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:background="#0a1220"
+                android:visibility="gone" />
+
+            <!-- Validation Note -->
+            <TextView
+                android:id="@+id/twCardValidationNote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="⚡ Address খুঁজে পাচ্ছি না"
+                android:textSize="11sp"
+                android:textColor="#a78bfa"
+                android:layout_marginTop="4dp"
+                android:padding="4dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:background="#1e1040"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- Right: COD + Status -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="end"
+            android:layout_marginStart="10dp">
+
+            <TextView
+                android:id="@+id/twCardCod"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="৳850"
+                android:textSize="15sp"
+                android:textColor="#00d4e8"
+                android:textStyle="bold"
+                android:fontFamily="sans-serif-medium" />
+
+            <TextView
+                android:id="@+id/twCardStatusBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="✓ Confirmed"
+                android:textSize="11sp"
+                android:textColor="#10b981"
+                android:textStyle="bold"
+                android:letterSpacing="0.5"
+                android:layout_marginTop="4dp"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:background="#052e16" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Expand area -->
+    <LinearLayout
+        android:id="@+id/twCardExpandArea"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone"
+        android:layout_marginTop="12dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="4dp">
+
+        <Button
+            android:id="@+id/twBtnCall"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:text="📞 Call"
+            android:textSize="12sp"
+            android:textColor="#ffffff"
+            android:textStyle="bold"
+            android:background="@drawable/btn_call_green"
+            android:layout_marginEnd="4dp" />
+
+        <Button
+            android:id="@+id/twBtnValidate"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:text="⚡ Request Validation"
+            android:textSize="12sp"
+            android:textColor="#ffffff"
+            android:textStyle="bold"
+            android:background="@drawable/btn_validate_purple" />
+    </LinearLayout>
+
+</LinearLayout>

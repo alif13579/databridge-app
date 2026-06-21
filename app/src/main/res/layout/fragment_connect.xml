@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/connect_bg"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="24dp">
+
+    <!-- 1️⃣ Disconnected Screen -->
+    <LinearLayout
+        android:id="@+id/layoutDisconnected"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="visible">
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Disconnected"
+            android:textColor="@color/connect_error"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="30dp" />
+
+        <!-- QR Section -->
+        <LinearLayout
+            android:id="@+id/layoutQrSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="visible">
+
+            <Button
+                android:id="@+id/btnScanQR"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📷 Scan QR Code"
+                android:backgroundTint="@color/connect_accent"
+                android:textColor="@color/connect_on_accent"
+                android:textSize="18sp"
+                android:padding="12dp"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/tvManualToggle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="OR enter UID manually"
+                android:textColor="@color/connect_accent"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:padding="8dp"
+                android:background="?attr/selectableItemBackground" />
+        </LinearLayout>
+
+        <!-- Manual Section -->
+        <LinearLayout
+            android:id="@+id/layoutManualSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone">
+
+            <EditText
+                android:id="@+id/etUidInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Example: DB-251024-X7K9M2"
+                android:textColor="@color/connect_text_primary"
+                android:textColorHint="@color/connect_hint"
+                android:background="@color/connect_card"
+                android:padding="15dp"
+                android:layout_marginBottom="16dp"
+                android:inputType="textCapCharacters" />
+
+            <Button
+                android:id="@+id/btnConnectManual"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Connect"
+                android:backgroundTint="@color/connect_success"
+                android:textColor="@color/connect_on_success"
+                android:textSize="18sp"
+                android:padding="12dp"
+                android:layout_marginBottom="16dp" />
+
+            <TextView
+                android:id="@+id/tvQrToggle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="OR scan QR code instead"
+                android:textColor="@color/connect_accent"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:padding="8dp"
+                android:background="?attr/selectableItemBackground" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            style="?android:attr/progressBarStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:visibility="gone"
+            android:indeterminateTint="@color/connect_accent" />
+    </LinearLayout>
+
+    <!-- 2️⃣ Connected Screen -->
+    <LinearLayout
+        android:id="@+id/layoutConnected"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✅ Connected"
+            android:textColor="@color/connect_success"
+            android:textSize="32sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/tvConnectedName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="---"
+            android:textColor="@color/connect_accent"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:id="@+id/tvConnectedUid"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="UID: ---"
+            android:textColor="@color/connect_text_secondary"
+            android:textSize="14sp"
+            android:layout_marginBottom="40dp" />
+
+        <Button
+            android:id="@+id/btnDisconnect"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🔌 Disconnect"
+            android:backgroundTint="@color/connect_error"
+            android:textColor="@color/connect_on_error"
+            android:textSize="18sp"
+            android:padding="12dp" />
+    </LinearLayout>
+</LinearLayout>

@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/llCard"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="16dp"
+    android:layout_marginEnd="16dp"
+    android:layout_marginBottom="8dp"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="4dp"
+    app:cardBackgroundColor="@color/theme_bg_card">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+        <!-- 🔹 মেইন কন্টেন্ট রো -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- বাম: ডেটা -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvData"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="+880 1712 345678"
+                    android:textColor="@color/theme_text_primary"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:maxLines="20"
+                    android:inputType="textMultiLine"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:id="@+id/tvType"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Phone"
+                    android:textColor="@color/theme_accent"
+                    android:textSize="12sp"
+                    android:layout_marginTop="4dp" />
+
+            </LinearLayout>
+
+            <!-- ডান: অ্যাকশন বাটন + এক্সপ্যান্ড আয়কন -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <!-- Copy -->
+                <ImageView android:id="@+id/ivCopy" android:layout_width="32dp" android:layout_height="32dp"
+                    android:src="@android:drawable/ic_menu_save" app:tint="@color/theme_text_secondary" android:padding="6dp"
+                    android:layout_marginEnd="4dp" android:background="?attr/selectableItemBackgroundBorderless"/>
+
+                <!-- Dial -->
+                <ImageView android:id="@+id/ivDial" android:layout_width="32dp" android:layout_height="32dp"
+                    android:src="@android:drawable/ic_menu_call" app:tint="@color/theme_green" android:padding="6dp"
+                    android:layout_marginEnd="4dp" android:background="?attr/selectableItemBackgroundBorderless"
+                    android:visibility="gone"/>
+
+                <!-- Remark -->
+                <ImageView android:id="@+id/ivRemark" android:layout_width="32dp" android:layout_height="32dp"
+                    android:src="@android:drawable/ic_menu_edit" app:tint="@color/theme_text_secondary" android:padding="6dp"
+                    android:layout_marginEnd="4dp" android:background="?attr/selectableItemBackgroundBorderless"/>
+
+                <!-- Delete -->
+                <ImageView android:id="@+id/ivDelete" android:layout_width="32dp" android:layout_height="32dp"
+                    android:src="@android:drawable/ic_menu_delete" app:tint="@color/theme_red" android:padding="6dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Timestamp row with expand aligned to right (under delete) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="6dp">
+
+            <TextView
+                android:id="@+id/tvMeta"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Thu 8:34 PM"
+                android:textColor="@color/theme_text_secondary"
+                android:textSize="12sp" />
+
+            <ImageView
+                android:id="@+id/ivExpand"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/arrow_down_float"
+                app:tint="@color/theme_accent"
+                android:padding="6dp"
+                android:background="?attr/selectableItemBackgroundBorderless" />
+        </LinearLayout>
+
+        <!-- 🔹 কলাপসিবল অ্যাকশন লগ সেকশন (ডিফল্ট: GONE) -->
+        <LinearLayout
+            android:id="@+id/layoutActionLog"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@color/theme_bg_inner"
+            android:padding="12dp"
+            android:layout_marginTop="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Action History"
+                android:textColor="@color/theme_accent"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp"/>
+
+            <TextView
+                android:id="@+id/tvActionLog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="No actions yet"
+                android:textColor="@color/theme_text_primary"
+                android:textSize="12sp"
+                android:lineSpacingExtra="4dp"/>
+
+
+            <!-- ✅ "View all actions" বাটন (layoutActionLog-এর নিচে অ্যাড করুন) -->
+            <TextView
+                android:id="@+id/btnShowAllActions"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:padding="8dp"
+                android:text="View all actions"
+                android:textColor="@color/theme_accent"
+                android:textSize="12sp"
+                android:visibility="gone"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackgroundBorderless" />
+        </LinearLayout>
+
+    </LinearLayout>
+
+    </FrameLayout>
+</androidx.cardview.widget.CardView>

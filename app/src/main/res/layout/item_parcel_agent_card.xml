@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_parcel_card"
+    android:layout_marginBottom="8dp"
+    android:padding="12dp"
+    android:paddingStart="18dp"
+    android:paddingEnd="14dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tvAgtCustomer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Rahim Mia"
+                    android:textColor="@color/theme_text_primary"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvAgtValidationBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⚡ Validation Requested"
+                    android:textSize="10sp"
+                    android:textColor="@color/theme_purple"
+                    android:background="@drawable/bg_validation_badge"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:layout_marginStart="6dp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvAgtMeta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DB-2201 · 01885580909"
+                android:textSize="11sp"
+                android:textColor="@color/theme_accent"
+                android:textStyle="bold"
+                android:layout_marginTop="2dp" />
+
+            <TextView
+                android:id="@+id/tvAgtAddress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📍 House 12, Mograpara Bazar"
+                android:textSize="11sp"
+                android:textColor="@color/theme_text_secondary"
+                android:layout_marginTop="2dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="end"
+            android:layout_marginStart="10dp">
+
+            <TextView
+                android:id="@+id/tvAgtCod"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="৳850"
+                android:textSize="14sp"
+                android:textColor="@color/theme_accent"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvAgtStatusBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="✓ Confirmed"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvAgtRemarks"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="💬 Customer want to receive today"
+        android:textSize="11sp"
+        android:textColor="@color/theme_text_secondary"
+        android:background="@color/theme_bg_inner"
+        android:padding="6dp"
+        android:paddingStart="8dp"
+        android:layout_marginTop="6dp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/tvAgtValidationNote"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⚡ Worker: Address খুঁজে পাচ্ছি না"
+        android:textSize="11sp"
+        android:textColor="@color/theme_purple"
+        android:background="@color/theme_bg_validation"
+        android:padding="6dp"
+        android:paddingStart="8dp"
+        android:layout_marginTop="4dp"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/layoutAgtActions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="10dp"
+        android:layout_marginTop="10dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/btnAgtCall"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📞 Call"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_inverse"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:background="@drawable/btn_call_green" />
+
+        <TextView
+            android:id="@+id/btnAgtSetRemarks"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✏️ Set Remarks"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_inverse"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/btn_action_cyan" />
+
+        <TextView
+            android:id="@+id/btnAgtValidate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⚡ Validate"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_inverse"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:background="@drawable/bg_action_button_purple"
+            android:layout_marginStart="8dp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+</LinearLayout>

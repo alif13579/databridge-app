@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Light Theme -->
+    <color name="theme_bg_app">#f0f4f8</color>
+    <color name="theme_bg_header">#ffffff</color>
+    <color name="theme_bg_card">#ffffff</color>
+    <color name="theme_bg_inner">#f1f5f9</color>
+    <color name="theme_bg_green">#d1fae5</color>
+    <color name="theme_bg_red">#fee2e2</color>
+    <color name="theme_bg_yellow">#fef3c7</color>
+    <color name="theme_bg_validation">#ede9fe</color>
+    <color name="theme_bg_highlight">#cffafe</color>
+
+    <!-- Text Colors -->
+    <color name="theme_text_primary">#0f172a</color>
+    <color name="theme_text_secondary">#64748b</color>
+    <color name="theme_text_muted">#94a3b8</color>
+    <color name="theme_text_inverse">#ffffff</color>
+
+    <!-- Accent Colors -->
+    <color name="theme_accent">#0099b8</color>
+    <color name="theme_accent_dim">#0088a8</color>
+    <color name="theme_purple">#6d28d9</color>
+    <color name="theme_purple_light">#a78bfa</color>
+
+    <!-- Status Colors -->
+    <color name="theme_green">#059669</color>
+    <color name="theme_red">#dc2626</color>
+    <color name="theme_yellow">#d97706</color>
+
+    <!-- Borders -->
+    <color name="theme_border">#e2e8f0</color>
+    <color name="theme_divider">#e2e8f0</color>
+    <color name="theme_validation_border">#7c3aed44</color>
+    <color name="theme_scroll_thumb">#cbd5e1</color>
+
+    <!-- Buttons -->
+    <color name="theme_btn_accent_bg">#0099b8</color>
+    <color name="theme_btn_accent_text">#ffffff</color>
+
+    <!-- Legacy / backward compat -->
+    <color name="theme_bg_card_inner">#f1f5f9</color>
+    <color name="theme_text_accent">#0099b8</color>
+
+    <!-- CC Remark Block -->
+    <color name="theme_bg_cc_remark">#e0f2fe</color>
+    <color name="theme_bg_cc_remark_dark">#0c2233</color>
+
+    <!-- Orange status (for Hold, etc) -->
+    <color name="theme_orange">#d97706</color>
+    <color name="theme_bg_orange">#fef3c7</color>
+
+    <!-- Accent BG (for delivery_req, etc) -->
+    <color name="theme_bg_accent">#cffafe</color>
+
+    <!-- Button Backgrounds -->
+    <color name="btn_bg_teal">#0099b8</color>
+    <color name="btn_bg_purple">#6d28d9</color>
+    <color name="btn_bg_green">#059669</color>
+    <color name="btn_bg_orange">#d97706</color>
+
+    <!-- Log / History popup -->
+    <color name="theme_bg_timeline_dot">#00d4ff</color>
+    <color name="theme_bg_timeline_line">#2a2f42</color>
+    <color name="theme_bg_history_popup">#ffffff</color>
+    <color name="theme_bg_remark_opt">#f1f5f9</color>
+    <color name="theme_bg_remark_opt_selected">#cffafe</color>
+    <color name="theme_border_remark_opt">#e2e8f0</color>
+    <color name="theme_border_remark_opt_selected">#00d4ff</color>
+    <color name="theme_text_remark_opt">#334155</color>
+    <color name="theme_text_remark_opt_selected">#0099b8</color>
+    <color name="theme_bg_status_preview">#f8fafc</color>
+    <color name="theme_border_status_preview">#e2e8f0</color>
+    <color name="theme_overlay_bg">#99000000</color>
+
+    <!-- Icon accents -->
+    <color name="accent_green">#22C55E</color>
+    <color name="accent_yellow">#EAB308</color>
+    <color name="accent_red">#EF4444</color>
+
+    <!-- Connect screen (light) -->
+    <color name="connect_bg">#f5f8fb</color>
+    <color name="connect_card">#ffffff</color>
+    <color name="connect_text_primary">#0f172a</color>
+    <color name="connect_text_secondary">#64748b</color>
+    <color name="connect_hint">#94a3b8</color>
+    <color name="connect_accent">#00b2d6</color>
+    <color name="connect_on_accent">#ffffff</color>
+    <color name="connect_success">#16a34a</color>
+    <color name="connect_on_success">#ffffff</color>
+    <color name="connect_error">#dc2626</color>
+    <color name="connect_on_error">#ffffff</color>
+</resources>

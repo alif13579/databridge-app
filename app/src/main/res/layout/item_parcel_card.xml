@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_parcel_card"
+    android:layout_marginBottom="10dp"
+    android:padding="14dp"
+    android:paddingStart="18dp"
+    android:paddingEnd="14dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tvParcelCustomer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Rahim Mia"
+                    android:textColor="@color/theme_text_primary"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:includeFontPadding="false" />
+
+                <TextView
+                    android:id="@+id/tvParcelValidationBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⚡ Validation Requested"
+                    android:textSize="10sp"
+                    android:textColor="@color/theme_purple"
+                    android:background="@drawable/bg_validation_badge"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:layout_marginStart="6dp"
+                    android:includeFontPadding="false"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvParcelMeta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DB-2201 · 01885580909 · 9:15 AM"
+                android:textSize="11sp"
+                android:textColor="@color/theme_accent"
+                android:textStyle="bold"
+                android:layout_marginTop="2dp"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:id="@+id/tvParcelAddress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📍 House 12, Mograpara Bazar"
+                android:textSize="11sp"
+                android:textColor="@color/theme_text_secondary"
+                android:layout_marginTop="2dp"
+                android:includeFontPadding="false" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="end"
+            android:layout_marginStart="10dp">
+
+            <TextView
+                android:id="@+id/tvParcelCod"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="৳850"
+                android:textSize="14sp"
+                android:textColor="@color/theme_accent"
+                android:textStyle="bold"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:id="@+id/tvParcelStatusBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="✓ Confirmed"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:layout_marginTop="4dp"
+                android:includeFontPadding="false" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Agent Remarks -->
+    <TextView
+        android:id="@+id/tvParcelRemarks"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="💬 Customer want to receive today"
+        android:textSize="11sp"
+        android:textColor="@color/theme_text_secondary"
+        android:background="@color/theme_bg_inner"
+        android:padding="6dp"
+        android:paddingStart="8dp"
+        android:layout_marginTop="6dp"
+        android:includeFontPadding="false"
+        android:visibility="gone" />
+
+    <!-- Validation Note -->
+    <TextView
+        android:id="@+id/tvParcelValidationNote"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⚡ Address খুঁজে পাচ্ছি না"
+        android:textSize="11sp"
+        android:textColor="@color/theme_purple"
+        android:background="@color/theme_bg_validation"
+        android:padding="6dp"
+        android:paddingStart="8dp"
+        android:layout_marginTop="4dp"
+        android:includeFontPadding="false"
+        android:visibility="gone" />
+
+    <!-- CC Remark Block (highlighted) -->
+    <LinearLayout
+        android:id="@+id/layoutCcRemarkBlock"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/theme_bg_cc_remark"
+        android:padding="8dp"
+        android:paddingStart="10dp"
+        android:layout_marginTop="6dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvCcRemarkLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CC · Alif Mia · 10:15 AM"
+            android:textSize="9sp"
+            android:textColor="@color/theme_accent"
+            android:textStyle="bold"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/tvCcRemarkText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="নতুন address: House 5, Road 3, Sonargaon"
+            android:textSize="12sp"
+            android:textColor="@color/theme_accent"
+            android:layout_marginTop="1dp"
+            android:includeFontPadding="false" />
+    </LinearLayout>
+
+    <!-- Action Buttons -->
+    <LinearLayout
+        android:id="@+id/layoutParcelActions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="10dp"
+        android:layout_marginTop="10dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/btnParcelCall"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:text="📞 Call"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_inverse"
+            android:gravity="center"
+            android:background="@drawable/btn_call_green"
+            android:layout_marginEnd="4dp"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/btnParcelSetRemarks"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:text="✏️ Remarks"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_inverse"
+            android:gravity="center"
+            android:background="@drawable/btn_action_cyan"
+            android:layout_marginEnd="4dp"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/btnParcelViewLog"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
+            android:text="📋 Log"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_inverse"
+            android:gravity="center"
+            android:background="@drawable/bg_action_button_purple"
+            android:includeFontPadding="false" />
+    </LinearLayout>
+
+</LinearLayout>

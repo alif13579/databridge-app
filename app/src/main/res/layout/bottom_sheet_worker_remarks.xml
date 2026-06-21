@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/theme_bg_card"
+    android:padding="20dp"
+    android:paddingBottom="32dp">
+
+    <View
+        android:layout_width="36dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center"
+        android:background="@color/theme_border"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:id="@+id/twWorkerRemarkTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Set Remarks"
+        android:textSize="16sp"
+        android:textColor="@color/theme_text_primary"
+        android:textStyle="bold"
+        android:layout_marginBottom="2dp"
+        android:includeFontPadding="false" />
+
+    <TextView
+        android:id="@+id/twWorkerRemarkSub"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="DB-2202 · Fatema Begum · 01712345678"
+        android:textSize="12sp"
+        android:textColor="@color/theme_text_secondary"
+        android:layout_marginBottom="16dp"
+        android:includeFontPadding="false" />
+
+    <LinearLayout
+        android:id="@+id/layoutWorkerRemarkOptions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:layout_marginBottom="14dp" />
+
+    <!-- Status Preview - simplified, no letterSpacing -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@color/theme_bg_status_preview"
+        android:padding="10dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:layout_marginBottom="14dp"
+        android:baselineAligned="false">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Auto Status →"
+            android:textSize="10sp"
+            android:textColor="@color/theme_text_secondary"
+            android:textStyle="bold"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/twWorkerRemarkStatusPreview"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Select an option"
+            android:textSize="12sp"
+            android:textColor="@color/theme_text_muted"
+            android:textStyle="bold"
+            android:layout_gravity="end"
+            android:includeFontPadding="false" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/btnWorkerRemarkCancel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Cancel"
+            android:textSize="13sp"
+            android:textColor="@color/theme_text_secondary"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:padding="12dp"
+            android:background="@color/theme_bg_inner"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/btnWorkerRemarkSubmit"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="2"
+            android:text="Submit"
+            android:textSize="13sp"
+            android:textColor="@color/theme_text_inverse"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:padding="12dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/btn_action_cyan"
+            android:includeFontPadding="false" />
+    </LinearLayout>
+
+</LinearLayout>

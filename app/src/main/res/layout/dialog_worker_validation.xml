@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#0d1627"
+    android:padding="24dp"
+    android:elevation="16dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⚡ Validation Request"
+        android:textSize="16sp"
+        android:textColor="#e2e8f0"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/twValModalSubtitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Customer · DB-2201"
+        android:textSize="12sp"
+        android:textColor="#64748b"
+        android:layout_marginBottom="16dp" />
+
+    <EditText
+        android:id="@+id/twValModalNote"
+        android:layout_width="match_parent"
+        android:layout_height="80dp"
+        android:background="#0a1220"
+        android:padding="12dp"
+        android:textColor="#e2e8f0"
+        android:textColorHint="#64748b"
+        android:textSize="13sp"
+        android:hint="কারণ লিখুন... (যেমন: Address খুঁজে পাচ্ছি না)"
+        android:gravity="top"
+        android:inputType="textMultiLine" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginTop="12dp">
+
+        <Button
+            android:id="@+id/twValBtnCancel"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="Cancel"
+            android:textSize="13sp"
+            android:textColor="#64748b"
+            android:textStyle="bold"
+            android:background="#0a1220"
+            android:layout_marginEnd="5dp" />
+
+        <Button
+            android:id="@+id/twValBtnSubmit"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="2"
+            android:text="Send Request"
+            android:textSize="13sp"
+            android:textColor="#ffffff"
+            android:textStyle="bold"
+            android:background="@drawable/btn_scan_camera" />
+    </LinearLayout>
+
+</LinearLayout>

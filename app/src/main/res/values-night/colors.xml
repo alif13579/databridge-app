@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark Mode Theme Colors -->
+    <color name="theme_bg_app">#1a1a2e</color>
+    <color name="theme_bg_header">#12122a</color>
+    <color name="theme_bg_card">#16213e</color>
+    <color name="theme_bg_inner">#0a1220</color>
+    <color name="theme_bg_green">#052e16</color>
+    <color name="theme_bg_red">#3a1a1a</color>
+    <color name="theme_bg_yellow">#2d1f00</color>
+    <color name="theme_bg_validation">#1e1040</color>
+    <color name="theme_bg_highlight">#0a2a3a</color>
+
+    <!-- Text Colors -->
+    <color name="theme_text_primary">#ffffff</color>
+    <color name="theme_text_secondary">#64748b</color>
+    <color name="theme_text_muted">#94a3b8</color>
+    <color name="theme_text_inverse">#000000</color>
+
+    <!-- Accent Colors -->
+    <color name="theme_accent">#00d4ff</color>
+    <color name="theme_accent_dim">#00b8d4</color>
+    <color name="theme_purple">#7c3aed</color>
+    <color name="theme_purple_light">#a78bfa</color>
+
+    <!-- Status Colors -->
+    <color name="theme_green">#10b981</color>
+    <color name="theme_red">#ef4444</color>
+    <color name="theme_yellow">#f59e0b</color>
+
+    <!-- Borders -->
+    <color name="theme_border">#3A3A6A</color>
+    <color name="theme_divider">#0d1533</color>
+    <color name="theme_validation_border">#7c3aed44</color>
+    <color name="theme_scroll_thumb">#3A3A6A</color>
+
+    <!-- Buttons -->
+    <color name="theme_btn_accent_bg">#00d4ff</color>
+    <color name="theme_btn_accent_text">#000000</color>
+
+    <!-- Legacy / backward compat -->
+    <color name="theme_bg_card_inner">#1a1a2e</color>
+    <color name="theme_text_accent">#00d4ff</color>
+
+    <!-- CC Remark Block -->
+    <color name="theme_bg_cc_remark">#0c2233</color>
+    <color name="theme_bg_cc_remark_dark">#0c2233</color>
+
+    <!-- Orange status -->
+    <color name="theme_orange">#fb923c</color>
+    <color name="theme_bg_orange">#2d1f00</color>
+
+    <!-- Accent BG -->
+    <color name="theme_bg_accent">#0a2a3a</color>
+
+    <!-- Button Backgrounds -->
+    <color name="btn_bg_teal">#00b8d4</color>
+    <color name="btn_bg_purple">#7c3aed</color>
+    <color name="btn_bg_green">#10b981</color>
+    <color name="btn_bg_orange">#fb923c</color>
+
+    <!-- Log / History popup -->
+    <color name="theme_bg_timeline_dot">#00d4ff</color>
+    <color name="theme_bg_timeline_line">#2a2f42</color>
+    <color name="theme_bg_history_popup">#16213e</color>
+    <color name="theme_bg_remark_opt">#0a1220</color>
+    <color name="theme_bg_remark_opt_selected">#0a2a3a</color>
+    <color name="theme_border_remark_opt">#2a2f42</color>
+    <color name="theme_border_remark_opt_selected">#00d4ff</color>
+    <color name="theme_text_remark_opt">#94a3b8</color>
+    <color name="theme_text_remark_opt_selected">#00d4ff</color>
+    <color name="theme_bg_status_preview">#0a1220</color>
+    <color name="theme_border_status_preview">#2a2f42</color>
+    <color name="theme_overlay_bg">#cc000000</color>
+    
+    <!-- Icon accents (night) -->
+    <color name="accent_green">#34D399</color>
+    <color name="accent_yellow">#FACC15</color>
+    <color name="accent_red">#F87171</color>
+
+    <!-- Connect screen (night) -->
+    <color name="connect_bg">#0f172a</color>
+    <color name="connect_card">#16213e</color>
+    <color name="connect_text_primary">#ffffff</color>
+    <color name="connect_text_secondary">#94a3b8</color>
+    <color name="connect_hint">#64748b</color>
+    <color name="connect_accent">#00d4ff</color>
+    <color name="connect_on_accent">#000000</color>
+    <color name="connect_success">#10b981</color>
+    <color name="connect_on_success">#000000</color>
+    <color name="connect_error">#ef4444</color>
+    <color name="connect_on_error">#000000</color>
+</resources>

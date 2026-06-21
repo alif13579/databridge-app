@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/theme_bg_app">
+
+    <!-- Search bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@color/theme_bg_card"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@android:drawable/ic_menu_search"
+            android:tint="@color/theme_text_primary"
+            android:layout_marginEnd="8dp" />
+
+        <EditText
+            android:id="@+id/etUserSearch"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Search by name, email or branch..."
+            android:textColor="@color/theme_text_primary"
+            android:textColorHint="@color/theme_text_secondary"
+            android:textSize="13sp"
+            android:background="@android:color/transparent"
+            android:inputType="text"
+            android:imeOptions="actionSearch"
+            android:singleLine="true" />
+
+        <ImageView
+            android:id="@+id/ivAddUser"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@android:drawable/ic_input_add"
+            android:padding="6dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Add User"
+            app:tint="@color/theme_text_accent" />
+
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/theme_text_secondary" />
+
+    <!-- Inline filter dropdowns -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:background="@color/theme_bg_card"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginEnd="8dp">
+                <Spinner
+                    android:id="@+id/spFilterStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="12dp"
+                    android:background="@drawable/bg_role_badge"
+                    android:popupTheme="@style/ThemeOverlay.AppCompat.Dark"
+                    android:spinnerMode="dropdown" />
+                <ImageButton
+                    android:id="@+id/btnClearStatus"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:background="@android:color/transparent"
+                    android:src="@android:drawable/ic_menu_close_clear_cancel"
+                    android:tint="@color/theme_text_accent"
+                    android:visibility="gone"
+                    android:padding="0dp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginEnd="8dp">
+                <Spinner
+                    android:id="@+id/spFilterRole"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="12dp"
+                    android:background="@drawable/bg_role_badge"
+                    android:popupTheme="@style/ThemeOverlay.AppCompat.Dark"
+                    android:spinnerMode="dropdown" />
+                <ImageButton
+                    android:id="@+id/btnClearRole"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:background="@android:color/transparent"
+                    android:src="@android:drawable/ic_menu_close_clear_cancel"
+                    android:tint="@color/theme_text_accent"
+                    android:visibility="gone"
+                    android:padding="0dp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginEnd="8dp">
+                <Spinner
+                    android:id="@+id/spFilterDesignation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="12dp"
+                    android:background="@drawable/bg_role_badge"
+                    android:popupTheme="@style/ThemeOverlay.AppCompat.Dark"
+                    android:spinnerMode="dropdown" />
+                <ImageButton
+                    android:id="@+id/btnClearDesignation"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:background="@android:color/transparent"
+                    android:src="@android:drawable/ic_menu_close_clear_cancel"
+                    android:tint="@color/theme_text_accent"
+                    android:visibility="gone"
+                    android:padding="0dp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <Spinner
+                    android:id="@+id/spFilterBranch"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="12dp"
+                    android:background="@drawable/bg_role_badge"
+                    android:popupTheme="@style/ThemeOverlay.AppCompat.Dark"
+                    android:spinnerMode="dropdown" />
+                <ImageButton
+                    android:id="@+id/btnClearBranch"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:background="@android:color/transparent"
+                    android:src="@android:drawable/ic_menu_close_clear_cancel"
+                    android:tint="@color/theme_text_accent"
+                    android:visibility="gone"
+                    android:padding="0dp" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/theme_text_secondary" />
+
+    <!-- Content area -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <ProgressBar
+            android:id="@+id/pbUsersLoading"
+            style="?android:attr/progressBarStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:indeterminateTint="@color/theme_text_accent"
+            android:visibility="visible" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvUsers"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingTop="8dp"
+            android:paddingBottom="16dp"
+            android:scrollbars="vertical"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvUsersEmpty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="No team members found."
+            android:textColor="@color/theme_text_secondary"
+            android:textSize="14sp"
+            android:textAlignment="center"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+</LinearLayout>

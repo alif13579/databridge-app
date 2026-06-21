@@ -1,0 +1,198 @@
+package com.cloudx.databridge
+
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageButton
+import android.widget.ProgressBar
+import android.widget.TextView
+import android.widget.Toast
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipGroup
+import com.google.android.material.datepicker.MaterialDatePicker
+import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
+
+class SpaceFragment : Fragment() {
+
+    private enum class ValidityFilter { ALL, VALID, INVALID }
+
+    private lateinit var rvSpace: RecyclerView
+    private lateinit var pbSpace: ProgressBar
+    private lateinit var tvEmpty: TextView
+    private lateinit var tvSelectedDate: TextView
+    private lateinit var btnDatePrev: ImageButton
+    private lateinit var btnDateNext: ImageButton
+    private lateinit var chipGroup: ChipGroup
+    private lateinit var adapter: SpaceAdapter
+
+    private var allItems = emptyList<SpaceConsignmentItem>()
+    private var validityFilter = ValidityFilter.ALL
+    private var validRemarks = emptySet<String>()
+    private var selectedDayStartMs = SpaceRepository.startOfLocalDay()
+
+    private val dateLabelFormat = SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault())
+
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View = inflater.inflate(R.layout.fragment_space, container, false)
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        rvSpace = view.findViewById(R.id.rvSpace)
+        pbSpace = view.findViewById(R.id.pbSpace)
+        tvEmpty = view.findViewById(R.id.tvSpaceEmpty)
+        tvSelectedDate = view.findViewById(R.id.tvSpaceSelectedDate)
+        btnDatePrev = view.findViewById(R.id.btnSpaceDatePrev)
+        btnDateNext = view.findViewById(R.id.btnSpaceDateNext)
+        chipGroup = view.findViewById(R.id.chipGroupSpaceFilter)
+
+        adapter = SpaceAdapter()
+        rvSpace.layoutManager = LinearLayoutManager(requireContext())
+        rvSpace.adapter = adapter
+
+        savedInstanceState?.getLong(KEY_SELECTED_DAY)?.let { selectedDayStartMs = it }
+        updateDateLabel()
+
+        tvSelectedDate.setOnClickListener { showDatePicker() }
+        btnDatePrev.setOnClickListener { shiftSelectedDay(-1) }
+        btnDateNext.setOnClickListener { shiftSelectedDay(1) }
+
+        chipGroup.setOnCheckedStateChangeListener { _, checkedIds ->
+            validityFilter = when (checkedIds.firstOrNull()) {
+                R.id.chipSpaceValid -> ValidityFilter.VALID
+                R.id.chipSpaceInvalid -> ValidityFilter.INVALID
+                else -> ValidityFilter.ALL
+            }
+            applyFilter()
+        }
+
+        view.findViewById<Chip>(R.id.chipSpaceAll).isChecked = true
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putLong(KEY_SELECTED_DAY, selectedDayStartMs)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        reload()
+    }
+
+    private fun showDatePicker() {
+        val picker = MaterialDatePicker.Builder.datePicker()
+            .setTitleText("Select date")
+            .setSelection(localDayToUtcPickerMs(selectedDayStartMs))
+            .build()
+        picker.addOnPositiveButtonClickListener { utcSelection ->
+            selectedDayStartMs = utcPickerMsToLocalDayStart(utcSelection)
+            updateDateLabel()
+            applyFilter()
+        }
+        picker.show(parentFragmentManager, "space_date_picker")
+    }
+
+    private fun shiftSelectedDay(deltaDays: Int) {
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = selectedDayStartMs
+            add(Calendar.DAY_OF_YEAR, deltaDays)
+        }
+        selectedDayStartMs = SpaceRepository.startOfLocalDay(cal.timeInMillis)
+        updateDateLabel()
+        applyFilter()
+    }
+
+    private fun updateDateLabel() {
+        val todayStart = SpaceRepository.startOfLocalDay()
+        tvSelectedDate.text = when (selectedDayStartMs) {
+            todayStart -> "Today · ${dateLabelFormat.format(selectedDayStartMs)}"
+            else -> dateLabelFormat.format(selectedDayStartMs)
+        }
+        btnDateNext.isEnabled = selectedDayStartMs < todayStart
+        btnDateNext.alpha = if (btnDateNext.isEnabled) 1f else 0.35f
+    }
+
+    private fun reload() {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid.isNullOrBlank()) {
+            allItems = emptyList()
+            applyFilter()
+            tvEmpty.text = "Login required"
+            tvEmpty.visibility = View.VISIBLE
+            return
+        }
+
+        pbSpace.visibility = View.VISIBLE
+        tvEmpty.visibility = View.GONE
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                validRemarks = SpaceRepository.loadValidRemarks()
+                allItems = SpaceRepository.loadConsignments(uid, validRemarks, selectedDayStartMs)
+                applyFilter()
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), "Load failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                allItems = emptyList()
+                applyFilter()
+            } finally {
+                pbSpace.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun applyFilter() {
+        val filtered = when (validityFilter) {
+            ValidityFilter.ALL -> allItems
+            ValidityFilter.VALID -> allItems.filter { it.isValid }
+            ValidityFilter.INVALID -> allItems.filter { !it.isValid }
+        }
+        adapter.submitList(filtered)
+        tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+        tvEmpty.text = when {
+            filtered.isNotEmpty() -> tvEmpty.text
+            allItems.isEmpty() -> "No runs for ${dateLabelFormat.format(selectedDayStartMs)}"
+            validityFilter == ValidityFilter.VALID -> "No valid consignments for this date"
+            validityFilter == ValidityFilter.INVALID -> "No invalid consignments for this date"
+            else -> "No consignments for this date"
+        }
+    }
+
+    companion object {
+        private const val KEY_SELECTED_DAY = "space_selected_day"
+
+        /** MaterialDatePicker expects UTC midnight for the local calendar day. */
+        private fun localDayToUtcPickerMs(localDayStartMs: Long): Long {
+            val local = Calendar.getInstance().apply { timeInMillis = localDayStartMs }
+            val utc = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+            utc.set(
+                local.get(Calendar.YEAR),
+                local.get(Calendar.MONTH),
+                local.get(Calendar.DAY_OF_MONTH),
+                0, 0, 0
+            )
+            utc.set(Calendar.MILLISECOND, 0)
+            return utc.timeInMillis
+        }
+
+        private fun utcPickerMsToLocalDayStart(utcPickerMs: Long): Long {
+            val utc = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply {
+                timeInMillis = utcPickerMs
+            }
+            val local = Calendar.getInstance()
+            local.set(utc.get(Calendar.YEAR), utc.get(Calendar.MONTH), utc.get(Calendar.DAY_OF_MONTH), 0, 0, 0)
+            local.set(Calendar.MILLISECOND, 0)
+            return local.timeInMillis
+        }
+    }
+}

@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/theme_bg_card"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="✏️ Set Remarks"
+        android:textSize="16sp"
+        android:textColor="@color/theme_text_primary"
+        android:textStyle="bold"
+        android:layout_marginBottom="2dp" />
+
+    <TextView
+        android:id="@+id/tvRemarksTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Rahim Mia · DB-2201 · 01885580909"
+        android:textSize="12sp"
+        android:textColor="@color/theme_text_secondary"
+        android:layout_marginBottom="16dp" />
+
+    <!-- Status selector -->
+    <LinearLayout
+        android:id="@+id/layoutRemarkStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:weightSum="3"
+        android:layout_marginBottom="14dp">
+
+        <TextView
+            android:id="@+id/btnRemarkStatusConfirmed"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="✓ Confirmed"
+            android:textSize="11sp"
+            android:textColor="@color/theme_green"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:padding="8dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:layout_marginEnd="4dp" />
+
+        <TextView
+            android:id="@+id/btnRemarkStatusPending"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="◌ Pending"
+            android:textSize="11sp"
+            android:textColor="@color/theme_yellow"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:padding="8dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:layout_marginEnd="4dp" />
+
+        <TextView
+            android:id="@+id/btnRemarkStatusRejected"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="✗ Rejected"
+            android:textSize="11sp"
+            android:textColor="@color/theme_red"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:padding="8dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp" />
+    </LinearLayout>
+
+    <!-- Quick remark templates -->
+    <LinearLayout
+        android:id="@+id/layoutQuickTemplates"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        
+        android:layout_marginBottom="10dp">
+
+        <TextView
+            android:id="@+id/btnQuickCustomerWants"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Customer want to receive"
+            android:textSize="10sp"
+            android:textColor="@color/theme_text_secondary"
+            android:padding="4dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:layout_marginEnd="6dp"
+            android:layout_marginBottom="6dp"
+            android:background="@color/theme_bg_inner" />
+
+        <TextView
+            android:id="@+id/btnQuickNotAvailable"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Not available, call later"
+            android:textSize="10sp"
+            android:textColor="@color/theme_text_secondary"
+            android:padding="4dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:layout_marginEnd="6dp"
+            android:layout_marginBottom="6dp"
+            android:background="@color/theme_bg_inner" />
+
+        <TextView
+            android:id="@+id/btnQuickAddressNotFound"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Address not found"
+            android:textSize="10sp"
+            android:textColor="@color/theme_text_secondary"
+            android:padding="4dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:layout_marginEnd="6dp"
+            android:layout_marginBottom="6dp"
+            android:background="@color/theme_bg_inner" />
+
+        <TextView
+            android:id="@+id/btnQuickRefused"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Refused delivery"
+            android:textSize="10sp"
+            android:textColor="@color/theme_text_secondary"
+            android:padding="4dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:layout_marginBottom="6dp"
+            android:background="@color/theme_bg_inner" />
+    </LinearLayout>
+
+    <EditText
+        android:id="@+id/etRemarksText"
+        android:layout_width="match_parent"
+        android:layout_height="70dp"
+        android:background="@color/theme_bg_inner"
+        android:padding="12dp"
+        android:textColor="@color/theme_text_primary"
+        android:textColorHint="#64748b"
+        android:textSize="13sp"
+        android:hint="Remarks লিখুন..."
+        android:gravity="start"
+        android:inputType="textMultiLine" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="12dp">
+
+        <TextView
+            android:id="@+id/btnRemarksCancel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Cancel"
+            android:textSize="13sp"
+            android:textColor="@color/theme_text_secondary"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:padding="12dp"
+            android:background="@color/theme_bg_inner" />
+
+        <TextView
+            android:id="@+id/btnRemarksSave"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="2"
+            android:text="Save &amp; Notify Worker"
+            android:textSize="13sp"
+            android:textColor="@color/theme_text_inverse"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:padding="12dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/btn_action_cyan" />
+    </LinearLayout>
+
+</LinearLayout>

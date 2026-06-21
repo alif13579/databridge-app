@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_space"
+        android:icon="@android:drawable/ic_menu_compass"
+        android:title="Space"
+        android:visible="false" />
+    <item
+        android:id="@+id/nav_call_center"
+        android:icon="@android:drawable/ic_menu_call"
+        android:title="Call Center"
+        android:visible="false" />
+    <item
+        android:id="@+id/nav_connect"
+        android:icon="@drawable/ic_link_connect"
+        android:title="Connect" />
+    <item
+        android:id="@+id/nav_history"
+        android:icon="@android:drawable/ic_menu_recent_history"
+        android:title="History" />
+</menu>

@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="200dp"
+    android:background="@color/theme_bg_card">
+
+    <!-- Bottom stack -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="bottom"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- 👤 Avatar -->
+        <ImageView
+            android:id="@+id/ivDrawerAvatar"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:src="@android:drawable/ic_menu_myplaces"
+            android:contentDescription="User Avatar"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- 👤 Name -->
+        <TextView
+            android:id="@+id/tvDrawerUserName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="User Name"
+            android:textColor="@color/theme_text_primary"
+            android:textSize="15sp"
+            android:textStyle="bold"/>
+
+        <!-- 🏷️ Role Badge -->
+        <TextView
+            android:id="@+id/tvDrawerRoleBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="@color/theme_text_accent"
+            android:textSize="11sp"
+            android:textAllCaps="true"
+            android:letterSpacing="0.08"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:layout_marginTop="3dp"
+            android:background="@drawable/bg_role_badge"
+            android:visibility="gone"/>
+
+        <!-- 🆔 Email / ID -->
+        <TextView
+            android:id="@+id/tvDrawerEmployeeId"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Login to enable cloud sync"
+            android:textColor="@color/theme_text_secondary"
+            android:textSize="11sp"
+            android:layout_marginTop="3dp"/>
+
+        <!-- Copy UID -->
+        <TextView
+            android:id="@+id/btnCopyUid"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Your UID"
+            android:textColor="@color/theme_text_secondary"
+            android:textSize="10sp"
+            android:drawableEnd="@drawable/ic_copy"
+            android:drawablePadding="4dp"
+            android:gravity="center_vertical"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:layout_marginTop="2dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:visibility="gone"/>
+
+        <!-- Last Active -->
+        <TextView
+            android:id="@+id/tvDrawerLastActive"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="@color/theme_text_secondary"
+            android:textSize="10sp"
+            android:layout_marginTop="1dp"
+            android:visibility="gone"/>
+
+        <!-- 🏢 Branch Switcher -->
+        <LinearLayout
+            android:id="@+id/layoutBranchSwitcher"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="6dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
+            android:padding="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvDrawerBranchName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/theme_text_accent"
+                android:textSize="12sp"/>
+
+            <ImageView
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:src="@android:drawable/arrow_down_float"
+                android:contentDescription="Switch Branch"
+                android:layout_marginStart="4dp"
+                app:tint="@color/theme_text_accent"/>
+        </LinearLayout>
+
+    </LinearLayout>
+
+</RelativeLayout>

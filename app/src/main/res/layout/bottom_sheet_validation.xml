@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/theme_bg_card"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⚡ Validation Request"
+        android:textSize="16sp"
+        android:textColor="@color/theme_text_primary"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/tvValidationTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Rahim Mia · DB-2201"
+        android:textSize="12sp"
+        android:textColor="@color/theme_text_secondary"
+        android:layout_marginBottom="16dp" />
+
+    <EditText
+        android:id="@+id/etValidationNote"
+        android:layout_width="match_parent"
+        android:layout_height="80dp"
+        android:background="@color/theme_bg_inner"
+        android:padding="12dp"
+        android:textColor="@color/theme_text_primary"
+        android:textColorHint="#64748b"
+        android:textSize="13sp"
+        android:hint="কারণ লিখুন... (যেমন: Address খুঁজে পাচ্ছি না)"
+        android:gravity="start"
+        android:inputType="textMultiLine" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="12dp">
+
+        <TextView
+            android:id="@+id/btnValidationCancel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Cancel"
+            android:textSize="13sp"
+            android:textColor="@color/theme_text_secondary"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:padding="12dp"
+            android:background="@color/theme_bg_inner" />
+
+        <TextView
+            android:id="@+id/btnValidationSubmit"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="2"
+            android:text="Send Request"
+            android:textSize="13sp"
+            android:textColor="@color/theme_text_inverse"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:padding="12dp"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/btn_action_cyan" />
+    </LinearLayout>
+
+</LinearLayout>

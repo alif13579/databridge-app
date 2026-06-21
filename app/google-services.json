@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "757742303355",
+    "firebase_url": "https://databridgebd-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "databridgebd",
+    "storage_bucket": "databridgebd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:757742303355:android:c71d3d7572a3e62060cade",
+        "android_client_info": {
+          "package_name": "com.cloudx.databridge"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "757742303355-la1ugbi6p01mbgkta7h3pfs2r19he4dd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.cloudx.databridge",
+            "certificate_hash": "b7c603fa402f991d00f4759ce5a0eb36ab97ec7e"
+          }
+        },
+        {
+          "client_id": "757742303355-5ecc6ffib730879ohdt2eeu9ja7u201o.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBo6zgv8mF_0d3GjaXu7Eo4HX0e0xMXQQ4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "757742303355-5ecc6ffib730879ohdt2eeu9ja7u201o.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

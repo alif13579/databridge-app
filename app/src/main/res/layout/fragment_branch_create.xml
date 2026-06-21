@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/theme_bg_app">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <!-- Header -->
+        <TextView
+            android:id="@+id/tvFormTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Create Branch"
+            android:textColor="@color/theme_text_primary"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:id="@+id/tvBranchIdGenerated"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/theme_text_secondary"
+            android:textSize="11sp"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Branch Image Picker -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="20dp">
+
+            <ImageView
+                android:id="@+id/ivBranchImagePicker"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:layout_gravity="center_horizontal"
+                android:scaleType="centerCrop"
+                android:background="@drawable/bg_branch_placeholder"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="Branch image" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal|bottom"
+                android:layout_marginTop="88dp"
+                android:text="Tap to select image"
+                android:textColor="@color/theme_text_secondary"
+                android:textSize="11sp"
+                android:clickable="false"
+                android:focusable="false" />
+
+        </FrameLayout>
+
+        <!-- Branch Code -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Branch Code *" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <EditText
+            android:id="@+id/etBranchCode"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:hint="e.g. DHK-001"
+            android:textColor="@color/theme_text_primary" android:textColorHint="@color/theme_text_secondary"
+            android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:textSize="14sp" android:inputType="textCapCharacters|textNoSuggestions"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Branch Name -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Branch Name *" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <EditText
+            android:id="@+id/etBranchName"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:hint="e.g. Dhaka Main Office"
+            android:textColor="@color/theme_text_primary" android:textColorHint="@color/theme_text_secondary"
+            android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:textSize="14sp"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Branch Type -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Branch Type *" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <Spinner
+            android:id="@+id/spinnerBranchType"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:background="@color/theme_bg_card"
+            android:paddingStart="12dp"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Address -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Address" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <EditText
+            android:id="@+id/etBranchAddress"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:hint="Full address"
+            android:textColor="@color/theme_text_primary" android:textColorHint="@color/theme_text_secondary"
+            android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:paddingTop="12dp" android:paddingBottom="12dp"
+            android:textSize="14sp" android:inputType="textMultiLine"
+            android:lines="2" android:gravity="top"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Lat / Lng -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="6dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Latitude" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+                <EditText
+                    android:id="@+id/etLatitude"
+                    android:layout_width="match_parent" android:layout_height="48dp"
+                    android:hint="23.8103"
+                    android:textColor="@color/theme_text_primary" android:textColorHint="@color/theme_text_secondary"
+                    android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="12dp"
+                    android:textSize="14sp" android:inputType="numberDecimal|numberSigned"/>
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="6dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Longitude" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+                <EditText
+                    android:id="@+id/etLongitude"
+                    android:layout_width="match_parent" android:layout_height="48dp"
+                    android:hint="90.4125"
+                    android:textColor="@color/theme_text_primary" android:textColorHint="@color/theme_text_secondary"
+                    android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="12dp"
+                    android:textSize="14sp" android:inputType="numberDecimal|numberSigned"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Email -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Branch Email" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <EditText
+            android:id="@+id/etBranchEmail"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:hint="branch@company.com"
+            android:textColor="@color/theme_text_primary" android:textColorHint="@color/theme_text_secondary"
+            android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:textSize="14sp" android:inputType="textEmailAddress"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Phone -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Branch Phone" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <EditText
+            android:id="@+id/etBranchPhone"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:hint="+880..."
+            android:textColor="@color/theme_text_primary" android:textColorHint="@color/theme_text_secondary"
+            android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:textSize="14sp" android:inputType="phone"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Branch Manager (dropdown picker) -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Branch Manager" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <RelativeLayout
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:layout_marginBottom="4dp">
+            <TextView
+                android:id="@+id/btnSelectManager"
+                android:layout_width="match_parent" android:layout_height="match_parent"
+                android:text="Tap to select manager ▾"
+                android:textColor="@color/theme_text_secondary"
+                android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="44dp"
+                android:gravity="center_vertical"
+                android:clickable="true" android:focusable="true"/>
+            <TextView
+                android:id="@+id/btnClearManager"
+                android:layout_width="44dp" android:layout_height="match_parent"
+                android:text="✕"
+                android:textColor="#ff4444" android:textSize="16sp"
+                android:gravity="center"
+                android:layout_alignParentEnd="true"
+                android:clickable="true" android:focusable="true"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:visibility="gone"/>
+        </RelativeLayout>
+        <TextView
+            android:id="@+id/tvManagerSelected"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="None selected"
+            android:textColor="@color/theme_text_secondary" android:textSize="12sp"
+            android:paddingStart="4dp"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Parent Branch (dropdown picker) -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Parent Branch (optional)" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <RelativeLayout
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:layout_marginBottom="4dp">
+            <TextView
+                android:id="@+id/btnSelectParentBranch"
+                android:layout_width="match_parent" android:layout_height="match_parent"
+                android:text="Tap to select parent branch ▾"
+                android:textColor="@color/theme_text_secondary"
+                android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="44dp"
+                android:gravity="center_vertical"
+                android:clickable="true" android:focusable="true"/>
+            <TextView
+                android:id="@+id/btnClearParentBranch"
+                android:layout_width="44dp" android:layout_height="match_parent"
+                android:text="✕"
+                android:textColor="#ff4444" android:textSize="16sp"
+                android:gravity="center"
+                android:layout_alignParentEnd="true"
+                android:clickable="true" android:focusable="true"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:visibility="gone"/>
+        </RelativeLayout>
+        <TextView
+            android:id="@+id/tvParentBranchSelected"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="None (root branch)"
+            android:textColor="@color/theme_text_secondary" android:textSize="12sp"
+            android:paddingStart="4dp"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Status -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Status" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <Spinner
+            android:id="@+id/spinnerStatus"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:background="@color/theme_bg_card"
+            android:paddingStart="12dp"
+            android:layout_marginBottom="24dp"/>
+
+        <!-- Buttons -->
+        <Button
+            android:id="@+id/btnCreateBranch"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:text="Create Branch"
+            android:textColor="@color/theme_btn_accent_text"
+            android:backgroundTint="@color/theme_btn_accent_bg"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <Button
+            android:id="@+id/btnCancelBranch"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:text="Cancel"
+            android:textColor="@color/theme_text_secondary"
+            android:backgroundTint="@color/theme_bg_card"/>
+
+    </LinearLayout>
+</ScrollView>
