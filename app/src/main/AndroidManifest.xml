@@ -6,12 +6,17 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- 🔔 Notifications (Android 13+) -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 🔔 Notifications (Android 13+ only) -->
+    <uses-permission
+        android:name="android.permission.POST_NOTIFICATIONS"
+        android:minSdkVersion="33" />
 
-    <!-- 🚀 Foreground Service (Android 14+) -->
+    <!-- 🚀 Foreground Service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- FOREGROUND_SERVICE_DATA_SYNC is Android 14+ only -->
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"
+        android:minSdkVersion="34" />
 
     <!-- 📞 Alerts & Dialer -->
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -22,10 +27,10 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- 📷 Camera Hardware Feature -->
+    <!-- 📷 Camera Hardware Feature (required=false → camera ছাড়া devices-এও install হবে) -->
     <uses-feature
         android:name="android.hardware.camera"
-        android:required="true" />
+        android:required="false" />
 
     <application
         android:name=".DataBridgeApplication"
