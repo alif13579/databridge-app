@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Idle icon: passive side (moon in light mode, sun in dark mode) -->
+    <ImageView
+        android:id="@+id/dmIdleIcon"
+        android:layout_width="14dp"
+        android:layout_height="14dp"
+        android:layout_gravity="end|center_vertical"
+        android:layout_marginEnd="5dp"
+        android:src="@drawable/ic_moon_toggle"
+        android:contentDescription="@null" />
+
+    <!-- Thumb: animated blue circle with sun/moon icon -->
+    <FrameLayout
+        android:id="@+id/dmThumb"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_gravity="start|center_vertical"
+        android:layout_marginStart="3dp"
+        android:background="@drawable/bg_toggle_thumb"
+        android:elevation="2dp">
+
+        <ImageView
+            android:id="@+id/dmThumbIcon"
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:layout_gravity="center"
+            android:src="@drawable/ic_sun_toggle"
+            android:contentDescription="@null" />
+
+    </FrameLayout>
+
+</merge>
