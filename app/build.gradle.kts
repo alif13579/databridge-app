@@ -1,8 +1,17 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     id("com.google.gms.google-services") // Firebase
     id("org.jetbrains.kotlin.kapt")      // Room Database-এর জন্য
+}
+
+// 🔐 Keystore Properties (keystore.properties থেকে পড়বে)
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(keystorePropertiesFile.inputStream())
 }
 
 android {
@@ -11,19 +20,37 @@ android {
 
     defaultConfig {
         applicationId = "com.cloudx.databridge"
-        minSdk = 24
+        minSdk = 21           // ✅ Android 5.0+ → ~99% devices covered
         targetSdk = 34
         versionCode = 2
         versionName = "2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        multiDexEnabled = true                         // ✅ Large app support
+        vectorDrawables.useSupportLibrary = true       // ✅ Vector drawable on API 21+
+    }
+
+    // 🔐 Release Signing Config
+    signingConfigs {
+        create("release") {
+            storeFile = keystoreProperties["storeFile"]?.let { file(it as String) }
+            storePassword = keystoreProperties["storePassword"] as? String ?: ""
+            keyAlias = keystoreProperties["keyAlias"] as? String ?: ""
+            keyPassword = keystoreProperties["keyPassword"] as? String ?: ""
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")  // ✅ Signed Release APK
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+        debug {
+            applicationIdSuffix = ".debug"
+            isDebuggable = true
+        }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -34,6 +61,9 @@ android {
 }
 
 dependencies {
+    // ✅ MultiDex support
+    implementation("androidx.multidex:multidex:2.0.1")
+
     // স্ট্যান্ডার্ড অ্যান্ড্রয়েড লাইব্রেরি
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
@@ -63,7 +93,7 @@ dependencies {
     // ডাটা স্টোর (DataStore)
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
-    // ভিউ মডেল এবং লাইফসাইকল
+    // ভিউ মডেল এবং লাইফসাইকেল
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
 
