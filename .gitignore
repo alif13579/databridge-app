@@ -13,3 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
+# 🔐 Keystore credentials - কখনো commit করবেন না!
+keystore.properties
