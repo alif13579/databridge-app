@@ -126,18 +126,34 @@ class CallCenterFragment : Fragment() {
 
     private fun setupFilterTabs() {
         layoutFilterTabs.removeAllViews()
-        val filters = listOf(
-            FilterTab("all", "All"),
-            FilterTab("confirmed", "✓ Confirmed"),
-            FilterTab("pending", "◌ Pending"),
-            FilterTab("rejected", "✗ Rejected"),
-            FilterTab("validation", "⚡ Validation")
+        val total        = allParcels.size
+        val statusCounts = allParcels.groupingBy { it.status }.eachCount()
+
+        // Reset active filter if it no longer exists in data
+        if (statusFilter != "all" && !statusCounts.containsKey(statusFilter)) {
+            statusFilter = "all"
+        }
+
+        val statusOrder = listOf(
+            "pending", "verify_req", "delivery_req", "hold_req",
+            "confirmed", "delivered", "return_req", "rejected"
         )
+        val sortedEntries = statusCounts.entries.sortedWith { a, b ->
+            val ai = statusOrder.indexOf(a.key).let { if (it == -1) Int.MAX_VALUE else it }
+            val bi = statusOrder.indexOf(b.key).let { if (it == -1) Int.MAX_VALUE else it }
+            ai.compareTo(bi)
+        }
+
+        val filters = mutableListOf(FilterTab("all", "All($total)"))
+        sortedEntries.forEach { (statusKey, count) ->
+            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey).label
+            filters.add(FilterTab(statusKey, "$label($count)"))
+        }
 
         for (filter in filters) {
             val chip = layoutInflater.inflate(R.layout.item_filter_chip, layoutFilterTabs, false) as TextView
             chip.text = filter.label
-            chip.tag = filter.key
+            chip.tag  = filter.key
             chip.setOnClickListener {
                 statusFilter = filter.key
                 updateFilterChips()
@@ -175,11 +191,11 @@ class CallCenterFragment : Fragment() {
         // Extract unique branches (dynamic)
         branches = allParcels.map { it.branch }.distinct()
         setupBranchChips()
+        setupFilterTabs() // ✅ rebuild status chips dynamically from actual data
 
         adapter = CallCenterAdapter(
             onCall = { item ->
-                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${item.phone}"))
-                startActivity(intent)
+                AutoDialHelper.dial(this, item.phone) // ✅ auto-dial / dialpad / SIM chooser
             },
             onSetRemarks = { item ->
                 showRemarksDialog(item)
@@ -279,14 +295,9 @@ class CallCenterFragment : Fragment() {
             filtered = filtered.filter { it.branch == branchFilter }
         }
 
-        // Status filter
-        filtered = when (statusFilter) {
-            "confirmed" -> filtered.filter { it.status == "confirmed" }
-            "pending" -> filtered.filter { it.status == "pending" }
-            "rejected" -> filtered.filter { it.status == "rejected" }
-            "validation" -> filtered.filter { it.validationRequest }
-            else -> filtered
-        }
+        // Status filter — dynamic exact match
+        filtered = if (statusFilter == "all") filtered
+                   else filtered.filter { it.status == statusFilter }
 
         // Update stats
         val total = allParcels.size
