@@ -219,73 +219,105 @@ class CallCenterFragment : Fragment() {
 
     private fun showRemarksDialog(item: CallCenterParcelItem) {
         val dialog = BottomSheetDialog(requireContext())
-        val view = layoutInflater.inflate(R.layout.bottom_sheet_remarks, null)
-        val tvTitle = view.findViewById<TextView>(R.id.tvRemarksTitle)
-        val etRemarks = view.findViewById<EditText>(R.id.etRemarksText)
-        val btnCancel = view.findViewById<TextView>(R.id.btnRemarksCancel)
-        val btnSave = view.findViewById<TextView>(R.id.btnRemarksSave)
+        val view   = layoutInflater.inflate(R.layout.bottom_sheet_remarks, null)
 
-        // Status selector
-        val btnConfirmed = view.findViewById<TextView>(R.id.btnRemarkStatusConfirmed)
-        val btnPending = view.findViewById<TextView>(R.id.btnRemarkStatusPending)
-        val btnRejected = view.findViewById<TextView>(R.id.btnRemarkStatusRejected)
-        var selectedStatus = item.status
-
-        fun updateStatusBtns() {
-            val cfg = WorkerParcelAdapter.getStatusConfig(view.context, selectedStatus)
-            btnConfirmed.isSelected = selectedStatus == "confirmed"
-            btnPending.isSelected = selectedStatus == "pending"
-            btnRejected.isSelected = selectedStatus == "rejected"
-            listOf(btnConfirmed, btnPending, btnRejected).forEach { btn ->
-                btn.setBackgroundResource(
-                    if (btn.isSelected) R.drawable.bg_filter_chip_active
-                    else R.drawable.bg_filter_chip_inactive
-                )
-                btn.setTextColor(
-                    if (btn.isSelected) 0xFFFFFFFF.toInt() else 0xFF64748b.toInt()
-                )
-            }
-        }
-
-        btnConfirmed.setOnClickListener { selectedStatus = "confirmed"; updateStatusBtns() }
-        btnPending.setOnClickListener { selectedStatus = "pending"; updateStatusBtns() }
-        btnRejected.setOnClickListener { selectedStatus = "rejected"; updateStatusBtns() }
-        updateStatusBtns()
-
-        // Quick templates
-        view.findViewById<TextView>(R.id.btnQuickCustomerWants).setOnClickListener {
-            etRemarks.setText("Customer want to receive")
-        }
-        view.findViewById<TextView>(R.id.btnQuickNotAvailable).setOnClickListener {
-            etRemarks.setText("Not available, call later")
-        }
-        view.findViewById<TextView>(R.id.btnQuickAddressNotFound).setOnClickListener {
-            etRemarks.setText("Address not found")
-        }
-        view.findViewById<TextView>(R.id.btnQuickRefused).setOnClickListener {
-            etRemarks.setText("Refused delivery")
-        }
+        val tvTitle      = view.findViewById<TextView>(R.id.tvRemarksTitle)
+        val etRemarks    = view.findViewById<EditText>(R.id.etRemarksText)
+        val tvAutoStatus = view.findViewById<TextView>(R.id.tvRemarksAutoStatus)
+        val layoutOptions = view.findViewById<android.widget.LinearLayout>(R.id.layoutCcRemarkOptions)
+        val btnCancel    = view.findViewById<TextView>(R.id.btnRemarksCancel)
+        val btnSave      = view.findViewById<TextView>(R.id.btnRemarksSave)
 
         tvTitle.text = "${item.customer} · ${item.id} · ${item.phone}"
-        etRemarks.setText(item.remarks)
 
-        btnCancel.setOnClickListener { dialog.dismiss() }
+        // ── CC Remark options with auto-status ───────────────────────────
+        data class CcRemarkOption(
+            val icon: String,
+            val label: String,
+            val statusKey: String,
+            val statusPreview: String,
+            val statusColorRes: Int
+        )
+
+        val options = listOf(
+            CcRemarkOption("✅", "Customer delivery নিতে চান",        "confirmed", "✓ Confirmed",    R.color.theme_green),
+            CcRemarkOption("📵", "Customer ফোন ধরছে না",              "pending",   "◌ Pending",      R.color.theme_yellow),
+            CcRemarkOption("🔄", "পরে call করতে বলেছেন",             "pending",   "◌ Pending",      R.color.theme_yellow),
+            CcRemarkOption("📍", "Address ভুল / খুঁজে পাচ্ছি না",    "hold_req",  "⏸ Hold Request", R.color.theme_orange),
+            CcRemarkOption("🚫", "Customer delivery নেবে না",         "rejected",  "✗ Rejected",     R.color.theme_red)
+        )
+
+        var selectedStatus      = ""
+        var selectedRemarkText  = ""
+        val optionViews         = mutableListOf<android.view.View>()
+
+        for (opt in options) {
+            val optView = layoutInflater.inflate(R.layout.item_worker_remark_option, layoutOptions, false)
+            val tvIcon  = optView.findViewById<TextView>(R.id.twRemarkOptIcon)
+            val tvText  = optView.findViewById<TextView>(R.id.twRemarkOptText)
+            val tvTag   = optView.findViewById<TextView>(R.id.twRemarkOptAutoTag)
+            val dot     = optView.findViewById<android.view.View>(R.id.viewRemarkOptSelected)
+
+            tvIcon.text = opt.icon
+            tvText.text = opt.label
+            tvTag.text  = "→${opt.statusPreview.uppercase()}"
+            tvTag.visibility = android.view.View.VISIBLE
+
+            optView.setOnClickListener {
+                // Reset all options
+                optionViews.forEach { v ->
+                    v.setBackgroundResource(R.drawable.bg_remark_opt_inactive)
+                    v.findViewById<TextView>(R.id.twRemarkOptText)
+                        .setTextColor(requireContext().getColor(R.color.theme_text_remark_opt))
+                    v.findViewById<android.view.View>(R.id.viewRemarkOptSelected).visibility = android.view.View.GONE
+                }
+                // Highlight selected
+                optView.setBackgroundResource(R.drawable.bg_remark_opt_active)
+                tvText.setTextColor(requireContext().getColor(R.color.theme_text_remark_opt_selected))
+                dot.visibility = android.view.View.VISIBLE
+
+                // Update auto-status preview
+                selectedStatus     = opt.statusKey
+                selectedRemarkText = opt.label
+                tvAutoStatus.text  = opt.statusPreview
+                tvAutoStatus.setTextColor(requireContext().getColor(opt.statusColorRes))
+
+                btnSave.isEnabled = true
+                btnSave.alpha     = 1f
+            }
+
+            optionViews.add(optView)
+            layoutOptions.addView(optView)
+        }
+
+        // Disabled until option selected
+        btnSave.isEnabled = false
+        btnSave.alpha     = 0.5f
+
         btnSave.setOnClickListener {
-            val text = etRemarks.text.toString().trim()
+            if (selectedStatus.isBlank()) return@setOnClickListener
+            val noteText   = etRemarks.text?.toString()?.trim() ?: ""
+            val fullRemark = if (noteText.isNotBlank()) "$selectedRemarkText — $noteText"
+                             else selectedRemarkText
+
             allParcels = allParcels.map {
                 if (it.id == item.id) it.copy(
-                    status = selectedStatus,
-                    remarks = text,
-                    validationRequest = false
+                    validationRequest = false,
+                    status  = selectedStatus,
+                    remarks = fullRemark
                 ) else it
             }
+            setupFilterTabs()
             applyFilters()
             dialog.dismiss()
         }
 
+        btnCancel.setOnClickListener { dialog.dismiss() }
+
         dialog.setContentView(view)
         dialog.show()
     }
+
 
     private fun applyFilters() {
         var filtered = allParcels
