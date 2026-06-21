@@ -135,19 +135,36 @@ class WorkerSpaceFragment : Fragment() {
 
     private fun setupFilterTabs() {
         layoutFilterTabs.removeAllViews()
-        val filters = listOf(
-            FilterTab("all", "All"),
-            FilterTab("confirmed", "✓ Confirmed"),
-            FilterTab("pending", "◌ Pending"),
-            FilterTab("rejected", "✗ Rejected"),
-            FilterTab("validation", "⚡ Validation")
+        val total       = allParcels.size
+        val statusCounts = allParcels.groupingBy { it.status }.eachCount()
+
+        // Reset active filter if it no longer exists in data
+        if (activeFilter != "all" && !statusCounts.containsKey(activeFilter)) {
+            activeFilter = "all"
+        }
+
+        // Ordered chips: pending first, confirmed, then the rest
+        val statusOrder = listOf(
+            "pending", "verify_req", "delivery_req", "hold_req",
+            "confirmed", "delivered", "return_req", "rejected"
         )
+        val sortedEntries = statusCounts.entries.sortedWith { a, b ->
+            val ai = statusOrder.indexOf(a.key).let { if (it == -1) Int.MAX_VALUE else it }
+            val bi = statusOrder.indexOf(b.key).let { if (it == -1) Int.MAX_VALUE else it }
+            ai.compareTo(bi)
+        }
+
+        val filters = mutableListOf(FilterTab("all", "All($total)"))
+        sortedEntries.forEach { (statusKey, count) ->
+            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey).label
+            filters.add(FilterTab(statusKey, "$label($count)"))
+        }
 
         for (filter in filters) {
             val chip = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_filter_chip, layoutFilterTabs, false) as TextView
             chip.text = filter.label
-            chip.tag = filter.key
+            chip.tag  = filter.key
             chip.setOnClickListener {
                 activeFilter = filter.key
                 updateFilterChips()
@@ -178,8 +195,7 @@ class WorkerSpaceFragment : Fragment() {
     private fun setupAdapter() {
         adapter = WorkerParcelAdapter(
             onCall = { item ->
-                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${item.phone}"))
-                startActivity(intent)
+                AutoDialHelper.dial(this, item.phone) // ✅ auto-dial / dialpad / SIM chooser
             },
             onSetRemarks = { item ->
                 showWorkerRemarksDialog(item)
@@ -385,8 +401,8 @@ class WorkerSpaceFragment : Fragment() {
     private fun loadData() {
         pbProgress.visibility = View.VISIBLE
         tvEmpty.visibility = View.GONE
-
         allParcels = getDemoParcels()
+        setupFilterTabs() // ✅ rebuild chips dynamically from actual data
         applyFilters()
         pbProgress.visibility = View.GONE
     }
@@ -416,14 +432,9 @@ class WorkerSpaceFragment : Fragment() {
             tvSearchCount.visibility = View.GONE
         }
 
-        // Status filter
-        filtered = when (activeFilter) {
-            "confirmed" -> filtered.filter { it.status == "confirmed" }
-            "pending" -> filtered.filter { it.status == "pending" }
-            "rejected" -> filtered.filter { it.status == "rejected" || it.status == "return_req" }
-            "validation" -> filtered.filter { it.validationRequest || it.status == "verify_req" }
-            else -> filtered
-        }
+        // Status filter — dynamic exact match
+        filtered = if (activeFilter == "all") filtered
+                   else filtered.filter { it.status == activeFilter }
 
         updateCounts()
 
