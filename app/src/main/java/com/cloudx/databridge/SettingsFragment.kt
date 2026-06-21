@@ -34,7 +34,7 @@ class SettingsFragment : Fragment() {
     private lateinit var switchAutoDial: Switch
     private lateinit var switchIncomingAlert: Switch
     private lateinit var switchSound: Switch
-    private lateinit var switchDarkMode: Switch
+    // ✅ Dark mode toggle removed from settings — now in drawer header
     private lateinit var layoutLogin: LinearLayout
     private lateinit var tvLoginStatus: TextView
     private lateinit var tvLoginSubtext: TextView
@@ -74,20 +74,20 @@ class SettingsFragment : Fragment() {
     }
 
     private fun initViews() {
-        switchAutoDialer = binding.findViewById(R.id.switchAutoDialer)
-        switchAutoDial = binding.findViewById(R.id.switchAutoDial)
-        switchIncomingAlert = binding.findViewById(R.id.switchIncomingAlert)
-        switchSound = binding.findViewById(R.id.switchSound)
-        switchDarkMode = binding.findViewById(R.id.switchDarkMode)
-        layoutLogin = binding.findViewById(R.id.layoutLogin)
-        tvLoginStatus = binding.findViewById(R.id.tvLoginStatus)
-        tvLoginSubtext = binding.findViewById(R.id.tvLoginSubtext)
-        pbLogin = binding.findViewById(R.id.pbLogin)
-        btnClearHistory = binding.findViewById(R.id.btnClearHistory)
-        pbClearHistory = binding.findViewById(R.id.pbClearHistory)
-        tvAppVersion = binding.findViewById(R.id.tvAppVersion)
-        tvAppVersion.text = "v2.0 • DataBridge"
-        repository = CallRepository(CallDatabase.getDatabase(requireContext()).callDao())
+        switchAutoDialer     = binding.findViewById(R.id.switchAutoDialer)
+        switchAutoDial       = binding.findViewById(R.id.switchAutoDial)
+        switchIncomingAlert  = binding.findViewById(R.id.switchIncomingAlert)
+        switchSound          = binding.findViewById(R.id.switchSound)
+        // switchDarkMode removed — controlled from drawer toggle
+        layoutLogin          = binding.findViewById(R.id.layoutLogin)
+        tvLoginStatus        = binding.findViewById(R.id.tvLoginStatus)
+        tvLoginSubtext       = binding.findViewById(R.id.tvLoginSubtext)
+        pbLogin              = binding.findViewById(R.id.pbLogin)
+        btnClearHistory      = binding.findViewById(R.id.btnClearHistory)
+        pbClearHistory       = binding.findViewById(R.id.pbClearHistory)
+        tvAppVersion         = binding.findViewById(R.id.tvAppVersion)
+        tvAppVersion.text    = "v2.0 • DataBridge"
+        repository           = CallRepository(CallDatabase.getDatabase(requireContext()).callDao())
     }
 
     private fun initSyncManagerAndPrefs() {
@@ -121,13 +121,6 @@ class SettingsFragment : Fragment() {
         switchSound.isChecked = togglePrefs.getBoolean("sound_on_receive", true)
         switchSound.setOnCheckedChangeListener { _, isChecked ->
             togglePrefs.edit().putBoolean("sound_on_receive", isChecked).apply()
-        }
-
-        switchDarkMode.setOnCheckedChangeListener(null)
-        switchDarkMode.isChecked = togglePrefs.getBoolean("dark_mode", true)
-        switchDarkMode.setOnCheckedChangeListener { _, isChecked ->
-            togglePrefs.edit().putBoolean("dark_mode", isChecked).apply()
-            applyTheme(isChecked)
         }
 
         layoutLogin.setOnClickListener {
@@ -212,14 +205,6 @@ class SettingsFragment : Fragment() {
                 pbClearHistory.visibility = View.GONE
                 btnClearHistory.isEnabled = true
             }
-        }
-    }
-
-    private fun applyTheme(isDark: Boolean) {
-        if (isDark) {
-            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES)
-        } else {
-            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO)
         }
     }
 
