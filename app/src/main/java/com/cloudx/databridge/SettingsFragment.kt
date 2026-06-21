@@ -34,6 +34,7 @@ class SettingsFragment : Fragment() {
     private lateinit var switchAutoDial: Switch
     private lateinit var switchIncomingAlert: Switch
     private lateinit var switchSound: Switch
+    private lateinit var switchAutoCopy: Switch
     // ✅ Dark mode toggle removed from settings — now in drawer header
     private lateinit var layoutLogin: LinearLayout
     private lateinit var tvLoginStatus: TextView
@@ -78,6 +79,7 @@ class SettingsFragment : Fragment() {
         switchAutoDial       = binding.findViewById(R.id.switchAutoDial)
         switchIncomingAlert  = binding.findViewById(R.id.switchIncomingAlert)
         switchSound          = binding.findViewById(R.id.switchSound)
+        switchAutoCopy       = binding.findViewById(R.id.switchAutoCopy)
         // switchDarkMode removed — controlled from drawer toggle
         layoutLogin          = binding.findViewById(R.id.layoutLogin)
         tvLoginStatus        = binding.findViewById(R.id.tvLoginStatus)
@@ -121,6 +123,12 @@ class SettingsFragment : Fragment() {
         switchSound.isChecked = togglePrefs.getBoolean("sound_on_receive", true)
         switchSound.setOnCheckedChangeListener { _, isChecked ->
             togglePrefs.edit().putBoolean("sound_on_receive", isChecked).apply()
+        }
+
+        switchAutoCopy.setOnCheckedChangeListener(null)
+        switchAutoCopy.isChecked = togglePrefs.getBoolean("auto_copy", false)
+        switchAutoCopy.setOnCheckedChangeListener { _, isChecked ->
+            togglePrefs.edit().putBoolean("auto_copy", isChecked).apply()
         }
 
         layoutLogin.setOnClickListener {
