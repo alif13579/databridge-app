@@ -1,5 +1,7 @@
 package com.cloudx.databridge
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
@@ -14,12 +16,8 @@ import androidx.core.widget.ImageViewCompat
 
 /**
  * 🌙 DarkModeToggleView
- * Exact replica of the custom dark/light mode toggle design.
- * — Pill-shaped track (60×30dp)
- * — Animated blue circle thumb with sun/moon icon
- * — Faded idle icon on the opposite side
- * — Smooth DecelerateInterpolator animation (350ms)
- * — Persists state in "databridge_toggles" SharedPreferences
+ * — Animation plays first (350ms), THEN theme changes (no mid-animation crash)
+ * — Animator is cancelled on detach to prevent IllegalStateException
  */
 class DarkModeToggleView @JvmOverloads constructor(
     context: Context,
@@ -34,7 +32,9 @@ class DarkModeToggleView @JvmOverloads constructor(
     private lateinit var thumbIcon: ImageView
     private lateinit var idleIcon: ImageView
 
-    // Thumb slides: trackW(60) - thumbW(24) - marginStart(3) - marginEnd(3) = 30dp
+    private var currentAnimator: ValueAnimator? = null
+
+    // track(60) - thumb(24) - marginStart(3) - marginEnd(3) = 30dp
     private val thumbEndX: Float
         get() = resources.displayMetrics.density * 30f
 
@@ -49,68 +49,104 @@ class DarkModeToggleView @JvmOverloads constructor(
         isClickable   = true
         isFocusable   = true
 
-        applyState(isDark, animate = false)
+        applyState(isDark, animate = false, applyTheme = false)
         setOnClickListener { onToggleClicked() }
     }
 
-    /** Call when the drawer opens to ensure the visual matches saved preference. */
     fun syncState() {
         isDark = prefs.getBoolean("dark_mode", true)
-        applyState(isDark, animate = false)
+        applyState(isDark, animate = false, applyTheme = false)
     }
 
     private fun onToggleClicked() {
         isDark = !isDark
         prefs.edit().putBoolean("dark_mode", isDark).apply()
-        applyState(isDark, animate = true)
-        AppCompatDelegate.setDefaultNightMode(
-            if (isDark) AppCompatDelegate.MODE_NIGHT_YES
-            else        AppCompatDelegate.MODE_NIGHT_NO
-        )
+        // ✅ Animate first — apply theme AFTER animation ends (prevents crash)
+        applyState(isDark, animate = true, applyTheme = true)
     }
 
-    private fun applyState(dark: Boolean, animate: Boolean) {
-        // ── Track background ──────────────────────────────────────────────────
+    private fun applyState(dark: Boolean, animate: Boolean, applyTheme: Boolean) {
+        // Track background
         setBackgroundResource(
             if (dark) R.drawable.bg_toggle_track_dark else R.drawable.bg_toggle_track_light
         )
 
-        // ── Thumb icon (always white on blue bg) ──────────────────────────────
+        // Thumb icon (always white on blue)
         thumbIcon.setImageResource(if (dark) R.drawable.ic_moon_toggle else R.drawable.ic_sun_toggle)
         ImageViewCompat.setImageTintList(thumbIcon, ColorStateList.valueOf(Color.WHITE))
 
-        // ── Idle icon (faded, opposite side) ─────────────────────────────────
+        // Idle icon (faded, opposite side)
         idleIcon.setImageResource(if (dark) R.drawable.ic_sun_toggle else R.drawable.ic_moon_toggle)
-        val idleColor = if (dark) Color.parseColor("#555555") else Color.parseColor("#C8D0E0")
-        ImageViewCompat.setImageTintList(idleIcon, ColorStateList.valueOf(idleColor))
+        ImageViewCompat.setImageTintList(
+            idleIcon,
+            ColorStateList.valueOf(
+                if (dark) Color.parseColor("#555555") else Color.parseColor("#C8D0E0")
+            )
+        )
 
+        // Idle icon gravity
         val dp = resources.displayMetrics.density
         val marginPx = (5 * dp).toInt()
         val idleParams = idleIcon.layoutParams as LayoutParams
         if (dark) {
-            // Sun idle icon → LEFT side
-            idleParams.gravity   = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
+            idleParams.gravity     = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
             idleParams.marginStart = marginPx
             idleParams.marginEnd   = 0
         } else {
-            // Moon idle icon → RIGHT side
-            idleParams.gravity   = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
+            idleParams.gravity     = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
             idleParams.marginEnd   = marginPx
             idleParams.marginStart = 0
         }
         idleIcon.layoutParams = idleParams
 
-        // ── Thumb translation ─────────────────────────────────────────────────
+        // Thumb animation
         val targetX = if (dark) thumbEndX else 0f
         if (animate) {
-            ValueAnimator.ofFloat(thumb.translationX, targetX).apply {
+            currentAnimator?.cancel()
+            currentAnimator = ValueAnimator.ofFloat(thumb.translationX, targetX).apply {
                 duration     = 350L
                 interpolator = DecelerateInterpolator(1.5f)
-                addUpdateListener { thumb.translationX = it.animatedValue as Float }
+
+                addUpdateListener { anim ->
+                    // Guard: only update if view is still attached
+                    if (isAttachedToWindow) {
+                        thumb.translationX = anim.animatedValue as Float
+                    }
+                }
+
+                if (applyTheme) {
+                    addListener(object : AnimatorListenerAdapter() {
+                        override fun onAnimationEnd(animation: Animator) {
+                            // ✅ Theme changes AFTER animation — no crash
+                            if (isAttachedToWindow) {
+                                AppCompatDelegate.setDefaultNightMode(
+                                    if (isDark) AppCompatDelegate.MODE_NIGHT_YES
+                                    else        AppCompatDelegate.MODE_NIGHT_NO
+                                )
+                            }
+                        }
+                        override fun onAnimationCancel(animation: Animator) {
+                            // Cancelled (e.g. view detached) — apply theme immediately
+                            AppCompatDelegate.setDefaultNightMode(
+                                if (isDark) AppCompatDelegate.MODE_NIGHT_YES
+                                else        AppCompatDelegate.MODE_NIGHT_NO
+                            )
+                        }
+                    })
+                }
                 start()
             }
         } else {
-            post { thumb.translationX = targetX }
+            post {
+                if (isAttachedToWindow) thumb.translationX = targetX
+            }
         }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        // ✅ Cancel animator on detach — prevents update on destroyed view
+        currentAnimator?.cancel()
+        currentAnimator = null
     }
 }
