@@ -73,11 +73,14 @@
             tools:replace="android:screenOrientation" />
 
         <!-- 🚀 Foreground Service: DataBridgeService (ডাটা সিঙ্ক + অটো-ডায়াল) -->
+        <!-- foregroundServiceType="dataSync" is API 29+ only; tools:targetApi suppresses lint -->
+        <!-- Android 9 (API 28) will safely ignore foregroundServiceType at parse time -->
         <service
             android:name=".DataBridgeService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync"
+            tools:targetApi="29" />
 
     </application>
 </manifest>
