@@ -88,7 +88,13 @@ class SettingsFragment : Fragment() {
         btnClearHistory      = binding.findViewById(R.id.btnClearHistory)
         pbClearHistory       = binding.findViewById(R.id.pbClearHistory)
         tvAppVersion         = binding.findViewById(R.id.tvAppVersion)
-        tvAppVersion.text    = "v2.0 • DataBridge"
+        // ✅ Read the real version from build config so it always matches the APK
+        tvAppVersion.text    = try {
+            val pInfo = requireContext().packageManager.getPackageInfo(requireContext().packageName, 0)
+            "v${pInfo.versionName} • DataBridge"
+        } catch (_: Exception) {
+            "DataBridge"
+        }
         repository           = CallRepository(CallDatabase.getDatabase(requireContext()).callDao())
     }
 
