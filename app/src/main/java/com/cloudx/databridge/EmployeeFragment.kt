@@ -1,6 +1,7 @@
 package com.cloudx.databridge
 
 import android.graphics.Color
+import android.graphics.Typeface
 import android.content.res.Configuration
 import android.util.TypedValue
 import android.os.Bundle
@@ -347,7 +348,8 @@ class EmployeeFragment : Fragment() {
             override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
                 val v = super.getView(position, convertView, parent)
                 (v as? TextView)?.apply {
-                    textSize = 11f
+                    textSize = 12f
+                    typeface = Typeface.DEFAULT_BOLD
                     setTextColor(ContextCompat.getColor(context, android.R.color.white))
                     setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.ic_arrow_drop_down_white, 0)
                     compoundDrawablePadding = dp(6)

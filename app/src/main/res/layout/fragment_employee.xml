@@ -83,7 +83,7 @@
                     android:layout_height="36dp"
                     android:paddingStart="8dp"
                     android:paddingEnd="12dp"
-                    android:background="@drawable/bg_role_badge"
+                    android:background="@drawable/bg_employee_filter_chip"
                     android:popupTheme="@style/ThemeOverlay.AppCompat.Dark"
                     android:spinnerMode="dropdown" />
                 <ImageButton
@@ -109,7 +109,7 @@
                     android:layout_height="36dp"
                     android:paddingStart="8dp"
                     android:paddingEnd="12dp"
-                    android:background="@drawable/bg_role_badge"
+                    android:background="@drawable/bg_employee_filter_chip"
                     android:popupTheme="@style/ThemeOverlay.AppCompat.Dark"
                     android:spinnerMode="dropdown" />
                 <ImageButton
@@ -135,7 +135,7 @@
                     android:layout_height="36dp"
                     android:paddingStart="8dp"
                     android:paddingEnd="12dp"
-                    android:background="@drawable/bg_role_badge"
+                    android:background="@drawable/bg_employee_filter_chip"
                     android:popupTheme="@style/ThemeOverlay.AppCompat.Dark"
                     android:spinnerMode="dropdown" />
                 <ImageButton
@@ -160,7 +160,7 @@
                     android:layout_height="36dp"
                     android:paddingStart="8dp"
                     android:paddingEnd="12dp"
-                    android:background="@drawable/bg_role_badge"
+                    android:background="@drawable/bg_employee_filter_chip"
                     android:popupTheme="@style/ThemeOverlay.AppCompat.Dark"
                     android:spinnerMode="dropdown" />
                 <ImageButton

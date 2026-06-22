@@ -40,7 +40,7 @@
                 android:orientation="vertical"
                 android:gravity="center"
                 android:padding="8dp"
-                android:background="@color/theme_bg_card"
+                android:background="@drawable/bg_scan_stat_card"
                 android:layout_marginEnd="6dp">
                 <TextView android:id="@+id/tvTotalCount"
                     android:layout_width="wrap_content"
@@ -65,7 +65,7 @@
                 android:orientation="vertical"
                 android:gravity="center"
                 android:padding="8dp"
-                android:background="@color/theme_bg_card"
+                android:background="@drawable/bg_scan_stat_card"
                 android:layout_marginEnd="6dp">
                 <TextView android:id="@+id/tvCameraCount"
                     android:layout_width="wrap_content"
@@ -90,7 +90,7 @@
                 android:orientation="vertical"
                 android:gravity="center"
                 android:padding="8dp"
-                android:background="@color/theme_bg_card">
+                android:background="@drawable/bg_scan_stat_card">
                 <TextView android:id="@+id/tvManualCount"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

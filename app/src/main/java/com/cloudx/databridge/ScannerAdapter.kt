@@ -113,7 +113,7 @@ class ScannerAdapter(
                 holder.tvMeta.text = "${TIME_FMT.format(Date(item.scanAt))} • ${if (item.manual) "Manual" else "Scanned"}"
                 holder.btnDelete.setOnClickListener { onDelete(item) }
                 holder.btnEdit.setOnClickListener { onEdit(item) }
-                holder.itemView.alpha = if (item.uploaded) 0.6f else 1.0f
+                holder.itemView.alpha = 1.0f
             }
         }
     }
