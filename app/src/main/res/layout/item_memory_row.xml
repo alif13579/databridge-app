@@ -4,54 +4,74 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="12dp"
+    android:padding="14dp"
     android:background="@drawable/bg_memory_card"
-    android:layout_marginBottom="8dp">
+    android:layout_marginBottom="8dp"
+    android:clickable="true"
+    android:focusable="true">
 
+    <!-- Date row -->
     <TextView
         android:id="@+id/tvMemoryDate"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="12 Jan, 10:00 AM"
-        android:textColor="@color/theme_text_primary"
-        android:textSize="14sp"/>
+        android:textColor="@color/theme_text_secondary"
+        android:textSize="11sp"
+        android:letterSpacing="0.03"
+        android:layout_marginBottom="4dp"/>
 
+    <!-- Counts -->
     <TextView
         android:id="@+id/tvMemoryCounts"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Parcel: 10, Doc: 5"
-        android:textColor="@color/theme_text_secondary"
-        android:textSize="12sp"
-        android:layout_marginTop="4dp"/>
+        android:textColor="@color/theme_text_primary"
+        android:textSize="13sp"
+        android:lineSpacingExtra="2dp"/>
 
+    <!-- Earnings + Actions row -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="6dp">
+        android:gravity="center_vertical"
+        android:layout_marginTop="10dp">
+
+        <!-- Earnings amount — prominent -->
         <TextView
             android:id="@+id/tvMemoryEarnings"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="৳500"
-            android:textColor="@color/theme_text_primary"
-            android:textSize="14sp"/>
+            android:textColor="@color/theme_text_accent"
+            android:textSize="16sp"
+            android:textStyle="bold"/>
+
+        <!-- Edit button — 36dp touch target, 6dp padding inside -->
         <ImageButton
             android:id="@+id/btnEditMemory"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:background="@android:color/transparent"
-            android:src="@android:drawable/ic_menu_edit"
-            app:tint="@color/theme_text_primary"/>
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="7dp"
+            android:src="@drawable/ic_edit_mem"
+            android:contentDescription="Edit entry"
+            app:tint="@color/theme_text_secondary"/>
+
+        <!-- Delete button — 36dp touch target, red tint -->
         <ImageButton
             android:id="@+id/btnDeleteMemory"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:background="@android:color/transparent"
-            android:src="@android:drawable/ic_menu_delete"
-            app:tint="#ff6666"/>
-    </LinearLayout>
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="7dp"
+            android:layout_marginStart="2dp"
+            android:src="@drawable/ic_delete_mem"
+            android:contentDescription="Delete entry"
+            app:tint="#EF4444"/>
 
+    </LinearLayout>
 </LinearLayout>
