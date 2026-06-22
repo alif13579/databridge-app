@@ -24,7 +24,6 @@ data class CompanyInfo(
 data class UserProfile(
     val name: String = "",
     val email: String = "",
-    val phone_number: String = "",
     val containerId: String = "",
     val user_id: String = "",
     val photo_url: String = "",

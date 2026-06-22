@@ -40,7 +40,7 @@ class UserRepository(private val uid: String) {
                 "status"       to profile.company_info.status
             )
         )
-        if (!phoneNumber.isNullOrBlank()) data["phone_number"] = phoneNumber
+        if (!phoneNumber.isNullOrBlank()) data["phone"] = phoneNumber
         usersRef.child("profile").updateChildren(data).await()
     }
 
@@ -78,7 +78,7 @@ class UserRepository(private val uid: String) {
                 "status"       to "active"
             )
         )
-        if (!phoneNumber.isNullOrBlank()) data["phone_number"] = phoneNumber
+        if (!phoneNumber.isNullOrBlank()) data["phone"] = phoneNumber
         usersRef.child("profile").setValue(data).await()
         saveAndroidConnection(androidId, androidModel)
     }
