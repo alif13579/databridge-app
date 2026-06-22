@@ -13,6 +13,9 @@ val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(keystorePropertiesFile.inputStream())
 }
+// ✅ release keystore আছে কিনা (storeFile সহ) — না থাকলে debug signing এ fallback
+val hasReleaseKeystore = keystorePropertiesFile.exists() &&
+    (keystoreProperties["storeFile"] as? String)?.let { rootProject.file(it).exists() } == true
 
 android {
     namespace = "com.cloudx.databridge"
@@ -20,29 +23,36 @@ android {
 
     defaultConfig {
         applicationId = "com.cloudx.databridge"
-        minSdk = 23           // ✅ Android 6.0+ → ~97% devices covered (firebase-auth requires 23+)
+        minSdk = 23           // ✅ Android 6.0+ → ~99% devices covered (firebase-auth requires 23+)
         targetSdk = 34
-        versionCode = 3
-        versionName = "2.1"
+        versionCode = 4
+        versionName = "2.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         multiDexEnabled = true                         // ✅ Large app support
         vectorDrawables.useSupportLibrary = true       // ✅ Vector drawable on API 21+
     }
 
-    // 🔐 Release Signing Config
+    // 🔐 Release Signing Config (only configured if keystore is present)
     signingConfigs {
-        create("release") {
-            storeFile = keystoreProperties["storeFile"]?.let { file(it as String) }
-            storePassword = keystoreProperties["storePassword"] as? String ?: ""
-            keyAlias = keystoreProperties["keyAlias"] as? String ?: ""
-            keyPassword = keystoreProperties["keyPassword"] as? String ?: ""
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as? String ?: ""
+                keyAlias = keystoreProperties["keyAlias"] as? String ?: ""
+                keyPassword = keystoreProperties["keyPassword"] as? String ?: ""
+            }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")  // ✅ Signed Release APK
+            // ✅ keystore থাকলে release signing, না থাকলে debug — APK সবসময় signed ও installable
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {

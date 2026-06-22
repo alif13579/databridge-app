@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -17,6 +18,7 @@ import android.os.VibratorManager
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
@@ -238,7 +240,17 @@ class DataBridgeService : Service() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setOngoing(true)
             .build()
-        startForeground(NOTIFICATION_ID, notification)
+        // ✅ API 34+ requires the foreground service type (matches manifest dataSync)
+        // ServiceCompat handles all API levels; type ignored below API 29
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            notification,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            else
+                0
+        )
         return START_STICKY
     }
 

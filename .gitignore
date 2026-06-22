@@ -15,3 +15,7 @@
 local.properties
 # 🔐 Keystore credentials - কখনো commit করবেন না!
 keystore.properties
+*.p12
+*.jks
+*.keystore
+app/databridge-release.p12
