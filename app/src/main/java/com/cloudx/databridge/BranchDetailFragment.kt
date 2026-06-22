@@ -3,6 +3,7 @@ package com.cloudx.databridge
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.graphics.Typeface
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -132,9 +133,10 @@ class BranchDetailFragment : Fragment() {
         return TextView(ctx).apply {
             text = if (roleId.isEmpty()) "All ($count)" else "$label ($count)"
             textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
             setTextColor(ContextCompat.getColor(ctx, R.color.theme_text_secondary))
             setPadding(12, 8, 12, 8)
-            background = ContextCompat.getDrawable(ctx, R.drawable.bg_role_badge_themed)
+            background = ContextCompat.getDrawable(ctx, R.drawable.bg_branch_filter_chip_inactive)
             tag = roleId
             val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             lp.setMargins(0, 0, 12, 0)
@@ -172,10 +174,14 @@ class BranchDetailFragment : Fragment() {
             chip.setTextColor(
                 ContextCompat.getColor(
                     requireContext(),
-                    if (active) R.color.theme_text_accent else R.color.theme_text_secondary
+                    if (active) R.color.theme_btn_accent_text else R.color.theme_text_primary
                 )
             )
-            chip.alpha = if (active) 1f else 0.6f
+            chip.background = ContextCompat.getDrawable(
+                requireContext(),
+                if (active) R.drawable.bg_branch_filter_chip_active else R.drawable.bg_branch_filter_chip_inactive
+            )
+            chip.alpha = 1f
         }
     }
 
