@@ -21,36 +21,75 @@ class UserRepository(private val uid: String) {
         val createdAtFinal = existingCreatedAt ?: profile.createdAt
         val lastActiveFinal = existingLastActive ?: profile.lastActive
         val data = mutableMapOf<String, Any?>(
-            "name" to profile.name,
-            "email" to profile.email,
+            "name"        to profile.name,
+            "email"       to profile.email,
             "containerId" to profile.containerId,
-            "user_id" to profile.user_id,
-            "photo_url" to profile.photo_url,
-            "createdAt" to createdAtFinal,
-            "lastActive" to lastActiveFinal,
+            "user_id"     to profile.user_id,
+            "photo_url"   to profile.photo_url,
+            "createdAt"   to createdAtFinal,
+            "lastActive"  to lastActiveFinal,
             "company_info" to mapOf(
-                "role_id" to profile.company_info.role_id,
-                "branch_ids" to profile.company_info.branch_ids,
-                "employee_id" to profile.company_info.employee_id,
-                "designation" to profile.company_info.designation,
-                "agent_type" to profile.company_info.agent_type,
+                "role_id"      to profile.company_info.role_id,
+                "branch_ids"   to profile.company_info.branch_ids,
+                "employee_id"  to profile.company_info.employee_id,
+                "designation"  to profile.company_info.designation,
+                "agent_type"   to profile.company_info.agent_type,
                 "salary_model" to profile.company_info.salary_model,
-                "salary_type" to profile.company_info.salary_type,
+                "salary_type"  to profile.company_info.salary_type,
                 "fixed_amount" to profile.company_info.fixed_amount,
-                "status" to profile.company_info.status
+                "status"       to profile.company_info.status
             )
         )
         if (!phoneNumber.isNullOrBlank()) data["phone_number"] = phoneNumber
         usersRef.child("profile").updateChildren(data).await()
     }
 
+    /**
+     * ✅ Creates a brand-new profile for a first-time user.
+     * Called ONLY when no existing profile is found in Firebase.
+     * Role always starts as "guest" — admin assigns roles separately.
+     */
+    suspend fun createNewProfile(
+        name: String,
+        email: String,
+        photoUrl: String,
+        phoneNumber: String?,
+        androidId: String,
+        androidModel: String
+    ) {
+        val now = System.currentTimeMillis()
+        val data = mutableMapOf<String, Any?>(
+            "name"        to name,
+            "email"       to email,
+            "containerId" to "container_$uid",
+            "user_id"     to uid,
+            "photo_url"   to photoUrl,
+            "createdAt"   to now,
+            "lastActive"  to now,
+            "company_info" to mapOf(
+                "role_id"      to "guest",
+                "branch_ids"   to emptyList<String>(),
+                "employee_id"  to "",
+                "designation"  to "",
+                "agent_type"   to "",
+                "salary_model" to "",
+                "salary_type"  to "",
+                "fixed_amount" to "",
+                "status"       to "active"
+            )
+        )
+        if (!phoneNumber.isNullOrBlank()) data["phone_number"] = phoneNumber
+        usersRef.child("profile").setValue(data).await()
+        saveAndroidConnection(androidId, androidModel)
+    }
+
     suspend fun saveAndroidConnection(androidId: String, model: String) {
         val now = System.currentTimeMillis()
         usersRef.child("$PATH_ANDROIDS/$androidId").setValue(
             mapOf(
-                "status" to STATUS_ACTIVE,
-                "model" to model,
-                "created_at" to now,
+                "status"      to STATUS_ACTIVE,
+                "model"       to model,
+                "created_at"  to now,
                 "last_active" to now
             )
         ).await()
@@ -63,11 +102,11 @@ class UserRepository(private val uid: String) {
         val now = System.currentTimeMillis()
         usersRef.child("$PATH_EXTENSIONS/$extensionId").setValue(
             mapOf(
-                "status" to "connected",
-                "type" to type,
-                "android_id" to androidId,
+                "status"       to "connected",
+                "type"         to type,
+                "android_id"   to androidId,
                 "connected_at" to now,
-                "last_sync" to now
+                "last_sync"    to now
             )
         ).await()
     }

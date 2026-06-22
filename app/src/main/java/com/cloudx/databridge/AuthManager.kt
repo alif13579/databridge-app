@@ -57,57 +57,34 @@ object AuthManager {
         val model = "${Build.MANUFACTURER} ${Build.MODEL}"
         val userRepo = UserRepository(uid)
 
-        // Read existing profile to preserve all admin-set fields
-        val existingProfileSnap = runCatching {
+        // ✅ Check if this is an existing user or a brand-new one
+        val existingProfileSnap = try {
             FirebaseDatabase.getInstance().getReference("users/$uid/profile").get().await()
-        }.getOrNull()
-        val existingRoleId      = existingProfileSnap?.child("company_info/role_id")?.getValue(String::class.java)
-        val existingBranchIds   = existingProfileSnap?.child("company_info/branch_ids")?.children?.mapNotNull { it.getValue(String::class.java) } ?: emptyList()
-        val existingEmpId       = existingProfileSnap?.child("company_info/employee_id")?.getValue(String::class.java).orEmpty()
-        val existingDesig       = existingProfileSnap?.child("company_info/designation")?.getValue(String::class.java).orEmpty()
-        val existingAgentType   = existingProfileSnap?.child("company_info/agent_type")?.getValue(String::class.java).orEmpty()
-        val existingSalaryModel = existingProfileSnap?.child("company_info/salary_model")?.getValue(String::class.java).orEmpty()
-        val existingSalaryType  = existingProfileSnap?.child("company_info/salary_type")?.getValue(String::class.java).orEmpty()
-        val existingFixedAmount = existingProfileSnap?.child("company_info/fixed_amount")?.getValue(String::class.java).orEmpty()
-        val existingStatus      = existingProfileSnap?.child("company_info/status")?.getValue(String::class.java).orEmpty()
-        val existingPhoto       = existingProfileSnap?.child("photo_url")?.getValue(String::class.java).orEmpty()
-        val existingPhoneNumber = existingProfileSnap?.child("phone_number")?.getValue(String::class.java).orEmpty()
-        val existingCreatedAt   = existingProfileSnap?.child("createdAt")?.getValue(Long::class.java)
-        val existingLastActive  = existingProfileSnap?.child("lastActive")?.getValue(Long::class.java)
-        val authPhone           = auth.currentUser?.phoneNumber?.orEmpty()
-        val phoneToKeep         = when {
-            existingPhoneNumber.isNotBlank() -> existingPhoneNumber
-            !authPhone.isNullOrBlank() -> authPhone
-            else -> null
+        } catch (_: Exception) {
+            null
         }
-        val photoUrl            = if (existingPhoto.isNotBlank()) existingPhoto else account.photoUrl?.toString().orEmpty()
 
-        userRepo.saveProfileMerged(
-            UserProfile(
-                name           = account.displayName ?: "User",
-                email          = account.email ?: "",
-                phone_number   = existingPhoneNumber,
-                containerId    = "container_$uid",
-                user_id        = uid,
-                photo_url      = photoUrl,
-                company_info   = CompanyInfo(
-                    role_id       = if (existingRoleId.isNullOrEmpty()) "guest" else existingRoleId,
-                    branch_ids    = existingBranchIds,
-                    employee_id   = existingEmpId,
-                    designation   = existingDesig,
-                    agent_type    = existingAgentType,
-                    salary_model  = existingSalaryModel,
-                    salary_type   = existingSalaryType,
-                    fixed_amount  = existingFixedAmount,
-                    status        = existingStatus
-                )
-            ),
-            phoneNumber = phoneToKeep,
-            existingCreatedAt = existingCreatedAt,
-            existingLastActive = existingLastActive
-        )
-        userRepo.saveAndroidConnection(androidId, model)
+        val profileExists = existingProfileSnap?.exists() == true
 
+        if (profileExists) {
+            // ✅ Existing user — do NOT touch profile at all
+            // Only update device connection so the device is tracked
+            userRepo.saveAndroidConnection(androidId, model)
+        } else {
+            // ✅ New user — create fresh profile with guest role
+            val photoUrl = account.photoUrl?.toString().orEmpty()
+            val authPhone = auth.currentUser?.phoneNumber?.orEmpty()
+            userRepo.createNewProfile(
+                name         = account.displayName ?: "User",
+                email        = account.email ?: "",
+                photoUrl     = photoUrl,
+                phoneNumber  = authPhone.ifBlank { null },
+                androidId    = androidId,
+                androidModel = model
+            )
+        }
+
+        // Always attach onDisconnect hook for device status
         FirebaseDatabase.getInstance()
             .getReference("users/$uid/${UserRepository.PATH_ANDROIDS}/$androidId/status")
             .onDisconnect()
@@ -120,8 +97,8 @@ object AuthManager {
             userRepo.saveExtensionConnection(extId, "permanent", androidId)
             FirebaseDatabase.getInstance().getReference("sessions/$extId/meta").updateChildren(
                 mapOf(
-                    "user_id" to uid,
-                    "type" to "permanent",
+                    "user_id"    to uid,
+                    "type"       to "permanent",
                     "updated_at" to System.currentTimeMillis()
                 )
             ).await()
