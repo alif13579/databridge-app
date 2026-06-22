@@ -73,7 +73,7 @@ object AuthManager {
         } else {
             // ✅ New user — create fresh profile with guest role
             val photoUrl = account.photoUrl?.toString().orEmpty()
-            val authPhone = auth.currentUser?.phoneNumber?.orEmpty()
+            val authPhone = auth.currentUser?.phoneNumber.orEmpty()
             userRepo.createNewProfile(
                 name         = account.displayName ?: "User",
                 email        = account.email ?: "",
@@ -106,3 +106,4 @@ object AuthManager {
         appPrefs.saveAuthState(uid)
     }
 }
+
