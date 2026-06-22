@@ -80,6 +80,7 @@
     <color name="theme_bg_status_preview">#f8fafc</color>
     <color name="theme_border_status_preview">#e2e8f0</color>
     <color name="theme_overlay_bg">#99000000</color>
+    <color name="branch_detail_overlay">#ddf8fafc</color>
 
     <!-- Icon accents -->
     <color name="accent_green">#22C55E</color>

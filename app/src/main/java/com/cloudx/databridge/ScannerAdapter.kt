@@ -124,8 +124,8 @@ class ScannerAdapter(
         val tvIcon: TextView = view.findViewById(R.id.tvScanIcon)
         val tvCode: TextView = view.findViewById(R.id.tvScanCode)
         val tvMeta: TextView = view.findViewById(R.id.tvScanMeta)
-        val btnDelete: TextView = view.findViewById(R.id.btnDeleteScan)
-        val btnEdit: TextView = view.findViewById(R.id.btnEditScan)
+        val btnDelete: View = view.findViewById(R.id.btnDeleteScan)
+        val btnEdit: View = view.findViewById(R.id.btnEditScan)
     }
 
     class DateDividerHolder(view: View) : RecyclerView.ViewHolder(view) {

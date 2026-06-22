@@ -19,6 +19,9 @@ package com.cloudx.databridge
 object RunRoutePaths {
     fun userRun(uid: String, runId: String) = "users/$uid/run-routes/$runId"
     fun runDetails(runId: String) = "run-routes/$runId"
+    fun scannedRoot() = "run-routes/scanned"
+    fun userScans(uid: String) = "${scannedRoot()}/${uid.trim()}"
+    fun scanItem(uid: String, scanKey: String) = "${userScans(uid)}/${scanKey.trim()}"
 
     fun newRunId(atMs: Long = System.currentTimeMillis()): String = IdUtils.generateRunId(atMs)
 

@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#1a1a2e">
+    android:background="@color/theme_bg_app">
 
     <!-- AppBarLayout: collapsing banner with pinned toolbar inside CTL -->
     <com.google.android.material.appbar.AppBarLayout
@@ -27,7 +27,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:scaleType="centerCrop"
-                android:background="#0d1533"
+                android:background="@color/theme_bg_inner"
                 android:contentDescription="Branch image" />
 
             <!-- Glass info overlay at bottom – scrolls away with banner -->
@@ -36,7 +36,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="bottom"
                 android:orientation="vertical"
-                android:background="#CC070c1f"
+                android:background="@color/branch_detail_overlay"
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
                 android:paddingTop="8dp"
@@ -55,7 +55,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:textColor="#aaaaaa"
+                        android:textColor="@color/theme_text_secondary"
                         android:textSize="12sp"/>
 
                     <TextView
@@ -65,21 +65,21 @@
                         android:textSize="11sp"
                         android:textStyle="bold"
                         android:text="● Active"
-                        android:textColor="#4ade80"
+                        android:textColor="@color/theme_green"
                         android:layout_marginEnd="8dp"/>
 
                     <TextView
                         android:id="@+id/tvDetailBranchType"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="#00d4ff"
+                        android:textColor="@color/theme_accent"
                         android:textSize="10sp"
                         android:textAllCaps="true"
                         android:paddingStart="8dp"
                         android:paddingEnd="8dp"
                         android:paddingTop="3dp"
                         android:paddingBottom="3dp"
-                        android:background="@drawable/bg_role_badge"/>
+                        android:background="@drawable/bg_role_badge_themed"/>
 
                 </LinearLayout>
 
@@ -87,7 +87,7 @@
                     android:id="@+id/tvDetailBranchAddress"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="#cccccc"
+                    android:textColor="@color/theme_text_primary"
                     android:textSize="12sp"
                     android:layout_marginBottom="2dp"/>
 
@@ -95,7 +95,7 @@
                     android:id="@+id/tvDetailBranchManager"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="#aaaaaa"
+                    android:textColor="@color/theme_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginBottom="2dp"/>
 
@@ -109,14 +109,14 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:textColor="#888888"
+                        android:textColor="@color/theme_text_secondary"
                         android:textSize="11sp"/>
 
                     <TextView
                         android:id="@+id/tvDetailBranchPhone"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="#888888"
+                        android:textColor="@color/theme_text_secondary"
                         android:textSize="11sp"/>
 
                 </LinearLayout>
@@ -125,7 +125,7 @@
                     android:id="@+id/tvDetailBranchParent"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="#666666"
+                    android:textColor="@color/theme_text_muted"
                     android:textSize="11sp"
                     android:layout_marginTop="2dp"
                     android:visibility="gone"/>
@@ -138,7 +138,7 @@
                 android:layout_height="52dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:background="#16213e"
+                android:background="@color/theme_bg_header"
                 android:paddingStart="4dp"
                 android:paddingEnd="12dp"
                 android:layout_gravity="top"
@@ -149,7 +149,7 @@
                     android:layout_width="44dp"
                     android:layout_height="44dp"
                     android:text="←"
-                    android:textColor="#ffffff"
+                    android:textColor="@color/theme_text_primary"
                     android:textSize="22sp"
                     android:gravity="center"
                     android:clickable="true"
@@ -162,7 +162,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="Branch Details"
-                    android:textColor="#ffffff"
+                    android:textColor="@color/theme_text_primary"
                     android:textSize="17sp"
                     android:textStyle="bold"
                     android:maxLines="1"
@@ -180,7 +180,7 @@
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Edit Branch"
                     android:visibility="gone"
-                    app:tint="#00d4ff"/>
+                    app:tint="@color/theme_text_accent"/>
 
             </LinearLayout>
 
@@ -191,9 +191,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="#16213e">
+            android:background="@color/theme_bg_header">
 
-            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#0d1533"/>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/theme_divider"/>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -216,8 +216,8 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:hint="Search by name, ID or email..."
-                    android:textColor="#eeeeee"
-                    android:textColorHint="#444444"
+                    android:textColor="@color/theme_text_primary"
+                    android:textColorHint="@color/theme_text_secondary"
                     android:textSize="13sp"
                     android:background="@null"
                     android:inputType="text"
@@ -226,7 +226,7 @@
 
             </LinearLayout>
 
-            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#0d1533"/>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/theme_divider"/>
 
             <HorizontalScrollView
                 android:layout_width="match_parent"
@@ -245,21 +245,21 @@
                     android:paddingBottom="6dp" />
             </HorizontalScrollView>
 
-            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#0d1533"/>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/theme_divider"/>
 
             <TextView
                 android:id="@+id/tvTeamCount"
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
                 android:text="Team Members"
-                android:textColor="#aaaaaa"
+                android:textColor="@color/theme_text_secondary"
                 android:textSize="12sp"
                 android:gravity="center_vertical"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
-                android:background="#0f3460"/>
+                android:background="@color/theme_bg_highlight"/>
 
-            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#0d1533"/>
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/theme_divider"/>
 
         </LinearLayout>
 
@@ -277,7 +277,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:indeterminateTint="#00d4ff"
+            android:indeterminateTint="@color/theme_accent"
             android:visibility="visible"/>
 
         <androidx.recyclerview.widget.RecyclerView
@@ -296,7 +296,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:text="No team members found."
-            android:textColor="#aaaaaa"
+            android:textColor="@color/theme_text_secondary"
             android:textSize="14sp"
             android:textAlignment="center"
             android:visibility="gone"/>

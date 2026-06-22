@@ -13,7 +13,7 @@
         android:layout_width="0dp"
         android:layout_height="1dp"
         android:layout_weight="1"
-        android:background="#2a2a4a" />
+        android:background="@color/theme_divider" />
 
     <TextView
         android:id="@+id/tvDate"
@@ -21,7 +21,7 @@
         android:layout_height="wrap_content"
         android:text="Today, 31 May 2025"
         android:textSize="11sp"
-        android:textColor="#64748b"
+        android:textColor="@color/theme_text_secondary"
         android:textStyle="bold"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
@@ -32,6 +32,6 @@
         android:layout_width="0dp"
         android:layout_height="1dp"
         android:layout_weight="1"
-        android:background="#2a2a4a" />
+        android:background="@color/theme_divider" />
 
 </LinearLayout>

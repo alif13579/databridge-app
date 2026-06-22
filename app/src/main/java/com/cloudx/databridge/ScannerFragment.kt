@@ -303,9 +303,12 @@ class ScannerFragment : Fragment() {
         val updates = hashMapOf<String, Any>()
         localItems.forEach { item ->
             val ts = item.scanAt
-            updates["users/${user.uid}/run-routes/scanned/$ts"] = mapOf(
+            val scanKey = item.id.toString()
+            updates[RunRoutePaths.scanItem(user.uid, scanKey)] = mapOf(
                 "scan_text" to item.code,
                 "scan_at" to ts,
+                "manual" to item.manual,
+                "user_id" to user.uid,
                 "status" to "pending"
             )
         }
@@ -315,6 +318,8 @@ class ScannerFragment : Fragment() {
                 val count = localItems.size
                 Toast.makeText(requireContext(), "✓ Uploaded $count parcel${if (count > 1) "s" else ""}!", Toast.LENGTH_SHORT).show()
                 localItems.clear()
+                currentTab = ScanTab.ALL_SCANS
+                updateChipStyles()
                 btnUpload.visibility = View.GONE
                 btnUpload.text = "☁ Upload Parcels"
                 render()
@@ -332,7 +337,7 @@ class ScannerFragment : Fragment() {
         val user = auth.currentUser ?: return
         uploadedItems.clear()
 
-        db.reference.child("users/${user.uid}/run-routes/scanned")
+        db.reference.child(RunRoutePaths.userScans(user.uid))
             .get()
             .addOnSuccessListener { snapshot ->
                 uploadedItems.clear()
@@ -369,9 +374,9 @@ class ScannerFragment : Fragment() {
         val key = item.firebaseKey
         if (key.isBlank()) return
 
-        db.reference.child("users/${user.uid}/run-routes/scanned/$key/scan_text").setValue(newCode.trim())
+        db.reference.child(RunRoutePaths.scanItem(user.uid, key)).child("scan_text").setValue(newCode.trim())
             .addOnSuccessListener {
-                val index = uploadedItems.indexOfFirst { it.id == item.id }
+                val index = uploadedItems.indexOfFirst { it.firebaseKey == key }
                 if (index >= 0) {
                     uploadedItems[index] = uploadedItems[index].copy(code = newCode.trim())
                     render()
@@ -388,9 +393,9 @@ class ScannerFragment : Fragment() {
         val key = item.firebaseKey
         if (key.isBlank()) return
 
-        db.reference.child("users/${user.uid}/run-routes/scanned/$key").removeValue()
+        db.reference.child(RunRoutePaths.scanItem(user.uid, key)).removeValue()
             .addOnSuccessListener {
-                uploadedItems.removeAll { it.id == item.id }
+                uploadedItems.removeAll { it.firebaseKey == key }
                 render()
                 Toast.makeText(requireContext(), "🗑️ Deleted from Firebase", Toast.LENGTH_SHORT).show()
             }

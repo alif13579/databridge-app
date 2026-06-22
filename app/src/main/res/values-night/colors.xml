@@ -72,6 +72,7 @@
     <color name="theme_bg_status_preview">#0a1220</color>
     <color name="theme_border_status_preview">#2a2f42</color>
     <color name="theme_overlay_bg">#cc000000</color>
+    <color name="branch_detail_overlay">#cc070c1f</color>
     
     <!-- Icon accents (night) -->
     <color name="accent_green">#34D399</color>

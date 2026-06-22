@@ -1,6 +1,5 @@
 package com.cloudx.databridge
 
-import android.graphics.Color
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -133,9 +132,9 @@ class BranchDetailFragment : Fragment() {
         return TextView(ctx).apply {
             text = if (roleId.isEmpty()) "All ($count)" else "$label ($count)"
             textSize = 12f
-            setTextColor(Color.parseColor("#888888"))
+            setTextColor(ContextCompat.getColor(ctx, R.color.theme_text_secondary))
             setPadding(12, 8, 12, 8)
-            background = ContextCompat.getDrawable(ctx, R.drawable.bg_role_badge)
+            background = ContextCompat.getDrawable(ctx, R.drawable.bg_role_badge_themed)
             tag = roleId
             val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             lp.setMargins(0, 0, 12, 0)
@@ -170,7 +169,12 @@ class BranchDetailFragment : Fragment() {
             val chip = chipContainer.getChildAt(i) as? TextView ?: continue
             val roleKey = chip.tag as? String ?: if (i == 0) "" else null
             val active = roleKey == filterRole
-            chip.setTextColor(Color.parseColor(if (active) "#00d4ff" else "#888888"))
+            chip.setTextColor(
+                ContextCompat.getColor(
+                    requireContext(),
+                    if (active) R.color.theme_text_accent else R.color.theme_text_secondary
+                )
+            )
             chip.alpha = if (active) 1f else 0.6f
         }
     }
@@ -222,7 +226,12 @@ class BranchDetailFragment : Fragment() {
             tvBranchEmail.text   = if (email.isNotBlank()) "✉  $email" else ""
             tvBranchPhone.text   = if (phone.isNotBlank()) "📞 $phone" else ""
             tvBranchStatus.text  = if (status == "active") "● Active" else "● Inactive"
-            tvBranchStatus.setTextColor(Color.parseColor(if (status == "active") "#4ade80" else "#ff6b6b"))
+            tvBranchStatus.setTextColor(
+                ContextCompat.getColor(
+                    requireContext(),
+                    if (status == "active") R.color.theme_green else R.color.theme_red
+                )
+            )
 
             val imageUrl = branchSnap.child("image_url").getValue(String::class.java).orEmpty()
             if (imageUrl.isNotBlank()) {
@@ -357,7 +366,7 @@ class BranchDetailFragment : Fragment() {
 
             val roleLabel = user.roleName.ifBlank { user.roleId.ifBlank { "No Role" } }
             h.tvRole.text = roleLabel
-            h.tvRole.setTextColor(Color.parseColor("#555555"))
+            h.tvRole.setTextColor(ContextCompat.getColor(h.itemView.context, R.color.theme_text_secondary))
 
             val canAct = canManage(user.roleId)
             h.ivEdit.visibility = if (canAct) View.VISIBLE else View.GONE

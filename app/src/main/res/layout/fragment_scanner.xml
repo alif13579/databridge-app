@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#0D0D1A">
+    android:background="@color/theme_bg_app">
 
     <!-- Header -->
     <LinearLayout
@@ -13,7 +13,7 @@
         android:padding="20dp"
         android:paddingTop="16dp"
         android:paddingBottom="12dp"
-        android:background="#12122A">
+        android:background="@color/theme_bg_header">
 
         <TextView
             android:layout_width="wrap_content"
@@ -21,7 +21,7 @@
             android:text="Parcel Scanner"
             android:textSize="26sp"
             android:textStyle="bold"
-            android:textColor="#ffffff"
+            android:textColor="@color/theme_text_primary"
             android:layout_marginBottom="12dp" />
 
         <!-- Count Badges -->
@@ -40,7 +40,7 @@
                 android:orientation="vertical"
                 android:gravity="center"
                 android:padding="8dp"
-                android:background="#1A1A2E"
+                android:background="@color/theme_bg_card"
                 android:layout_marginEnd="6dp">
                 <TextView android:id="@+id/tvTotalCount"
                     android:layout_width="wrap_content"
@@ -48,13 +48,13 @@
                     android:text="0"
                     android:textSize="20sp"
                     android:textStyle="bold"
-                    android:textColor="#ffffff" />
+                    android:textColor="@color/theme_text_primary" />
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="📦 Total"
                     android:textSize="9sp"
-                    android:textColor="#888888"
+                    android:textColor="@color/theme_text_secondary"
                     android:layout_marginTop="2dp" />
             </LinearLayout>
 
@@ -65,7 +65,7 @@
                 android:orientation="vertical"
                 android:gravity="center"
                 android:padding="8dp"
-                android:background="#1A1A2E"
+                android:background="@color/theme_bg_card"
                 android:layout_marginEnd="6dp">
                 <TextView android:id="@+id/tvCameraCount"
                     android:layout_width="wrap_content"
@@ -73,13 +73,13 @@
                     android:text="0"
                     android:textSize="20sp"
                     android:textStyle="bold"
-                    android:textColor="#00C6FF" />
+                    android:textColor="@color/theme_accent" />
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="📷 Camera"
                     android:textSize="9sp"
-                    android:textColor="#4ab8d4"
+                    android:textColor="@color/theme_accent"
                     android:layout_marginTop="2dp" />
             </LinearLayout>
 
@@ -90,20 +90,20 @@
                 android:orientation="vertical"
                 android:gravity="center"
                 android:padding="8dp"
-                android:background="#1A1A2E">
+                android:background="@color/theme_bg_card">
                 <TextView android:id="@+id/tvManualCount"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0"
                     android:textSize="20sp"
                     android:textStyle="bold"
-                    android:textColor="#ffd200" />
+                    android:textColor="@color/theme_yellow" />
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="✏️ Manual"
                     android:textSize="9sp"
-                    android:textColor="#c9a84c"
+                    android:textColor="@color/theme_yellow"
                     android:layout_marginTop="2dp" />
             </LinearLayout>
         </LinearLayout>
@@ -120,7 +120,7 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:text="◎ Single"
-                android:textColor="#ffffff"
+                android:textColor="@android:color/white"
                 android:textStyle="bold"
                 android:textSize="12sp"
                 android:background="@drawable/btn_scan_camera"
@@ -131,7 +131,7 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:text="⚡ Batch"
-                android:textColor="#000000"
+                android:textColor="@android:color/black"
                 android:textStyle="bold"
                 android:textSize="12sp"
                 android:background="@drawable/btn_mode_batch"
@@ -142,7 +142,7 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:text="✏️ Manual"
-                android:textColor="#ffffff"
+                android:textColor="@color/theme_text_primary"
                 android:textStyle="bold"
                 android:textSize="12sp"
                 android:background="@drawable/btn_scan_manual" />
@@ -192,7 +192,7 @@
         android:layout_weight="1"
         android:text="📦\n\nNo parcels scanned yet\n\nUse Single, Batch or Manual to begin"
         android:textAlignment="center"
-        android:textColor="#444444"
+        android:textColor="@color/theme_text_secondary"
         android:textSize="14sp"
         android:gravity="center"
         android:visibility="visible"
@@ -218,7 +218,7 @@
         android:layout_margin="16dp"
         android:layout_marginTop="4dp"
         android:text="☁ Upload Parcels"
-        android:textColor="#ffffff"
+        android:textColor="@android:color/white"
         android:textStyle="bold"
         android:textSize="14sp"
         android:background="@drawable/btn_upload"
