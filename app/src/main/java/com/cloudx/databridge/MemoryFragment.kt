@@ -549,10 +549,7 @@ class MemoryFragment : Fragment() {
     }
 
     private fun saveEntry() {
-        if (salaryType == "fixed") {
-            Toast.makeText(requireContext(), "Fixed salary; variable entry disabled", Toast.LENGTH_SHORT).show()
-            return
-        }
+        val isFixed = salaryType == "fixed"
         val parcel = etParcel.text.toString().toIntOrNull() ?: 0
         val parcelAssigned = etParcelAssigned.text.toString().toIntOrNull() ?: 0
         val doc = etDoc.text.toString().toIntOrNull() ?: 0
@@ -562,12 +559,12 @@ class MemoryFragment : Fragment() {
         val docPickup = etDocPickup.text.toString().toIntOrNull() ?: 0
         val docPickupAssigned = etDocPickupAssigned.text.toString().toIntOrNull() ?: 0
         val ts = if (entryDateMillis > 0) entryDateMillis else System.currentTimeMillis()
-        val parcelRateUsed = if (hasSalaryModelConfig) slabRateForDelivered(parcel) else 0.0
-        val parcelPickupRateUsed = if (hasSalaryModelConfig) slabRateForPickup(parcelPickup) else 0.0
-        val parcelComm = if (hasSalaryModelConfig) parcel * parcelRateUsed else 0.0
-        val parcelPickupComm = if (hasSalaryModelConfig) parcelPickup * parcelPickupRateUsed else 0.0
-        val docComm = if (hasSalaryModelConfig) doc * modelConfig.documentDeliveryRate else 0.0
-        val docPickupComm = if (hasSalaryModelConfig) docPickup * modelConfig.documentPickupRate else 0.0
+        val parcelRateUsed = if (!isFixed && hasSalaryModelConfig) slabRateForDelivered(parcel) else 0.0
+        val parcelPickupRateUsed = if (!isFixed && hasSalaryModelConfig) slabRateForPickup(parcelPickup) else 0.0
+        val parcelComm = if (!isFixed && hasSalaryModelConfig) parcel * parcelRateUsed else 0.0
+        val parcelPickupComm = if (!isFixed && hasSalaryModelConfig) parcelPickup * parcelPickupRateUsed else 0.0
+        val docComm = if (!isFixed && hasSalaryModelConfig) doc * modelConfig.documentDeliveryRate else 0.0
+        val docPickupComm = if (!isFixed && hasSalaryModelConfig) docPickup * modelConfig.documentPickupRate else 0.0
         val parcelRate = if (parcelAssigned > 0) parcel.toDouble() / parcelAssigned else 0.0
         val docRate = if (docAssigned > 0) doc.toDouble() / docAssigned else 0.0
         val parcelPickupRate = if (parcelPickupAssigned > 0) parcelPickup.toDouble() / parcelPickupAssigned else 0.0
@@ -582,12 +579,12 @@ class MemoryFragment : Fragment() {
             "documentAssigned" to docAssigned,
             "parcelPickupAssigned" to parcelPickupAssigned,
             "documentPickupAssigned" to docPickupAssigned,
-            "parcelCommission" to if (hasSalaryModelConfig) parcelComm else 0.0,
-            "documentCommission" to if (hasSalaryModelConfig) docComm else 0.0,
-            "parcelPickupCommission" to if (hasSalaryModelConfig) parcelPickupComm else 0.0,
-            "documentPickupCommission" to if (hasSalaryModelConfig) docPickupComm else 0.0,
+            "parcelCommission" to parcelComm,
+            "documentCommission" to docComm,
+            "parcelPickupCommission" to parcelPickupComm,
+            "documentPickupCommission" to docPickupComm,
             "createdAt" to ts,
-            "model" to salaryModel,
+            "model" to if (isFixed) "fixed" else salaryModel,
             "parcelSuccessRate" to parcelRate,
             "documentSuccessRate" to docRate,
             "parcelPickupSuccessRate" to parcelPickupRate,
@@ -726,3 +723,4 @@ class MemoryFragment : Fragment() {
         tvTodayTotal.text = "Today: ৳${todaySum.toInt()}"
     }
 }
+
