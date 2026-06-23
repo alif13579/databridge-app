@@ -181,6 +181,7 @@ class ConfigStatusesFragment : Fragment() {
                 ConfigState.statusMeta = newMeta
                 triggerSave()
                 bindStatusList()
+                Toast.makeText(ctx, "✅ Status আপডেট হয়েছে", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("বাতিল", null)
             .show()
@@ -236,6 +237,7 @@ class ConfigStatusesFragment : Fragment() {
 
         triggerSave()
         bindStatusList()
+        Toast.makeText(requireContext(), "🗑️ Status মুছে গেছে", Toast.LENGTH_SHORT).show()
     }
 
     // ── Create new status ─────────────────────────────────────────────────────
@@ -268,6 +270,7 @@ class ConfigStatusesFragment : Fragment() {
         etNewKey.setText(""); etNewBn.setText(""); etNewEn.setText(""); etNewPriority.setText("0")
         newColorIdx = 0; updateCreateColorPreview()
         bindStatusList()
+        Toast.makeText(requireContext(), "✅ নতুন status তৈরি হয়েছে", Toast.LENGTH_SHORT).show()
     }
 
     private fun showError(msg: String) {

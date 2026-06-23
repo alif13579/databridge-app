@@ -173,6 +173,7 @@ class ConfigRemarksFragment : Fragment() {
         ConfigState.remarks = remarks
         triggerSave()
         bindAll()
+        Toast.makeText(requireContext(), "✅ Remark সরানো হয়েছে", Toast.LENGTH_SHORT).show()
     }
 
     /** handleDelete: remove remark from group */
@@ -181,6 +182,7 @@ class ConfigRemarksFragment : Fragment() {
         ConfigState.remarks = remarks
         triggerSave()
         bindAll()
+        Toast.makeText(requireContext(), "🗑️ Remark মুছে গেছে", Toast.LENGTH_SHORT).show()
     }
 
     /** handleAdd: create new remark from form inputs */
@@ -206,6 +208,7 @@ class ConfigRemarksFragment : Fragment() {
         etBn.setText(""); etEn.setText("")
         activeStatus = target
         bindAll()
+        Toast.makeText(requireContext(), "✅ Remark যোগ হয়েছে", Toast.LENGTH_SHORT).show()
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

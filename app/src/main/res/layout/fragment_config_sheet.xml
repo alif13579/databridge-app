@@ -1,144 +1,475 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/sheetRootContainer"
+    android:id="@+id/sheetRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- ═══ PANEL 1: Branch Select ═══ -->
     <ScrollView
+        android:id="@+id/panelBranchSelect"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:padding="16dp">
-        <LinearLayout
-            android:id="@+id/branchListContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical" />
-    </ScrollView>
 
-    <ScrollView
-        android:id="@+id/connectFlowLayout"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:padding="16dp"
-        android:visibility="gone">
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="horizontal" android:gravity="center_vertical"
-                android:layout_marginBottom="16dp">
-                <TextView android:id="@+id/btnConnectCancel"
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Google Sheet সংযোগ"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface"
+                android:layout_marginBottom="4dp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Branch বেছে নিন, তারপর Connect বা Manage করুন"
+                android:textSize="11sp"
+                android:textColor="#9CA3AF"
+                android:layout_marginBottom="14dp" />
+
+            <!-- Branch Spinner -->
+            <Spinner
+                android:id="@+id/spinnerBranch"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@drawable/bg_input_rounded"
+                android:paddingStart="10dp"
+                android:layout_marginBottom="12dp" />
+
+            <!-- Connection info card (shown when connected) -->
+            <LinearLayout
+                android:id="@+id/cardConnInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_card_rounded"
+                android:padding="12dp"
+                android:layout_marginBottom="10dp"
+                android:visibility="gone">
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="✅ Connected" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="#16A34A" android:layout_marginBottom="6dp" />
+                <TextView android:id="@+id/tvConnInfoSheet"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="←" android:textSize="20sp" android:textColor="#6B7280"
-                    android:padding="4dp" android:clickable="true" android:focusable="true"
-                    android:layout_marginEnd="8dp" />
-                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Connect Sheet" android:textSize="14sp" android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurface" />
-                    <TextView android:id="@+id/tvConnectBranchName"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:textSize="11sp" android:textColor="#9CA3AF" />
-                </LinearLayout>
+                    android:textSize="13sp" android:textStyle="bold" android:textColor="?attr/colorOnSurface" />
+                <TextView android:id="@+id/tvConnInfoTab"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textSize="12sp" android:textColor="#6B7280" android:layout_marginTop="2dp" />
+                <TextView android:id="@+id/tvConnInfoCols"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textSize="12sp" android:textColor="#6B7280" android:layout_marginTop="2dp" />
             </LinearLayout>
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Sheet ID (URL বা ID)" android:textSize="11sp" android:textColor="#9CA3AF"
-                android:textStyle="bold" android:layout_marginBottom="4dp" />
-            <EditText android:id="@+id/etSheetId" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:hint="1BxiMVs0XRA..."
-                android:padding="9dp" android:background="@drawable/bg_input_rounded"
-                android:textSize="13sp" android:inputType="text" android:layout_marginBottom="10dp" />
+            <!-- Connect / Manage Button -->
+            <Button
+                android:id="@+id/btnBranchAction"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:text="Connect করুন"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#E8380D"
+                android:visibility="gone" />
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Sheet নাম" android:textSize="11sp" android:textColor="#9CA3AF"
-                android:textStyle="bold" android:layout_marginBottom="4dp" />
-            <EditText android:id="@+id/etSheetName" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:hint="Delivery Agents June 2025"
-                android:padding="9dp" android:background="@drawable/bg_input_rounded"
-                android:textSize="13sp" android:inputType="text" android:layout_marginBottom="10dp" />
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Tab নাম" android:textSize="11sp" android:textColor="#9CA3AF"
-                android:textStyle="bold" android:layout_marginBottom="4dp" />
-            <EditText android:id="@+id/etSheetTabName" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:hint="Sheet1"
-                android:padding="9dp" android:background="@drawable/bg_input_rounded"
-                android:textSize="13sp" android:inputType="text" android:layout_marginBottom="10dp" />
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Columns (comma separated: A, B, C)" android:textSize="11sp"
-                android:textColor="#9CA3AF" android:textStyle="bold" android:layout_marginBottom="4dp" />
-            <EditText android:id="@+id/etSheetColumns" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:hint="A, B, C, D"
-                android:padding="9dp" android:background="@drawable/bg_input_rounded"
-                android:textSize="13sp" android:inputType="text" android:layout_marginBottom="10dp" />
-
-            <TextView android:id="@+id/tvConnectError" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:textSize="12sp"
-                android:textColor="#EF4444" android:visibility="gone" android:layout_marginBottom="8dp" />
-
-            <Button android:id="@+id/btnConnectSave" android:layout_width="match_parent"
-                android:layout_height="40dp" android:text="Save"
-                android:textSize="13sp" android:textStyle="bold"
-                android:backgroundTint="#E8380D" android:textColor="#FFFFFF" />
         </LinearLayout>
     </ScrollView>
 
+    <!-- ═══ PANEL 2: ConnectFlow ═══ -->
     <ScrollView
-        android:id="@+id/managePanelLayout"
+        android:id="@+id/panelConnect"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:padding="16dp"
         android:visibility="gone">
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
+            <!-- Header -->
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="horizontal" android:gravity="center_vertical"
-                android:layout_marginBottom="16dp">
-                <TextView android:id="@+id/btnManageBack"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginBottom="18dp">
+                <TextView android:id="@+id/btnCancelConnect"
+                    android:layout_width="32dp" android:layout_height="32dp"
                     android:text="←" android:textSize="20sp" android:textColor="#6B7280"
-                    android:padding="4dp" android:clickable="true" android:focusable="true"
-                    android:layout_marginEnd="8dp" />
-                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                    android:gravity="center"
+                    android:clickable="true" android:focusable="true"
+                    android:layout_marginEnd="10dp" />
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:orientation="vertical">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Manage Connection" android:textSize="14sp" android:textStyle="bold"
+                        android:text="Sheet Connect করুন" android:textSize="14sp" android:textStyle="bold"
                         android:textColor="?attr/colorOnSurface" />
-                    <TextView android:id="@+id/tvManageBranchName"
+                    <TextView android:id="@+id/tvConnBranchSub"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:textSize="11sp" android:textColor="#9CA3AF" />
                 </LinearLayout>
             </LinearLayout>
 
-            <TextView android:id="@+id/tvManageSheetInfo" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:textSize="13sp"
-                android:textColor="?attr/colorOnSurface" android:textStyle="bold"
-                android:layout_marginBottom="8dp" />
+            <!-- Step indicator -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:gravity="center_vertical"
+                android:layout_marginBottom="18dp">
 
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Column Mapping" android:textSize="11sp" android:textColor="#9CA3AF"
-                android:textStyle="bold" android:layout_marginBottom="4dp" />
-            <TextView android:id="@+id/tvColumnMappingInfo" android:layout_width="match_parent"
-                android:layout_height="wrap_content" android:textSize="12sp"
-                android:textColor="#374151" android:layout_marginBottom="16dp" />
+                <!-- Step 1 -->
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center_horizontal">
+                    <View android:id="@+id/step1Dot"
+                        android:layout_width="26dp" android:layout_height="26dp" />
+                    <TextView android:id="@+id/step1Lbl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Sheet" android:textSize="9sp" android:layout_marginTop="2dp" />
+                </LinearLayout>
+                <View android:id="@+id/step1Line" android:layout_width="0dp" android:layout_height="2dp"
+                    android:layout_weight="1" android:background="#E5E7EB" android:layout_marginBottom="14dp" />
 
-            <Button android:id="@+id/btnReconnect" android:layout_width="match_parent"
-                android:layout_height="40dp" android:text="Reconnect"
-                android:textStyle="bold" android:backgroundTint="#3B82F6"
-                android:textColor="#fff" android:layout_marginBottom="8dp" />
+                <!-- Step 2 -->
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center_horizontal">
+                    <View android:id="@+id/step2Dot"
+                        android:layout_width="26dp" android:layout_height="26dp" />
+                    <TextView android:id="@+id/step2Lbl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Tab" android:textSize="9sp" android:layout_marginTop="2dp" />
+                </LinearLayout>
+                <View android:id="@+id/step2Line" android:layout_width="0dp" android:layout_height="2dp"
+                    android:layout_weight="1" android:background="#E5E7EB" android:layout_marginBottom="14dp" />
 
-            <Button android:id="@+id/btnDisconnect" android:layout_width="match_parent"
-                android:layout_height="40dp" android:text="Disconnect"
-                android:textStyle="bold" android:backgroundTint="#EF4444" android:textColor="#fff" />
+                <!-- Step 3 -->
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center_horizontal">
+                    <View android:id="@+id/step3Dot"
+                        android:layout_width="26dp" android:layout_height="26dp" />
+                    <TextView android:id="@+id/step3Lbl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Columns" android:textSize="9sp" android:layout_marginTop="2dp" />
+                </LinearLayout>
+                <View android:id="@+id/step3Line" android:layout_width="0dp" android:layout_height="2dp"
+                    android:layout_weight="1" android:background="#E5E7EB" android:layout_marginBottom="14dp" />
+
+                <!-- Step 4 -->
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center_horizontal">
+                    <View android:id="@+id/step4Dot"
+                        android:layout_width="26dp" android:layout_height="26dp" />
+                    <TextView android:id="@+id/step4Lbl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Preview" android:textSize="9sp" android:layout_marginTop="2dp" />
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- ── Step 1: Sheet ID + Name ── -->
+            <LinearLayout android:id="@+id/stepView1"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="SHEET ID / URL" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="#6B7280" android:layout_marginBottom="5dp" />
+                <EditText android:id="@+id/etSheetId"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:hint="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms"
+                    android:background="@drawable/bg_input_rounded"
+                    android:padding="10dp" android:textSize="13sp"
+                    android:inputType="text" android:layout_marginBottom="12dp" />
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="SHEET নাম" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="#6B7280" android:layout_marginBottom="5dp" />
+                <EditText android:id="@+id/etSheetName"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:hint="Delivery Agents June 2025"
+                    android:background="@drawable/bg_input_rounded"
+                    android:padding="10dp" android:textSize="13sp"
+                    android:inputType="text" />
+            </LinearLayout>
+
+            <!-- ── Step 2: Tab Name ── -->
+            <LinearLayout android:id="@+id/stepView2"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:visibility="gone">
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="SHEET TAB নাম" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="#6B7280" android:layout_marginBottom="5dp" />
+                <EditText android:id="@+id/etTabName"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:hint="Sheet1  অথবা  Mirpur  অথবা  Main"
+                    android:background="@drawable/bg_input_rounded"
+                    android:padding="10dp" android:textSize="13sp"
+                    android:inputType="text" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Google Sheet এর নিচে যে tab name আছে সেটি দিন"
+                    android:textSize="11sp" android:textColor="#9CA3AF"
+                    android:layout_marginTop="6dp" />
+            </LinearLayout>
+
+            <!-- ── Step 3: Column Range ── -->
+            <LinearLayout android:id="@+id/stepView3"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:visibility="gone">
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="COLUMN RANGE (1–26)" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="#6B7280" android:layout_marginBottom="5dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="10dp">
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="শুরু (1=A, 2=B...)" android:textSize="10sp"
+                            android:textColor="#9CA3AF" android:layout_marginBottom="4dp" />
+                        <EditText android:id="@+id/etColStart"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:text="1" android:background="@drawable/bg_input_rounded"
+                            android:padding="10dp" android:textSize="14sp" android:gravity="center"
+                            android:inputType="number" />
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="8dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="শেষ (1–26)" android:textSize="10sp"
+                            android:textColor="#9CA3AF" android:layout_marginBottom="4dp" />
+                        <EditText android:id="@+id/etColEnd"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:text="10" android:background="@drawable/bg_input_rounded"
+                            android:padding="10dp" android:textSize="14sp" android:gravity="center"
+                            android:inputType="number" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <TextView android:id="@+id/tvColPreview"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Columns: A–J (10টি)"
+                    android:textSize="12sp" android:textColor="#374151"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="10dp" />
+            </LinearLayout>
+
+            <!-- ── Step 4: Preview/Summary ── -->
+            <LinearLayout android:id="@+id/stepView4"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:visibility="gone">
+
+                <TextView android:id="@+id/tvSummary"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textSize="13sp" android:textColor="#166534"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="14dp" android:lineSpacingMultiplier="1.5" />
+            </LinearLayout>
+
+            <!-- Error -->
+            <TextView android:id="@+id/tvConnectError"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textSize="12sp" android:textColor="#EF4444"
+                android:layout_marginTop="8dp" android:visibility="gone" />
+
+            <!-- Nav buttons -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:layout_marginTop="16dp">
+
+                <Button android:id="@+id/btnStepBack"
+                    android:layout_width="0dp" android:layout_height="44dp"
+                    android:layout_weight="1" android:text="← Back"
+                    android:textSize="13sp" android:textStyle="bold"
+                    android:backgroundTint="#F3F4F6" android:textColor="#374151"
+                    android:layout_marginEnd="6dp" android:visibility="gone" />
+
+                <Button android:id="@+id/btnStepNext"
+                    android:layout_width="0dp" android:layout_height="44dp"
+                    android:layout_weight="2" android:text="পরবর্তী →"
+                    android:textSize="13sp" android:textStyle="bold"
+                    android:backgroundTint="#E8380D" android:textColor="#FFFFFF" />
+
+                <Button android:id="@+id/btnStepConnect"
+                    android:layout_width="0dp" android:layout_height="44dp"
+                    android:layout_weight="2" android:text="✓ Connect করুন"
+                    android:textSize="13sp" android:textStyle="bold"
+                    android:backgroundTint="#E8380D" android:textColor="#FFFFFF"
+                    android:visibility="gone" />
+            </LinearLayout>
+
         </LinearLayout>
     </ScrollView>
+
+    <!-- ═══ PANEL 3: ManagePanel ═══ -->
+    <LinearLayout
+        android:id="@+id/panelManage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <!-- Header -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            android:padding="16dp" android:paddingBottom="0dp">
+            <TextView android:id="@+id/btnManBack"
+                android:layout_width="32dp" android:layout_height="32dp"
+                android:text="←" android:textSize="20sp" android:textColor="#6B7280"
+                android:gravity="center"
+                android:clickable="true" android:focusable="true"
+                android:layout_marginEnd="10dp" />
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:orientation="vertical">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Manage Connection" android:textSize="14sp" android:textStyle="bold"
+                    android:textColor="?attr/colorOnSurface" />
+                <TextView android:id="@+id/tvManageBranchInfo"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:textSize="11sp" android:textColor="#9CA3AF" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Mini tab bar -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:paddingStart="16dp" android:paddingEnd="16dp"
+            android:paddingTop="10dp">
+
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center_horizontal" android:layout_marginEnd="4dp">
+                <TextView android:id="@+id/tabOverview"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Overview" android:textSize="12sp" android:textStyle="bold"
+                    android:textColor="#E8380D" android:padding="8dp"
+                    android:clickable="true" android:focusable="true" />
+                <View android:id="@+id/indOverview"
+                    android:layout_width="match_parent" android:layout_height="2dp"
+                    android:background="#E8380D" />
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center_horizontal" android:layout_marginEnd="4dp">
+                <TextView android:id="@+id/tabColumns"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Columns" android:textSize="12sp" android:textStyle="bold"
+                    android:textColor="#6B7280" android:padding="8dp"
+                    android:clickable="true" android:focusable="true" />
+                <View android:id="@+id/indColumns"
+                    android:layout_width="match_parent" android:layout_height="2dp"
+                    android:background="#E8380D" android:visibility="invisible" />
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="vertical" android:gravity="center_horizontal">
+                <TextView android:id="@+id/tabSync"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Sync" android:textSize="12sp" android:textStyle="bold"
+                    android:textColor="#6B7280" android:padding="8dp"
+                    android:clickable="true" android:focusable="true" />
+                <View android:id="@+id/indSync"
+                    android:layout_width="match_parent" android:layout_height="2dp"
+                    android:background="#E8380D" android:visibility="invisible" />
+            </LinearLayout>
+        </LinearLayout>
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#E5E7EB" />
+
+        <!-- Tab contents -->
+        <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+            android:padding="16dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- Overview card -->
+                <LinearLayout android:id="@+id/cardOverview"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:background="@drawable/bg_card_rounded"
+                        android:padding="14dp" android:layout_marginBottom="12dp">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:orientation="horizontal" android:layout_marginBottom="6dp">
+                            <TextView android:layout_width="80dp" android:layout_height="wrap_content"
+                                android:text="Sheet" android:textSize="12sp" android:textColor="#9CA3AF" android:textStyle="bold" />
+                            <TextView android:id="@+id/tvOvSheet" android:layout_width="0dp"
+                                android:layout_height="wrap_content" android:layout_weight="1"
+                                android:textSize="13sp" android:textColor="?attr/colorOnSurface" android:textStyle="bold" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:orientation="horizontal" android:layout_marginBottom="6dp">
+                            <TextView android:layout_width="80dp" android:layout_height="wrap_content"
+                                android:text="Tab" android:textSize="12sp" android:textColor="#9CA3AF" android:textStyle="bold" />
+                            <TextView android:id="@+id/tvOvTab" android:layout_width="0dp"
+                                android:layout_height="wrap_content" android:layout_weight="1"
+                                android:textSize="13sp" android:textColor="?attr/colorOnSurface" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+                            <TextView android:layout_width="80dp" android:layout_height="wrap_content"
+                                android:text="Columns" android:textSize="12sp" android:textColor="#9CA3AF" android:textStyle="bold" />
+                            <TextView android:id="@+id/tvOvCols" android:layout_width="0dp"
+                                android:layout_height="wrap_content" android:layout_weight="1"
+                                android:textSize="13sp" android:textColor="?attr/colorOnSurface" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+                        <Button android:id="@+id/btnManReconnect"
+                            android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                            android:text="Reconnect" android:textSize="12sp" android:textStyle="bold"
+                            android:backgroundTint="#F3F4F6" android:textColor="#374151"
+                            android:layout_marginEnd="6dp" />
+                        <Button android:id="@+id/btnManDisconnect"
+                            android:layout_width="0dp" android:layout_height="40dp" android:layout_weight="1"
+                            android:text="Disconnect" android:textSize="12sp" android:textStyle="bold"
+                            android:backgroundTint="#FFF5F5" android:textColor="#EF4444" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Columns card -->
+                <LinearLayout android:id="@+id/cardColumns"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:visibility="gone">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Column Mapping" android:textSize="12sp" android:textStyle="bold"
+                        android:textColor="#374151" android:layout_marginBottom="8dp" />
+                    <TextView android:id="@+id/tvColPreviewMgr"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:textSize="12sp" android:textColor="#374151"
+                        android:background="@drawable/bg_card_rounded" android:padding="12dp"
+                        android:lineSpacingMultiplier="1.6" android:layout_marginBottom="12dp" />
+                    <Button android:id="@+id/btnColChange"
+                        android:layout_width="match_parent" android:layout_height="40dp"
+                        android:text="Column range পরিবর্তন করুন"
+                        android:textSize="12sp" android:textStyle="bold"
+                        android:backgroundTint="#F3F4F6" android:textColor="#374151" />
+                </LinearLayout>
+
+                <!-- Sync card -->
+                <LinearLayout android:id="@+id/cardSync"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:visibility="gone">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" android:background="@drawable/bg_card_rounded"
+                        android:padding="14dp" android:layout_marginBottom="8dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Last Sync" android:textSize="12sp" android:textStyle="bold" android:textColor="#374151" android:layout_marginBottom="2dp" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Auto-sync: প্রতি 30 মিনিট" android:textSize="12sp" android:textColor="#6B7280" />
+                    </LinearLayout>
+                    <Button android:id="@+id/btnSyncNow"
+                        android:layout_width="match_parent" android:layout_height="44dp"
+                        android:text="🔄 Sync এখনই করুন"
+                        android:textSize="13sp" android:textStyle="bold"
+                        android:backgroundTint="#E8380D" android:textColor="#FFFFFF" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </ScrollView>
+
+    </LinearLayout>
 
 </FrameLayout>

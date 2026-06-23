@@ -66,6 +66,7 @@ class ConfigLanguageFragment : Fragment() {
                 ConfigState.workerLang = val_
                 renderPreview(previewWorker, val_)
                 triggerSave()
+                Toast.makeText(requireContext(), "✅ Worker language saved", Toast.LENGTH_SHORT).show()
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
@@ -75,6 +76,7 @@ class ConfigLanguageFragment : Fragment() {
                 ConfigState.ccLang = val_
                 renderPreview(previewCC, val_)
                 triggerSave()
+                Toast.makeText(requireContext(), "✅ CC language saved", Toast.LENGTH_SHORT).show()
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
