@@ -1,38 +1,86 @@
 package com.cloudx.databridge
 
+import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import com.google.android.gms.auth.GoogleAuthUtil
+import com.google.android.gms.auth.UserRecoverableAuthException
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
  * 📊 Sheet Config Tab  —  mirrors JSX SheetSection + ConnectFlow + ManagePanel
  *
- * UX Flow:
+ * UX Flow (JSX 1:1):
  *   BRANCH_SELECT  → dropdown "Choose Branch" + Connect / Manage button
  *   CONNECTING     → 4-step wizard (Account → Sheet → Tab → Columns)
+ *                    Step 1: Google account chooser (real OAuth popup)
+ *                    Step 2: Sheet dropdown (from Drive API)
+ *                    Step 3: Tab dropdown (from Sheets API)
+ *                    Step 4: Column range + summary
  *   MANAGING       → mini-tabs: Overview | Columns | Sync
  */
 class ConfigSheetFragment : Fragment() {
 
+    companion object {
+        private const val SCOPE_DRIVE  = "https://www.googleapis.com/auth/drive.readonly"
+        private const val SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets.readonly"
+        private const val OAUTH_SCOPE  = "oauth2:$SCOPE_DRIVE $SCOPE_SHEETS"
+    }
+
     private val db   = FirebaseDatabase.getInstance()
     private val auth = FirebaseAuth.getInstance()
 
-    // ── State machine ─────────────────────────────────────────────────────────
-    private enum class Screen { BRANCH_SELECT, CONNECTING, MANAGING }
-    private var screen         = Screen.BRANCH_SELECT
-    private var activeBranch   = ""
-    private var connectStep    = 1   // 1=SheetId  2=Tab  3=Columns  4=Preview
+    private val httpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+    }
 
-    private var branches: List<String>                         = emptyList()
-    private var connections: MutableMap<String, SheetConn>     = mutableMapOf()
+    private var googleSignInClient: GoogleSignInClient? = null
+
+    // ── State machine ─────────────────────────────────────────────────
+    private enum class Screen { BRANCH_SELECT, CONNECTING, MANAGING }
+    private var screen       = Screen.BRANCH_SELECT
+    private var activeBranch = ""
+    private var connectStep  = 1   // 1=Account  2=Sheet  3=Tab  4=Columns
+
+    private var branches:    List<String>                  = emptyList()
+    private var connections: MutableMap<String, SheetConn> = mutableMapOf()
+
+    // ── Connect flow state (mirrors JSX) ──────────────────────────────
+    private var googleAccount:    GoogleSignInAccount? = null
+    private var availableSheets:  List<DriveFile>      = emptyList()
+    private var selectedSheet:    DriveFile?           = null
+    private var availableTabs:    List<String>         = emptyList()
+    private var selectedTab:      String               = ""
+
+    data class DriveFile(val id: String, val name: String) {
+        override fun toString() = name
+    }
 
     data class SheetConn(
         val branchId:    String = "",
@@ -41,6 +89,7 @@ class ConfigSheetFragment : Fragment() {
         val tabName:     String = "",
         val colStart:    Int    = 1,
         val colEnd:      Int    = 10,
+        val googleEmail: String = "",
         val connectedBy: String = "",
         val connectedAt: Long   = 0L,
     ) {
@@ -49,69 +98,128 @@ class ConfigSheetFragment : Fragment() {
             .map { it.toString() }
     }
 
-    // ── Root & shared views ───────────────────────────────────────────────────
-    private lateinit var root:              FrameLayout
+    // ── Views ─────────────────────────────────────────────────────────
+    private var root: FrameLayout? = null
 
     /* Branch select panel */
-    private lateinit var panelBranch:       LinearLayout
-    private lateinit var spinnerBranch:     Spinner
-    private lateinit var cardConnInfo:      LinearLayout
-    private lateinit var tvConnInfoSheet:   TextView
-    private lateinit var tvConnInfoTab:     TextView
-    private lateinit var tvConnInfoCols:    TextView
-    private lateinit var btnBranchAction:   Button   // "Connect" or "Manage"
+    private var panelBranch:     View? = null
+    private var spinnerBranch:   Spinner? = null
+    private var cardConnInfo:    LinearLayout? = null
+    private var tvConnInfoSheet: TextView? = null
+    private var tvConnInfoTab:   TextView? = null
+    private var tvConnInfoCols:  TextView? = null
+    private var btnBranchAction: Button? = null
 
-    /* ConnectFlow panel */
-    private lateinit var panelConnect:      View
-    private lateinit var tvConnBranchSub:   TextView
-    // Step indicators
-    private lateinit var step1Dot:  View; private lateinit var step2Dot:  View
-    private lateinit var step3Dot:  View; private lateinit var step4Dot:  View
-    private lateinit var step1Line: View; private lateinit var step2Line: View; private lateinit var step3Line: View
-    private lateinit var step1Lbl:  TextView; private lateinit var step2Lbl:  TextView
-    private lateinit var step3Lbl:  TextView; private lateinit var step4Lbl:  TextView
-    // Step views
-    private lateinit var stepView1: View; private lateinit var stepView2: View
-    private lateinit var stepView3: View; private lateinit var stepView4: View
-    // Step-1 inputs
-    private lateinit var etSheetId:    EditText
-    private lateinit var etSheetName:  EditText
-    // Step-2
-    private lateinit var etTabName:    EditText
-    // Step-3 columns
-    private lateinit var etColStart:   EditText
-    private lateinit var etColEnd:     EditText
-    private lateinit var tvColPreview: TextView
-    // Step-4 summary
-    private lateinit var tvSummary:    TextView
+    /* ConnectFlow */
+    private var panelConnect:        View? = null
+    private var tvConnBranchSub:     TextView? = null
+    private var step1Dot:  View? = null; private var step2Dot:  View? = null
+    private var step3Dot:  View? = null; private var step4Dot:  View? = null
+    private var step1Line: View? = null; private var step2Line: View? = null; private var step3Line: View? = null
+    private var step1Lbl:  TextView? = null; private var step2Lbl:  TextView? = null
+    private var step3Lbl:  TextView? = null; private var step4Lbl:  TextView? = null
+    private var stepView1: View? = null; private var stepView2: View? = null
+    private var stepView3: View? = null; private var stepView4: View? = null
+
+    // Step 1 - Account picker
+    private var cardSelectedAccount:   View? = null
+    private var tvSelectedAccountName: TextView? = null
+    private var tvSelectedAccountEmail:TextView? = null
+    private var btnPickAccount:        Button? = null
+
+    // Step 2 - Sheet spinner
+    private var spinnerSheet: Spinner? = null
+    private var pbSheetLoad:  ProgressBar? = null
+
+    // Step 3 - Tab spinner
+    private var spinnerTab: Spinner? = null
+    private var pbTabLoad:  ProgressBar? = null
+
+    // Step 4 - column range + summary
+    private var etColStart:   EditText? = null
+    private var etColEnd:     EditText? = null
+    private var tvColPreview: TextView? = null
+    private var tvSummary:    TextView? = null
+
     // Nav buttons
-    private lateinit var btnBack:      Button
-    private lateinit var btnNext:      Button
-    private lateinit var btnConnect:   Button
-    private lateinit var btnCancelConn:View
-    private lateinit var tvConnError:  TextView
+    private var btnBack:    Button? = null
+    private var btnNext:    Button? = null
+    private var btnConnect: Button? = null
+    private var btnCancelConn: View? = null
+    private var tvConnError: TextView? = null
 
     /* ManagePanel */
-    private lateinit var panelManage:      View
-    private lateinit var tvManageBranch:   TextView
-    private lateinit var tabOverview:      TextView; private lateinit var tabColumns:   TextView; private lateinit var tabSync: TextView
-    private lateinit var indOverview:      View;     private lateinit var indColumns:   View;     private lateinit var indSync: View
-    private lateinit var cardOverview:     View
-    private lateinit var cardColumns:      View
-    private lateinit var cardSync:         View
-    private lateinit var tvOvSheet:        TextView; private lateinit var tvOvTab: TextView; private lateinit var tvOvCols: TextView
-    private lateinit var tvColPreviewMgr:  TextView
-    private lateinit var btnManReconnect:  Button;   private lateinit var btnManDisconn: Button
-    private lateinit var btnManBack:       View
-    private lateinit var btnSyncNow:       Button
+    private var panelManage:     View? = null
+    private var tvManageBranch:  TextView? = null
+    private var tabOverview:     TextView? = null; private var tabColumns: TextView? = null; private var tabSync: TextView? = null
+    private var indOverview:     View? = null;     private var indColumns: View? = null;     private var indSync: View? = null
+    private var cardOverview:    View? = null
+    private var cardColumns:     View? = null
+    private var cardSync:        View? = null
+    private var tvOvSheet:       TextView? = null; private var tvOvTab: TextView? = null; private var tvOvCols: TextView? = null
+    private var tvColPreviewMgr: TextView? = null
+    private var btnManReconnect: Button? = null;   private var btnManDisconn: Button? = null
+    private var btnManBack:      View? = null
+    private var btnSyncNow:      Button? = null
 
     private var activeManageTab = "overview"
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
-        inflater.inflate(R.layout.fragment_config_sheet, container, false)
+    // Activity-result launcher for Google Sign-In
+    private val signInLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result: androidx.activity.result.ActivityResult ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            handleSignInResult(result.data)
+        } else {
+            // User cancelled — silently
+        }
+    }
+
+    // Recovery launcher (in case getToken throws UserRecoverableAuthException)
+    private val recoverableLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            loadSheetsForAccount()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        try {
+            val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestEmail()
+                .requestProfile()
+                .requestScopes(Scope(SCOPE_DRIVE), Scope(SCOPE_SHEETS))
+                .build()
+            googleSignInClient = GoogleSignIn.getClient(requireActivity(), gso)
+
+            // Restore last signed-in account if scopes still granted
+            GoogleSignIn.getLastSignedInAccount(requireContext())?.let { acc ->
+                if (GoogleSignIn.hasPermissions(acc, Scope(SCOPE_DRIVE), Scope(SCOPE_SHEETS))) {
+                    googleAccount = acc
+                }
+            }
+        } catch (_: Exception) { /* defensive: never crash on init */ }
+    }
+
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
+    ): View = inflater.inflate(R.layout.fragment_config_sheet, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        try {
+            bindViews(view)
+            attachListeners()
+            render()
+            loadFromFirebase()
+        } catch (e: Exception) {
+            toast("Sheet tab load error: ${e.message ?: "unknown"}")
+        }
+    }
+
+    private fun bindViews(view: View) {
         root            = view.findViewById(R.id.sheetRoot)
 
         // Branch select
@@ -133,18 +241,27 @@ class ConfigSheetFragment : Fragment() {
         step3Lbl  = view.findViewById(R.id.step3Lbl);  step4Lbl  = view.findViewById(R.id.step4Lbl)
         stepView1 = view.findViewById(R.id.stepView1); stepView2 = view.findViewById(R.id.stepView2)
         stepView3 = view.findViewById(R.id.stepView3); stepView4 = view.findViewById(R.id.stepView4)
-        etSheetId   = view.findViewById(R.id.etSheetId)
-        etSheetName = view.findViewById(R.id.etSheetName)
-        etTabName   = view.findViewById(R.id.etTabName)
-        etColStart  = view.findViewById(R.id.etColStart)
-        etColEnd    = view.findViewById(R.id.etColEnd)
-        tvColPreview= view.findViewById(R.id.tvColPreview)
-        tvSummary   = view.findViewById(R.id.tvSummary)
-        btnBack     = view.findViewById(R.id.btnStepBack)
-        btnNext     = view.findViewById(R.id.btnStepNext)
-        btnConnect  = view.findViewById(R.id.btnStepConnect)
+
+        cardSelectedAccount    = view.findViewById(R.id.cardSelectedAccount)
+        tvSelectedAccountName  = view.findViewById(R.id.tvSelectedAccountName)
+        tvSelectedAccountEmail = view.findViewById(R.id.tvSelectedAccountEmail)
+        btnPickAccount         = view.findViewById(R.id.btnPickAccount)
+
+        spinnerSheet = view.findViewById(R.id.spinnerSheet)
+        pbSheetLoad  = view.findViewById(R.id.pbSheetLoad)
+        spinnerTab   = view.findViewById(R.id.spinnerTab)
+        pbTabLoad    = view.findViewById(R.id.pbTabLoad)
+
+        etColStart   = view.findViewById(R.id.etColStart)
+        etColEnd     = view.findViewById(R.id.etColEnd)
+        tvColPreview = view.findViewById(R.id.tvColPreview)
+        tvSummary    = view.findViewById(R.id.tvSummary)
+
+        btnBack       = view.findViewById(R.id.btnStepBack)
+        btnNext       = view.findViewById(R.id.btnStepNext)
+        btnConnect    = view.findViewById(R.id.btnStepConnect)
         btnCancelConn = view.findViewById(R.id.btnCancelConnect)
-        tvConnError = view.findViewById(R.id.tvConnectError)
+        tvConnError   = view.findViewById(R.id.tvConnectError)
 
         // ManagePanel
         panelManage      = view.findViewById(R.id.panelManage)
@@ -159,11 +276,17 @@ class ConfigSheetFragment : Fragment() {
         btnManReconnect  = view.findViewById(R.id.btnManReconnect); btnManDisconn = view.findViewById(R.id.btnManDisconnect)
         btnManBack       = view.findViewById(R.id.btnManBack)
         btnSyncNow       = view.findViewById(R.id.btnSyncNow)
+    }
 
-        // Listeners
-        spinnerBranch.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+    private fun attachListeners() {
+        spinnerBranch?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                if (pos == 0) { btnBranchAction.visibility = View.GONE; cardConnInfo.visibility = View.GONE; return }
+                if (pos == 0) {
+                    activeBranch = ""
+                    btnBranchAction?.visibility = View.GONE
+                    cardConnInfo?.visibility    = View.GONE
+                    return
+                }
                 val branch = branches.getOrNull(pos - 1) ?: return
                 activeBranch = branch
                 updateBranchActionCard()
@@ -171,164 +294,190 @@ class ConfigSheetFragment : Fragment() {
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
 
-        btnBranchAction.setOnClickListener {
+        btnBranchAction?.setOnClickListener {
+            if (activeBranch.isEmpty()) return@setOnClickListener
             val conn = connections[activeBranch]
             if (conn != null) { screen = Screen.MANAGING; render() }
             else              { screen = Screen.CONNECTING; connectStep = 1; clearConnectForm(); render() }
         }
 
-        btnCancelConn.setOnClickListener { screen = Screen.BRANCH_SELECT; render() }
-        btnManBack   .setOnClickListener { screen = Screen.BRANCH_SELECT; render() }
+        btnCancelConn?.setOnClickListener { screen = Screen.BRANCH_SELECT; render() }
+        btnManBack?.setOnClickListener    { screen = Screen.BRANCH_SELECT; render() }
 
-        btnNext.setOnClickListener { advanceStep() }
-        btnBack.setOnClickListener { if (connectStep > 1) { connectStep--; renderConnectStep() } }
-        btnConnect.setOnClickListener { handleConnect() }
+        btnNext?.setOnClickListener { advanceStep() }
+        btnBack?.setOnClickListener { if (connectStep > 1) { connectStep--; renderConnectStep() } }
+        btnConnect?.setOnClickListener { handleConnect() }
 
-        tabOverview.setOnClickListener { activeManageTab = "overview"; renderManageTabs() }
-        tabColumns .setOnClickListener { activeManageTab = "columns";  renderManageTabs() }
-        tabSync    .setOnClickListener { activeManageTab = "sync";     renderManageTabs() }
+        btnPickAccount?.setOnClickListener { pickGoogleAccount() }
 
-        btnManReconnect.setOnClickListener { screen = Screen.CONNECTING; connectStep = 1; prefillConnectForm(); render() }
-        btnManDisconn  .setOnClickListener { handleDisconnect() }
-        btnSyncNow     .setOnClickListener { toast("🔄 Sync শুরু হয়েছে...") }
+        spinnerSheet?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (pos <= 0) { selectedSheet = null; return }
+                val s = availableSheets.getOrNull(pos - 1) ?: return
+                if (selectedSheet?.id != s.id) {
+                    selectedSheet = s
+                    // Reset downstream
+                    selectedTab    = ""
+                    availableTabs  = emptyList()
+                    loadTabsForSheet()
+                }
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
 
-        etColStart.addTextChangedListener(colWatcher); etColEnd.addTextChangedListener(colWatcher)
+        spinnerTab?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (pos <= 0) { selectedTab = ""; return }
+                selectedTab = availableTabs.getOrNull(pos - 1) ?: ""
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
 
-        loadFromFirebase()
+        tabOverview?.setOnClickListener { activeManageTab = "overview"; renderManageTabs() }
+        tabColumns?.setOnClickListener  { activeManageTab = "columns";  renderManageTabs() }
+        tabSync?.setOnClickListener     { activeManageTab = "sync";     renderManageTabs() }
+
+        btnManReconnect?.setOnClickListener { screen = Screen.CONNECTING; connectStep = 1; prefillConnectForm(); render() }
+        btnManDisconn?.setOnClickListener   { handleDisconnect() }
+        btnSyncNow?.setOnClickListener      { toast("🔄 Sync শুরু হয়েছে...") }
+
+        etColStart?.addTextChangedListener(colWatcher); etColEnd?.addTextChangedListener(colWatcher)
     }
 
-    // ── Render ────────────────────────────────────────────────────────────────
-
+    // ── Render ────────────────────────────────────────────────────────
     private fun render() {
-        panelBranch .visibility = if (screen == Screen.BRANCH_SELECT) View.VISIBLE else View.GONE
-        panelConnect.visibility = if (screen == Screen.CONNECTING)    View.VISIBLE else View.GONE
-        panelManage .visibility = if (screen == Screen.MANAGING)      View.VISIBLE else View.GONE
+        if (!isAdded) return
+        panelBranch?.visibility  = if (screen == Screen.BRANCH_SELECT) View.VISIBLE else View.GONE
+        panelConnect?.visibility = if (screen == Screen.CONNECTING)    View.VISIBLE else View.GONE
+        panelManage?.visibility  = if (screen == Screen.MANAGING)      View.VISIBLE else View.GONE
 
         when (screen) {
             Screen.BRANCH_SELECT -> updateBranchSpinner()
-            Screen.CONNECTING    -> { tvConnBranchSub.text = "Branch: $activeBranch"; renderConnectStep() }
+            Screen.CONNECTING    -> { tvConnBranchSub?.text = "Branch: $activeBranch"; renderConnectStep() }
             Screen.MANAGING      -> renderManagePanel()
         }
     }
 
-    // ── Branch select ─────────────────────────────────────────────────────────
-
+    // ── Branch select ─────────────────────────────────────────────────
     private fun updateBranchSpinner() {
+        val ctx = context ?: return
         val opts = listOf("শাখা বেছে নিন...") + branches
-        spinnerBranch.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, opts)
+        spinnerBranch?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
         val sel = branches.indexOf(activeBranch)
-        if (sel >= 0) spinnerBranch.setSelection(sel + 1)
+        if (sel >= 0) spinnerBranch?.setSelection(sel + 1)
         updateBranchActionCard()
     }
 
     private fun updateBranchActionCard() {
         val conn = connections[activeBranch]
         if (activeBranch.isEmpty()) {
-            btnBranchAction.visibility = View.GONE
-            cardConnInfo.visibility    = View.GONE
+            btnBranchAction?.visibility = View.GONE
+            cardConnInfo?.visibility    = View.GONE
             return
         }
-        btnBranchAction.visibility = View.VISIBLE
+        btnBranchAction?.visibility = View.VISIBLE
         if (conn != null) {
-            cardConnInfo.visibility = View.VISIBLE
-            tvConnInfoSheet.text    = "📄 ${conn.sheetName}"
-            tvConnInfoTab.text      = "📑 Tab: ${conn.tabName}"
-            tvConnInfoCols.text     = "📊 Columns: ${conn.columns.firstOrNull() ?: "A"}–${conn.columns.lastOrNull() ?: "J"} (${conn.columns.size}টি)"
-            btnBranchAction.text    = "Manage"
-            btnBranchAction.setBackgroundColor(android.graphics.Color.parseColor("#16A34A"))
+            cardConnInfo?.visibility = View.VISIBLE
+            tvConnInfoSheet?.text    = "📄 ${conn.sheetName}"
+            tvConnInfoTab?.text      = "📑 Tab: ${conn.tabName}"
+            tvConnInfoCols?.text     = "📊 Columns: ${conn.columns.firstOrNull() ?: "A"}–${conn.columns.lastOrNull() ?: "J"} (${conn.columns.size}টি)"
+            btnBranchAction?.text    = "Manage"
+            btnBranchAction?.setBackgroundColor(android.graphics.Color.parseColor("#16A34A"))
         } else {
-            cardConnInfo.visibility = View.GONE
-            btnBranchAction.text    = "Connect করুন"
-            btnBranchAction.setBackgroundColor(android.graphics.Color.parseColor("#E8380D"))
+            cardConnInfo?.visibility = View.GONE
+            btnBranchAction?.text    = "Connect করুন"
+            btnBranchAction?.setBackgroundColor(android.graphics.Color.parseColor("#E8380D"))
         }
     }
 
-    // ── ConnectFlow steps ─────────────────────────────────────────────────────
-
+    // ── ConnectFlow steps ─────────────────────────────────────────────
     private fun renderConnectStep() {
         // Step views
-        stepView1.visibility = if (connectStep == 1) View.VISIBLE else View.GONE
-        stepView2.visibility = if (connectStep == 2) View.VISIBLE else View.GONE
-        stepView3.visibility = if (connectStep == 3) View.VISIBLE else View.GONE
-        stepView4.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
+        stepView1?.visibility = if (connectStep == 1) View.VISIBLE else View.GONE
+        stepView2?.visibility = if (connectStep == 2) View.VISIBLE else View.GONE
+        stepView3?.visibility = if (connectStep == 3) View.VISIBLE else View.GONE
+        stepView4?.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
 
-        // Step dots  — done=red, active=orange ring, future=grey
-        fun styleDot(dot: View, n: Int) {
-            val done   = connectStep > n
-            val active = connectStep == n
-            val color  = when { done -> "#E8380D"; active -> "#FFF3F0"; else -> "#F3F4F6" }
-            val border = when { done -> 0f;         active -> 2f;        else -> 2f }
-            dot.setBackgroundColor(android.graphics.Color.parseColor(color))
+        // Step dots — done=red, active=orange ring, future=grey
+        val done   = android.graphics.Color.parseColor("#E8380D")
+        val active = android.graphics.Color.parseColor("#FFF3F0")
+        val future = android.graphics.Color.parseColor("#F3F4F6")
+        fun styleDot(dot: View?, n: Int) {
+            val c = when { connectStep > n -> done; connectStep == n -> active; else -> future }
+            dot?.setBackgroundColor(c)
         }
-        listOf(step1Dot to 1, step2Dot to 2, step3Dot to 3, step4Dot to 4).forEach { (d, n) -> styleDot(d, n) }
+        styleDot(step1Dot, 1); styleDot(step2Dot, 2); styleDot(step3Dot, 3); styleDot(step4Dot, 4)
 
-        // Step lines  — filled if step > n
+        // Step lines
         val lineColor = android.graphics.Color.parseColor("#E8380D")
         val lineGrey  = android.graphics.Color.parseColor("#E5E7EB")
-        step1Line.setBackgroundColor(if (connectStep > 1) lineColor else lineGrey)
-        step2Line.setBackgroundColor(if (connectStep > 2) lineColor else lineGrey)
-        step3Line.setBackgroundColor(if (connectStep > 3) lineColor else lineGrey)
+        step1Line?.setBackgroundColor(if (connectStep > 1) lineColor else lineGrey)
+        step2Line?.setBackgroundColor(if (connectStep > 2) lineColor else lineGrey)
+        step3Line?.setBackgroundColor(if (connectStep > 3) lineColor else lineGrey)
 
         // Step labels
         val red  = android.graphics.Color.parseColor("#E8380D")
         val dark = android.graphics.Color.parseColor("#111827")
         val grey = android.graphics.Color.parseColor("#9CA3AF")
-        listOf(step1Lbl to 1, step2Lbl to 2, step3Lbl to 3, step4Lbl to 4).forEach { (lbl, n) ->
-            lbl.setTextColor(when { connectStep > n -> red; connectStep == n -> dark; else -> grey })
+        fun styleLbl(lbl: TextView?, n: Int) {
+            lbl?.setTextColor(when { connectStep > n -> red; connectStep == n -> dark; else -> grey })
         }
+        styleLbl(step1Lbl, 1); styleLbl(step2Lbl, 2); styleLbl(step3Lbl, 3); styleLbl(step4Lbl, 4)
 
         // Nav buttons
-        btnBack.visibility    = if (connectStep > 1) View.VISIBLE else View.GONE
-        btnNext.visibility    = if (connectStep < 4) View.VISIBLE else View.GONE
-        btnConnect.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
+        btnBack?.visibility    = if (connectStep > 1) View.VISIBLE else View.GONE
+        btnNext?.visibility    = if (connectStep < 4) View.VISIBLE else View.GONE
+        btnConnect?.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
 
-        // Update column preview in step 3
-        if (connectStep == 3) updateColPreview()
+        tvConnError?.visibility = View.GONE
 
-        // Update summary in step 4
-        if (connectStep == 4) updateSummary()
-
-        tvConnError.visibility = View.GONE
+        // Per-step UI
+        when (connectStep) {
+            1 -> updateAccountStep()
+            2 -> updateSheetSpinner()
+            3 -> updateTabSpinner()
+            4 -> { updateColPreview(); updateSummary() }
+        }
     }
 
     private val colWatcher = object : android.text.TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-        override fun afterTextChanged(s: android.text.Editable?) { updateColPreview() }
+        override fun afterTextChanged(s: android.text.Editable?) {
+            if (connectStep == 4) { updateColPreview(); updateSummary() }
+        }
     }
 
     private fun updateColPreview() {
-        val s = etColStart.text.toString().toIntOrNull() ?: return
-        val e = etColEnd.text.toString().toIntOrNull()   ?: return
-        if (s < 1 || e < s || e > 26) { tvColPreview.text = "⚠ Invalid range (1–26)"; return }
+        val s = etColStart?.text?.toString()?.toIntOrNull() ?: return
+        val e = etColEnd?.text?.toString()?.toIntOrNull()   ?: return
+        if (s < 1 || e < s || e > 26) { tvColPreview?.text = "⚠ Invalid range (1–26)"; return }
         val cols = ('A'..'Z').toList().subList(s - 1, e).map { it.toString() }
-        tvColPreview.text = "Columns: ${cols.joinToString(", ")} (${cols.size}টি)"
+        tvColPreview?.text = "Columns: ${cols.joinToString(", ")} (${cols.size}টি)"
     }
 
     private fun updateSummary() {
-        val id   = etSheetId  .text.toString().trim()
-        val name = etSheetName.text.toString().trim()
-        val tab  = etTabName  .text.toString().trim()
-        val s    = etColStart.text.toString().toIntOrNull() ?: 1
-        val e    = etColEnd  .text.toString().toIntOrNull() ?: 10
+        val sheetName = selectedSheet?.name ?: ""
+        val sheetId   = selectedSheet?.id ?: ""
+        val tab       = selectedTab
+        val email     = googleAccount?.email ?: ""
+        val s = etColStart?.text?.toString()?.toIntOrNull() ?: 1
+        val e = etColEnd?.text?.toString()?.toIntOrNull() ?: 10
         val cols = ('A'..'Z').toList().subList((s - 1).coerceIn(0, 25), e.coerceIn(s, 26)).map { it.toString() }
-        tvSummary.text = "✅ Summary\n\nSheet: $name\nSheet ID: ${id.take(24)}…\nTab: $tab\nColumns: ${cols.firstOrNull() ?: "A"}–${cols.lastOrNull() ?: "J"} (${cols.size}টি)\nBranch: $activeBranch"
+        tvSummary?.text = "✅ Summary\n\nAccount: $email\nSheet: $sheetName\nSheet ID: ${if (sheetId.length > 24) sheetId.take(24) + "…" else sheetId}\nTab: $tab\nColumns: ${cols.firstOrNull() ?: "A"}–${cols.lastOrNull() ?: "J"} (${cols.size}টি)\nBranch: $activeBranch"
     }
 
     private fun advanceStep() {
-        tvConnError.visibility = View.GONE
+        tvConnError?.visibility = View.GONE
         when (connectStep) {
             1 -> {
-                if (etSheetId.text.isBlank())   { showErr("Sheet ID দিন"); return }
-                if (etSheetName.text.isBlank())  { showErr("Sheet নাম দিন"); return }
+                if (googleAccount == null) { showErr("Google account select করুন"); return }
             }
             2 -> {
-                if (etTabName.text.isBlank())    { showErr("Tab নাম দিন"); return }
+                if (selectedSheet == null) { showErr("Sheet select করুন"); return }
             }
             3 -> {
-                val s = etColStart.text.toString().toIntOrNull()
-                val e = etColEnd  .text.toString().toIntOrNull()
-                if (s == null || e == null || s < 1 || e < s || e > 26) { showErr("Valid column range দিন (1–26)"); return }
+                if (selectedTab.isBlank()) { showErr("Tab select করুন"); return }
             }
         }
         connectStep++
@@ -336,88 +485,266 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun showErr(msg: String) {
-        tvConnError.text = "⚠ $msg"
-        tvConnError.visibility = View.VISIBLE
+        tvConnError?.text = "⚠ $msg"
+        tvConnError?.visibility = View.VISIBLE
     }
 
     private fun handleConnect() {
-        val sheetId   = etSheetId.text.toString().trim()
-        val sheetName = etSheetName.text.toString().trim()
-        val tabName   = etTabName.text.toString().trim()
-        val s         = etColStart.text.toString().toIntOrNull() ?: 1
-        val e         = etColEnd  .text.toString().toIntOrNull() ?: 10
+        val account = googleAccount ?: run { showErr("Account নেই"); return }
+        val sheet   = selectedSheet ?: run { showErr("Sheet নেই"); return }
+        if (selectedTab.isBlank())  { showErr("Tab নেই"); return }
+        val s = etColStart?.text?.toString()?.toIntOrNull() ?: 1
+        val e = etColEnd?.text?.toString()?.toIntOrNull() ?: 10
+        if (s < 1 || e < s || e > 26) { showErr("Valid column range দিন (1–26)"); return }
+
         val conn = SheetConn(
             branchId    = activeBranch,
-            sheetId     = sheetId,
-            sheetName   = sheetName,
-            tabName     = tabName,
+            sheetId     = sheet.id,
+            sheetName   = sheet.name,
+            tabName     = selectedTab,
             colStart    = s,
             colEnd      = e,
+            googleEmail = account.email ?: "",
             connectedBy = auth.currentUser?.uid ?: "",
             connectedAt = System.currentTimeMillis(),
         )
         connections[activeBranch] = conn
         saveToFirebase(conn)
-        toast("✅ ${activeBranch} connected!")
+        toast("✅ $activeBranch connected!")
         screen = Screen.BRANCH_SELECT
         render()
     }
 
     private fun clearConnectForm() {
-        etSheetId.setText(""); etSheetName.setText("")
-        etTabName.setText(""); etColStart.setText("1"); etColEnd.setText("10")
+        // googleAccount রেখে দিচ্ছি (যাতে আবার লগইন না করতে হয়)
+        availableSheets = emptyList(); selectedSheet = null
+        availableTabs   = emptyList(); selectedTab   = ""
+        etColStart?.setText("1"); etColEnd?.setText("10")
+        // যদি account থাকে, sheets লোড করো
+        if (googleAccount != null) loadSheetsForAccount()
     }
 
     private fun prefillConnectForm() {
         val conn = connections[activeBranch] ?: return
-        etSheetId  .setText(conn.sheetId)
-        etSheetName.setText(conn.sheetName)
-        etTabName  .setText(conn.tabName)
-        etColStart .setText(conn.colStart.toString())
-        etColEnd   .setText(conn.colEnd.toString())
+        etColStart?.setText(conn.colStart.toString())
+        etColEnd?.setText(conn.colEnd.toString())
+        // Note: googleAccount + selectedSheet + tab will need re-selection
+        if (googleAccount != null) loadSheetsForAccount()
     }
 
-    // ── ManagePanel ───────────────────────────────────────────────────────────
+    // ── Account picker (JSX showPicker equivalent) ────────────────────
+    private fun pickGoogleAccount() {
+        val client = googleSignInClient ?: run {
+            toast("Google Sign-In initialize হয়নি")
+            return
+        }
+        // Sign out first → forces the account chooser to show every time
+        client.signOut().addOnCompleteListener {
+            try {
+                signInLauncher.launch(client.signInIntent)
+            } catch (e: Exception) {
+                toast("Sign-In launch failed: ${e.message}")
+            }
+        }
+    }
 
+    private fun handleSignInResult(data: Intent?) {
+        try {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
+            val acc = task.getResult(ApiException::class.java)
+            googleAccount = acc
+            // Reset downstream
+            availableSheets = emptyList(); selectedSheet = null
+            availableTabs   = emptyList(); selectedTab   = ""
+            updateAccountStep()
+            loadSheetsForAccount()
+        } catch (e: ApiException) {
+            showErr("Sign-in failed (code ${e.statusCode})")
+        } catch (e: Exception) {
+            showErr("Sign-in error: ${e.message}")
+        }
+    }
+
+    private fun updateAccountStep() {
+        val acc = googleAccount
+        if (acc == null) {
+            cardSelectedAccount?.visibility = View.GONE
+            btnPickAccount?.text = "🔐 Google দিয়ে Sign in"
+        } else {
+            cardSelectedAccount?.visibility = View.VISIBLE
+            tvSelectedAccountName?.text  = acc.displayName ?: acc.email ?: "Google User"
+            tvSelectedAccountEmail?.text = acc.email ?: ""
+            btnPickAccount?.text = "🔄 Account পরিবর্তন"
+        }
+    }
+
+    // ── Drive API: list user's spreadsheets ──────────────────────────
+    private fun loadSheetsForAccount() {
+        val account = googleAccount ?: return
+        val acctObj = account.account ?: run {
+            showErr("Account info নেই")
+            return
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                pbSheetLoad?.visibility = View.VISIBLE
+                val ctx = context ?: return@launch
+                val token = withContext(Dispatchers.IO) {
+                    try {
+                        GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE)
+                    } catch (e: UserRecoverableAuthException) {
+                        // Launch consent screen
+                        withContext(Dispatchers.Main) {
+                            try { recoverableLauncher.launch(e.intent) } catch (_: Exception) {}
+                        }
+                        null
+                    }
+                } ?: return@launch
+                val sheets = withContext(Dispatchers.IO) { fetchDriveSpreadsheets(token) }
+                availableSheets = sheets
+                if (connectStep == 2 || stepView2?.visibility == View.VISIBLE) updateSheetSpinner()
+            } catch (e: Exception) {
+                showErr("Sheet load failed: ${e.message ?: "unknown"}")
+            } finally {
+                pbSheetLoad?.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun fetchDriveSpreadsheets(accessToken: String): List<DriveFile> {
+        val url = "https://www.googleapis.com/drive/v3/files" +
+                "?q=" + java.net.URLEncoder.encode("mimeType='application/vnd.google-apps.spreadsheet' and trashed=false", "UTF-8") +
+                "&fields=" + java.net.URLEncoder.encode("files(id,name)", "UTF-8") +
+                "&pageSize=200" +
+                "&orderBy=" + java.net.URLEncoder.encode("modifiedTime desc", "UTF-8")
+        val req = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $accessToken")
+            .build()
+        httpClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw IOException("Drive API ${resp.code}")
+            val body = resp.body?.string() ?: return emptyList()
+            val obj = JSONObject(body)
+            val files = obj.optJSONArray("files") ?: return emptyList()
+            val out = mutableListOf<DriveFile>()
+            for (i in 0 until files.length()) {
+                val f = files.getJSONObject(i)
+                val id   = f.optString("id", "")
+                val name = f.optString("name", "")
+                if (id.isNotEmpty()) out.add(DriveFile(id, name))
+            }
+            return out
+        }
+    }
+
+    private fun updateSheetSpinner() {
+        val ctx = context ?: return
+        val opts = listOf("— Sheet বেছে নিন —") + availableSheets.map { it.name }
+        spinnerSheet?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
+        val sel = availableSheets.indexOfFirst { it.id == selectedSheet?.id }
+        if (sel >= 0) spinnerSheet?.setSelection(sel + 1) else spinnerSheet?.setSelection(0)
+    }
+
+    // ── Sheets API: list tabs ────────────────────────────────────────
+    private fun loadTabsForSheet() {
+        val account = googleAccount ?: return
+        val acctObj = account.account ?: return
+        val sheet   = selectedSheet ?: return
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                pbTabLoad?.visibility = View.VISIBLE
+                val ctx = context ?: return@launch
+                val token = withContext(Dispatchers.IO) {
+                    try { GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE) }
+                    catch (e: UserRecoverableAuthException) {
+                        withContext(Dispatchers.Main) {
+                            try { recoverableLauncher.launch(e.intent) } catch (_: Exception) {}
+                        }
+                        null
+                    }
+                } ?: return@launch
+                val tabs = withContext(Dispatchers.IO) { fetchSheetTabs(token, sheet.id) }
+                availableTabs = tabs
+                if (connectStep == 3 || stepView3?.visibility == View.VISIBLE) updateTabSpinner()
+            } catch (e: Exception) {
+                showErr("Tab load failed: ${e.message ?: "unknown"}")
+            } finally {
+                pbTabLoad?.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun fetchSheetTabs(accessToken: String, sheetId: String): List<String> {
+        val url = "https://sheets.googleapis.com/v4/spreadsheets/$sheetId" +
+                "?fields=" + java.net.URLEncoder.encode("sheets(properties(title))", "UTF-8")
+        val req = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $accessToken")
+            .build()
+        httpClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw IOException("Sheets API ${resp.code}")
+            val body = resp.body?.string() ?: return emptyList()
+            val obj = JSONObject(body)
+            val arr = obj.optJSONArray("sheets") ?: return emptyList()
+            val out = mutableListOf<String>()
+            for (i in 0 until arr.length()) {
+                val s = arr.optJSONObject(i) ?: continue
+                val props = s.optJSONObject("properties") ?: continue
+                val title = props.optString("title", "")
+                if (title.isNotEmpty()) out.add(title)
+            }
+            return out
+        }
+    }
+
+    private fun updateTabSpinner() {
+        val ctx = context ?: return
+        val opts = listOf("— Tab বেছে নিন —") + availableTabs
+        spinnerTab?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
+        val sel = availableTabs.indexOf(selectedTab)
+        if (sel >= 0) spinnerTab?.setSelection(sel + 1) else spinnerTab?.setSelection(0)
+    }
+
+    // ── ManagePanel ───────────────────────────────────────────────────
     private fun renderManagePanel() {
         val conn = connections[activeBranch] ?: return
-        tvManageBranch.text = "Branch: $activeBranch"
+        tvManageBranch?.text = "Branch: $activeBranch"
         activeManageTab = "overview"
         renderManageTabs()
 
-        tvOvSheet.text = conn.sheetName
-        tvOvTab  .text = conn.tabName
-        tvOvCols .text = "${conn.columns.firstOrNull() ?: "A"}–${conn.columns.lastOrNull() ?: "J"} (${conn.columns.size}টি)"
-        tvColPreviewMgr.text = conn.columns.mapIndexed { i, c -> "$c: Col${i+1}" }.joinToString("  ·  ")
+        tvOvSheet?.text = conn.sheetName
+        tvOvTab?.text   = conn.tabName
+        tvOvCols?.text  = "${conn.columns.firstOrNull() ?: "A"}–${conn.columns.lastOrNull() ?: "J"} (${conn.columns.size}টি)"
+        tvColPreviewMgr?.text = conn.columns.mapIndexed { i, c -> "$c: Col${i+1}" }.joinToString("  ·  ")
     }
 
     private fun renderManageTabs() {
         val red  = android.graphics.Color.parseColor("#E8380D")
         val grey = android.graphics.Color.parseColor("#6B7280")
-        tabOverview.setTextColor(if (activeManageTab == "overview") red else grey)
-        tabColumns .setTextColor(if (activeManageTab == "columns")  red else grey)
-        tabSync    .setTextColor(if (activeManageTab == "sync")     red else grey)
-        indOverview.visibility = if (activeManageTab == "overview") View.VISIBLE else View.INVISIBLE
-        indColumns .visibility = if (activeManageTab == "columns")  View.VISIBLE else View.INVISIBLE
-        indSync    .visibility = if (activeManageTab == "sync")     View.VISIBLE else View.INVISIBLE
-        cardOverview.visibility = if (activeManageTab == "overview") View.VISIBLE else View.GONE
-        cardColumns .visibility = if (activeManageTab == "columns")  View.VISIBLE else View.GONE
-        cardSync    .visibility = if (activeManageTab == "sync")     View.VISIBLE else View.GONE
+        tabOverview?.setTextColor(if (activeManageTab == "overview") red else grey)
+        tabColumns?.setTextColor (if (activeManageTab == "columns")  red else grey)
+        tabSync?.setTextColor    (if (activeManageTab == "sync")     red else grey)
+        indOverview?.visibility = if (activeManageTab == "overview") View.VISIBLE else View.INVISIBLE
+        indColumns?.visibility  = if (activeManageTab == "columns")  View.VISIBLE else View.INVISIBLE
+        indSync?.visibility     = if (activeManageTab == "sync")     View.VISIBLE else View.INVISIBLE
+        cardOverview?.visibility = if (activeManageTab == "overview") View.VISIBLE else View.GONE
+        cardColumns?.visibility  = if (activeManageTab == "columns")  View.VISIBLE else View.GONE
+        cardSync?.visibility     = if (activeManageTab == "sync")     View.VISIBLE else View.GONE
     }
 
     private fun handleDisconnect() {
         val branch = activeBranch
         connections.remove(branch)
         deleteFromFirebase(branch)
-        toast("🗑️ $branch disconnected")
+        toast("🗑 $branch disconnected")
         screen = Screen.BRANCH_SELECT
         render()
     }
 
-    // ── Firebase ──────────────────────────────────────────────────────────────
-
+    // ── Firebase ──────────────────────────────────────────────────────
     private fun loadFromFirebase() {
-        viewLifecycleOwner.lifecycleScope.launch {
+        val owner = viewLifecycleOwnerLiveData.value ?: return
+        owner.lifecycleScope.launch {
             try {
                 val branchSnap = db.reference.child("branches").get().await()
                 val loaded = mutableListOf<String>()
@@ -437,9 +764,10 @@ class ConfigSheetFragment : Fragment() {
                     val tabName   = cur.child("tabName")  .getValue(String::class.java) ?: ""
                     val colS      = cur.child("colStart") .getValue(Int::class.java)    ?: 1
                     val colE      = cur.child("colEnd")   .getValue(Int::class.java)    ?: 10
+                    val email     = cur.child("googleEmail").getValue(String::class.java) ?: ""
                     val by        = cur.child("connectedBy").getValue(String::class.java) ?: ""
                     val at        = cur.child("connectedAt").getValue(Long::class.java)   ?: 0L
-                    connections[branchId] = SheetConn(branchId, sheetId, sheetName, tabName, colS, colE, by, at)
+                    connections[branchId] = SheetConn(branchId, sheetId, sheetName, tabName, colS, colE, email, by, at)
                 }
             } catch (_: Exception) {}
             if (isAdded) render()
@@ -447,7 +775,8 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun saveToFirebase(conn: SheetConn) {
-        viewLifecycleOwner.lifecycleScope.launch {
+        val owner = viewLifecycleOwnerLiveData.value ?: return
+        owner.lifecycleScope.launch {
             try {
                 val data = mapOf(
                     "sheetId"     to conn.sheetId,
@@ -455,6 +784,7 @@ class ConfigSheetFragment : Fragment() {
                     "tabName"     to conn.tabName,
                     "colStart"    to conn.colStart,
                     "colEnd"      to conn.colEnd,
+                    "googleEmail" to conn.googleEmail,
                     "connectedBy" to conn.connectedBy,
                     "connectedAt" to conn.connectedAt,
                 )
@@ -466,7 +796,8 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun deleteFromFirebase(branchId: String) {
-        viewLifecycleOwner.lifecycleScope.launch {
+        val owner = viewLifecycleOwnerLiveData.value ?: return
+        owner.lifecycleScope.launch {
             try {
                 db.reference.child("config/sheets/$branchId/current").removeValue().await()
                 db.reference.child("config/sheets/$branchId/history").push().setValue(mapOf(
@@ -478,6 +809,9 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    // ── Helper ────────────────────────────────────────────────────────────────
-    private fun toast(msg: String) = Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
+    // ── Helper ────────────────────────────────────────────────────────
+    private fun toast(msg: String) {
+        try { Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show() }
+        catch (_: Exception) {}
+    }
 }

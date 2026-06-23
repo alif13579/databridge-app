@@ -28,7 +28,7 @@ android {
         versionCode = 8
         versionName = "2.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        multiDexEnabled = true                         // ✅ Large app support
+        multiDexEnabled = true                                         // ✅ Large app support
         vectorDrawables.useSupportLibrary = true       // ✅ Vector drawable on API 21+
     }
 
@@ -85,8 +85,14 @@ dependencies {
 
     implementation("com.google.code.gson:gson:2.10.1")
 
-    // ✅ Google Sign-In (Play Services Auth)
+    // ✅ Google Sign-In (Play Services Auth) — used for Sheets/Drive OAuth account picker
     implementation("com.google.android.gms:play-services-auth:21.0.0")
+
+    // ✅ OkHttp — Google Drive + Sheets REST API calls (ConfigSheetFragment)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // ✅ Coroutines play-services — for Tasks.await() in Firebase calls
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
     // ফায়ারবেস লাইব্রেরি
     implementation(platform("com.google.firebase:firebase-bom:33.1.0"))
