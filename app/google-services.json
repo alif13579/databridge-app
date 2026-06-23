@@ -15,11 +15,11 @@
       },
       "oauth_client": [
         {
-          "client_id": "757742303355-o5sof607frrvpf8e0j50jcbmavd18g7h.apps.googleusercontent.com",
+          "client_id": "757742303355-ttvdjr1q7grfhe4j2acv7kkfu6fpe7du.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.cloudx.databridge",
-            "certificate_hash": "1203a46da7277e2400672b9abb855a69a802a596"
+            "certificate_hash": "cb5ff52912b174df90625bd66050dfd2e58f2ca6"
           }
         },
         {
