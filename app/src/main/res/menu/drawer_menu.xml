@@ -36,6 +36,11 @@
             android:title="Salary Manager"
             android:visible="false" />
         <item
+            android:id="@+id/nav_config"
+            android:icon="@android:drawable/ic_menu_edit"
+            android:title="Config"
+            android:visible="false" />
+        <item
             android:id="@+id/nav_access_manager"
             android:icon="@android:drawable/ic_menu_manage"
             android:title="Access Manager"

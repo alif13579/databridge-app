@@ -172,6 +172,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 R.id.nav_scanner   -> loadFragment(ScannerFragment())
                 R.id.nav_memory    -> loadFragment(MemoryFragment())
                 R.id.nav_salary_manager -> loadFragment(SalaryManagerFragment())
+                R.id.nav_config         -> loadFragment(ConfigFragment())
                 R.id.nav_access_manager -> loadFragment(AccessManagerFragment())
                 R.id.nav_reports   -> loadFragment(ReportsFragment())
                 R.id.nav_settings  -> loadFragment(SettingsFragment())
@@ -356,6 +357,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         menu.findItem(R.id.nav_history)?.isVisible = RbacManager.hasPermission("nav_history")
 
         // Items fully controlled by permissions
+        menu.findItem(R.id.nav_config)?.isVisible = RbacManager.hasPermission("nav_config")
         menu.findItem(R.id.nav_access_manager)?.isVisible = RbacManager.hasPermission("nav_access_manager")
         menu.findItem(R.id.nav_salary_manager)?.isVisible = RbacManager.hasPermission("nav_salary_manager")
 
