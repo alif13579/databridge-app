@@ -9,34 +9,96 @@ import androidx.fragment.app.Fragment
 
 /**
  * ⚙️ Config Fragment
- * Access: admin, supervisor, staff (nav_config permission)
+ * Access: admin / supervisor / staff  (permission key: nav_config)
  *
- * Sections:
- *  - Remarks   → status-wise remark management
- *  - Language  → Worker / CC fragment language settings
- *  - Statuses  → custom status add/edit/delete
- *  - Sheet     → branch-wise Google Sheet connect & column mapping
+ * Four tabs:
+ *   💬 Remarks  – status-wise remark management
+ *   🌐 Language – Worker / CC fragment language settings
+ *   🏷️ Statuses – custom status add / edit / delete
+ *   📊 Sheet    – branch-wise Google Sheet connect, row/column config, mapping, sync
  *
- * Firebase paths:
- *  config/remarks/...
- *  config/sheets/{branch_id}/current/   ← active config
- *  config/sheets/{branch_id}/history/   ← audit log
- *  config/sheets/{branch_id}/data/      ← synced sheet rows
- *
- * TODO: implement full UI (see plan)
+ * Firebase layout:
+ *   config/remarks/...
+ *   config/sheets/{branch_id}/current/   ← active config + audit fields
+ *   config/sheets/{branch_id}/history/   ← immutable audit log
+ *   config/sheets/{branch_id}/data/      ← synced sheet rows (WorkerFragment reads this)
  */
 class ConfigFragment : Fragment() {
 
+    // ── Tab ids ──────────────────────────────────────────────────────────────
+    private enum class Tab { REMARKS, LANGUAGE, STATUSES, SHEET }
+    private var activeTab = Tab.REMARKS
+
+    // ── Views ────────────────────────────────────────────────────────────────
+    private lateinit var tabRemarks:    TextView
+    private lateinit var tabLanguage:   TextView
+    private lateinit var tabStatuses:   TextView
+    private lateinit var tabSheet:      TextView
+
+    private lateinit var indRemarks:    View
+    private lateinit var indLanguage:   View
+    private lateinit var indStatuses:   View
+    private lateinit var indSheet:      View
+
+    private lateinit var contentFrame:  ViewGroup
+
+    // ── Inflate ──────────────────────────────────────────────────────────────
     override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
-        val tv = TextView(requireContext()).apply {
-            text = "Config — Coming Soon"
-            textSize = 18f
-            setPadding(48, 48, 48, 48)
+        inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
+    ): View = inflater.inflate(R.layout.fragment_config, container, false)
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        tabRemarks  = view.findViewById(R.id.tabRemarks)
+        tabLanguage = view.findViewById(R.id.tabLanguage)
+        tabStatuses = view.findViewById(R.id.tabStatuses)
+        tabSheet    = view.findViewById(R.id.tabSheet)
+
+        indRemarks  = view.findViewById(R.id.indicatorRemarks)
+        indLanguage = view.findViewById(R.id.indicatorLanguage)
+        indStatuses = view.findViewById(R.id.indicatorStatuses)
+        indSheet    = view.findViewById(R.id.indicatorSheet)
+
+        contentFrame = view.findViewById(R.id.configContentFrame)
+
+        tabRemarks .setOnClickListener { switchTab(Tab.REMARKS) }
+        tabLanguage.setOnClickListener { switchTab(Tab.LANGUAGE) }
+        tabStatuses.setOnClickListener { switchTab(Tab.STATUSES) }
+        tabSheet   .setOnClickListener { switchTab(Tab.SHEET) }
+
+        switchTab(activeTab)
+    }
+
+    // ── Tab switching ─────────────────────────────────────────────────────────
+    private fun switchTab(tab: Tab) {
+        activeTab = tab
+
+        // Update tab text colours
+        val primary   = resources.getColor(R.color.theme_text_primary,   requireContext().theme)
+        val secondary = resources.getColor(R.color.theme_text_secondary,  requireContext().theme)
+
+        tabRemarks .setTextColor(if (tab == Tab.REMARKS)   primary else secondary)
+        tabLanguage.setTextColor(if (tab == Tab.LANGUAGE)  primary else secondary)
+        tabStatuses.setTextColor(if (tab == Tab.STATUSES)  primary else secondary)
+        tabSheet   .setTextColor(if (tab == Tab.SHEET)     primary else secondary)
+
+        // Update indicators
+        indRemarks .visibility = if (tab == Tab.REMARKS)   View.VISIBLE else View.INVISIBLE
+        indLanguage.visibility = if (tab == Tab.LANGUAGE)  View.VISIBLE else View.INVISIBLE
+        indStatuses.visibility = if (tab == Tab.STATUSES)  View.VISIBLE else View.INVISIBLE
+        indSheet   .visibility = if (tab == Tab.SHEET)     View.VISIBLE else View.INVISIBLE
+
+        // Load child fragment into contentFrame
+        val fragment: Fragment = when (tab) {
+            Tab.REMARKS   -> ConfigRemarksFragment()
+            Tab.LANGUAGE  -> ConfigLanguageFragment()
+            Tab.STATUSES  -> ConfigStatusesFragment()
+            Tab.SHEET     -> ConfigSheetFragment()
         }
-        return tv
+
+        childFragmentManager.beginTransaction()
+            .replace(R.id.configContentFrame, fragment)
+            .commit()
     }
 }
