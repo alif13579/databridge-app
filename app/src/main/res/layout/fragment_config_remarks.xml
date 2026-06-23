@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:layout_marginBottom="14dp">
+            <LinearLayout
+                android:id="@+id/chipGroupStatuses"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical" />
+        </HorizontalScrollView>
+
+        <LinearLayout
+            android:id="@+id/remarksListContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvRemarksEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="No remarks found"
+            android:gravity="center"
+            android:padding="20dp"
+            android:textColor="#9CA3AF"
+            android:textSize="13sp"
+            android:background="@drawable/bg_card_rounded"
+            android:visibility="gone"
+            android:layout_marginBottom="14dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card_rounded"
+            android:padding="14dp"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+ নতুন Remark"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#374151"
+                android:layout_marginBottom="10dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginEnd="4dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="বাংলা" android:textSize="10sp" android:textColor="#9CA3AF"
+                        android:textStyle="bold" android:layout_marginBottom="4dp" />
+                    <EditText
+                        android:id="@+id/etRemarkBn"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="বাংলা টেক্সট..."
+                        android:textSize="13sp"
+                        android:padding="8dp"
+                        android:background="@drawable/bg_input_rounded"
+                        android:inputType="text" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="4dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="English" android:textSize="10sp" android:textColor="#9CA3AF"
+                        android:textStyle="bold" android:layout_marginBottom="4dp" />
+                    <EditText
+                        android:id="@+id/etRemarkEn"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="English text..."
+                        android:textSize="13sp"
+                        android:padding="8dp"
+                        android:background="@drawable/bg_input_rounded"
+                        android:inputType="text" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="10dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="→ Group:" android:textSize="12sp" android:textColor="#6B7280"
+                    android:layout_marginEnd="8dp" />
+                <Spinner
+                    android:id="@+id/spinnerTargetStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnAddRemark"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:text="যোগ করুন"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:backgroundTint="#E8380D"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

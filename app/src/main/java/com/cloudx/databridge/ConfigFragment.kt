@@ -70,7 +70,7 @@ class ConfigFragment : Fragment() {
         switchTab(activeTab)
     }
 
-    // ── Tab switching ─────────────────────────────────────────────────────────
+    // ── Tab switching ────────────────────────────────────────────────────────
     private fun switchTab(tab: Tab) {
         activeTab = tab
 

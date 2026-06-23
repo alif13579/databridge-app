@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="11dp"
+    android:background="@drawable/bg_card_rounded"
+    android:layout_marginBottom="8dp">
+
+    <View android:id="@+id/viewStatusDot"
+        android:layout_width="10dp" android:layout_height="10dp"
+        android:layout_marginEnd="10dp" />
+
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+        android:layout_weight="1" android:orientation="vertical">
+        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:id="@+id/tvStatusBn" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" android:layout_marginEnd="6dp" />
+            <TextView android:id="@+id/tvStatusEn" android:layout_width="wrap_content"
+                android:layout_height="wrap_content" android:textSize="11sp" android:textColor="#9CA3AF"
+                android:layout_marginEnd="6dp" />
+            <TextView android:id="@+id/tvStatusCustomBadge"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="CUSTOM" android:textSize="9sp" android:textStyle="bold"
+                android:paddingStart="5dp" android:paddingEnd="5dp"
+                android:paddingTop="1dp" android:paddingBottom="1dp"
+                android:visibility="gone" />
+        </LinearLayout>
+        <TextView android:id="@+id/tvStatusSubtitle" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:textSize="10sp" android:textColor="#9CA3AF"
+            android:layout_marginTop="1dp" />
+    </LinearLayout>
+
+    <Button android:id="@+id/btnEditStatus"
+        android:layout_width="wrap_content" android:layout_height="32dp"
+        android:text="Edit" android:textSize="11sp" android:textStyle="bold"
+        android:paddingStart="10dp" android:paddingEnd="10dp"
+        android:backgroundTint="#F9FAFB" android:textColor="#374151"
+        android:layout_marginEnd="6dp" />
+
+    <Button android:id="@+id/btnDeleteStatus"
+        android:layout_width="wrap_content" android:layout_height="32dp"
+        android:text="Delete" android:textSize="11sp" android:textStyle="bold"
+        android:paddingStart="10dp" android:paddingEnd="10dp"
+        android:backgroundTint="#FFF5F5" android:textColor="#EF4444" />
+</LinearLayout>
