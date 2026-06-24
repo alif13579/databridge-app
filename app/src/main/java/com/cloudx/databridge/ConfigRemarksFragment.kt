@@ -227,18 +227,27 @@ class ConfigRemarksFragment : Fragment() {
     private fun triggerSave() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val data = mutableMapOf<String, Any>()
+                // Build full remarks payload and overwrite entire node atomically.
+                // Avoids the removeValue() + updateChildren() race condition.
+                val payload = mutableMapOf<String, Any>()
                 remarks.forEach { (statusKey, list) ->
-                    // First clear current status list
-                    db.reference.child("config/remarks/$statusKey").removeValue().await()
-                    list.forEachIndexed { i, r ->
-                        data["config/remarks/$statusKey/$i/id"]            = r.id
-                        data["config/remarks/$statusKey/$i/text_bn"]       = r.text_bn
-                        data["config/remarks/$statusKey/$i/text_en"]       = r.text_en
-                        data["config/remarks/$statusKey/$i/target_status"] = r.target_status
+                    if (list.isEmpty()) {
+                        // Keep empty list as empty map so the key still exists
+                        payload[statusKey] = emptyMap<String, Any>()
+                    } else {
+                        val rows = mutableMapOf<String, Any>()
+                        list.forEachIndexed { i, r ->
+                            rows["$i"] = mapOf(
+                                "id"            to r.id,
+                                "text_bn"       to r.text_bn,
+                                "text_en"       to r.text_en,
+                                "target_status" to r.target_status,
+                            )
+                        }
+                        payload[statusKey] = rows
                     }
                 }
-                db.reference.updateChildren(data).await()
+                db.reference.child("config/remarks").setValue(payload).await()
             } catch (_: Exception) {}
         }
     }

@@ -310,15 +310,19 @@ class ConfigStatusesFragment : Fragment() {
     private fun triggerSave() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val data = mutableMapOf<String, Any>()
+                // Build the full statusMeta map and overwrite the entire node.
+                // Using setValue() (not updateChildren) so deleted keys are actually removed.
+                val payload = mutableMapOf<String, Any>()
                 ConfigState.statusMeta.forEach { (key, m) ->
-                    data["config/statusMeta/$key/bn"]       = m.bn
-                    data["config/statusMeta/$key/en"]       = m.en
-                    data["config/statusMeta/$key/color"]    = m.color
-                    data["config/statusMeta/$key/bg"]       = m.bg
-                    data["config/statusMeta/$key/priority"] = m.priority
+                    payload[key] = mapOf(
+                        "bn"       to m.bn,
+                        "en"       to m.en,
+                        "color"    to m.color,
+                        "bg"       to m.bg,
+                        "priority" to m.priority,
+                    )
                 }
-                db.reference.updateChildren(data).await()
+                db.reference.child("config/statusMeta").setValue(payload).await()
             } catch (_: Exception) {}
         }
     }
