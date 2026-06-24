@@ -2,6 +2,7 @@ package com.cloudx.databridge
 
 import android.app.AlertDialog
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -38,6 +39,7 @@ class ConfigStatusesFragment : Fragment() {
     private lateinit var tvColorPreviewNew:   TextView
     private lateinit var tvCreateError:       TextView
     private lateinit var btnCreate:           Button
+    private lateinit var btnOpenCreate:       TextView
 
     // selected color for new status form
     private var newColorIdx: Int = 0
@@ -58,6 +60,7 @@ class ConfigStatusesFragment : Fragment() {
         tvColorPreviewNew   = view.findViewById(R.id.tvColorPreviewNew)
         tvCreateError       = view.findViewById(R.id.tvCreateError)
         btnCreate           = view.findViewById(R.id.btnCreateStatus)
+        btnOpenCreate       = view.findViewById(R.id.btnOpenCreateStatus)
 
         buildColorPicker(colorPickerNew, newColorIdx) { idx ->
             newColorIdx = idx
@@ -67,6 +70,7 @@ class ConfigStatusesFragment : Fragment() {
         loadFromFirebase()
 
         btnCreate.setOnClickListener { handleCreate() }
+        btnOpenCreate.setOnClickListener { openCreateDialog() }
     }
 
     // ── Firebase load ─────────────────────────────────────────────────────────
@@ -91,9 +95,32 @@ class ConfigStatusesFragment : Fragment() {
                     }
                     ConfigState.statusMeta = loaded
                 }
-            } catch (_: Exception) {}
+                loadRemarks()
+            } catch (e: Exception) {
+                Log.e("ConfigStatuses", "Failed to load config", e)
+            }
             if (isAdded) bindStatusList()
         }
+    }
+
+    private suspend fun loadRemarks() {
+        val snap = db.reference.child("config/remarks").get().await()
+        if (!snap.exists()) return
+
+        val loaded = mutableMapOf<String, MutableList<ConfigState.Remark>>()
+        snap.children.forEach { statusSnap ->
+            val key = statusSnap.key ?: return@forEach
+            val list = mutableListOf<ConfigState.Remark>()
+            statusSnap.children.forEach { r ->
+                val id = r.child("id").getValue(String::class.java) ?: return@forEach
+                val textBn = r.child("text_bn").getValue(String::class.java) ?: ""
+                val textEn = r.child("text_en").getValue(String::class.java) ?: ""
+                val targetStatus = r.child("target_status").getValue(String::class.java) ?: key
+                list.add(ConfigState.Remark(id, textBn, textEn, targetStatus))
+            }
+            loaded[key] = list
+        }
+        ConfigState.remarks = loaded
     }
 
     // ── Bind status list ──────────────────────────────────────────────────────
@@ -179,9 +206,14 @@ class ConfigStatusesFragment : Fragment() {
                 val newMeta = ConfigState.statusMeta.toMutableMap()
                 newMeta[key] = updated
                 ConfigState.statusMeta = newMeta
-                triggerSave()
-                bindStatusList()
-                Toast.makeText(ctx, "✅ Status আপডেট হয়েছে", Toast.LENGTH_SHORT).show()
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (saveStatusMeta()) {
+                        bindStatusList()
+                        Toast.makeText(ctx, "Status আপডেট হয়েছে", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(ctx, "Status save failed", Toast.LENGTH_LONG).show()
+                    }
+                }
             }
             .setNegativeButton("বাতিল", null)
             .show()
@@ -235,9 +267,14 @@ class ConfigStatusesFragment : Fragment() {
         newMeta.remove(key)
         ConfigState.statusMeta = newMeta
 
-        triggerSave()
-        bindStatusList()
-        Toast.makeText(requireContext(), "🗑️ Status মুছে গেছে", Toast.LENGTH_SHORT).show()
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (saveStatusMeta() && saveRemarks()) {
+                bindStatusList()
+                Toast.makeText(requireContext(), "Status মুছে গেছে", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(requireContext(), "Status delete save failed", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     // ── Create new status ─────────────────────────────────────────────────────
@@ -266,11 +303,151 @@ class ConfigStatusesFragment : Fragment() {
         ConfigState.statuses   = ConfigState.statuses + rawKey
         ConfigState.remarks.getOrPut(rawKey) { mutableListOf() }
 
-        triggerSave()
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (saveStatusMeta()) {
+                Toast.makeText(requireContext(), "নতুন status তৈরি হয়েছে", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(requireContext(), "Status create failed", Toast.LENGTH_LONG).show()
+            }
+        }
         etNewKey.setText(""); etNewBn.setText(""); etNewEn.setText(""); etNewPriority.setText("0")
         newColorIdx = 0; updateCreateColorPreview()
         bindStatusList()
-        Toast.makeText(requireContext(), "✅ নতুন status তৈরি হয়েছে", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openCreateDialog() {
+        val ctx = requireContext()
+        val content = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 12, 32, 0)
+        }
+
+        fun label(text: String) = TextView(ctx).apply {
+            this.text = text
+            textSize = 10f
+            setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 10, 0, 4)
+        }
+
+        fun input(hint: String, inputType: Int = android.text.InputType.TYPE_CLASS_TEXT) =
+            EditText(ctx).apply {
+                this.hint = hint
+                textSize = 13f
+                setPadding(16, 10, 16, 10)
+                background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
+                this.inputType = inputType
+            }
+
+        val keyInput = input("e.g. PARTIAL", android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
+        val bnInput = input("বাংলা...")
+        val enInput = input("English...")
+        val priorityInput = input("0", android.text.InputType.TYPE_CLASS_NUMBER)
+        val picker = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 8, 0, 8)
+        }
+        val preview = TextView(ctx).apply {
+            text = "Preview"
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(10, 3, 10, 3)
+        }
+        var selectedColorIdx = 0
+        fun updatePreview() {
+            val (c, bg) = statusColors[selectedColorIdx]
+            preview.text = bnInput.text.toString().ifEmpty { enInput.text.toString().ifEmpty { "Preview" } }
+            preview.setTextColor(android.graphics.Color.parseColor(c))
+            preview.setBackgroundColor(android.graphics.Color.parseColor(bg))
+        }
+        buildColorPicker(picker, selectedColorIdx) { idx ->
+            selectedColorIdx = idx
+            updatePreview()
+        }
+        updatePreview()
+
+        content.addView(label("KEY"))
+        content.addView(keyInput)
+        content.addView(label("বাংলা"))
+        content.addView(bnInput)
+        content.addView(label("English"))
+        content.addView(enInput)
+        content.addView(label("Priority"))
+        content.addView(priorityInput)
+        content.addView(label("Color"))
+        content.addView(picker)
+        content.addView(preview)
+
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle("নতুন Status")
+            .setView(content)
+            .setNegativeButton("বাতিল", null)
+            .setPositiveButton("Create", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val rawKey = keyInput.text.toString().trim().uppercase().replace("\\s+".toRegex(), "_")
+                val bn = bnInput.text.toString().trim()
+                val en = enInput.text.toString().trim()
+                val pri = priorityInput.text.toString().toIntOrNull() ?: 0
+
+                when {
+                    rawKey.isEmpty() -> keyInput.error = "Status key দিন"
+                    ConfigState.statuses.contains(rawKey) -> keyInput.error = "এই key ইতিমধ্যে আছে"
+                    bn.isEmpty() && en.isEmpty() -> {
+                        bnInput.error = "নাম দিন"
+                        enInput.error = "নাম দিন"
+                    }
+                    else -> {
+                        val (color, bg) = statusColors[selectedColorIdx]
+                        createStatus(rawKey, bn, en, pri, color, bg) {
+                            dialog.dismiss()
+                        }
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun createStatus(
+        key: String,
+        bn: String,
+        en: String,
+        priority: Int,
+        color: String,
+        bg: String,
+        onSuccess: () -> Unit = {},
+    ) {
+        val newMeta = ConfigState.statusMeta.toMutableMap()
+        newMeta[key] = ConfigState.StatusMeta(
+            bn = bn.ifEmpty { en },
+            en = en.ifEmpty { bn },
+            color = color,
+            bg = bg,
+            priority = priority,
+            builtIn = false,
+        )
+        ConfigState.statusMeta = newMeta
+        ConfigState.statuses = ConfigState.statuses + key
+        ConfigState.remarks.getOrPut(key) { mutableListOf() }
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (saveStatusMeta()) {
+                bindStatusList()
+                Toast.makeText(requireContext(), "নতুন status তৈরি হয়েছে", Toast.LENGTH_SHORT).show()
+                onSuccess()
+            } else {
+                ConfigState.statuses = ConfigState.statuses.filter { it != key }
+                val rolledBack = ConfigState.statusMeta.toMutableMap()
+                rolledBack.remove(key)
+                ConfigState.statusMeta = rolledBack
+                ConfigState.remarks.remove(key)
+                bindStatusList()
+                Toast.makeText(requireContext(), "Status create failed", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun showError(msg: String) {
@@ -307,25 +484,46 @@ class ConfigStatusesFragment : Fragment() {
     private fun sortedStatuses(): List<String> =
         ConfigState.statuses.sortedByDescending { ConfigState.statusMeta[it]?.priority ?: 0 }
 
-    private fun triggerSave() {
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                // Build the full statusMeta map and overwrite the entire node.
-                // Using setValue() (not updateChildren) so deleted keys are actually removed.
-                val payload = mutableMapOf<String, Any>()
-                ConfigState.statusMeta.forEach { (key, m) ->
-                    payload[key] = mapOf(
-                        "bn"       to m.bn,
-                        "en"       to m.en,
-                        "color"    to m.color,
-                        "bg"       to m.bg,
-                        "priority" to m.priority,
-                    )
-                }
-                db.reference.child("config/statusMeta").setValue(payload).await()
-            } catch (_: Exception) {}
+    private suspend fun saveStatusMeta(): Boolean =
+        try {
+            val payload = mutableMapOf<String, Any>()
+            ConfigState.statusMeta.forEach { (key, m) ->
+                payload[key] = mapOf(
+                    "bn"       to m.bn,
+                    "en"       to m.en,
+                    "color"    to m.color,
+                    "bg"       to m.bg,
+                    "priority" to m.priority,
+                )
+            }
+            db.reference.child("config/statusMeta").setValue(payload).await()
+            true
+        } catch (e: Exception) {
+            Log.e("ConfigStatuses", "Failed to save statusMeta", e)
+            false
         }
-    }
+
+    private suspend fun saveRemarks(): Boolean =
+        try {
+            val payload = mutableMapOf<String, Any>()
+            ConfigState.remarks.forEach { (statusKey, list) ->
+                if (list.isNotEmpty()) {
+                    payload[statusKey] = list.mapIndexed { i, r ->
+                        "$i" to mapOf(
+                            "id"            to r.id,
+                            "text_bn"       to r.text_bn,
+                            "text_en"       to r.text_en,
+                            "target_status" to r.target_status,
+                        )
+                    }.toMap()
+                }
+            }
+            db.reference.child("config/remarks").setValue(payload).await()
+            true
+        } catch (e: Exception) {
+            Log.e("ConfigStatuses", "Failed to save remarks", e)
+            false
+        }
 
     // Extension to iterate over LinearLayout children
     private val ViewGroup.children: Sequence<View>

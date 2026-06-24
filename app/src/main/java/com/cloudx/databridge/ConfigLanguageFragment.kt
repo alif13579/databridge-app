@@ -1,6 +1,7 @@
 package com.cloudx.databridge
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -32,6 +33,7 @@ class ConfigLanguageFragment : Fragment() {
     private lateinit var previewCC:      LinearLayout
 
     private val langOptions = ConfigState.LANG_OPTIONS
+    private var applyingSelection = false
 
     // Sample remarks for preview (mirrors JSX Preview component)
     private val SAMPLES = listOf(
@@ -62,21 +64,35 @@ class ConfigLanguageFragment : Fragment() {
 
         spinnerWorker.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (applyingSelection) return
                 val val_ = langOptions.getOrNull(pos)?.value ?: return
+                if (val_ == ConfigState.workerLang) return
                 ConfigState.workerLang = val_
                 renderPreview(previewWorker, val_)
-                triggerSave()
-                Toast.makeText(requireContext(), "✅ Worker language saved", Toast.LENGTH_SHORT).show()
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (saveLanguage()) {
+                        Toast.makeText(requireContext(), "Worker language saved", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(requireContext(), "Worker language save failed", Toast.LENGTH_LONG).show()
+                    }
+                }
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
         spinnerCC.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (applyingSelection) return
                 val val_ = langOptions.getOrNull(pos)?.value ?: return
+                if (val_ == ConfigState.ccLang) return
                 ConfigState.ccLang = val_
                 renderPreview(previewCC, val_)
-                triggerSave()
-                Toast.makeText(requireContext(), "✅ CC language saved", Toast.LENGTH_SHORT).show()
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (saveLanguage()) {
+                        Toast.makeText(requireContext(), "CC language saved", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(requireContext(), "CC language save failed", Toast.LENGTH_LONG).show()
+                    }
+                }
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
@@ -121,31 +137,38 @@ class ConfigLanguageFragment : Fragment() {
                 if (!wl.isNullOrBlank()) {
                     ConfigState.workerLang = wl
                     if (isAdded) {
+                        applyingSelection = true
                         spinnerWorker.setSelection(langOptions.indexOfFirst { it.value == wl }.coerceAtLeast(0))
+                        spinnerWorker.post { applyingSelection = false }
                         renderPreview(previewWorker, wl)
                     }
                 }
                 if (!cl.isNullOrBlank()) {
                     ConfigState.ccLang = cl
                     if (isAdded) {
+                        applyingSelection = true
                         spinnerCC.setSelection(langOptions.indexOfFirst { it.value == cl }.coerceAtLeast(0))
+                        spinnerCC.post { applyingSelection = false }
                         renderPreview(previewCC, cl)
                     }
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.e("ConfigLanguage", "Failed to load language config", e)
+            }
         }
     }
 
-    private fun triggerSave() {
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                db.reference.child("config/language").updateChildren(
-                    mapOf(
-                        "workerLang" to ConfigState.workerLang,
-                        "ccLang"     to ConfigState.ccLang,
-                    )
-                ).await()
-            } catch (_: Exception) {}
+    private suspend fun saveLanguage(): Boolean =
+        try {
+            db.reference.child("config/language").updateChildren(
+                mapOf(
+                    "workerLang" to ConfigState.workerLang,
+                    "ccLang"     to ConfigState.ccLang,
+                )
+            ).await()
+            true
+        } catch (e: Exception) {
+            Log.e("ConfigLanguage", "Failed to save language config", e)
+            false
         }
-    }
 }

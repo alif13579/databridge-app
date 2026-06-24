@@ -46,7 +46,7 @@ object ConfigState {
         "CANCELLED" to StatusMeta("বাতিল",              "Cancelled", "#6B7280", "#F3F4F6", 0, true),
     )
 
-    val INIT_REMARKS: MutableMap<String, MutableList<Remark>> = mutableMapOf(
+    private fun defaultRemarks(): MutableMap<String, MutableList<Remark>> = mutableMapOf(
         "DELIVERED" to mutableListOf(
             Remark("d1", "সঠিকভাবে পৌঁছে দেওয়া হয়েছে", "Delivered successfully",  "DELIVERED"),
             Remark("d2", "গ্রাহক সন্তুষ্ট",              "Customer satisfied",       "DELIVERED"),
@@ -94,7 +94,7 @@ object ConfigState {
     // ── Mutable shared state ──────────────────────────────────────────────────
     var statuses:   List<String>                     = BASE_STATUSES.toMutableList()
     var statusMeta: Map<String, StatusMeta>          = BASE_STATUS_META.toMutableMap()
-    var remarks:    MutableMap<String, MutableList<Remark>> = INIT_REMARKS
+    var remarks:    MutableMap<String, MutableList<Remark>> = defaultRemarks()
     var workerLang: String                           = "bn_bn"
     var ccLang:     String                           = "bn_en"
 
@@ -102,7 +102,7 @@ object ConfigState {
     fun reset() {
         statuses   = BASE_STATUSES.toMutableList()
         statusMeta = BASE_STATUS_META.toMutableMap()
-        remarks    = INIT_REMARKS
+        remarks    = defaultRemarks()
         workerLang = "bn_bn"
         ccLang     = "bn_en"
     }
