@@ -40,6 +40,9 @@ class ConfigStatusesFragment : Fragment() {
     private lateinit var tvCreateError:       TextView
     private lateinit var btnCreate:           Button
     private lateinit var btnOpenCreate:       TextView
+    private lateinit var tvEmpty:             TextView
+    private lateinit var busyOverlay:         View
+    private lateinit var tvBusy:              TextView
 
     // selected color for new status form
     private var newColorIdx: Int = 0
@@ -61,6 +64,9 @@ class ConfigStatusesFragment : Fragment() {
         tvCreateError       = view.findViewById(R.id.tvCreateError)
         btnCreate           = view.findViewById(R.id.btnCreateStatus)
         btnOpenCreate       = view.findViewById(R.id.btnOpenCreateStatus)
+        tvEmpty             = view.findViewById(R.id.tvStatusEmpty)
+        busyOverlay         = view.findViewById(R.id.statusBusyOverlay)
+        tvBusy              = view.findViewById(R.id.tvStatusBusy)
 
         buildColorPicker(colorPickerNew, newColorIdx) { idx ->
             newColorIdx = idx
@@ -76,36 +82,48 @@ class ConfigStatusesFragment : Fragment() {
     // ── Firebase load ─────────────────────────────────────────────────────────
     private fun loadFromFirebase() {
         viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                val snap = db.reference.child("config/statusMeta").get().await()
-                if (snap.exists()) {
-                    val loaded = ConfigState.BASE_STATUS_META.toMutableMap()
-                    snap.children.forEach { s ->
-                        val key = s.key ?: return@forEach
-                        val bn   = s.child("bn").getValue(String::class.java)   ?: ""
-                        val en   = s.child("en").getValue(String::class.java)   ?: ""
-                        val color= s.child("color").getValue(String::class.java) ?: "#6B7280"
-                        val bg   = s.child("bg").getValue(String::class.java)   ?: "#F3F4F6"
-                        val pri  = s.child("priority").getValue(Int::class.java) ?: 0
-                        val bi   = ConfigState.BASE_STATUSES.contains(key)
-                        loaded[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, bi)
-                        if (!ConfigState.statuses.contains(key)) {
-                            ConfigState.statuses = ConfigState.statuses + key
-                        }
-                    }
-                    ConfigState.statusMeta = loaded
-                }
-                loadRemarks()
-            } catch (e: Exception) {
-                Log.e("ConfigStatuses", "Failed to load config", e)
+            setBusy(true, "Loading...")
+            val loaded = reloadConfig()
+            if (!loaded) Toast.makeText(requireContext(), "Status load failed", Toast.LENGTH_LONG).show()
+            if (isAdded) {
+                bindStatusList()
+                setBusy(false)
             }
-            if (isAdded) bindStatusList()
         }
     }
 
+    private suspend fun reloadConfig(): Boolean =
+        try {
+            val statusSnap = db.reference.child("config/statusMeta").get().await()
+            val loadedMeta = mutableMapOf<String, ConfigState.StatusMeta>()
+            val loadedStatuses = mutableListOf<String>()
+            if (statusSnap.exists()) {
+                statusSnap.children.forEach { s ->
+                    val key = s.key ?: return@forEach
+                    val bn = s.child("bn").getValue(String::class.java) ?: ""
+                    val en = s.child("en").getValue(String::class.java) ?: ""
+                    val color = s.child("color").getValue(String::class.java) ?: "#6B7280"
+                    val bg = s.child("bg").getValue(String::class.java) ?: "#F3F4F6"
+                    val pri = s.child("priority").getValue(Int::class.java) ?: 0
+                    loadedMeta[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, false)
+                    loadedStatuses.add(key)
+                }
+            }
+            ConfigState.statusMeta = loadedMeta
+            ConfigState.statuses = loadedStatuses
+            loadRemarks()
+            true
+        } catch (e: Exception) {
+            Log.e("ConfigStatuses", "Failed to load config", e)
+            false
+        }
+
     private suspend fun loadRemarks() {
         val snap = db.reference.child("config/remarks").get().await()
-        if (!snap.exists()) return
+        if (!snap.exists()) {
+            ConfigState.remarks = mutableMapOf()
+            return
+        }
 
         val loaded = mutableMapOf<String, MutableList<ConfigState.Remark>>()
         snap.children.forEach { statusSnap ->
@@ -127,10 +145,10 @@ class ConfigStatusesFragment : Fragment() {
     private fun bindStatusList() {
         statusListContainer.removeAllViews()
         val sorted = sortedStatuses()
+        tvEmpty.visibility = if (sorted.isEmpty()) View.VISIBLE else View.GONE
         sorted.forEach { key ->
             val meta    = ConfigState.statusMeta[key] ?: return@forEach
             val count   = ConfigState.remarks[key]?.size ?: 0
-            val isBuiltIn = ConfigState.BASE_STATUSES.contains(key)
 
             val row = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_status_row, statusListContainer, false)
@@ -142,11 +160,7 @@ class ConfigStatusesFragment : Fragment() {
             row.findViewById<TextView>(R.id.tvStatusEn).text = meta.en
 
             val tvCustom = row.findViewById<TextView>(R.id.tvStatusCustomBadge)
-            tvCustom.visibility = if (!isBuiltIn) View.VISIBLE else View.GONE
-            if (!isBuiltIn) {
-                tvCustom.setTextColor(android.graphics.Color.parseColor(meta.color))
-                tvCustom.setBackgroundColor(android.graphics.Color.parseColor(meta.bg))
-            }
+            tvCustom.visibility = View.GONE
 
             row.findViewById<TextView>(R.id.tvStatusSubtitle).text =
                 "$key · Priority: ${meta.priority} · $count remark${if (count != 1) "s" else ""}"
@@ -154,8 +168,7 @@ class ConfigStatusesFragment : Fragment() {
             row.findViewById<View>(R.id.btnEditStatus).setOnClickListener { openEditDialog(key) }
 
             val btnDel = row.findViewById<View>(R.id.btnDeleteStatus)
-            // Hide delete only when this is the last status remaining
-            btnDel.visibility = if (ConfigState.statuses.size > 1) View.VISIBLE else View.GONE
+            btnDel.visibility = View.VISIBLE
             btnDel.setOnClickListener { openDeleteDialog(key) }
 
             statusListContainer.addView(row)
@@ -175,7 +188,7 @@ class ConfigStatusesFragment : Fragment() {
         val tvPrev = view.findViewById<TextView>(R.id.tvEditColorPreview)
         val tvHint = view.findViewById<TextView>(R.id.tvEditStatusKeyHint)
 
-        tvHint.text = "$key ${if (ConfigState.BASE_STATUSES.contains(key)) "· built-in" else "· custom"}"
+        tvHint.text = key
         etBn.setText(meta.bn)
         etEn.setText(meta.en)
         etPri.setText(meta.priority.toString())
@@ -207,10 +220,14 @@ class ConfigStatusesFragment : Fragment() {
                 newMeta[key] = updated
                 ConfigState.statusMeta = newMeta
                 viewLifecycleOwner.lifecycleScope.launch {
+                    setBusy(true, "Saving...")
                     if (saveStatusMeta()) {
+                        reloadConfig()
                         bindStatusList()
-                        Toast.makeText(ctx, "Status আপডেট হয়েছে", Toast.LENGTH_SHORT).show()
+                        setBusy(false)
+                        Toast.makeText(ctx, "Changed", Toast.LENGTH_SHORT).show()
                     } else {
+                        setBusy(false)
                         Toast.makeText(ctx, "Status save failed", Toast.LENGTH_LONG).show()
                     }
                 }
@@ -225,26 +242,22 @@ class ConfigStatusesFragment : Fragment() {
         val others = ConfigState.statuses.filter { it != key }
         val toMigrateCount = ConfigState.remarks[key]?.size ?: 0
 
-        if (others.isEmpty()) {
-            Toast.makeText(ctx, "কমপক্ষে একটি status রাখতে হবে", Toast.LENGTH_SHORT).show()
-            return
-        }
-
         val spinMigrate = Spinner(ctx)
         val adapter     = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
             others.map { ConfigState.statusMeta[it]?.en ?: it })
         spinMigrate.adapter = adapter
 
         val msg = if (toMigrateCount > 0)
-            "$toMigrateCount রিমার্ক অন্য status-এ মাইগ্রেট হবে"
+            if (others.isEmpty()) "$toMigrateCount রিমার্ক মুছে যাবে"
+            else "$toMigrateCount রিমার্ক অন্য status-এ মাইগ্রেট হবে"
         else "এই status স্থায়ীভাবে মুছে যাবে"
 
         AlertDialog.Builder(ctx)
             .setTitle("Delete $key?")
             .setMessage(msg)
-            .apply { if (toMigrateCount > 0) setView(spinMigrate) }
+            .apply { if (toMigrateCount > 0 && others.isNotEmpty()) setView(spinMigrate) }
             .setPositiveButton("Delete") { _, _ ->
-                val migrateTarget = if (toMigrateCount > 0)
+                val migrateTarget = if (toMigrateCount > 0 && others.isNotEmpty())
                     others.getOrElse(spinMigrate.selectedItemPosition) { others.first() }
                 else null
                 confirmDelete(key, migrateTarget)
@@ -268,10 +281,14 @@ class ConfigStatusesFragment : Fragment() {
         ConfigState.statusMeta = newMeta
 
         viewLifecycleOwner.lifecycleScope.launch {
+            setBusy(true, "Deleting...")
             if (saveStatusMeta() && saveRemarks()) {
+                reloadConfig()
                 bindStatusList()
-                Toast.makeText(requireContext(), "Status মুছে গেছে", Toast.LENGTH_SHORT).show()
+                setBusy(false)
+                Toast.makeText(requireContext(), "Deleted", Toast.LENGTH_SHORT).show()
             } else {
+                setBusy(false)
                 Toast.makeText(requireContext(), "Status delete save failed", Toast.LENGTH_LONG).show()
             }
         }
@@ -304,9 +321,14 @@ class ConfigStatusesFragment : Fragment() {
         ConfigState.remarks.getOrPut(rawKey) { mutableListOf() }
 
         viewLifecycleOwner.lifecycleScope.launch {
+            setBusy(true, "Creating...")
             if (saveStatusMeta()) {
-                Toast.makeText(requireContext(), "নতুন status তৈরি হয়েছে", Toast.LENGTH_SHORT).show()
+                reloadConfig()
+                bindStatusList()
+                setBusy(false)
+                Toast.makeText(requireContext(), "Created", Toast.LENGTH_SHORT).show()
             } else {
+                setBusy(false)
                 Toast.makeText(requireContext(), "Status create failed", Toast.LENGTH_LONG).show()
             }
         }
@@ -401,9 +423,8 @@ class ConfigStatusesFragment : Fragment() {
                     }
                     else -> {
                         val (color, bg) = statusColors[selectedColorIdx]
-                        createStatus(rawKey, bn, en, pri, color, bg) {
-                            dialog.dismiss()
-                        }
+                        dialog.dismiss()
+                        createStatus(rawKey, bn, en, pri, color, bg)
                     }
                 }
             }
@@ -434,9 +455,12 @@ class ConfigStatusesFragment : Fragment() {
         ConfigState.remarks.getOrPut(key) { mutableListOf() }
 
         viewLifecycleOwner.lifecycleScope.launch {
+            setBusy(true, "Creating...")
             if (saveStatusMeta()) {
+                reloadConfig()
                 bindStatusList()
-                Toast.makeText(requireContext(), "নতুন status তৈরি হয়েছে", Toast.LENGTH_SHORT).show()
+                setBusy(false)
+                Toast.makeText(requireContext(), "Created", Toast.LENGTH_SHORT).show()
                 onSuccess()
             } else {
                 ConfigState.statuses = ConfigState.statuses.filter { it != key }
@@ -445,6 +469,7 @@ class ConfigStatusesFragment : Fragment() {
                 ConfigState.statusMeta = rolledBack
                 ConfigState.remarks.remove(key)
                 bindStatusList()
+                setBusy(false)
                 Toast.makeText(requireContext(), "Status create failed", Toast.LENGTH_LONG).show()
             }
         }
@@ -524,6 +549,12 @@ class ConfigStatusesFragment : Fragment() {
             Log.e("ConfigStatuses", "Failed to save remarks", e)
             false
         }
+
+    private fun setBusy(show: Boolean, text: String = "Loading...") {
+        if (!::busyOverlay.isInitialized) return
+        tvBusy.text = text
+        busyOverlay.visibility = if (show) View.VISIBLE else View.GONE
+    }
 
     // Extension to iterate over LinearLayout children
     private val ViewGroup.children: Sequence<View>

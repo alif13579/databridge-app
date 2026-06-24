@@ -46,6 +46,8 @@ class ConfigRemarksFragment : Fragment() {
     private lateinit var spinnerTarget:  Spinner
     private lateinit var btnAdd:         Button
     private lateinit var btnOpenCreate:  TextView
+    private lateinit var busyOverlay:    View
+    private lateinit var tvBusy:         TextView
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_config_remarks, container, false)
@@ -61,6 +63,8 @@ class ConfigRemarksFragment : Fragment() {
         spinnerTarget = view.findViewById(R.id.spinnerTargetStatus)
         btnAdd        = view.findViewById(R.id.btnAddRemark)
         btnOpenCreate = view.findViewById(R.id.btnOpenCreateRemark)
+        busyOverlay   = view.findViewById(R.id.remarksBusyOverlay)
+        tvBusy        = view.findViewById(R.id.tvRemarksBusy)
 
         // Load from Firebase then bind
         loadFromFirebase()
@@ -72,56 +76,72 @@ class ConfigRemarksFragment : Fragment() {
     // ── Firebase load ─────────────────────────────────────────────────────────
     private fun loadFromFirebase() {
         viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                loadStatusMeta()
-                val snap = db.reference.child("config/remarks").get().await()
-                if (snap.exists()) {
-                    val loaded = mutableMapOf<String, MutableList<ConfigState.Remark>>()
-                    snap.children.forEach { statusSnap ->
-                        val key = statusSnap.key ?: return@forEach
-                        val list = mutableListOf<ConfigState.Remark>()
-                        statusSnap.children.forEach { r ->
-                            val id          = r.child("id").getValue(String::class.java) ?: uid()
-                            val textBn      = r.child("text_bn").getValue(String::class.java) ?: ""
-                            val textEn      = r.child("text_en").getValue(String::class.java) ?: ""
-                            val targetStatus = r.child("target_status").getValue(String::class.java) ?: key
-                            list.add(ConfigState.Remark(id, textBn, textEn, targetStatus))
-                        }
-                        loaded[key] = list
-                    }
-                    remarks = loaded
-                    ConfigState.remarks = remarks
-                }
-            } catch (e: Exception) {
-                Log.e("ConfigRemarks", "Failed to load config", e)
+            setBusy(true, "Loading...")
+            val loaded = reloadConfig()
+            if (!loaded) Toast.makeText(requireContext(), "Remarks load failed", Toast.LENGTH_LONG).show()
+            if (isAdded) {
+                bindAll()
+                setBusy(false)
             }
-            if (isAdded) bindAll()
         }
     }
 
+    private suspend fun reloadConfig(): Boolean =
+        try {
+            loadStatusMeta()
+            loadRemarks()
+            true
+        } catch (e: Exception) {
+            Log.e("ConfigRemarks", "Failed to load config", e)
+            false
+        }
+
     private suspend fun loadStatusMeta() {
         val snap = db.reference.child("config/statusMeta").get().await()
-        if (!snap.exists()) return
-
-        val loaded = ConfigState.BASE_STATUS_META.toMutableMap()
-        val loadedStatuses = ConfigState.BASE_STATUSES.toMutableList()
-        snap.children.forEach { s ->
-            val key = s.key ?: return@forEach
-            val bn = s.child("bn").getValue(String::class.java) ?: ""
-            val en = s.child("en").getValue(String::class.java) ?: ""
-            val color = s.child("color").getValue(String::class.java) ?: "#6B7280"
-            val bg = s.child("bg").getValue(String::class.java) ?: "#F3F4F6"
-            val pri = s.child("priority").getValue(Int::class.java) ?: 0
-            val builtIn = ConfigState.BASE_STATUSES.contains(key)
-            loaded[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, builtIn)
-            if (!loadedStatuses.contains(key)) loadedStatuses.add(key)
+        val loaded = mutableMapOf<String, ConfigState.StatusMeta>()
+        val loadedStatuses = mutableListOf<String>()
+        if (snap.exists()) {
+            snap.children.forEach { s ->
+                val key = s.key ?: return@forEach
+                val bn = s.child("bn").getValue(String::class.java) ?: ""
+                val en = s.child("en").getValue(String::class.java) ?: ""
+                val color = s.child("color").getValue(String::class.java) ?: "#6B7280"
+                val bg = s.child("bg").getValue(String::class.java) ?: "#F3F4F6"
+                val pri = s.child("priority").getValue(Int::class.java) ?: 0
+                loaded[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, false)
+                loadedStatuses.add(key)
+            }
         }
         ConfigState.statuses = loadedStatuses
         ConfigState.statusMeta = loaded
         statuses = ConfigState.statuses
         statusMeta = ConfigState.statusMeta
-        if (!statuses.contains(activeStatus)) {
-            activeStatus = statuses.firstOrNull() ?: "DELIVERED"
+    }
+
+    private suspend fun loadRemarks() {
+        val snap = db.reference.child("config/remarks").get().await()
+        val loaded = mutableMapOf<String, MutableList<ConfigState.Remark>>()
+        if (snap.exists()) {
+            snap.children.forEach { statusSnap ->
+                val key = statusSnap.key ?: return@forEach
+                val list = mutableListOf<ConfigState.Remark>()
+                statusSnap.children.forEach { r ->
+                    val id = r.child("id").getValue(String::class.java) ?: uid()
+                    val textBn = r.child("text_bn").getValue(String::class.java) ?: ""
+                    val textEn = r.child("text_en").getValue(String::class.java) ?: ""
+                    val targetStatus = r.child("target_status").getValue(String::class.java) ?: key
+                    list.add(ConfigState.Remark(id, textBn, textEn, targetStatus))
+                }
+                if (list.isNotEmpty()) loaded[key] = list
+            }
+        }
+        remarks = loaded
+        ConfigState.remarks = remarks
+        val firstWithRemarks = sortedStatuses().firstOrNull { (remarks[it]?.size ?: 0) > 0 }
+        activeStatus = when {
+            firstWithRemarks != null -> firstWithRemarks
+            statuses.contains(activeStatus) -> activeStatus
+            else -> ""
         }
     }
 
@@ -135,11 +155,10 @@ class ConfigRemarksFragment : Fragment() {
     private fun bindStatusChips() {
         chipGroup.removeAllViews()
         val sorted = sortedStatuses()
-        // Show chips for statuses that have remarks OR is the active one (mirrors JSX logic)
         sorted.forEach { s ->
             val count = remarks[s]?.size ?: 0
             val meta  = statusMeta[s] ?: return@forEach
-            if (count == 0 && s != activeStatus) return@forEach
+            if (count == 0) return@forEach
 
             val chip = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_status_chip, chipGroup, false) as TextView
@@ -158,7 +177,10 @@ class ConfigRemarksFragment : Fragment() {
 
     private fun bindSpinnerTarget() {
         val sorted = sortedStatuses()
-        if (sorted.isEmpty()) return
+        if (sorted.isEmpty()) {
+            spinnerTarget.adapter = null
+            return
+        }
         val labels = sorted.map { statusMeta[it]?.en ?: it }
         val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, labels)
         spinnerTarget.adapter = adapter
@@ -168,6 +190,12 @@ class ConfigRemarksFragment : Fragment() {
 
     private fun bindRemarksList() {
         remarksList.removeAllViews()
+        val hasAnyRemarks = remarks.values.any { it.isNotEmpty() }
+        if (!hasAnyRemarks) {
+            tvEmpty.text = "No remarks found yet, please create."
+            tvEmpty.visibility = View.VISIBLE
+            return
+        }
         val list = remarks[activeStatus] ?: emptyList()
         tvEmpty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
         list.forEach { r ->
@@ -214,9 +242,14 @@ class ConfigRemarksFragment : Fragment() {
         ConfigState.remarks = remarks
         bindAll()
         viewLifecycleOwner.lifecycleScope.launch {
+            setBusy(true, "Changing...")
             if (saveRemarks()) {
-                Toast.makeText(requireContext(), "Remark সরানো হয়েছে", Toast.LENGTH_SHORT).show()
+                reloadConfig()
+                bindAll()
+                setBusy(false)
+                Toast.makeText(requireContext(), "Changed", Toast.LENGTH_SHORT).show()
             } else {
+                setBusy(false)
                 Toast.makeText(requireContext(), "Remark move failed", Toast.LENGTH_LONG).show()
             }
         }
@@ -228,9 +261,14 @@ class ConfigRemarksFragment : Fragment() {
         ConfigState.remarks = remarks
         bindAll()
         viewLifecycleOwner.lifecycleScope.launch {
+            setBusy(true, "Deleting...")
             if (saveRemarks()) {
-                Toast.makeText(requireContext(), "Remark মুছে গেছে", Toast.LENGTH_SHORT).show()
+                reloadConfig()
+                bindAll()
+                setBusy(false)
+                Toast.makeText(requireContext(), "Deleted", Toast.LENGTH_SHORT).show()
             } else {
+                setBusy(false)
                 Toast.makeText(requireContext(), "Remark delete failed", Toast.LENGTH_LONG).show()
             }
         }
@@ -313,9 +351,8 @@ class ConfigRemarksFragment : Fragment() {
                     bnInput.error = "বাংলা বা English রিমার্ক দিন"
                     enInput.error = "বাংলা বা English রিমার্ক দিন"
                 } else {
-                    addRemark(bn, en, target) {
-                        dialog.dismiss()
-                    }
+                    dialog.dismiss()
+                    addRemark(bn, en, target)
                 }
             }
         }
@@ -340,13 +377,18 @@ class ConfigRemarksFragment : Fragment() {
         bindAll()
 
         viewLifecycleOwner.lifecycleScope.launch {
+            setBusy(true, "Creating...")
             if (saveRemarks()) {
-                Toast.makeText(requireContext(), "Remark যোগ হয়েছে", Toast.LENGTH_SHORT).show()
+                reloadConfig()
+                bindAll()
+                setBusy(false)
+                Toast.makeText(requireContext(), "Created", Toast.LENGTH_SHORT).show()
                 onSuccess()
             } else {
                 remarks[target]?.removeAll { it.id == remark.id }
                 ConfigState.remarks = remarks
                 bindAll()
+                setBusy(false)
                 Toast.makeText(requireContext(), "Remark create failed", Toast.LENGTH_LONG).show()
             }
         }
@@ -396,4 +438,10 @@ class ConfigRemarksFragment : Fragment() {
             Log.e("ConfigRemarks", "Failed to save remarks", e)
             false
         }
+
+    private fun setBusy(show: Boolean, text: String = "Loading...") {
+        if (!::busyOverlay.isInitialized) return
+        tvBusy.text = text
+        busyOverlay.visibility = if (show) View.VISIBLE else View.GONE
+    }
 }
