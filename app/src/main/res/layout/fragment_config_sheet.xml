@@ -33,6 +33,7 @@
                 android:layout_marginBottom="16dp" />
 
             <TextView
+                android:id="@+id/tvBranchLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="BRANCH"
@@ -45,6 +46,32 @@
                 android:layout_height="46dp"
                 android:background="@drawable/bg_input_rounded"
                 android:padding="10dp"
+                android:layout_marginBottom="14dp" />
+
+            <TextView
+                android:id="@+id/tvSingleBranch"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_input_rounded"
+                android:padding="10dp"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface"
+                android:visibility="gone"
+                android:layout_marginBottom="14dp" />
+
+            <TextView
+                android:id="@+id/tvBranchEmpty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="No branch assigned to this user."
+                android:gravity="center"
+                android:padding="18dp"
+                android:textColor="#9CA3AF"
+                android:textSize="13sp"
+                android:background="@drawable/bg_card_rounded"
+                android:visibility="gone"
                 android:layout_marginBottom="14dp" />
 
             <LinearLayout android:id="@+id/cardConnInfo"

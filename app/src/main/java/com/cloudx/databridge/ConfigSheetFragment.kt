@@ -3,6 +3,7 @@ package com.cloudx.databridge
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -69,6 +70,7 @@ class ConfigSheetFragment : Fragment() {
     private var connectStep  = 1   // 1=Account  2=Sheet  3=Tab  4=Columns
 
     private var branches:    List<String>                  = emptyList()
+    private var branchNames: Map<String, String>           = emptyMap()
     private var connections: MutableMap<String, SheetConn> = mutableMapOf()
 
     // ── Connect flow state (mirrors JSX) ──────────────────────────────
@@ -103,7 +105,10 @@ class ConfigSheetFragment : Fragment() {
 
     /* Branch select panel */
     private var panelBranch:     View? = null
+    private var tvBranchLabel:   TextView? = null
     private var spinnerBranch:   Spinner? = null
+    private var tvSingleBranch:  TextView? = null
+    private var tvBranchEmpty:   TextView? = null
     private var cardConnInfo:    LinearLayout? = null
     private var tvConnInfoSheet: TextView? = null
     private var tvConnInfoTab:   TextView? = null
@@ -224,7 +229,10 @@ class ConfigSheetFragment : Fragment() {
 
         // Branch select
         panelBranch     = view.findViewById(R.id.panelBranchSelect)
+        tvBranchLabel   = view.findViewById(R.id.tvBranchLabel)
         spinnerBranch   = view.findViewById(R.id.spinnerBranch)
+        tvSingleBranch  = view.findViewById(R.id.tvSingleBranch)
+        tvBranchEmpty   = view.findViewById(R.id.tvBranchEmpty)
         cardConnInfo    = view.findViewById(R.id.cardConnInfo)
         tvConnInfoSheet = view.findViewById(R.id.tvConnInfoSheet)
         tvConnInfoTab   = view.findViewById(R.id.tvConnInfoTab)
@@ -353,7 +361,7 @@ class ConfigSheetFragment : Fragment() {
 
         when (screen) {
             Screen.BRANCH_SELECT -> updateBranchSpinner()
-            Screen.CONNECTING    -> { tvConnBranchSub?.text = "Branch: $activeBranch"; renderConnectStep() }
+            Screen.CONNECTING    -> { tvConnBranchSub?.text = "Branch: ${branchLabel(activeBranch)}"; renderConnectStep() }
             Screen.MANAGING      -> renderManagePanel()
         }
     }
@@ -361,7 +369,32 @@ class ConfigSheetFragment : Fragment() {
     // ── Branch select ─────────────────────────────────────────────────
     private fun updateBranchSpinner() {
         val ctx = context ?: return
-        val opts = listOf("শাখা বেছে নিন...") + branches
+        if (branches.isEmpty()) {
+            activeBranch = ""
+            tvBranchLabel?.visibility = View.GONE
+            spinnerBranch?.visibility = View.GONE
+            tvSingleBranch?.visibility = View.GONE
+            tvBranchEmpty?.visibility = View.VISIBLE
+            btnBranchAction?.visibility = View.GONE
+            cardConnInfo?.visibility = View.GONE
+            return
+        }
+
+        tvBranchLabel?.visibility = View.VISIBLE
+        tvBranchEmpty?.visibility = View.GONE
+
+        if (branches.size == 1) {
+            activeBranch = branches.first()
+            spinnerBranch?.visibility = View.GONE
+            tvSingleBranch?.visibility = View.VISIBLE
+            tvSingleBranch?.text = branchLabel(activeBranch)
+            updateBranchActionCard()
+            return
+        }
+
+        spinnerBranch?.visibility = View.VISIBLE
+        tvSingleBranch?.visibility = View.GONE
+        val opts = listOf("শাখা বেছে নিন...") + branches.map { branchLabel(it) }
         spinnerBranch?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
         val sel = branches.indexOf(activeBranch)
         if (sel >= 0) spinnerBranch?.setSelection(sel + 1)
@@ -388,6 +421,11 @@ class ConfigSheetFragment : Fragment() {
             btnBranchAction?.text    = "Connect করুন"
             btnBranchAction?.setBackgroundColor(android.graphics.Color.parseColor("#E8380D"))
         }
+    }
+
+    private fun branchLabel(branchId: String): String {
+        val name = branchNames[branchId].orEmpty()
+        return if (name.isBlank() || name == branchId) branchId else "$name ($branchId)"
     }
 
     // ── ConnectFlow steps ─────────────────────────────────────────────
@@ -464,7 +502,7 @@ class ConfigSheetFragment : Fragment() {
         val s = etColStart?.text?.toString()?.toIntOrNull() ?: 1
         val e = etColEnd?.text?.toString()?.toIntOrNull() ?: 10
         val cols = ('A'..'Z').toList().subList((s - 1).coerceIn(0, 25), e.coerceIn(s, 26)).map { it.toString() }
-        tvSummary?.text = "✅ Summary\n\nAccount: $email\nSheet: $sheetName\nSheet ID: ${if (sheetId.length > 24) sheetId.take(24) + "…" else sheetId}\nTab: $tab\nColumns: ${cols.firstOrNull() ?: "A"}–${cols.lastOrNull() ?: "J"} (${cols.size}টি)\nBranch: $activeBranch"
+        tvSummary?.text = "✅ Summary\n\nAccount: $email\nSheet: $sheetName\nSheet ID: ${if (sheetId.length > 24) sheetId.take(24) + "…" else sheetId}\nTab: $tab\nColumns: ${cols.firstOrNull() ?: "A"}–${cols.lastOrNull() ?: "J"} (${cols.size}টি)\nBranch: ${branchLabel(activeBranch)}"
     }
 
     private fun advanceStep() {
@@ -708,7 +746,7 @@ class ConfigSheetFragment : Fragment() {
     // ── ManagePanel ───────────────────────────────────────────────────
     private fun renderManagePanel() {
         val conn = connections[activeBranch] ?: return
-        tvManageBranch?.text = "Branch: $activeBranch"
+        tvManageBranch?.text = "Branch: ${branchLabel(activeBranch)}"
         activeManageTab = "overview"
         renderManageTabs()
 
@@ -746,18 +784,40 @@ class ConfigSheetFragment : Fragment() {
         val owner = viewLifecycleOwnerLiveData.value ?: return
         owner.lifecycleScope.launch {
             try {
-                val branchSnap = db.reference.child("branches").get().await()
-                val loaded = mutableListOf<String>()
-                branchSnap.children.forEach { b ->
-                    val name = b.child("name").getValue(String::class.java) ?: b.key ?: return@forEach
-                    loaded.add(name)
+                val uid = auth.currentUser?.uid.orEmpty()
+                if (uid.isBlank()) {
+                    branches = emptyList()
+                    branchNames = emptyMap()
+                    connections.clear()
+                    return@launch
                 }
-                if (loaded.isEmpty()) loaded.addAll(listOf("Mirpur-1", "Uttara-3", "Dhanmondi-2"))
-                branches = loaded
+
+                val userSnap = db.reference.child("users/$uid/profile/company_info/branch_ids").get().await()
+                val assignedBranchIds = readBranchIds(userSnap)
+
+                val branchSnap = db.reference.child("branches").get().await()
+                val names = mutableMapOf<String, String>()
+                assignedBranchIds.forEach { id -> names[id] = id }
+                branchSnap.children.forEach { b ->
+                    val id = b.key ?: b.child("branch_id").getValue(String::class.java) ?: return@forEach
+                    if (assignedBranchIds.contains(id)) {
+                        names[id] = b.child("name").getValue(String::class.java)?.takeIf { it.isNotBlank() } ?: id
+                    }
+                }
+
+                branches = assignedBranchIds
+                branchNames = names
+                activeBranch = when {
+                    branches.size == 1 -> branches.first()
+                    branches.contains(activeBranch) -> activeBranch
+                    else -> ""
+                }
+                connections.clear()
 
                 val sheetSnap = db.reference.child("config/sheets").get().await()
                 sheetSnap.children.forEach { bs ->
                     val branchId  = bs.key ?: return@forEach
+                    if (!branches.contains(branchId)) return@forEach
                     val cur       = bs.child("current")
                     val sheetId   = cur.child("sheetId")  .getValue(String::class.java) ?: return@forEach
                     val sheetName = cur.child("sheetName").getValue(String::class.java) ?: ""
@@ -769,9 +829,22 @@ class ConfigSheetFragment : Fragment() {
                     val at        = cur.child("connectedAt").getValue(Long::class.java)   ?: 0L
                     connections[branchId] = SheetConn(branchId, sheetId, sheetName, tabName, colS, colE, email, by, at)
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.e("ConfigSheet", "Failed to load sheet config", e)
+            }
             if (isAdded) render()
         }
+    }
+
+    private fun readBranchIds(snap: com.google.firebase.database.DataSnapshot): List<String> {
+        if (!snap.exists()) return emptyList()
+        snap.getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() }?.let { return listOf(it) }
+        return snap.children.mapNotNull { child ->
+            child.getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() }
+                ?: child.key?.takeIf { key ->
+                    key.isNotBlank() && (child.getValue(Boolean::class.java) == true || child.value != null)
+                }
+        }.distinct()
     }
 
     private fun saveToFirebase(conn: SheetConn) {
