@@ -127,7 +127,7 @@ class ConfigStatusesFragment : Fragment() {
             row.findViewById<View>(R.id.btnEditStatus).setOnClickListener { openEditDialog(key) }
 
             val btnDel = row.findViewById<View>(R.id.btnDeleteStatus)
-            // canDelete: must have more than 1 status (mirrors JSX)
+            // Hide delete only when this is the last status remaining
             btnDel.visibility = if (ConfigState.statuses.size > 1) View.VISIBLE else View.GONE
             btnDel.setOnClickListener { openDeleteDialog(key) }
 

@@ -33,6 +33,9 @@ class ConfigRemarksFragment : Fragment() {
     private var remarks: MutableMap<String, MutableList<ConfigState.Remark>> = ConfigState.remarks
     private var activeStatus: String = statuses.firstOrNull { (remarks[it]?.size ?: 0) > 0 } ?: statuses.firstOrNull() ?: "DELIVERED"
 
+    // Guard: true while we're programmatically setting spinner selection
+    private var isProgrammaticSelection = false
+
     // ── Root views ────────────────────────────────────────────────────────────
     private lateinit var chipGroup:      LinearLayout
     private lateinit var remarksList:    LinearLayout
@@ -147,8 +150,12 @@ class ConfigRemarksFragment : Fragment() {
             spinCard.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, labels)
             val idx = sorted.indexOf(r.target_status).coerceAtLeast(0)
             spinCard.setSelection(idx)
+            isProgrammaticSelection = true
+            spinCard.setSelection(idx)
+            spinCard.post { isProgrammaticSelection = false }
             spinCard.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(parent: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    if (isProgrammaticSelection) return
                     val newTarget = sorted.getOrElse(pos) { r.target_status }
                     if (newTarget != r.target_status) handleTargetChange(activeStatus, r.id, newTarget)
                 }
