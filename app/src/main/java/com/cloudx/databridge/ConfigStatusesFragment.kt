@@ -339,9 +339,10 @@ class ConfigStatusesFragment : Fragment() {
 
     private fun openCreateDialog() {
         val ctx = requireContext()
+        fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
         val content = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(32, 12, 32, 0)
+            setPadding(dp(22), dp(10), dp(22), dp(4))
         }
 
         fun label(text: String) = TextView(ctx).apply {
@@ -349,16 +350,25 @@ class ConfigStatusesFragment : Fragment() {
             textSize = 10f
             setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(0, 10, 0, 4)
+            setPadding(0, dp(10), 0, dp(5))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
         }
 
         fun input(hint: String, inputType: Int = android.text.InputType.TYPE_CLASS_TEXT) =
             EditText(ctx).apply {
                 this.hint = hint
                 textSize = 13f
-                setPadding(16, 10, 16, 10)
+                minHeight = dp(46)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
                 background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
                 this.inputType = inputType
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { bottomMargin = dp(2) }
             }
 
         val keyInput = input("e.g. PARTIAL", android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
@@ -367,13 +377,21 @@ class ConfigStatusesFragment : Fragment() {
         val priorityInput = input("0", android.text.InputType.TYPE_CLASS_NUMBER)
         val picker = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 8, 0, 8)
+            setPadding(0, dp(8), 0, dp(8))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(4) }
         }
         val preview = TextView(ctx).apply {
             text = "Preview"
             textSize = 12f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(10, 3, 10, 3)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(2) }
         }
         var selectedColorIdx = 0
         fun updatePreview() {
@@ -430,6 +448,10 @@ class ConfigStatusesFragment : Fragment() {
             }
         }
         dialog.show()
+        dialog.window?.setLayout(
+            (resources.displayMetrics.widthPixels * 0.92f).toInt(),
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        )
     }
 
     private fun createStatus(

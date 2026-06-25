@@ -74,6 +74,57 @@
                 android:visibility="gone"
                 android:layout_marginBottom="14dp" />
 
+            <LinearLayout
+                android:id="@+id/cardBranchInfo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_card_rounded"
+                android:padding="14dp"
+                android:layout_marginBottom="14dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvBranchInfoName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorOnSurface"
+                    android:layout_marginBottom="6dp" />
+
+                <TextView
+                    android:id="@+id/tvBranchInfoCode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="#6B7280"
+                    android:layout_marginBottom="3dp" />
+
+                <TextView
+                    android:id="@+id/tvBranchInfoAddress"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="#6B7280"
+                    android:layout_marginBottom="3dp" />
+
+                <TextView
+                    android:id="@+id/tvBranchInfoType"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="#6B7280"
+                    android:layout_marginBottom="3dp" />
+
+                <TextView
+                    android:id="@+id/tvBranchInfoStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:textColor="#6B7280" />
+            </LinearLayout>
+
             <LinearLayout android:id="@+id/cardConnInfo"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -807,5 +858,32 @@
 
         </LinearLayout>
     </ScrollView>
+
+    <LinearLayout
+        android:id="@+id/sheetBusyOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#99000000"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:indeterminate="true" />
+
+        <TextView
+            android:id="@+id/tvSheetBusy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Loading..."
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginTop="12dp" />
+    </LinearLayout>
 
 </FrameLayout>

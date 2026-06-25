@@ -291,6 +291,7 @@ class ConfigRemarksFragment : Fragment() {
 
     private fun openCreateDialog() {
         val ctx = requireContext()
+        fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
         val sorted = sortedStatuses()
         if (sorted.isEmpty()) {
             Toast.makeText(ctx, "আগে একটি status তৈরি করুন", Toast.LENGTH_SHORT).show()
@@ -299,7 +300,7 @@ class ConfigRemarksFragment : Fragment() {
 
         val content = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(32, 12, 32, 0)
+            setPadding(dp(22), dp(10), dp(22), dp(4))
         }
 
         fun label(text: String) = TextView(ctx).apply {
@@ -307,20 +308,37 @@ class ConfigRemarksFragment : Fragment() {
             textSize = 10f
             setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(0, 10, 0, 4)
+            setPadding(0, dp(10), 0, dp(5))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
         }
 
         fun input(hint: String) = EditText(ctx).apply {
             this.hint = hint
             textSize = 13f
-            setPadding(16, 10, 16, 10)
+            minHeight = dp(46)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
             background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
             inputType = android.text.InputType.TYPE_CLASS_TEXT
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(2) }
         }
 
         val bnInput = input("বাংলা টেক্সট...")
         val enInput = input("English text...")
-        val spinner = Spinner(ctx)
+        val spinner = Spinner(ctx).apply {
+            minimumHeight = dp(46)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
+            setPadding(dp(8), 0, dp(8), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
         spinner.adapter = ArrayAdapter(
             ctx,
             android.R.layout.simple_spinner_dropdown_item,
@@ -357,6 +375,10 @@ class ConfigRemarksFragment : Fragment() {
             }
         }
         dialog.show()
+        dialog.window?.setLayout(
+            (resources.displayMetrics.widthPixels * 0.92f).toInt(),
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        )
     }
 
     private fun addRemark(
