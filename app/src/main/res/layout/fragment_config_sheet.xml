@@ -416,11 +416,18 @@
                 <FrameLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
-                    <Spinner android:id="@+id/spinnerSheet"
+                    <TextView
+                        android:id="@+id/tvSelectedSheet"
                         android:layout_width="match_parent"
                         android:layout_height="46dp"
                         android:background="@drawable/bg_input_rounded"
-                        android:padding="10dp" />
+                        android:padding="10dp"
+                        android:gravity="center_vertical"
+                        android:text="— Sheet বেছে নিন —"
+                        android:textSize="13sp"
+                        android:textColor="#6B7280"
+                        android:clickable="true"
+                        android:focusable="true" />
                     <ProgressBar android:id="@+id/pbSheetLoad"
                         android:layout_width="22dp"
                         android:layout_height="22dp"

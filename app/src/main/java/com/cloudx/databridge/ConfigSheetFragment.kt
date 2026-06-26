@@ -150,9 +150,9 @@ class ConfigSheetFragment : Fragment() {
     private var btnPickAccount:        View? = null
     private var tvPickAccountLabel:    TextView? = null
 
-    // Step 2 - Sheet spinner
-    private var spinnerSheet: Spinner? = null
-    private var pbSheetLoad:  ProgressBar? = null
+    // Step 2 - Sheet picker (searchable dialog)
+    private var tvSelectedSheet: TextView? = null
+    private var pbSheetLoad:     ProgressBar? = null
 
     // Step 3 - Tab spinner
     private var spinnerTab: Spinner? = null
@@ -282,8 +282,8 @@ class ConfigSheetFragment : Fragment() {
         btnPickAccount         = view.findViewById(R.id.btnPickAccount)
         tvPickAccountLabel     = view.findViewById(R.id.tvPickAccountLabel)
 
-        spinnerSheet = view.findViewById(R.id.spinnerSheet)
-        pbSheetLoad  = view.findViewById(R.id.pbSheetLoad)
+        tvSelectedSheet = view.findViewById(R.id.tvSelectedSheet)
+        pbSheetLoad     = view.findViewById(R.id.pbSheetLoad)
         spinnerTab   = view.findViewById(R.id.spinnerTab)
         pbTabLoad    = view.findViewById(R.id.pbTabLoad)
 
@@ -345,20 +345,7 @@ class ConfigSheetFragment : Fragment() {
 
         btnPickAccount?.setOnClickListener { pickGoogleAccount() }
 
-        spinnerSheet?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                if (pos <= 0) { selectedSheet = null; return }
-                val s = availableSheets.getOrNull(pos - 1) ?: return
-                if (selectedSheet?.id != s.id) {
-                    selectedSheet = s
-                    // Reset downstream
-                    selectedTab    = ""
-                    availableTabs  = emptyList()
-                    loadTabsForSheet()
-                }
-            }
-            override fun onNothingSelected(p: AdapterView<*>?) {}
-        }
+        tvSelectedSheet?.setOnClickListener { openSheetPickerDialog() }
 
         spinnerTab?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
@@ -519,7 +506,7 @@ class ConfigSheetFragment : Fragment() {
         // Per-step UI
         when (connectStep) {
             1 -> updateAccountStep()
-            2 -> updateSheetSpinner()
+            2 -> updateSheetPickerLabel()
             3 -> updateTabSpinner()
             4 -> { updateColPreview(); updateSummary() }
         }
@@ -691,7 +678,7 @@ class ConfigSheetFragment : Fragment() {
                 } ?: return@launch
                 val sheets = withContext(Dispatchers.IO) { fetchDriveSpreadsheets(token) }
                 availableSheets = sheets
-                if (connectStep == 2 || stepView2?.visibility == View.VISIBLE) updateSheetSpinner()
+                if (connectStep == 2 || stepView2?.visibility == View.VISIBLE) updateSheetPickerLabel()
             } catch (e: Exception) {
                 showErr("Sheet load failed: ${e.message ?: "unknown"}")
             } finally {
@@ -726,12 +713,78 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun updateSheetSpinner() {
+    private fun updateSheetPickerLabel() {
+        tvSelectedSheet?.text = selectedSheet?.name ?: "— Sheet বেছে নিন —"
+        tvSelectedSheet?.setTextColor(
+            android.graphics.Color.parseColor(if (selectedSheet != null) "#111827" else "#6B7280")
+        )
+    }
+
+    private fun openSheetPickerDialog() {
         val ctx = context ?: return
-        val opts = listOf("— Sheet বেছে নিন —") + availableSheets.map { it.name }
-        spinnerSheet?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
-        val sel = availableSheets.indexOfFirst { it.id == selectedSheet?.id }
-        if (sel >= 0) spinnerSheet?.setSelection(sel + 1) else spinnerSheet?.setSelection(0)
+        if (availableSheets.isEmpty()) {
+            toast("Sheet লোড হচ্ছে, একটু অপেক্ষা করুন")
+            return
+        }
+
+        // Build dialog view: search EditText + ListView
+        val dialogView = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(0, 8, 0, 0)
+        }
+        val etSearch = android.widget.EditText(ctx).apply {
+            hint = "Sheet খুঁজুন..."
+            setSingleLine(true)
+            setPadding(48, 24, 48, 16)
+            textSize = 14f
+        }
+        val listView = android.widget.ListView(ctx)
+        dialogView.addView(etSearch)
+        dialogView.addView(listView)
+
+        // Adapter backed by filtered list
+        var filteredSheets = availableSheets.toMutableList()
+        val adapter = ArrayAdapter(ctx, android.R.layout.simple_list_item_1, filteredSheets.map { it.name }.toMutableList())
+        listView.adapter = adapter
+
+        val dialog = android.app.AlertDialog.Builder(ctx)
+            .setTitle("Google Sheet বেছে নিন")
+            .setView(dialogView)
+            .setNegativeButton("বাতিল", null)
+            .create()
+
+        // Real-time filter
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val query = s?.toString()?.trim()?.lowercase() ?: ""
+                filteredSheets = if (query.isEmpty()) {
+                    availableSheets.toMutableList()
+                } else {
+                    availableSheets.filter { it.name.lowercase().contains(query) }.toMutableList()
+                }
+                adapter.clear()
+                adapter.addAll(filteredSheets.map { it.name })
+                adapter.notifyDataSetChanged()
+            }
+        })
+
+        listView.setOnItemClickListener { _, _, pos, _ ->
+            val picked = filteredSheets.getOrNull(pos) ?: return@setOnItemClickListener
+            if (selectedSheet?.id != picked.id) {
+                selectedSheet = picked
+                selectedTab   = ""
+                availableTabs = emptyList()
+                updateSheetPickerLabel()
+                loadTabsForSheet()
+            } else {
+                updateSheetPickerLabel()
+            }
+            dialog.dismiss()
+        }
+
+        dialog.show()
     }
 
     // ── Sheets API: list tabs ────────────────────────────────────────
