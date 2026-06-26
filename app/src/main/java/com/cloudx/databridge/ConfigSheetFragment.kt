@@ -147,7 +147,8 @@ class ConfigSheetFragment : Fragment() {
     private var cardSelectedAccount:   View? = null
     private var tvSelectedAccountName: TextView? = null
     private var tvSelectedAccountEmail:TextView? = null
-    private var btnPickAccount:        Button? = null
+    private var btnPickAccount:        View? = null
+    private var tvPickAccountLabel:    TextView? = null
 
     // Step 2 - Sheet spinner
     private var spinnerSheet: Spinner? = null
@@ -279,6 +280,7 @@ class ConfigSheetFragment : Fragment() {
         tvSelectedAccountName  = view.findViewById(R.id.tvSelectedAccountName)
         tvSelectedAccountEmail = view.findViewById(R.id.tvSelectedAccountEmail)
         btnPickAccount         = view.findViewById(R.id.btnPickAccount)
+        tvPickAccountLabel     = view.findViewById(R.id.tvPickAccountLabel)
 
         spinnerSheet = view.findViewById(R.id.spinnerSheet)
         pbSheetLoad  = view.findViewById(R.id.pbSheetLoad)
@@ -504,7 +506,12 @@ class ConfigSheetFragment : Fragment() {
 
         // Nav buttons
         btnBack?.visibility    = if (connectStep > 1) View.VISIBLE else View.GONE
-        btnNext?.visibility    = if (connectStep < 4) View.VISIBLE else View.GONE
+        // Step 1: Next only visible when account is selected
+        btnNext?.visibility    = when {
+            connectStep == 1 -> if (googleAccount != null) View.VISIBLE else View.GONE
+            connectStep < 4  -> View.VISIBLE
+            else             -> View.GONE
+        }
         btnConnect?.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
 
         tvConnError?.visibility = View.GONE
@@ -647,12 +654,16 @@ class ConfigSheetFragment : Fragment() {
         val acc = googleAccount
         if (acc == null) {
             cardSelectedAccount?.visibility = View.GONE
-            btnPickAccount?.text = "🔐 Google দিয়ে Sign in"
+            tvPickAccountLabel?.text = "Sign in with Google"
+            // Hide Next until account is selected
+            if (connectStep == 1) btnNext?.visibility = View.GONE
         } else {
             cardSelectedAccount?.visibility = View.VISIBLE
             tvSelectedAccountName?.text  = acc.displayName ?: acc.email ?: "Google User"
             tvSelectedAccountEmail?.text = acc.email ?: ""
-            btnPickAccount?.text = "🔄 Account পরিবর্তন"
+            tvPickAccountLabel?.text = "Switch account"
+            // Show Next when account is ready
+            if (connectStep == 1) btnNext?.visibility = View.VISIBLE
         }
     }
 
