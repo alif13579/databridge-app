@@ -191,7 +191,9 @@ class ConfigSheetFragment : Fragment() {
     private var cardColumns:     View? = null
     private var cardSync:        View? = null
     private var tvOvSheet:       TextView? = null; private var tvOvTab: TextView? = null; private var tvOvCols: TextView? = null
-    private var tvColPreviewMgr: TextView? = null
+    private var tvColPreviewMgr:     TextView? = null
+    private var scrollColPreviewMgr: android.widget.HorizontalScrollView? = null
+    private var tableColPreviewMgr:  android.widget.TableLayout? = null
     private var btnColChange:    Button? = null
     private var btnManReconnect: Button? = null;   private var btnManDisconn: Button? = null
     private var btnManBack:      View? = null
@@ -328,7 +330,9 @@ class ConfigSheetFragment : Fragment() {
         cardColumns      = view.findViewById(R.id.cardColumns)
         cardSync         = view.findViewById(R.id.cardSync)
         tvOvSheet        = view.findViewById(R.id.tvOvSheet); tvOvTab = view.findViewById(R.id.tvOvTab); tvOvCols = view.findViewById(R.id.tvOvCols)
-        tvColPreviewMgr  = view.findViewById(R.id.tvColPreviewMgr)
+        tvColPreviewMgr      = view.findViewById(R.id.tvColPreviewMgr)
+        scrollColPreviewMgr  = view.findViewById(R.id.scrollColPreviewMgr)
+        tableColPreviewMgr   = view.findViewById(R.id.tableColPreviewMgr)
         btnColChange     = view.findViewById(R.id.btnColChange)
         btnManReconnect  = view.findViewById(R.id.btnManReconnect); btnManDisconn = view.findViewById(R.id.btnManDisconnect)
         btnManBack       = view.findViewById(R.id.btnManBack)
@@ -771,19 +775,39 @@ class ConfigSheetFragment : Fragment() {
         val table = tableLivePreview ?: return
         table.removeAllViews()
         val colCount = (colEnd - colStart + 1).coerceAtLeast(1)
-        val normalized = MutableList(6) { rowIdx ->
-            val source = rows.getOrNull(rowIdx).orEmpty()
-            List(colCount) { c -> source.getOrElse(c) { "" } }
-        }
+
+        // Only show actual data rows — no blank padding rows
+        val dataRows = rows.map { row -> List(colCount) { c -> row.getOrElse(c) { "" } } }
 
         val letters = List(colCount) { c -> colIndexToLetter(colStart + c) }
         table.addView(tableRow(letters, "#F3F4F6", "#6B7280", bold = true, compact = true))
-        table.addView(tableRow(normalized[0], "#FFF7ED", "#111827", bold = true))
-        for (i in 1..5) {
-            val bg = if (i % 2 == 0) "#FFFFFF" else "#F9FAFB"
-            table.addView(tableRow(normalized[i], bg, "#374151", bold = false))
+
+        if (dataRows.isEmpty()) {
+            // Show one placeholder row when no data yet
+            table.addView(tableRow(List(colCount) { "" }, "#FFF7ED", "#111827", bold = true))
+        } else {
+            dataRows.forEachIndexed { i, row ->
+                val bg = when (i) {
+                    0    -> "#FFF7ED"
+                    else -> if (i % 2 == 0) "#FFFFFF" else "#F9FAFB"
+                }
+                val bold = i == 0
+                table.addView(tableRow(row, bg, if (bold) "#111827" else "#374151", bold = bold))
+            }
         }
         scrollLivePreview?.visibility = View.VISIBLE
+    }
+
+    /** Renders column letter header row in the Manage → Columns tab table */
+    private fun renderManageColTable(colStart: Int, colEnd: Int) {
+        val table = tableColPreviewMgr ?: return
+        table.removeAllViews()
+        val colCount = (colEnd - colStart + 1).coerceAtLeast(1)
+        val letters  = List(colCount) { c -> colIndexToLetter(colStart + c) }
+        val nums     = List(colCount) { c -> "${colStart + c}" }
+        table.addView(tableRow(letters, "#F3F4F6", "#6B7280", bold = true, compact = true))
+        table.addView(tableRow(nums,    "#FFF7ED", "#E8380D", bold = true, compact = true))
+        scrollColPreviewMgr?.visibility = View.VISIBLE
     }
 
     private fun tableRow(
@@ -1353,7 +1377,8 @@ class ConfigSheetFragment : Fragment() {
         tvOvSheet?.text = conn.sheetName
         tvOvTab?.text   = conn.tabName
         tvOvCols?.text  = "${conn.columns.firstOrNull() ?: "A"}–${conn.columns.lastOrNull() ?: "J"} (${conn.columns.size}টি)"
-        tvColPreviewMgr?.text = conn.columns.mapIndexed { i, c -> "$c: Col${i+1}" }.joinToString("  ·  ")
+        tvColPreviewMgr?.text = "${conn.columns.firstOrNull() ?: "A"} → ${conn.columns.lastOrNull() ?: "J"}  (${conn.columns.size} columns)"
+        renderManageColTable(conn.colStart, conn.colEnd)
     }
 
     private fun renderManageTabs() {

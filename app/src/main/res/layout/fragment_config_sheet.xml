@@ -639,7 +639,18 @@
                 <TextView android:id="@+id/tvColPreviewMgr"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:textSize="12sp" android:textColor="#374151"
-                    android:lineSpacingMultiplier="1.6" android:layout_marginBottom="12dp" />
+                    android:lineSpacingMultiplier="1.6" android:layout_marginBottom="8dp" />
+
+                <HorizontalScrollView
+                    android:id="@+id/scrollColPreviewMgr"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginBottom="12dp"
+                    android:visibility="gone">
+                    <TableLayout
+                        android:id="@+id/tableColPreviewMgr"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:shrinkColumns="*" />
+                </HorizontalScrollView>
                 <Button android:id="@+id/btnColChange"
                     android:layout_width="match_parent" android:layout_height="42dp"
                     android:text="✏ Range পরিবর্তন" android:textSize="12sp"
