@@ -100,6 +100,8 @@ class ConfigSheetFragment : Fragment() {
         val tabName:     String = "",
         val colStart:    Int    = 1,
         val colEnd:      Int    = 10,
+        val startRow:    Int?   = null,  // null = default (1)
+        val endRow:      Int?   = null,  // null = last row
         val googleEmail: String = "",
         val connectedBy: String = "",
         val connectedAt: Long   = 0L,
@@ -167,6 +169,11 @@ class ConfigSheetFragment : Fragment() {
     // Step 4 - column range + live preview + summary
     private var etColStart:      EditText? = null
     private var etColEnd:        EditText? = null
+    private var btnDefineRow:    TextView? = null
+    private var layoutRowRange:  View? = null
+    private var etStartRow:      EditText? = null
+    private var etEndRow:        EditText? = null
+    private var isRowRangeVisible = false
     private var tvColPreview:    TextView? = null
     private var tvLivePreview:   TextView? = null
     private var scrollLivePreview: HorizontalScrollView? = null
@@ -307,6 +314,10 @@ class ConfigSheetFragment : Fragment() {
 
         etColStart     = view.findViewById(R.id.etColStart)
         etColEnd       = view.findViewById(R.id.etColEnd)
+        btnDefineRow   = view.findViewById(R.id.btnDefineRow)
+        layoutRowRange = view.findViewById(R.id.layoutRowRange)
+        etStartRow     = view.findViewById(R.id.etStartRow)
+        etEndRow       = view.findViewById(R.id.etEndRow)
         tvColPreview   = view.findViewById(R.id.tvColPreview)
         tvLivePreview  = view.findViewById(R.id.tvLivePreview)
         scrollLivePreview = view.findViewById(R.id.scrollLivePreview)
@@ -401,6 +412,16 @@ class ConfigSheetFragment : Fragment() {
         btnSyncNow?.setOnClickListener      { toast("🔄 Sync শুরু হয়েছে...") }
 
         etColStart?.addTextChangedListener(colWatcher); etColEnd?.addTextChangedListener(colWatcher)
+
+        btnDefineRow?.setOnClickListener {
+            isRowRangeVisible = !isRowRangeVisible
+            layoutRowRange?.visibility = if (isRowRangeVisible) View.VISIBLE else View.GONE
+            btnDefineRow?.text = if (isRowRangeVisible) "− Hide Row Range" else "+ Define Row Range"
+            if (!isRowRangeVisible) {
+                etStartRow?.setText("")
+                etEndRow?.setText("")
+            }
+        }
     }
 
     // ── Render ────────────────────────────────────────────────────────
@@ -880,6 +901,9 @@ class ConfigSheetFragment : Fragment() {
         val e = parseColInput(etColEnd?.text?.toString() ?: "")   ?: run { showErr("Valid end column দিন (J বা 10)"); return }
         if (s < 1 || e < s) { showErr("start ≤ end হতে হবে"); return }
 
+        val sRow = etStartRow?.text?.toString()?.trim()?.toIntOrNull()
+        val eRow = etEndRow?.text?.toString()?.trim()?.toIntOrNull()
+
         val conn = SheetConn(
             branchId    = activeBranch,
             sheetId     = sheet.id,
@@ -887,6 +911,8 @@ class ConfigSheetFragment : Fragment() {
             tabName     = selectedTab,
             colStart    = s,
             colEnd      = e,
+            startRow    = sRow,
+            endRow      = eRow,
             googleEmail = account?.email ?: existing?.googleEmail ?: "",
             connectedBy = auth.currentUser?.uid ?: existing?.connectedBy ?: "",
             connectedAt = System.currentTimeMillis(),
@@ -1507,6 +1533,8 @@ class ConfigSheetFragment : Fragment() {
                     "tabName"     to conn.tabName,
                     "colStart"    to conn.colStart,
                     "colEnd"      to conn.colEnd,
+                    "startRow"    to (conn.startRow ?: 1),
+                    "endRow"      to (conn.endRow   ?: 0),  // 0 = শেষ পর্যন্ত
                     "googleEmail" to conn.googleEmail,
                     "connectedBy" to conn.connectedBy,
                     "connectedAt" to conn.connectedAt,

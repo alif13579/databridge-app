@@ -437,7 +437,46 @@
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:textSize="11sp" android:textColor="#6B7280"
                     android:background="@drawable/bg_card_rounded"
-                    android:padding="10dp" android:layout_marginBottom="12dp" />
+                    android:padding="10dp" android:layout_marginBottom="8dp" />
+
+                <!-- Define Row Range toggle -->
+                <TextView android:id="@+id/btnDefineRow"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="+ Define Row Range"
+                    android:textSize="12sp" android:textColor="#3B82F6"
+                    android:textStyle="bold" android:clickable="true" android:focusable="true"
+                    android:layout_marginBottom="8dp" android:paddingTop="4dp" android:paddingBottom="4dp" />
+
+                <!-- Row range fields (hidden by default) -->
+                <LinearLayout android:id="@+id/layoutRowRange"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="10dp"
+                    android:visibility="gone">
+
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Start Row" android:textSize="10sp"
+                            android:textColor="#9CA3AF" android:layout_marginBottom="4dp" />
+                        <EditText android:id="@+id/etStartRow"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:hint="1" android:background="@drawable/bg_input_rounded"
+                            android:padding="10dp" android:textSize="14sp" android:gravity="center"
+                            android:inputType="number" android:maxLines="1" />
+                    </LinearLayout>
+
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="End Row" android:textSize="10sp"
+                            android:textColor="#9CA3AF" android:layout_marginBottom="4dp" />
+                        <EditText android:id="@+id/etEndRow"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:hint="শেষ পর্যন্ত" android:background="@drawable/bg_input_rounded"
+                            android:padding="10dp" android:textSize="14sp" android:gravity="center"
+                            android:inputType="number" android:maxLines="1" />
+                    </LinearLayout>
+                </LinearLayout>
 
                 <!-- Live data preview -->
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
