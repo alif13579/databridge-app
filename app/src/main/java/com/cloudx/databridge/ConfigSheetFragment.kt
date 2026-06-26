@@ -104,9 +104,11 @@ class ConfigSheetFragment : Fragment() {
         val connectedBy: String = "",
         val connectedAt: Long   = 0L,
     ) {
-        val columns: List<String> get() = ('A'..'Z').toList()
-            .subList((colStart - 1).coerceIn(0, 25), colEnd.coerceIn(colStart, 26))
-            .map { it.toString() }
+        val columns: List<String> get() = (colStart..colEnd).map { n ->
+            var num = n; var result = ""
+            while (num > 0) { val rem = (num - 1) % 26; result = ('A' + rem) + result; num = (num - 1) / 26 }
+            result
+        }
     }
 
     // ── Views ─────────────────────────────────────────────────────────
@@ -131,6 +133,10 @@ class ConfigSheetFragment : Fragment() {
     private var btnBranchAction: Button? = null
     private var sheetBusyOverlay: View? = null
     private var tvSheetBusy: TextView? = null
+    // Branch sections
+    private var sectionConnected:          LinearLayout? = null
+    private var containerConnectedBranches: LinearLayout? = null
+    private var sectionUnconnected:        LinearLayout? = null
 
     /* ConnectFlow */
     private var panelConnect:        View? = null
@@ -158,11 +164,13 @@ class ConfigSheetFragment : Fragment() {
     private var spinnerTab: Spinner? = null
     private var pbTabLoad:  ProgressBar? = null
 
-    // Step 4 - column range + summary
-    private var etColStart:   EditText? = null
-    private var etColEnd:     EditText? = null
-    private var tvColPreview: TextView? = null
-    private var tvSummary:    TextView? = null
+    // Step 4 - column range + live preview + summary
+    private var etColStart:      EditText? = null
+    private var etColEnd:        EditText? = null
+    private var tvColPreview:    TextView? = null
+    private var tvLivePreview:   TextView? = null
+    private var pbPreviewLoad:   ProgressBar? = null
+    private var tvSummary:       TextView? = null
 
     // Nav buttons
     private var btnBack:    Button? = null
@@ -174,6 +182,7 @@ class ConfigSheetFragment : Fragment() {
     /* ManagePanel */
     private var panelManage:     View? = null
     private var tvManageBranch:  TextView? = null
+    private var spinnerManageBranch: Spinner? = null
     private var tabOverview:     TextView? = null; private var tabColumns: TextView? = null; private var tabSync: TextView? = null
     private var indOverview:     View? = null;     private var indColumns: View? = null;     private var indSync: View? = null
     private var cardOverview:    View? = null
@@ -186,6 +195,7 @@ class ConfigSheetFragment : Fragment() {
     private var btnSyncNow:      Button? = null
 
     private var activeManageTab = "overview"
+    private var previewJob: kotlinx.coroutines.Job? = null
 
     // Activity-result launcher for Google Sign-In
     private val signInLauncher = registerForActivityResult(
@@ -264,6 +274,9 @@ class ConfigSheetFragment : Fragment() {
         btnBranchAction = view.findViewById(R.id.btnBranchAction)
         sheetBusyOverlay = view.findViewById(R.id.sheetBusyOverlay)
         tvSheetBusy = view.findViewById(R.id.tvSheetBusy)
+        sectionConnected           = view.findViewById(R.id.sectionConnected)
+        containerConnectedBranches = view.findViewById(R.id.containerConnectedBranches)
+        sectionUnconnected         = view.findViewById(R.id.sectionUnconnected)
 
         // ConnectFlow
         panelConnect    = view.findViewById(R.id.panelConnect)
@@ -287,10 +300,12 @@ class ConfigSheetFragment : Fragment() {
         spinnerTab   = view.findViewById(R.id.spinnerTab)
         pbTabLoad    = view.findViewById(R.id.pbTabLoad)
 
-        etColStart   = view.findViewById(R.id.etColStart)
-        etColEnd     = view.findViewById(R.id.etColEnd)
-        tvColPreview = view.findViewById(R.id.tvColPreview)
-        tvSummary    = view.findViewById(R.id.tvSummary)
+        etColStart     = view.findViewById(R.id.etColStart)
+        etColEnd       = view.findViewById(R.id.etColEnd)
+        tvColPreview   = view.findViewById(R.id.tvColPreview)
+        tvLivePreview  = view.findViewById(R.id.tvLivePreview)
+        pbPreviewLoad  = view.findViewById(R.id.pbPreviewLoad)
+        tvSummary      = view.findViewById(R.id.tvSummary)
 
         btnBack       = view.findViewById(R.id.btnStepBack)
         btnNext       = view.findViewById(R.id.btnStepNext)
@@ -299,8 +314,9 @@ class ConfigSheetFragment : Fragment() {
         tvConnError   = view.findViewById(R.id.tvConnectError)
 
         // ManagePanel
-        panelManage      = view.findViewById(R.id.panelManage)
-        tvManageBranch   = view.findViewById(R.id.tvManageBranchInfo)
+        panelManage         = view.findViewById(R.id.panelManage)
+        tvManageBranch      = view.findViewById(R.id.tvManageBranchInfo)
+        spinnerManageBranch = view.findViewById(R.id.spinnerManageBranch)
         tabOverview      = view.findViewById(R.id.tabOverview); tabColumns = view.findViewById(R.id.tabColumns); tabSync = view.findViewById(R.id.tabSync)
         indOverview      = view.findViewById(R.id.indOverview); indColumns = view.findViewById(R.id.indColumns); indSync = view.findViewById(R.id.indSync)
         cardOverview     = view.findViewById(R.id.cardOverview)
@@ -322,7 +338,8 @@ class ConfigSheetFragment : Fragment() {
                     cardConnInfo?.visibility    = View.GONE
                     return
                 }
-                val branch = branches.getOrNull(pos - 1) ?: return
+                val unconnected = branches.filter { !connections.containsKey(it) }
+                val branch = unconnected.getOrNull(pos - 1) ?: return
                 activeBranch = branch
                 updateBranchActionCard()
             }
@@ -359,6 +376,15 @@ class ConfigSheetFragment : Fragment() {
         tabColumns?.setOnClickListener  { activeManageTab = "columns";  renderManageTabs() }
         tabSync?.setOnClickListener     { activeManageTab = "sync";     renderManageTabs() }
 
+        spinnerManageBranch?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                val connected = branches.filter { connections.containsKey(it) }
+                val picked = connected.getOrNull(pos) ?: return
+                if (picked != activeBranch) { activeBranch = picked; renderManagePanel() }
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+
         btnManReconnect?.setOnClickListener { screen = Screen.CONNECTING; connectStep = 1; prefillConnectForm(); render() }
         btnManDisconn?.setOnClickListener   { handleDisconnect() }
         btnSyncNow?.setOnClickListener      { toast("🔄 Sync শুরু হয়েছে...") }
@@ -383,37 +409,102 @@ class ConfigSheetFragment : Fragment() {
     // ── Branch select ─────────────────────────────────────────────────
     private fun updateBranchSpinner() {
         val ctx = context ?: return
+
         if (branches.isEmpty()) {
-            activeBranch = ""
-            tvBranchLabel?.visibility = View.GONE
-            spinnerBranch?.visibility = View.GONE
-            tvSingleBranch?.visibility = View.GONE
-            tvBranchEmpty?.visibility = View.VISIBLE
-            cardBranchInfo?.visibility = View.GONE
-            btnBranchAction?.visibility = View.GONE
-            cardConnInfo?.visibility = View.GONE
+            tvBranchEmpty?.visibility          = View.VISIBLE
+            sectionConnected?.visibility       = View.GONE
+            sectionUnconnected?.visibility     = View.GONE
             return
         }
 
-        tvBranchLabel?.visibility = View.VISIBLE
         tvBranchEmpty?.visibility = View.GONE
 
-        if (branches.size == 1) {
-            activeBranch = branches.first()
-            spinnerBranch?.visibility = View.GONE
-            tvSingleBranch?.visibility = View.VISIBLE
-            tvSingleBranch?.text = branchLabel(activeBranch)
-            updateBranchActionCard()
-            return
+        val connectedBranches   = branches.filter {  connections.containsKey(it) }
+        val unconnectedBranches = branches.filter { !connections.containsKey(it) }
+
+        // ── Connected section ─────────────────────────────────────────
+        if (connectedBranches.isNotEmpty()) {
+            sectionConnected?.visibility = View.VISIBLE
+            containerConnectedBranches?.removeAllViews()
+            connectedBranches.forEach { branchId ->
+                val conn = connections[branchId]!!
+                val row = android.widget.LinearLayout(ctx).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    background = resources.getDrawable(R.drawable.bg_card_rounded, null)
+                    setPadding(36, 28, 36, 28)
+                    val lp = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    lp.bottomMargin = 20
+                    layoutParams = lp
+                }
+                val tvName = TextView(ctx).apply {
+                    text = branchLabel(branchId)
+                    textSize = 13f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(android.graphics.Color.parseColor("#111827"))
+                }
+                val tvSheet = TextView(ctx).apply {
+                    text = "📄 ${conn.sheetName}  ·  📑 ${conn.tabName}"
+                    textSize = 11f
+                    setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                    val lp2 = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    lp2.topMargin = 4
+                    layoutParams = lp2
+                }
+                val btnManage = android.widget.Button(ctx).apply {
+                    text = "Manage"
+                    textSize = 12f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(android.graphics.Color.WHITE)
+                    backgroundTintList = android.content.res.ColorStateList.valueOf(
+                        android.graphics.Color.parseColor("#16A34A")
+                    )
+                    val lp3 = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 96
+                    )
+                    lp3.topMargin = 16
+                    layoutParams = lp3
+                    setOnClickListener {
+                        activeBranch = branchId
+                        screen = Screen.MANAGING
+                        render()
+                    }
+                }
+                row.addView(tvName)
+                row.addView(tvSheet)
+                row.addView(btnManage)
+                containerConnectedBranches?.addView(row)
+            }
+        } else {
+            sectionConnected?.visibility = View.GONE
         }
 
-        spinnerBranch?.visibility = View.VISIBLE
-        tvSingleBranch?.visibility = View.GONE
-        val opts = listOf("শাখা বেছে নিন...") + branches.map { branchLabel(it) }
-        spinnerBranch?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
-        val sel = branches.indexOf(activeBranch)
-        if (sel >= 0) spinnerBranch?.setSelection(sel + 1)
-        updateBranchActionCard()
+        // ── Unconnected section ───────────────────────────────────────
+        if (unconnectedBranches.isNotEmpty()) {
+            sectionUnconnected?.visibility = View.VISIBLE
+
+            if (unconnectedBranches.size == 1) {
+                activeBranch = unconnectedBranches.first()
+                spinnerBranch?.visibility  = View.GONE
+                tvSingleBranch?.visibility = View.VISIBLE
+                tvSingleBranch?.text       = branchLabel(activeBranch)
+            } else {
+                spinnerBranch?.visibility  = View.VISIBLE
+                tvSingleBranch?.visibility = View.GONE
+                val opts = listOf("শাখা বেছে নিন...") + unconnectedBranches.map { branchLabel(it) }
+                spinnerBranch?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
+                val sel = unconnectedBranches.indexOf(activeBranch)
+                if (sel >= 0) spinnerBranch?.setSelection(sel + 1)
+            }
+            updateBranchActionCard()
+        } else {
+            sectionUnconnected?.visibility = View.GONE
+        }
     }
 
     private fun updateBranchActionCard() {
@@ -456,6 +547,7 @@ class ConfigSheetFragment : Fragment() {
         tvBranchInfoType?.text = "Type: ${info.type.ifBlank { "N/A" }}"
         tvBranchInfoStatus?.text = "Status: ${info.status.ifBlank { "N/A" }}"
     }
+
 
     // ── ConnectFlow steps ─────────────────────────────────────────────
     private fun renderConnectStep() {
@@ -508,7 +600,7 @@ class ConfigSheetFragment : Fragment() {
             1 -> updateAccountStep()
             2 -> updateSheetPickerLabel()
             3 -> updateTabSpinner()
-            4 -> { updateColPreview(); updateSummary() }
+            4 -> { updateColPreview(); updateSummary(); scheduleLivePreview() }
         }
     }
 
@@ -516,16 +608,56 @@ class ConfigSheetFragment : Fragment() {
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         override fun afterTextChanged(s: android.text.Editable?) {
-            if (connectStep == 4) { updateColPreview(); updateSummary() }
+            if (connectStep == 4) {
+                updateColPreview()
+                updateSummary()
+                scheduleLivePreview()
+            }
         }
     }
 
+    /** Parse "A", "a", "1", "AA" etc → 1-based column index */
+    private fun parseColInput(raw: String): Int? {
+        val s = raw.trim().uppercase()
+        if (s.isEmpty()) return null
+        // Numeric
+        s.toIntOrNull()?.let { return it }
+        // Letter(s): A=1, B=2 ... Z=26, AA=27 ...
+        var result = 0
+        for (ch in s) {
+            if (ch !in 'A'..'Z') return null
+            result = result * 26 + (ch - 'A' + 1)
+        }
+        return result
+    }
+
+    private fun colIndexToLetter(n: Int): String {
+        var num = n; var result = ""
+        while (num > 0) {
+            val rem = (num - 1) % 26
+            result = ('A' + rem) + result
+            num = (num - 1) / 26
+        }
+        return result
+    }
+
     private fun updateColPreview() {
-        val s = etColStart?.text?.toString()?.toIntOrNull() ?: return
-        val e = etColEnd?.text?.toString()?.toIntOrNull()   ?: return
-        if (s < 1 || e < s || e > 26) { tvColPreview?.text = "⚠ Invalid range (1–26)"; return }
-        val cols = ('A'..'Z').toList().subList(s - 1, e).map { it.toString() }
-        tvColPreview?.text = "Columns: ${cols.joinToString(", ")} (${cols.size}টি)"
+        val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run {
+            tvColPreview?.text = "⚠ শুরু column দিন (A বা 1)"
+            return
+        }
+        val e = parseColInput(etColEnd?.text?.toString() ?: "") ?: run {
+            tvColPreview?.text = "⚠ শেষ column দিন (J বা 10)"
+            return
+        }
+        if (s < 1 || e < s) {
+            tvColPreview?.text = "⚠ Invalid range (start ≤ end)"
+            return
+        }
+        val startLetter = colIndexToLetter(s)
+        val endLetter   = colIndexToLetter(e)
+        val count = e - s + 1
+        tvColPreview?.text = "Columns: $startLetter ($s) – $endLetter ($e)  ·  মোট $count টি"
     }
 
     private fun updateSummary() {
@@ -533,10 +665,99 @@ class ConfigSheetFragment : Fragment() {
         val sheetId   = selectedSheet?.id ?: ""
         val tab       = selectedTab
         val email     = googleAccount?.email ?: ""
-        val s = etColStart?.text?.toString()?.toIntOrNull() ?: 1
-        val e = etColEnd?.text?.toString()?.toIntOrNull() ?: 10
-        val cols = ('A'..'Z').toList().subList((s - 1).coerceIn(0, 25), e.coerceIn(s, 26)).map { it.toString() }
-        tvSummary?.text = "✅ Summary\n\nAccount: $email\nSheet: $sheetName\nSheet ID: ${if (sheetId.length > 24) sheetId.take(24) + "…" else sheetId}\nTab: $tab\nColumns: ${cols.firstOrNull() ?: "A"}–${cols.lastOrNull() ?: "J"} (${cols.size}টি)\nBranch: ${branchLabel(activeBranch)}"
+        val s = parseColInput(etColStart?.text?.toString() ?: "") ?: 1
+        val e = parseColInput(etColEnd?.text?.toString() ?: "") ?: 10
+        val startLetter = colIndexToLetter(s.coerceAtLeast(1))
+        val endLetter   = colIndexToLetter(e.coerceAtLeast(s))
+        tvSummary?.text = "✅ Summary\n\nAccount: $email\nSheet: $sheetName\nSheet ID: ${if (sheetId.length > 24) sheetId.take(24) + "…" else sheetId}\nTab: $tab\nColumns: $startLetter–$endLetter (${(e - s + 1).coerceAtLeast(1)}টি)\nBranch: ${branchLabel(activeBranch)}"
+    }
+
+    private fun scheduleLivePreview() {
+        previewJob?.cancel()
+        val account = googleAccount ?: return
+        val sheet   = selectedSheet ?: return
+        val tab     = selectedTab.takeIf { it.isNotBlank() } ?: return
+        val s = parseColInput(etColStart?.text?.toString() ?: "") ?: return
+        val e = parseColInput(etColEnd?.text?.toString() ?: "") ?: return
+        if (s < 1 || e < s) return
+
+        previewJob = viewLifecycleOwner.lifecycleScope.launch {
+            kotlinx.coroutines.delay(600)
+            fetchAndShowLivePreview(account, sheet.id, tab, s, e)
+        }
+    }
+
+    private suspend fun fetchAndShowLivePreview(
+        account: GoogleSignInAccount,
+        sheetId: String,
+        tab: String,
+        colStart: Int,
+        colEnd: Int
+    ) {
+        val acctObj = account.account ?: return
+        try {
+            pbPreviewLoad?.visibility = View.VISIBLE
+            tvLivePreview?.text = "Fetching preview..."
+            val ctx = context ?: return
+            val token = withContext(Dispatchers.IO) {
+                try { GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE) }
+                catch (e: UserRecoverableAuthException) { null }
+            } ?: run {
+                tvLivePreview?.text = "⚠ Token পাওয়া যায়নি"
+                return
+            }
+
+            val startLetter = colIndexToLetter(colStart)
+            val endLetter   = colIndexToLetter(colEnd)
+            // Fetch header row + 5 data rows = rows 1–6
+            val range = "$tab!${startLetter}1:${endLetter}6"
+            val encodedRange = java.net.URLEncoder.encode(range, "UTF-8")
+            val url = "https://sheets.googleapis.com/v4/spreadsheets/$sheetId/values/$encodedRange"
+
+            val rows = withContext(Dispatchers.IO) {
+                val req = Request.Builder().url(url)
+                    .header("Authorization", "Bearer $token").build()
+                httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@withContext null
+                    val body = resp.body?.string() ?: return@withContext null
+                    val obj = org.json.JSONObject(body)
+                    val arr = obj.optJSONArray("values") ?: return@withContext emptyList<List<String>>()
+                    (0 until arr.length()).map { i ->
+                        val row = arr.getJSONArray(i)
+                        (0 until row.length()).map { j -> row.optString(j, "") }
+                    }
+                }
+            }
+
+            if (rows == null) {
+                tvLivePreview?.text = "⚠ Sheet fetch failed"
+                return
+            }
+            if (rows.isEmpty()) {
+                tvLivePreview?.text = "⚠ এই range এ কোনো data নেই"
+                return
+            }
+
+            // Build monospace table
+            val sb = StringBuilder()
+            val colCount = colEnd - colStart + 1
+            rows.forEachIndexed { rowIdx, cells ->
+                val label = if (rowIdx == 0) "HEADER" else "Row $rowIdx  "
+                sb.append("[$label]\n")
+                for (c in 0 until colCount) {
+                    val letter = colIndexToLetter(colStart + c)
+                    val value = cells.getOrElse(c) { "" }.take(30)
+                    sb.append("  $letter: $value\n")
+                }
+                if (rowIdx < rows.size - 1) sb.append("\n")
+            }
+            tvLivePreview?.text = sb.toString().trimEnd()
+
+        } catch (e: Exception) {
+            tvLivePreview?.text = "⚠ Preview error: ${e.message?.take(60)}"
+        } finally {
+            pbPreviewLoad?.visibility = View.GONE
+        }
     }
 
     private fun advanceStep() {
@@ -565,9 +786,9 @@ class ConfigSheetFragment : Fragment() {
         val account = googleAccount ?: run { showErr("Account নেই"); return }
         val sheet   = selectedSheet ?: run { showErr("Sheet নেই"); return }
         if (selectedTab.isBlank())  { showErr("Tab নেই"); return }
-        val s = etColStart?.text?.toString()?.toIntOrNull() ?: 1
-        val e = etColEnd?.text?.toString()?.toIntOrNull() ?: 10
-        if (s < 1 || e < s || e > 26) { showErr("Valid column range দিন (1–26)"); return }
+        val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Valid start column দিন (A বা 1)"); return }
+        val e = parseColInput(etColEnd?.text?.toString() ?: "")   ?: run { showErr("Valid end column দিন (J বা 10)"); return }
+        if (s < 1 || e < s) { showErr("start ≤ end হতে হবে"); return }
 
         val conn = SheetConn(
             branchId    = activeBranch,
@@ -851,6 +1072,20 @@ class ConfigSheetFragment : Fragment() {
     private fun renderManagePanel() {
         val conn = connections[activeBranch] ?: return
         tvManageBranch?.text = "Branch: ${branchLabel(activeBranch)}"
+
+        // Branch switcher — only show when multiple connected branches
+        val connectedBranches = branches.filter { connections.containsKey(it) }
+        val ctx = context
+        if (connectedBranches.size > 1 && ctx != null) {
+            spinnerManageBranch?.visibility = View.VISIBLE
+            val opts = connectedBranches.map { branchLabel(it) }
+            spinnerManageBranch?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
+            val sel = connectedBranches.indexOf(activeBranch)
+            if (sel >= 0) spinnerManageBranch?.setSelection(sel)
+        } else {
+            spinnerManageBranch?.visibility = View.GONE
+        }
+
         activeManageTab = "overview"
         renderManageTabs()
 
@@ -941,6 +1176,15 @@ class ConfigSheetFragment : Fragment() {
                 toast("Sheet config load failed")
             } finally {
                 if (isAdded) {
+                    // Auto-decide screen based on connection state
+                    val connectedBranches = branches.filter { connections.containsKey(it) }
+                    val allConnected = branches.isNotEmpty() && connectedBranches.size == branches.size
+                    if (allConnected) {
+                        screen = Screen.MANAGING
+                        activeBranch = if (branches.contains(activeBranch)) activeBranch else branches.first()
+                    } else {
+                        screen = Screen.BRANCH_SELECT
+                    }
                     render()
                     setBusy(false)
                 }
