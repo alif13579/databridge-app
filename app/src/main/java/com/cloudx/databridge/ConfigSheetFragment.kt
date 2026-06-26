@@ -169,6 +169,8 @@ class ConfigSheetFragment : Fragment() {
     private var etColEnd:        EditText? = null
     private var tvColPreview:    TextView? = null
     private var tvLivePreview:   TextView? = null
+    private var scrollLivePreview: HorizontalScrollView? = null
+    private var tableLivePreview: TableLayout? = null
     private var pbPreviewLoad:   ProgressBar? = null
     private var tvSummary:       TextView? = null
 
@@ -190,6 +192,7 @@ class ConfigSheetFragment : Fragment() {
     private var cardSync:        View? = null
     private var tvOvSheet:       TextView? = null; private var tvOvTab: TextView? = null; private var tvOvCols: TextView? = null
     private var tvColPreviewMgr: TextView? = null
+    private var btnColChange:    Button? = null
     private var btnManReconnect: Button? = null;   private var btnManDisconn: Button? = null
     private var btnManBack:      View? = null
     private var btnSyncNow:      Button? = null
@@ -304,6 +307,8 @@ class ConfigSheetFragment : Fragment() {
         etColEnd       = view.findViewById(R.id.etColEnd)
         tvColPreview   = view.findViewById(R.id.tvColPreview)
         tvLivePreview  = view.findViewById(R.id.tvLivePreview)
+        scrollLivePreview = view.findViewById(R.id.scrollLivePreview)
+        tableLivePreview = view.findViewById(R.id.tableLivePreview)
         pbPreviewLoad  = view.findViewById(R.id.pbPreviewLoad)
         tvSummary      = view.findViewById(R.id.tvSummary)
 
@@ -324,6 +329,7 @@ class ConfigSheetFragment : Fragment() {
         cardSync         = view.findViewById(R.id.cardSync)
         tvOvSheet        = view.findViewById(R.id.tvOvSheet); tvOvTab = view.findViewById(R.id.tvOvTab); tvOvCols = view.findViewById(R.id.tvOvCols)
         tvColPreviewMgr  = view.findViewById(R.id.tvColPreviewMgr)
+        btnColChange     = view.findViewById(R.id.btnColChange)
         btnManReconnect  = view.findViewById(R.id.btnManReconnect); btnManDisconn = view.findViewById(R.id.btnManDisconnect)
         btnManBack       = view.findViewById(R.id.btnManBack)
         btnSyncNow       = view.findViewById(R.id.btnSyncNow)
@@ -386,6 +392,7 @@ class ConfigSheetFragment : Fragment() {
         }
 
         btnManReconnect?.setOnClickListener { screen = Screen.CONNECTING; connectStep = 1; prefillConnectForm(); render() }
+        btnColChange?.setOnClickListener { openRangeEditor() }
         btnManDisconn?.setOnClickListener   { handleDisconnect() }
         btnSyncNow?.setOnClickListener      { toast("🔄 Sync শুরু হয়েছে...") }
 
@@ -592,6 +599,7 @@ class ConfigSheetFragment : Fragment() {
             else             -> View.GONE
         }
         btnConnect?.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
+        btnConnect?.text = if (connections.containsKey(activeBranch)) "Save Range" else "Connect"
 
         tvConnError?.visibility = View.GONE
 
@@ -674,7 +682,12 @@ class ConfigSheetFragment : Fragment() {
 
     private fun scheduleLivePreview() {
         previewJob?.cancel()
-        val account = googleAccount ?: return
+        val account = googleAccount ?: run {
+            tvLivePreview?.text = "Live preview দেখতে Google account sign in দরকার। Range save করা যাবে।"
+            scrollLivePreview?.visibility = View.GONE
+            tableLivePreview?.removeAllViews()
+            return
+        }
         val sheet   = selectedSheet ?: return
         val tab     = selectedTab.takeIf { it.isNotBlank() } ?: return
         val s = parseColInput(etColStart?.text?.toString() ?: "") ?: return
@@ -698,12 +711,15 @@ class ConfigSheetFragment : Fragment() {
         try {
             pbPreviewLoad?.visibility = View.VISIBLE
             tvLivePreview?.text = "Fetching preview..."
+            scrollLivePreview?.visibility = View.GONE
+            tableLivePreview?.removeAllViews()
             val ctx = context ?: return
             val token = withContext(Dispatchers.IO) {
                 try { GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE) }
                 catch (e: UserRecoverableAuthException) { null }
             } ?: run {
                 tvLivePreview?.text = "⚠ Token পাওয়া যায়নি"
+                scrollLivePreview?.visibility = View.GONE
                 return
             }
 
@@ -731,32 +747,81 @@ class ConfigSheetFragment : Fragment() {
 
             if (rows == null) {
                 tvLivePreview?.text = "⚠ Sheet fetch failed"
+                scrollLivePreview?.visibility = View.GONE
                 return
             }
             if (rows.isEmpty()) {
                 tvLivePreview?.text = "⚠ এই range এ কোনো data নেই"
+                renderLivePreviewTable(emptyList(), colStart, colEnd)
                 return
             }
 
-            // Build monospace table
-            val sb = StringBuilder()
-            val colCount = colEnd - colStart + 1
-            rows.forEachIndexed { rowIdx, cells ->
-                val label = if (rowIdx == 0) "HEADER" else "Row $rowIdx  "
-                sb.append("[$label]\n")
-                for (c in 0 until colCount) {
-                    val letter = colIndexToLetter(colStart + c)
-                    val value = cells.getOrElse(c) { "" }.take(30)
-                    sb.append("  $letter: $value\n")
-                }
-                if (rowIdx < rows.size - 1) sb.append("\n")
-            }
-            tvLivePreview?.text = sb.toString().trimEnd()
+            tvLivePreview?.text = "Preview: Row 1 header + next 5 rows"
+            renderLivePreviewTable(rows, colStart, colEnd)
 
         } catch (e: Exception) {
             tvLivePreview?.text = "⚠ Preview error: ${e.message?.take(60)}"
+            scrollLivePreview?.visibility = View.GONE
         } finally {
             pbPreviewLoad?.visibility = View.GONE
+        }
+    }
+
+    private fun renderLivePreviewTable(rows: List<List<String>>, colStart: Int, colEnd: Int) {
+        val table = tableLivePreview ?: return
+        table.removeAllViews()
+        val colCount = (colEnd - colStart + 1).coerceAtLeast(1)
+        val normalized = MutableList(6) { rowIdx ->
+            val source = rows.getOrNull(rowIdx).orEmpty()
+            List(colCount) { c -> source.getOrElse(c) { "" } }
+        }
+
+        val letters = List(colCount) { c -> colIndexToLetter(colStart + c) }
+        table.addView(tableRow(letters, "#F3F4F6", "#6B7280", bold = true, compact = true))
+        table.addView(tableRow(normalized[0], "#FFF7ED", "#111827", bold = true))
+        for (i in 1..5) {
+            val bg = if (i % 2 == 0) "#FFFFFF" else "#F9FAFB"
+            table.addView(tableRow(normalized[i], bg, "#374151", bold = false))
+        }
+        scrollLivePreview?.visibility = View.VISIBLE
+    }
+
+    private fun tableRow(
+        cells: List<String>,
+        bgColor: String,
+        textColor: String,
+        bold: Boolean,
+        compact: Boolean = false,
+    ): TableRow {
+        val row = TableRow(requireContext())
+        cells.forEach { value ->
+            row.addView(tableCell(value, bgColor, textColor, bold, compact))
+        }
+        return row
+    }
+
+    private fun tableCell(
+        value: String,
+        bgColor: String,
+        textColor: String,
+        bold: Boolean,
+        compact: Boolean,
+    ): TextView {
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density).toInt()
+        return TextView(requireContext()).apply {
+            text = value.ifBlank { " " }
+            textSize = if (compact) 10f else 11f
+            setTextColor(android.graphics.Color.parseColor(textColor))
+            if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+            minWidth = dp(96)
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(dp(8), dp(if (compact) 5 else 8), dp(8), dp(if (compact) 5 else 8))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(android.graphics.Color.parseColor(bgColor))
+                setStroke(dp(1), android.graphics.Color.parseColor("#E5E7EB"))
+            }
         }
     }
 
@@ -783,7 +848,8 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun handleConnect() {
-        val account = googleAccount ?: run { showErr("Account নেই"); return }
+        val existing = connections[activeBranch]
+        val account = googleAccount
         val sheet   = selectedSheet ?: run { showErr("Sheet নেই"); return }
         if (selectedTab.isBlank())  { showErr("Tab নেই"); return }
         val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Valid start column দিন (A বা 1)"); return }
@@ -797,13 +863,13 @@ class ConfigSheetFragment : Fragment() {
             tabName     = selectedTab,
             colStart    = s,
             colEnd      = e,
-            googleEmail = account.email ?: "",
-            connectedBy = auth.currentUser?.uid ?: "",
+            googleEmail = account?.email ?: existing?.googleEmail ?: "",
+            connectedBy = auth.currentUser?.uid ?: existing?.connectedBy ?: "",
             connectedAt = System.currentTimeMillis(),
         )
         connections[activeBranch] = conn
         saveToFirebase(conn)
-        toast("✅ $activeBranch connected!")
+        toast(if (existing == null) "✅ $activeBranch connected!" else "✅ Range updated")
         screen = Screen.BRANCH_SELECT
         render()
     }
@@ -819,10 +885,25 @@ class ConfigSheetFragment : Fragment() {
 
     private fun prefillConnectForm() {
         val conn = connections[activeBranch] ?: return
+        selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
+        selectedTab = conn.tabName
+        availableTabs = listOf(conn.tabName)
+        updateSheetPickerLabel()
         etColStart?.setText(conn.colStart.toString())
         etColEnd?.setText(conn.colEnd.toString())
-        // Note: googleAccount + selectedSheet + tab will need re-selection
         if (googleAccount != null) loadSheetsForAccount()
+    }
+
+    private fun openRangeEditor() {
+        val conn = connections[activeBranch] ?: return
+        selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
+        selectedTab = conn.tabName
+        availableTabs = listOf(conn.tabName)
+        etColStart?.setText(conn.colStart.toString())
+        etColEnd?.setText(conn.colEnd.toString())
+        screen = Screen.CONNECTING
+        connectStep = 4
+        render()
     }
 
     // ── Account picker (JSX showPicker equivalent) ────────────────────
