@@ -1480,7 +1480,9 @@ class ConfigSheetFragment : Fragment() {
                         val email     = cur.child("googleEmail").getValue(String::class.java) ?: ""
                         val by        = cur.child("connectedBy").getValue(String::class.java) ?: ""
                         val at        = cur.child("connectedAt").getValue(Long::class.java)   ?: 0L
-                        connections[branchId] = SheetConn(branchId, sheetId, sheetName, tabName, colS, colE, email, by, at)
+                        val sRow      = cur.child("startRow") .getValue(Int::class.java)
+                        val eRow      = cur.child("endRow")   .getValue(Int::class.java)
+                        connections[branchId] = SheetConn(branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, email, by, at)
                     }
                 }
             } catch (e: Exception) {
