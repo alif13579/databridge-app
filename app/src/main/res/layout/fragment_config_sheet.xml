@@ -32,6 +32,45 @@
                 android:textColor="#6B7280"
                 android:layout_marginBottom="16dp" />
 
+            <!-- ── Tab row (only visible when both connected and unconnected exist) ── -->
+            <LinearLayout
+                android:id="@+id/layoutBranchTabs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:background="@drawable/bg_card_rounded"
+                android:layout_marginBottom="16dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tabBranchConnected"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="Connected"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#16A34A" />
+
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="match_parent"
+                    android:background="#E5E7EB" />
+
+                <TextView
+                    android:id="@+id/tabBranchUnconnected"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="Unconnected"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#6B7280" />
+
+            </LinearLayout>
+
             <!-- No branch assigned -->
             <TextView
                 android:id="@+id/tvBranchEmpty"

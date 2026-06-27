@@ -124,6 +124,10 @@ class ConfigSheetFragment : Fragment() {
     private var spinnerBranch:   Spinner? = null
     private var tvSingleBranch:  TextView? = null
     private var tvBranchEmpty:   TextView? = null
+    private var layoutBranchTabs:     View? = null
+    private var tabBranchConnected:   TextView? = null
+    private var tabBranchUnconnected: TextView? = null
+    private var activeBranchTab = "connected" // "connected" | "unconnected"
     private var cardBranchInfo:  LinearLayout? = null
     private var tvBranchInfoName: TextView? = null
     private var tvBranchInfoCode: TextView? = null
@@ -295,6 +299,9 @@ class ConfigSheetFragment : Fragment() {
         sectionConnected           = view.findViewById(R.id.sectionConnected)
         containerConnectedBranches = view.findViewById(R.id.containerConnectedBranches)
         sectionUnconnected         = view.findViewById(R.id.sectionUnconnected)
+        layoutBranchTabs           = view.findViewById(R.id.layoutBranchTabs)
+        tabBranchConnected         = view.findViewById(R.id.tabBranchConnected)
+        tabBranchUnconnected       = view.findViewById(R.id.tabBranchUnconnected)
 
         // ConnectFlow
         panelConnect    = view.findViewById(R.id.panelConnect)
@@ -469,9 +476,10 @@ class ConfigSheetFragment : Fragment() {
         val ctx = context ?: return
 
         if (branches.isEmpty()) {
-            tvBranchEmpty?.visibility          = View.VISIBLE
-            sectionConnected?.visibility       = View.GONE
-            sectionUnconnected?.visibility     = View.GONE
+            tvBranchEmpty?.visibility      = View.VISIBLE
+            layoutBranchTabs?.visibility   = View.GONE
+            sectionConnected?.visibility   = View.GONE
+            sectionUnconnected?.visibility = View.GONE
             return
         }
 
@@ -479,10 +487,59 @@ class ConfigSheetFragment : Fragment() {
 
         val connectedBranches   = branches.filter {  connections.containsKey(it) }
         val unconnectedBranches = branches.filter { !connections.containsKey(it) }
+        val hasBoth = connectedBranches.isNotEmpty() && unconnectedBranches.isNotEmpty()
 
-        // ── Connected section ─────────────────────────────────────────
-        if (connectedBranches.isNotEmpty()) {
-            sectionConnected?.visibility = View.VISIBLE
+        // ── Tab row ───────────────────────────────────────────────────
+        if (hasBoth) {
+            layoutBranchTabs?.visibility = View.VISIBLE
+            // Default to connected tab on first load
+            if (activeBranchTab != "unconnected") activeBranchTab = "connected"
+            updateBranchTabStyles()
+            tabBranchConnected?.setOnClickListener {
+                activeBranchTab = "connected"
+                updateBranchTabStyles()
+                renderBranchSections(ctx, connectedBranches, unconnectedBranches)
+            }
+            tabBranchUnconnected?.setOnClickListener {
+                activeBranchTab = "unconnected"
+                updateBranchTabStyles()
+                renderBranchSections(ctx, connectedBranches, unconnectedBranches)
+            }
+            // Update tab labels with counts
+            tabBranchConnected?.text   = "Connected (${connectedBranches.size})"
+            tabBranchUnconnected?.text = "Unconnected (${unconnectedBranches.size})"
+        } else {
+            layoutBranchTabs?.visibility = View.GONE
+            activeBranchTab = if (connectedBranches.isEmpty()) "unconnected" else "connected"
+        }
+
+        renderBranchSections(ctx, connectedBranches, unconnectedBranches)
+    }
+
+    private fun updateBranchTabStyles() {
+        val activeColor   = android.graphics.Color.parseColor("#E8380D")
+        val inactiveColor = android.graphics.Color.parseColor("#6B7280")
+        tabBranchConnected?.setTextColor(
+            if (activeBranchTab == "connected") activeColor else inactiveColor
+        )
+        tabBranchUnconnected?.setTextColor(
+            if (activeBranchTab == "unconnected") activeColor else inactiveColor
+        )
+    }
+
+    private fun renderBranchSections(
+        ctx: android.content.Context,
+        connectedBranches: List<String>,
+        unconnectedBranches: List<String>
+    ) {
+        val hasBoth = connectedBranches.isNotEmpty() && unconnectedBranches.isNotEmpty()
+
+        // Show connected section
+        val showConnected = connectedBranches.isNotEmpty() &&
+            (!hasBoth || activeBranchTab == "connected")
+        sectionConnected?.visibility = if (showConnected) View.VISIBLE else View.GONE
+
+        if (showConnected) {
             containerConnectedBranches?.removeAllViews()
             connectedBranches.forEach { branchId ->
                 val conn = connections[branchId]!!
@@ -538,15 +595,16 @@ class ConfigSheetFragment : Fragment() {
                 row.addView(btnManage)
                 containerConnectedBranches?.addView(row)
             }
-        } else {
-            sectionConnected?.visibility = View.GONE
         }
 
-        // ── Unconnected section ───────────────────────────────────────
-        if (unconnectedBranches.isNotEmpty()) {
-            sectionUnconnected?.visibility = View.VISIBLE
+        // Show unconnected section
+        val showUnconnected = unconnectedBranches.isNotEmpty() &&
+            (!hasBoth || activeBranchTab == "unconnected")
+        sectionUnconnected?.visibility = if (showUnconnected) View.VISIBLE else View.GONE
 
+        if (showUnconnected) {
             if (unconnectedBranches.size == 1) {
+                // Single unconnected — no dropdown, just label + connect button
                 activeBranch = unconnectedBranches.first()
                 spinnerBranch?.visibility  = View.GONE
                 tvSingleBranch?.visibility = View.VISIBLE
@@ -560,8 +618,6 @@ class ConfigSheetFragment : Fragment() {
                 if (sel >= 0) spinnerBranch?.setSelection(sel + 1)
             }
             updateBranchActionCard()
-        } else {
-            sectionUnconnected?.visibility = View.GONE
         }
     }
 
