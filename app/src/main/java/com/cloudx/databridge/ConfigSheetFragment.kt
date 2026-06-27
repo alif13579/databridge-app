@@ -445,6 +445,7 @@ class ConfigSheetFragment : Fragment() {
             if (!isRowRangeVisible) {
                 etStartRow?.setText("")
                 etEndRow?.setText("")
+                scheduleLivePreview() // reset preview to default range
             }
         }
     }
@@ -776,18 +777,19 @@ class ConfigSheetFragment : Fragment() {
             val startLetter = colIndexToLetter(colStart)
             val endLetter   = colIndexToLetter(colEnd)
 
-            // Use defined row range if provided, else default header(1) + 5 data rows
+            // Row range: use defined values or defaults
             val sRow = etStartRow?.text?.toString()?.trim()?.toIntOrNull() ?: 1
             val eRow = etEndRow?.text?.toString()?.trim()?.toIntOrNull()
-            val previewEndRow = when {
-                eRow != null -> eRow                          // user defined end row
-                else         -> sRow + 5                     // header + 5 rows
-            }
+            // Max 5 data rows after header, but stop at endRow if defined
+            val maxEnd      = sRow + 5
+            val previewEndRow = if (eRow != null) minOf(eRow, maxEnd) else maxEnd
             val range = "$tab!${startLetter}${sRow}:${endLetter}${previewEndRow}"
-            val previewLabel = if (eRow != null)
-                "Preview: Row $sRow → $eRow"
-            else
-                "Preview: Row $sRow + next 5 rows"
+            val previewLabel = when {
+                eRow == null              -> "Preview: Row $sRow + next 5 rows"
+                eRow <= sRow              -> "Preview: Row $sRow (end row ≤ start row)"
+                previewEndRow < maxEnd    -> "Preview: Row $sRow → $eRow (${previewEndRow - sRow} rows)"
+                else                     -> "Preview: Row $sRow + next 5 rows (end: $eRow)"
+            }
             val encodedRange = java.net.URLEncoder.encode(range, "UTF-8")
             val url = "https://sheets.googleapis.com/v4/spreadsheets/$sheetId/values/$encodedRange"
 
@@ -871,9 +873,15 @@ class ConfigSheetFragment : Fragment() {
         val endLetter   = colIndexToLetter(conn.colEnd)
         val sRow        = conn.startRow ?: 1
         val eRow        = conn.endRow?.takeIf { it > 0 }
-        val previewEnd  = eRow ?: (sRow + 5)
+        val maxEnd      = sRow + 5
+        val previewEnd  = if (eRow != null) minOf(eRow, maxEnd) else maxEnd
         val range       = "${conn.tabName}!${startLetter}${sRow}:${endLetter}${previewEnd}"
-        val label       = if (eRow != null) "Preview: Row $sRow → $eRow" else "Preview: Row $sRow + next 5 rows"
+        val label = when {
+            eRow == null           -> "Preview: Row $sRow + next 5 rows"
+            eRow <= sRow           -> "Preview: Row $sRow (end row ≤ start row)"
+            previewEnd < maxEnd    -> "Preview: Row $sRow → $eRow (${previewEnd - sRow} rows)"
+            else                   -> "Preview: Row $sRow + next 5 rows (end: $eRow)"
+        }
 
         tvColPreviewMgr?.text = "Loading..."
         scrollColPreviewMgr?.visibility = View.GONE
@@ -1082,11 +1090,14 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun clearConnectForm() {
-        // googleAccount রেখে দিচ্ছি (যাতে আবার লগইন না করতে হয়)
         availableSheets = emptyList(); selectedSheet = null
         availableTabs   = emptyList(); selectedTab   = ""
         etColStart?.setText("1"); etColEnd?.setText("10")
-        // যদি account থাকে, sheets লোড করো
+        // Row range hidden by default when no saved values
+        isRowRangeVisible = false
+        layoutRowRange?.visibility = View.GONE
+        btnDefineRow?.text = "+ Define Row Range"
+        etStartRow?.setText(""); etEndRow?.setText("")
         if (googleAccount != null) loadSheetsForAccount()
     }
 
@@ -1098,6 +1109,15 @@ class ConfigSheetFragment : Fragment() {
         updateSheetPickerLabel()
         etColStart?.setText(conn.colStart.toString())
         etColEnd?.setText(conn.colEnd.toString())
+        // Show row range fields if previously saved
+        val hasSavedRows = (conn.startRow != null && conn.startRow != 1) || (conn.endRow != null && conn.endRow != 0)
+        isRowRangeVisible = hasSavedRows
+        layoutRowRange?.visibility = if (hasSavedRows) View.VISIBLE else View.GONE
+        btnDefineRow?.text = if (hasSavedRows) "− Hide Row Range" else "+ Define Row Range"
+        if (hasSavedRows) {
+            conn.startRow?.let { etStartRow?.setText(it.toString()) }
+            conn.endRow?.takeIf { it > 0 }?.let { etEndRow?.setText(it.toString()) }
+        }
         if (googleAccount != null) loadSheetsForAccount()
     }
 
@@ -1108,6 +1128,15 @@ class ConfigSheetFragment : Fragment() {
         availableTabs = listOf(conn.tabName)
         etColStart?.setText(conn.colStart.toString())
         etColEnd?.setText(conn.colEnd.toString())
+        // Show row range if previously saved
+        val hasSavedRows = (conn.startRow != null && conn.startRow != 1) || (conn.endRow != null && conn.endRow != 0)
+        isRowRangeVisible = hasSavedRows
+        layoutRowRange?.visibility = if (hasSavedRows) View.VISIBLE else View.GONE
+        btnDefineRow?.text = if (hasSavedRows) "− Hide Row Range" else "+ Define Row Range"
+        if (hasSavedRows) {
+            conn.startRow?.let { etStartRow?.setText(it.toString()) }
+            conn.endRow?.takeIf { it > 0 }?.let { etEndRow?.setText(it.toString()) }
+        }
         screen = Screen.CONNECTING
         connectStep = 4
         render()
