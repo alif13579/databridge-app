@@ -94,17 +94,19 @@ class ConfigSheetFragment : Fragment() {
     )
 
     data class SheetConn(
-        val branchId:    String = "",
-        val sheetId:     String = "",
-        val sheetName:   String = "",
-        val tabName:     String = "",
-        val colStart:    Int    = 1,
-        val colEnd:      Int    = 10,
-        val startRow:    Int?   = null,  // null = default (1)
-        val endRow:      Int?   = null,  // null = last row
-        val googleEmail: String = "",
-        val connectedBy: String = "",
-        val connectedAt: Long   = 0L,
+        val branchId:       String  = "",
+        val sheetId:        String  = "",
+        val sheetName:      String  = "",
+        val tabName:        String  = "",
+        val colStart:       Int     = 1,
+        val colEnd:         Int     = 10,
+        val startRow:       Int?    = null,
+        val endRow:         Int?    = null,
+        val autoSync:       Boolean = false,
+        val syncIntervalMin:Int     = 30,
+        val googleEmail:    String  = "",
+        val connectedBy:    String  = "",
+        val connectedAt:    Long    = 0L,
     ) {
         val columns: List<String> get() = (colStart..colEnd).map { n ->
             var num = n; var result = ""
@@ -205,6 +207,10 @@ class ConfigSheetFragment : Fragment() {
     private var btnManReconnect: Button? = null;   private var btnManDisconn: Button? = null
     private var btnManBack:      View? = null
     private var btnSyncNow:      Button? = null
+    private var switchAutoSync:  android.widget.Switch? = null
+    private var btnSyncGear:     android.widget.ImageView? = null
+    private var tvSyncIntervalLabel: TextView? = null
+    private var tvLastSynced:    TextView? = null
 
     private var activeManageTab = "overview"
     private var previewJob: kotlinx.coroutines.Job? = null
@@ -347,7 +353,11 @@ class ConfigSheetFragment : Fragment() {
         btnColChange     = view.findViewById(R.id.btnColChange)
         btnManReconnect  = view.findViewById(R.id.btnManReconnect); btnManDisconn = view.findViewById(R.id.btnManDisconnect)
         btnManBack       = view.findViewById(R.id.btnManBack)
-        btnSyncNow       = view.findViewById(R.id.btnSyncNow)
+        btnSyncNow           = view.findViewById(R.id.btnSyncNow)
+        switchAutoSync       = view.findViewById(R.id.switchAutoSync)
+        btnSyncGear          = view.findViewById(R.id.btnSyncGear)
+        tvSyncIntervalLabel  = view.findViewById(R.id.tvSyncIntervalLabel)
+        tvLastSynced         = view.findViewById(R.id.tvLastSynced)
     }
 
     private fun attachListeners() {
@@ -409,7 +419,21 @@ class ConfigSheetFragment : Fragment() {
         btnManReconnect?.setOnClickListener { screen = Screen.CONNECTING; connectStep = 1; prefillConnectForm(); render() }
         btnColChange?.setOnClickListener { openRangeEditor() }
         btnManDisconn?.setOnClickListener   { handleDisconnect() }
-        btnSyncNow?.setOnClickListener      { toast("🔄 Sync শুরু হয়েছে...") }
+        btnSyncNow?.setOnClickListener { toast("🔄 Sync শুরু হয়েছে...") }
+
+        switchAutoSync?.setOnCheckedChangeListener { _, isChecked ->
+            val conn = connections[activeBranch] ?: return@setOnCheckedChangeListener
+            val updated = conn.copy(autoSync = isChecked)
+            connections[activeBranch] = updated
+            updateSyncGearState(isChecked)
+            saveSyncSettings(updated)
+        }
+
+        btnSyncGear?.setOnClickListener {
+            val conn = connections[activeBranch] ?: return@setOnClickListener
+            if (!conn.autoSync) return@setOnClickListener
+            openIntervalPickerDialog(conn)
+        }
 
         etColStart?.addTextChangedListener(colWatcher); etColEnd?.addTextChangedListener(colWatcher)
         etStartRow?.addTextChangedListener(colWatcher); etEndRow?.addTextChangedListener(colWatcher)
@@ -893,6 +917,61 @@ class ConfigSheetFragment : Fragment() {
 
             } catch (e: Exception) {
                 if (isAdded) tvColPreviewMgr?.text = "⚠ Error: ${e.message?.take(60)}"
+            }
+        }
+    }
+
+    private fun renderSyncTab(conn: SheetConn) {
+        switchAutoSync?.setOnCheckedChangeListener(null)
+        switchAutoSync?.isChecked = conn.autoSync
+        switchAutoSync?.setOnCheckedChangeListener { _, isChecked ->
+            val c = connections[activeBranch] ?: return@setOnCheckedChangeListener
+            val updated = c.copy(autoSync = isChecked)
+            connections[activeBranch] = updated
+            updateSyncGearState(isChecked)
+            saveSyncSettings(updated)
+        }
+        updateSyncGearState(conn.autoSync)
+        tvSyncIntervalLabel?.text = "প্রতি ${conn.syncIntervalMin} মিনিট"
+        tvLastSynced?.text = "Last sync: কখনো না"
+    }
+
+    private fun updateSyncGearState(enabled: Boolean) {
+        btnSyncGear?.alpha = if (enabled) 1f else 0.4f
+        btnSyncGear?.isEnabled = enabled
+        tvSyncIntervalLabel?.setTextColor(
+            android.graphics.Color.parseColor(if (enabled) "#E8380D" else "#6B7280")
+        )
+    }
+
+    private fun openIntervalPickerDialog(conn: SheetConn) {
+        val options = arrayOf("15 মিনিট", "30 মিনিট", "60 মিনিট", "120 মিনিট")
+        val values  = intArrayOf(15, 30, 60, 120)
+        val current = values.indexOfFirst { it == conn.syncIntervalMin }.coerceAtLeast(0)
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Auto Sync Interval")
+            .setSingleChoiceItems(options, current) { dialog, which ->
+                val newInterval = values[which]
+                val updated = conn.copy(syncIntervalMin = newInterval)
+                connections[activeBranch] = updated
+                tvSyncIntervalLabel?.text = "প্রতি $newInterval মিনিট"
+                saveSyncSettings(updated)
+                dialog.dismiss()
+            }
+            .setNegativeButton("বাতিল", null)
+            .show()
+    }
+
+    private fun saveSyncSettings(conn: SheetConn) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val path = "config/sheets/${conn.branchId}/current"
+                db.reference.child(path).updateChildren(mapOf(
+                    "autoSync"        to conn.autoSync,
+                    "syncIntervalMin" to conn.syncIntervalMin,
+                )).await()
+            } catch (e: Exception) {
+                Log.e("ConfigSheet", "saveSyncSettings failed: ${e.message}")
             }
         }
     }
@@ -1477,6 +1556,7 @@ class ConfigSheetFragment : Fragment() {
 
         activeManageTab = "overview"
         renderManageTabs()
+        renderSyncTab(conn)
 
         tvOvSheet?.text = conn.sheetName
         tvOvTab?.text   = conn.tabName
@@ -1558,9 +1638,11 @@ class ConfigSheetFragment : Fragment() {
                         val email     = cur.child("googleEmail").getValue(String::class.java) ?: ""
                         val by        = cur.child("connectedBy").getValue(String::class.java) ?: ""
                         val at        = cur.child("connectedAt").getValue(Long::class.java)   ?: 0L
-                        val sRow      = cur.child("startRow") .getValue(Int::class.java)
-                        val eRow      = cur.child("endRow")   .getValue(Int::class.java)
-                        connections[branchId] = SheetConn(branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, email, by, at)
+                        val sRow      = cur.child("startRow")       .getValue(Int::class.java)
+                        val eRow      = cur.child("endRow")         .getValue(Int::class.java)
+                        val autoSync  = cur.child("autoSync")       .getValue(Boolean::class.java) ?: false
+                        val interval  = cur.child("syncIntervalMin").getValue(Int::class.java)    ?: 30
+                        connections[branchId] = SheetConn(branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at)
                     }
                 }
             } catch (e: Exception) {
@@ -1608,16 +1690,18 @@ class ConfigSheetFragment : Fragment() {
         owner.lifecycleScope.launch {
             try {
                 val data = mapOf(
-                    "sheetId"     to conn.sheetId,
-                    "sheetName"   to conn.sheetName,
-                    "tabName"     to conn.tabName,
-                    "colStart"    to conn.colStart,
-                    "colEnd"      to conn.colEnd,
-                    "startRow"    to (conn.startRow ?: 1),
-                    "endRow"      to (conn.endRow   ?: 0),  // 0 = শেষ পর্যন্ত
-                    "googleEmail" to conn.googleEmail,
-                    "connectedBy" to conn.connectedBy,
-                    "connectedAt" to conn.connectedAt,
+                    "sheetId"        to conn.sheetId,
+                    "sheetName"      to conn.sheetName,
+                    "tabName"        to conn.tabName,
+                    "colStart"       to conn.colStart,
+                    "colEnd"         to conn.colEnd,
+                    "startRow"       to (conn.startRow ?: 1),
+                    "endRow"         to (conn.endRow   ?: 0),
+                    "autoSync"       to conn.autoSync,
+                    "syncIntervalMin"to conn.syncIntervalMin,
+                    "googleEmail"    to conn.googleEmail,
+                    "connectedBy"    to conn.connectedBy,
+                    "connectedAt"    to conn.connectedAt,
                 )
                 db.reference.child("config/sheets/${conn.branchId}/current").setValue(data).await()
                 db.reference.child("config/sheets/${conn.branchId}/history").push()

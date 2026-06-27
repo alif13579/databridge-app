@@ -702,18 +702,46 @@
                 android:orientation="vertical" android:background="@drawable/bg_card_rounded"
                 android:padding="14dp" android:visibility="gone">
 
+                <!-- Auto Sync toggle row -->
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:layout_marginBottom="14dp">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🔄 Sync Status" android:textSize="13sp"
-                        android:textStyle="bold" android:textColor="#111827" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Auto-sync: প্রতি 30 মিনিট" android:textSize="12sp" android:textColor="#6B7280" />
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="12dp">
+
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Auto Sync" android:textSize="13sp"
+                            android:textStyle="bold" android:textColor="#111827" />
+                        <TextView android:id="@+id/tvSyncIntervalLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="প্রতি 30 মিনিট" android:textSize="11sp" android:textColor="#6B7280" />
+                    </LinearLayout>
+
+                    <!-- Gear icon -->
+                    <ImageView android:id="@+id/btnSyncGear"
+                        android:layout_width="32dp" android:layout_height="32dp"
+                        android:src="@android:drawable/ic_menu_manage"
+                        android:padding="4dp" android:layout_marginEnd="8dp"
+                        android:clickable="true" android:focusable="true"
+                        android:alpha="0.4" />
+
+                    <Switch android:id="@+id/switchAutoSync"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:checked="false" />
                 </LinearLayout>
+
+                <!-- Last synced info -->
+                <TextView android:id="@+id/tvLastSynced"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Last sync: কখনো না" android:textSize="11sp"
+                    android:textColor="#9CA3AF" android:layout_marginBottom="12dp" />
+
+                <!-- Sync Now button -->
                 <Button android:id="@+id/btnSyncNow"
                     android:layout_width="match_parent" android:layout_height="44dp"
                     android:text="🔄 Sync এখনই করুন" android:textSize="13sp"
                     android:textStyle="bold" android:backgroundTint="#E8380D" android:textColor="#FFFFFF" />
+
             </LinearLayout>
 
         </LinearLayout>
