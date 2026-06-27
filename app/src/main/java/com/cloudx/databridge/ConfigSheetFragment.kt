@@ -185,6 +185,7 @@ class ConfigSheetFragment : Fragment() {
     private var scrollLivePreview: HorizontalScrollView? = null
     private var tableLivePreview: TableLayout? = null
     private var pbPreviewLoad:   ProgressBar? = null
+    private var pbColPreviewMgr: ProgressBar? = null
     private var tvSummary:       TextView? = null
 
     // Nav buttons
@@ -336,6 +337,7 @@ class ConfigSheetFragment : Fragment() {
         scrollLivePreview = view.findViewById(R.id.scrollLivePreview)
         tableLivePreview = view.findViewById(R.id.tableLivePreview)
         pbPreviewLoad  = view.findViewById(R.id.pbPreviewLoad)
+        pbColPreviewMgr = view.findViewById(R.id.pbColPreviewMgr)
         tvSummary      = view.findViewById(R.id.tvSummary)
 
         btnBack       = view.findViewById(R.id.btnStepBack)
@@ -938,7 +940,8 @@ class ConfigSheetFragment : Fragment() {
             else                   -> "Preview: Row $sRow + next 5 rows (end: $eRow)"
         }
 
-        tvColPreviewMgr?.text = "Loading..."
+        tvColPreviewMgr?.text = ""
+        pbColPreviewMgr?.visibility = View.VISIBLE
         scrollColPreviewMgr?.visibility = View.GONE
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -971,6 +974,7 @@ class ConfigSheetFragment : Fragment() {
                 }
 
                 if (!isAdded) return@launch
+                pbColPreviewMgr?.visibility = View.GONE
                 if (rows == null) {
                     tvColPreviewMgr?.text = "⚠ Sheet fetch failed"
                     return@launch
@@ -979,7 +983,10 @@ class ConfigSheetFragment : Fragment() {
                 renderLivePreviewTable(rows, conn.colStart, conn.colEnd, tableColPreviewMgr, scrollColPreviewMgr)
 
             } catch (e: Exception) {
-                if (isAdded) tvColPreviewMgr?.text = "⚠ Error: ${e.message?.take(60)}"
+                if (isAdded) {
+                    pbColPreviewMgr?.visibility = View.GONE
+                    tvColPreviewMgr?.text = "⚠ Error: ${e.message?.take(60)}"
+                }
             }
         }
     }

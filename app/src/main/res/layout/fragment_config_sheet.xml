@@ -714,10 +714,20 @@
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="📊 Column Mapping" android:textSize="13sp"
                     android:textStyle="bold" android:textColor="#111827" android:layout_marginBottom="10dp" />
-                <TextView android:id="@+id/tvColPreviewMgr"
+                <LinearLayout
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:textSize="12sp" android:textColor="#374151"
-                    android:lineSpacingMultiplier="1.6" android:layout_marginBottom="8dp" />
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <TextView android:id="@+id/tvColPreviewMgr"
+                        android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textSize="12sp" android:textColor="#374151"
+                        android:lineSpacingMultiplier="1.6" />
+                    <ProgressBar android:id="@+id/pbColPreviewMgr"
+                        android:layout_width="18dp" android:layout_height="18dp"
+                        android:layout_marginStart="8dp"
+                        android:visibility="gone" />
+                </LinearLayout>
 
                 <HorizontalScrollView
                     android:id="@+id/scrollColPreviewMgr"
@@ -727,7 +737,7 @@
                     <TableLayout
                         android:id="@+id/tableColPreviewMgr"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:shrinkColumns="*" />
+                        android:stretchColumns="*" />
                 </HorizontalScrollView>
                 <Button android:id="@+id/btnColChange"
                     android:layout_width="match_parent" android:layout_height="42dp"
