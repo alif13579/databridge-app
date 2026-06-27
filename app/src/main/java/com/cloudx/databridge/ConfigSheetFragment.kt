@@ -94,17 +94,19 @@ class ConfigSheetFragment : Fragment() {
     )
 
     data class SheetConn(
-        val branchId:    String = "",
-        val sheetId:     String = "",
-        val sheetName:   String = "",
-        val tabName:     String = "",
-        val colStart:    Int    = 1,
-        val colEnd:      Int    = 10,
-        val startRow:    Int?   = null,  // null = default (1)
-        val endRow:      Int?   = null,  // null = last row
-        val googleEmail: String = "",
-        val connectedBy: String = "",
-        val connectedAt: Long   = 0L,
+        val branchId:       String  = "",
+        val sheetId:        String  = "",
+        val sheetName:      String  = "",
+        val tabName:        String  = "",
+        val colStart:       Int     = 1,
+        val colEnd:         Int     = 10,
+        val startRow:       Int?    = null,
+        val endRow:         Int?    = null,
+        val autoSync:       Boolean = false,
+        val syncIntervalMin:Int     = 30,
+        val googleEmail:    String  = "",
+        val connectedBy:    String  = "",
+        val connectedAt:    Long    = 0L,
     ) {
         val columns: List<String> get() = (colStart..colEnd).map { n ->
             var num = n; var result = ""
@@ -122,6 +124,10 @@ class ConfigSheetFragment : Fragment() {
     private var spinnerBranch:   Spinner? = null
     private var tvSingleBranch:  TextView? = null
     private var tvBranchEmpty:   TextView? = null
+    private var layoutBranchTabs:     View? = null
+    private var tabBranchConnected:   TextView? = null
+    private var tabBranchUnconnected: TextView? = null
+    private var activeBranchTab = "connected" // "connected" | "unconnected"
     private var cardBranchInfo:  LinearLayout? = null
     private var tvBranchInfoName: TextView? = null
     private var tvBranchInfoCode: TextView? = null
@@ -205,6 +211,10 @@ class ConfigSheetFragment : Fragment() {
     private var btnManReconnect: Button? = null;   private var btnManDisconn: Button? = null
     private var btnManBack:      View? = null
     private var btnSyncNow:      Button? = null
+    private var switchAutoSync:  android.widget.Switch? = null
+    private var btnSyncGear:     android.widget.ImageView? = null
+    private var tvSyncIntervalLabel: TextView? = null
+    private var tvLastSynced:    TextView? = null
 
     private var activeManageTab = "overview"
     private var previewJob: kotlinx.coroutines.Job? = null
@@ -289,6 +299,9 @@ class ConfigSheetFragment : Fragment() {
         sectionConnected           = view.findViewById(R.id.sectionConnected)
         containerConnectedBranches = view.findViewById(R.id.containerConnectedBranches)
         sectionUnconnected         = view.findViewById(R.id.sectionUnconnected)
+        layoutBranchTabs           = view.findViewById(R.id.layoutBranchTabs)
+        tabBranchConnected         = view.findViewById(R.id.tabBranchConnected)
+        tabBranchUnconnected       = view.findViewById(R.id.tabBranchUnconnected)
 
         // ConnectFlow
         panelConnect    = view.findViewById(R.id.panelConnect)
@@ -347,7 +360,11 @@ class ConfigSheetFragment : Fragment() {
         btnColChange     = view.findViewById(R.id.btnColChange)
         btnManReconnect  = view.findViewById(R.id.btnManReconnect); btnManDisconn = view.findViewById(R.id.btnManDisconnect)
         btnManBack       = view.findViewById(R.id.btnManBack)
-        btnSyncNow       = view.findViewById(R.id.btnSyncNow)
+        btnSyncNow           = view.findViewById(R.id.btnSyncNow)
+        switchAutoSync       = view.findViewById(R.id.switchAutoSync)
+        btnSyncGear          = view.findViewById(R.id.btnSyncGear)
+        tvSyncIntervalLabel  = view.findViewById(R.id.tvSyncIntervalLabel)
+        tvLastSynced         = view.findViewById(R.id.tvLastSynced)
     }
 
     private fun attachListeners() {
@@ -394,7 +411,7 @@ class ConfigSheetFragment : Fragment() {
         }
 
         tabOverview?.setOnClickListener { activeManageTab = "overview"; renderManageTabs() }
-        tabColumns?.setOnClickListener  { activeManageTab = "columns";  renderManageTabs() }
+        tabColumns?.setOnClickListener  { activeManageTab = "columns";  renderManageTabs(); fetchManageColPreview() }
         tabSync?.setOnClickListener     { activeManageTab = "sync";     renderManageTabs() }
 
         spinnerManageBranch?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -409,9 +426,24 @@ class ConfigSheetFragment : Fragment() {
         btnManReconnect?.setOnClickListener { screen = Screen.CONNECTING; connectStep = 1; prefillConnectForm(); render() }
         btnColChange?.setOnClickListener { openRangeEditor() }
         btnManDisconn?.setOnClickListener   { handleDisconnect() }
-        btnSyncNow?.setOnClickListener      { toast("🔄 Sync শুরু হয়েছে...") }
+        btnSyncNow?.setOnClickListener { toast("🔄 Sync শুরু হয়েছে...") }
+
+        switchAutoSync?.setOnCheckedChangeListener { _, isChecked ->
+            val conn = connections[activeBranch] ?: return@setOnCheckedChangeListener
+            val updated = conn.copy(autoSync = isChecked)
+            connections[activeBranch] = updated
+            updateSyncGearState(isChecked)
+            saveSyncSettings(updated)
+        }
+
+        btnSyncGear?.setOnClickListener {
+            val conn = connections[activeBranch] ?: return@setOnClickListener
+            if (!conn.autoSync) return@setOnClickListener
+            openIntervalPickerDialog(conn)
+        }
 
         etColStart?.addTextChangedListener(colWatcher); etColEnd?.addTextChangedListener(colWatcher)
+        etStartRow?.addTextChangedListener(colWatcher); etEndRow?.addTextChangedListener(colWatcher)
 
         btnDefineRow?.setOnClickListener {
             isRowRangeVisible = !isRowRangeVisible
@@ -420,6 +452,7 @@ class ConfigSheetFragment : Fragment() {
             if (!isRowRangeVisible) {
                 etStartRow?.setText("")
                 etEndRow?.setText("")
+                scheduleLivePreview() // reset preview to default range
             }
         }
     }
@@ -443,9 +476,10 @@ class ConfigSheetFragment : Fragment() {
         val ctx = context ?: return
 
         if (branches.isEmpty()) {
-            tvBranchEmpty?.visibility          = View.VISIBLE
-            sectionConnected?.visibility       = View.GONE
-            sectionUnconnected?.visibility     = View.GONE
+            tvBranchEmpty?.visibility      = View.VISIBLE
+            layoutBranchTabs?.visibility   = View.GONE
+            sectionConnected?.visibility   = View.GONE
+            sectionUnconnected?.visibility = View.GONE
             return
         }
 
@@ -453,10 +487,59 @@ class ConfigSheetFragment : Fragment() {
 
         val connectedBranches   = branches.filter {  connections.containsKey(it) }
         val unconnectedBranches = branches.filter { !connections.containsKey(it) }
+        val hasBoth = connectedBranches.isNotEmpty() && unconnectedBranches.isNotEmpty()
 
-        // ── Connected section ─────────────────────────────────────────
-        if (connectedBranches.isNotEmpty()) {
-            sectionConnected?.visibility = View.VISIBLE
+        // ── Tab row ───────────────────────────────────────────────────
+        if (hasBoth) {
+            layoutBranchTabs?.visibility = View.VISIBLE
+            // Default to connected tab on first load
+            if (activeBranchTab != "unconnected") activeBranchTab = "connected"
+            updateBranchTabStyles()
+            tabBranchConnected?.setOnClickListener {
+                activeBranchTab = "connected"
+                updateBranchTabStyles()
+                renderBranchSections(ctx, connectedBranches, unconnectedBranches)
+            }
+            tabBranchUnconnected?.setOnClickListener {
+                activeBranchTab = "unconnected"
+                updateBranchTabStyles()
+                renderBranchSections(ctx, connectedBranches, unconnectedBranches)
+            }
+            // Update tab labels with counts
+            tabBranchConnected?.text   = "Connected (${connectedBranches.size})"
+            tabBranchUnconnected?.text = "Unconnected (${unconnectedBranches.size})"
+        } else {
+            layoutBranchTabs?.visibility = View.GONE
+            activeBranchTab = if (connectedBranches.isEmpty()) "unconnected" else "connected"
+        }
+
+        renderBranchSections(ctx, connectedBranches, unconnectedBranches)
+    }
+
+    private fun updateBranchTabStyles() {
+        val activeColor   = android.graphics.Color.parseColor("#E8380D")
+        val inactiveColor = android.graphics.Color.parseColor("#6B7280")
+        tabBranchConnected?.setTextColor(
+            if (activeBranchTab == "connected") activeColor else inactiveColor
+        )
+        tabBranchUnconnected?.setTextColor(
+            if (activeBranchTab == "unconnected") activeColor else inactiveColor
+        )
+    }
+
+    private fun renderBranchSections(
+        ctx: android.content.Context,
+        connectedBranches: List<String>,
+        unconnectedBranches: List<String>
+    ) {
+        val hasBoth = connectedBranches.isNotEmpty() && unconnectedBranches.isNotEmpty()
+
+        // Show connected section
+        val showConnected = connectedBranches.isNotEmpty() &&
+            (!hasBoth || activeBranchTab == "connected")
+        sectionConnected?.visibility = if (showConnected) View.VISIBLE else View.GONE
+
+        if (showConnected) {
             containerConnectedBranches?.removeAllViews()
             connectedBranches.forEach { branchId ->
                 val conn = connections[branchId]!!
@@ -512,19 +595,19 @@ class ConfigSheetFragment : Fragment() {
                 row.addView(btnManage)
                 containerConnectedBranches?.addView(row)
             }
-        } else {
-            sectionConnected?.visibility = View.GONE
         }
 
-        // ── Unconnected section ───────────────────────────────────────
-        if (unconnectedBranches.isNotEmpty()) {
-            sectionUnconnected?.visibility = View.VISIBLE
+        // Show unconnected section
+        val showUnconnected = unconnectedBranches.isNotEmpty() &&
+            (!hasBoth || activeBranchTab == "unconnected")
+        sectionUnconnected?.visibility = if (showUnconnected) View.VISIBLE else View.GONE
 
+        if (showUnconnected) {
             if (unconnectedBranches.size == 1) {
+                // Single unconnected — no dropdown, no label (summary card shows branch info)
                 activeBranch = unconnectedBranches.first()
                 spinnerBranch?.visibility  = View.GONE
-                tvSingleBranch?.visibility = View.VISIBLE
-                tvSingleBranch?.text       = branchLabel(activeBranch)
+                tvSingleBranch?.visibility = View.GONE
             } else {
                 spinnerBranch?.visibility  = View.VISIBLE
                 tvSingleBranch?.visibility = View.GONE
@@ -534,8 +617,6 @@ class ConfigSheetFragment : Fragment() {
                 if (sel >= 0) spinnerBranch?.setSelection(sel + 1)
             }
             updateBranchActionCard()
-        } else {
-            sectionUnconnected?.visibility = View.GONE
         }
     }
 
@@ -750,8 +831,20 @@ class ConfigSheetFragment : Fragment() {
 
             val startLetter = colIndexToLetter(colStart)
             val endLetter   = colIndexToLetter(colEnd)
-            // Fetch header row + 5 data rows = rows 1–6
-            val range = "$tab!${startLetter}1:${endLetter}6"
+
+            // Row range: use defined values or defaults
+            val sRow = etStartRow?.text?.toString()?.trim()?.toIntOrNull() ?: 1
+            val eRow = etEndRow?.text?.toString()?.trim()?.toIntOrNull()
+            // Max 5 data rows after header, but stop at endRow if defined
+            val maxEnd      = sRow + 5
+            val previewEndRow = if (eRow != null) minOf(eRow, maxEnd) else maxEnd
+            val range = "$tab!${startLetter}${sRow}:${endLetter}${previewEndRow}"
+            val previewLabel = when {
+                eRow == null              -> "Preview: Row $sRow + next 5 rows"
+                eRow <= sRow              -> "Preview: Row $sRow (end row ≤ start row)"
+                previewEndRow < maxEnd    -> "Preview: Row $sRow → $eRow (${previewEndRow - sRow} rows)"
+                else                     -> "Preview: Row $sRow + next 5 rows (end: $eRow)"
+            }
             val encodedRange = java.net.URLEncoder.encode(range, "UTF-8")
             val url = "https://sheets.googleapis.com/v4/spreadsheets/$sheetId/values/$encodedRange"
 
@@ -781,7 +874,7 @@ class ConfigSheetFragment : Fragment() {
                 return
             }
 
-            tvLivePreview?.text = "Preview: Row 1 header + next 5 rows"
+            tvLivePreview?.text = previewLabel
             renderLivePreviewTable(rows, colStart, colEnd)
 
         } catch (e: Exception) {
@@ -792,8 +885,14 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun renderLivePreviewTable(rows: List<List<String>>, colStart: Int, colEnd: Int) {
-        val table = tableLivePreview ?: return
+    private fun renderLivePreviewTable(
+        rows: List<List<String>>,
+        colStart: Int,
+        colEnd: Int,
+        targetTable: android.widget.TableLayout? = tableLivePreview,
+        targetScroll: android.widget.HorizontalScrollView? = scrollLivePreview
+    ) {
+        val table = targetTable ?: return
         table.removeAllViews()
         val colCount = (colEnd - colStart + 1).coerceAtLeast(1)
 
@@ -816,7 +915,128 @@ class ConfigSheetFragment : Fragment() {
                 table.addView(tableRow(row, bg, if (bold) "#111827" else "#374151", bold = bold))
             }
         }
-        scrollLivePreview?.visibility = View.VISIBLE
+        targetScroll?.visibility = View.VISIBLE
+    }
+    private fun fetchManageColPreview() {
+        val conn = connections[activeBranch] ?: return
+        val signInAccount = GoogleSignIn.getLastSignedInAccount(requireContext()) ?: run {
+            tvColPreviewMgr?.text = "⚠ Google account দিয়ে reconnect করুন"
+            return
+        }
+
+        val startLetter = colIndexToLetter(conn.colStart)
+        val endLetter   = colIndexToLetter(conn.colEnd)
+        val sRow        = conn.startRow ?: 1
+        val eRow        = conn.endRow?.takeIf { it > 0 }
+        val maxEnd      = sRow + 5
+        val previewEnd  = if (eRow != null) minOf(eRow, maxEnd) else maxEnd
+        val range       = "${conn.tabName}!${startLetter}${sRow}:${endLetter}${previewEnd}"
+        val label = when {
+            eRow == null           -> "Preview: Row $sRow + next 5 rows"
+            eRow <= sRow           -> "Preview: Row $sRow (end row ≤ start row)"
+            previewEnd < maxEnd    -> "Preview: Row $sRow → $eRow (${previewEnd - sRow} rows)"
+            else                   -> "Preview: Row $sRow + next 5 rows (end: $eRow)"
+        }
+
+        tvColPreviewMgr?.text = "Loading..."
+        scrollColPreviewMgr?.visibility = View.GONE
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val acctObj = signInAccount.account ?: return@launch
+                val ctx     = context ?: return@launch
+                val token   = withContext(Dispatchers.IO) {
+                    try { GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE) }
+                    catch (e: UserRecoverableAuthException) { null }
+                } ?: run {
+                    tvColPreviewMgr?.text = "⚠ Token পাওয়া যায়নি"
+                    return@launch
+                }
+
+                val encodedRange = java.net.URLEncoder.encode(range, "UTF-8")
+                val url = "https://sheets.googleapis.com/v4/spreadsheets/${conn.sheetId}/values/$encodedRange"
+                val rows = withContext(Dispatchers.IO) {
+                    val req = Request.Builder().url(url)
+                        .header("Authorization", "Bearer $token").build()
+                    httpClient.newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) return@withContext null
+                        val body = resp.body?.string() ?: return@withContext null
+                        val arr = org.json.JSONObject(body).optJSONArray("values")
+                            ?: return@withContext emptyList<List<String>>()
+                        (0 until arr.length()).map { i ->
+                            val row = arr.getJSONArray(i)
+                            (0 until row.length()).map { j -> row.optString(j, "") }
+                        }
+                    }
+                }
+
+                if (!isAdded) return@launch
+                if (rows == null) {
+                    tvColPreviewMgr?.text = "⚠ Sheet fetch failed"
+                    return@launch
+                }
+                tvColPreviewMgr?.text = label
+                renderLivePreviewTable(rows, conn.colStart, conn.colEnd, tableColPreviewMgr, scrollColPreviewMgr)
+
+            } catch (e: Exception) {
+                if (isAdded) tvColPreviewMgr?.text = "⚠ Error: ${e.message?.take(60)}"
+            }
+        }
+    }
+
+    private fun renderSyncTab(conn: SheetConn) {
+        switchAutoSync?.setOnCheckedChangeListener(null)
+        switchAutoSync?.isChecked = conn.autoSync
+        switchAutoSync?.setOnCheckedChangeListener { _, isChecked ->
+            val c = connections[activeBranch] ?: return@setOnCheckedChangeListener
+            val updated = c.copy(autoSync = isChecked)
+            connections[activeBranch] = updated
+            updateSyncGearState(isChecked)
+            saveSyncSettings(updated)
+        }
+        updateSyncGearState(conn.autoSync)
+        tvSyncIntervalLabel?.text = "প্রতি ${conn.syncIntervalMin} মিনিট"
+        tvLastSynced?.text = "Last sync: কখনো না"
+    }
+
+    private fun updateSyncGearState(enabled: Boolean) {
+        btnSyncGear?.alpha = if (enabled) 1f else 0.4f
+        btnSyncGear?.isEnabled = enabled
+        tvSyncIntervalLabel?.setTextColor(
+            android.graphics.Color.parseColor(if (enabled) "#E8380D" else "#6B7280")
+        )
+    }
+
+    private fun openIntervalPickerDialog(conn: SheetConn) {
+        val options = arrayOf("15 মিনিট", "30 মিনিট", "60 মিনিট", "120 মিনিট")
+        val values  = intArrayOf(15, 30, 60, 120)
+        val current = values.indexOfFirst { it == conn.syncIntervalMin }.coerceAtLeast(0)
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Auto Sync Interval")
+            .setSingleChoiceItems(options, current) { dialog, which ->
+                val newInterval = values[which]
+                val updated = conn.copy(syncIntervalMin = newInterval)
+                connections[activeBranch] = updated
+                tvSyncIntervalLabel?.text = "প্রতি $newInterval মিনিট"
+                saveSyncSettings(updated)
+                dialog.dismiss()
+            }
+            .setNegativeButton("বাতিল", null)
+            .show()
+    }
+
+    private fun saveSyncSettings(conn: SheetConn) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val path = "config/sheets/${conn.branchId}/current"
+                db.reference.child(path).updateChildren(mapOf(
+                    "autoSync"        to conn.autoSync,
+                    "syncIntervalMin" to conn.syncIntervalMin,
+                )).await()
+            } catch (e: Exception) {
+                Log.e("ConfigSheet", "saveSyncSettings failed: ${e.message}")
+            }
+        }
     }
 
     /** Renders column letter header row in the Manage → Columns tab table */
@@ -925,11 +1145,14 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun clearConnectForm() {
-        // googleAccount রেখে দিচ্ছি (যাতে আবার লগইন না করতে হয়)
         availableSheets = emptyList(); selectedSheet = null
         availableTabs   = emptyList(); selectedTab   = ""
         etColStart?.setText("1"); etColEnd?.setText("10")
-        // যদি account থাকে, sheets লোড করো
+        // Row range hidden by default when no saved values
+        isRowRangeVisible = false
+        layoutRowRange?.visibility = View.GONE
+        btnDefineRow?.text = "+ Define Row Range"
+        etStartRow?.setText(""); etEndRow?.setText("")
         if (googleAccount != null) loadSheetsForAccount()
     }
 
@@ -941,6 +1164,15 @@ class ConfigSheetFragment : Fragment() {
         updateSheetPickerLabel()
         etColStart?.setText(conn.colStart.toString())
         etColEnd?.setText(conn.colEnd.toString())
+        // Show row range fields if previously saved
+        val hasSavedRows = (conn.startRow != null && conn.startRow != 1) || (conn.endRow != null && conn.endRow != 0)
+        isRowRangeVisible = hasSavedRows
+        layoutRowRange?.visibility = if (hasSavedRows) View.VISIBLE else View.GONE
+        btnDefineRow?.text = if (hasSavedRows) "− Hide Row Range" else "+ Define Row Range"
+        if (hasSavedRows) {
+            conn.startRow?.let { etStartRow?.setText(it.toString()) }
+            conn.endRow?.takeIf { it > 0 }?.let { etEndRow?.setText(it.toString()) }
+        }
         if (googleAccount != null) loadSheetsForAccount()
     }
 
@@ -951,6 +1183,15 @@ class ConfigSheetFragment : Fragment() {
         availableTabs = listOf(conn.tabName)
         etColStart?.setText(conn.colStart.toString())
         etColEnd?.setText(conn.colEnd.toString())
+        // Show row range if previously saved
+        val hasSavedRows = (conn.startRow != null && conn.startRow != 1) || (conn.endRow != null && conn.endRow != 0)
+        isRowRangeVisible = hasSavedRows
+        layoutRowRange?.visibility = if (hasSavedRows) View.VISIBLE else View.GONE
+        btnDefineRow?.text = if (hasSavedRows) "− Hide Row Range" else "+ Define Row Range"
+        if (hasSavedRows) {
+            conn.startRow?.let { etStartRow?.setText(it.toString()) }
+            conn.endRow?.takeIf { it > 0 }?.let { etEndRow?.setText(it.toString()) }
+        }
         screen = Screen.CONNECTING
         connectStep = 4
         render()
@@ -1399,12 +1640,13 @@ class ConfigSheetFragment : Fragment() {
 
         activeManageTab = "overview"
         renderManageTabs()
+        renderSyncTab(conn)
 
         tvOvSheet?.text = conn.sheetName
         tvOvTab?.text   = conn.tabName
         tvOvCols?.text  = "${conn.columns.firstOrNull() ?: "A"}–${conn.columns.lastOrNull() ?: "J"} (${conn.columns.size}টি)"
         tvColPreviewMgr?.text = "${conn.columns.firstOrNull() ?: "A"} → ${conn.columns.lastOrNull() ?: "J"}  (${conn.columns.size} columns)"
-        renderManageColTable(conn.colStart, conn.colEnd)
+        if (activeManageTab == "columns") fetchManageColPreview()
     }
 
     private fun renderManageTabs() {
@@ -1480,9 +1722,11 @@ class ConfigSheetFragment : Fragment() {
                         val email     = cur.child("googleEmail").getValue(String::class.java) ?: ""
                         val by        = cur.child("connectedBy").getValue(String::class.java) ?: ""
                         val at        = cur.child("connectedAt").getValue(Long::class.java)   ?: 0L
-                        val sRow      = cur.child("startRow") .getValue(Int::class.java)
-                        val eRow      = cur.child("endRow")   .getValue(Int::class.java)
-                        connections[branchId] = SheetConn(branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, email, by, at)
+                        val sRow      = cur.child("startRow")       .getValue(Int::class.java)
+                        val eRow      = cur.child("endRow")         .getValue(Int::class.java)
+                        val autoSync  = cur.child("autoSync")       .getValue(Boolean::class.java) ?: false
+                        val interval  = cur.child("syncIntervalMin").getValue(Int::class.java)    ?: 30
+                        connections[branchId] = SheetConn(branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at)
                     }
                 }
             } catch (e: Exception) {
@@ -1530,16 +1774,18 @@ class ConfigSheetFragment : Fragment() {
         owner.lifecycleScope.launch {
             try {
                 val data = mapOf(
-                    "sheetId"     to conn.sheetId,
-                    "sheetName"   to conn.sheetName,
-                    "tabName"     to conn.tabName,
-                    "colStart"    to conn.colStart,
-                    "colEnd"      to conn.colEnd,
-                    "startRow"    to (conn.startRow ?: 1),
-                    "endRow"      to (conn.endRow   ?: 0),  // 0 = শেষ পর্যন্ত
-                    "googleEmail" to conn.googleEmail,
-                    "connectedBy" to conn.connectedBy,
-                    "connectedAt" to conn.connectedAt,
+                    "sheetId"        to conn.sheetId,
+                    "sheetName"      to conn.sheetName,
+                    "tabName"        to conn.tabName,
+                    "colStart"       to conn.colStart,
+                    "colEnd"         to conn.colEnd,
+                    "startRow"       to (conn.startRow ?: 1),
+                    "endRow"         to (conn.endRow   ?: 0),
+                    "autoSync"       to conn.autoSync,
+                    "syncIntervalMin"to conn.syncIntervalMin,
+                    "googleEmail"    to conn.googleEmail,
+                    "connectedBy"    to conn.connectedBy,
+                    "connectedAt"    to conn.connectedAt,
                 )
                 db.reference.child("config/sheets/${conn.branchId}/current").setValue(data).await()
                 db.reference.child("config/sheets/${conn.branchId}/history").push()
