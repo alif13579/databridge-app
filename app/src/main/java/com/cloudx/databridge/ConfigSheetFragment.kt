@@ -149,8 +149,8 @@ class ConfigSheetFragment : Fragment() {
     /* ConnectFlow */
     private var panelConnect:        View? = null
     private var tvConnBranchSub:     TextView? = null
-    private var step1Dot:  View? = null; private var step2Dot:  View? = null
-    private var step3Dot:  View? = null; private var step4Dot:  View? = null
+    private var step1Dot:  TextView? = null; private var step2Dot:  TextView? = null
+    private var step3Dot:  TextView? = null; private var step4Dot:  TextView? = null
     private var step1Line: View? = null; private var step2Line: View? = null; private var step3Line: View? = null
     private var step1Lbl:  TextView? = null; private var step2Lbl:  TextView? = null
     private var step3Lbl:  TextView? = null; private var step4Lbl:  TextView? = null
@@ -185,6 +185,7 @@ class ConfigSheetFragment : Fragment() {
     private var scrollLivePreview: HorizontalScrollView? = null
     private var tableLivePreview: TableLayout? = null
     private var pbPreviewLoad:   ProgressBar? = null
+    private var pbColPreviewMgr: ProgressBar? = null
     private var tvSummary:       TextView? = null
 
     // Nav buttons
@@ -218,6 +219,7 @@ class ConfigSheetFragment : Fragment() {
 
     private var activeManageTab = "overview"
     private var previewJob: kotlinx.coroutines.Job? = null
+    private var isRangeEdit = false   // true = opened from Manage → Positioning, not full reconnect
 
     // Activity-result launcher for Google Sign-In
     private val signInLauncher = registerForActivityResult(
@@ -306,8 +308,8 @@ class ConfigSheetFragment : Fragment() {
         // ConnectFlow
         panelConnect    = view.findViewById(R.id.panelConnect)
         tvConnBranchSub = view.findViewById(R.id.tvConnBranchSub)
-        step1Dot  = view.findViewById(R.id.step1Dot);  step2Dot  = view.findViewById(R.id.step2Dot)
-        step3Dot  = view.findViewById(R.id.step3Dot);  step4Dot  = view.findViewById(R.id.step4Dot)
+        step1Dot  = view.findViewById<TextView>(R.id.step1Dot);  step2Dot  = view.findViewById<TextView>(R.id.step2Dot)
+        step3Dot  = view.findViewById<TextView>(R.id.step3Dot);  step4Dot  = view.findViewById<TextView>(R.id.step4Dot)
         step1Line = view.findViewById(R.id.step1Line); step2Line = view.findViewById(R.id.step2Line); step3Line = view.findViewById(R.id.step3Line)
         step1Lbl  = view.findViewById(R.id.step1Lbl);  step2Lbl  = view.findViewById(R.id.step2Lbl)
         step3Lbl  = view.findViewById(R.id.step3Lbl);  step4Lbl  = view.findViewById(R.id.step4Lbl)
@@ -336,6 +338,7 @@ class ConfigSheetFragment : Fragment() {
         scrollLivePreview = view.findViewById(R.id.scrollLivePreview)
         tableLivePreview = view.findViewById(R.id.tableLivePreview)
         pbPreviewLoad  = view.findViewById(R.id.pbPreviewLoad)
+        pbColPreviewMgr = view.findViewById(R.id.pbColPreviewMgr)
         tvSummary      = view.findViewById(R.id.tvSummary)
 
         btnBack       = view.findViewById(R.id.btnStepBack)
@@ -391,7 +394,15 @@ class ConfigSheetFragment : Fragment() {
             else              { screen = Screen.CONNECTING; connectStep = 1; clearConnectForm(); render() }
         }
 
-        btnCancelConn?.setOnClickListener { screen = Screen.BRANCH_SELECT; render() }
+        btnCancelConn?.setOnClickListener {
+            if (isRangeEdit) {
+                isRangeEdit = false
+                screen = Screen.MANAGING
+            } else {
+                screen = Screen.BRANCH_SELECT
+            }
+            render()
+        }
         btnManBack?.setOnClickListener    { screen = Screen.BRANCH_SELECT; render() }
 
         btnNext?.setOnClickListener { advanceStep() }
@@ -670,42 +681,72 @@ class ConfigSheetFragment : Fragment() {
         stepView3?.visibility = if (connectStep == 3) View.VISIBLE else View.GONE
         stepView4?.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
 
-        // Step dots — done=red, active=orange ring, future=grey
-        val done   = android.graphics.Color.parseColor("#E8380D")
-        val active = android.graphics.Color.parseColor("#FFF3F0")
-        val future = android.graphics.Color.parseColor("#F3F4F6")
-        fun styleDot(dot: View?, n: Int) {
-            val c = when { connectStep > n -> done; connectStep == n -> active; else -> future }
-            dot?.setBackgroundColor(c)
+        // Step dots — done=green circle + tick, active=white circle + step number + border, future=grey circle + step number
+        val density = resources.displayMetrics.density
+        fun roundBg(fillColor: Int, strokeColor: Int? = null, strokeDp: Int = 2) =
+            android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(fillColor)
+                strokeColor?.let { setStroke((strokeDp * density).toInt(), it) }
+            }
+        fun styleDot(dot: TextView?, n: Int) {
+            when {
+                connectStep > n -> {
+                    // Done — green fill, white tick
+                    dot?.background = roundBg(android.graphics.Color.parseColor("#16A34A"))
+                    dot?.text = "✓"
+                    dot?.setTextColor(android.graphics.Color.WHITE)
+                }
+                connectStep == n -> {
+                    // Active — white fill, green border, dark number
+                    dot?.background = roundBg(
+                        android.graphics.Color.WHITE,
+                        android.graphics.Color.parseColor("#16A34A"), 2
+                    )
+                    dot?.text = "$n"
+                    dot?.setTextColor(android.graphics.Color.parseColor("#16A34A"))
+                }
+                else -> {
+                    // Future — light grey fill, grey number
+                    dot?.background = roundBg(android.graphics.Color.parseColor("#E5E7EB"))
+                    dot?.text = "$n"
+                    dot?.setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                }
+            }
         }
         styleDot(step1Dot, 1); styleDot(step2Dot, 2); styleDot(step3Dot, 3); styleDot(step4Dot, 4)
 
         // Step lines
-        val lineColor = android.graphics.Color.parseColor("#E8380D")
+        val lineColor = android.graphics.Color.parseColor("#16A34A")
         val lineGrey  = android.graphics.Color.parseColor("#E5E7EB")
         step1Line?.setBackgroundColor(if (connectStep > 1) lineColor else lineGrey)
         step2Line?.setBackgroundColor(if (connectStep > 2) lineColor else lineGrey)
         step3Line?.setBackgroundColor(if (connectStep > 3) lineColor else lineGrey)
 
         // Step labels
-        val red  = android.graphics.Color.parseColor("#E8380D")
-        val dark = android.graphics.Color.parseColor("#111827")
-        val grey = android.graphics.Color.parseColor("#9CA3AF")
+        val green = android.graphics.Color.parseColor("#16A34A")
+        val dark  = android.graphics.Color.parseColor("#111827")
+        val grey  = android.graphics.Color.parseColor("#9CA3AF")
         fun styleLbl(lbl: TextView?, n: Int) {
-            lbl?.setTextColor(when { connectStep > n -> red; connectStep == n -> dark; else -> grey })
+            lbl?.setTextColor(when { connectStep > n -> green; connectStep == n -> dark; else -> grey })
         }
         styleLbl(step1Lbl, 1); styleLbl(step2Lbl, 2); styleLbl(step3Lbl, 3); styleLbl(step4Lbl, 4)
 
         // Nav buttons
-        btnBack?.visibility    = if (connectStep > 1) View.VISIBLE else View.GONE
+        // Range edit mode: no back (can't go to step 3), only Cancel + Save
+        btnBack?.visibility    = if (!isRangeEdit && connectStep > 1) View.VISIBLE else View.GONE
         // Step 1: Next only visible when account is selected
         btnNext?.visibility    = when {
+            isRangeEdit      -> View.GONE
             connectStep == 1 -> if (googleAccount != null) View.VISIBLE else View.GONE
             connectStep < 4  -> View.VISIBLE
             else             -> View.GONE
         }
         btnConnect?.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
         btnConnect?.text = if (connections.containsKey(activeBranch)) "Save Range" else "Connect"
+
+        // Cancel button label changes in range edit mode
+        (btnCancelConn as? TextView)?.text = if (isRangeEdit) "Cancel" else "✕"
 
         tvConnError?.visibility = View.GONE
 
@@ -938,7 +979,8 @@ class ConfigSheetFragment : Fragment() {
             else                   -> "Preview: Row $sRow + next 5 rows (end: $eRow)"
         }
 
-        tvColPreviewMgr?.text = "Loading..."
+        tvColPreviewMgr?.text = ""
+        pbColPreviewMgr?.visibility = View.VISIBLE
         scrollColPreviewMgr?.visibility = View.GONE
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -971,6 +1013,7 @@ class ConfigSheetFragment : Fragment() {
                 }
 
                 if (!isAdded) return@launch
+                pbColPreviewMgr?.visibility = View.GONE
                 if (rows == null) {
                     tvColPreviewMgr?.text = "⚠ Sheet fetch failed"
                     return@launch
@@ -979,7 +1022,10 @@ class ConfigSheetFragment : Fragment() {
                 renderLivePreviewTable(rows, conn.colStart, conn.colEnd, tableColPreviewMgr, scrollColPreviewMgr)
 
             } catch (e: Exception) {
-                if (isAdded) tvColPreviewMgr?.text = "⚠ Error: ${e.message?.take(60)}"
+                if (isAdded) {
+                    pbColPreviewMgr?.visibility = View.GONE
+                    tvColPreviewMgr?.text = "⚠ Error: ${e.message?.take(60)}"
+                }
             }
         }
     }
@@ -1008,18 +1054,55 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun openIntervalPickerDialog(conn: SheetConn) {
-        val options = arrayOf("15 মিনিট", "30 মিনিট", "60 মিনিট", "120 মিনিট")
-        val values  = intArrayOf(15, 30, 60, 120)
-        val current = values.indexOfFirst { it == conn.syncIntervalMin }.coerceAtLeast(0)
+        val options = arrayOf("15 মিনিট", "30 মিনিট", "60 মিনিট", "120 মিনিট", "Custom...")
+        val values  = intArrayOf(15, 30, 60, 120, -1)
+        val current = values.indexOfFirst { it == conn.syncIntervalMin }.let {
+            if (it < 0) options.size - 1 else it // custom if not in list
+        }
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Auto Sync Interval")
             .setSingleChoiceItems(options, current) { dialog, which ->
-                val newInterval = values[which]
-                val updated = conn.copy(syncIntervalMin = newInterval)
+                if (values[which] == -1) {
+                    // Custom input
+                    dialog.dismiss()
+                    showCustomIntervalInput(conn)
+                } else {
+                    val newInterval = values[which]
+                    val updated = conn.copy(syncIntervalMin = newInterval)
+                    connections[activeBranch] = updated
+                    tvSyncIntervalLabel?.text = "প্রতি $newInterval মিনিট"
+                    saveSyncSettings(updated)
+                    dialog.dismiss()
+                }
+            }
+            .setNegativeButton("বাতিল", null)
+            .show()
+    }
+
+    private fun showCustomIntervalInput(conn: SheetConn) {
+        val ctx = context ?: return
+        val input = android.widget.EditText(ctx).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            hint = "মিনিট লিখুন (1-1440)"
+            textSize = 14f
+            setPadding(48, 32, 48, 32)
+            if (conn.syncIntervalMin !in listOf(15, 30, 60, 120)) {
+                setText(conn.syncIntervalMin.toString())
+            }
+        }
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Custom Interval")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val minutes = input.text.toString().trim().toIntOrNull()
+                if (minutes == null || minutes < 1 || minutes > 1440) {
+                    toast("⚠ 1 থেকে 1440 মিনিটের মধ্যে দিন")
+                    return@setPositiveButton
+                }
+                val updated = conn.copy(syncIntervalMin = minutes)
                 connections[activeBranch] = updated
-                tvSyncIntervalLabel?.text = "প্রতি $newInterval মিনিট"
+                tvSyncIntervalLabel?.text = "প্রতি $minutes মিনিট"
                 saveSyncSettings(updated)
-                dialog.dismiss()
             }
             .setNegativeButton("বাতিল", null)
             .show()
@@ -1140,7 +1223,8 @@ class ConfigSheetFragment : Fragment() {
         connections[activeBranch] = conn
         saveToFirebase(conn)
         toast(if (existing == null) "✅ $activeBranch connected!" else "✅ Range updated")
-        screen = Screen.BRANCH_SELECT
+        screen = if (isRangeEdit) Screen.MANAGING else Screen.BRANCH_SELECT
+        isRangeEdit = false
         render()
     }
 
@@ -1192,6 +1276,7 @@ class ConfigSheetFragment : Fragment() {
             conn.startRow?.let { etStartRow?.setText(it.toString()) }
             conn.endRow?.takeIf { it > 0 }?.let { etEndRow?.setText(it.toString()) }
         }
+        isRangeEdit = true
         screen = Screen.CONNECTING
         connectStep = 4
         render()
