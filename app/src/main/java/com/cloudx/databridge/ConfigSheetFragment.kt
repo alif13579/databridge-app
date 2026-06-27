@@ -394,7 +394,7 @@ class ConfigSheetFragment : Fragment() {
         }
 
         tabOverview?.setOnClickListener { activeManageTab = "overview"; renderManageTabs() }
-        tabColumns?.setOnClickListener  { activeManageTab = "columns";  renderManageTabs() }
+        tabColumns?.setOnClickListener  { activeManageTab = "columns";  renderManageTabs(); fetchManageColPreview() }
         tabSync?.setOnClickListener     { activeManageTab = "sync";     renderManageTabs() }
 
         spinnerManageBranch?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -804,8 +804,14 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun renderLivePreviewTable(rows: List<List<String>>, colStart: Int, colEnd: Int) {
-        val table = tableLivePreview ?: return
+    private fun renderLivePreviewTable(
+        rows: List<List<String>>,
+        colStart: Int,
+        colEnd: Int,
+        targetTable: android.widget.TableLayout? = tableLivePreview,
+        targetScroll: android.widget.HorizontalScrollView? = scrollLivePreview
+    ) {
+        val table = targetTable ?: return
         table.removeAllViews()
         val colCount = (colEnd - colStart + 1).coerceAtLeast(1)
 
@@ -828,7 +834,67 @@ class ConfigSheetFragment : Fragment() {
                 table.addView(tableRow(row, bg, if (bold) "#111827" else "#374151", bold = bold))
             }
         }
-        scrollLivePreview?.visibility = View.VISIBLE
+        targetScroll?.visibility = View.VISIBLE
+    }
+    private fun fetchManageColPreview() {
+        val conn = connections[activeBranch] ?: return
+        val signInAccount = GoogleSignIn.getLastSignedInAccount(requireContext()) ?: run {
+            tvColPreviewMgr?.text = "⚠ Google account দিয়ে reconnect করুন"
+            return
+        }
+
+        val startLetter = colIndexToLetter(conn.colStart)
+        val endLetter   = colIndexToLetter(conn.colEnd)
+        val sRow        = conn.startRow ?: 1
+        val eRow        = conn.endRow?.takeIf { it > 0 }
+        val previewEnd  = eRow ?: (sRow + 5)
+        val range       = "${conn.tabName}!${startLetter}${sRow}:${endLetter}${previewEnd}"
+        val label       = if (eRow != null) "Preview: Row $sRow → $eRow" else "Preview: Row $sRow + next 5 rows"
+
+        tvColPreviewMgr?.text = "Loading..."
+        scrollColPreviewMgr?.visibility = View.GONE
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val acctObj = signInAccount.account ?: return@launch
+                val ctx     = context ?: return@launch
+                val token   = withContext(Dispatchers.IO) {
+                    try { GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE) }
+                    catch (e: UserRecoverableAuthException) { null }
+                } ?: run {
+                    tvColPreviewMgr?.text = "⚠ Token পাওয়া যায়নি"
+                    return@launch
+                }
+
+                val encodedRange = java.net.URLEncoder.encode(range, "UTF-8")
+                val url = "https://sheets.googleapis.com/v4/spreadsheets/${conn.sheetId}/values/$encodedRange"
+                val rows = withContext(Dispatchers.IO) {
+                    val req = Request.Builder().url(url)
+                        .header("Authorization", "Bearer $token").build()
+                    httpClient.newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) return@withContext null
+                        val body = resp.body?.string() ?: return@withContext null
+                        val arr = org.json.JSONObject(body).optJSONArray("values")
+                            ?: return@withContext emptyList<List<String>>()
+                        (0 until arr.length()).map { i ->
+                            val row = arr.getJSONArray(i)
+                            (0 until row.length()).map { j -> row.optString(j, "") }
+                        }
+                    }
+                }
+
+                if (!isAdded) return@launch
+                if (rows == null) {
+                    tvColPreviewMgr?.text = "⚠ Sheet fetch failed"
+                    return@launch
+                }
+                tvColPreviewMgr?.text = label
+                renderLivePreviewTable(rows, conn.colStart, conn.colEnd, tableColPreviewMgr, scrollColPreviewMgr)
+
+            } catch (e: Exception) {
+                if (isAdded) tvColPreviewMgr?.text = "⚠ Error: ${e.message?.take(60)}"
+            }
+        }
     }
 
     /** Renders column letter header row in the Manage → Columns tab table */
@@ -1416,7 +1482,7 @@ class ConfigSheetFragment : Fragment() {
         tvOvTab?.text   = conn.tabName
         tvOvCols?.text  = "${conn.columns.firstOrNull() ?: "A"}–${conn.columns.lastOrNull() ?: "J"} (${conn.columns.size}টি)"
         tvColPreviewMgr?.text = "${conn.columns.firstOrNull() ?: "A"} → ${conn.columns.lastOrNull() ?: "J"}  (${conn.columns.size} columns)"
-        renderManageColTable(conn.colStart, conn.colEnd)
+        if (activeManageTab == "columns") fetchManageColPreview()
     }
 
     private fun renderManageTabs() {
