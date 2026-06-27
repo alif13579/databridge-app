@@ -649,7 +649,7 @@
                     android:layout_weight="1" android:orientation="vertical" android:gravity="center">
                     <TextView android:id="@+id/tabColumns"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Columns" android:textSize="13sp" android:textStyle="bold"
+                        android:text="Positioning" android:textSize="13sp" android:textStyle="bold"
                         android:textColor="#6B7280" android:padding="8dp" />
                     <View android:id="@+id/indColumns"
                         android:layout_width="40dp" android:layout_height="2dp"
@@ -712,7 +712,7 @@
                 android:padding="14dp" android:visibility="gone">
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📊 Column Mapping" android:textSize="13sp"
+                    android:text="📐 Sheet Positioning" android:textSize="13sp"
                     android:textStyle="bold" android:textColor="#111827" android:layout_marginBottom="10dp" />
                 <LinearLayout
                     android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -741,7 +741,7 @@
                 </HorizontalScrollView>
                 <Button android:id="@+id/btnColChange"
                     android:layout_width="match_parent" android:layout_height="42dp"
-                    android:text="✏ Range পরিবর্তন" android:textSize="12sp"
+                    android:text="✏ Positioning পরিবর্তন" android:textSize="12sp"
                     android:textStyle="bold" android:backgroundTint="#3B82F6" android:textColor="#FFFFFF" />
             </LinearLayout>
 

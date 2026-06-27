@@ -219,6 +219,7 @@ class ConfigSheetFragment : Fragment() {
 
     private var activeManageTab = "overview"
     private var previewJob: kotlinx.coroutines.Job? = null
+    private var isRangeEdit = false   // true = opened from Manage → Positioning, not full reconnect
 
     // Activity-result launcher for Google Sign-In
     private val signInLauncher = registerForActivityResult(
@@ -393,7 +394,15 @@ class ConfigSheetFragment : Fragment() {
             else              { screen = Screen.CONNECTING; connectStep = 1; clearConnectForm(); render() }
         }
 
-        btnCancelConn?.setOnClickListener { screen = Screen.BRANCH_SELECT; render() }
+        btnCancelConn?.setOnClickListener {
+            if (isRangeEdit) {
+                isRangeEdit = false
+                screen = Screen.MANAGING
+            } else {
+                screen = Screen.BRANCH_SELECT
+            }
+            render()
+        }
         btnManBack?.setOnClickListener    { screen = Screen.BRANCH_SELECT; render() }
 
         btnNext?.setOnClickListener { advanceStep() }
@@ -724,15 +733,20 @@ class ConfigSheetFragment : Fragment() {
         styleLbl(step1Lbl, 1); styleLbl(step2Lbl, 2); styleLbl(step3Lbl, 3); styleLbl(step4Lbl, 4)
 
         // Nav buttons
-        btnBack?.visibility    = if (connectStep > 1) View.VISIBLE else View.GONE
+        // Range edit mode: no back (can't go to step 3), only Cancel + Save
+        btnBack?.visibility    = if (!isRangeEdit && connectStep > 1) View.VISIBLE else View.GONE
         // Step 1: Next only visible when account is selected
         btnNext?.visibility    = when {
+            isRangeEdit      -> View.GONE
             connectStep == 1 -> if (googleAccount != null) View.VISIBLE else View.GONE
             connectStep < 4  -> View.VISIBLE
             else             -> View.GONE
         }
         btnConnect?.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
         btnConnect?.text = if (connections.containsKey(activeBranch)) "Save Range" else "Connect"
+
+        // Cancel button label changes in range edit mode
+        (btnCancelConn as? TextView)?.text = if (isRangeEdit) "Cancel" else "✕"
 
         tvConnError?.visibility = View.GONE
 
@@ -1209,7 +1223,8 @@ class ConfigSheetFragment : Fragment() {
         connections[activeBranch] = conn
         saveToFirebase(conn)
         toast(if (existing == null) "✅ $activeBranch connected!" else "✅ Range updated")
-        screen = Screen.BRANCH_SELECT
+        screen = if (isRangeEdit) Screen.MANAGING else Screen.BRANCH_SELECT
+        isRangeEdit = false
         render()
     }
 
@@ -1261,6 +1276,7 @@ class ConfigSheetFragment : Fragment() {
             conn.startRow?.let { etStartRow?.setText(it.toString()) }
             conn.endRow?.takeIf { it > 0 }?.let { etEndRow?.setText(it.toString()) }
         }
+        isRangeEdit = true
         screen = Screen.CONNECTING
         connectStep = 4
         render()
