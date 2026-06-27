@@ -604,11 +604,10 @@ class ConfigSheetFragment : Fragment() {
 
         if (showUnconnected) {
             if (unconnectedBranches.size == 1) {
-                // Single unconnected — no dropdown, just label + connect button
+                // Single unconnected — no dropdown, no label (summary card shows branch info)
                 activeBranch = unconnectedBranches.first()
                 spinnerBranch?.visibility  = View.GONE
-                tvSingleBranch?.visibility = View.VISIBLE
-                tvSingleBranch?.text       = branchLabel(activeBranch)
+                tvSingleBranch?.visibility = View.GONE
             } else {
                 spinnerBranch?.visibility  = View.VISIBLE
                 tvSingleBranch?.visibility = View.GONE
