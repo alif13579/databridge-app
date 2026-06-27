@@ -412,6 +412,7 @@ class ConfigSheetFragment : Fragment() {
         btnSyncNow?.setOnClickListener      { toast("🔄 Sync শুরু হয়েছে...") }
 
         etColStart?.addTextChangedListener(colWatcher); etColEnd?.addTextChangedListener(colWatcher)
+        etStartRow?.addTextChangedListener(colWatcher); etEndRow?.addTextChangedListener(colWatcher)
 
         btnDefineRow?.setOnClickListener {
             isRowRangeVisible = !isRowRangeVisible
@@ -750,8 +751,19 @@ class ConfigSheetFragment : Fragment() {
 
             val startLetter = colIndexToLetter(colStart)
             val endLetter   = colIndexToLetter(colEnd)
-            // Fetch header row + 5 data rows = rows 1–6
-            val range = "$tab!${startLetter}1:${endLetter}6"
+
+            // Use defined row range if provided, else default header(1) + 5 data rows
+            val sRow = etStartRow?.text?.toString()?.trim()?.toIntOrNull() ?: 1
+            val eRow = etEndRow?.text?.toString()?.trim()?.toIntOrNull()
+            val previewEndRow = when {
+                eRow != null -> eRow                          // user defined end row
+                else         -> sRow + 5                     // header + 5 rows
+            }
+            val range = "$tab!${startLetter}${sRow}:${endLetter}${previewEndRow}"
+            val previewLabel = if (eRow != null)
+                "Preview: Row $sRow → $eRow"
+            else
+                "Preview: Row $sRow + next 5 rows"
             val encodedRange = java.net.URLEncoder.encode(range, "UTF-8")
             val url = "https://sheets.googleapis.com/v4/spreadsheets/$sheetId/values/$encodedRange"
 
@@ -781,7 +793,7 @@ class ConfigSheetFragment : Fragment() {
                 return
             }
 
-            tvLivePreview?.text = "Preview: Row 1 header + next 5 rows"
+            tvLivePreview?.text = previewLabel
             renderLivePreviewTable(rows, colStart, colEnd)
 
         } catch (e: Exception) {
