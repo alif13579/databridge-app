@@ -31,6 +31,11 @@
             android:title="Memory"
             android:visible="true" />
         <item
+            android:id="@+id/nav_chat"
+            android:icon="@android:drawable/ic_menu_send"
+            android:title="Messages"
+            android:visible="false" />
+        <item
             android:id="@+id/nav_salary_manager"
             android:icon="@android:drawable/ic_menu_agenda"
             android:title="Salary Manager"

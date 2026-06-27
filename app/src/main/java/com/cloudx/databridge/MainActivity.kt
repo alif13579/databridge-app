@@ -171,6 +171,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 R.id.nav_call_center -> loadFragment(CallCenterFragment())
                 R.id.nav_scanner   -> loadFragment(ScannerFragment())
                 R.id.nav_memory    -> loadFragment(MemoryFragment())
+                R.id.nav_chat      -> loadFragment(ChatFragment())
                 R.id.nav_salary_manager -> loadFragment(SalaryManagerFragment())
                 R.id.nav_config         -> loadFragment(ConfigFragment())
                 R.id.nav_access_manager -> loadFragment(AccessManagerFragment())
@@ -353,6 +354,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
 
         menu.findItem(R.id.nav_scanner)?.isVisible = RbacManager.hasPermission("nav_scanner")
         menu.findItem(R.id.nav_memory)?.isVisible = RbacManager.hasPermission("nav_memory")
+        menu.findItem(R.id.nav_chat)?.isVisible   = RbacManager.hasPermission("nav_chat")
         menu.findItem(R.id.nav_connect)?.isVisible = RbacManager.hasPermission("nav_connect")
         menu.findItem(R.id.nav_history)?.isVisible = RbacManager.hasPermission("nav_history")
 
