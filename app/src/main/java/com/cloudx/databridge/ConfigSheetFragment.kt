@@ -1782,7 +1782,7 @@ class ConfigSheetFragment : Fragment() {
                     "startRow"       to (conn.startRow ?: 1),
                     "endRow"         to (conn.endRow   ?: 0),
                     "autoSync"       to conn.autoSync,
-                    "syncIntervalMin"to conn.syncIntervalMin,
+                    "syncIntervalMin" to conn.syncIntervalMin,
                     "googleEmail"    to conn.googleEmail,
                     "connectedBy"    to conn.connectedBy,
                     "connectedAt"    to conn.connectedAt,
