@@ -1008,18 +1008,55 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun openIntervalPickerDialog(conn: SheetConn) {
-        val options = arrayOf("15 মিনিট", "30 মিনিট", "60 মিনিট", "120 মিনিট")
-        val values  = intArrayOf(15, 30, 60, 120)
-        val current = values.indexOfFirst { it == conn.syncIntervalMin }.coerceAtLeast(0)
+        val options = arrayOf("15 মিনিট", "30 মিনিট", "60 মিনিট", "120 মিনিট", "Custom...")
+        val values  = intArrayOf(15, 30, 60, 120, -1)
+        val current = values.indexOfFirst { it == conn.syncIntervalMin }.let {
+            if (it < 0) options.size - 1 else it // custom if not in list
+        }
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Auto Sync Interval")
             .setSingleChoiceItems(options, current) { dialog, which ->
-                val newInterval = values[which]
-                val updated = conn.copy(syncIntervalMin = newInterval)
+                if (values[which] == -1) {
+                    // Custom input
+                    dialog.dismiss()
+                    showCustomIntervalInput(conn)
+                } else {
+                    val newInterval = values[which]
+                    val updated = conn.copy(syncIntervalMin = newInterval)
+                    connections[activeBranch] = updated
+                    tvSyncIntervalLabel?.text = "প্রতি $newInterval মিনিট"
+                    saveSyncSettings(updated)
+                    dialog.dismiss()
+                }
+            }
+            .setNegativeButton("বাতিল", null)
+            .show()
+    }
+
+    private fun showCustomIntervalInput(conn: SheetConn) {
+        val ctx = context ?: return
+        val input = android.widget.EditText(ctx).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            hint = "মিনিট লিখুন (1-1440)"
+            textSize = 14f
+            setPadding(48, 32, 48, 32)
+            if (conn.syncIntervalMin !in listOf(15, 30, 60, 120)) {
+                setText(conn.syncIntervalMin.toString())
+            }
+        }
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Custom Interval")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val minutes = input.text.toString().trim().toIntOrNull()
+                if (minutes == null || minutes < 1 || minutes > 1440) {
+                    toast("⚠ 1 থেকে 1440 মিনিটের মধ্যে দিন")
+                    return@setPositiveButton
+                }
+                val updated = conn.copy(syncIntervalMin = minutes)
                 connections[activeBranch] = updated
-                tvSyncIntervalLabel?.text = "প্রতি $newInterval মিনিট"
+                tvSyncIntervalLabel?.text = "প্রতি $minutes মিনিট"
                 saveSyncSettings(updated)
-                dialog.dismiss()
             }
             .setNegativeButton("বাতিল", null)
             .show()
