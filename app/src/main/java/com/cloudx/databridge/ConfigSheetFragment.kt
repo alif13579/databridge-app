@@ -149,8 +149,8 @@ class ConfigSheetFragment : Fragment() {
     /* ConnectFlow */
     private var panelConnect:        View? = null
     private var tvConnBranchSub:     TextView? = null
-    private var step1Dot:  View? = null; private var step2Dot:  View? = null
-    private var step3Dot:  View? = null; private var step4Dot:  View? = null
+    private var step1Dot:  TextView? = null; private var step2Dot:  TextView? = null
+    private var step3Dot:  TextView? = null; private var step4Dot:  TextView? = null
     private var step1Line: View? = null; private var step2Line: View? = null; private var step3Line: View? = null
     private var step1Lbl:  TextView? = null; private var step2Lbl:  TextView? = null
     private var step3Lbl:  TextView? = null; private var step4Lbl:  TextView? = null
@@ -307,8 +307,8 @@ class ConfigSheetFragment : Fragment() {
         // ConnectFlow
         panelConnect    = view.findViewById(R.id.panelConnect)
         tvConnBranchSub = view.findViewById(R.id.tvConnBranchSub)
-        step1Dot  = view.findViewById(R.id.step1Dot);  step2Dot  = view.findViewById(R.id.step2Dot)
-        step3Dot  = view.findViewById(R.id.step3Dot);  step4Dot  = view.findViewById(R.id.step4Dot)
+        step1Dot  = view.findViewById<TextView>(R.id.step1Dot);  step2Dot  = view.findViewById<TextView>(R.id.step2Dot)
+        step3Dot  = view.findViewById<TextView>(R.id.step3Dot);  step4Dot  = view.findViewById<TextView>(R.id.step4Dot)
         step1Line = view.findViewById(R.id.step1Line); step2Line = view.findViewById(R.id.step2Line); step3Line = view.findViewById(R.id.step3Line)
         step1Lbl  = view.findViewById(R.id.step1Lbl);  step2Lbl  = view.findViewById(R.id.step2Lbl)
         step3Lbl  = view.findViewById(R.id.step3Lbl);  step4Lbl  = view.findViewById(R.id.step4Lbl)
@@ -672,29 +672,54 @@ class ConfigSheetFragment : Fragment() {
         stepView3?.visibility = if (connectStep == 3) View.VISIBLE else View.GONE
         stepView4?.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
 
-        // Step dots — done=red, active=orange ring, future=grey
-        val done   = android.graphics.Color.parseColor("#E8380D")
-        val active = android.graphics.Color.parseColor("#FFF3F0")
-        val future = android.graphics.Color.parseColor("#F3F4F6")
-        fun styleDot(dot: View?, n: Int) {
-            val c = when { connectStep > n -> done; connectStep == n -> active; else -> future }
-            dot?.setBackgroundColor(c)
+        // Step dots — done=green circle + tick, active=white circle + step number + border, future=grey circle + step number
+        val density = resources.displayMetrics.density
+        fun roundBg(fillColor: Int, strokeColor: Int? = null, strokeDp: Int = 2) =
+            android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(fillColor)
+                strokeColor?.let { setStroke((strokeDp * density).toInt(), it) }
+            }
+        fun styleDot(dot: TextView?, n: Int) {
+            when {
+                connectStep > n -> {
+                    // Done — green fill, white tick
+                    dot?.background = roundBg(android.graphics.Color.parseColor("#16A34A"))
+                    dot?.text = "✓"
+                    dot?.setTextColor(android.graphics.Color.WHITE)
+                }
+                connectStep == n -> {
+                    // Active — white fill, green border, dark number
+                    dot?.background = roundBg(
+                        android.graphics.Color.WHITE,
+                        android.graphics.Color.parseColor("#16A34A"), 2
+                    )
+                    dot?.text = "$n"
+                    dot?.setTextColor(android.graphics.Color.parseColor("#16A34A"))
+                }
+                else -> {
+                    // Future — light grey fill, grey number
+                    dot?.background = roundBg(android.graphics.Color.parseColor("#E5E7EB"))
+                    dot?.text = "$n"
+                    dot?.setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                }
+            }
         }
         styleDot(step1Dot, 1); styleDot(step2Dot, 2); styleDot(step3Dot, 3); styleDot(step4Dot, 4)
 
         // Step lines
-        val lineColor = android.graphics.Color.parseColor("#E8380D")
+        val lineColor = android.graphics.Color.parseColor("#16A34A")
         val lineGrey  = android.graphics.Color.parseColor("#E5E7EB")
         step1Line?.setBackgroundColor(if (connectStep > 1) lineColor else lineGrey)
         step2Line?.setBackgroundColor(if (connectStep > 2) lineColor else lineGrey)
         step3Line?.setBackgroundColor(if (connectStep > 3) lineColor else lineGrey)
 
         // Step labels
-        val red  = android.graphics.Color.parseColor("#E8380D")
-        val dark = android.graphics.Color.parseColor("#111827")
-        val grey = android.graphics.Color.parseColor("#9CA3AF")
+        val green = android.graphics.Color.parseColor("#16A34A")
+        val dark  = android.graphics.Color.parseColor("#111827")
+        val grey  = android.graphics.Color.parseColor("#9CA3AF")
         fun styleLbl(lbl: TextView?, n: Int) {
-            lbl?.setTextColor(when { connectStep > n -> red; connectStep == n -> dark; else -> grey })
+            lbl?.setTextColor(when { connectStep > n -> green; connectStep == n -> dark; else -> grey })
         }
         styleLbl(step1Lbl, 1); styleLbl(step2Lbl, 2); styleLbl(step3Lbl, 3); styleLbl(step4Lbl, 4)
 

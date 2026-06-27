@@ -308,7 +308,7 @@
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
-                    <View android:id="@+id/step1Dot" android:layout_width="22dp" android:layout_height="22dp" android:background="#FFF3F0" />
+                    <TextView android:id="@+id/step1Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
                     <TextView android:id="@+id/step1Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Account" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
@@ -317,7 +317,7 @@
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
-                    <View android:id="@+id/step2Dot" android:layout_width="22dp" android:layout_height="22dp" android:background="#F3F4F6" />
+                    <TextView android:id="@+id/step2Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
                     <TextView android:id="@+id/step2Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Sheet" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
@@ -326,7 +326,7 @@
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
-                    <View android:id="@+id/step3Dot" android:layout_width="22dp" android:layout_height="22dp" android:background="#F3F4F6" />
+                    <TextView android:id="@+id/step3Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
                     <TextView android:id="@+id/step3Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Tab" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
@@ -335,7 +335,7 @@
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
-                    <View android:id="@+id/step4Dot" android:layout_width="22dp" android:layout_height="22dp" android:background="#F3F4F6" />
+                    <TextView android:id="@+id/step4Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
                     <TextView android:id="@+id/step4Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Columns" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
