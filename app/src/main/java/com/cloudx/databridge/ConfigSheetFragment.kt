@@ -131,6 +131,7 @@ class ConfigSheetFragment : Fragment() {
     private var tabBranchConnected:   TextView? = null
     private var tabBranchUnconnected: TextView? = null
     private var activeBranchTab = "connected" // "connected" | "unconnected"
+    private var expandedBranch: String? = null  // accordion: which branch is expanded
     private var cardBranchInfo:  LinearLayout? = null
     private var tvBranchInfoName: TextView? = null
     private var tvBranchInfoCode: TextView? = null
@@ -558,92 +559,191 @@ class ConfigSheetFragment : Fragment() {
 
         if (showConnected) {
             containerConnectedBranches?.removeAllViews()
+
+            // Single branch → auto expand; multiple → all collapsed by default
+            if (expandedBranch == null && connectedBranches.size == 1) {
+                expandedBranch = connectedBranches.first()
+            }
+
             connectedBranches.forEach { branchId ->
                 val connList = connections[branchId] ?: emptyList()
-                val row = android.widget.LinearLayout(ctx).apply {
+                val isExpanded = expandedBranch == branchId
+
+                // ── Branch accordion card ──────────────────────────────
+                val branchCard = android.widget.LinearLayout(ctx).apply {
                     orientation = android.widget.LinearLayout.VERTICAL
-                    background = resources.getDrawable(R.drawable.bg_card_rounded, null)
-                    setPadding(36, 28, 36, 28)
                     val lp = android.widget.LinearLayout.LayoutParams(
                         android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                         android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
                     )
-                    lp.bottomMargin = 20
+                    lp.bottomMargin = 12
                     layoutParams = lp
                 }
-                val tvName = TextView(ctx).apply {
-                    text = branchLabel(branchId)
-                    textSize = 13f
-                    setTypeface(null, android.graphics.Typeface.BOLD)
-                    setTextColor(android.graphics.Color.parseColor("#111827"))
+
+                // ── Branch header row (clickable to expand/collapse) ───
+                val headerRow = android.widget.LinearLayout(ctx).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    gravity     = android.view.Gravity.CENTER_VERTICAL
+                    background  = resources.getDrawable(R.drawable.bg_card_rounded, null)
+                    setPadding(36, 24, 28, 24)
+                    isClickable = true
+                    isFocusable = true
                 }
-                // Show each connection as a small summary line
-                val tvSheet = TextView(ctx).apply {
-                    text = connList.joinToString("\n") { c ->
-                        "📄 ${c.nickname.ifBlank { c.sheetName }}  ·  📑 ${c.tabName}"
-                    }
+
+                val tvArrow = TextView(ctx).apply {
+                    text     = if (isExpanded) "▼" else "▶"
                     textSize = 11f
                     setTextColor(android.graphics.Color.parseColor("#6B7280"))
-                    val lp2 = android.widget.LinearLayout.LayoutParams(
+                    val lp = android.widget.LinearLayout.LayoutParams(
                         android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                         android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
                     )
-                    lp2.topMargin = 4
-                    layoutParams = lp2
+                    lp.marginEnd = 10
+                    layoutParams = lp
                 }
-                // Manage + New Sheet buttons row
-                val btnRow = android.widget.LinearLayout(ctx).apply {
-                    orientation = android.widget.LinearLayout.HORIZONTAL
-                    val lp3 = android.widget.LinearLayout.LayoutParams(
-                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                    )
-                    lp3.topMargin = 16
-                    layoutParams = lp3
-                }
-                val btnManage = android.widget.Button(ctx).apply {
-                    text = "Manage"
-                    textSize = 12f
+
+                val tvBranchName = TextView(ctx).apply {
+                    text     = branchLabel(branchId)
+                    textSize = 13f
                     setTypeface(null, android.graphics.Typeface.BOLD)
-                    setTextColor(android.graphics.Color.WHITE)
-                    backgroundTintList = android.content.res.ColorStateList.valueOf(
-                        android.graphics.Color.parseColor("#16A34A")
-                    )
-                    layoutParams = android.widget.LinearLayout.LayoutParams(0, 96, 1f).apply {
-                        marginEnd = 8
-                    }
-                    setOnClickListener {
-                        activeBranch = branchId
-                        activeConnectionId = connList.firstOrNull()?.connectionId ?: ""
-                        screen = Screen.MANAGING
-                        render()
-                    }
+                    setTextColor(android.graphics.Color.parseColor("#111827"))
+                    layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
-                val btnNewSheet = android.widget.Button(ctx).apply {
-                    text = "+ New Sheet"
-                    textSize = 12f
+
+                val btnNewSheet = TextView(ctx).apply {
+                    text      = "+ New Sheet"
+                    textSize  = 11f
                     setTypeface(null, android.graphics.Typeface.BOLD)
                     setTextColor(android.graphics.Color.parseColor("#3B82F6"))
+                    background = resources.getDrawable(R.drawable.bg_card_rounded, null)
                     backgroundTintList = android.content.res.ColorStateList.valueOf(
                         android.graphics.Color.parseColor("#EFF6FF")
                     )
-                    layoutParams = android.widget.LinearLayout.LayoutParams(0, 96, 1f)
+                    setPadding(20, 10, 20, 10)
+                    isClickable = true
+                    isFocusable = true
                     setOnClickListener {
-                        activeBranch = branchId
+                        activeBranch      = branchId
                         activeConnectionId = ""
-                        selectedNickname = ""
+                        selectedNickname  = ""
                         clearConnectForm()
-                        screen = Screen.CONNECTING
+                        screen      = Screen.CONNECTING
                         connectStep = 1
                         render()
                     }
                 }
-                btnRow.addView(btnManage)
-                btnRow.addView(btnNewSheet)
-                row.addView(tvName)
-                row.addView(tvSheet)
-                row.addView(btnRow)
-                containerConnectedBranches?.addView(row)
+
+                headerRow.addView(tvArrow)
+                headerRow.addView(tvBranchName)
+                headerRow.addView(btnNewSheet)
+
+                // ── Sheet cards container (shown when expanded) ────────
+                val sheetsContainer = android.widget.LinearLayout(ctx).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    visibility  = if (isExpanded) android.view.View.VISIBLE else android.view.View.GONE
+                    val lp = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    lp.topMargin = 6
+                    layoutParams = lp
+                }
+
+                connList.forEach { conn ->
+                    val sheetCard = android.widget.LinearLayout(ctx).apply {
+                        orientation = android.widget.LinearLayout.VERTICAL
+                        background  = resources.getDrawable(R.drawable.bg_card_rounded, null)
+                        setPadding(32, 20, 32, 20)
+                        val lp = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                        lp.topMargin = 6
+                        layoutParams = lp
+                    }
+
+                    // Nickname (bold title)
+                    val tvNickname = TextView(ctx).apply {
+                        text     = "📄 ${conn.nickname.ifBlank { conn.sheetName }}"
+                        textSize = 13f
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                        setTextColor(android.graphics.Color.parseColor("#111827"))
+                    }
+
+                    // Sheet name + tab
+                    val tvSheetInfo = TextView(ctx).apply {
+                        text     = "Sheet: ${conn.sheetName}  ·  Tab: ${conn.tabName}"
+                        textSize = 11f
+                        setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                        val lp = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                        lp.topMargin = 4
+                        layoutParams = lp
+                    }
+
+                    // Range
+                    val startLetter = colIndexToLetter(conn.colStart)
+                    val endLetter   = colIndexToLetter(conn.colEnd)
+                    val sRow        = conn.startRow?.takeIf { it > 1 } ?: ""
+                    val eRow        = conn.endRow?.takeIf   { it > 0 } ?: ""
+                    val rangeText   = when {
+                        sRow.isNotEmpty() && eRow.isNotEmpty() -> "Range: $startLetter$sRow:$endLetter$eRow"
+                        sRow.isNotEmpty()                      -> "Range: $startLetter$sRow:$endLetter"
+                        else                                   -> "Range: $startLetter:$endLetter"
+                    }
+                    val tvRange = TextView(ctx).apply {
+                        text     = rangeText
+                        textSize = 11f
+                        setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                        val lp = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
+                        lp.topMargin = 2
+                        layoutParams = lp
+                    }
+
+                    // Manage button (right aligned)
+                    val btnManage = android.widget.Button(ctx).apply {
+                        text      = "Manage"
+                        textSize  = 11f
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                        setTextColor(android.graphics.Color.WHITE)
+                        backgroundTintList = android.content.res.ColorStateList.valueOf(
+                            android.graphics.Color.parseColor("#16A34A")
+                        )
+                        val lp = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 80
+                        )
+                        lp.topMargin    = 12
+                        lp.gravity      = android.view.Gravity.END
+                        layoutParams    = lp
+                        setOnClickListener {
+                            activeBranch       = branchId
+                            activeConnectionId = conn.connectionId
+                            screen = Screen.MANAGING
+                            render()
+                        }
+                    }
+
+                    sheetCard.addView(tvNickname)
+                    sheetCard.addView(tvSheetInfo)
+                    sheetCard.addView(tvRange)
+                    sheetCard.addView(btnManage)
+                    sheetsContainer.addView(sheetCard)
+                }
+
+                // ── Accordion toggle ───────────────────────────────────
+                headerRow.setOnClickListener {
+                    expandedBranch = if (isExpanded) null else branchId
+                    updateBranchSpinner()
+                }
+
+                branchCard.addView(headerRow)
+                branchCard.addView(sheetsContainer)
+                containerConnectedBranches?.addView(branchCard)
             }
         }
 
