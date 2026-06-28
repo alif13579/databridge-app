@@ -686,12 +686,12 @@ class ConfigSheetFragment : Fragment() {
                     // Range
                     val startLetter = colIndexToLetter(conn.colStart)
                     val endLetter   = colIndexToLetter(conn.colEnd)
-                    val sRow        = conn.startRow?.takeIf { it > 1 } ?: ""
-                    val eRow        = conn.endRow?.takeIf   { it > 0 } ?: ""
+                    val sRow        = conn.startRow?.takeIf { it > 1 }
+                    val eRow        = conn.endRow?.takeIf   { it > 0 }
                     val rangeText   = when {
-                        sRow.isNotEmpty() && eRow.isNotEmpty() -> "Range: $startLetter$sRow:$endLetter$eRow"
-                        sRow.isNotEmpty()                      -> "Range: $startLetter$sRow:$endLetter"
-                        else                                   -> "Range: $startLetter:$endLetter"
+                        sRow != null && eRow != null -> "Range: $startLetter$sRow:$endLetter$eRow"
+                        sRow != null                 -> "Range: $startLetter$sRow:$endLetter"
+                        else                         -> "Range: $startLetter:$endLetter"
                     }
                     val tvRange = TextView(ctx).apply {
                         text     = rangeText
