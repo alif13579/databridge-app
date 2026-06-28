@@ -3,4 +3,478 @@
     android:id="@+id/chatRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F9FAFB" />
+    android:background="@color/theme_bg_app">
+
+    <!-- ══════════════════════════════════════════════════════════
+         SCREEN 1: Chat List
+    ══════════════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/screenChatList"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:visibility="visible">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@color/theme_bg_header"
+            android:elevation="2dp"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Messages"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/theme_text_primary" />
+                    <TextView
+                        android:id="@+id/tvChatCount"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Loading..."
+                        android:textSize="11sp"
+                        android:textColor="@color/theme_text_muted" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/btnNewChat"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:text="+"
+                    android:textSize="22sp"
+                    android:textColor="#FFFFFF"
+                    android:gravity="center"
+                    android:background="@drawable/bg_card_rounded"
+                    android:backgroundTint="#E8380D"
+                    android:clickable="true"
+                    android:focusable="true" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:orientation="horizontal"
+                android:background="@drawable/bg_card_rounded"
+                android:backgroundTint="@color/theme_bg_inner"
+                android:gravity="center_vertical"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔍"
+                    android:textSize="13sp"
+                    android:layout_marginEnd="6dp" />
+                <EditText
+                    android:id="@+id/etChatSearch"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@null"
+                    android:hint="Search conversations..."
+                    android:textSize="13sp"
+                    android:textColor="@color/theme_text_primary"
+                    android:textColorHint="@color/theme_text_muted"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:imeOptions="actionSearch" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvChatList"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingTop="4dp"
+            android:paddingBottom="80dp" />
+
+        <LinearLayout
+            android:id="@+id/layoutChatEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:visibility="gone">
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="💬"
+                android:textSize="40sp"
+                android:layout_marginBottom="12dp" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="কোনো conversation নেই"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_text_secondary" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+ বাটন চেপে নতুন message শুরু করুন"
+                android:textSize="12sp"
+                android:textColor="@color/theme_text_muted"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ══════════════════════════════════════════════════════════
+         SCREEN 2: Search / New Chat
+    ══════════════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/screenSearch"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@color/theme_bg_header"
+            android:elevation="2dp"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="12dp">
+                <TextView
+                    android:id="@+id/btnSearchBack"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:text="←"
+                    android:textSize="18sp"
+                    android:gravity="center"
+                    android:textColor="@color/theme_text_primary"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:layout_marginEnd="10dp" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="New Message"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_text_primary" />
+            </LinearLayout>
+
+            <EditText
+                android:id="@+id/etPhoneSearch"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:background="@drawable/bg_card_rounded"
+                android:backgroundTint="@color/theme_bg_inner"
+                android:padding="12dp"
+                android:hint="Phone number দিয়ে search করুন..."
+                android:textSize="14sp"
+                android:textColor="@color/theme_text_primary"
+                android:textColorHint="@color/theme_text_muted"
+                android:inputType="phone"
+                android:maxLines="1" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:id="@+id/layoutSearchPrompt"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:paddingTop="48dp"
+                android:visibility="visible">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="📱" android:textSize="36sp" android:layout_marginBottom="10dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Phone number দিয়ে খুঁজুন"
+                    android:textSize="14sp" android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary" android:gravity="center" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="শুধু registered users কে message করা যাবে"
+                    android:textSize="12sp" android:textColor="@color/theme_text_muted"
+                    android:layout_marginTop="4dp" android:gravity="center" />
+            </LinearLayout>
+
+            <ProgressBar
+                android:id="@+id/pbSearching"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/layoutSearchNotFound"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:paddingTop="48dp"
+                android:visibility="gone">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="🔍" android:textSize="36sp" android:layout_marginBottom="10dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="User পাওয়া যায়নি"
+                    android:textSize="14sp" android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary" android:gravity="center" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="এই number টি registered নয়"
+                    android:textSize="12sp" android:textColor="@color/theme_text_muted"
+                    android:layout_marginTop="4dp" android:gravity="center" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/cardSearchResult"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_card_rounded"
+                android:padding="14dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvSearchAvatar"
+                    android:layout_width="46dp"
+                    android:layout_height="46dp"
+                    android:gravity="center"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_card_rounded"
+                    android:backgroundTint="#E8380D" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="12dp">
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="2dp">
+                        <TextView
+                            android:id="@+id/tvSearchName"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/theme_text_primary"
+                            android:layout_marginEnd="6dp" />
+                        <TextView
+                            android:id="@+id/tvSearchRole"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textSize="10sp"
+                            android:textStyle="bold"
+                            android:paddingStart="6dp"
+                            android:paddingEnd="6dp"
+                            android:paddingTop="2dp"
+                            android:paddingBottom="2dp"
+                            android:background="@drawable/bg_card_rounded"
+                            android:backgroundTint="#EFF6FF"
+                            android:textColor="#2563EB" />
+                    </LinearLayout>
+                    <TextView
+                        android:id="@+id/tvSearchPhone"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="12sp"
+                        android:textColor="@color/theme_text_secondary" />
+                    <TextView
+                        android:id="@+id/tvSearchBranch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="11sp"
+                        android:textColor="@color/theme_text_muted"
+                        android:layout_marginTop="2dp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/btnStartChat"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="Chat"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:gravity="center"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:background="@drawable/bg_card_rounded"
+                    android:backgroundTint="#E8380D"
+                    android:clickable="true"
+                    android:focusable="true" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- ══════════════════════════════════════════════════════════
+         SCREEN 3: Conversation
+    ══════════════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:id="@+id/screenConversation"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@color/theme_bg_header"
+            android:elevation="2dp"
+            android:padding="12dp">
+
+            <TextView
+                android:id="@+id/btnConvBack"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:text="←"
+                android:textSize="18sp"
+                android:gravity="center"
+                android:textColor="@color/theme_text_primary"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginEnd="10dp" />
+
+            <TextView
+                android:id="@+id/tvConvAvatar"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:gravity="center"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/bg_card_rounded"
+                android:backgroundTint="#E8380D"
+                android:layout_marginEnd="10dp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:id="@+id/tvConvName"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/theme_text_primary"
+                        android:layout_marginEnd="6dp" />
+                    <TextView
+                        android:id="@+id/tvConvRole"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="9sp"
+                        android:textStyle="bold"
+                        android:paddingStart="5dp"
+                        android:paddingEnd="5dp"
+                        android:paddingTop="1dp"
+                        android:paddingBottom="1dp"
+                        android:background="@drawable/bg_card_rounded"
+                        android:backgroundTint="#EFF6FF"
+                        android:textColor="#2563EB" />
+                </LinearLayout>
+                <TextView
+                    android:id="@+id/tvConvStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="11sp"
+                    android:textColor="@color/theme_green" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvConvPhone"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="11sp"
+                android:textColor="@color/theme_text_muted" />
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvMessages"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@color/theme_bg_header"
+            android:elevation="4dp"
+            android:padding="10dp">
+
+            <EditText
+                android:id="@+id/etMessageInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_card_rounded"
+                android:backgroundTint="@color/theme_bg_inner"
+                android:padding="10dp"
+                android:hint="Message লিখুন..."
+                android:textSize="13sp"
+                android:textColor="@color/theme_text_primary"
+                android:textColorHint="@color/theme_text_muted"
+                android:inputType="textMultiLine"
+                android:maxLines="4"
+                android:layout_marginEnd="8dp" />
+
+            <TextView
+                android:id="@+id/btnSendMessage"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:text="➤"
+                android:textSize="16sp"
+                android:gravity="center"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/bg_card_rounded"
+                android:backgroundTint="#E8380D"
+                android:clickable="true"
+                android:focusable="true" />
+        </LinearLayout>
+    </LinearLayout>
+
+</FrameLayout>
