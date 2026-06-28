@@ -71,7 +71,8 @@ class ConfigSheetFragment : Fragment() {
 
     private var branches:    List<String>                  = emptyList()
     private var branchInfos: Map<String, BranchInfo>       = emptyMap()
-    private var connections: MutableMap<String, SheetConn> = mutableMapOf()
+    private var connections: MutableMap<String, MutableList<SheetConn>> = mutableMapOf()
+    private var activeConnectionId = ""   // connectionId of the conn being managed
 
     // ── Connect flow state (mirrors JSX) ──────────────────────────────
     private var googleAccount:    GoogleSignInAccount? = null
@@ -94,6 +95,8 @@ class ConfigSheetFragment : Fragment() {
     )
 
     data class SheetConn(
+        val connectionId:   String  = "",   // Firebase push key
+        val nickname:       String  = "",   // user-defined label
         val branchId:       String  = "",
         val sheetId:        String  = "",
         val sheetName:      String  = "",
@@ -193,6 +196,7 @@ class ConfigSheetFragment : Fragment() {
     private var btnNext:    Button? = null
     private var btnConnect: Button? = null
     private var btnCancelConn: View? = null
+    private var etNickname:    EditText? = null
     private var tvConnError: TextView? = null
 
     /* ManagePanel */
@@ -220,6 +224,7 @@ class ConfigSheetFragment : Fragment() {
     private var activeManageTab = "overview"
     private var previewJob: kotlinx.coroutines.Job? = null
     private var isRangeEdit = false   // true = opened from Manage → Positioning, not full reconnect
+    private var selectedNickname = ""   // nickname entered in step 3
 
     // Activity-result launcher for Google Sign-In
     private val signInLauncher = registerForActivityResult(
@@ -341,6 +346,7 @@ class ConfigSheetFragment : Fragment() {
         pbColPreviewMgr = view.findViewById(R.id.pbColPreviewMgr)
         tvSummary      = view.findViewById(R.id.tvSummary)
 
+        etNickname    = view.findViewById(R.id.etNickname)
         btnBack       = view.findViewById(R.id.btnStepBack)
         btnNext       = view.findViewById(R.id.btnStepNext)
         btnConnect    = view.findViewById(R.id.btnStepConnect)
@@ -379,7 +385,7 @@ class ConfigSheetFragment : Fragment() {
                     cardConnInfo?.visibility    = View.GONE
                     return
                 }
-                val unconnected = branches.filter { !connections.containsKey(it) }
+                val unconnected = branches.filter { connections[it].isNullOrEmpty() }
                 val branch = unconnected.getOrNull(pos - 1) ?: return
                 activeBranch = branch
                 updateBranchActionCard()
@@ -389,8 +395,8 @@ class ConfigSheetFragment : Fragment() {
 
         btnBranchAction?.setOnClickListener {
             if (activeBranch.isEmpty()) return@setOnClickListener
-            val conn = connections[activeBranch]
-            if (conn != null) { screen = Screen.MANAGING; render() }
+            val conn = activeConn()
+            if (conn != null) { activeConnectionId = conn.connectionId; screen = Screen.MANAGING; render() }
             else              { screen = Screen.CONNECTING; connectStep = 1; clearConnectForm(); render() }
         }
 
@@ -440,15 +446,15 @@ class ConfigSheetFragment : Fragment() {
         btnSyncNow?.setOnClickListener { toast("🔄 Sync শুরু হয়েছে...") }
 
         switchAutoSync?.setOnCheckedChangeListener { _, isChecked ->
-            val conn = connections[activeBranch] ?: return@setOnCheckedChangeListener
+            val conn = activeConn() ?: return@setOnCheckedChangeListener
             val updated = conn.copy(autoSync = isChecked)
-            connections[activeBranch] = updated
+            updateActiveConn(updated)
             updateSyncGearState(isChecked)
             saveSyncSettings(updated)
         }
 
         btnSyncGear?.setOnClickListener {
-            val conn = connections[activeBranch] ?: return@setOnClickListener
+            val conn = activeConn() ?: return@setOnClickListener
             if (!conn.autoSync) return@setOnClickListener
             openIntervalPickerDialog(conn)
         }
@@ -496,8 +502,8 @@ class ConfigSheetFragment : Fragment() {
 
         tvBranchEmpty?.visibility = View.GONE
 
-        val connectedBranches   = branches.filter {  connections.containsKey(it) }
-        val unconnectedBranches = branches.filter { !connections.containsKey(it) }
+        val connectedBranches   = branches.filter { connections[it]?.isNotEmpty() == true }
+        val unconnectedBranches = branches.filter { connections[it].isNullOrEmpty() }
         val hasBoth = connectedBranches.isNotEmpty() && unconnectedBranches.isNotEmpty()
 
         // ── Tab row ───────────────────────────────────────────────────
@@ -553,7 +559,7 @@ class ConfigSheetFragment : Fragment() {
         if (showConnected) {
             containerConnectedBranches?.removeAllViews()
             connectedBranches.forEach { branchId ->
-                val conn = connections[branchId]!!
+                val connList = connections[branchId] ?: emptyList()
                 val row = android.widget.LinearLayout(ctx).apply {
                     orientation = android.widget.LinearLayout.VERTICAL
                     background = resources.getDrawable(R.drawable.bg_card_rounded, null)
@@ -571,8 +577,11 @@ class ConfigSheetFragment : Fragment() {
                     setTypeface(null, android.graphics.Typeface.BOLD)
                     setTextColor(android.graphics.Color.parseColor("#111827"))
                 }
+                // Show each connection as a small summary line
                 val tvSheet = TextView(ctx).apply {
-                    text = "📄 ${conn.sheetName}  ·  📑 ${conn.tabName}"
+                    text = connList.joinToString("\n") { c ->
+                        "📄 ${c.nickname.ifBlank { c.sheetName }}  ·  📑 ${c.tabName}"
+                    }
                     textSize = 11f
                     setTextColor(android.graphics.Color.parseColor("#6B7280"))
                     val lp2 = android.widget.LinearLayout.LayoutParams(
@@ -582,6 +591,16 @@ class ConfigSheetFragment : Fragment() {
                     lp2.topMargin = 4
                     layoutParams = lp2
                 }
+                // Manage + New Sheet buttons row
+                val btnRow = android.widget.LinearLayout(ctx).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    val lp3 = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    lp3.topMargin = 16
+                    layoutParams = lp3
+                }
                 val btnManage = android.widget.Button(ctx).apply {
                     text = "Manage"
                     textSize = 12f
@@ -590,20 +609,40 @@ class ConfigSheetFragment : Fragment() {
                     backgroundTintList = android.content.res.ColorStateList.valueOf(
                         android.graphics.Color.parseColor("#16A34A")
                     )
-                    val lp3 = android.widget.LinearLayout.LayoutParams(
-                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 96
-                    )
-                    lp3.topMargin = 16
-                    layoutParams = lp3
+                    layoutParams = android.widget.LinearLayout.LayoutParams(0, 96, 1f).apply {
+                        marginEnd = 8
+                    }
                     setOnClickListener {
                         activeBranch = branchId
+                        activeConnectionId = connList.firstOrNull()?.connectionId ?: ""
                         screen = Screen.MANAGING
                         render()
                     }
                 }
+                val btnNewSheet = android.widget.Button(ctx).apply {
+                    text = "+ New Sheet"
+                    textSize = 12f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(android.graphics.Color.parseColor("#3B82F6"))
+                    backgroundTintList = android.content.res.ColorStateList.valueOf(
+                        android.graphics.Color.parseColor("#EFF6FF")
+                    )
+                    layoutParams = android.widget.LinearLayout.LayoutParams(0, 96, 1f)
+                    setOnClickListener {
+                        activeBranch = branchId
+                        activeConnectionId = ""
+                        selectedNickname = ""
+                        clearConnectForm()
+                        screen = Screen.CONNECTING
+                        connectStep = 1
+                        render()
+                    }
+                }
+                btnRow.addView(btnManage)
+                btnRow.addView(btnNewSheet)
                 row.addView(tvName)
                 row.addView(tvSheet)
-                row.addView(btnManage)
+                row.addView(btnRow)
                 containerConnectedBranches?.addView(row)
             }
         }
@@ -632,7 +671,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun updateBranchActionCard() {
-        val conn = connections[activeBranch]
+        val conn = connections[activeBranch]?.firstOrNull()
         if (activeBranch.isEmpty()) {
             btnBranchAction?.visibility = View.GONE
             cardConnInfo?.visibility    = View.GONE
@@ -959,7 +998,7 @@ class ConfigSheetFragment : Fragment() {
         targetScroll?.visibility = View.VISIBLE
     }
     private fun fetchManageColPreview() {
-        val conn = connections[activeBranch] ?: return
+        val conn = activeConn() ?: return
         val signInAccount = GoogleSignIn.getLastSignedInAccount(requireContext()) ?: run {
             tvColPreviewMgr?.text = "⚠ Google account দিয়ে reconnect করুন"
             return
@@ -1034,9 +1073,9 @@ class ConfigSheetFragment : Fragment() {
         switchAutoSync?.setOnCheckedChangeListener(null)
         switchAutoSync?.isChecked = conn.autoSync
         switchAutoSync?.setOnCheckedChangeListener { _, isChecked ->
-            val c = connections[activeBranch] ?: return@setOnCheckedChangeListener
+            val c = activeConn() ?: return@setOnCheckedChangeListener
             val updated = c.copy(autoSync = isChecked)
-            connections[activeBranch] = updated
+            updateActiveConn(updated)
             updateSyncGearState(isChecked)
             saveSyncSettings(updated)
         }
@@ -1069,7 +1108,7 @@ class ConfigSheetFragment : Fragment() {
                 } else {
                     val newInterval = values[which]
                     val updated = conn.copy(syncIntervalMin = newInterval)
-                    connections[activeBranch] = updated
+                    updateActiveConn(updated)
                     tvSyncIntervalLabel?.text = "প্রতি $newInterval মিনিট"
                     saveSyncSettings(updated)
                     dialog.dismiss()
@@ -1100,7 +1139,7 @@ class ConfigSheetFragment : Fragment() {
                     return@setPositiveButton
                 }
                 val updated = conn.copy(syncIntervalMin = minutes)
-                connections[activeBranch] = updated
+                updateActiveConn(updated)
                 tvSyncIntervalLabel?.text = "প্রতি $minutes মিনিট"
                 saveSyncSettings(updated)
             }
@@ -1184,6 +1223,7 @@ class ConfigSheetFragment : Fragment() {
             }
             3 -> {
                 if (selectedTab.isBlank()) { showErr("Tab select করুন"); return }
+                selectedNickname = etNickname?.text?.toString()?.trim() ?: ""
             }
         }
         connectStep++
@@ -1196,7 +1236,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun handleConnect() {
-        val existing = connections[activeBranch]
+        val existing = activeConn()
         val account = googleAccount
         val sheet   = selectedSheet ?: run { showErr("Sheet নেই"); return }
         if (selectedTab.isBlank())  { showErr("Tab নেই"); return }
@@ -1220,7 +1260,10 @@ class ConfigSheetFragment : Fragment() {
             connectedBy = auth.currentUser?.uid ?: existing?.connectedBy ?: "",
             connectedAt = System.currentTimeMillis(),
         )
-        connections[activeBranch] = conn
+        val connList = connections.getOrPut(activeBranch) { mutableListOf() }
+        val idx = connList.indexOfFirst { it.connectionId == conn.connectionId }
+        if (idx >= 0) connList[idx] = conn else connList.add(conn)
+        activeConnectionId = conn.connectionId
         saveToFirebase(conn)
         toast(if (existing == null) "✅ $activeBranch connected!" else "✅ Range updated")
         screen = if (isRangeEdit) Screen.MANAGING else Screen.BRANCH_SELECT
@@ -1241,7 +1284,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun prefillConnectForm() {
-        val conn = connections[activeBranch] ?: return
+        val conn = activeConn() ?: return
         selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
         selectedTab = conn.tabName
         availableTabs = listOf(conn.tabName)
@@ -1261,7 +1304,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun openRangeEditor() {
-        val conn = connections[activeBranch] ?: return
+        val conn = activeConn() ?: return
         selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
         selectedTab = conn.tabName
         availableTabs = listOf(conn.tabName)
@@ -1707,7 +1750,7 @@ class ConfigSheetFragment : Fragment() {
 
     // ── ManagePanel ───────────────────────────────────────────────────
     private fun renderManagePanel() {
-        val conn = connections[activeBranch] ?: return
+        val conn = activeConn() ?: return
         tvManageBranch?.text = "Branch: ${branchLabel(activeBranch)}"
 
         // Branch switcher — only show when multiple connected branches
@@ -1750,14 +1793,26 @@ class ConfigSheetFragment : Fragment() {
 
     private fun handleDisconnect() {
         val branch = activeBranch
-        connections.remove(branch)
-        deleteFromFirebase(branch)
-        toast("🗑 $branch disconnected")
+        val connId = activeConnectionId
+        connections[branch]?.removeAll { it.connectionId == connId }
+        if (connections[branch].isNullOrEmpty()) connections.remove(branch)
+        deleteFromFirebase(branch, connId)
+        toast("🗑 Sheet disconnected")
         screen = Screen.BRANCH_SELECT
         render()
     }
 
     // ── Firebase ──────────────────────────────────────────────────────
+    private fun activeConn(): SheetConn? =
+        connections[activeBranch]?.find { it.connectionId == activeConnectionId }
+            ?: connections[activeBranch]?.firstOrNull()
+
+    private fun updateActiveConn(updated: SheetConn) {
+        val list = connections.getOrPut(updated.branchId) { mutableListOf() }
+        val idx = list.indexOfFirst { it.connectionId == updated.connectionId }
+        if (idx >= 0) list[idx] = updated else list.add(updated)
+    }
+
     private fun loadFromFirebase() {
         val owner = viewLifecycleOwnerLiveData.value ?: return
         owner.lifecycleScope.launch {
@@ -1795,23 +1850,29 @@ class ConfigSheetFragment : Fragment() {
                     connections.clear()
 
                     val sheetSnap = db.reference.child("config/sheets").get().await()
+                    // Note: load from connections/{push_id} new structure
                     sheetSnap.children.forEach { bs ->
-                        val branchId  = bs.key ?: return@forEach
+                        val branchId = bs.key ?: return@forEach
                         if (!branches.contains(branchId)) return@forEach
-                        val cur       = bs.child("current")
-                        val sheetId   = cur.child("sheetId")  .getValue(String::class.java) ?: return@forEach
-                        val sheetName = cur.child("sheetName").getValue(String::class.java) ?: ""
-                        val tabName   = cur.child("tabName")  .getValue(String::class.java) ?: ""
-                        val colS      = cur.child("colStart") .getValue(Int::class.java)    ?: 1
-                        val colE      = cur.child("colEnd")   .getValue(Int::class.java)    ?: 10
-                        val email     = cur.child("googleEmail").getValue(String::class.java) ?: ""
-                        val by        = cur.child("connectedBy").getValue(String::class.java) ?: ""
-                        val at        = cur.child("connectedAt").getValue(Long::class.java)   ?: 0L
-                        val sRow      = cur.child("startRow")       .getValue(Int::class.java)
-                        val eRow      = cur.child("endRow")         .getValue(Int::class.java)
-                        val autoSync  = cur.child("autoSync")       .getValue(Boolean::class.java) ?: false
-                        val interval  = cur.child("syncIntervalMin").getValue(Int::class.java)    ?: 30
-                        connections[branchId] = SheetConn(branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at)
+                        val list = mutableListOf<SheetConn>()
+                        bs.child("connections").children.forEach { connSnap ->
+                            val connId    = connSnap.key ?: return@forEach
+                            val sheetId   = connSnap.child("sheetId")  .getValue(String::class.java) ?: return@forEach
+                            val sheetName = connSnap.child("sheetName").getValue(String::class.java) ?: ""
+                            val tabName   = connSnap.child("tabName")  .getValue(String::class.java) ?: ""
+                            val nickname  = connSnap.child("nickname") .getValue(String::class.java) ?: ""
+                            val colS      = connSnap.child("colStart") .getValue(Int::class.java)    ?: 1
+                            val colE      = connSnap.child("colEnd")   .getValue(Int::class.java)    ?: 10
+                            val email     = connSnap.child("googleEmail").getValue(String::class.java) ?: ""
+                            val by        = connSnap.child("connectedBy").getValue(String::class.java) ?: ""
+                            val at        = connSnap.child("connectedAt").getValue(Long::class.java)   ?: 0L
+                            val sRow      = connSnap.child("startRow")       .getValue(Int::class.java)
+                            val eRow      = connSnap.child("endRow")         .getValue(Int::class.java)
+                            val autoSync  = connSnap.child("autoSync")       .getValue(Boolean::class.java) ?: false
+                            val interval  = connSnap.child("syncIntervalMin").getValue(Int::class.java)    ?: 30
+                            list.add(SheetConn(connId, nickname, branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at))
+                        }
+                        if (list.isNotEmpty()) connections[branchId] = list
                     }
                 }
             } catch (e: Exception) {
@@ -1820,7 +1881,7 @@ class ConfigSheetFragment : Fragment() {
             } finally {
                 if (isAdded) {
                     // Auto-decide screen based on connection state
-                    val connectedBranches = branches.filter { connections.containsKey(it) }
+                    val connectedBranches = branches.filter { connections[it]?.isNotEmpty() == true }
                     val allConnected = branches.isNotEmpty() && connectedBranches.size == branches.size
                     if (allConnected) {
                         screen = Screen.MANAGING
@@ -1859,33 +1920,37 @@ class ConfigSheetFragment : Fragment() {
         owner.lifecycleScope.launch {
             try {
                 val data = mapOf(
-                    "sheetId"        to conn.sheetId,
-                    "sheetName"      to conn.sheetName,
-                    "tabName"        to conn.tabName,
-                    "colStart"       to conn.colStart,
-                    "colEnd"         to conn.colEnd,
-                    "startRow"       to (conn.startRow ?: 1),
-                    "endRow"         to (conn.endRow   ?: 0),
-                    "autoSync"       to conn.autoSync,
+                    "nickname"        to conn.nickname,
+                    "sheetId"         to conn.sheetId,
+                    "sheetName"       to conn.sheetName,
+                    "tabName"         to conn.tabName,
+                    "colStart"        to conn.colStart,
+                    "colEnd"          to conn.colEnd,
+                    "startRow"        to (conn.startRow ?: 1),
+                    "endRow"          to (conn.endRow   ?: 0),
+                    "autoSync"        to conn.autoSync,
                     "syncIntervalMin" to conn.syncIntervalMin,
-                    "googleEmail"    to conn.googleEmail,
-                    "connectedBy"    to conn.connectedBy,
-                    "connectedAt"    to conn.connectedAt,
+                    "googleEmail"     to conn.googleEmail,
+                    "connectedBy"     to conn.connectedBy,
+                    "connectedAt"     to conn.connectedAt,
                 )
-                db.reference.child("config/sheets/${conn.branchId}/current").setValue(data).await()
+                val basePath = "config/sheets/${conn.branchId}/connections"
+                val connId = conn.connectionId.ifBlank { db.reference.child(basePath).push().key ?: return@launch }
+                db.reference.child("$basePath/$connId").setValue(data).await()
                 db.reference.child("config/sheets/${conn.branchId}/history").push()
-                    .setValue(data + mapOf("action" to "connected")).await()
+                    .setValue(data + mapOf("action" to "connected", "connectionId" to connId)).await()
             } catch (_: Exception) {}
         }
     }
 
-    private fun deleteFromFirebase(branchId: String) {
+    private fun deleteFromFirebase(branchId: String, connectionId: String) {
         val owner = viewLifecycleOwnerLiveData.value ?: return
         owner.lifecycleScope.launch {
             try {
-                db.reference.child("config/sheets/$branchId/current").removeValue().await()
+                db.reference.child("config/sheets/$branchId/connections/$connectionId").removeValue().await()
                 db.reference.child("config/sheets/$branchId/history").push().setValue(mapOf(
                     "action"         to "disconnected",
+                    "connectionId"   to connectionId,
                     "disconnectedBy" to (auth.currentUser?.uid ?: ""),
                     "disconnectedAt" to System.currentTimeMillis(),
                 )).await()

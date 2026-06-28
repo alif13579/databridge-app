@@ -414,6 +414,18 @@
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:layout_marginTop="16dp" android:visibility="gone">
 
+                <!-- Nickname field -->
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="SHEET NICKNAME" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="#6B7280" android:layout_marginBottom="5dp" />
+                <EditText android:id="@+id/etNickname"
+                    android:layout_width="match_parent" android:layout_height="46dp"
+                    android:background="@drawable/bg_input_rounded"
+                    android:padding="10dp" android:textSize="13sp"
+                    android:hint="যেমন: Parcel Data, Agent Report..."
+                    android:inputType="text" android:maxLines="1"
+                    android:layout_marginBottom="16dp" />
+
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="SHEET TAB" android:textSize="10sp" android:textStyle="bold"
                     android:textColor="#6B7280" android:layout_marginBottom="5dp" />
