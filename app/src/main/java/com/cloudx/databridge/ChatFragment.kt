@@ -35,6 +35,7 @@ class ChatFragment : Fragment() {
         val phone: String = "",
         val role: String = "",
         val branch: String = "",
+        val lastActive: Long = 0L,
     )
 
     data class ChatItem(
@@ -249,9 +250,11 @@ class ChatFragment : Fragment() {
             val initials = user.name.split(" ").mapNotNull { it.firstOrNull()?.toString() }.take(2).joinToString("")
             tvConvAvatar?.text = initials.ifEmpty { "?" }
             tvConvName?.text   = user.name
-            tvConvRole?.text   = user.role
+            tvConvRole?.text   = user.role.replaceFirstChar { it.uppercase() }
             tvConvPhone?.text  = user.phone
-            tvConvStatus?.text = user.branch
+            val (statusText, statusColor) = formatLastActive(user.lastActive)
+            tvConvStatus?.text = statusText
+            tvConvStatus?.setTextColor(android.graphics.Color.parseColor(statusColor))
             setAvatarColor(tvConvAvatar, user.name)
         }
     }
@@ -278,11 +281,12 @@ class ChatFragment : Fragment() {
                         db.reference.child("users/$otherUid/profile").get().addOnSuccessListener { profile ->
                             val ci = profile.child("company_info")
                             val user = ChatUser(
-                                uid    = otherUid,
-                                name   = profile.child("displayName").getValue(String::class.java) ?: "Unknown",
-                                phone  = ci.child("phone").getValue(String::class.java) ?: "",
-                                role   = ci.child("role_id").getValue(String::class.java) ?: "",
-                                branch = ci.child("branch_ids").children.firstOrNull()?.key ?: "",
+                                uid        = otherUid,
+                                name       = profile.child("displayName").getValue(String::class.java) ?: "Unknown",
+                                phone      = ci.child("phone").getValue(String::class.java) ?: "",
+                                role       = ci.child("role_id").getValue(String::class.java) ?: "",
+                                branch     = ci.child("branch_ids").children.firstOrNull()?.key ?: "",
+                                lastActive = profile.child("lastActive").getValue(Long::class.java) ?: 0L,
                             )
                             chatItems.add(ChatItem(chatId, user, lastMsg, lastAt))
                             chatItems.sortByDescending { it.lastMessageAt }
@@ -332,11 +336,12 @@ class ChatFragment : Fragment() {
                 val profile  = userSnap.child("profile")
                 val ci       = profile.child("company_info")
                 val user = ChatUser(
-                    uid    = uid,
-                    name   = profile.child("displayName").getValue(String::class.java) ?: "Unknown",
-                    phone  = ci.child("phone").getValue(String::class.java) ?: phone,
-                    role   = ci.child("role_id").getValue(String::class.java) ?: "",
-                    branch = ci.child("branch_ids").children.firstOrNull()?.key ?: "",
+                    uid        = uid,
+                    name       = profile.child("displayName").getValue(String::class.java) ?: "Unknown",
+                    phone      = ci.child("phone").getValue(String::class.java) ?: phone,
+                    role       = ci.child("role_id").getValue(String::class.java) ?: "",
+                    branch     = ci.child("branch_ids").children.firstOrNull()?.key ?: "",
+                    lastActive = profile.child("lastActive").getValue(Long::class.java) ?: 0L,
                 )
                 activeChatUser = user
                 showSearchResult(user)
@@ -440,9 +445,31 @@ class ChatFragment : Fragment() {
         val now  = System.currentTimeMillis()
         val diff = now - ts
         return when {
-            diff < 86400000L -> SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ts))
+            diff < 86400000L  -> SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(ts))
             diff < 172800000L -> "Yesterday"
-            else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(ts))
+            else              -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(ts))
+        }
+    }
+
+    /** Returns Pair(statusText, colorHex) based on lastActive timestamp */
+    private fun formatLastActive(lastActive: Long): Pair<String, String> {
+        if (lastActive == 0L) return Pair("Offline", "#9CA3AF")
+        val diff = System.currentTimeMillis() - lastActive
+        return when {
+            diff < 3 * 60 * 1000L       -> Pair("Online", "#16A34A")          // < 3 min
+            diff < 60 * 60 * 1000L      -> {                                    // < 1 hour
+                val mins = (diff / 60000).toInt()
+                Pair("Active $mins min ago", "#D97706")
+            }
+            diff < 24 * 60 * 60 * 1000L -> {                                   // < 24 hours
+                val hrs = (diff / 3600000).toInt()
+                Pair("Active ${hrs}h ago", "#9CA3AF")
+            }
+            diff < 48 * 60 * 60 * 1000L -> Pair("Last seen yesterday", "#9CA3AF")
+            else                         -> {
+                val date = SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(lastActive))
+                Pair("Last seen $date", "#9CA3AF")
+            }
         }
     }
 
@@ -480,6 +507,9 @@ class ChatFragment : Fragment() {
             h.tvBranch.text   = user.branch
             h.tvUnread.visibility = if (item.unreadCount > 0) View.VISIBLE else View.GONE
             h.tvUnread.text   = item.unreadCount.toString()
+            // Online dot — green if active within 3 minutes
+            val isOnline = user.lastActive > 0 && (System.currentTimeMillis() - user.lastActive) < 3 * 60 * 1000L
+            h.itemView.findViewById<View>(R.id.viewOnlineDot)?.visibility = if (isOnline) View.VISIBLE else View.GONE
             h.itemView.setOnClickListener { onClick(item) }
         }
     }
