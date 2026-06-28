@@ -1851,10 +1851,11 @@ class ConfigSheetFragment : Fragment() {
     // ── ManagePanel ───────────────────────────────────────────────────
     private fun renderManagePanel() {
         val conn = activeConn() ?: return
-        tvManageBranch?.text = "Branch: ${branchLabel(activeBranch)}"
+        val connNickname = conn.nickname.ifBlank { conn.sheetName }
+        tvManageBranch?.text = "${branchLabel(activeBranch)}  ·  $connNickname"
 
         // Branch switcher — only show when multiple connected branches
-        val connectedBranches = branches.filter { connections.containsKey(it) }
+        val connectedBranches = branches.filter { connections[it]?.isNotEmpty() == true }
         val ctx = context
         if (connectedBranches.size > 1 && ctx != null) {
             spinnerManageBranch?.visibility = View.VISIBLE
