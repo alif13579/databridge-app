@@ -16,6 +16,7 @@ object PermissionCatalog {
         Perm("nav_history",        "History",         "View history"),
         Perm("nav_scanner",        "Scanner",         "Parcel scanner feature"),
         Perm("nav_memory",         "Memory",          "Earnings memory for workers"),
+        Perm("nav_chat",           "Messages",        "Chat with other users"),
         Perm("nav_salary_manager", "Salary Manager",  "Manage salary slabs & rates"),
         Perm("nav_access_manager", "Access Manager",  "Manage roles & permissions"),
         Perm("nav_branches",       "Branches",        "View branches / My branch"),
