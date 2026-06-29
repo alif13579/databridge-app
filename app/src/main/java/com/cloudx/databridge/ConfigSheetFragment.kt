@@ -510,7 +510,6 @@ class ConfigSheetFragment : Fragment() {
         // ── Tab row ───────────────────────────────────────────────────
         if (hasBoth) {
             layoutBranchTabs?.visibility = View.VISIBLE
-            // Default to connected tab on first load
             if (activeBranchTab != "unconnected") activeBranchTab = "connected"
             updateBranchTabStyles()
             tabBranchConnected?.setOnClickListener {
@@ -523,10 +522,10 @@ class ConfigSheetFragment : Fragment() {
                 updateBranchTabStyles()
                 renderBranchSections(ctx, connectedBranches, unconnectedBranches)
             }
-            // Update tab labels with counts
             tabBranchConnected?.text   = "Connected (${connectedBranches.size})"
             tabBranchUnconnected?.text = "Unconnected (${unconnectedBranches.size})"
         } else {
+            // No unconnected branches → hide tab row entirely
             layoutBranchTabs?.visibility = View.GONE
             activeBranchTab = if (connectedBranches.isEmpty()) "unconnected" else "connected"
         }
@@ -2046,15 +2045,8 @@ class ConfigSheetFragment : Fragment() {
                 toast("Sheet config load failed")
             } finally {
                 if (isAdded) {
-                    // Auto-decide screen based on connection state
-                    val connectedBranches = branches.filter { connections[it]?.isNotEmpty() == true }
-                    val allConnected = branches.isNotEmpty() && connectedBranches.size == branches.size
-                    if (allConnected) {
-                        screen = Screen.MANAGING
-                        activeBranch = if (branches.contains(activeBranch)) activeBranch else branches.first()
-                    } else {
-                        screen = Screen.BRANCH_SELECT
-                    }
+                    // Always show BRANCH_SELECT — user chooses which sheet to manage
+                    screen = Screen.BRANCH_SELECT
                     render()
                     setBusy(false)
                 }
