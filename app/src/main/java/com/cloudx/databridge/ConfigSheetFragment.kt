@@ -677,7 +677,7 @@ class ConfigSheetFragment : Fragment() {
                         ).apply { topMargin = 8.dp() }
                     }
 
-                    // Nickname — bold identity label
+                    // Nickname — top identifier (bold)
                     val tvNickname = TextView(ctx).apply {
                         text     = conn.nickname.ifBlank { conn.sheetName }
                         textSize = 13f
@@ -685,19 +685,29 @@ class ConfigSheetFragment : Fragment() {
                         setTextColor(android.graphics.Color.parseColor("#111827"))
                     }
 
-                    // Sheet name + tab (only show sheet name separately if nickname is set)
+                    // Sheet Name
                     val tvSheetInfo = TextView(ctx).apply {
-                        text = if (conn.nickname.isNotBlank())
-                            "📄 ${conn.sheetName}  ·  📑 ${conn.tabName}"
-                        else
-                            "📑 ${conn.tabName}"
+                        text = "Sheet Name: ${conn.sheetName}"
                         textSize = 11f
                         setTextColor(android.graphics.Color.parseColor("#6B7280"))
                         layoutParams = android.widget.LinearLayout.LayoutParams(
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                        ).apply { topMargin = 3.dp() }
+                        ).apply { topMargin = 4.dp() }
                     }
+
+                    // Tab Name
+                    val tvTabInfo = TextView(ctx).apply {
+                        text = "Tab Name: ${conn.tabName}"
+                        textSize = 11f
+                        setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                        layoutParams = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply { topMargin = 2.dp() }
+                    }
+
+                    // Range
                     val startLetter = colIndexToLetter(conn.colStart)
                     val endLetter   = colIndexToLetter(conn.colEnd)
                     val sRow        = conn.startRow?.takeIf { it > 1 }
@@ -708,7 +718,7 @@ class ConfigSheetFragment : Fragment() {
                         else                         -> "$startLetter:$endLetter"
                     }
                     val tvRange = TextView(ctx).apply {
-                        text     = "📊 $rangeText"
+                        text     = "Current Range: $rangeText"
                         textSize = 11f
                         setTextColor(android.graphics.Color.parseColor("#6B7280"))
                         layoutParams = android.widget.LinearLayout.LayoutParams(
@@ -772,6 +782,7 @@ class ConfigSheetFragment : Fragment() {
 
                     sheetCard.addView(tvNickname)
                     sheetCard.addView(tvSheetInfo)
+                    sheetCard.addView(tvTabInfo)
                     sheetCard.addView(tvRange)
                     sheetCard.addView(buttonsRow)
                     sheetsContainer.addView(sheetCard)
