@@ -673,14 +673,20 @@ class ConfigSheetFragment : Fragment() {
                         ).apply { topMargin = 8.dp() }
                     }
 
+                    // Nickname — bold identity label
                     val tvNickname = TextView(ctx).apply {
-                        text     = "📄 ${conn.nickname.ifBlank { conn.sheetName }}"
+                        text     = conn.nickname.ifBlank { conn.sheetName }
                         textSize = 13f
                         setTypeface(null, android.graphics.Typeface.BOLD)
                         setTextColor(android.graphics.Color.parseColor("#111827"))
                     }
+
+                    // Sheet name + tab (only show sheet name separately if nickname is set)
                     val tvSheetInfo = TextView(ctx).apply {
-                        text     = "${conn.sheetName}  ·  Tab: ${conn.tabName}"
+                        text = if (conn.nickname.isNotBlank())
+                            "📄 ${conn.sheetName}  ·  📑 ${conn.tabName}"
+                        else
+                            "📑 ${conn.tabName}"
                         textSize = 11f
                         setTextColor(android.graphics.Color.parseColor("#6B7280"))
                         layoutParams = android.widget.LinearLayout.LayoutParams(
@@ -715,8 +721,10 @@ class ConfigSheetFragment : Fragment() {
                         backgroundTintList = android.content.res.ColorStateList.valueOf(
                             android.graphics.Color.parseColor("#16A34A")
                         )
+                        setPadding(24.dp(), 6.dp(), 24.dp(), 6.dp())
                         layoutParams = android.widget.LinearLayout.LayoutParams(
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 72.dp()
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
                         ).apply {
                             topMargin = 10.dp()
                             gravity   = android.view.Gravity.END
