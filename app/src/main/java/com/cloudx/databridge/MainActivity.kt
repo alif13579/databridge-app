@@ -51,6 +51,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private var sessionMonitorListener: ValueEventListener? = null
     private var permissionStep = 0
 
+    private var layoutNoInternet: View? = null
+    private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+
     private val authStateListener = FirebaseAuth.AuthStateListener { refreshAuthUi() }
 
     private val callLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -106,6 +109,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         lifecycleScope.launch { RbacManager.primeGuestCache() }
         initViews()
         initDrawer()
+        setupNetworkMonitor()
         if (appPrefs.isPermissionsSetupComplete()) {
             initApp(savedInstanceState == null)
         } else {
@@ -117,7 +121,36 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     override fun onDestroy() {
         auth.removeAuthStateListener(authStateListener)
         stopSessionMonitor()
+        networkCallback?.let {
+            try {
+                val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+                cm.unregisterNetworkCallback(it)
+            } catch (_: Exception) {}
+        }
         super.onDestroy()
+    }
+
+    private fun setupNetworkMonitor() {
+        val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+
+        // Check current state immediately
+        val isConnected = cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+            ?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        layoutNoInternet?.visibility = if (isConnected) View.GONE else View.VISIBLE
+
+        val request = android.net.NetworkRequest.Builder()
+            .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+
+        networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                runOnUiThread { layoutNoInternet?.visibility = View.GONE }
+            }
+            override fun onLost(network: android.net.Network) {
+                runOnUiThread { layoutNoInternet?.visibility = View.VISIBLE }
+            }
+        }
+        cm.registerNetworkCallback(request, networkCallback!!)
     }
 
     override fun onResume() {
@@ -146,9 +179,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     }
 
     private fun initViews() {
-        drawerLayout = findViewById(R.id.drawer_layout)
-        bottomNav = findViewById(R.id.bottom_nav)
-        navView = findViewById(R.id.nav_view)
+        drawerLayout     = findViewById(R.id.drawer_layout)
+        bottomNav        = findViewById(R.id.bottom_nav)
+        navView          = findViewById(R.id.nav_view)
+        layoutNoInternet = findViewById(R.id.layoutNoInternet)
         statusDot = findViewById(R.id.statusDot)
         tvTopBarUser = findViewById(R.id.tvTopBarUser)
         ivUserAvatar = findViewById(R.id.ivUserAvatar)
