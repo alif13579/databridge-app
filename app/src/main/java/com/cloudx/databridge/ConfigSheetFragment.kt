@@ -753,9 +753,18 @@ class ConfigSheetFragment : Fragment() {
             (!hasBoth || activeBranchTab == "unconnected")
         sectionUnconnected?.visibility = if (showUnconnected) View.VISIBLE else View.GONE
 
+        // Always hide spinner/action card when not showing unconnected section
+        if (!showUnconnected) {
+            spinnerBranch?.visibility  = View.GONE
+            tvSingleBranch?.visibility = View.GONE
+            btnBranchAction?.visibility = View.GONE
+            cardConnInfo?.visibility    = View.GONE
+            cardBranchInfo?.visibility  = View.GONE
+            return
+        }
+
         if (showUnconnected) {
             if (unconnectedBranches.size == 1) {
-                // Single unconnected — no dropdown, no label (summary card shows branch info)
                 activeBranch = unconnectedBranches.first()
                 spinnerBranch?.visibility  = View.GONE
                 tvSingleBranch?.visibility = View.GONE
