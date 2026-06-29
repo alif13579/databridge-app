@@ -560,9 +560,13 @@ class ConfigSheetFragment : Fragment() {
         if (showConnected) {
             containerConnectedBranches?.removeAllViews()
 
-            // Single branch → auto expand; multiple → all collapsed by default
+            // Single branch → auto expand on first load only
+            // Multiple branches → all collapsed by default
             if (expandedBranch == null && connectedBranches.size == 1) {
                 expandedBranch = connectedBranches.first()
+            } else if (connectedBranches.size > 1 && expandedBranch != null &&
+                !connectedBranches.contains(expandedBranch)) {
+                expandedBranch = null
             }
 
             val dp = resources.displayMetrics.density
@@ -673,14 +677,20 @@ class ConfigSheetFragment : Fragment() {
                         ).apply { topMargin = 8.dp() }
                     }
 
+                    // Nickname — bold identity label
                     val tvNickname = TextView(ctx).apply {
-                        text     = "📄 ${conn.nickname.ifBlank { conn.sheetName }}"
+                        text     = conn.nickname.ifBlank { conn.sheetName }
                         textSize = 13f
                         setTypeface(null, android.graphics.Typeface.BOLD)
                         setTextColor(android.graphics.Color.parseColor("#111827"))
                     }
+
+                    // Sheet name + tab (only show sheet name separately if nickname is set)
                     val tvSheetInfo = TextView(ctx).apply {
-                        text     = "${conn.sheetName}  ·  Tab: ${conn.tabName}"
+                        text = if (conn.nickname.isNotBlank())
+                            "📄 ${conn.sheetName}  ·  📑 ${conn.tabName}"
+                        else
+                            "📑 ${conn.tabName}"
                         textSize = 11f
                         setTextColor(android.graphics.Color.parseColor("#6B7280"))
                         layoutParams = android.widget.LinearLayout.LayoutParams(
@@ -707,6 +717,35 @@ class ConfigSheetFragment : Fragment() {
                         ).apply { topMargin = 2.dp() }
                     }
 
+                    // ── Buttons row (Manage + Sync) ───────────────────
+                    val buttonsRow = android.widget.LinearLayout(ctx).apply {
+                        orientation = android.widget.LinearLayout.HORIZONTAL
+                        gravity     = android.view.Gravity.END
+                        layoutParams = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply { topMargin = 10.dp() }
+                    }
+
+                    val btnSync = android.widget.Button(ctx).apply {
+                        text      = "🔄 Sync"
+                        textSize  = 11f
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                        setTextColor(android.graphics.Color.parseColor("#2563EB"))
+                        backgroundTintList = android.content.res.ColorStateList.valueOf(
+                            android.graphics.Color.parseColor("#EFF6FF")
+                        )
+                        setPadding(20.dp(), 6.dp(), 20.dp(), 6.dp())
+                        layoutParams = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply { marginEnd = 8.dp() }
+                        setOnClickListener {
+                            toast("🔄 Syncing ${conn.nickname.ifBlank { conn.sheetName }}...")
+                            // TODO: trigger actual sync for this connection
+                        }
+                    }
+
                     val btnManage = android.widget.Button(ctx).apply {
                         text      = "Manage"
                         textSize  = 11f
@@ -715,12 +754,11 @@ class ConfigSheetFragment : Fragment() {
                         backgroundTintList = android.content.res.ColorStateList.valueOf(
                             android.graphics.Color.parseColor("#16A34A")
                         )
+                        setPadding(24.dp(), 6.dp(), 24.dp(), 6.dp())
                         layoutParams = android.widget.LinearLayout.LayoutParams(
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 72.dp()
-                        ).apply {
-                            topMargin = 10.dp()
-                            gravity   = android.view.Gravity.END
-                        }
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        )
                         setOnClickListener {
                             activeBranch       = branchId
                             activeConnectionId = conn.connectionId
@@ -729,10 +767,13 @@ class ConfigSheetFragment : Fragment() {
                         }
                     }
 
+                    buttonsRow.addView(btnSync)
+                    buttonsRow.addView(btnManage)
+
                     sheetCard.addView(tvNickname)
                     sheetCard.addView(tvSheetInfo)
                     sheetCard.addView(tvRange)
-                    sheetCard.addView(btnManage)
+                    sheetCard.addView(buttonsRow)
                     sheetsContainer.addView(sheetCard)
                 }
 
@@ -753,9 +794,18 @@ class ConfigSheetFragment : Fragment() {
             (!hasBoth || activeBranchTab == "unconnected")
         sectionUnconnected?.visibility = if (showUnconnected) View.VISIBLE else View.GONE
 
+        // Always hide spinner/action card when not showing unconnected section
+        if (!showUnconnected) {
+            spinnerBranch?.visibility  = View.GONE
+            tvSingleBranch?.visibility = View.GONE
+            btnBranchAction?.visibility = View.GONE
+            cardConnInfo?.visibility    = View.GONE
+            cardBranchInfo?.visibility  = View.GONE
+            return
+        }
+
         if (showUnconnected) {
             if (unconnectedBranches.size == 1) {
-                // Single unconnected — no dropdown, no label (summary card shows branch info)
                 activeBranch = unconnectedBranches.first()
                 spinnerBranch?.visibility  = View.GONE
                 tvSingleBranch?.visibility = View.GONE

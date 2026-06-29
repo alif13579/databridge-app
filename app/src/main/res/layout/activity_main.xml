@@ -116,4 +116,45 @@
         app:headerLayout="@layout/nav_drawer_header"
         app:menu="@menu/drawer_menu"/>
 
+    <!-- 🔴 No Internet Overlay -->
+    <LinearLayout
+        android:id="@+id/layoutNoInternet"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@color/theme_bg_app"
+        android:visibility="gone"
+        android:elevation="10dp"
+        android:padding="32dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📡"
+            android:textSize="56sp"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="No Internet Connection"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_primary"
+            android:gravity="center"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Internet connection পাওয়া যাচ্ছে না। Connection ঠিক হলে automatically চালু হবে।"
+            android:textSize="13sp"
+            android:textColor="@color/theme_text_muted"
+            android:gravity="center"
+            android:lineSpacingMultiplier="1.4" />
+
+    </LinearLayout>
+
 </androidx.drawerlayout.widget.DrawerLayout>
