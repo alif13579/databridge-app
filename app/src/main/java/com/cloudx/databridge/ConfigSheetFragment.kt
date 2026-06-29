@@ -1407,6 +1407,7 @@ class ConfigSheetFragment : Fragment() {
             colEnd      = e,
             startRow    = sRow,
             endRow      = eRow,
+            nickname    = selectedNickname,
             googleEmail = account?.email ?: existing?.googleEmail ?: "",
             connectedBy = auth.currentUser?.uid ?: existing?.connectedBy ?: "",
             connectedAt = System.currentTimeMillis(),
@@ -1415,6 +1416,8 @@ class ConfigSheetFragment : Fragment() {
         val idx = connList.indexOfFirst { it.connectionId == conn.connectionId }
         if (idx >= 0) connList[idx] = conn else connList.add(conn)
         activeConnectionId = conn.connectionId
+        // Expand this branch so newly added sheet card is visible
+        expandedBranch = activeBranch
         saveToFirebase(conn)
         toast(if (existing == null) "✅ $activeBranch connected!" else "✅ Range updated")
         screen = if (isRangeEdit) Screen.MANAGING else Screen.BRANCH_SELECT
