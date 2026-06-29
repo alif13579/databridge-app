@@ -560,9 +560,13 @@ class ConfigSheetFragment : Fragment() {
         if (showConnected) {
             containerConnectedBranches?.removeAllViews()
 
-            // Single branch → auto expand; multiple → all collapsed by default
+            // Single branch → auto expand on first load only
+            // Multiple branches → all collapsed by default
             if (expandedBranch == null && connectedBranches.size == 1) {
                 expandedBranch = connectedBranches.first()
+            } else if (connectedBranches.size > 1 && expandedBranch != null &&
+                !connectedBranches.contains(expandedBranch)) {
+                expandedBranch = null
             }
 
             val dp = resources.displayMetrics.density
@@ -713,6 +717,35 @@ class ConfigSheetFragment : Fragment() {
                         ).apply { topMargin = 2.dp() }
                     }
 
+                    // ── Buttons row (Manage + Sync) ───────────────────
+                    val buttonsRow = android.widget.LinearLayout(ctx).apply {
+                        orientation = android.widget.LinearLayout.HORIZONTAL
+                        gravity     = android.view.Gravity.END
+                        layoutParams = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply { topMargin = 10.dp() }
+                    }
+
+                    val btnSync = android.widget.Button(ctx).apply {
+                        text      = "🔄 Sync"
+                        textSize  = 11f
+                        setTypeface(null, android.graphics.Typeface.BOLD)
+                        setTextColor(android.graphics.Color.parseColor("#2563EB"))
+                        backgroundTintList = android.content.res.ColorStateList.valueOf(
+                            android.graphics.Color.parseColor("#EFF6FF")
+                        )
+                        setPadding(20.dp(), 6.dp(), 20.dp(), 6.dp())
+                        layoutParams = android.widget.LinearLayout.LayoutParams(
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply { marginEnd = 8.dp() }
+                        setOnClickListener {
+                            toast("🔄 Syncing ${conn.nickname.ifBlank { conn.sheetName }}...")
+                            // TODO: trigger actual sync for this connection
+                        }
+                    }
+
                     val btnManage = android.widget.Button(ctx).apply {
                         text      = "Manage"
                         textSize  = 11f
@@ -725,10 +758,7 @@ class ConfigSheetFragment : Fragment() {
                         layoutParams = android.widget.LinearLayout.LayoutParams(
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                        ).apply {
-                            topMargin = 10.dp()
-                            gravity   = android.view.Gravity.END
-                        }
+                        )
                         setOnClickListener {
                             activeBranch       = branchId
                             activeConnectionId = conn.connectionId
@@ -737,10 +767,13 @@ class ConfigSheetFragment : Fragment() {
                         }
                     }
 
+                    buttonsRow.addView(btnSync)
+                    buttonsRow.addView(btnManage)
+
                     sheetCard.addView(tvNickname)
                     sheetCard.addView(tvSheetInfo)
                     sheetCard.addView(tvRange)
-                    sheetCard.addView(btnManage)
+                    sheetCard.addView(buttonsRow)
                     sheetsContainer.addView(sheetCard)
                 }
 
