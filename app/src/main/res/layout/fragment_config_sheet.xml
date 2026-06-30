@@ -337,7 +337,17 @@
                     android:orientation="vertical" android:gravity="center">
                     <TextView android:id="@+id/step4Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
                     <TextView android:id="@+id/step4Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Columns" android:textSize="9sp" android:layout_marginTop="2dp" />
+                        android:text="Positioning" android:textSize="9sp" android:layout_marginTop="2dp" />
+                </LinearLayout>
+
+                <View android:id="@+id/step4Line" android:layout_width="0dp" android:layout_height="2dp"
+                    android:layout_weight="1" android:background="#E5E7EB" android:layout_marginBottom="14dp" />
+
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center">
+                    <TextView android:id="@+id/step5Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
+                    <TextView android:id="@+id/step5Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Mapping" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -573,6 +583,29 @@
                     android:textSize="13sp" android:textColor="#166534"
                     android:background="@drawable/bg_card_rounded"
                     android:padding="14dp" android:lineSpacingMultiplier="1.5" />
+            </LinearLayout>
+
+            <!-- ── Step 5: Column Mapping ── -->
+            <LinearLayout android:id="@+id/stepView5"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:layout_marginTop="16dp" android:visibility="gone">
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="COLUMN MAPPING"
+                    android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="#6B7280" android:layout_marginBottom="4dp" />
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Sheet এর কোন column কোন Firebase field এ map হবে। ✓ মানে auto-detect হয়েছে।"
+                    android:textSize="11sp" android:textColor="#9CA3AF"
+                    android:layout_marginBottom="14dp" />
+
+                <LinearLayout android:id="@+id/containerMapping"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="14dp" />
+
             </LinearLayout>
 
             <!-- Error -->
