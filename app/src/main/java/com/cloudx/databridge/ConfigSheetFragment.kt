@@ -1385,6 +1385,7 @@ class ConfigSheetFragment : Fragment() {
             3 -> {
                 if (selectedTab.isBlank()) { showErr("Tab select করুন"); return }
                 selectedNickname = etNickname?.text?.toString()?.trim() ?: ""
+                if (selectedNickname.isBlank()) { showErr("Nickname দিন — এটা required"); return }
             }
         }
         connectStep++
