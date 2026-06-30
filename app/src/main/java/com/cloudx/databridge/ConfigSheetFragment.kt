@@ -1409,7 +1409,12 @@ class ConfigSheetFragment : Fragment() {
         val sRow = etStartRow?.text?.toString()?.trim()?.toIntOrNull()
         val eRow = etEndRow?.text?.toString()?.trim()?.toIntOrNull()
 
+        // Reuse existing connectionId when editing; generate new push key when creating
+        val connId = if (isRangeEdit && existing != null) existing.connectionId
+                     else db.reference.child("config/sheets/$activeBranch/connections").push().key ?: java.util.UUID.randomUUID().toString()
+
         val conn = SheetConn(
+            connectionId= connId,
             branchId    = activeBranch,
             sheetId     = sheet.id,
             sheetName   = sheet.name,
@@ -1421,7 +1426,7 @@ class ConfigSheetFragment : Fragment() {
             nickname    = selectedNickname,
             googleEmail = account?.email ?: existing?.googleEmail ?: "",
             connectedBy = auth.currentUser?.uid ?: existing?.connectedBy ?: "",
-            connectedAt = System.currentTimeMillis(),
+            connectedAt = existing?.connectedAt ?: System.currentTimeMillis(),
         )
         val connList = connections.getOrPut(activeBranch) { mutableListOf() }
         val idx = connList.indexOfFirst { it.connectionId == conn.connectionId }
@@ -1470,8 +1475,11 @@ class ConfigSheetFragment : Fragment() {
 
     private fun openRangeEditor() {
         val conn = activeConn() ?: return
+        activeConnectionId = conn.connectionId
         selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
         selectedTab = conn.tabName
+        selectedNickname = conn.nickname
+        etNickname?.setText(conn.nickname)
         availableTabs = listOf(conn.tabName)
         etColStart?.setText(conn.colStart.toString())
         etColEnd?.setText(conn.colEnd.toString())
@@ -1919,18 +1927,8 @@ class ConfigSheetFragment : Fragment() {
         val connNickname = conn.nickname.ifBlank { conn.sheetName }
         tvManageBranch?.text = "${branchLabel(activeBranch)}  ·  $connNickname"
 
-        // Branch switcher — only show when multiple connected branches
-        val connectedBranches = branches.filter { connections[it]?.isNotEmpty() == true }
-        val ctx = context
-        if (connectedBranches.size > 1 && ctx != null) {
-            spinnerManageBranch?.visibility = View.VISIBLE
-            val opts = connectedBranches.map { branchLabel(it) }
-            spinnerManageBranch?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
-            val sel = connectedBranches.indexOf(activeBranch)
-            if (sel >= 0) spinnerManageBranch?.setSelection(sel)
-        } else {
-            spinnerManageBranch?.visibility = View.GONE
-        }
+        // Branch switcher removed — Manage shows only the specific sheet/branch user navigated to
+        spinnerManageBranch?.visibility = View.GONE
 
         activeManageTab = "overview"
         renderManageTabs()
