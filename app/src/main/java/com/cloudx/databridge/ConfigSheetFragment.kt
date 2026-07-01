@@ -1575,8 +1575,9 @@ class ConfigSheetFragment : Fragment() {
                 }
 
                 // Re-run fuzzy match with updated fields
-                autoFuzzyMatch()
+                autoDetectMapping()
                 renderMappingStep()
+
 
                 val count = keys.size
                 tvFetchStatus?.text = "✅ $count fields found"
@@ -1767,8 +1768,11 @@ class ConfigSheetFragment : Fragment() {
         pendingMapping.clear()
         pendingMapping.putAll(conn.columnMapping)
     }
+
+    private fun openRangeEditor() {
         val conn = activeConn() ?: return
         activeConnectionId = conn.connectionId
+
         selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
         selectedTab = conn.tabName
         selectedNickname = conn.nickname
