@@ -305,19 +305,11 @@ class DataBridgeService : Service() {
             triggerOpenDialer(number)
             return
         }
-        if (isAppInForeground() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(applicationContext))) {
-            tryDirectCall(number)
-        } else {
-            showCallNotification(number, isDirectCall = true)
-        }
+        tryDirectCall(number)
     }
 
     private fun triggerOpenDialer(number: String) {
-        if (isAppInForeground() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(applicationContext))) {
-            tryOpenDialer(number)
-        } else {
-            showCallNotification(number, isDirectCall = false)
-        }
+        tryOpenDialer(number)
     }
 
     private fun tryDirectCall(number: String) {
@@ -362,8 +354,11 @@ class DataBridgeService : Service() {
                 .setContentTitle(if (isDirectCall) "📞 Tap to Call" else "📱 Tap to Dial")
                 .setContentText(number)
                 .setSmallIcon(android.R.drawable.ic_menu_call)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setContentIntent(pendingIntent)
+                .setFullScreenIntent(pendingIntent, true)  // ← lockscreen এ দেখাবে
                 .setAutoCancel(true)
                 .build()
             getSystemService(NotificationManager::class.java)?.notify(number.hashCode(), notification)
