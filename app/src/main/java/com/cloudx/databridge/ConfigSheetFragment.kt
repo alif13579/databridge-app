@@ -502,7 +502,10 @@ class ConfigSheetFragment : Fragment() {
         }
 
         btnAddMappingField?.setOnClickListener { showAddFieldDialog() }
-        btnSyncNow?.setOnClickListener { toast("🔄 Sync শুরু হয়েছে...") }
+        btnSyncNow?.setOnClickListener {
+            val conn = activeConn() ?: return@setOnClickListener
+            viewLifecycleOwner.lifecycleScope.launch { syncSheetToFirebase(conn) }
+        }
 
         switchAutoSync?.setOnCheckedChangeListener { _, isChecked ->
             val conn = activeConn() ?: return@setOnCheckedChangeListener
@@ -1298,6 +1301,177 @@ class ConfigSheetFragment : Fragment() {
                     tvColPreviewMgr?.text = "⚠ Error: ${e.message?.take(60)}"
                 }
             }
+        }
+    }
+
+    private suspend fun syncSheetToFirebase(conn: SheetConn) {
+        val ctx = context ?: return
+        val account = googleAccount ?: run { toast("Google account নেই"); return }
+        val acctObj = account.account ?: return
+
+        if (conn.columnMapping.isEmpty()) {
+            toast("⚠ Column mapping নেই — Step 5 complete করুন")
+            return
+        }
+        val consignmentCol = conn.columnMapping["consignmentId"] ?: run {
+            toast("⚠ consignmentId column map করা নেই")
+            return
+        }
+        val phoneCol = conn.columnMapping["recipientPhone"]
+
+        setBusy(true, "Sheet fetch করছে...")
+
+        try {
+            // ── 1. Get token ─────────────────────────────────────────
+            val token = withContext(Dispatchers.IO) {
+                try { GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE) }
+                catch (e: UserRecoverableAuthException) { null }
+            } ?: run { setBusy(false); toast("⚠ Token পাওয়া যায়নি"); return }
+
+            // ── 2. Fetch all sheet rows ───────────────────────────────
+            val startLetter = colIndexToLetter(conn.colStart)
+            val endLetter   = colIndexToLetter(conn.colEnd)
+            val sRow = conn.startRow?.takeIf { it > 0 } ?: 1
+            val eRow = conn.endRow?.takeIf   { it > 0 }
+            val rangeStr = if (eRow != null)
+                "${conn.tabName}!${startLetter}${sRow}:${endLetter}${eRow}"
+            else
+                "${conn.tabName}!${startLetter}${sRow}:${endLetter}"
+            val encodedRange = java.net.URLEncoder.encode(rangeStr, "UTF-8")
+            val url = "https://sheets.googleapis.com/v4/spreadsheets/${conn.sheetId}/values/$encodedRange"
+
+            val allRows = withContext(Dispatchers.IO) {
+                val req = Request.Builder().url(url)
+                    .header("Authorization", "Bearer $token").build()
+                httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@withContext null
+                    val body = resp.body?.string() ?: return@withContext null
+                    val arr  = org.json.JSONObject(body).optJSONArray("values")
+                        ?: return@withContext emptyList<List<String>>()
+                    (0 until arr.length()).map { i ->
+                        val row = arr.getJSONArray(i)
+                        (0 until row.length()).map { j -> row.optString(j, "") }
+                    }
+                }
+            }
+
+            if (allRows == null) { setBusy(false); toast("⚠ Sheet fetch failed"); return }
+
+            // First row = header, rest = data
+            val dataRows = if (allRows.size > 1) allRows.drop(1) else allRows
+
+            if (dataRows.isEmpty()) { setBusy(false); toast("⚠ Sheet এ কোনো data নেই"); return }
+
+            // ── 3. Build colLetter → index map ────────────────────────
+            fun letterToIndex(letter: String): Int {
+                val idx = parseColInput(letter) ?: return -1
+                return idx - conn.colStart  // 0-based within fetched range
+            }
+
+            val conIdIdx = letterToIndex(consignmentCol)
+            if (conIdIdx < 0) { setBusy(false); toast("⚠ consignmentId column invalid"); return }
+
+            // ── 4. Process rows ───────────────────────────────────────
+            setBusy(true, "Firebase sync করছে...")
+
+            var inserted = 0; var updated = 0; var skipped = 0
+            val basePath = conn.targetNode.trimEnd('/')
+
+            for (row in dataRows) {
+                val conId = row.getOrElse(conIdIdx) { "" }.trim()
+                if (conId.isBlank()) { skipped++; continue }
+
+                // Build field map from column mapping
+                val fieldMap = mutableMapOf<String, Any>()
+                conn.columnMapping.forEach { (field, colLetter) ->
+                    if (field == "consignmentId") return@forEach // key, not a value field
+                    val idx = letterToIndex(colLetter)
+                    if (idx < 0) return@forEach
+                    val value = row.getOrElse(idx) { "" }.trim()
+                    if (value.isNotBlank()) fieldMap[field] = value
+                }
+
+                // Normalize phone
+                val phoneField = conn.columnMapping["recipientPhone"]?.let { colLetter ->
+                    val idx = letterToIndex(colLetter)
+                    if (idx >= 0) row.getOrElse(idx) { "" }.trim() else ""
+                }
+                val normalizedPhone = normalizePhone(phoneField ?: "")
+                if (normalizedPhone.isNotBlank()) fieldMap["recipientPhone"] = normalizedPhone
+
+                // ── Check Firebase exist ──────────────────────────────
+                val existSnap = withContext(Dispatchers.IO) {
+                    try { db.reference.child("$basePath/$conId").get().await() }
+                    catch (e: Exception) { null }
+                }
+
+                val multiUpdate = mutableMapOf<String, Any>()
+
+                if (existSnap == null || !existSnap.exists()) {
+                    // INSERT
+                    fieldMap.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
+                    // consignments_by_phone
+                    if (normalizedPhone.isNotBlank()) {
+                        val status = fieldMap["status"]?.toString() ?: ""
+                        multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] = status
+                    }
+                    inserted++
+                } else {
+                    // COMPARE & UPDATE changed fields only
+                    val changedFields = mutableMapOf<String, Any>()
+                    fieldMap.forEach { (k, v) ->
+                        val firebaseVal = existSnap.child(k).getValue(String::class.java) ?: ""
+                        if (v.toString() != firebaseVal) changedFields[k] = v
+                    }
+                    if (changedFields.isNotEmpty()) {
+                        changedFields.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
+                        // Update consignments_by_phone if status changed
+                        if ("status" in changedFields && normalizedPhone.isNotBlank()) {
+                            multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] =
+                                changedFields["status"].toString()
+                        }
+                        updated++
+                    } else {
+                        skipped++
+                    }
+                }
+
+                // Multi-path write
+                if (multiUpdate.isNotEmpty()) {
+                    withContext(Dispatchers.IO) {
+                        try { db.reference.updateChildren(multiUpdate).await() }
+                        catch (_: Exception) {}
+                    }
+                }
+            }
+
+            // ── 5. Summary dialog ─────────────────────────────────────
+            setBusy(false)
+            if (!isAdded) return
+            android.app.AlertDialog.Builder(ctx)
+                .setTitle("✅ Sync Complete")
+                .setMessage(
+                    "Inserted : $inserted\n" +
+                    "Updated  : $updated\n" +
+                    "Skipped  : $skipped\n" +
+                    "Total    : ${dataRows.size}"
+                )
+                .setPositiveButton("OK", null)
+                .show()
+
+        } catch (e: Exception) {
+            setBusy(false)
+            toast("⚠ Sync error: ${e.message?.take(60)}")
+        }
+    }
+
+    private fun normalizePhone(phone: String): String {
+        val digits = phone.filter { it.isDigit() }
+        return when {
+            digits.isBlank()          -> ""
+            digits.startsWith("880")  -> digits
+            digits.startsWith("0")    -> "88" + digits
+            else                      -> "88" + digits
         }
     }
 
