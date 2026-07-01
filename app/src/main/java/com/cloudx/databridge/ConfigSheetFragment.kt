@@ -1081,7 +1081,7 @@ class ConfigSheetFragment : Fragment() {
 
         previewJob = viewLifecycleOwner.lifecycleScope.launch {
             kotlinx.coroutines.delay(600)
-            fetchAndShowLivePreview(account, sheet.id, tab, s, e)
+            fetchAndShowLivePreview(googleAccount ?: return@launch, sheet.id, tab, s, e)
         }
     }
 
@@ -1479,7 +1479,7 @@ class ConfigSheetFragment : Fragment() {
             startRow    = sRow,
             endRow      = eRow,
             nickname    = selectedNickname,
-            googleEmail = account?.email ?: existing?.googleEmail ?: "",
+            googleEmail = googleAccount?.email ?: existing?.googleEmail ?: "",
             connectedBy = auth.currentUser?.uid ?: existing?.connectedBy ?: "",
             connectedAt = existing?.connectedAt ?: System.currentTimeMillis(),
             columnMapping = pendingMapping.toMap(),
