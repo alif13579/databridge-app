@@ -1460,6 +1460,7 @@ class ConfigSheetFragment : Fragment() {
         val e = parseColInput(etColEnd?.text?.toString() ?: "")   ?: run { showErr("Valid end column দিন (J বা 10)"); return }
         if (s < 1 || e < s) { showErr("start ≤ end হতে হবে"); return }
 
+        val existing = activeConn()
         val sRow = etStartRow?.text?.toString()?.trim()?.toIntOrNull()
         val eRow = etEndRow?.text?.toString()?.trim()?.toIntOrNull()
 
