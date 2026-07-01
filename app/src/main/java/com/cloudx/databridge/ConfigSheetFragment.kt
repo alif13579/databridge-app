@@ -245,30 +245,8 @@ class ConfigSheetFragment : Fragment() {
     private var sheetHeaders: Map<String, String> = emptyMap()
 
     // All Firebase fields for orders/
-    private val mappingFields = listOf(
-        "consignmentId"    to "Consignment ID *",
-        "recipientName"    to "Recipient Name",
-        "recipientPhone"   to "Recipient Phone",
-        "recipientAddress" to "Recipient Address",
-        "collectableAmount" to "Collectable Amount",
-        "status"           to "Status",
-        "deliveryHub"      to "Delivery Hub",
-        "createdAt"        to "Created At",
-        "updatedAt"        to "Updated At",
-    )
-
-    // Keywords for auto-match per field
-    private val matchKeywords = mapOf(
-        "consignmentId"     to listOf("consignment", "con id", "parcel id", "tracking", "awb", "id"),
-        "recipientName"     to listOf("name", "customer", "recipient", "receiver"),
-        "recipientPhone"    to listOf("phone", "mobile", "contact", "number"),
-        "recipientAddress"  to listOf("address", "location", "area"),
-        "collectableAmount" to listOf("amount", "cod", "collectable", "cash", "price", "total"),
-        "status"            to listOf("status", "state"),
-        "deliveryHub"       to listOf("hub", "branch", "warehouse", "zone"),
-        "createdAt"         to listOf("created", "create date", "date"),
-        "updatedAt"         to listOf("updated", "update date", "modified"),
-    )
+    // Dynamic keys fetched from Firebase node — replaces hardcoded mappingFields
+    private val fetchedNodeKeys = mutableListOf<String>()  // keys from Firebase first record
 
     // Activity-result launcher for Google Sign-In
     private val signInLauncher = registerForActivityResult(
@@ -1698,15 +1676,23 @@ class ConfigSheetFragment : Fragment() {
     private fun autoDetectMapping() {
         pendingMapping.clear()
         if (sheetHeaders.isEmpty()) return
-        mappingFields.forEach { (field, _) ->
-            val keywords = matchKeywords[field] ?: return@forEach
+        // Match each Firebase key against sheet headers by similarity
+        val allKeys = fetchedNodeKeys + customMappingFields.map { it.first }
+        allKeys.forEach { firebaseKey ->
+            val keyLower = firebaseKey.lowercase()
+            // Split camelCase: "recipientName" → ["recipient", "name"]
+            val keyParts = keyLower.replace(Regex("([a-z])([A-Z])"), "$1 $2")
+                .lowercase().split(" ", "_", "-").filter { it.isNotBlank() }
             val matched = sheetHeaders.entries.firstOrNull { (_, header) ->
                 val h = header.lowercase().trim()
-                keywords.any { kw -> h.contains(kw) }
+                keyParts.any { part -> h.contains(part) || part.contains(h) }
             }
-            if (matched != null) pendingMapping[field] = matched.key
+            if (matched != null) pendingMapping[firebaseKey] = matched.key
         }
     }
+
+    private var nodePreviewData: Map<String, String> = emptyMap()
+    private var nodePreviewExpanded = true
 
     private fun fetchNodeKeys(node: String) {
         pbFetchFields?.visibility = View.VISIBLE
@@ -1723,17 +1709,23 @@ class ConfigSheetFragment : Fragment() {
                 btnFetchFields?.isEnabled = true
 
                 if (!snap.exists()) {
-                    tvFetchStatus?.text = "⚠ Data নেই — নিচে manually field add করুন"
+                    tvFetchStatus?.text = "⚠ Data নেই — manually field add করুন"
                     tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
+                    nodePreviewData = emptyMap()
+                    fetchedNodeKeys.clear()
+                    renderMappingStep()
                     return@launch
                 }
 
-                // Get keys from first child
-                val firstChild = snap.children.firstOrNull() ?: snap
-                val keys = if (firstChild.hasChildren())
-                    firstChild.children.mapNotNull { it.key }.toList()
-                else
-                    snap.children.mapNotNull { it.key }.toList()
+                val firstChild = if (snap.hasChildren()) snap.children.first() else snap
+                val keys = firstChild.children.mapNotNull { it.key }.toList()
+
+                // Store preview values
+                nodePreviewData = firstChild.children.mapNotNull { child ->
+                    val k = child.key ?: return@mapNotNull null
+                    val v = child.value?.toString()?.take(40) ?: ""
+                    k to v
+                }.toMap()
 
                 if (keys.isEmpty()) {
                     tvFetchStatus?.text = "⚠ Keys পাওয়া যায়নি — manually add করুন"
@@ -1741,20 +1733,14 @@ class ConfigSheetFragment : Fragment() {
                     return@launch
                 }
 
-                // Add fetched keys as custom fields (skip ones already in mappingFields)
-                val existingFields = mappingFields.map { it.first }
+                fetchedNodeKeys.clear()
+                fetchedNodeKeys.addAll(keys)
                 customMappingFields.clear()
-                keys.filter { it !in existingFields }.forEach { key ->
-                    customMappingFields.add(key to key)
-                }
-
-                // Re-run fuzzy match with updated fields
                 autoDetectMapping()
+                nodePreviewExpanded = true
                 renderMappingStep()
 
-
-                val count = keys.size
-                tvFetchStatus?.text = "✅ $count fields found"
+                tvFetchStatus?.text = "✅ ${keys.size} fields found"
                 tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#16A34A"))
 
             } catch (e: Exception) {
@@ -1791,8 +1777,8 @@ class ConfigSheetFragment : Fragment() {
             .setPositiveButton("Add") { _, _ ->
                 val name = etFieldName.text.toString().trim()
                 if (name.isBlank()) return@setPositiveButton
-                if (customMappingFields.none { it.first == name } &&
-                    mappingFields.none { it.first == name }) {
+                if (!fetchedNodeKeys.contains(name) &&
+                    customMappingFields.none { it.first == name }) {
                     customMappingFields.add(name to name)
                     renderMappingStep()
                 }
@@ -1814,15 +1800,99 @@ class ConfigSheetFragment : Fragment() {
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
 
+        // ── Node preview tree ─────────────────────────────────────────
+        if (nodePreviewData.isNotEmpty()) {
+            val treeCard = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                background  = resources.getDrawable(R.drawable.bg_card_rounded, null)
+                setPadding(14.dp(), 12.dp(), 14.dp(), 12.dp())
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = 14.dp() }
+            }
+            // Header row with expand/collapse
+            val treeHeader = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity     = android.view.Gravity.CENTER_VERTICAL
+                isClickable = true
+                isFocusable = true
+            }
+            val tvTreeArrow = TextView(ctx).apply {
+                text     = if (nodePreviewExpanded) "▼" else "▶"
+                textSize = 11f
+                setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = 8.dp() }
+            }
+            val tvTreeTitle = TextView(ctx).apply {
+                text     = "📁 ${targetNode.trimEnd('/')}/${nodePreviewData.values.firstOrNull() ?: "..."}"
+                textSize = 11f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(android.graphics.Color.parseColor("#374151"))
+                layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            treeHeader.addView(tvTreeArrow)
+            treeHeader.addView(tvTreeTitle)
+
+            // Tree body
+            val treeBody = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(16.dp(), 8.dp(), 0, 0)
+                visibility  = if (nodePreviewExpanded) android.view.View.VISIBLE else android.view.View.GONE
+            }
+            nodePreviewData.entries.forEachIndexed { idx, (key, value) ->
+                val isLast = idx == nodePreviewData.size - 1
+                val tvRow = TextView(ctx).apply {
+                    text      = "${if (isLast) "└─" else "├─"} $key: "$value""
+                    textSize  = 11f
+                    setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                    fontFamily = "monospace"
+                    layoutParams = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = 2.dp() }
+                }
+                treeBody.addView(tvRow)
+            }
+
+            treeHeader.setOnClickListener {
+                nodePreviewExpanded = !nodePreviewExpanded
+                tvTreeArrow.text = if (nodePreviewExpanded) "▼" else "▶"
+                treeBody.visibility = if (nodePreviewExpanded) android.view.View.VISIBLE else android.view.View.GONE
+            }
+
+            treeCard.addView(treeHeader)
+            treeCard.addView(treeBody)
+            container.addView(treeCard)
+        }
+
+        // ── Empty state ───────────────────────────────────────────────
+        val allFields = fetchedNodeKeys.map { it to it } + customMappingFields
+        if (allFields.isEmpty()) {
+            val tvEmpty = TextView(ctx).apply {
+                text      = "Node fetch করুন অথবা নিচে manually field add করুন"
+                textSize  = 12f
+                setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                gravity   = android.view.Gravity.CENTER
+                setPadding(0, 16.dp(), 0, 16.dp())
+            }
+            container.addView(tvEmpty)
+            return
+        }
+
         val headerOptions = listOf("— Skip —") + sheetHeaders.map { (letter, text) ->
             "$letter: $text"
         }
         val headerLetters = listOf("") + sheetHeaders.keys.toList()
 
-        // All fields = built-in + custom
-        val allFields = mappingFields + customMappingFields
+        // All fields already set above
+        val allFields2 = allFields
 
-        allFields.forEach { (field, label) ->
+        allFields2.forEach { (field, label) ->
             val isCustom = customMappingFields.any { it.first == field }
             val row = android.widget.LinearLayout(ctx).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
@@ -1912,6 +1982,8 @@ class ConfigSheetFragment : Fragment() {
         btnDefineRow?.text = "+ Define Row Range"
         etStartRow?.setText(""); etEndRow?.setText("")
         customMappingFields.clear()
+        fetchedNodeKeys.clear()
+        nodePreviewData = emptyMap()
         pendingMapping.clear()
         targetNode = "courier/consignments"
         etTargetNode?.setText("")
