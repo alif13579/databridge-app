@@ -110,6 +110,8 @@ class ConfigSheetFragment : Fragment() {
         val googleEmail:    String  = "",
         val connectedBy:    String  = "",
         val connectedAt:    Long    = 0L,
+        val columnMapping:  Map<String, String> = emptyMap(), // firebaseField → colLetter
+        val targetNode:     String  = "courier/consignments",
     ) {
         val columns: List<String> get() = (colStart..colEnd).map { n ->
             var num = n; var result = ""
@@ -154,12 +156,18 @@ class ConfigSheetFragment : Fragment() {
     private var panelConnect:        View? = null
     private var tvConnBranchSub:     TextView? = null
     private var step1Dot:  TextView? = null; private var step2Dot:  TextView? = null
-    private var step3Dot:  TextView? = null; private var step4Dot:  TextView? = null
-    private var step1Line: View? = null; private var step2Line: View? = null; private var step3Line: View? = null
+    private var step3Dot:  TextView? = null; private var step4Dot:  TextView? = null; private var step5Dot: TextView? = null
+    private var step1Line: View? = null; private var step2Line: View? = null; private var step3Line: View? = null; private var step4Line: View? = null
     private var step1Lbl:  TextView? = null; private var step2Lbl:  TextView? = null
-    private var step3Lbl:  TextView? = null; private var step4Lbl:  TextView? = null
+    private var step3Lbl:  TextView? = null; private var step4Lbl:  TextView? = null; private var step5Lbl: TextView? = null
     private var stepView1: View? = null; private var stepView2: View? = null
-    private var stepView3: View? = null; private var stepView4: View? = null
+    private var stepView3: View? = null; private var stepView4: View? = null; private var stepView5: View? = null
+    private var containerMapping: android.widget.LinearLayout? = null
+    private var etTargetNode:     EditText? = null
+    private var btnFetchFields:   android.widget.Button? = null
+    private var pbFetchFields:    ProgressBar? = null
+    private var tvFetchStatus:    TextView? = null
+    private var btnAddMappingField: TextView? = null
 
     // Step 1 - Account picker
     private var cardSelectedAccount:   View? = null
@@ -226,6 +234,41 @@ class ConfigSheetFragment : Fragment() {
     private var previewJob: kotlinx.coroutines.Job? = null
     private var isRangeEdit = false   // true = opened from Manage → Positioning, not full reconnect
     private var selectedNickname = ""   // nickname entered in step 3
+
+    // Step 5 — column mapping
+    // Firebase field → column letter selected by user
+    private val pendingMapping = mutableMapOf<String, String>()
+    private var targetNode = "courier/consignments"
+    // Custom fields added manually via "+ Add Field" — fieldName to label
+    private val customMappingFields = mutableListOf<Pair<String, String>>()
+    // Headers fetched from sheet (letter → header text)
+    private var sheetHeaders: Map<String, String> = emptyMap()
+
+    // All Firebase fields for orders/
+    private val mappingFields = listOf(
+        "consignmentId"    to "Consignment ID *",
+        "recipientName"    to "Recipient Name",
+        "recipientPhone"   to "Recipient Phone",
+        "recipientAddress" to "Recipient Address",
+        "collectableAmount" to "Collectable Amount",
+        "status"           to "Status",
+        "deliveryHub"      to "Delivery Hub",
+        "createdAt"        to "Created At",
+        "updatedAt"        to "Updated At",
+    )
+
+    // Keywords for auto-match per field
+    private val matchKeywords = mapOf(
+        "consignmentId"     to listOf("consignment", "con id", "parcel id", "tracking", "awb", "id"),
+        "recipientName"     to listOf("name", "customer", "recipient", "receiver"),
+        "recipientPhone"    to listOf("phone", "mobile", "contact", "number"),
+        "recipientAddress"  to listOf("address", "location", "area"),
+        "collectableAmount" to listOf("amount", "cod", "collectable", "cash", "price", "total"),
+        "status"            to listOf("status", "state"),
+        "deliveryHub"       to listOf("hub", "branch", "warehouse", "zone"),
+        "createdAt"         to listOf("created", "create date", "date"),
+        "updatedAt"         to listOf("updated", "update date", "modified"),
+    )
 
     // Activity-result launcher for Google Sign-In
     private val signInLauncher = registerForActivityResult(
@@ -315,12 +358,18 @@ class ConfigSheetFragment : Fragment() {
         panelConnect    = view.findViewById(R.id.panelConnect)
         tvConnBranchSub = view.findViewById(R.id.tvConnBranchSub)
         step1Dot  = view.findViewById<TextView>(R.id.step1Dot);  step2Dot  = view.findViewById<TextView>(R.id.step2Dot)
-        step3Dot  = view.findViewById<TextView>(R.id.step3Dot);  step4Dot  = view.findViewById<TextView>(R.id.step4Dot)
-        step1Line = view.findViewById(R.id.step1Line); step2Line = view.findViewById(R.id.step2Line); step3Line = view.findViewById(R.id.step3Line)
+        step3Dot  = view.findViewById<TextView>(R.id.step3Dot);  step4Dot  = view.findViewById<TextView>(R.id.step4Dot); step5Dot = view.findViewById(R.id.step5Dot)
+        step1Line = view.findViewById(R.id.step1Line); step2Line = view.findViewById(R.id.step2Line); step3Line = view.findViewById(R.id.step3Line); step4Line = view.findViewById(R.id.step4Line)
         step1Lbl  = view.findViewById(R.id.step1Lbl);  step2Lbl  = view.findViewById(R.id.step2Lbl)
-        step3Lbl  = view.findViewById(R.id.step3Lbl);  step4Lbl  = view.findViewById(R.id.step4Lbl)
+        step3Lbl  = view.findViewById(R.id.step3Lbl);  step4Lbl  = view.findViewById(R.id.step4Lbl); step5Lbl = view.findViewById(R.id.step5Lbl)
         stepView1 = view.findViewById(R.id.stepView1); stepView2 = view.findViewById(R.id.stepView2)
-        stepView3 = view.findViewById(R.id.stepView3); stepView4 = view.findViewById(R.id.stepView4)
+        stepView3 = view.findViewById(R.id.stepView3); stepView4 = view.findViewById(R.id.stepView4); stepView5 = view.findViewById(R.id.stepView5)
+        containerMapping    = view.findViewById(R.id.containerMapping)
+        etTargetNode        = view.findViewById(R.id.etTargetNode)
+        btnFetchFields      = view.findViewById(R.id.btnFetchFields)
+        pbFetchFields       = view.findViewById(R.id.pbFetchFields)
+        tvFetchStatus       = view.findViewById(R.id.tvFetchStatus)
+        btnAddMappingField  = view.findViewById(R.id.btnAddMappingField)
 
         cardSelectedAccount    = view.findViewById(R.id.cardSelectedAccount)
         tvSelectedAccountName  = view.findViewById(R.id.tvSelectedAccountName)
@@ -444,6 +493,15 @@ class ConfigSheetFragment : Fragment() {
         btnManReconnect?.setOnClickListener { screen = Screen.CONNECTING; connectStep = 1; prefillConnectForm(); render() }
         btnColChange?.setOnClickListener { openRangeEditor() }
         btnManDisconn?.setOnClickListener   { handleDisconnect() }
+
+        btnFetchFields?.setOnClickListener {
+            val node = etTargetNode?.text?.toString()?.trim() ?: ""
+            if (node.isBlank()) { showErr("Node path দিন"); return@setOnClickListener }
+            targetNode = node
+            fetchNodeKeys(node)
+        }
+
+        btnAddMappingField?.setOnClickListener { showAddFieldDialog() }
         btnSyncNow?.setOnClickListener { toast("🔄 Sync শুরু হয়েছে...") }
 
         switchAutoSync?.setOnCheckedChangeListener { _, isChecked ->
@@ -880,6 +938,7 @@ class ConfigSheetFragment : Fragment() {
         stepView2?.visibility = if (connectStep == 2) View.VISIBLE else View.GONE
         stepView3?.visibility = if (connectStep == 3) View.VISIBLE else View.GONE
         stepView4?.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
+        stepView5?.visibility = if (connectStep == 5) View.VISIBLE else View.GONE
 
         // Step dots — done=green circle + tick, active=white circle + step number + border, future=grey circle + step number
         val density = resources.displayMetrics.density
@@ -914,7 +973,7 @@ class ConfigSheetFragment : Fragment() {
                 }
             }
         }
-        styleDot(step1Dot, 1); styleDot(step2Dot, 2); styleDot(step3Dot, 3); styleDot(step4Dot, 4)
+        styleDot(step1Dot, 1); styleDot(step2Dot, 2); styleDot(step3Dot, 3); styleDot(step4Dot, 4); styleDot(step5Dot, 5)
 
         // Step lines
         val lineColor = android.graphics.Color.parseColor("#16A34A")
@@ -922,6 +981,7 @@ class ConfigSheetFragment : Fragment() {
         step1Line?.setBackgroundColor(if (connectStep > 1) lineColor else lineGrey)
         step2Line?.setBackgroundColor(if (connectStep > 2) lineColor else lineGrey)
         step3Line?.setBackgroundColor(if (connectStep > 3) lineColor else lineGrey)
+        step4Line?.setBackgroundColor(if (connectStep > 4) lineColor else lineGrey)
 
         // Step labels
         val green = android.graphics.Color.parseColor("#16A34A")
@@ -930,7 +990,7 @@ class ConfigSheetFragment : Fragment() {
         fun styleLbl(lbl: TextView?, n: Int) {
             lbl?.setTextColor(when { connectStep > n -> green; connectStep == n -> dark; else -> grey })
         }
-        styleLbl(step1Lbl, 1); styleLbl(step2Lbl, 2); styleLbl(step3Lbl, 3); styleLbl(step4Lbl, 4)
+        styleLbl(step1Lbl, 1); styleLbl(step2Lbl, 2); styleLbl(step3Lbl, 3); styleLbl(step4Lbl, 4); styleLbl(step5Lbl, 5)
 
         // Nav buttons
         // Range edit mode: no back (can't go to step 3), only Cancel + Save
@@ -939,11 +999,11 @@ class ConfigSheetFragment : Fragment() {
         btnNext?.visibility    = when {
             isRangeEdit      -> View.GONE
             connectStep == 1 -> if (googleAccount != null) View.VISIBLE else View.GONE
-            connectStep < 4  -> View.VISIBLE
+            connectStep < 5  -> View.VISIBLE
             else             -> View.GONE
         }
-        btnConnect?.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
-        btnConnect?.text = if (connections.containsKey(activeBranch)) "Save Range" else "Connect"
+        btnConnect?.visibility = if (connectStep == 5) View.VISIBLE else View.GONE
+        btnConnect?.text = if (connections[activeBranch]?.any { it.connectionId == activeConnectionId } == true) "Save" else "Connect"
 
         // Cancel button label changes in range edit mode
         (btnCancelConn as? TextView)?.text = if (isRangeEdit) "Cancel" else "✕"
@@ -956,6 +1016,7 @@ class ConfigSheetFragment : Fragment() {
             2 -> updateSheetPickerLabel()
             3 -> updateTabSpinner()
             4 -> { updateColPreview(); updateSummary(); scheduleLivePreview() }
+            5 -> renderMappingStep()
         }
     }
 
@@ -1043,7 +1104,7 @@ class ConfigSheetFragment : Fragment() {
 
         previewJob = viewLifecycleOwner.lifecycleScope.launch {
             kotlinx.coroutines.delay(600)
-            fetchAndShowLivePreview(account, sheet.id, tab, s, e)
+            fetchAndShowLivePreview(googleAccount ?: return@launch, sheet.id, tab, s, e)
         }
     }
 
@@ -1116,6 +1177,16 @@ class ConfigSheetFragment : Fragment() {
             }
 
             tvLivePreview?.text = previewLabel
+            // Capture header row for step 5 auto-mapping
+            val headerRow = rows.firstOrNull()
+            if (headerRow != null) {
+                val newHeaders = mutableMapOf<String, String>()
+                headerRow.forEachIndexed { idx, text ->
+                    val letter = colIndexToLetter(colStart + idx)
+                    if (text.isNotBlank()) newHeaders[letter] = text
+                }
+                sheetHeaders = newHeaders
+            }
             renderLivePreviewTable(rows, colStart, colEnd)
 
         } catch (e: Exception) {
@@ -1387,6 +1458,13 @@ class ConfigSheetFragment : Fragment() {
                 selectedNickname = etNickname?.text?.toString()?.trim() ?: ""
                 if (selectedNickname.isBlank()) { showErr("Nickname দিন — এটা required"); return }
             }
+            4 -> {
+                val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Valid start column দিন (A বা 1)"); return }
+                val e = parseColInput(etColEnd?.text?.toString() ?: "") ?: run { showErr("Valid end column দিন (J বা 10)"); return }
+                if (s < 1 || e < s) { showErr("start ≤ end হতে হবে"); return }
+                // Auto-detect column mapping from fetched headers
+                autoDetectMapping()
+            }
         }
         connectStep++
         renderConnectStep()
@@ -1398,14 +1476,14 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun handleConnect() {
-        val existing = activeConn()
-        val account = googleAccount
+        if (!pendingMapping.containsKey("consignmentId")) { showErr("consignmentId column map করুন — এটা required"); return }
         val sheet   = selectedSheet ?: run { showErr("Sheet নেই"); return }
         if (selectedTab.isBlank())  { showErr("Tab নেই"); return }
         val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Valid start column দিন (A বা 1)"); return }
         val e = parseColInput(etColEnd?.text?.toString() ?: "")   ?: run { showErr("Valid end column দিন (J বা 10)"); return }
         if (s < 1 || e < s) { showErr("start ≤ end হতে হবে"); return }
 
+        val existing = activeConn()
         val sRow = etStartRow?.text?.toString()?.trim()?.toIntOrNull()
         val eRow = etEndRow?.text?.toString()?.trim()?.toIntOrNull()
 
@@ -1424,9 +1502,11 @@ class ConfigSheetFragment : Fragment() {
             startRow    = sRow,
             endRow      = eRow,
             nickname    = selectedNickname,
-            googleEmail = account?.email ?: existing?.googleEmail ?: "",
+            googleEmail = googleAccount?.email ?: existing?.googleEmail ?: "",
             connectedBy = auth.currentUser?.uid ?: existing?.connectedBy ?: "",
             connectedAt = existing?.connectedAt ?: System.currentTimeMillis(),
+            columnMapping = pendingMapping.toMap(),
+            targetNode    = etTargetNode?.text?.toString()?.trim()?.ifBlank { "courier/consignments" } ?: "courier/consignments",
         )
         val connList = connections.getOrPut(activeBranch) { mutableListOf() }
         val idx = connList.indexOfFirst { it.connectionId == conn.connectionId }
@@ -1441,15 +1521,226 @@ class ConfigSheetFragment : Fragment() {
         render()
     }
 
+    private fun autoDetectMapping() {
+        pendingMapping.clear()
+        if (sheetHeaders.isEmpty()) return
+        mappingFields.forEach { (field, _) ->
+            val keywords = matchKeywords[field] ?: return@forEach
+            val matched = sheetHeaders.entries.firstOrNull { (_, header) ->
+                val h = header.lowercase().trim()
+                keywords.any { kw -> h.contains(kw) }
+            }
+            if (matched != null) pendingMapping[field] = matched.key
+        }
+    }
+
+    private fun fetchNodeKeys(node: String) {
+        pbFetchFields?.visibility = View.VISIBLE
+        tvFetchStatus?.text = "Fetching..."
+        btnFetchFields?.isEnabled = false
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val snap = withContext(Dispatchers.IO) {
+                    db.reference.child(node).limitToFirst(1).get().await()
+                }
+                if (!isAdded) return@launch
+                pbFetchFields?.visibility = View.GONE
+                btnFetchFields?.isEnabled = true
+
+                if (!snap.exists()) {
+                    tvFetchStatus?.text = "⚠ Data নেই — নিচে manually field add করুন"
+                    tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
+                    return@launch
+                }
+
+                // Get keys from first child
+                val firstChild = snap.children.firstOrNull() ?: snap
+                val keys = if (firstChild.hasChildren())
+                    firstChild.children.mapNotNull { it.key }.toList()
+                else
+                    snap.children.mapNotNull { it.key }.toList()
+
+                if (keys.isEmpty()) {
+                    tvFetchStatus?.text = "⚠ Keys পাওয়া যায়নি — manually add করুন"
+                    tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
+                    return@launch
+                }
+
+                // Add fetched keys as custom fields (skip ones already in mappingFields)
+                val existingFields = mappingFields.map { it.first }
+                customMappingFields.clear()
+                keys.filter { it !in existingFields }.forEach { key ->
+                    customMappingFields.add(key to key)
+                }
+
+                // Re-run fuzzy match with updated fields
+                autoFuzzyMatch()
+                renderMappingStep()
+
+                val count = keys.size
+                tvFetchStatus?.text = "✅ $count fields found"
+                tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#16A34A"))
+
+            } catch (e: Exception) {
+                if (!isAdded) return@launch
+                pbFetchFields?.visibility = View.GONE
+                btnFetchFields?.isEnabled = true
+                tvFetchStatus?.text = "⚠ Fetch failed: ${e.message?.take(40)}"
+                tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#EF4444"))
+            }
+        }
+    }
+
+    private fun showAddFieldDialog() {
+        val ctx = context ?: return
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        val layout = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(24.dp(), 16.dp(), 24.dp(), 8.dp())
+        }
+        val etFieldName = EditText(ctx).apply {
+            hint = "Field name (e.g. recipientName)"
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(10.dp(), 10.dp(), 10.dp(), 10.dp())
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            textSize = 13f
+        }
+        layout.addView(etFieldName)
+
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("New Field যোগ করুন")
+            .setView(layout)
+            .setPositiveButton("Add") { _, _ ->
+                val name = etFieldName.text.toString().trim()
+                if (name.isBlank()) return@setPositiveButton
+                if (customMappingFields.none { it.first == name } &&
+                    mappingFields.none { it.first == name }) {
+                    customMappingFields.add(name to name)
+                    renderMappingStep()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun renderMappingStep() {
+        val ctx = context ?: return
+        val container = containerMapping ?: return
+        container.removeAllViews()
+
+        // Pre-fill target node if saved
+        if (etTargetNode?.text.isNullOrBlank()) {
+            etTargetNode?.setText(targetNode)
+        }
+
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        val headerOptions = listOf("— Skip —") + sheetHeaders.map { (letter, text) ->
+            "$letter: $text"
+        }
+        val headerLetters = listOf("") + sheetHeaders.keys.toList()
+
+        // All fields = built-in + custom
+        val allFields = mappingFields + customMappingFields
+
+        allFields.forEach { (field, label) ->
+            val isCustom = customMappingFields.any { it.first == field }
+            val row = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity     = android.view.Gravity.CENTER_VERTICAL
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = 10.dp() }
+            }
+
+            // Field label
+            val tvLabel = TextView(ctx).apply {
+                text     = label
+                textSize = 12f
+                setTypeface(null, if (field == "consignmentId") android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+                setTextColor(android.graphics.Color.parseColor(if (isCustom) "#3B82F6" else "#374151"))
+                layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            // Auto-matched indicator
+            val isAutoMatched = pendingMapping.containsKey(field)
+            val tvStatus = TextView(ctx).apply {
+                text      = if (isAutoMatched) "✓" else ""
+                textSize  = 13f
+                setTextColor(android.graphics.Color.parseColor("#16A34A"))
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    20.dp(), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = 6.dp() }
+            }
+
+            // Spinner
+            val spinner = Spinner(ctx).apply {
+                background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, 44.dp(), 1.2f)
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, headerOptions)
+                val matchedLetter = pendingMapping[field]
+                val selIdx = if (matchedLetter != null) headerLetters.indexOf(matchedLetter).coerceAtLeast(0) else 0
+                setSelection(selIdx)
+                onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                        val letter = headerLetters.getOrElse(pos) { "" }
+                        if (letter.isBlank()) pendingMapping.remove(field)
+                        else pendingMapping[field] = letter
+                        tvStatus.text = if (pendingMapping.containsKey(field)) "✓" else ""
+                    }
+                    override fun onNothingSelected(p: AdapterView<*>?) {}
+                }
+            }
+
+            // Delete button for custom fields
+            if (isCustom) {
+                val btnDelete = TextView(ctx).apply {
+                    text     = "✕"
+                    textSize = 13f
+                    setTextColor(android.graphics.Color.parseColor("#EF4444"))
+                    setPadding(8.dp(), 0, 0, 0)
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        customMappingFields.removeAll { it.first == field }
+                        pendingMapping.remove(field)
+                        renderMappingStep()
+                    }
+                }
+                row.addView(tvLabel)
+                row.addView(tvStatus)
+                row.addView(spinner)
+                row.addView(btnDelete)
+            } else {
+                row.addView(tvLabel)
+                row.addView(tvStatus)
+                row.addView(spinner)
+            }
+
+            container.addView(row)
+        }
+    }
+
+
     private fun clearConnectForm() {
         availableSheets = emptyList(); selectedSheet = null
         availableTabs   = emptyList(); selectedTab   = ""
         etColStart?.setText("1"); etColEnd?.setText("10")
-        // Row range hidden by default when no saved values
         isRowRangeVisible = false
         layoutRowRange?.visibility = View.GONE
         btnDefineRow?.text = "+ Define Row Range"
         etStartRow?.setText(""); etEndRow?.setText("")
+        customMappingFields.clear()
+        pendingMapping.clear()
+        targetNode = "courier/consignments"
+        etTargetNode?.setText("")
+        tvFetchStatus?.text = ""
         if (googleAccount != null) loadSheetsForAccount()
     }
 
@@ -1471,9 +1762,11 @@ class ConfigSheetFragment : Fragment() {
             conn.endRow?.takeIf { it > 0 }?.let { etEndRow?.setText(it.toString()) }
         }
         if (googleAccount != null) loadSheetsForAccount()
+        targetNode = conn.targetNode
+        etTargetNode?.setText(conn.targetNode)
+        pendingMapping.clear()
+        pendingMapping.putAll(conn.columnMapping)
     }
-
-    private fun openRangeEditor() {
         val conn = activeConn() ?: return
         activeConnectionId = conn.connectionId
         selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
@@ -2034,7 +2327,10 @@ class ConfigSheetFragment : Fragment() {
                             val eRow      = connSnap.child("endRow")         .getValue(Int::class.java)
                             val autoSync  = connSnap.child("autoSync")       .getValue(Boolean::class.java) ?: false
                             val interval  = connSnap.child("syncIntervalMin").getValue(Int::class.java)    ?: 30
-                            list.add(SheetConn(connId, nickname, branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at))
+                            @Suppress("UNCHECKED_CAST")
+                            val colMap     = (connSnap.child("columnMapping").value as? Map<String, String>) ?: emptyMap()
+                            val tgtNode    = connSnap.child("targetNode").getValue(String::class.java) ?: "courier/consignments"
+                            list.add(SheetConn(connId, nickname, branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at, colMap, tgtNode))
                         }
                         if (list.isNotEmpty()) connections[branchId] = list
                     }
@@ -2090,6 +2386,8 @@ class ConfigSheetFragment : Fragment() {
                     "googleEmail"     to conn.googleEmail,
                     "connectedBy"     to conn.connectedBy,
                     "connectedAt"     to conn.connectedAt,
+                    "columnMapping"   to conn.columnMapping,
+                    "targetNode"      to conn.targetNode,
                 )
                 val basePath = "config/sheets/${conn.branchId}/connections"
                 val connId = conn.connectionId.ifBlank { db.reference.child(basePath).push().key ?: return@launch }

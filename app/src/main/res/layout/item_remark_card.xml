@@ -26,6 +26,12 @@
         </LinearLayout>
     </LinearLayout>
 
+    <TextView android:id="@+id/btnEditRemark"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="✏" android:textSize="15sp" android:textColor="#9CA3AF"
+        android:padding="4dp" android:clickable="true" android:focusable="true"
+        android:layout_marginEnd="4dp" />
+
     <TextView android:id="@+id/btnDeleteRemark"
         android:layout_width="wrap_content" android:layout_height="wrap_content"
         android:text="×" android:textSize="20sp" android:textColor="#D1D5DB"

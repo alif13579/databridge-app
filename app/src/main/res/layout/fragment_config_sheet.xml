@@ -337,7 +337,17 @@
                     android:orientation="vertical" android:gravity="center">
                     <TextView android:id="@+id/step4Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
                     <TextView android:id="@+id/step4Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Columns" android:textSize="9sp" android:layout_marginTop="2dp" />
+                        android:text="Positioning" android:textSize="9sp" android:layout_marginTop="2dp" />
+                </LinearLayout>
+
+                <View android:id="@+id/step4Line" android:layout_width="0dp" android:layout_height="2dp"
+                    android:layout_weight="1" android:background="#E5E7EB" android:layout_marginBottom="14dp" />
+
+                <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:gravity="center">
+                    <TextView android:id="@+id/step5Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
+                    <TextView android:id="@+id/step5Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Mapping" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -573,6 +583,82 @@
                     android:textSize="13sp" android:textColor="#166534"
                     android:background="@drawable/bg_card_rounded"
                     android:padding="14dp" android:lineSpacingMultiplier="1.5" />
+            </LinearLayout>
+
+            <!-- ── Step 5: Column Mapping ── -->
+            <LinearLayout android:id="@+id/stepView5"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:layout_marginTop="16dp" android:visibility="gone">
+
+                <!-- Target node -->
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="TARGET NODE"
+                    android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="#6B7280" android:layout_marginBottom="5dp" />
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="6dp">
+                    <EditText android:id="@+id/etTargetNode"
+                        android:layout_width="0dp" android:layout_height="46dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp" android:textSize="13sp"
+                        android:hint="courier/consignments"
+                        android:inputType="text" android:maxLines="1"
+                        android:layout_marginEnd="8dp" />
+                    <Button android:id="@+id/btnFetchFields"
+                        android:layout_width="wrap_content" android:layout_height="46dp"
+                        android:text="Fetch" android:textSize="12sp" android:textStyle="bold"
+                        android:backgroundTint="#3B82F6" android:textColor="#FFFFFF"
+                        android:paddingStart="16dp" android:paddingEnd="16dp" />
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="14dp">
+                    <ProgressBar android:id="@+id/pbFetchFields"
+                        android:layout_width="16dp" android:layout_height="16dp"
+                        android:visibility="gone" android:layout_marginEnd="8dp" />
+                    <TextView android:id="@+id/tvFetchStatus"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="11sp" android:textColor="#6B7280" />
+                </LinearLayout>
+
+                <!-- Column mapping -->
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="COLUMN MAPPING"
+                    android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="#6B7280" android:layout_marginBottom="4dp" />
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Sheet এর কোন column কোন Firebase field এ map হবে। ✓ মানে auto-detect হয়েছে।"
+                    android:textSize="11sp" android:textColor="#9CA3AF"
+                    android:layout_marginBottom="14dp" />
+
+                <LinearLayout android:id="@+id/containerMapping"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="14dp" />
+
+                <!-- Add field button -->
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginTop="10dp">
+                    <View android:layout_width="0dp" android:layout_height="1dp"
+                        android:layout_weight="1" android:background="#E5E7EB" />
+                    <TextView android:id="@+id/btnAddMappingField"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="+ Add Field"
+                        android:textSize="12sp" android:textStyle="bold"
+                        android:textColor="#3B82F6"
+                        android:paddingStart="12dp" android:paddingEnd="12dp"
+                        android:paddingTop="8dp" android:paddingBottom="8dp"
+                        android:clickable="true" android:focusable="true" />
+                    <View android:layout_width="0dp" android:layout_height="1dp"
+                        android:layout_weight="1" android:background="#E5E7EB" />
+                </LinearLayout>
+
             </LinearLayout>
 
             <!-- Error -->

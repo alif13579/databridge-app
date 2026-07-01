@@ -224,6 +224,10 @@ class ConfigRemarksFragment : Fragment() {
                 override fun onNothingSelected(p: AdapterView<*>?) {}
             }
 
+            row.findViewById<View>(R.id.btnEditRemark).setOnClickListener {
+                openEditDialog(activeStatus, r)
+            }
+
             row.findViewById<View>(R.id.btnDeleteRemark).setOnClickListener {
                 handleDelete(activeStatus, r.id)
             }
@@ -287,6 +291,73 @@ class ConfigRemarksFragment : Fragment() {
         val target    = sorted.getOrElse(targetIdx) { activeStatus }
         addRemark(bn, en, target)
         etBn.setText(""); etEn.setText("")
+    }
+
+    private fun openEditDialog(group: String, remark: com.cloudx.databridge.ConfigState.Remark) {
+        val ctx = requireContext()
+        fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+        val layout = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), dp(8))
+        }
+
+        val etBnEdit = android.widget.EditText(ctx).apply {
+            hint = "বাংলা রিমার্ক"
+            setText(remark.text_bn)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            textSize = 13f
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+        }
+
+        val etEnEdit = android.widget.EditText(ctx).apply {
+            hint = "English remark"
+            setText(remark.text_en)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            textSize = 13f
+        }
+
+        layout.addView(etBnEdit)
+        layout.addView(etEnEdit)
+
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Remark Edit করুন")
+            .setView(layout)
+            .setPositiveButton("Save") { _, _ ->
+                val newBn = etBnEdit.text.toString().trim()
+                val newEn = etEnEdit.text.toString().trim()
+                if (newBn.isEmpty() && newEn.isEmpty()) {
+                    Toast.makeText(ctx, "বাংলা বা English রিমার্ক দিন", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                handleEdit(group, remark.id, newBn, newEn)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun handleEdit(group: String, id: String, newBn: String, newEn: String) {
+        val list = remarks[group] ?: return
+        val idx = list.indexOfFirst { it.id == id }
+        if (idx < 0) return
+        list[idx] = list[idx].copy(text_bn = newBn, text_en = newEn)
+        ConfigState.remarks = remarks
+        bindAll()
+        viewLifecycleOwner.lifecycleScope.launch {
+            setBusy(true, "Saving...")
+            if (saveRemarks()) {
+                reloadConfig(); bindAll(); setBusy(false)
+                Toast.makeText(requireContext(), "✅ Updated", Toast.LENGTH_SHORT).show()
+            } else {
+                setBusy(false)
+                Toast.makeText(requireContext(), "Update failed", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun openCreateDialog() {

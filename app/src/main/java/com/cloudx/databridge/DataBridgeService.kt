@@ -305,45 +305,59 @@ class DataBridgeService : Service() {
             triggerOpenDialer(number)
             return
         }
-        if (isAppInForeground() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(applicationContext))) {
-            tryDirectCall(number)
-        } else {
-            showCallNotification(number, isDirectCall = true)
-        }
+        tryDirectCall(number)
     }
 
     private fun triggerOpenDialer(number: String) {
-        if (isAppInForeground() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(applicationContext))) {
-            tryOpenDialer(number)
-        } else {
-            showCallNotification(number, isDirectCall = false)
-        }
+        tryOpenDialer(number)
     }
 
     private fun tryDirectCall(number: String) {
+        // Layer 1: CallActivity (works on background/lockscreen, all Android versions)
+        try {
+            applicationContext.startActivity(CallActivity.buildIntent(applicationContext, number, dialOnly = false))
+            Log.d(TAG, "📞 CallActivity launched: $number")
+            return
+        } catch (e: Exception) {
+            Log.w(TAG, "Layer 1 failed: ${e.message}")
+        }
+        // Layer 2: Direct ACTION_CALL (works on older Android or foreground)
         try {
             val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             applicationContext.startActivity(intent)
-            Log.d(TAG, "📞 Direct call triggered: $number")
+            Log.d(TAG, "📞 Direct call: $number")
+            return
         } catch (e: Exception) {
-            Log.w(TAG, "Direct call failed → Notification fallback")
-            showCallNotification(number, true)
+            Log.w(TAG, "Layer 2 failed: ${e.message}")
         }
+        // Layer 3: Full screen notification fallback
+        showCallNotification(number, isDirectCall = true)
     }
 
     private fun tryOpenDialer(number: String) {
+        // Layer 1: CallActivity
+        try {
+            applicationContext.startActivity(CallActivity.buildIntent(applicationContext, number, dialOnly = true))
+            Log.d(TAG, "📱 CallActivity dialer: $number")
+            return
+        } catch (e: Exception) {
+            Log.w(TAG, "Layer 1 failed: ${e.message}")
+        }
+        // Layer 2: Direct ACTION_DIAL
         try {
             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             applicationContext.startActivity(intent)
-            Log.d(TAG, "📱 Dialer opened: $number")
+            Log.d(TAG, "📱 Direct dialer: $number")
+            return
         } catch (e: Exception) {
-            Log.w(TAG, "Dialer open failed → Notification fallback")
-            showCallNotification(number, false)
+            Log.w(TAG, "Layer 2 failed: ${e.message}")
         }
+        // Layer 3: Full screen notification fallback
+        showCallNotification(number, isDirectCall = false)
     }
 
     private fun showCallNotification(number: String, isDirectCall: Boolean) {
@@ -362,8 +376,11 @@ class DataBridgeService : Service() {
                 .setContentTitle(if (isDirectCall) "📞 Tap to Call" else "📱 Tap to Dial")
                 .setContentText(number)
                 .setSmallIcon(android.R.drawable.ic_menu_call)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setContentIntent(pendingIntent)
+                .setFullScreenIntent(pendingIntent, true)  // ← lockscreen এ দেখাবে
                 .setAutoCancel(true)
                 .build()
             getSystemService(NotificationManager::class.java)?.notify(number.hashCode(), notification)
