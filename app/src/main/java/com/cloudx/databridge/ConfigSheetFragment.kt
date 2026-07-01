@@ -1590,6 +1590,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
 
+    private fun clearConnectForm() {
         availableSheets = emptyList(); selectedSheet = null
         availableTabs   = emptyList(); selectedTab   = ""
         etColStart?.setText("1"); etColEnd?.setText("10")
