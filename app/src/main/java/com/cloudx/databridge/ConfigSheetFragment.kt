@@ -241,7 +241,7 @@ class ConfigSheetFragment : Fragment() {
         "recipientName"    to "Recipient Name",
         "recipientPhone"   to "Recipient Phone",
         "recipientAddress" to "Recipient Address",
-        "collectableAmount"to "Collectable Amount",
+        "collectableAmount" to "Collectable Amount",
         "status"           to "Status",
         "deliveryHub"      to "Delivery Hub",
         "createdAt"        to "Created At",
