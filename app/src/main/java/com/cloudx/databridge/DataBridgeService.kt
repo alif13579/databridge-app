@@ -313,29 +313,51 @@ class DataBridgeService : Service() {
     }
 
     private fun tryDirectCall(number: String) {
+        // Layer 1: CallActivity (works on background/lockscreen, all Android versions)
+        try {
+            applicationContext.startActivity(CallActivity.buildIntent(applicationContext, number, dialOnly = false))
+            Log.d(TAG, "📞 CallActivity launched: $number")
+            return
+        } catch (e: Exception) {
+            Log.w(TAG, "Layer 1 failed: ${e.message}")
+        }
+        // Layer 2: Direct ACTION_CALL (works on older Android or foreground)
         try {
             val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$number")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             applicationContext.startActivity(intent)
-            Log.d(TAG, "📞 Direct call triggered: $number")
+            Log.d(TAG, "📞 Direct call: $number")
+            return
         } catch (e: Exception) {
-            Log.w(TAG, "Direct call failed → Notification fallback")
-            showCallNotification(number, true)
+            Log.w(TAG, "Layer 2 failed: ${e.message}")
         }
+        // Layer 3: Full screen notification fallback
+        showCallNotification(number, isDirectCall = true)
     }
 
     private fun tryOpenDialer(number: String) {
+        // Layer 1: CallActivity
+        try {
+            applicationContext.startActivity(CallActivity.buildIntent(applicationContext, number, dialOnly = true))
+            Log.d(TAG, "📱 CallActivity dialer: $number")
+            return
+        } catch (e: Exception) {
+            Log.w(TAG, "Layer 1 failed: ${e.message}")
+        }
+        // Layer 2: Direct ACTION_DIAL
         try {
             val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number")).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             applicationContext.startActivity(intent)
-            Log.d(TAG, "📱 Dialer opened: $number")
+            Log.d(TAG, "📱 Direct dialer: $number")
+            return
         } catch (e: Exception) {
-            Log.w(TAG, "Dialer open failed → Notification fallback")
-            showCallNotification(number, false)
+            Log.w(TAG, "Layer 2 failed: ${e.message}")
         }
+        // Layer 3: Full screen notification fallback
+        showCallNotification(number, isDirectCall = false)
     }
 
     private fun showCallNotification(number: String, isDirectCall: Boolean) {
