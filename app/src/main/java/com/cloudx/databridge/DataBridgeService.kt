@@ -49,8 +49,8 @@ class DataBridgeService : Service() {
     private var statusListener: ValueEventListener? = null // 🔹 নতুন ভেরিয়েবল অ্যাড করুন (ক্লাসের শুরুতে)
 
 
-    // 🔹 Listeners & State
-    private var currentActiveExtensionId: String? = null
+    // Track already-dialed record IDs to prevent duplicate calls on reconnect
+    private val dialedRecordIds = mutableSetOf<String>()
     private var containerListener: ChildEventListener? = null
     private var sessionListener: ChildEventListener? = null
     private var activeContainerPath: String? = null
@@ -126,7 +126,11 @@ class DataBridgeService : Service() {
         if (extId.isNullOrEmpty()) return
 
         // ✅ রেকর্ডস লিসেনার (ডাটা চেঞ্জ + ডিলিট ডিটেক্ট)
+        // Only process records received AFTER this listener started
+        val listenerStartTime = System.currentTimeMillis()
         val recordsRef = database.getReference("sessions/$extId/records")
+            .orderByChild("received_at")
+            .startAt(listenerStartTime.toDouble())
         sessionListener = object : ChildEventListener {
             override fun onChildAdded(snapshot: DataSnapshot, prev: String?) = handleData(snapshot, "session")
             override fun onChildChanged(snapshot: DataSnapshot, prev: String?) {}
