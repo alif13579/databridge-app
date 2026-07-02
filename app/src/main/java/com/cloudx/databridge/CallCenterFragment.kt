@@ -190,7 +190,7 @@ class CallCenterFragment : Fragment() {
 
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
 
-        androidx.lifecycle.lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             try {
                 // Today's date range
                 val cal = java.util.Calendar.getInstance()
