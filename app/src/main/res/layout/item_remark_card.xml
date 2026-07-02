@@ -14,12 +14,14 @@
             android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold"
             android:textColor="?attr/colorOnSurface" android:layout_marginBottom="2dp" />
         <TextView android:id="@+id/tvRemarkEn" android:layout_width="match_parent"
-            android:layout_height="wrap_content" android:textSize="11sp" android:textColor="#9CA3AF"
+            android:layout_height="wrap_content" android:textSize="11sp"
+            android:textColor="@color/theme_text_muted"
             android:ellipsize="end" android:singleLine="true" android:layout_marginBottom="6dp" />
         <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:orientation="horizontal" android:gravity="center_vertical">
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="→" android:textSize="11sp" android:textColor="#6B7280"
+                android:text="→" android:textSize="11sp"
+                android:textColor="@color/theme_text_secondary"
                 android:layout_marginEnd="6dp" />
             <Spinner android:id="@+id/spinnerRemarkTarget"
                 android:layout_width="wrap_content" android:layout_height="wrap_content" />
@@ -28,12 +30,14 @@
 
     <TextView android:id="@+id/btnEditRemark"
         android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:text="✏" android:textSize="15sp" android:textColor="#9CA3AF"
+        android:text="✏" android:textSize="15sp"
+        android:textColor="@color/theme_text_muted"
         android:padding="4dp" android:clickable="true" android:focusable="true"
         android:layout_marginEnd="4dp" />
 
     <TextView android:id="@+id/btnDeleteRemark"
         android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:text="×" android:textSize="20sp" android:textColor="#D1D5DB"
+        android:text="×" android:textSize="20sp"
+        android:textColor="@color/theme_text_secondary"
         android:padding="4dp" android:clickable="true" android:focusable="true" />
 </LinearLayout>

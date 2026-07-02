@@ -574,7 +574,7 @@ class ConfigSheetFragment : Fragment() {
 
     private fun updateBranchTabStyles() {
         val activeColor   = android.graphics.Color.parseColor("#E8380D")
-        val inactiveColor = android.graphics.Color.parseColor("#6B7280")
+        val inactiveColor = android.graphics.Color.context!!.getColor(R.color.theme_text_secondary)
         tabBranchConnected?.setTextColor(
             if (activeBranchTab == "connected") activeColor else inactiveColor
         )
@@ -638,7 +638,7 @@ class ConfigSheetFragment : Fragment() {
                 val tvArrow = TextView(ctx).apply {
                     text     = if (isExpanded) "▼" else "▶"
                     textSize = 11f
-                    setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                    setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_secondary))
                     layoutParams = android.widget.LinearLayout.LayoutParams(
                         android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                         android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
@@ -654,13 +654,13 @@ class ConfigSheetFragment : Fragment() {
                     text     = branchLabel(branchId)
                     textSize = 13f
                     setTypeface(null, android.graphics.Typeface.BOLD)
-                    setTextColor(android.graphics.Color.parseColor("#111827"))
+                    setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_primary))
                 }
                 // Collapsed summary
                 val tvSummary = TextView(ctx).apply {
                     text      = "${connList.size} sheet${if (connList.size != 1) "s" else ""} connected"
                     textSize  = 11f
-                    setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                    setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_secondary))
                     visibility = if (isExpanded) android.view.View.GONE else android.view.View.VISIBLE
                     layoutParams = android.widget.LinearLayout.LayoutParams(
                         android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -677,7 +677,7 @@ class ConfigSheetFragment : Fragment() {
                     setTextColor(android.graphics.Color.parseColor("#3B82F6"))
                     background = resources.getDrawable(R.drawable.bg_card_rounded, null)
                     backgroundTintList = android.content.res.ColorStateList.valueOf(
-                        android.graphics.Color.parseColor("#EFF6FF")
+                        android.graphics.Color.context!!.getColor(R.color.theme_bg_accent)
                     )
                     setPadding(16.dp(), 8.dp(), 16.dp(), 8.dp())
                     isClickable = true
@@ -720,14 +720,14 @@ class ConfigSheetFragment : Fragment() {
                         text     = conn.nickname.ifBlank { conn.sheetName }
                         textSize = 13f
                         setTypeface(null, android.graphics.Typeface.BOLD)
-                        setTextColor(android.graphics.Color.parseColor("#111827"))
+                        setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_primary))
                     }
 
                     // Sheet Name
                     val tvSheetInfo = TextView(ctx).apply {
                         text = "Sheet Name: ${conn.sheetName}"
                         textSize = 11f
-                        setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                        setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_secondary))
                         layoutParams = android.widget.LinearLayout.LayoutParams(
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
@@ -738,7 +738,7 @@ class ConfigSheetFragment : Fragment() {
                     val tvTabInfo = TextView(ctx).apply {
                         text = "Tab Name: ${conn.tabName}"
                         textSize = 11f
-                        setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                        setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_secondary))
                         layoutParams = android.widget.LinearLayout.LayoutParams(
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
@@ -758,7 +758,7 @@ class ConfigSheetFragment : Fragment() {
                     val tvRange = TextView(ctx).apply {
                         text     = "Current Range: $rangeText"
                         textSize = 11f
-                        setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                        setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_secondary))
                         layoutParams = android.widget.LinearLayout.LayoutParams(
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
@@ -781,7 +781,7 @@ class ConfigSheetFragment : Fragment() {
                         setTypeface(null, android.graphics.Typeface.BOLD)
                         setTextColor(android.graphics.Color.parseColor("#2563EB"))
                         backgroundTintList = android.content.res.ColorStateList.valueOf(
-                            android.graphics.Color.parseColor("#EFF6FF")
+                            android.graphics.Color.context!!.getColor(R.color.theme_bg_accent)
                         )
                         setPadding(20.dp(), 6.dp(), 20.dp(), 6.dp())
                         layoutParams = android.widget.LinearLayout.LayoutParams(
@@ -949,9 +949,9 @@ class ConfigSheetFragment : Fragment() {
                 }
                 else -> {
                     // Future — light grey fill, grey number
-                    dot?.background = roundBg(android.graphics.Color.parseColor("#E5E7EB"))
+                    dot?.background = roundBg(android.graphics.Color.context!!.getColor(R.color.theme_border))
                     dot?.text = "$n"
-                    dot?.setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                    dot?.setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_muted))
                 }
             }
         }
@@ -959,7 +959,7 @@ class ConfigSheetFragment : Fragment() {
 
         // Step lines
         val lineColor = android.graphics.Color.parseColor("#16A34A")
-        val lineGrey  = android.graphics.Color.parseColor("#E5E7EB")
+        val lineGrey  = android.graphics.Color.context!!.getColor(R.color.theme_border)
         step1Line?.setBackgroundColor(if (connectStep > 1) lineColor else lineGrey)
         step2Line?.setBackgroundColor(if (connectStep > 2) lineColor else lineGrey)
         step3Line?.setBackgroundColor(if (connectStep > 3) lineColor else lineGrey)
@@ -967,8 +967,8 @@ class ConfigSheetFragment : Fragment() {
 
         // Step labels
         val green = android.graphics.Color.parseColor("#16A34A")
-        val dark  = android.graphics.Color.parseColor("#111827")
-        val grey  = android.graphics.Color.parseColor("#9CA3AF")
+        val dark  = android.graphics.Color.context!!.getColor(R.color.theme_text_primary)
+        val grey  = android.graphics.Color.context!!.getColor(R.color.theme_text_muted)
         fun styleLbl(lbl: TextView?, n: Int) {
             lbl?.setTextColor(when { connectStep > n -> green; connectStep == n -> dark; else -> grey })
         }
@@ -1658,7 +1658,7 @@ class ConfigSheetFragment : Fragment() {
             setPadding(dp(8), dp(if (compact) 5 else 8), dp(8), dp(if (compact) 5 else 8))
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(android.graphics.Color.parseColor(bgColor))
-                setStroke(dp(1), android.graphics.Color.parseColor("#E5E7EB"))
+                setStroke(dp(1), android.graphics.Color.context!!.getColor(R.color.theme_border))
             }
         }
     }
@@ -1933,7 +1933,7 @@ class ConfigSheetFragment : Fragment() {
             val tvTreeArrow = TextView(ctx).apply {
                 text     = if (nodePreviewExpanded) "▼" else "▶"
                 textSize = 11f
-                setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_secondary))
                 layoutParams = android.widget.LinearLayout.LayoutParams(
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
@@ -1943,7 +1943,7 @@ class ConfigSheetFragment : Fragment() {
                 text     = "📁 ${targetNode.trimEnd('/')}/${nodePreviewData.values.firstOrNull() ?: "..."}"
                 textSize = 11f
                 setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(android.graphics.Color.parseColor("#374151"))
+                setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_primary))
                 layoutParams = android.widget.LinearLayout.LayoutParams(0,
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
@@ -1961,7 +1961,7 @@ class ConfigSheetFragment : Fragment() {
                 val tvRow = TextView(ctx).apply {
                     text      = "${if (isLast) "└─" else "├─"} $key: \"$value\""
                     textSize  = 11f
-                    setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                    setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_secondary))
                     typeface = android.graphics.Typeface.MONOSPACE
                     layoutParams = android.widget.LinearLayout.LayoutParams(
                         android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
@@ -1988,7 +1988,7 @@ class ConfigSheetFragment : Fragment() {
             val tvEmpty = TextView(ctx).apply {
                 text      = "Node fetch করুন অথবা নিচে manually field add করুন"
                 textSize  = 12f
-                setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_muted))
                 gravity   = android.view.Gravity.CENTER
                 setPadding(0, 16.dp(), 0, 16.dp())
             }
@@ -2292,7 +2292,7 @@ class ConfigSheetFragment : Fragment() {
         // ── Drag handle ───────────────────────────────────────────────
         val handle = android.view.View(ctx).apply {
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(android.graphics.Color.parseColor("#E5E7EB"))
+                setColor(android.graphics.Color.context!!.getColor(R.color.theme_border))
                 cornerRadius = 4.dp().toFloat()
             }
             layoutParams = android.widget.LinearLayout.LayoutParams(48.dp(), 4.dp()).apply {
@@ -2317,13 +2317,13 @@ class ConfigSheetFragment : Fragment() {
             text = "Google Sheet বেছে নিন"
             textSize = 16f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(android.graphics.Color.parseColor("#111827"))
+            setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_primary))
             layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val tvCount = android.widget.TextView(ctx).apply {
             text = "${availableSheets.size} sheets"
             textSize = 12f
-            setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+            setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_muted))
             setPadding(0, 0, 8.dp(), 0)
         }
         headerRow.addView(tvTitle)
@@ -2338,8 +2338,8 @@ class ConfigSheetFragment : Fragment() {
             orientation = android.widget.LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(android.graphics.Color.parseColor("#F9FAFB"))
-                setStroke(2, android.graphics.Color.parseColor("#E5E7EB"))
+                setColor(android.graphics.Color.context!!.getColor(R.color.theme_bg_inner))
+                setStroke(2, android.graphics.Color.context!!.getColor(R.color.theme_border))
                 cornerRadius = 12.dp().toFloat()
             }
             setPadding(14.dp(), 0, 14.dp(), 0)
@@ -2355,15 +2355,15 @@ class ConfigSheetFragment : Fragment() {
             setSingleLine(true)
             background = null
             textSize = 14f
-            setTextColor(android.graphics.Color.parseColor("#111827"))
-            setHintTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+            setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_primary))
+            setHintTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_muted))
             layoutParams = android.widget.LinearLayout.LayoutParams(0, 48.dp(), 1f)
         }
         // Clear button
         val tvClear = android.widget.TextView(ctx).apply {
             text = "✕"
             textSize = 14f
-            setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+            setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_muted))
             setPadding(8.dp(), 0, 0, 0)
             visibility = android.view.View.GONE
             isClickable = true
@@ -2377,7 +2377,7 @@ class ConfigSheetFragment : Fragment() {
 
         // ── Divider ───────────────────────────────────────────────────
         root.addView(android.view.View(ctx).apply {
-            setBackgroundColor(android.graphics.Color.parseColor("#F3F4F6"))
+            setBackgroundColor(android.graphics.Color.context!!.getColor(R.color.theme_bg_inner))
             layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 1)
         })
 
@@ -2400,7 +2400,7 @@ class ConfigSheetFragment : Fragment() {
         val tvEmpty = android.widget.TextView(ctx).apply {
             text = "🔍 কোনো sheet পাওয়া যায়নি"
             textSize = 13f
-            setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+            setTextColor(android.graphics.Color.context!!.getColor(R.color.theme_text_muted))
             gravity = android.view.Gravity.CENTER
             setPadding(0, 32.dp(), 0, 0)
             visibility = android.view.View.GONE
@@ -2436,7 +2436,7 @@ class ConfigSheetFragment : Fragment() {
                     text = sheet.name
                     textSize = 13f
                     setTypeface(null, if (isSelected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-                    setTextColor(if (isSelected) android.graphics.Color.parseColor("#E8380D") else android.graphics.Color.parseColor("#111827"))
+                    setTextColor(if (isSelected) android.graphics.Color.parseColor("#E8380D") else android.graphics.Color.context!!.getColor(R.color.theme_text_primary))
                     layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
                 // Checkmark if selected
@@ -2602,7 +2602,7 @@ class ConfigSheetFragment : Fragment() {
 
     private fun renderManageTabs() {
         val red  = android.graphics.Color.parseColor("#E8380D")
-        val grey = android.graphics.Color.parseColor("#6B7280")
+        val grey = android.graphics.Color.context!!.getColor(R.color.theme_text_secondary)
         tabOverview?.setTextColor(if (activeManageTab == "overview") red else grey)
         tabColumns?.setTextColor (if (activeManageTab == "columns")  red else grey)
         tabSync?.setTextColor    (if (activeManageTab == "sync")     red else grey)
