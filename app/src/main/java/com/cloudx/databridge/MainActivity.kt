@@ -52,6 +52,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private var permissionStep = 0
 
     private var layoutNoInternet: View? = null
+    private var layoutFragmentLoading: View? = null
     private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
 
     private val authStateListener = FirebaseAuth.AuthStateListener { refreshAuthUi() }
@@ -199,7 +200,8 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         drawerLayout     = findViewById(R.id.drawer_layout)
         bottomNav        = findViewById(R.id.bottom_nav)
         navView          = findViewById(R.id.nav_view)
-        layoutNoInternet = findViewById(R.id.layoutNoInternet)
+        layoutNoInternet    = findViewById(R.id.layoutNoInternet)
+        layoutFragmentLoading = findViewById(R.id.layoutFragmentLoading)
         statusDot = findViewById(R.id.statusDot)
         tvTopBarUser = findViewById(R.id.tvTopBarUser)
         ivUserAvatar = findViewById(R.id.ivUserAvatar)
@@ -669,9 +671,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     }
 
     private fun loadFragment(fragment: androidx.fragment.app.Fragment) {
+        layoutFragmentLoading?.visibility = View.VISIBLE
         supportFragmentManager.beginTransaction()
             .replace(R.id.container, fragment)
             .addToBackStack(null)
+            .runOnCommit { layoutFragmentLoading?.visibility = View.GONE }
             .commit()
     }
 
