@@ -6,7 +6,8 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="16dp">
+        android:padding="16dp"
+        android:clipToPadding="false">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -27,7 +28,7 @@
                 android:text="Current Remarks"
                 android:textSize="13sp"
                 android:textStyle="bold"
-                android:textColor="?attr/colorOnSurface" />
+                android:textColor="@color/theme_text_primary" />
 
             <TextView
                 android:id="@+id/btnOpenCreateRemark"
@@ -71,7 +72,7 @@
             android:text="No remarks found"
             android:gravity="center"
             android:padding="20dp"
-            android:textColor="#9CA3AF"
+            android:textColor="@color/theme_text_muted"
             android:textSize="13sp"
             android:background="@drawable/bg_card_rounded"
             android:visibility="gone"
@@ -93,7 +94,7 @@
                 android:text="+ নতুন Remark"
                 android:textSize="12sp"
                 android:textStyle="bold"
-                android:textColor="#374151"
+                android:textColor="@color/theme_text_primary"
                 android:layout_marginBottom="10dp" />
 
             <LinearLayout
@@ -109,7 +110,7 @@
                     android:orientation="vertical"
                     android:layout_marginEnd="4dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="বাংলা" android:textSize="10sp" android:textColor="#9CA3AF"
+                        android:text="বাংলা" android:textSize="10sp" android:textColor="@color/theme_text_muted"
                         android:textStyle="bold" android:layout_marginBottom="4dp" />
                     <EditText
                         android:id="@+id/etRemarkBn"
@@ -129,7 +130,7 @@
                     android:orientation="vertical"
                     android:layout_marginStart="4dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="English" android:textSize="10sp" android:textColor="#9CA3AF"
+                        android:text="English" android:textSize="10sp" android:textColor="@color/theme_text_muted"
                         android:textStyle="bold" android:layout_marginBottom="4dp" />
                     <EditText
                         android:id="@+id/etRemarkEn"
@@ -150,7 +151,7 @@
                 android:gravity="center_vertical"
                 android:layout_marginBottom="10dp">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="→ Group:" android:textSize="12sp" android:textColor="#6B7280"
+                    android:text="→ Group:" android:textSize="12sp" android:textColor="@color/theme_text_secondary"
                     android:layout_marginEnd="8dp" />
                 <Spinner
                     android:id="@+id/spinnerTargetStatus"
@@ -178,7 +179,7 @@
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:gravity="center"
-        android:background="#99000000"
+        android:background="@color/theme_overlay_bg"
         android:clickable="true"
         android:focusable="true"
         android:visibility="gone">
