@@ -1473,7 +1473,10 @@ class ConfigSheetFragment : Fragment() {
      * Parses a raw sheet cell value into an epoch-millis timestamp.
      * Returns null if the value can't be confidently parsed as a date/time —
      * callers should then skip pushing that field rather than writing garbage.
-     * Accepts: epoch seconds (10 digits), epoch millis (13 digits), or common date/date-time strings.
+     * Accepts: epoch seconds (10 digits), epoch millis (13 digits), or unambiguous
+     * ISO-style date/date-time strings (yyyy-MM-dd, yyyy/MM/dd, with optional time).
+     * Slash/dash formats like "7/1/2026" are intentionally NOT accepted since
+     * day-vs-month order can't be reliably determined — better to skip than guess wrong.
      */
     private fun parseSheetTimestamp(raw: String): Long? {
         if (raw.isBlank()) return null
@@ -1492,11 +1495,7 @@ class ConfigSheetFragment : Fragment() {
             "yyyy-MM-dd'T'HH:mm:ss",
             "yyyy-MM-dd HH:mm:ss",
             "yyyy-MM-dd",
-            "dd/MM/yyyy HH:mm:ss",
-            "dd/MM/yyyy",
-            "MM/dd/yyyy HH:mm:ss",
-            "MM/dd/yyyy",
-            "dd-MM-yyyy",
+            "yyyy/MM/dd HH:mm:ss",
             "yyyy/MM/dd",
         )
         for (pattern in patterns) {
