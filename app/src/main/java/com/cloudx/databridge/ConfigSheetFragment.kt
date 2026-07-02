@@ -1847,7 +1847,7 @@ class ConfigSheetFragment : Fragment() {
             nodePreviewData.entries.forEachIndexed { idx, (key, value) ->
                 val isLast = idx == nodePreviewData.size - 1
                 val tvRow = TextView(ctx).apply {
-                    text      = "${if (isLast) "└─" else "├─"} $key: "$value""
+                    text      = "${if (isLast) "└─" else "├─"} $key: \"$value\""
                     textSize  = 11f
                     setTextColor(android.graphics.Color.parseColor("#6B7280"))
                     fontFamily = "monospace"
