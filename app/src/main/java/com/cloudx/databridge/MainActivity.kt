@@ -118,7 +118,18 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         }
     }
 
-    override fun onDestroy() {
+    override fun onBackPressed() {
+        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+            drawerLayout.closeDrawer(GravityCompat.START)
+            return
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("App বন্ধ করবেন?")
+            .setMessage("DataBridge বন্ধ করতে চান?")
+            .setPositiveButton("হ্যাঁ, বন্ধ করুন") { _, _ -> super.onBackPressed() }
+            .setNegativeButton("না") { dialog, _ -> dialog.dismiss() }
+            .show()
+    }
         auth.removeAuthStateListener(authStateListener)
         stopSessionMonitor()
         networkCallback?.let {
