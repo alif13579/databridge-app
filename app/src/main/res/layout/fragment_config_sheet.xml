@@ -29,7 +29,7 @@
                 android:layout_height="wrap_content"
                 android:text="শাখা বেছে নিয়ে Google Sheet connect বা manage করুন"
                 android:textSize="12sp"
-                android:textColor="#6B7280"
+                android:textColor="@color/theme_text_secondary"
                 android:layout_marginBottom="16dp" />
 
             <!-- ── Tab row (only visible when both connected and unconnected exist) ── -->
@@ -56,7 +56,7 @@
                 <View
                     android:layout_width="1dp"
                     android:layout_height="match_parent"
-                    android:background="#E5E7EB" />
+                    android:background="@color/theme_border" />
 
                 <TextView
                     android:id="@+id/tabBranchUnconnected"
@@ -67,7 +67,7 @@
                     android:text="Unconnected"
                     android:textSize="12sp"
                     android:textStyle="bold"
-                    android:textColor="#6B7280" />
+                    android:textColor="@color/theme_text_secondary" />
 
             </LinearLayout>
 
@@ -79,7 +79,7 @@
                 android:text="No branch assigned to this user."
                 android:gravity="center"
                 android:padding="18dp"
-                android:textColor="#9CA3AF"
+                android:textColor="@color/theme_text_muted"
                 android:textSize="13sp"
                 android:background="@drawable/bg_card_rounded"
                 android:visibility="gone"
@@ -127,7 +127,7 @@
                     android:text="UNCONNECTED"
                     android:textSize="10sp"
                     android:textStyle="bold"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/theme_text_secondary"
                     android:layout_marginBottom="8dp" />
 
                 <TextView
@@ -137,7 +137,7 @@
                     android:text="BRANCH"
                     android:textSize="10sp"
                     android:textStyle="bold"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/theme_text_secondary"
                     android:visibility="gone"
                     android:layout_marginBottom="5dp" />
 
@@ -184,28 +184,28 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textSize="12sp"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/theme_text_secondary"
                         android:layout_marginBottom="3dp" />
                     <TextView
                         android:id="@+id/tvBranchInfoAddress"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textSize="12sp"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/theme_text_secondary"
                         android:layout_marginBottom="3dp" />
                     <TextView
                         android:id="@+id/tvBranchInfoType"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textSize="12sp"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/theme_text_secondary"
                         android:layout_marginBottom="3dp" />
                     <TextView
                         android:id="@+id/tvBranchInfoStatus"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:textSize="12sp"
-                        android:textColor="#6B7280" />
+                        android:textColor="@color/theme_text_secondary" />
                 </LinearLayout>
 
                 <LinearLayout android:id="@+id/cardConnInfo"
@@ -221,19 +221,19 @@
                         android:layout_height="wrap_content"
                         android:textSize="13sp"
                         android:textStyle="bold"
-                        android:textColor="#111827"
+                        android:textColor="@color/theme_text_primary"
                         android:layout_marginBottom="4dp" />
                     <TextView android:id="@+id/tvConnInfoTab"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="12sp"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/theme_text_secondary"
                         android:layout_marginBottom="2dp" />
                     <TextView android:id="@+id/tvConnInfoCols"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="12sp"
-                        android:textColor="#6B7280" />
+                        android:textColor="@color/theme_text_secondary" />
                 </LinearLayout>
 
                 <Button android:id="@+id/btnBranchAction"
@@ -289,12 +289,12 @@
                         android:text="Connect Sheet"
                         android:textSize="14sp"
                         android:textStyle="bold"
-                        android:textColor="#111827" />
+                        android:textColor="@color/theme_text_primary" />
                     <TextView android:id="@+id/tvConnBranchSub"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="11sp"
-                        android:textColor="#9CA3AF" />
+                        android:textColor="@color/theme_text_muted" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -313,7 +313,7 @@
                         android:text="Account" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
                 <View android:id="@+id/step1Line" android:layout_width="0dp" android:layout_height="2dp"
-                    android:layout_weight="1" android:background="#E5E7EB" android:layout_marginBottom="14dp" />
+                    android:layout_weight="1" android:background="@color/theme_border" android:layout_marginBottom="14dp" />
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
@@ -322,7 +322,7 @@
                         android:text="Sheet" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
                 <View android:id="@+id/step2Line" android:layout_width="0dp" android:layout_height="2dp"
-                    android:layout_weight="1" android:background="#E5E7EB" android:layout_marginBottom="14dp" />
+                    android:layout_weight="1" android:background="@color/theme_border" android:layout_marginBottom="14dp" />
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
@@ -331,7 +331,7 @@
                         android:text="Tab" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
                 <View android:id="@+id/step3Line" android:layout_width="0dp" android:layout_height="2dp"
-                    android:layout_weight="1" android:background="#E5E7EB" android:layout_marginBottom="14dp" />
+                    android:layout_weight="1" android:background="@color/theme_border" android:layout_marginBottom="14dp" />
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
@@ -341,7 +341,7 @@
                 </LinearLayout>
 
                 <View android:id="@+id/step4Line" android:layout_width="0dp" android:layout_height="2dp"
-                    android:layout_weight="1" android:background="#E5E7EB" android:layout_marginBottom="14dp" />
+                    android:layout_weight="1" android:background="@color/theme_border" android:layout_marginBottom="14dp" />
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
@@ -358,7 +358,7 @@
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="GOOGLE ACCOUNT" android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="#6B7280" android:layout_marginBottom="8dp" />
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="8dp" />
 
                 <LinearLayout android:id="@+id/cardSelectedAccount"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -366,10 +366,10 @@
                     android:padding="14dp" android:layout_marginBottom="10dp" android:visibility="gone">
                     <TextView android:id="@+id/tvSelectedAccountName"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:textSize="13sp" android:textStyle="bold" android:textColor="#111827" />
+                        android:textSize="13sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
                     <TextView android:id="@+id/tvSelectedAccountEmail"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:textSize="12sp" android:textColor="#6B7280" android:layout_marginTop="2dp" />
+                        android:textSize="12sp" android:textColor="@color/theme_text_secondary" android:layout_marginTop="2dp" />
                 </LinearLayout>
 
                 <LinearLayout android:layout_width="match_parent" android:layout_height="52dp"
@@ -382,14 +382,14 @@
                     <TextView android:id="@+id/tvPickAccountLabel"
                         android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:text="Sign in with Google"
-                        android:textSize="14sp" android:textStyle="bold" android:textColor="#3C4043"
+                        android:textSize="14sp" android:textStyle="bold" android:textColor="@color/theme_text_primary"
                         android:gravity="center" android:fontFamily="sans-serif-medium" />
                     <View android:layout_width="22dp" android:layout_height="22dp" android:layout_marginEnd="14dp" />
                 </LinearLayout>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="আপনি কোনো একটি Google account select করুন"
-                    android:textSize="11sp" android:textColor="#9CA3AF" android:layout_marginTop="6dp" />
+                    android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="6dp" />
             </LinearLayout>
 
             <!-- ── Step 2: Sheet picker ── -->
@@ -399,14 +399,14 @@
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="GOOGLE SHEET" android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="#6B7280" android:layout_marginBottom="5dp" />
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
 
                 <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
                     <TextView android:id="@+id/tvSelectedSheet"
                         android:layout_width="match_parent" android:layout_height="46dp"
                         android:background="@drawable/bg_input_rounded" android:padding="10dp"
                         android:gravity="center_vertical" android:text="— Sheet বেছে নিন —"
-                        android:textSize="13sp" android:textColor="#6B7280"
+                        android:textSize="13sp" android:textColor="@color/theme_text_secondary"
                         android:clickable="true" android:focusable="true" />
                     <ProgressBar android:id="@+id/pbSheetLoad"
                         android:layout_width="22dp" android:layout_height="22dp"
@@ -416,7 +416,7 @@
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="আপনার Google Drive এর spreadsheet গুলো লিস্ট হবে"
-                    android:textSize="11sp" android:textColor="#9CA3AF" android:layout_marginTop="6dp" />
+                    android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="6dp" />
             </LinearLayout>
 
             <!-- ── Step 3: Tab picker ── -->
@@ -427,7 +427,7 @@
                 <!-- Nickname field -->
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="SHEET NICKNAME" android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="#6B7280" android:layout_marginBottom="5dp" />
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
                 <EditText android:id="@+id/etNickname"
                     android:layout_width="match_parent" android:layout_height="46dp"
                     android:background="@drawable/bg_input_rounded"
@@ -438,7 +438,7 @@
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="SHEET TAB" android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="#6B7280" android:layout_marginBottom="5dp" />
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
 
                 <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
                     <Spinner android:id="@+id/spinnerTab"
@@ -452,7 +452,7 @@
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="নির্বাচিত Sheet এর tab গুলো"
-                    android:textSize="11sp" android:textColor="#9CA3AF" android:layout_marginTop="6dp" />
+                    android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="6dp" />
             </LinearLayout>
 
             <!-- ── Step 4: Column Range + Live Preview ── -->
@@ -463,7 +463,7 @@
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="COLUMN RANGE"
                     android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="#6B7280" android:layout_marginBottom="5dp" />
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
 
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal" android:layout_marginBottom="10dp">
@@ -472,7 +472,7 @@
                         android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="শুরু (A বা 1)" android:textSize="10sp"
-                            android:textColor="#9CA3AF" android:layout_marginBottom="4dp" />
+                            android:textColor="@color/theme_text_muted" android:layout_marginBottom="4dp" />
                         <EditText android:id="@+id/etColStart"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:text="1" android:background="@drawable/bg_input_rounded"
@@ -484,7 +484,7 @@
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="শেষ (J বা 10)" android:textSize="10sp"
-                            android:textColor="#9CA3AF" android:layout_marginBottom="4dp" />
+                            android:textColor="@color/theme_text_muted" android:layout_marginBottom="4dp" />
                         <EditText android:id="@+id/etColEnd"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:text="10" android:background="@drawable/bg_input_rounded"
@@ -496,7 +496,7 @@
                 <!-- Column letters preview -->
                 <TextView android:id="@+id/tvColPreview"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:textSize="11sp" android:textColor="#6B7280"
+                    android:textSize="11sp" android:textColor="@color/theme_text_secondary"
                     android:background="@drawable/bg_card_rounded"
                     android:padding="10dp" android:layout_marginBottom="8dp" />
 
@@ -518,7 +518,7 @@
                         android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Start Row" android:textSize="10sp"
-                            android:textColor="#9CA3AF" android:layout_marginBottom="4dp" />
+                            android:textColor="@color/theme_text_muted" android:layout_marginBottom="4dp" />
                         <EditText android:id="@+id/etStartRow"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:hint="1" android:background="@drawable/bg_input_rounded"
@@ -530,7 +530,7 @@
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="End Row" android:textSize="10sp"
-                            android:textColor="#9CA3AF" android:layout_marginBottom="4dp" />
+                            android:textColor="@color/theme_text_muted" android:layout_marginBottom="4dp" />
                         <EditText android:id="@+id/etEndRow"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:hint="শেষ পর্যন্ত" android:background="@drawable/bg_input_rounded"
@@ -549,7 +549,7 @@
                         <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="LIVE PREVIEW" android:textSize="10sp"
-                            android:textStyle="bold" android:textColor="#6B7280" />
+                            android:textStyle="bold" android:textColor="@color/theme_text_secondary" />
                         <ProgressBar android:id="@+id/pbPreviewLoad"
                             android:layout_width="16dp" android:layout_height="16dp"
                             android:visibility="gone" />
@@ -559,7 +559,7 @@
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:background="@drawable/bg_card_rounded"
                         android:padding="12dp" android:textSize="11sp"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/theme_text_secondary"
                         android:text="Column range দিলে এখানে sheet এর data দেখাবে..."
                         android:layout_marginBottom="8dp" />
 
@@ -594,7 +594,7 @@
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="TARGET NODE"
                     android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="#6B7280" android:layout_marginBottom="5dp" />
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
 
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal" android:layout_marginBottom="6dp">
@@ -621,18 +621,18 @@
                         android:visibility="gone" android:layout_marginEnd="8dp" />
                     <TextView android:id="@+id/tvFetchStatus"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:textSize="11sp" android:textColor="#6B7280" />
+                        android:textSize="11sp" android:textColor="@color/theme_text_secondary" />
                 </LinearLayout>
 
                 <!-- Column mapping -->
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="COLUMN MAPPING"
                     android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="#6B7280" android:layout_marginBottom="4dp" />
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="4dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="Sheet এর কোন column কোন Firebase field এ map হবে। ✓ মানে auto-detect হয়েছে।"
-                    android:textSize="11sp" android:textColor="#9CA3AF"
+                    android:textSize="11sp" android:textColor="@color/theme_text_muted"
                     android:layout_marginBottom="14dp" />
 
                 <LinearLayout android:id="@+id/containerMapping"
@@ -646,7 +646,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginTop="10dp">
                     <View android:layout_width="0dp" android:layout_height="1dp"
-                        android:layout_weight="1" android:background="#E5E7EB" />
+                        android:layout_weight="1" android:background="@color/theme_border" />
                     <TextView android:id="@+id/btnAddMappingField"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="+ Add Field"
@@ -656,7 +656,7 @@
                         android:paddingTop="8dp" android:paddingBottom="8dp"
                         android:clickable="true" android:focusable="true" />
                     <View android:layout_width="0dp" android:layout_height="1dp"
-                        android:layout_weight="1" android:background="#E5E7EB" />
+                        android:layout_weight="1" android:background="@color/theme_border" />
                 </LinearLayout>
 
             </LinearLayout>
@@ -674,7 +674,7 @@
                 <Button android:id="@+id/btnStepBack"
                     android:layout_width="0dp" android:layout_height="44dp" android:layout_weight="1"
                     android:text="← Back" android:textSize="13sp" android:textStyle="bold"
-                    android:backgroundTint="#F3F4F6" android:textColor="#374151"
+                    android:backgroundTint="#F3F4F6" android:textColor="@color/theme_text_primary"
                     android:layout_marginEnd="6dp" android:visibility="gone" />
 
                 <Button android:id="@+id/btnStepNext"
@@ -714,10 +714,10 @@
                     android:layout_marginStart="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Manage Sheet" android:textSize="14sp"
-                        android:textStyle="bold" android:textColor="#111827" />
+                        android:textStyle="bold" android:textColor="@color/theme_text_primary" />
                     <TextView android:id="@+id/tvManageBranchInfo"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:textSize="11sp" android:textColor="#9CA3AF" />
+                        android:textSize="11sp" android:textColor="@color/theme_text_muted" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -748,7 +748,7 @@
                     <TextView android:id="@+id/tabColumns"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Positioning" android:textSize="13sp" android:textStyle="bold"
-                        android:textColor="#6B7280" android:padding="8dp" />
+                        android:textColor="@color/theme_text_secondary" android:padding="8dp" />
                     <View android:id="@+id/indColumns"
                         android:layout_width="40dp" android:layout_height="2dp"
                         android:background="#E8380D" android:visibility="invisible" />
@@ -759,7 +759,7 @@
                     <TextView android:id="@+id/tabSync"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Sync" android:textSize="13sp" android:textStyle="bold"
-                        android:textColor="#6B7280" android:padding="8dp" />
+                        android:textColor="@color/theme_text_secondary" android:padding="8dp" />
                     <View android:id="@+id/indSync"
                         android:layout_width="40dp" android:layout_height="2dp"
                         android:background="#E8380D" android:visibility="invisible" />
@@ -773,22 +773,22 @@
                 android:padding="14dp">
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📄 SHEET" android:textSize="10sp" android:textStyle="bold" android:textColor="#6B7280" />
+                    android:text="📄 SHEET" android:textSize="10sp" android:textStyle="bold" android:textColor="@color/theme_text_secondary" />
                 <TextView android:id="@+id/tvOvSheet"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:textSize="13sp" android:textColor="#111827" android:layout_marginBottom="10dp" />
+                    android:textSize="13sp" android:textColor="@color/theme_text_primary" android:layout_marginBottom="10dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📑 TAB" android:textSize="10sp" android:textStyle="bold" android:textColor="#6B7280" />
+                    android:text="📑 TAB" android:textSize="10sp" android:textStyle="bold" android:textColor="@color/theme_text_secondary" />
                 <TextView android:id="@+id/tvOvTab"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:textSize="13sp" android:textColor="#111827" android:layout_marginBottom="10dp" />
+                    android:textSize="13sp" android:textColor="@color/theme_text_primary" android:layout_marginBottom="10dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="📊 COLUMNS" android:textSize="10sp" android:textStyle="bold" android:textColor="#6B7280" />
+                    android:text="📊 COLUMNS" android:textSize="10sp" android:textStyle="bold" android:textColor="@color/theme_text_secondary" />
                 <TextView android:id="@+id/tvOvCols"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:textSize="13sp" android:textColor="#111827" android:layout_marginBottom="14dp" />
+                    android:textSize="13sp" android:textColor="@color/theme_text_primary" android:layout_marginBottom="14dp" />
 
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal">
@@ -811,7 +811,7 @@
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="📐 Sheet Positioning" android:textSize="13sp"
-                    android:textStyle="bold" android:textColor="#111827" android:layout_marginBottom="10dp" />
+                    android:textStyle="bold" android:textColor="@color/theme_text_primary" android:layout_marginBottom="10dp" />
                 <LinearLayout
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal" android:gravity="center_vertical"
@@ -819,7 +819,7 @@
                     <TextView android:id="@+id/tvColPreviewMgr"
                         android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:textSize="12sp" android:textColor="#374151"
+                        android:textSize="12sp" android:textColor="@color/theme_text_primary"
                         android:lineSpacingMultiplier="1.6" />
                     <ProgressBar android:id="@+id/pbColPreviewMgr"
                         android:layout_width="18dp" android:layout_height="18dp"
@@ -858,10 +858,10 @@
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Auto Sync" android:textSize="13sp"
-                            android:textStyle="bold" android:textColor="#111827" />
+                            android:textStyle="bold" android:textColor="@color/theme_text_primary" />
                         <TextView android:id="@+id/tvSyncIntervalLabel"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="প্রতি 30 মিনিট" android:textSize="11sp" android:textColor="#6B7280" />
+                            android:text="প্রতি 30 মিনিট" android:textSize="11sp" android:textColor="@color/theme_text_secondary" />
                     </LinearLayout>
 
                     <!-- Gear icon -->
@@ -881,7 +881,7 @@
                 <TextView android:id="@+id/tvLastSynced"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="Last sync: কখনো না" android:textSize="11sp"
-                    android:textColor="#9CA3AF" android:layout_marginBottom="12dp" />
+                    android:textColor="@color/theme_text_muted" android:layout_marginBottom="12dp" />
 
                 <!-- Sync Now button -->
                 <Button android:id="@+id/btnSyncNow"
@@ -898,7 +898,7 @@
     <LinearLayout android:id="@+id/sheetBusyOverlay"
         android:layout_width="match_parent" android:layout_height="match_parent"
         android:orientation="vertical" android:gravity="center"
-        android:background="#99000000" android:clickable="true"
+        android:background="@color/theme_overlay_bg" android:clickable="true"
         android:focusable="true" android:visibility="gone">
         <ProgressBar android:layout_width="44dp" android:layout_height="44dp" android:indeterminate="true" />
         <TextView android:id="@+id/tvSheetBusy"
