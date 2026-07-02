@@ -1744,10 +1744,12 @@ class ConfigSheetFragment : Fragment() {
                                         (0 until row.length()).map { j -> row.optString(j, "") }
                                     }
                                 }
+                                val newHeaders = mutableMapOf<String, String>()
                                 rows?.forEachIndexed { idx, header ->
                                     val letter = colIndexToLetter(s + idx)
-                                    if (header.isNotBlank()) sheetHeaders[letter] = header
+                                    if (header.isNotBlank()) newHeaders[letter] = header
                                 }
+                                sheetHeaders = newHeaders
                             }
                         } catch (_: Exception) {}
                         finally { setBusy(false) }
