@@ -171,16 +171,21 @@ class HistoryFragment : Fragment() {
         }
     }
 
+    // Timestamp when this fragment instance was created — only copy records newer than this
+    private val fragmentCreatedAt = System.currentTimeMillis()
+
     private fun mergeRecordsFromFlow(records: List<CallRecord>) {
         val incomingIds = records.map { it.id }.toSet()
 
-        // ✅ Auto-copy: detect new records after initial load
+        // Auto-copy: only for records that arrived AFTER this fragment instance was created
         if (!isInitialLoad) {
             val newRecords = records.filter { it.id !in recordsCache }
             if (newRecords.isNotEmpty()) {
-                // Copy the most recently arrived record's cleaned text
                 val latest = newRecords.maxByOrNull { it.received_at } ?: newRecords.first()
-                autoCopyIfEnabled(latest)
+                // Only copy if record arrived after this fragment was created (not pre-existing)
+                if (latest.received_at > fragmentCreatedAt) {
+                    autoCopyIfEnabled(latest)
+                }
             }
         }
 
@@ -200,9 +205,13 @@ class HistoryFragment : Fragment() {
         refreshUi()
     }
 
-    /** Copy record.cleaned to clipboard if auto_copy setting is ON */
+    /** Copy record.cleaned to clipboard if auto_copy setting is ON and scanner is connected */
     private fun autoCopyIfEnabled(record: CallRecord) {
         if (!isAdded || _binding == null) return
+        // Only copy when scanner is actively connected
+        val isConnected = SessionStateManager.state.value.isConnected
+        if (!isConnected) return
+
         val autoCopy = requireContext()
             .getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
             .getBoolean("auto_copy", false)

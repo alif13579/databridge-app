@@ -243,7 +243,7 @@
                     android:textSize="13sp"
                     android:textStyle="bold"
                     android:backgroundTint="#E8380D"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/theme_bg_card"
                     android:visibility="gone" />
 
             </LinearLayout>
@@ -308,7 +308,7 @@
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
-                    <TextView android:id="@+id/step1Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
+                    <TextView android:id="@+id/step1Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/theme_bg_card" />
                     <TextView android:id="@+id/step1Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Account" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
@@ -317,7 +317,7 @@
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
-                    <TextView android:id="@+id/step2Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
+                    <TextView android:id="@+id/step2Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/theme_bg_card" />
                     <TextView android:id="@+id/step2Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Sheet" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
@@ -326,7 +326,7 @@
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
-                    <TextView android:id="@+id/step3Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
+                    <TextView android:id="@+id/step3Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/theme_bg_card" />
                     <TextView android:id="@+id/step3Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Tab" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
@@ -335,7 +335,7 @@
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
-                    <TextView android:id="@+id/step4Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
+                    <TextView android:id="@+id/step4Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/theme_bg_card" />
                     <TextView android:id="@+id/step4Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Positioning" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
@@ -345,7 +345,7 @@
 
                 <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:orientation="vertical" android:gravity="center">
-                    <TextView android:id="@+id/step5Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="#FFFFFF" />
+                    <TextView android:id="@+id/step5Dot" android:layout_width="26dp" android:layout_height="26dp" android:gravity="center" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/theme_bg_card" />
                     <TextView android:id="@+id/step5Lbl" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Mapping" android:textSize="9sp" android:layout_marginTop="2dp" />
                 </LinearLayout>
@@ -609,7 +609,7 @@
                     <Button android:id="@+id/btnFetchFields"
                         android:layout_width="wrap_content" android:layout_height="46dp"
                         android:text="Fetch" android:textSize="12sp" android:textStyle="bold"
-                        android:backgroundTint="#3B82F6" android:textColor="#FFFFFF"
+                        android:backgroundTint="#3B82F6" android:textColor="@color/theme_bg_card"
                         android:paddingStart="16dp" android:paddingEnd="16dp" />
                 </LinearLayout>
 
@@ -674,19 +674,19 @@
                 <Button android:id="@+id/btnStepBack"
                     android:layout_width="0dp" android:layout_height="44dp" android:layout_weight="1"
                     android:text="← Back" android:textSize="13sp" android:textStyle="bold"
-                    android:backgroundTint="#F3F4F6" android:textColor="@color/theme_text_primary"
+                    android:backgroundTint="@color/theme_bg_inner" android:textColor="@color/theme_text_primary"
                     android:layout_marginEnd="6dp" android:visibility="gone" />
 
                 <Button android:id="@+id/btnStepNext"
                     android:layout_width="0dp" android:layout_height="44dp" android:layout_weight="1"
                     android:text="Next →" android:textSize="13sp" android:textStyle="bold"
-                    android:backgroundTint="#E8380D" android:textColor="#FFFFFF"
+                    android:backgroundTint="#E8380D" android:textColor="@color/theme_bg_card"
                     android:visibility="gone" />
 
                 <Button android:id="@+id/btnStepConnect"
                     android:layout_width="0dp" android:layout_height="44dp" android:layout_weight="1"
                     android:text="✅ Connect" android:textSize="13sp" android:textStyle="bold"
-                    android:backgroundTint="#16A34A" android:textColor="#FFFFFF"
+                    android:backgroundTint="#16A34A" android:textColor="@color/theme_bg_card"
                     android:visibility="gone" />
             </LinearLayout>
 
@@ -795,11 +795,11 @@
                     <Button android:id="@+id/btnManReconnect"
                         android:layout_width="0dp" android:layout_height="42dp" android:layout_weight="1"
                         android:text="🔄 Reconnect" android:textSize="12sp" android:textStyle="bold"
-                        android:backgroundTint="#3B82F6" android:textColor="#FFFFFF" android:layout_marginEnd="6dp" />
+                        android:backgroundTint="#3B82F6" android:textColor="@color/theme_bg_card" android:layout_marginEnd="6dp" />
                     <Button android:id="@+id/btnManDisconnect"
                         android:layout_width="0dp" android:layout_height="42dp" android:layout_weight="1"
                         android:text="🗑 Disconnect" android:textSize="12sp" android:textStyle="bold"
-                        android:backgroundTint="#EF4444" android:textColor="#FFFFFF" android:layout_marginStart="6dp" />
+                        android:backgroundTint="#EF4444" android:textColor="@color/theme_bg_card" android:layout_marginStart="6dp" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -840,7 +840,7 @@
                 <Button android:id="@+id/btnColChange"
                     android:layout_width="match_parent" android:layout_height="42dp"
                     android:text="✏ Positioning পরিবর্তন" android:textSize="12sp"
-                    android:textStyle="bold" android:backgroundTint="#3B82F6" android:textColor="#FFFFFF" />
+                    android:textStyle="bold" android:backgroundTint="#3B82F6" android:textColor="@color/theme_bg_card" />
             </LinearLayout>
 
             <!-- Sync card -->
@@ -887,7 +887,7 @@
                 <Button android:id="@+id/btnSyncNow"
                     android:layout_width="match_parent" android:layout_height="44dp"
                     android:text="🔄 Sync এখনই করুন" android:textSize="13sp"
-                    android:textStyle="bold" android:backgroundTint="#E8380D" android:textColor="#FFFFFF" />
+                    android:textStyle="bold" android:backgroundTint="#E8380D" android:textColor="@color/theme_bg_card" />
 
             </LinearLayout>
 
@@ -903,7 +903,7 @@
         <ProgressBar android:layout_width="44dp" android:layout_height="44dp" android:indeterminate="true" />
         <TextView android:id="@+id/tvSheetBusy"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Loading..." android:textColor="#FFFFFF"
+            android:text="Loading..." android:textColor="@color/theme_bg_card"
             android:textSize="13sp" android:textStyle="bold" android:layout_marginTop="12dp" />
     </LinearLayout>
 

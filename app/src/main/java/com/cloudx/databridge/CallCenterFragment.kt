@@ -12,8 +12,11 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 
 class CallCenterFragment : Fragment() {
 
@@ -183,38 +186,115 @@ class CallCenterFragment : Fragment() {
 
     private fun loadData() {
         pbProgress.visibility = View.VISIBLE
-        tvEmpty.visibility = View.GONE
+        tvEmpty.visibility    = View.GONE
 
-        // Demo data
-        allParcels = getDemoAgentParcels()
+        val db = com.google.firebase.database.FirebaseDatabase.getInstance()
 
-        // Extract unique branches (dynamic)
-        branches = allParcels.map { it.branch }.distinct()
-        setupBranchChips()
-        setupFilterTabs() // ✅ rebuild status chips dynamically from actual data
+        androidx.lifecycle.lifecycleScope.launch {
+            try {
+                // Today's date range
+                val cal = java.util.Calendar.getInstance()
+                cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                cal.set(java.util.Calendar.MINUTE, 0)
+                cal.set(java.util.Calendar.SECOND, 0)
+                cal.set(java.util.Calendar.MILLISECOND, 0)
+                val dayStart = cal.timeInMillis
+                val dayEnd   = dayStart + 24 * 60 * 60 * 1000 - 1
 
-        adapter = CallCenterAdapter(
-            onCall = { item ->
-                AutoDialHelper.dial(this, item.phone) // ✅ auto-dial / dialpad / SIM chooser
-            },
-            onSetRemarks = { item ->
-                showRemarksDialog(item)
-            },
-            onValidate = { item ->
-                // Auto-validate: set as confirmed
-                allParcels = allParcels.map {
-                    if (it.id == item.id) it.copy(
-                        validationRequest = false,
-                        status = "confirmed",
-                        remarks = "Validated by call center"
-                    ) else it
+                // 1. Fetch all today's delivery runs
+                val runsSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    db.reference.child("courier/run_routes/delivery_run").get().await()
                 }
-                applyFilters()
-            }
-        )
 
-        applyFilters()
-        pbProgress.visibility = View.GONE
+                // Collect all consignment ids from today's runs
+                val consignmentStatuses = mutableMapOf<String, String>()
+                runsSnap.children.forEach { runSnap ->
+                    val runId = runSnap.key ?: return@forEach
+                    val runTimestamp = runId.removePrefix("run_").toLongOrNull() ?: return@forEach
+                    if (runTimestamp < dayStart || runTimestamp > dayEnd) return@forEach
+
+                    runSnap.child("consignments").children.forEach { c ->
+                        val cId     = c.key ?: return@forEach
+                        val cStatus = c.getValue(String::class.java) ?: "pending"
+                        consignmentStatuses[cId] = cStatus
+                    }
+                }
+
+                if (consignmentStatuses.isEmpty()) {
+                    pbProgress.visibility = View.GONE
+                    tvEmpty.visibility    = View.VISIBLE
+                    tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
+                    return@launch
+                }
+
+                // 2. Fetch consignment details
+                val parcels = mutableListOf<CallCenterParcelItem>()
+                consignmentStatuses.entries.forEach { (cId, runStatus) ->
+                    val snap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        db.reference.child("courier/consignments/$cId").get().await()
+                    }
+                    if (!snap.exists()) return@forEach
+
+                    val name    = snap.child("recipientName").getValue(String::class.java) ?: ""
+                    val phone   = snap.child("recipientPhone").getValue(String::class.java) ?: ""
+                    val address = snap.child("recipientAddress").getValue(String::class.java) ?: ""
+                    val cod     = snap.child("collectableAmount").getValue(String::class.java)
+                        ?.toDoubleOrNull()?.toInt()
+                        ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0
+                    val hub     = snap.child("deliveryHub").getValue(String::class.java) ?: ""
+
+                    // Last remark
+                    val remarkSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        db.reference.child("courier/remarks_by_consignment/$cId")
+                            .limitToLast(1).get().await()
+                    }
+                    val lastRemark = remarkSnap.children.firstOrNull()
+                        ?.child("status")?.getValue(String::class.java) ?: ""
+
+                    parcels.add(CallCenterParcelItem(
+                        id                = cId,
+                        customer          = name,
+                        phone             = phone,
+                        address           = address,
+                        cod               = cod,
+                        status            = runStatus,
+                        remarks           = lastRemark,
+                        validationRequest = runStatus == "verify_req",
+                        validationNote    = if (runStatus == "verify_req") lastRemark else "",
+                        time              = "",
+                        worker            = "",
+                        branch            = hub
+                    ))
+                }
+
+                allParcels = parcels.sortedBy { it.id }
+                branches   = allParcels.map { it.branch }.filter { it.isNotBlank() }.distinct().sorted()
+                setupBranchChips()
+                setupFilterTabs()
+
+                adapter = CallCenterAdapter(
+                    onCall = { item -> AutoDialHelper.dial(this@CallCenterFragment, item.phone) },
+                    onSetRemarks = { item -> showRemarksDialog(item) },
+                    onValidate = { item ->
+                        allParcels = allParcels.map {
+                            if (it.id == item.id) it.copy(
+                                validationRequest = false,
+                                status  = "confirmed",
+                                remarks = "Validated by call center"
+                            ) else it
+                        }
+                        applyFilters()
+                    }
+                )
+                applyFilters()
+
+            } catch (e: Exception) {
+                tvEmpty.visibility = View.VISIBLE
+                tvEmpty.text       = "⚠ Load failed: ${e.message?.take(60)}"
+            } finally {
+                pbProgress.visibility = View.GONE
+            }
+        }
     }
 
     private fun showRemarksDialog(item: CallCenterParcelItem) {
@@ -300,6 +380,19 @@ class CallCenterFragment : Fragment() {
             val fullRemark = if (noteText.isNotBlank()) "$selectedRemarkText — $noteText"
                              else selectedRemarkText
 
+            // Write to Firebase
+            val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
+            val timestamp = System.currentTimeMillis()
+            val multiUpdate = mutableMapOf<String, Any>(
+                "courier/remarks_by_consignment/${item.id}/remarks_$timestamp" to mapOf(
+                    "type"      to "cc_remark",
+                    "status"    to fullRemark,
+                    "createdAt" to timestamp
+                ),
+                "courier/consignments_by_phone/${item.phone}/${item.id}" to selectedStatus
+            )
+            db.reference.updateChildren(multiUpdate)
+
             allParcels = allParcels.map {
                 if (it.id == item.id) it.copy(
                     validationRequest = false,
@@ -355,19 +448,6 @@ class CallCenterFragment : Fragment() {
             tvEmpty.visibility = View.GONE
             adapter.renderInto(layoutParcelContainer)
         }
-    }
-
-    private fun getDemoAgentParcels(): List<CallCenterParcelItem> {
-        return listOf(
-            CallCenterParcelItem("DB-2201", "Rahim Mia", "01885580909", "House 12, Mograpara Bazar", 850, "confirmed", "Customer want to receive today", false, "", "9:15 AM", "Sonia Akter", "Sonargaon Hub"),
-            CallCenterParcelItem("DB-2202", "Fatema Begum", "01712345678", "Vill: Pirojpur, Sonargaon", 1200, "pending", "", true, "Address খুঁজে পাচ্ছি না", "9:30 AM", "Sonia Akter", "Sonargaon Hub"),
-            CallCenterParcelItem("DB-2203", "Karim Hossain", "01987654321", "College Road, Flat 3B", 650, "rejected", "Customer not available today", false, "", "10:00 AM", "Sonia Akter", "Sonargaon Hub"),
-            CallCenterParcelItem("DB-2204", "Nasrin Akter", "01611223344", "Kanchpur Bridge Road", 2100, "confirmed", "Will receive between 2-4 PM", false, "", "10:15 AM", "Sonia Akter", "Sonargaon Hub"),
-            CallCenterParcelItem("DB-2207", "Rashed Khan", "01900112233", "Bandar Port Road", 1750, "confirmed", "Ready to receive", false, "", "9:00 AM", "Sonia Akter", "Bandar Hub"),
-            CallCenterParcelItem("DB-2208", "Mitu Begum", "01600998877", "Char Bandar, House 5", 900, "pending", "", true, "Customer phone off", "9:45 AM", "Sonia Akter", "Bandar Hub"),
-            CallCenterParcelItem("DB-2209", "Selim Mia", "01744332211", "Tanbazar, Shop 22", 3200, "rejected", "Refused delivery", false, "", "10:30 AM", "Alif Mia", "Sonargaon Hub"),
-            CallCenterParcelItem("DB-2210", "Poly Khatun", "01522110099", "Goaldi Mosque Road", 560, "pending", "", false, "", "11:15 AM", "Alif Mia", "Sonargaon Hub")
-        )
     }
 
     data class FilterTab(val key: String, val label: String)

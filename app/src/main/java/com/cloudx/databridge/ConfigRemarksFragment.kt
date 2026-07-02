@@ -164,8 +164,8 @@ class ConfigRemarksFragment : Fragment() {
                 .inflate(R.layout.item_status_chip, chipGroup, false) as TextView
             chip.text  = "${meta.en} $count"
             val isActive = s == activeStatus
-            chip.setBackgroundColor(if (isActive) parseColor(meta.bg)  else parseColor("#F9FAFB"))
-            chip.setTextColor     (if (isActive) parseColor(meta.color) else parseColor("#9CA3AF"))
+            chip.setBackgroundColor(if (isActive) parseColor(meta.bg)  else requireContext().getColor(R.color.theme_bg_inner))
+            chip.setTextColor     (if (isActive) parseColor(meta.color) else requireContext().getColor(R.color.theme_text_muted))
             chip.tag = s
             chip.setOnClickListener {
                 activeStatus = s
@@ -377,7 +377,7 @@ class ConfigRemarksFragment : Fragment() {
         fun label(text: String) = TextView(ctx).apply {
             this.text = text
             textSize = 10f
-            setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+            setTextColor(android.graphics.Color.requireContext().getColor(R.color.theme_text_muted))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, dp(10), 0, dp(5))
             layoutParams = LinearLayout.LayoutParams(
