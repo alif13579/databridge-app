@@ -58,7 +58,7 @@
             android:text="No status found yet, please create."
             android:gravity="center"
             android:padding="20dp"
-            android:textColor="#9CA3AF"
+            android:textColor="@color/theme_text_muted"
             android:textSize="13sp"
             android:background="@drawable/bg_card_rounded"
             android:visibility="gone"
@@ -75,10 +75,10 @@
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="+ নতুন Status" android:textSize="12sp" android:textStyle="bold"
-                android:textColor="#374151" android:layout_marginBottom="12dp" />
+                android:textColor="@color/theme_text_primary" android:layout_marginBottom="12dp" />
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="KEY" android:textSize="10sp" android:textColor="#9CA3AF"
+                android:text="KEY" android:textSize="10sp" android:textColor="@color/theme_text_muted"
                 android:textStyle="bold" android:layout_marginBottom="4dp" />
             <EditText android:id="@+id/etNewStatusKey" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:hint="e.g. PARTIAL"
@@ -91,7 +91,7 @@
                 <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                     android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="4dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="বাংলা" android:textSize="10sp" android:textColor="#9CA3AF"
+                        android:text="বাংলা" android:textSize="10sp" android:textColor="@color/theme_text_muted"
                         android:textStyle="bold" android:layout_marginBottom="4dp" />
                     <EditText android:id="@+id/etNewStatusBn" android:layout_width="match_parent"
                         android:layout_height="wrap_content" android:hint="বাংলা..."
@@ -101,7 +101,7 @@
                 <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                     android:layout_weight="1" android:orientation="vertical" android:layout_marginStart="4dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="English" android:textSize="10sp" android:textColor="#9CA3AF"
+                        android:text="English" android:textSize="10sp" android:textColor="@color/theme_text_muted"
                         android:textStyle="bold" android:layout_marginBottom="4dp" />
                     <EditText android:id="@+id/etNewStatusEn" android:layout_width="match_parent"
                         android:layout_height="wrap_content" android:hint="English..."
@@ -112,7 +112,7 @@
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="Priority (বেশি = আগে দেখাবে)" android:textSize="10sp"
-                android:textColor="#9CA3AF" android:textStyle="bold" android:layout_marginBottom="4dp" />
+                android:textColor="@color/theme_text_muted" android:textStyle="bold" android:layout_marginBottom="4dp" />
             <EditText android:id="@+id/etNewStatusPriority" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:hint="0"
                 android:textSize="13sp" android:padding="8dp"
@@ -120,7 +120,7 @@
                 android:inputType="number" android:layout_marginBottom="10dp" />
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Color" android:textSize="10sp" android:textColor="#9CA3AF"
+                android:text="Color" android:textSize="10sp" android:textColor="@color/theme_text_muted"
                 android:textStyle="bold" android:layout_marginBottom="6dp" />
             <LinearLayout
                 android:id="@+id/colorPickerNew"
@@ -153,7 +153,7 @@
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:gravity="center"
-        android:background="#99000000"
+        android:background="@color/theme_overlay_bg"
         android:clickable="true"
         android:focusable="true"
         android:visibility="gone">
