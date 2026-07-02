@@ -171,16 +171,21 @@ class HistoryFragment : Fragment() {
         }
     }
 
+    // Timestamp when this fragment instance was created — only copy records newer than this
+    private val fragmentCreatedAt = System.currentTimeMillis()
+
     private fun mergeRecordsFromFlow(records: List<CallRecord>) {
         val incomingIds = records.map { it.id }.toSet()
 
-        // ✅ Auto-copy: detect new records after initial load
+        // Auto-copy: only for records that arrived AFTER this fragment instance was created
         if (!isInitialLoad) {
             val newRecords = records.filter { it.id !in recordsCache }
             if (newRecords.isNotEmpty()) {
-                // Copy the most recently arrived record's cleaned text
                 val latest = newRecords.maxByOrNull { it.received_at } ?: newRecords.first()
-                autoCopyIfEnabled(latest)
+                // Only copy if record arrived after this fragment was created (not pre-existing)
+                if (latest.received_at > fragmentCreatedAt) {
+                    autoCopyIfEnabled(latest)
+                }
             }
         }
 
