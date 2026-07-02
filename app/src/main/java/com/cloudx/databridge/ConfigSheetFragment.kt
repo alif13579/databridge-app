@@ -1995,6 +1995,8 @@ class ConfigSheetFragment : Fragment() {
         val conn = activeConn() ?: return
         selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
         selectedTab = conn.tabName
+        selectedNickname = conn.nickname
+        etNickname?.setText(conn.nickname)
         availableTabs = listOf(conn.tabName)
         updateSheetPickerLabel()
         etColStart?.setText(conn.colStart.toString())
