@@ -54,6 +54,7 @@ class DataBridgeService : Service() {
     private var containerListener: ChildEventListener? = null
     private var sessionListener: ChildEventListener? = null
     private var activeContainerPath: String? = null
+    private var currentActiveExtensionId: String? = null
 
     // ✅ SINGLE Companion Object (All constants + helpers here)
     companion object {
