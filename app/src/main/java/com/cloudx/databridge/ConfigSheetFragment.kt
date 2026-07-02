@@ -2078,6 +2078,8 @@ class ConfigSheetFragment : Fragment() {
             conn.endRow?.takeIf { it > 0 }?.let { etEndRow?.setText(it.toString()) }
         }
         if (googleAccount != null) loadSheetsForAccount()
+        selectedNickname = conn.nickname
+        etNickname?.setText(conn.nickname)
         targetNode = conn.targetNode
         etTargetNode?.setText(conn.targetNode)
         pendingMapping.clear()
