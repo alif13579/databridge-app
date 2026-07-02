@@ -433,12 +433,25 @@ class WorkerSpaceFragment : Fragment() {
                     return@launch
                 }
 
-                // 3. For each open run, get consignment ids + statuses
+                // Today's date range
+                val cal = java.util.Calendar.getInstance()
+                cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                cal.set(java.util.Calendar.MINUTE, 0)
+                cal.set(java.util.Calendar.SECOND, 0)
+                cal.set(java.util.Calendar.MILLISECOND, 0)
+                val dayStart = cal.timeInMillis
+                val dayEnd   = dayStart + 24 * 60 * 60 * 1000 - 1
+
+                // 3. For each open run TODAY, get consignment ids + statuses
                 val consignmentStatuses = mutableMapOf<String, String>() // id → status from run
                 runSnap.children.forEach { runChild ->
                     val runId    = runChild.key ?: return@forEach
                     val runStatus = runChild.getValue(String::class.java) ?: "open"
-                    if (runStatus != "open") return@forEach // শুধু open runs
+                    if (runStatus != "open") return@forEach
+
+                    // Extract timestamp from run_id: "run_1779963904137" → 1779963904137
+                    val runTimestamp = runId.removePrefix("run_").toLongOrNull() ?: return@forEach
+                    if (runTimestamp < dayStart || runTimestamp > dayEnd) return@forEach // শুধু open runs
 
                     val consSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                         db.reference.child("courier/run_routes/delivery_run/$runId/consignments")
