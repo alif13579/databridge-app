@@ -25,7 +25,7 @@
                     android:text="Worker Fragment" android:textSize="13sp" android:textStyle="bold"
                     android:textColor="?attr/colorOnSurface" android:layout_marginEnd="6dp" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="(Delivery Agent)" android:textSize="11sp" android:textColor="#9CA3AF" />
+                    android:text="(Delivery Agent)" android:textSize="11sp" android:textColor="@color/theme_text_muted" />
             </LinearLayout>
 
             <Spinner
@@ -57,7 +57,7 @@
                     android:text="Call Center Fragment" android:textSize="13sp" android:textStyle="bold"
                     android:textColor="?attr/colorOnSurface" android:layout_marginEnd="6dp" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="(CC Agent)" android:textSize="11sp" android:textColor="#9CA3AF" />
+                    android:text="(CC Agent)" android:textSize="11sp" android:textColor="@color/theme_text_muted" />
             </LinearLayout>
 
             <Spinner
