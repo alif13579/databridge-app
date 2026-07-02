@@ -348,7 +348,7 @@ class ConfigStatusesFragment : Fragment() {
         fun label(text: String) = TextView(ctx).apply {
             this.text = text
             textSize = 10f
-            setTextColor(android.graphics.Color.requireContext().getColor(R.color.theme_text_muted))
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, dp(10), 0, dp(5))
             layoutParams = LinearLayout.LayoutParams(
