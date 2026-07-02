@@ -13,10 +13,12 @@ import android.widget.EditText
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.tasks.await
 
 
 class WorkerSpaceFragment : Fragment() {
@@ -401,10 +403,126 @@ class WorkerSpaceFragment : Fragment() {
     private fun loadData() {
         pbProgress.visibility = View.VISIBLE
         tvEmpty.visibility = View.GONE
-        allParcels = getDemoParcels()
-        setupFilterTabs() // ✅ rebuild chips dynamically from actual data
-        applyFilters()
-        pbProgress.visibility = View.GONE
+
+        val uid = auth.currentUser?.uid ?: return
+        val db = com.google.firebase.database.FirebaseDatabase.getInstance()
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                // 1. Get employeeId
+                val employeeId = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    db.reference.child("users/$uid/profile/company_info/employee_id")
+                        .get().await().getValue(String::class.java)?.trim()
+                } ?: run {
+                    pbProgress.visibility = View.GONE
+                    tvEmpty.visibility = View.VISIBLE
+                    tvEmpty.text = "⚠ Employee ID পাওয়া যায়নি"
+                    return@launch
+                }
+
+                // 2. Get all run ids for this agent
+                val runSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    db.reference.child("courier/runs_by_agentId/$employeeId/delivery_run")
+                        .get().await()
+                }
+                if (!runSnap.exists()) {
+                    pbProgress.visibility = View.GONE
+                    tvEmpty.visibility = View.VISIBLE
+                    tvEmpty.text = "📭\n\nআজকের কোনো run নেই"
+                    return@launch
+                }
+
+                // 3. For each open run, get consignment ids + statuses
+                val consignmentStatuses = mutableMapOf<String, String>() // id → status from run
+                runSnap.children.forEach { runChild ->
+                    val runId    = runChild.key ?: return@forEach
+                    val runStatus = runChild.getValue(String::class.java) ?: "open"
+                    if (runStatus != "open") return@forEach // শুধু open runs
+
+                    val consSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        db.reference.child("courier/run_routes/delivery_run/$runId/consignments")
+                            .get().await()
+                    }
+                    consSnap.children.forEach { c ->
+                        val cId     = c.key ?: return@forEach
+                        val cStatus = c.getValue(String::class.java) ?: "pending"
+                        consignmentStatuses[cId] = cStatus
+                    }
+                }
+
+                if (consignmentStatuses.isEmpty()) {
+                    pbProgress.visibility = View.GONE
+                    tvEmpty.visibility = View.VISIBLE
+                    tvEmpty.text = "📭\n\nকোনো consignment নেই"
+                    return@launch
+                }
+
+                // 4. Fetch full details from courier/consignments/
+                val parcels = mutableListOf<WorkerParcelItem>()
+                consignmentStatuses.entries.forEach { (cId, runStatus) ->
+                    val detailSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        db.reference.child("courier/consignments/$cId").get().await()
+                    }
+                    if (!detailSnap.exists()) return@forEach
+
+                    val name    = detailSnap.child("recipientName").getValue(String::class.java) ?: ""
+                    val phone   = detailSnap.child("recipientPhone").getValue(String::class.java) ?: ""
+                    val address = detailSnap.child("recipientAddress").getValue(String::class.java) ?: ""
+                    val cod     = detailSnap.child("collectableAmount").getValue(String::class.java)
+                        ?.toDoubleOrNull()?.toInt()
+                        ?: detailSnap.child("collectableAmount").getValue(Long::class.java)?.toInt()
+                        ?: 0
+                    val status  = runStatus // run এর status = source of truth
+                    val hub     = detailSnap.child("deliveryHub").getValue(String::class.java) ?: ""
+
+                    // Remarks from remarks_by_consignment
+                    val remarksSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        db.reference.child("courier/remarks_by_consignment/$cId")
+                            .limitToLast(5).get().await()
+                    }
+                    val history = remarksSnap.children.mapNotNull { r ->
+                        val type      = r.child("type").getValue(String::class.java) ?: return@mapNotNull null
+                        val rStatus   = r.child("status").getValue(String::class.java) ?: ""
+                        val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
+                        val timeStr   = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                            .format(java.util.Date(createdAt))
+                        HistoryEntry(
+                            action     = type.uppercase(),
+                            remark     = rStatus,
+                            time       = timeStr,
+                            author     = "",
+                            authorRole = "agent"
+                        )
+                    }.toList()
+
+                    val lastRemark = history.lastOrNull()?.remark ?: ""
+
+                    parcels.add(WorkerParcelItem(
+                        id                = cId,
+                        customer          = name,
+                        phone             = phone,
+                        address           = address,
+                        cod               = cod,
+                        status            = status,
+                        remarks           = lastRemark,
+                        validationRequest = status == "verify_req",
+                        validationNote    = if (status == "verify_req") lastRemark else "",
+                        time              = hub,
+                        history           = history
+                    ))
+                }
+
+                allParcels = parcels.sortedBy { it.id }
+                setupFilterTabs()
+                applyFilters()
+
+            } catch (e: Exception) {
+                tvEmpty.visibility = View.VISIBLE
+                tvEmpty.text = "⚠ Load failed: ${e.message?.take(60)}"
+            } finally {
+                pbProgress.visibility = View.GONE
+            }
+        }
     }
 
     private fun applyFilters() {
@@ -457,77 +575,6 @@ class WorkerSpaceFragment : Fragment() {
         tvTodayCod.text = "৳$totalCod"
     }
 
-    private fun getDemoParcels(): List<WorkerParcelItem> {
-        return listOf(
-            WorkerParcelItem(
-                id = "DB-2201", customer = "Rahim Mia", phone = "01885580909",
-                address = "House 12, Mograpara Bazar", cod = 850,
-                status = "confirmed", remarks = "Customer want to receive today",
-                validationRequest = false, validationNote = "", time = "9:15 AM",
-                ccRemark = "", ccRemarkTime = "", ccRemarkAuthor = "",
-                history = listOf(
-                    HistoryEntry("ASSIGNED", "Sonia Akter কে assign করা হয়েছে", "8:30 AM", "System", "system"),
-                    HistoryEntry("CONFIRMED", "Customer want to receive today", "9:15 AM", "Sonia Akter", "agent")
-                )
-            ),
-            WorkerParcelItem(
-                id = "DB-2202", customer = "Fatema Begum", phone = "01712345678",
-                address = "Vill: Pirojpur, Sonargaon", cod = 1200,
-                status = "delivery_req", remarks = "",
-                validationRequest = false, validationNote = "", time = "9:30 AM",
-                ccRemark = "নতুন address: House 5, Road 3, Sonargaon এ যাও",
-                ccRemarkTime = "10:15 AM", ccRemarkAuthor = "Alif Mia",
-                history = listOf(
-                    HistoryEntry("ASSIGNED", "Sonia Akter কে assign করা হয়েছে", "9:00 AM", "System", "system"),
-                    HistoryEntry("VERIFY REQUEST", "Address খুঁজে পাচ্ছি না", "9:30 AM", "Sonia Akter", "agent"),
-                    HistoryEntry("DELIVERY REQUEST", "নতুন address: House 5, Road 3, Sonargaon", "10:15 AM", "Alif Mia · CC", "cc")
-                )
-            ),
-            WorkerParcelItem(
-                id = "DB-2203", customer = "Karim Hossain", phone = "01987654321",
-                address = "College Road, Flat 3B", cod = 650,
-                status = "hold_req", remarks = "Customer address এ নেই",
-                validationRequest = false, validationNote = "", time = "10:00 AM",
-                ccRemark = "Customer address এ নেই, parcel hold করো",
-                ccRemarkTime = "10:45 AM", ccRemarkAuthor = "Alif Mia",
-                history = listOf(
-                    HistoryEntry("ASSIGNED", "Sonia Akter কে assign করা হয়েছে", "9:45 AM", "System", "system"),
-                    HistoryEntry("HOLD REQUEST", "Customer address এ নেই, parcel hold করো", "10:45 AM", "Alif Mia · CC", "cc")
-                )
-            ),
-            WorkerParcelItem(
-                id = "DB-2204", customer = "Nasrin Akter", phone = "01611223344",
-                address = "Kanchpur Bridge Road", cod = 2100,
-                status = "delivered", remarks = "Customer parcel নিয়েছে",
-                validationRequest = false, validationNote = "", time = "8:45 AM",
-                ccRemark = "", ccRemarkTime = "", ccRemarkAuthor = "",
-                history = listOf(
-                    HistoryEntry("ASSIGNED", "Sonia Akter কে assign করা হয়েছে", "8:00 AM", "System", "system"),
-                    HistoryEntry("CONFIRMED", "Will receive between 2-4 PM", "8:30 AM", "Sonia Akter", "agent"),
-                    HistoryEntry("DELIVERED ✓", "Customer parcel successfully delivered", "11:15 AM", "Sonia Akter", "agent")
-                )
-            ),
-            WorkerParcelItem(
-                id = "DB-2205", customer = "Jamal Uddin", phone = "01755667788",
-                address = "East Para, Sonargaon", cod = 480,
-                status = "pending", remarks = "",
-                validationRequest = false, validationNote = "", time = "11:00 AM",
-                ccRemark = "", ccRemarkTime = "", ccRemarkAuthor = "",
-                history = emptyList()
-            ),
-            WorkerParcelItem(
-                id = "DB-2206", customer = "Sumi Akter", phone = "01833445566",
-                address = "Main Road, Shop 7", cod = 320,
-                status = "verify_req", remarks = "",
-                validationRequest = true, validationNote = "Customer ফোন ধরছে না", time = "11:30 AM",
-                ccRemark = "", ccRemarkTime = "", ccRemarkAuthor = "",
-                history = listOf(
-                    HistoryEntry("ASSIGNED", "Sonia Akter কে assign করা হয়েছে", "11:00 AM", "System", "system"),
-                    HistoryEntry("VERIFY REQUEST", "Customer ফোন ধরছে না", "11:30 AM", "Sonia Akter", "agent")
-                )
-            )
-        )
-    }
 
     data class FilterTab(val key: String, val label: String)
     data class WorkerRemarkOption(
