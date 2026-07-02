@@ -123,6 +123,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             drawerLayout.closeDrawer(GravityCompat.START)
             return
         }
+        if (supportFragmentManager.backStackEntryCount > 1) {
+            supportFragmentManager.popBackStack()
+            return
+        }
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("App বন্ধ করবেন?")
             .setMessage("DataBridge বন্ধ করতে চান?")
@@ -665,6 +669,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private fun loadFragment(fragment: androidx.fragment.app.Fragment) {
         supportFragmentManager.beginTransaction()
             .replace(R.id.container, fragment)
+            .addToBackStack(null)
             .commit()
     }
 
