@@ -134,6 +134,8 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             .setNegativeButton("না") { dialog, _ -> dialog.dismiss() }
             .show()
     }
+
+    override fun onDestroy() {
         auth.removeAuthStateListener(authStateListener)
         stopSessionMonitor()
         networkCallback?.let {
