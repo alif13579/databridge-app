@@ -675,8 +675,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         supportFragmentManager.beginTransaction()
             .replace(R.id.container, fragment)
             .addToBackStack(null)
-            .runOnCommit { layoutFragmentLoading?.visibility = View.GONE }
             .commit()
+        supportFragmentManager.executePendingTransactions()
+        layoutFragmentLoading?.visibility = View.GONE
     }
 
     fun navigateToHistory() {
