@@ -1850,7 +1850,7 @@ class ConfigSheetFragment : Fragment() {
                     text      = "${if (isLast) "└─" else "├─"} $key: \"$value\""
                     textSize  = 11f
                     setTextColor(android.graphics.Color.parseColor("#6B7280"))
-                    fontFamily = "monospace"
+                    typeface = android.graphics.Typeface.MONOSPACE
                     layoutParams = android.widget.LinearLayout.LayoutParams(
                         android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                         android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
