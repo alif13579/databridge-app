@@ -200,9 +200,13 @@ class HistoryFragment : Fragment() {
         refreshUi()
     }
 
-    /** Copy record.cleaned to clipboard if auto_copy setting is ON */
+    /** Copy record.cleaned to clipboard if auto_copy setting is ON and scanner is connected */
     private fun autoCopyIfEnabled(record: CallRecord) {
         if (!isAdded || _binding == null) return
+        // Only copy when scanner is actively connected
+        val isConnected = SessionStateManager.state.value.isConnected
+        if (!isConnected) return
+
         val autoCopy = requireContext()
             .getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
             .getBoolean("auto_copy", false)
