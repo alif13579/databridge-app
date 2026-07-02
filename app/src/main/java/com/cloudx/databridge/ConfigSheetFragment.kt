@@ -1363,11 +1363,33 @@ class ConfigSheetFragment : Fragment() {
                 val fieldMap = mutableMapOf<String, Any>()
                 conn.columnMapping.forEach { (field, colLetter) ->
                     if (field == "consignmentId") return@forEach // key, not a value field
+                    if (field == "createdAt" || field == "updatedAt") return@forEach // handled below with validation
                     val idx = letterToIndex(colLetter)
                     if (idx < 0) return@forEach
                     val value = row.getOrElse(idx) { "" }.trim()
                     if (value.isNotBlank()) fieldMap[field] = value
                 }
+
+                // ── createdAt / updatedAt — parsed from sheet with safety checks:
+                //    1) must be a parseable date/timestamp (else ignored — not pushed)
+                //    2) must not be in the future
+                //    3) createdAt must not be after updatedAt
+                val nowMillis = System.currentTimeMillis()
+                var createdAtMillis: Long? = conn.columnMapping["createdAt"]?.let { colLetter ->
+                    val idx = letterToIndex(colLetter)
+                    if (idx < 0) null else parseSheetTimestamp(row.getOrElse(idx) { "" }.trim())
+                }
+                var updatedAtMillis: Long? = conn.columnMapping["updatedAt"]?.let { colLetter ->
+                    val idx = letterToIndex(colLetter)
+                    if (idx < 0) null else parseSheetTimestamp(row.getOrElse(idx) { "" }.trim())
+                }
+                if (createdAtMillis != null && createdAtMillis!! > nowMillis) createdAtMillis = null
+                if (updatedAtMillis != null && updatedAtMillis!! > nowMillis) updatedAtMillis = null
+                if (createdAtMillis != null && updatedAtMillis != null && createdAtMillis!! > updatedAtMillis!!) {
+                    createdAtMillis = null // createdAt can never be after updatedAt
+                }
+                createdAtMillis?.let { fieldMap["createdAt"] = it }
+                updatedAtMillis?.let { fieldMap["updatedAt"] = it }
 
                 // Normalize phone
                 val phoneField = conn.columnMapping["recipientPhone"]?.let { colLetter ->
@@ -1398,8 +1420,12 @@ class ConfigSheetFragment : Fragment() {
                     // COMPARE & UPDATE changed fields only
                     val changedFields = mutableMapOf<String, Any>()
                     fieldMap.forEach { (k, v) ->
-                        val firebaseVal = existSnap.child(k).getValue(String::class.java) ?: ""
-                        if (v.toString() != firebaseVal) changedFields[k] = v
+                        val firebaseVal = existSnap.child(k).value
+                        val same = when {
+                            v is Long && firebaseVal is Number -> firebaseVal.toLong() == v
+                            else -> (firebaseVal?.toString() ?: "") == v.toString()
+                        }
+                        if (!same) changedFields[k] = v
                     }
                     if (changedFields.isNotEmpty()) {
                         changedFields.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
@@ -1441,6 +1467,47 @@ class ConfigSheetFragment : Fragment() {
             setBusy(false)
             toast("⚠ Sync error: ${e.message?.take(60)}")
         }
+    }
+
+    /**
+     * Parses a raw sheet cell value into an epoch-millis timestamp.
+     * Returns null if the value can't be confidently parsed as a date/time —
+     * callers should then skip pushing that field rather than writing garbage.
+     * Accepts: epoch seconds (10 digits), epoch millis (13 digits), or common date/date-time strings.
+     */
+    private fun parseSheetTimestamp(raw: String): Long? {
+        if (raw.isBlank()) return null
+        val trimmed = raw.trim()
+
+        // Numeric epoch
+        trimmed.toLongOrNull()?.let { num ->
+            return when (trimmed.length) {
+                10 -> num * 1000L   // epoch seconds
+                13 -> num           // epoch millis
+                else -> null        // ambiguous digit count — don't guess
+            }
+        }
+
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd",
+            "dd/MM/yyyy HH:mm:ss",
+            "dd/MM/yyyy",
+            "MM/dd/yyyy HH:mm:ss",
+            "MM/dd/yyyy",
+            "dd-MM-yyyy",
+            "yyyy/MM/dd",
+        )
+        for (pattern in patterns) {
+            try {
+                val sdf = java.text.SimpleDateFormat(pattern, java.util.Locale.ENGLISH)
+                sdf.isLenient = false
+                val date = sdf.parse(trimmed) ?: continue
+                return date.time
+            } catch (_: Exception) { /* try next pattern */ }
+        }
+        return null // unparseable — caller should skip this field
     }
 
     private fun normalizePhone(phone: String): String {
