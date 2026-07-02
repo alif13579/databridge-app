@@ -1353,6 +1353,7 @@ class ConfigSheetFragment : Fragment() {
             setBusy(true, "Firebase sync করছে...")
 
             var inserted = 0; var updated = 0; var skipped = 0
+            val dateIssues = mutableListOf<String>()
             val basePath = conn.targetNode.trimEnd('/')
 
             for (row in dataRows) {
@@ -1375,18 +1376,35 @@ class ConfigSheetFragment : Fragment() {
                 //    2) must not be in the future
                 //    3) createdAt must not be after updatedAt
                 val nowMillis = System.currentTimeMillis()
-                var createdAtMillis: Long? = conn.columnMapping["createdAt"]?.let { colLetter ->
+                val createdRaw = conn.columnMapping["createdAt"]?.let { colLetter ->
                     val idx = letterToIndex(colLetter)
-                    if (idx < 0) null else parseSheetTimestamp(row.getOrElse(idx) { "" }.trim())
-                }
-                var updatedAtMillis: Long? = conn.columnMapping["updatedAt"]?.let { colLetter ->
+                    if (idx >= 0) row.getOrElse(idx) { "" }.trim() else ""
+                } ?: ""
+                val updatedRaw = conn.columnMapping["updatedAt"]?.let { colLetter ->
                     val idx = letterToIndex(colLetter)
-                    if (idx < 0) null else parseSheetTimestamp(row.getOrElse(idx) { "" }.trim())
+                    if (idx >= 0) row.getOrElse(idx) { "" }.trim() else ""
+                } ?: ""
+
+                var createdAtMillis: Long? = if (createdRaw.isNotBlank()) parseSheetTimestamp(createdRaw) else null
+                var updatedAtMillis: Long? = if (updatedRaw.isNotBlank()) parseSheetTimestamp(updatedRaw) else null
+
+                if (createdRaw.isNotBlank() && createdAtMillis == null) {
+                    dateIssues.add("$conId → createdAt: বোঝা যায়নি (\"$createdRaw\")")
                 }
-                if (createdAtMillis != null && createdAtMillis!! > nowMillis) createdAtMillis = null
-                if (updatedAtMillis != null && updatedAtMillis!! > nowMillis) updatedAtMillis = null
+                if (updatedRaw.isNotBlank() && updatedAtMillis == null) {
+                    dateIssues.add("$conId → updatedAt: বোঝা যায়নি (\"$updatedRaw\")")
+                }
+                if (createdAtMillis != null && createdAtMillis!! > nowMillis) {
+                    dateIssues.add("$conId → createdAt: ভবিষ্যতের তারিখ, বাদ দেওয়া হয়েছে")
+                    createdAtMillis = null
+                }
+                if (updatedAtMillis != null && updatedAtMillis!! > nowMillis) {
+                    dateIssues.add("$conId → updatedAt: ভবিষ্যতের তারিখ, বাদ দেওয়া হয়েছে")
+                    updatedAtMillis = null
+                }
                 if (createdAtMillis != null && updatedAtMillis != null && createdAtMillis!! > updatedAtMillis!!) {
-                    createdAtMillis = null // createdAt can never be after updatedAt
+                    dateIssues.add("$conId → createdAt, updatedAt-এর পরে হওয়ায় বাদ দেওয়া হয়েছে")
+                    createdAtMillis = null
                 }
                 createdAtMillis?.let { fieldMap["createdAt"] = it }
                 updatedAtMillis?.let { fieldMap["updatedAt"] = it }
@@ -1452,13 +1470,19 @@ class ConfigSheetFragment : Fragment() {
             // ── 5. Summary dialog ─────────────────────────────────────
             setBusy(false)
             if (!isAdded) return
+            val issuesText = if (dateIssues.isNotEmpty()) {
+                val shown = dateIssues.take(10).joinToString("\n") { "• $it" }
+                val more  = if (dateIssues.size > 10) "\n…আরও ${dateIssues.size - 10}টি" else ""
+                "\n\n⚠ Date সংক্রান্ত সমস্যা (${dateIssues.size}টি):\n$shown$more"
+            } else ""
             android.app.AlertDialog.Builder(ctx)
                 .setTitle("✅ Sync Complete")
                 .setMessage(
                     "Inserted : $inserted\n" +
                     "Updated  : $updated\n" +
                     "Skipped  : $skipped\n" +
-                    "Total    : ${dataRows.size}"
+                    "Total    : ${dataRows.size}" +
+                    issuesText
                 )
                 .setPositiveButton("OK", null)
                 .show()
@@ -1473,8 +1497,9 @@ class ConfigSheetFragment : Fragment() {
      * Parses a raw sheet cell value into an epoch-millis timestamp.
      * Returns null if the value can't be confidently parsed as a date/time —
      * callers should then skip pushing that field rather than writing garbage.
-     * Accepts: epoch seconds (10 digits), epoch millis (13 digits), or unambiguous
-     * ISO-style date/date-time strings (yyyy-MM-dd, yyyy/MM/dd, with optional time).
+     * Accepts: epoch seconds (10-digit), epoch millis (13-digit), Google Sheets/Excel
+     * date-serial numbers (e.g. 46204 — days since Dec 30 1899, decimal = time of day),
+     * or unambiguous ISO-style date/date-time strings (yyyy-MM-dd, yyyy/MM/dd, with optional time).
      * Slash/dash formats like "7/1/2026" are intentionally NOT accepted since
      * day-vs-month order can't be reliably determined — better to skip than guess wrong.
      */
@@ -1482,12 +1507,18 @@ class ConfigSheetFragment : Fragment() {
         if (raw.isBlank()) return null
         val trimmed = raw.trim()
 
-        // Numeric epoch
-        trimmed.toLongOrNull()?.let { num ->
-            return when (trimmed.length) {
-                10 -> num * 1000L   // epoch seconds
-                13 -> num           // epoch millis
-                else -> null        // ambiguous digit count — don't guess
+        // Numeric: epoch seconds/millis, or spreadsheet date-serial number
+        trimmed.toDoubleOrNull()?.let { num ->
+            val isPlainInteger = trimmed.matches(Regex("\\d+"))
+            return when {
+                isPlainInteger && trimmed.length == 13 -> num.toLong()               // epoch millis
+                isPlainInteger && trimmed.length == 10 -> (num * 1000.0).toLong()    // epoch seconds
+                num > 0 && num < 100000 -> {
+                    // Google Sheets / Excel date-serial: day 0 = 1899-12-30 (UTC).
+                    // Integer part = days, fractional part = time-of-day.
+                    ((num - 25569.0) * 86400000.0).toLong()
+                }
+                else -> null // unrecognized numeric shape — don't guess
             }
         }
 
