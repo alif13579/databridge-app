@@ -789,8 +789,9 @@ class ConfigSheetFragment : Fragment() {
                             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
                         ).apply { marginEnd = 8.dp() }
                         setOnClickListener {
-                            toast("🔄 Syncing ${conn.nickname.ifBlank { conn.sheetName }}...")
-                            // TODO: trigger actual sync for this connection
+                            viewLifecycleOwner.lifecycleScope.launch {
+                                syncSheetToFirebase(conn)
+                            }
                         }
                     }
 
