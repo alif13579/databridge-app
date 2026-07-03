@@ -113,6 +113,7 @@ class ConfigSheetFragment : Fragment() {
         val columnMapping:  Map<String, String> = emptyMap(), // firebaseField → colLetter
         // firebaseField → Pair(keyColLetter, valueColLetter) — for object/key-value fields
         val objectColumnMapping: Map<String, Pair<String, String>> = emptyMap(),
+        val primaryKeyField: String = "",  // colLetter whose value = Firebase node key
         val targetNode:     String  = "courier/consignments",
     ) {
         val columns: List<String> get() = (colStart..colEnd).map { n ->
@@ -170,6 +171,7 @@ class ConfigSheetFragment : Fragment() {
     private var pbFetchFields:    ProgressBar? = null
     private var tvFetchStatus:    TextView? = null
     private var btnAddMappingField: TextView? = null
+    private var spinnerPrimaryKey: Spinner? = null
 
     // Step 1 - Account picker
     private var cardSelectedAccount:   View? = null
@@ -246,6 +248,7 @@ class ConfigSheetFragment : Fragment() {
     // Track which custom fields are "object" type (vs default "key"/flat type)
     private val objectTypeFields = mutableSetOf<String>()
     private var targetNode = "courier/consignments"
+    private var primaryKeyField = ""  // colLetter selected as node key
     // Custom fields added manually via "+ Add Field" — fieldName to label
     private val customMappingFields = mutableListOf<Pair<String, String>>()
     // Headers fetched from sheet (letter → header text)
@@ -355,6 +358,7 @@ class ConfigSheetFragment : Fragment() {
         pbFetchFields       = view.findViewById(R.id.pbFetchFields)
         tvFetchStatus       = view.findViewById(R.id.tvFetchStatus)
         btnAddMappingField  = view.findViewById(R.id.btnAddMappingField)
+        spinnerPrimaryKey   = view.findViewById(R.id.spinnerPrimaryKey)
 
         cardSelectedAccount    = view.findViewById(R.id.cardSelectedAccount)
         tvSelectedAccountName  = view.findViewById(R.id.tvSelectedAccountName)
@@ -1299,11 +1303,10 @@ class ConfigSheetFragment : Fragment() {
             toast("⚠ Column mapping নেই — Step 5 complete করুন")
             return
         }
-        val consignmentCol = conn.columnMapping["consignmentId"] ?: run {
-            toast("⚠ consignmentId column map করা নেই")
+        val pkColLetter = conn.primaryKeyField.ifBlank { conn.columnMapping["consignmentId"] } ?: run {
+            toast("⚠ Node key column select করা নেই — Step 5 এ select করুন")
             return
         }
-        val phoneCol = conn.columnMapping["recipientPhone"]
 
         setBusy(true, "Sheet fetch করছে...")
 
@@ -1354,8 +1357,8 @@ class ConfigSheetFragment : Fragment() {
                 return idx - conn.colStart  // 0-based within fetched range
             }
 
-            val conIdIdx = letterToIndex(consignmentCol)
-            if (conIdIdx < 0) { setBusy(false); toast("⚠ consignmentId column invalid"); return }
+            val conIdIdx = letterToIndex(pkColLetter)
+            if (conIdIdx < 0) { setBusy(false); toast("⚠ Node key column invalid"); return }
 
             // ── 4. Process rows ───────────────────────────────────────
             setBusy(true, "Firebase sync করছে...")
@@ -1371,7 +1374,6 @@ class ConfigSheetFragment : Fragment() {
                 // Build field map from column mapping
                 val fieldMap = mutableMapOf<String, Any>()
                 conn.columnMapping.forEach { (field, colLetter) ->
-                    if (field == "consignmentId") return@forEach // key, not a value field
                     if (field == "createdAt" || field == "updatedAt") return@forEach // handled below with validation
                     val idx = letterToIndex(colLetter)
                     if (idx < 0) return@forEach
@@ -1812,7 +1814,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun handleConnect() {
-        if (!pendingMapping.containsKey("consignmentId")) { showErr("consignmentId column map করুন — এটা required"); return }
+        if (primaryKeyField.isBlank()) { showErr("Node key column select করুন — এটা required"); return }
         val sheet   = selectedSheet ?: run { showErr("Sheet নেই"); return }
         if (selectedTab.isBlank())  { showErr("Tab নেই"); return }
         val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Valid start column দিন (A বা 1)"); return }
@@ -1843,6 +1845,7 @@ class ConfigSheetFragment : Fragment() {
             connectedAt = existing?.connectedAt ?: System.currentTimeMillis(),
             columnMapping = pendingMapping.toMap(),
             objectColumnMapping = pendingObjectMapping.toMap(),
+            primaryKeyField = primaryKeyField,
             targetNode    = etTargetNode?.text?.toString()?.trim()?.ifBlank { "courier/consignments" } ?: "courier/consignments",
         )
         val connList = connections.getOrPut(activeBranch) { mutableListOf() }
@@ -2357,10 +2360,24 @@ class ConfigSheetFragment : Fragment() {
             return
         }
 
-        val headerOptions = listOf("— Skip —") + sheetHeaders.map { (letter, text) ->
+        val headerOptions = listOf("— Select node key column —") + sheetHeaders.map { (letter, text) ->
             "$letter: $text"
         }
         val headerLetters = listOf("") + sheetHeaders.keys.toList()
+
+        // Primary key spinner
+        val ctx2 = context
+        if (ctx2 != null) {
+            spinnerPrimaryKey?.adapter = ArrayAdapter(ctx2, android.R.layout.simple_spinner_dropdown_item, headerOptions)
+            val pkIdx = if (primaryKeyField.isNotBlank()) headerLetters.indexOf(primaryKeyField).coerceAtLeast(0) else 0
+            spinnerPrimaryKey?.setSelection(pkIdx)
+            spinnerPrimaryKey?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    primaryKeyField = headerLetters.getOrElse(pos) { "" }
+                }
+                override fun onNothingSelected(p: AdapterView<*>?) {}
+            }
+        }
 
         // All fields already set above
         val allFields2 = allFields
@@ -2469,6 +2486,7 @@ class ConfigSheetFragment : Fragment() {
         pendingMapping.clear()
         pendingObjectMapping.clear()
         objectTypeFields.clear()
+        primaryKeyField = ""
         targetNode = "courier/consignments"
         etTargetNode?.setText("")
         tvFetchStatus?.text = ""
@@ -2499,6 +2517,7 @@ class ConfigSheetFragment : Fragment() {
         etNickname?.setText(conn.nickname)
         targetNode = conn.targetNode
         etTargetNode?.setText(conn.targetNode)
+        primaryKeyField = conn.primaryKeyField
         pendingMapping.clear()
         pendingMapping.putAll(conn.columnMapping)
         pendingObjectMapping.clear()
@@ -3082,7 +3101,8 @@ class ConfigSheetFragment : Fragment() {
                                 )
                             }.filterKeys { it.isNotBlank() }
                             val tgtNode    = connSnap.child("targetNode").getValue(String::class.java) ?: "courier/consignments"
-                            list.add(SheetConn(connId, nickname, branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at, colMap, objMapRaw, tgtNode))
+                            val pkField    = connSnap.child("primaryKeyField").getValue(String::class.java) ?: ""
+                            list.add(SheetConn(connId, nickname, branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at, colMap, objMapRaw, pkField, tgtNode))
                         }
                         if (list.isNotEmpty()) connections[branchId] = list
                     }
@@ -3142,6 +3162,7 @@ class ConfigSheetFragment : Fragment() {
                     "objectColumnMapping" to conn.objectColumnMapping.mapValues {
                         (_, pair) -> mapOf("key" to pair.first, "value" to pair.second)
                     },
+                    "primaryKeyField" to conn.primaryKeyField,
                     "targetNode"      to conn.targetNode,
                 )
                 val basePath = "config/sheets/${conn.branchId}/connections"

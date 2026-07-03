@@ -624,6 +624,21 @@
                         android:textSize="11sp" android:textColor="@color/theme_text_secondary" />
                 </LinearLayout>
 
+                <!-- Primary key selector -->
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="NODE KEY (required)"
+                    android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="#E8380D" android:layout_marginBottom="4dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Sheet এর কোন column টা Firebase node এর key হবে? (যেমন CON001, CON002)"
+                    android:textSize="11sp" android:textColor="@color/theme_text_muted"
+                    android:layout_marginBottom="8dp" />
+                <Spinner android:id="@+id/spinnerPrimaryKey"
+                    android:layout_width="match_parent" android:layout_height="46dp"
+                    android:background="@drawable/bg_input_rounded"
+                    android:padding="10dp"
+                    android:layout_marginBottom="16dp" />
+
                 <!-- Column mapping -->
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="COLUMN MAPPING"
