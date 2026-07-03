@@ -590,6 +590,16 @@
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:layout_marginTop="16dp" android:visibility="gone">
 
+                <!-- Existing node picker under courier/ -->
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="COURIER/ এর ভেতরে বিদ্যমান NODE (ঐচ্ছিক)"
+                    android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
+                <Spinner android:id="@+id/spinnerExistingNode"
+                    android:layout_width="match_parent" android:layout_height="46dp"
+                    android:background="@drawable/bg_input_rounded"
+                    android:layout_marginBottom="10dp" />
+
                 <!-- Target node -->
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="TARGET NODE"
@@ -597,7 +607,16 @@
                     android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
 
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:layout_marginBottom="6dp">
+                    android:orientation="horizontal" android:layout_marginBottom="6dp"
+                    android:gravity="center_vertical">
+                    <TextView android:id="@+id/tvTargetNodePrefix"
+                        android:layout_width="wrap_content" android:layout_height="46dp"
+                        android:text="courier/" android:gravity="center_vertical"
+                        android:textSize="13sp" android:textStyle="bold"
+                        android:textColor="@color/theme_text_secondary"
+                        android:background="@drawable/bg_input_rounded"
+                        android:paddingStart="10dp" android:paddingEnd="4dp"
+                        android:layout_marginEnd="4dp" />
                     <EditText android:id="@+id/etTargetNode"
                         android:layout_width="0dp" android:layout_height="46dp"
                         android:layout_weight="1"

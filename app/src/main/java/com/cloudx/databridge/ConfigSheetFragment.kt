@@ -184,6 +184,9 @@ class ConfigSheetFragment : Fragment() {
     private var stepView1: View? = null; private var stepView2: View? = null
     private var stepView3: View? = null; private var stepView4: View? = null; private var stepView5: View? = null
     private var containerMapping: android.widget.LinearLayout? = null
+    private var spinnerExistingNode: Spinner? = null
+    private var courierChildNodes: List<String> = emptyList()
+    private var courierNodesFetched = false
     private var etTargetNode:     EditText? = null
     private var btnFetchFields:   android.widget.Button? = null
     private var pbFetchFields:    ProgressBar? = null
@@ -376,6 +379,7 @@ class ConfigSheetFragment : Fragment() {
         stepView1 = view.findViewById(R.id.stepView1); stepView2 = view.findViewById(R.id.stepView2)
         stepView3 = view.findViewById(R.id.stepView3); stepView4 = view.findViewById(R.id.stepView4); stepView5 = view.findViewById(R.id.stepView5)
         containerMapping    = view.findViewById(R.id.containerMapping)
+        spinnerExistingNode = view.findViewById(R.id.spinnerExistingNode)
         etTargetNode        = view.findViewById(R.id.etTargetNode)
         btnFetchFields      = view.findViewById(R.id.btnFetchFields)
         pbFetchFields       = view.findViewById(R.id.pbFetchFields)
@@ -514,8 +518,9 @@ class ConfigSheetFragment : Fragment() {
         btnManDisconn?.setOnClickListener   { handleDisconnect() }
 
         btnFetchFields?.setOnClickListener {
-            val node = etTargetNode?.text?.toString()?.trim() ?: ""
-            if (node.isBlank()) { showErr("Node path দিন"); return@setOnClickListener }
+            val suffix = etTargetNode?.text?.toString()?.trim()?.trim('/') ?: ""
+            if (suffix.isBlank()) { showErr("Node path দিন (courier/ এর পরের অংশ)"); return@setOnClickListener }
+            val node = "courier/$suffix"
             targetNode = node
             fetchNodeKeys(node)
         }
@@ -1039,7 +1044,7 @@ class ConfigSheetFragment : Fragment() {
             2 -> updateSheetPickerLabel()
             3 -> updateTabSpinner()
             4 -> { updateColPreview(); updateSummary(); scheduleLivePreview() }
-            5 -> renderMappingStep()
+            5 -> { fetchCourierChildNodes(); renderMappingStep() }
         }
     }
 
@@ -1897,7 +1902,7 @@ class ConfigSheetFragment : Fragment() {
             objectColumnMapping = pendingObjectMapping.toMap(),
             primaryKeyField = "",  // legacy field left blank for connections saved via new builder
             primaryKeyParts = pendingPkParts.toList(),
-            targetNode    = etTargetNode?.text?.toString()?.trim()?.ifBlank { "courier/consignments" } ?: "courier/consignments",
+            targetNode    = "courier/" + (etTargetNode?.text?.toString()?.trim()?.trim('/')?.ifBlank { "consignments" } ?: "consignments"),
         )
         val connList = connections.getOrPut(activeBranch) { mutableListOf() }
         val idx = connList.indexOfFirst { it.connectionId == conn.connectionId }
@@ -1932,6 +1937,62 @@ class ConfigSheetFragment : Fragment() {
 
     private var nodePreviewData: Map<String, String> = emptyMap()
     private var nodePreviewExpanded = true
+
+    /**
+     * Fetches the immediate child keys under "courier/" (shallow — just key names, not full data)
+     * so the user can pick an existing node from a dropdown instead of typing blind.
+     * Cached for the lifetime of the fragment; harmless if it fails (falls back to manual typing).
+     */
+    private fun fetchCourierChildNodes() {
+        if (courierNodesFetched) { populateExistingNodeSpinner(); return }
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val idToken = withContext(Dispatchers.IO) {
+                    try { auth.currentUser?.getIdToken(false)?.await()?.token } catch (_: Exception) { null }
+                }
+                val rootUrl = db.reference.root.toString().trimEnd('/')
+                val authParam = idToken?.let { "&auth=$it" } ?: ""
+                val url = "$rootUrl/courier.json?shallow=true$authParam"
+                val body = withContext(Dispatchers.IO) {
+                    val req = Request.Builder().url(url).build()
+                    httpClient.newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) null else resp.body?.string()
+                    }
+                }
+                courierChildNodes = if (body.isNullOrBlank() || body == "null") {
+                    emptyList()
+                } else {
+                    val obj = org.json.JSONObject(body)
+                    obj.keys().asSequence().toList().sorted()
+                }
+            } catch (_: Exception) {
+                courierChildNodes = emptyList()
+            } finally {
+                courierNodesFetched = true
+                if (isAdded) populateExistingNodeSpinner()
+            }
+        }
+    }
+
+    private fun populateExistingNodeSpinner() {
+        val ctx = context ?: return
+        val options = listOf("— নতুন path লিখুন —") + courierChildNodes
+        spinnerExistingNode?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, options)
+        val currentSuffix = etTargetNode?.text?.toString()?.trim()?.trim('/') ?: ""
+        val idx = courierChildNodes.indexOf(currentSuffix)
+        spinnerExistingNode?.setSelection(if (idx >= 0) idx + 1 else 0)
+        spinnerExistingNode?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (pos == 0) return // "নতুন path লিখুন" — leave manual entry as-is
+                val chosen = courierChildNodes.getOrNull(pos - 1) ?: return
+                etTargetNode?.setText(chosen)
+                val fullNode = "courier/$chosen"
+                targetNode = fullNode
+                fetchNodeKeys(fullNode) // auto column-detect on selection
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+    }
 
     private fun fetchNodeKeys(node: String) {
         pbFetchFields?.visibility = View.VISIBLE
@@ -2456,7 +2517,7 @@ class ConfigSheetFragment : Fragment() {
 
         // Pre-fill target node if saved
         if (etTargetNode?.text.isNullOrBlank()) {
-            etTargetNode?.setText(targetNode)
+            etTargetNode?.setText(targetNode.removePrefix("courier/"))
         }
 
         val dp = resources.displayMetrics.density
@@ -2692,7 +2753,7 @@ class ConfigSheetFragment : Fragment() {
         selectedNickname = conn.nickname
         etNickname?.setText(conn.nickname)
         targetNode = conn.targetNode
-        etTargetNode?.setText(conn.targetNode)
+        etTargetNode?.setText(conn.targetNode.removePrefix("courier/"))
         primaryKeyField = conn.primaryKeyField
         pendingPkParts.clear()
         pendingPkParts.addAll(conn.effectivePkParts())
