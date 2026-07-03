@@ -94,6 +94,14 @@ class ConfigSheetFragment : Fragment() {
         val status: String = "",
     )
 
+    // A single component of a composite primary key.
+    // type = "fixed" → `value` is literal text (e.g. "run_")
+    // type = "col"   → `value` is a sheet column letter whose row-value gets read dynamically
+    data class PkPart(
+        val type:  String = "col",
+        val value: String = "",
+    )
+
     data class SheetConn(
         val connectionId:   String  = "",   // Firebase push key
         val nickname:       String  = "",   // user-defined label
@@ -113,9 +121,19 @@ class ConfigSheetFragment : Fragment() {
         val columnMapping:  Map<String, String> = emptyMap(), // firebaseField → colLetter
         // firebaseField → Pair(keyColLetter, valueColLetter) — for object/key-value fields
         val objectColumnMapping: Map<String, Pair<String, String>> = emptyMap(),
-        val primaryKeyField: String = "",  // colLetter whose value = Firebase node key
+        val primaryKeyField: String = "",  // LEGACY — colLetter whose value = Firebase node key
         val targetNode:     String  = "courier/consignments",
+        // NEW — composite key: prefix(fixed) + one or more columns, in order.
+        // e.g. [Fixed("run_"), Column("B"), Column("C")] → run_FDA009_20250703
+        // Falls back to `primaryKeyField` (single column) when empty, for backward compatibility.
+        val primaryKeyParts: List<PkPart> = emptyList(),
     ) {
+        /** Resolves the effective composite key parts, migrating legacy single-column configs. */
+        fun effectivePkParts(): List<PkPart> = when {
+            primaryKeyParts.isNotEmpty() -> primaryKeyParts
+            primaryKeyField.isNotBlank() -> listOf(PkPart("col", primaryKeyField))
+            else -> emptyList()
+        }
         val columns: List<String> get() = (colStart..colEnd).map { n ->
             var num = n; var result = ""
             while (num > 0) { val rem = (num - 1) % 26; result = ('A' + rem) + result; num = (num - 1) / 26 }
@@ -171,7 +189,10 @@ class ConfigSheetFragment : Fragment() {
     private var pbFetchFields:    ProgressBar? = null
     private var tvFetchStatus:    TextView? = null
     private var btnAddMappingField: TextView? = null
-    private var spinnerPrimaryKey: Spinner? = null
+    private var spinnerPrimaryKey: Spinner? = null  // LEGACY — no longer bound, kept to avoid touching unrelated code
+    private var containerPkBuilder: android.widget.LinearLayout? = null
+    private var btnAddPkPart: TextView? = null
+    private var tvPkPreview: TextView? = null
 
     // Step 1 - Account picker
     private var cardSelectedAccount:   View? = null
@@ -248,7 +269,9 @@ class ConfigSheetFragment : Fragment() {
     // Track which custom fields are "object" type (vs default "key"/flat type)
     private val objectTypeFields = mutableSetOf<String>()
     private var targetNode = "courier/consignments"
-    private var primaryKeyField = ""  // colLetter selected as node key
+    private var primaryKeyField = ""  // LEGACY — colLetter selected as node key
+    // NEW — composite primary key builder state (prefix + column parts, in order)
+    private val pendingPkParts = mutableListOf<SheetConn.PkPart>()
     // Custom fields added manually via "+ Add Field" — fieldName to label
     private val customMappingFields = mutableListOf<Pair<String, String>>()
     // Headers fetched from sheet (letter → header text)
@@ -359,6 +382,13 @@ class ConfigSheetFragment : Fragment() {
         tvFetchStatus       = view.findViewById(R.id.tvFetchStatus)
         btnAddMappingField  = view.findViewById(R.id.btnAddMappingField)
         spinnerPrimaryKey   = view.findViewById(R.id.spinnerPrimaryKey)
+        containerPkBuilder  = view.findViewById(R.id.containerPkBuilder)
+        btnAddPkPart        = view.findViewById(R.id.btnAddPkPart)
+        tvPkPreview         = view.findViewById(R.id.tvPkPreview)
+        btnAddPkPart?.setOnClickListener {
+            pendingPkParts.add(SheetConn.PkPart("fixed", ""))
+            renderPkBuilder()
+        }
 
         cardSelectedAccount    = view.findViewById(R.id.cardSelectedAccount)
         tvSelectedAccountName  = view.findViewById(R.id.tvSelectedAccountName)
@@ -1303,8 +1333,11 @@ class ConfigSheetFragment : Fragment() {
             toast("⚠ Column mapping নেই — Step 5 complete করুন")
             return
         }
-        val pkColLetter = conn.primaryKeyField.ifBlank { conn.columnMapping["consignmentId"] } ?: run {
-            toast("⚠ Node key column select করা নেই — Step 5 এ select করুন")
+        val pkParts: List<SheetConn.PkPart> = conn.effectivePkParts().ifEmpty {
+            conn.columnMapping["consignmentId"]?.let { listOf(SheetConn.PkPart("col", it)) } ?: emptyList()
+        }
+        if (pkParts.isEmpty()) {
+            toast("⚠ Primary key select করা নেই — Step 5 এ select করুন")
             return
         }
 
@@ -1357,8 +1390,17 @@ class ConfigSheetFragment : Fragment() {
                 return idx - conn.colStart  // 0-based within fetched range
             }
 
-            val conIdIdx = letterToIndex(pkColLetter)
-            if (conIdIdx < 0) { setBusy(false); toast("⚠ Node key column invalid"); return }
+            // Builds the composite primary key for one row by concatenating its parts in order.
+            fun buildPrimaryKey(row: List<String>): String = pkParts.joinToString("") { part ->
+                when (part.type) {
+                    "fixed" -> part.value
+                    "col" -> {
+                        val idx = letterToIndex(part.value)
+                        if (idx < 0) "" else row.getOrElse(idx) { "" }.trim()
+                    }
+                    else -> ""
+                }
+            }
 
             // ── 4. Process rows ───────────────────────────────────────
             setBusy(true, "Firebase sync করছে...")
@@ -1368,7 +1410,7 @@ class ConfigSheetFragment : Fragment() {
             val basePath = conn.targetNode.trimEnd('/')
 
             for (row in dataRows) {
-                val conId = row.getOrElse(conIdIdx) { "" }.trim()
+                val conId = buildPrimaryKey(row)
                 if (conId.isBlank()) { skipped++; continue }
 
                 // Build field map from column mapping
@@ -1463,8 +1505,10 @@ class ConfigSheetFragment : Fragment() {
                     // INSERT
                     fieldMap.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
                     objectFieldWrites.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
-                    // consignments_by_phone
-                    if (normalizedPhone.isNotBlank()) {
+                    // consignments_by_phone — legacy secondary index, only relevant for the
+                    // default courier/consignments flow. Guarded so other sheet types
+                    // (e.g. courier/run_routes/...) never write into this unrelated index.
+                    if (basePath == "courier/consignments" && normalizedPhone.isNotBlank()) {
                         val status = fieldMap["status"]?.toString() ?: ""
                         multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] = status
                     }
@@ -1487,8 +1531,8 @@ class ConfigSheetFragment : Fragment() {
                     }
                     if (changedFields.isNotEmpty()) {
                         changedFields.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
-                        // Update consignments_by_phone if status changed
-                        if ("status" in changedFields && normalizedPhone.isNotBlank()) {
+                        // Update consignments_by_phone if status changed (guarded, see note above)
+                        if (basePath == "courier/consignments" && "status" in changedFields && normalizedPhone.isNotBlank()) {
                             multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] =
                                 changedFields["status"].toString()
                         }
@@ -1814,7 +1858,8 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun handleConnect() {
-        if (primaryKeyField.isBlank()) { showErr("Node key column select করুন — এটা required"); return }
+        if (pendingPkParts.isEmpty()) { showErr("Primary key এ কমপক্ষে একটা part (prefix/column) যোগ করুন — required"); return }
+        if (pendingPkParts.any { it.type == "col" && it.value.isBlank() }) { showErr("Primary key এর Column part-এ কলাম select করুন"); return }
         val sheet   = selectedSheet ?: run { showErr("Sheet নেই"); return }
         if (selectedTab.isBlank())  { showErr("Tab নেই"); return }
         val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Valid start column দিন (A বা 1)"); return }
@@ -1845,7 +1890,8 @@ class ConfigSheetFragment : Fragment() {
             connectedAt = existing?.connectedAt ?: System.currentTimeMillis(),
             columnMapping = pendingMapping.toMap(),
             objectColumnMapping = pendingObjectMapping.toMap(),
-            primaryKeyField = primaryKeyField,
+            primaryKeyField = "",  // legacy field left blank for connections saved via new builder
+            primaryKeyParts = pendingPkParts.toList(),
             targetNode    = etTargetNode?.text?.toString()?.trim()?.ifBlank { "courier/consignments" } ?: "courier/consignments",
         )
         val connList = connections.getOrPut(activeBranch) { mutableListOf() }
@@ -2263,6 +2309,141 @@ class ConfigSheetFragment : Fragment() {
         container.addView(card)
     }
 
+    /** Renders the composite primary-key builder: an ordered list of Prefix/Column parts. */
+    private fun renderPkBuilder() {
+        val ctx = context ?: return
+        val container = containerPkBuilder ?: return
+        container.removeAllViews()
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        if (pendingPkParts.isEmpty()) {
+            val tvEmpty = TextView(ctx).apply {
+                text = "\"+ Add Part\" দিয়ে prefix/column যোগ করুন"
+                textSize = 11f
+                setTextColor(ctx.getColor(R.color.theme_text_muted))
+                setPadding(0, 4.dp(), 0, 4.dp())
+            }
+            container.addView(tvEmpty)
+            updatePkPreview()
+            return
+        }
+
+        val headerOptions = sheetHeaders.map { (letter, text) -> "$letter: $text" }
+        val headerLetters = sheetHeaders.keys.toList()
+
+        pendingPkParts.forEachIndexed { index, part ->
+            val row = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity     = android.view.Gravity.CENTER_VERTICAL
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = 8.dp() }
+            }
+
+            val typeSpinner = Spinner(ctx).apply {
+                background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+                layoutParams = android.widget.LinearLayout.LayoutParams(92.dp(), 40.dp())
+                    .apply { marginEnd = 6.dp() }
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
+                    listOf("Prefix", "Column"))
+                setSelection(if (part.type == "col") 1 else 0)
+            }
+
+            val valueInput = EditText(ctx).apply {
+                hint = "e.g. run_"
+                background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+                setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
+                textSize = 12f
+                setText(part.value)
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, 40.dp(), 1f)
+                    .apply { marginEnd = 6.dp() }
+                visibility = if (part.type == "fixed") View.VISIBLE else View.GONE
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        if (index < pendingPkParts.size && pendingPkParts[index].type == "fixed") {
+                            pendingPkParts[index] = pendingPkParts[index].copy(value = s?.toString() ?: "")
+                            updatePkPreview()
+                        }
+                    }
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                })
+            }
+
+            val colSpinner = Spinner(ctx).apply {
+                background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, 40.dp(), 1f)
+                    .apply { marginEnd = 6.dp() }
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
+                    if (headerOptions.isEmpty()) listOf("— কোনো column নেই —") else headerOptions)
+                val idx = headerLetters.indexOf(part.value).coerceAtLeast(0)
+                setSelection(idx)
+                visibility = if (part.type == "col") View.VISIBLE else View.GONE
+                onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                    override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                        if (index < pendingPkParts.size && headerLetters.isNotEmpty() &&
+                            pendingPkParts[index].type == "col") {
+                            pendingPkParts[index] = pendingPkParts[index].copy(value = headerLetters.getOrElse(pos) { "" })
+                            updatePkPreview()
+                        }
+                    }
+                    override fun onNothingSelected(p: AdapterView<*>?) {}
+                }
+            }
+
+            typeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    val newType = if (pos == 1) "col" else "fixed"
+                    if (index < pendingPkParts.size && pendingPkParts[index].type != newType) {
+                        val newValue = if (newType == "col") headerLetters.firstOrNull() ?: "" else ""
+                        pendingPkParts[index] = SheetConn.PkPart(newType, newValue)
+                        renderPkBuilder()
+                    }
+                }
+                override fun onNothingSelected(p: AdapterView<*>?) {}
+            }
+
+            val btnDelete = TextView(ctx).apply {
+                text = "✕"
+                textSize = 13f
+                setTextColor(android.graphics.Color.parseColor("#EF4444"))
+                setPadding(6.dp(), 0, 0, 0)
+                isClickable = true; isFocusable = true
+                setOnClickListener {
+                    if (index < pendingPkParts.size) pendingPkParts.removeAt(index)
+                    renderPkBuilder()
+                }
+            }
+
+            row.addView(typeSpinner)
+            row.addView(valueInput)
+            row.addView(colSpinner)
+            row.addView(btnDelete)
+            container.addView(row)
+        }
+
+        updatePkPreview()
+    }
+
+    private fun updatePkPreview() {
+        if (pendingPkParts.isEmpty()) {
+            tvPkPreview?.text = "⚠ কমপক্ষে একটা part যোগ করুন"
+            tvPkPreview?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
+            return
+        }
+        val preview = pendingPkParts.joinToString("") { part ->
+            when (part.type) {
+                "fixed" -> part.value
+                "col"   -> if (part.value.isBlank()) "{?}" else "{${sheetHeaders[part.value] ?: part.value}}"
+                else    -> ""
+            }
+        }
+        tvPkPreview?.text = "Preview: $preview"
+        tvPkPreview?.setTextColor(context?.getColor(R.color.theme_text_secondary) ?: android.graphics.Color.DKGRAY)
+    }
+
     private fun renderMappingStep() {
         val ctx = context ?: return
         val container = containerMapping ?: return
@@ -2346,6 +2527,9 @@ class ConfigSheetFragment : Fragment() {
             container.addView(treeCard)
         }
 
+        // Primary key builder renders independently of fetched/custom fields state
+        renderPkBuilder()
+
         // ── Empty state ───────────────────────────────────────────────
         val allFields = fetchedNodeKeys.map { it to it } + customMappingFields
         if (allFields.isEmpty()) {
@@ -2364,20 +2548,6 @@ class ConfigSheetFragment : Fragment() {
             "$letter: $text"
         }
         val headerLetters = listOf("") + sheetHeaders.keys.toList()
-
-        // Primary key spinner
-        val ctx2 = context
-        if (ctx2 != null) {
-            spinnerPrimaryKey?.adapter = ArrayAdapter(ctx2, android.R.layout.simple_spinner_dropdown_item, headerOptions)
-            val pkIdx = if (primaryKeyField.isNotBlank()) headerLetters.indexOf(primaryKeyField).coerceAtLeast(0) else 0
-            spinnerPrimaryKey?.setSelection(pkIdx)
-            spinnerPrimaryKey?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    primaryKeyField = headerLetters.getOrElse(pos) { "" }
-                }
-                override fun onNothingSelected(p: AdapterView<*>?) {}
-            }
-        }
 
         // All fields already set above
         val allFields2 = allFields
@@ -2487,6 +2657,7 @@ class ConfigSheetFragment : Fragment() {
         pendingObjectMapping.clear()
         objectTypeFields.clear()
         primaryKeyField = ""
+        pendingPkParts.clear()
         targetNode = "courier/consignments"
         etTargetNode?.setText("")
         tvFetchStatus?.text = ""
@@ -2518,6 +2689,8 @@ class ConfigSheetFragment : Fragment() {
         targetNode = conn.targetNode
         etTargetNode?.setText(conn.targetNode)
         primaryKeyField = conn.primaryKeyField
+        pendingPkParts.clear()
+        pendingPkParts.addAll(conn.effectivePkParts())
         pendingMapping.clear()
         pendingMapping.putAll(conn.columnMapping)
         pendingObjectMapping.clear()
@@ -3102,7 +3275,12 @@ class ConfigSheetFragment : Fragment() {
                             }.filterKeys { it.isNotBlank() }
                             val tgtNode    = connSnap.child("targetNode").getValue(String::class.java) ?: "courier/consignments"
                             val pkField    = connSnap.child("primaryKeyField").getValue(String::class.java) ?: ""
-                            list.add(SheetConn(connId, nickname, branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at, colMap, objMapRaw, pkField, tgtNode))
+                            val pkParts    = connSnap.child("primaryKeyParts").children.mapNotNull { partSnap ->
+                                val t = partSnap.child("type").getValue(String::class.java) ?: return@mapNotNull null
+                                val v = partSnap.child("value").getValue(String::class.java) ?: ""
+                                SheetConn.PkPart(t, v)
+                            }
+                            list.add(SheetConn(connId, nickname, branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at, colMap, objMapRaw, pkField, tgtNode, pkParts))
                         }
                         if (list.isNotEmpty()) connections[branchId] = list
                     }
@@ -3163,6 +3341,9 @@ class ConfigSheetFragment : Fragment() {
                         (_, pair) -> mapOf("key" to pair.first, "value" to pair.second)
                     },
                     "primaryKeyField" to conn.primaryKeyField,
+                    "primaryKeyParts" to conn.primaryKeyParts.map { part ->
+                        mapOf("type" to part.type, "value" to part.value)
+                    },
                     "targetNode"      to conn.targetNode,
                 )
                 val basePath = "config/sheets/${conn.branchId}/connections"
