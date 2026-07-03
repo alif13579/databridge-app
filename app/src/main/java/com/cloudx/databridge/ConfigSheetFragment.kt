@@ -240,7 +240,8 @@ class ConfigSheetFragment : Fragment() {
     // Step 5 — column mapping
     // Firebase field → column letter selected by user
     private val pendingMapping = mutableMapOf<String, String>()
-    // Object-type fields: fieldName → Pair(keyColLetter, valueColLetter)
+    // Object-type fields: fieldName → Pair(keySpec, valueSpec)
+    // spec format: "col:A" (dynamic, column letter) or "fixed:someText" (constant value)
     private val pendingObjectMapping = mutableMapOf<String, Pair<String, String>>()
     // Track which custom fields are "object" type (vs default "key"/flat type)
     private val objectTypeFields = mutableSetOf<String>()
@@ -1424,17 +1425,25 @@ class ConfigSheetFragment : Fragment() {
                 val normalizedPhone = normalizePhone(phoneField ?: "")
                 if (normalizedPhone.isNotBlank()) fieldMap["recipientPhone"] = normalizedPhone
 
-                // ── Object-type fields: build key-value pair from two columns ──
-                // e.g. field "consignments" with key=consignmentId col, value=status col
-                // writes to: {basePath}/{conId}/{field}/{keyColValue} = valueColValue
+                // ── Object-type fields: build key-value pair from two specs ────
+                // spec: "col:A" (dynamic, read from that column) or "fixed:text" (constant)
+                // writes to: {basePath}/{conId}/{field}/{keyValue} = value
+                fun resolveSpec(spec: String): String {
+                    return when {
+                        spec.startsWith("fixed:") -> spec.removePrefix("fixed:")
+                        spec.startsWith("col:") -> {
+                            val letter = spec.removePrefix("col:")
+                            val idx = letterToIndex(letter)
+                            if (idx < 0) "" else row.getOrElse(idx) { "" }.trim()
+                        }
+                        else -> "" // legacy: bare column letter (backward compat)
+                    }
+                }
                 val objectFieldWrites = mutableMapOf<String, Any>()
-                conn.objectColumnMapping.forEach { (field, colPair) ->
-                    val (keyLetter, valueLetter) = colPair
-                    val keyIdx   = letterToIndex(keyLetter)
-                    val valueIdx = letterToIndex(valueLetter)
-                    if (keyIdx < 0 || valueIdx < 0) return@forEach
-                    val keyVal   = row.getOrElse(keyIdx)   { "" }.trim()
-                    val valueVal = row.getOrElse(valueIdx) { "" }.trim()
+                conn.objectColumnMapping.forEach { (field, spec) ->
+                    val (keySpec, valueSpec) = spec
+                    val keyVal   = resolveSpec(keySpec)
+                    val valueVal = resolveSpec(valueSpec)
                     if (keyVal.isNotBlank() && valueVal.isNotBlank()) {
                         objectFieldWrites["$field/$keyVal"] = valueVal
                     }
@@ -1927,88 +1936,237 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun showAddFieldDialog() {
-        val ctx = context ?: return
-        // Step 1: choose field type — Key (flat) or Object (key-value pair)
-        android.app.AlertDialog.Builder(ctx)
-            .setTitle("Field Type বেছে নিন")
-            .setItems(arrayOf("Key  (একটা column → একটা value)", "Object  (key-value pair, যেমন consignments)")) { _, which ->
-                if (which == 0) showAddKeyFieldDialog() else showAddObjectFieldDialog()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun showAddKeyFieldDialog() {
+    private fun showAddFieldDialog(editField: String? = null) {
         val ctx = context ?: return
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
 
-        val layout = android.widget.LinearLayout(ctx).apply {
+        val isEdit = editField != null
+        val existingIsObject = editField != null && editField in objectTypeFields
+        val headerOptions = sheetHeaders.map { (letter, text) -> "$letter: $text" }
+        val headerLetters = sheetHeaders.keys.toList()
+
+        val root = android.widget.LinearLayout(ctx).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(24.dp(), 16.dp(), 24.dp(), 8.dp())
         }
+
+        // Type dropdown
+        val tvTypeLabel = TextView(ctx).apply {
+            text = "Type"; textSize = 11f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = 4.dp() }
+        }
+        val spinnerType = Spinner(ctx).apply {
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 44.dp()
+            ).apply { bottomMargin = 12.dp() }
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
+                listOf("Key  (single value)", "Object  (key-value pair)"))
+            setSelection(if (existingIsObject) 1 else 0)
+        }
+
+        // Field name
+        val tvNameLabel = TextView(ctx).apply {
+            text = "Field name"; textSize = 11f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = 4.dp() }
+        }
         val etFieldName = EditText(ctx).apply {
-            hint = "Field name (e.g. recipientName)"
+            hint = "e.g. recipientName / consignments"
             background = resources.getDrawable(R.drawable.bg_input_rounded, null)
             setPadding(10.dp(), 10.dp(), 10.dp(), 10.dp())
             inputType = android.text.InputType.TYPE_CLASS_TEXT
             textSize = 13f
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = 12.dp() }
+            editField?.let { setText(it) }
         }
-        layout.addView(etFieldName)
 
-        android.app.AlertDialog.Builder(ctx)
-            .setTitle("New Field যোগ করুন — Key")
-            .setView(layout)
-            .setPositiveButton("Add") { _, _ ->
-                val name = etFieldName.text.toString().trim()
-                if (name.isBlank()) return@setPositiveButton
-                if (!fetchedNodeKeys.contains(name) &&
-                    customMappingFields.none { it.first == name }) {
-                    customMappingFields.add(name to name)
-                    renderMappingStep()
+        // Container for dynamic content (Key column dropdown OR Object key/value rows)
+        val dynamicContainer = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+
+        root.addView(tvTypeLabel)
+        root.addView(spinnerType)
+        root.addView(tvNameLabel)
+        root.addView(etFieldName)
+        root.addView(dynamicContainer)
+
+        // ── Sub-builders ────────────────────────────────────────────
+        fun labeledSection(title: String) = TextView(ctx).apply {
+            text = title; textSize = 11f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 6.dp(); bottomMargin = 4.dp() }
+        }
+
+        // Key type dropdown UI — single column dropdown
+        var keyColSpinner: Spinner? = null
+        fun buildKeyTypeUI() {
+            dynamicContainer.removeAllViews()
+            val tvCol = labeledSection("Column")
+            keyColSpinner = Spinner(ctx).apply {
+                background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 44.dp())
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
+                    listOf("— Skip —") + headerOptions)
+                val existingLetter = editField?.let { pendingMapping[it] }
+                val idx = existingLetter?.let { headerLetters.indexOf(it) + 1 } ?: 0
+                setSelection(idx.coerceAtLeast(0))
+            }
+            dynamicContainer.addView(tvCol)
+            dynamicContainer.addView(keyColSpinner)
+        }
+
+        // Object type dropdown UI — Key section + Value section, each with Fixed/Column choice
+        var keySourceSpinner: Spinner? = null
+        var keyColDropdown: Spinner? = null
+        var keyFixedInput: EditText? = null
+        var valueSourceSpinner: Spinner? = null
+        var valueColDropdown: Spinner? = null
+        var valueFixedInput: EditText? = null
+
+        fun buildSourceRow(
+            label: String,
+            existingSpec: String?
+        ): Triple<Spinner, Spinner, EditText> {
+            val isFixed = existingSpec?.startsWith("fixed:") == true
+            val existingCol = existingSpec?.takeIf { it.startsWith("col:") }?.removePrefix("col:")
+            val existingFixedVal = existingSpec?.takeIf { it.startsWith("fixed:") }?.removePrefix("fixed:") ?: ""
+
+            dynamicContainer.addView(labeledSection(label))
+
+            val sourceSpinner = Spinner(ctx).apply {
+                background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 40.dp()
+                ).apply { bottomMargin = 4.dp() }
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
+                    listOf("Column (dynamic)", "Fixed text"))
+                setSelection(if (isFixed) 1 else 0)
+            }
+            dynamicContainer.addView(sourceSpinner)
+
+            val colDropdown = Spinner(ctx).apply {
+                background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 42.dp())
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, headerOptions)
+                val idx = existingCol?.let { headerLetters.indexOf(it) } ?: 0
+                setSelection(idx.coerceAtLeast(0))
+                visibility = if (isFixed) View.GONE else View.VISIBLE
+            }
+            dynamicContainer.addView(colDropdown)
+
+            val fixedInput = EditText(ctx).apply {
+                hint = "Fixed value লিখুন"
+                background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+                setPadding(10.dp(), 10.dp(), 10.dp(), 10.dp())
+                textSize = 13f
+                setText(existingFixedVal)
+                visibility = if (isFixed) View.VISIBLE else View.GONE
+            }
+            dynamicContainer.addView(fixedInput)
+
+            sourceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    colDropdown.visibility   = if (pos == 1) View.GONE else View.VISIBLE
+                    fixedInput.visibility    = if (pos == 1) View.VISIBLE else View.GONE
                 }
+                override fun onNothingSelected(p: AdapterView<*>?) {}
             }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
 
-    private fun showAddObjectFieldDialog() {
-        val ctx = context ?: return
-        val dp = resources.displayMetrics.density
-        fun Int.dp() = (this * dp).toInt()
+            return Triple(sourceSpinner, colDropdown, fixedInput)
+        }
 
-        val layout = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(24.dp(), 16.dp(), 24.dp(), 8.dp())
+        fun buildObjectTypeUI() {
+            dynamicContainer.removeAllViews()
+            val existing = editField?.let { pendingObjectMapping[it] }
+            val (ks, kc, kf) = buildSourceRow("Key", existing?.first)
+            keySourceSpinner = ks; keyColDropdown = kc; keyFixedInput = kf
+            val (vs, vc, vf) = buildSourceRow("Value", existing?.second)
+            valueSourceSpinner = vs; valueColDropdown = vc; valueFixedInput = vf
         }
-        val etFieldName = EditText(ctx).apply {
-            hint = "Object name (e.g. consignments)"
-            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
-            setPadding(10.dp(), 10.dp(), 10.dp(), 10.dp())
-            inputType = android.text.InputType.TYPE_CLASS_TEXT
-            textSize = 13f
+
+        // Initial render based on spinnerType selection
+        if (existingIsObject) buildObjectTypeUI() else buildKeyTypeUI()
+
+        spinnerType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (pos == 0) buildKeyTypeUI() else buildObjectTypeUI()
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
         }
-        layout.addView(etFieldName)
+
+        val scrollWrap = android.widget.ScrollView(ctx).apply { addView(root) }
 
         android.app.AlertDialog.Builder(ctx)
-            .setTitle("New Field যোগ করুন — Object")
-            .setView(layout)
-            .setPositiveButton("Add") { _, _ ->
+            .setTitle(if (isEdit) "Field Edit করুন" else "New Field যোগ করুন")
+            .setView(scrollWrap)
+            .setPositiveButton("Save") { _, _ ->
                 val name = etFieldName.text.toString().trim()
                 if (name.isBlank()) return@setPositiveButton
-                if (!fetchedNodeKeys.contains(name) &&
-                    customMappingFields.none { it.first == name }) {
+
+                val isObjectType = spinnerType.selectedItemPosition == 1
+
+                if (!isEdit) {
+                    if (fetchedNodeKeys.contains(name) || customMappingFields.any { it.first == name }) {
+                        toast("⚠ এই field আগে থেকেই আছে")
+                        return@setPositiveButton
+                    }
                     customMappingFields.add(name to name)
+                }
+
+                if (isObjectType) {
                     objectTypeFields.add(name)
-                    renderMappingStep()
+                    pendingMapping.remove(name)
+
+                    val keySpec = if (keySourceSpinner?.selectedItemPosition == 1) {
+                        "fixed:${keyFixedInput?.text?.toString()?.trim() ?: ""}"
+                    } else {
+                        val letter = headerLetters.getOrElse(keyColDropdown?.selectedItemPosition ?: 0) { "" }
+                        "col:$letter"
+                    }
+                    val valueSpec = if (valueSourceSpinner?.selectedItemPosition == 1) {
+                        "fixed:${valueFixedInput?.text?.toString()?.trim() ?: ""}"
+                    } else {
+                        val letter = headerLetters.getOrElse(valueColDropdown?.selectedItemPosition ?: 0) { "" }
+                        "col:$letter"
+                    }
+                    pendingObjectMapping[name] = keySpec to valueSpec
+                } else {
+                    objectTypeFields.remove(name)
+                    pendingObjectMapping.remove(name)
+                    val idx = keyColSpinner?.selectedItemPosition ?: 0
+                    if (idx > 0) {
+                        val letter = headerLetters.getOrElse(idx - 1) { "" }
+                        if (letter.isNotBlank()) pendingMapping[name] = letter
+                    } else {
+                        pendingMapping.remove(name)
+                    }
                 }
+                renderMappingStep()
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    /** Renders a row for an "object" type field — two dropdowns: Key column, Value column */
+    /** Renders a summary card for an "object" type field — tap to edit via unified dialog */
     private fun renderObjectFieldRow(
         ctx: android.content.Context,
         container: android.widget.LinearLayout,
@@ -2020,24 +2178,39 @@ class ConfigSheetFragment : Fragment() {
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
 
+        fun specLabel(spec: String?): String = when {
+            spec == null -> "— not set —"
+            spec.startsWith("col:")   -> {
+                val letter = spec.removePrefix("col:")
+                val text   = sheetHeaders[letter] ?: letter
+                "Column [$letter: $text]"
+            }
+            spec.startsWith("fixed:") -> "Fixed \"${spec.removePrefix("fixed:")}\""
+            else -> spec
+        }
+
+        val existing = pendingObjectMapping[field]
+
         val card = android.widget.LinearLayout(ctx).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             background  = resources.getDrawable(R.drawable.bg_input_rounded, null)
             setPadding(12.dp(), 10.dp(), 12.dp(), 10.dp())
+            isClickable = true
+            isFocusable = true
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = 10.dp() }
+            setOnClickListener { showAddFieldDialog(editField = field) }
         }
 
-        // Header: label + object badge + delete
         val headerRow = android.widget.LinearLayout(ctx).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
             gravity     = android.view.Gravity.CENTER_VERTICAL
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 8.dp() }
+            ).apply { bottomMargin = 6.dp() }
         }
         val tvLabel = TextView(ctx).apply {
             text     = "$label  {}"
@@ -2065,76 +2238,22 @@ class ConfigSheetFragment : Fragment() {
         headerRow.addView(btnDelete)
         card.addView(headerRow)
 
-        // Key dropdown row
-        val keyRow = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            gravity     = android.view.Gravity.CENTER_VERTICAL
+        val tvKey = TextView(ctx).apply {
+            text = "Key: ${specLabel(existing?.first)}"
+            textSize = 11f
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
+        }
+        val tvValue = TextView(ctx).apply {
+            text = "Value: ${specLabel(existing?.second)}"
+            textSize = 11f
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
             layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 6.dp() }
+            ).apply { topMargin = 2.dp() }
         }
-        val tvKeyLabel = TextView(ctx).apply {
-            text = "Key:"
-            textSize = 11f
-            setTextColor(context.getColor(R.color.theme_text_muted))
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                44.dp(), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-        val existing = pendingObjectMapping[field]
-
-        val spinnerKey = Spinner(ctx).apply {
-            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
-            layoutParams = android.widget.LinearLayout.LayoutParams(0, 42.dp(), 1f)
-            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, headerOptions)
-            val selIdx = existing?.first?.let { headerLetters.indexOf(it).coerceAtLeast(0) } ?: 0
-            setSelection(selIdx)
-        }
-        keyRow.addView(tvKeyLabel)
-        keyRow.addView(spinnerKey)
-        card.addView(keyRow)
-
-        // Value dropdown row
-        val valueRow = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            gravity     = android.view.Gravity.CENTER_VERTICAL
-        }
-        val tvValueLabel = TextView(ctx).apply {
-            text = "Value:"
-            textSize = 11f
-            setTextColor(context.getColor(R.color.theme_text_muted))
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                44.dp(), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-        val spinnerValue = Spinner(ctx).apply {
-            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
-            layoutParams = android.widget.LinearLayout.LayoutParams(0, 42.dp(), 1f)
-            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, headerOptions)
-            val selIdx = existing?.second?.let { headerLetters.indexOf(it).coerceAtLeast(0) } ?: 0
-            setSelection(selIdx)
-        }
-        valueRow.addView(tvValueLabel)
-        valueRow.addView(spinnerValue)
-        card.addView(valueRow)
-
-        // Update pendingObjectMapping whenever either spinner changes
-        fun syncMapping() {
-            val keyLetter   = headerLetters.getOrElse(spinnerKey.selectedItemPosition) { "" }
-            val valueLetter = headerLetters.getOrElse(spinnerValue.selectedItemPosition) { "" }
-            if (keyLetter.isNotBlank() && valueLetter.isNotBlank()) {
-                pendingObjectMapping[field] = keyLetter to valueLetter
-            } else {
-                pendingObjectMapping.remove(field)
-            }
-        }
-        spinnerKey.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = syncMapping()
-            override fun onNothingSelected(p: AdapterView<*>?) {}
-        }
-        spinnerValue.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = syncMapping()
-            override fun onNothingSelected(p: AdapterView<*>?) {}
-        }
+        card.addView(tvKey)
+        card.addView(tvValue)
 
         container.addView(card)
     }
