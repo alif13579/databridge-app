@@ -2055,6 +2055,32 @@ class ConfigSheetFragment : Fragment() {
                 fetchedNodeKeys.clear()
                 fetchedNodeKeys.addAll(keys)
                 customMappingFields.clear()
+
+                // Auto-detect object-type fields (children that are themselves objects/maps)
+                objectTypeFields.clear()
+                firstChild.children.forEach { child ->
+                    val k = child.key ?: return@forEach
+                    if (child.hasChildren()) {
+                        // Check if it's an object (map) not just a nested single value
+                        val firstGrandChild = child.children.firstOrNull()
+                        if (firstGrandChild != null) {
+                            objectTypeFields.add(k)
+                            // Auto fuzzy match key + value columns
+                            val keyHeader = sheetHeaders.entries.firstOrNull { (_, h) ->
+                                val hl = h.lowercase()
+                                listOf("id", "con", "consignment", "key", "code").any { hl.contains(it) }
+                            }
+                            val valHeader = sheetHeaders.entries.firstOrNull { (_, h) ->
+                                val hl = h.lowercase()
+                                listOf("status", "state", "value").any { hl.contains(it) }
+                            }
+                            if (keyHeader != null && valHeader != null) {
+                                pendingObjectMapping[k] = Pair(keyHeader.key, valHeader.key)
+                            }
+                        }
+                    }
+                }
+
                 autoDetectMapping()
                 nodePreviewExpanded = true
                 renderMappingStep()
