@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private val firebaseDb = FirebaseDatabase.getInstance()
     private var sessionMonitorRef: DatabaseReference? = null
     private var sessionMonitorListener: ValueEventListener? = null
+    private var disconnectGraceJob: kotlinx.coroutines.Job? = null  // grace period before treating "disconnected" as real
     private var permissionStep = 0
 
     private var layoutNoInternet: View? = null
@@ -617,7 +618,28 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val status = snapshot.getValue(String::class.java)
                 Log.d("SessionMonitor", "onDataChange: status=$status")
-                if (status == null || status == "disconnected") onExtensionDisconnected()
+                if (status == null || status == "disconnected") {
+                    // Could be a transient network blip (onDisconnect fires on any
+                    // socket drop, not just a genuine user disconnect). Wait and
+                    // re-check the live value before tearing anything down.
+                    disconnectGraceJob?.cancel()
+                    disconnectGraceJob = lifecycleScope.launch {
+                        kotlinx.coroutines.delay(8000)
+                        val recheck = try {
+                            sessionMonitorRef?.get()?.await()?.getValue(String::class.java)
+                        } catch (e: Exception) {
+                            Log.w("SessionMonitor", "recheck failed: ${e.message}")
+                            null
+                        }
+                        Log.d("SessionMonitor", "grace period elapsed, recheck status=$recheck")
+                        if (recheck == null || recheck == "disconnected") {
+                            onExtensionDisconnected()
+                        }
+                    }
+                } else {
+                    disconnectGraceJob?.cancel()
+                    disconnectGraceJob = null
+                }
             }
             override fun onCancelled(error: DatabaseError) {
                 Log.w("SessionMonitor", "onCancelled: ${error.message}")
@@ -630,6 +652,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     fun stopSessionMonitor() {
         sessionMonitorListener?.let { sessionMonitorRef?.removeEventListener(it) }
         sessionMonitorListener = null; sessionMonitorRef = null
+        disconnectGraceJob?.cancel(); disconnectGraceJob = null
     }
 
     private fun onExtensionDisconnected() {

@@ -53,6 +53,8 @@ class DataBridgeService : Service() {
     private val dialedRecordIds = mutableSetOf<String>()
     private var containerListener: ChildEventListener? = null
     private var sessionListener: ChildEventListener? = null
+    private var presenceListener: ValueEventListener? = null  // .info/connected — re-arms onDisconnect on every reconnect
+    private var disconnectGraceJob: kotlinx.coroutines.Job? = null
     private var activeContainerPath: String? = null
     private var currentActiveExtensionId: String? = null
 
@@ -103,6 +105,10 @@ class DataBridgeService : Service() {
                 stateManager.updateConnection(extId, extId != null)
             }
         }
+
+        // 🔹 .info/connected → re-arms the onDisconnect presence hook on every reconnect
+        // (fixes false "disconnected" state after a transient network blip)
+        attachPresenceReconnectHandler()
     }
 
     // ─── 🔹 Firebase Listeners (Preserved) ───
@@ -121,6 +127,65 @@ class DataBridgeService : Service() {
         Log.d(TAG, "👂 Container Listener: $activeContainerPath")
     }
 
+
+    // ✅ .info/connected — Firebase's official reconnect-detection path.
+    // Fires `true` on initial connect AND every time the socket re-establishes
+    // after a drop (network switch, Doze, OEM battery killer, etc).
+    // Without this, a transient blip fires the onDisconnect hook once and the
+    // session stays marked "disconnected" forever — this re-arms it each time.
+    private fun attachPresenceReconnectHandler() {
+        val connectedRef = database.getReference(".info/connected")
+        presenceListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val isConnected = snapshot.getValue(Boolean::class.java) ?: false
+                Log.d(TAG, "📶 .info/connected = $isConnected")
+                if (isConnected) {
+                    currentActiveExtensionId?.let { extId -> reArmPresenceHook(extId) }
+                }
+            }
+            override fun onCancelled(error: DatabaseError) {
+                Log.w(TAG, "⚠️ .info/connected listener cancelled: ${error.message}")
+            }
+        }
+        connectedRef.addValueEventListener(presenceListener!!)
+    }
+
+    // ✅ Re-writes status="connected" and re-registers the onDisconnect hook for
+    // sessions/$extId/meta. Mirrors ConnectFragment.handleExtensionConnection's
+    // original arm logic exactly (type == "permanent" → updateChildren on meta;
+    // otherwise → removeValue on the whole session node) so behavior is unchanged,
+    // just refreshed on every reconnect instead of only once at initial connect.
+    private fun reArmPresenceHook(extId: String) {
+        val metaRef = database.getReference("sessions/$extId/meta")
+        metaRef.get().addOnSuccessListener { snap ->
+            if (!snap.exists()) {
+                Log.d(TAG, "🔸 Skip presence re-arm — sessions/$extId/meta no longer exists")
+                return@addOnSuccessListener
+            }
+            val type = snap.child("type").getValue(String::class.java)
+            metaRef.updateChildren(
+                mapOf("status" to "connected", "updated_at" to System.currentTimeMillis())
+            ).addOnSuccessListener {
+                if (type == "permanent") {
+                    metaRef.onDisconnect().updateChildren(
+                        mapOf("status" to "disconnected", "updated_at" to System.currentTimeMillis())
+                    )
+                } else {
+                    database.getReference("sessions/$extId").onDisconnect().removeValue()
+                }
+                Log.d(TAG, "🔄 Presence re-armed for sessions/$extId (type=$type)")
+            }.addOnFailureListener { e ->
+                Log.w(TAG, "⚠️ Presence re-arm status write failed: ${e.message}")
+            }
+        }.addOnFailureListener { e ->
+            Log.w(TAG, "⚠️ Presence re-arm: failed to read meta for $extId: ${e.message}")
+        }
+    }
+
+    private fun stopPresenceListener() {
+        presenceListener?.let { database.getReference(".info/connected").removeEventListener(it) }
+        presenceListener = null
+    }
 
     private fun startSessionListener(extId: String?) {
         stopSessionListeners()
@@ -146,14 +211,29 @@ class DataBridgeService : Service() {
         }
         recordsRef.addChildEventListener(sessionListener!!)
 
-        // ✅ স্ট্যাটাস লিসেনার (disconnected সিগন্যাল ডিটেক্ট)
+        // ✅ স্ট্যাটাস লিসেনার (disconnected সিগন্যাল ডিটেক্ট) — grace period সহ,
+        // যাতে transient network blip-এ সাথে সাথে cleanup না হয়ে যায়
         val statusRef = database.getReference("sessions/$extId/meta/status")
         statusListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
                 val status = snapshot.getValue(String::class.java)
                 if (status == "disconnected" || !snapshot.exists()) {
-                    Log.d(TAG, "📴 Disconnect signal received")
-                    handleDisconnectCleanup()
+                    disconnectGraceJob?.cancel()
+                    disconnectGraceJob = serviceScope.launch {
+                        kotlinx.coroutines.delay(8000)
+                        val recheck = try {
+                            statusRef.get().await().getValue(String::class.java)
+                        } catch (e: Exception) { null }
+                        if (recheck == null || recheck == "disconnected") {
+                            Log.d(TAG, "📴 Disconnect signal confirmed after grace period")
+                            handleDisconnectCleanup()
+                        } else {
+                            Log.d(TAG, "🔸 Disconnect signal was transient — status recovered to $recheck")
+                        }
+                    }
+                } else {
+                    disconnectGraceJob?.cancel()
+                    disconnectGraceJob = null
                 }
             }
             override fun onCancelled(error: DatabaseError) {
@@ -198,11 +278,13 @@ class DataBridgeService : Service() {
         }
         sessionListener = null
         statusListener = null
+        disconnectGraceJob?.cancel(); disconnectGraceJob = null
     }
 
     private fun stopListeners() {
         stopContainerListener()
         stopSessionListeners()
+        stopPresenceListener()
     }
 
 
