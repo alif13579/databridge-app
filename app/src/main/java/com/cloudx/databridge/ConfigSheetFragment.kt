@@ -1474,6 +1474,9 @@ class ConfigSheetFragment : Fragment() {
                 val normalizedPhone = normalizePhone(phoneField ?: "")
                 if (normalizedPhone.isNotBlank()) fieldMap["recipientPhone"] = normalizedPhone
 
+                // agentId — used for the runs_by_agentId reverse-index (run_routes sheets only)
+                val agentIdValue = fieldMap["agentId"]?.toString()?.trim().orEmpty()
+
                 // ── Object-type fields: build key-value pair from two specs ────
                 // spec: "col:A" (dynamic, read from that column) or "fixed:text" (constant)
                 // writes to: {basePath}/{conId}/{field}/{keyValue} = value
@@ -1517,6 +1520,11 @@ class ConfigSheetFragment : Fragment() {
                         val status = fieldMap["status"]?.toString() ?: ""
                         multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] = status
                     }
+                    // runs_by_agentId — same reverse-index pattern, for courier/run_routes/delivery_run sheets.
+                    if (basePath == "courier/run_routes/delivery_run" && agentIdValue.isNotBlank()) {
+                        val status = fieldMap["status"]?.toString() ?: ""
+                        multiUpdate["courier/runs_by_agentId/$agentIdValue/delivery_run/$conId"] = status
+                    }
                     inserted++
                 } else {
                     // COMPARE & UPDATE changed fields only
@@ -1539,6 +1547,11 @@ class ConfigSheetFragment : Fragment() {
                         // Update consignments_by_phone if status changed (guarded, see note above)
                         if (basePath == "courier/consignments" && "status" in changedFields && normalizedPhone.isNotBlank()) {
                             multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] =
+                                changedFields["status"].toString()
+                        }
+                        // Update runs_by_agentId if status changed (same guarded pattern)
+                        if (basePath == "courier/run_routes/delivery_run" && "status" in changedFields && agentIdValue.isNotBlank()) {
+                            multiUpdate["courier/runs_by_agentId/$agentIdValue/delivery_run/$conId"] =
                                 changedFields["status"].toString()
                         }
                         updated++
