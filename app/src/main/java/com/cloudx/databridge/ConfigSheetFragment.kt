@@ -1611,7 +1611,8 @@ class ConfigSheetFragment : Fragment() {
      * callers should then skip pushing that field rather than writing garbage.
      * Accepts: epoch seconds (10-digit), epoch millis (13-digit), Google Sheets/Excel
      * date-serial numbers (e.g. 46204 — days since Dec 30 1899, decimal = time of day),
-     * or unambiguous ISO-style date/date-time strings (yyyy-MM-dd, yyyy/MM/dd, with optional time).
+     * ISO-style date/date-time strings (yyyy-MM-dd, yyyy/MM/dd, with optional time),
+     * or day-month-name values from Sheets (dd-MMM-yy / dd-MMM-yyyy, e.g. 03-Jul-26).
      * Slash/dash formats like "7/1/2026" are intentionally NOT accepted since
      * day-vs-month order can't be reliably determined — better to skip than guess wrong.
      */
@@ -1640,6 +1641,10 @@ class ConfigSheetFragment : Fragment() {
             "yyyy-MM-dd",
             "yyyy/MM/dd HH:mm:ss",
             "yyyy/MM/dd",
+            "dd-MMM-yyyy",
+            "d-MMM-yyyy",
+            "dd-MMM-yy",
+            "d-MMM-yy",
         )
         for (pattern in patterns) {
             try {
