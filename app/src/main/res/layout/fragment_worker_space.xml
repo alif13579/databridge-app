@@ -96,6 +96,16 @@
                             android:textColor="@color/theme_accent"
                             android:textStyle="bold"
                             android:fontFamily="sans-serif-medium" />
+
+                        <Spinner
+                            android:id="@+id/spinnerRunType"
+                            android:layout_width="120dp"
+                            android:layout_height="34dp"
+                            android:layout_marginTop="6dp"
+                            android:background="@drawable/bg_search_bar"
+                            android:paddingStart="8dp"
+                            android:paddingEnd="8dp"
+                            android:spinnerMode="dropdown" />
                     </LinearLayout>
                 </LinearLayout>
 

@@ -8,8 +8,11 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.LinearLayout
 import android.widget.EditText
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
@@ -18,8 +21,15 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.DatabaseReference
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 
 class WorkerSpaceFragment : Fragment() {
@@ -35,6 +45,7 @@ class WorkerSpaceFragment : Fragment() {
     private lateinit var tvSearchClear: TextView
     private lateinit var tvSearchScan: TextView
     private lateinit var tvSearchCount: TextView
+    private lateinit var spinnerRunType: Spinner
     private lateinit var layoutFilterTabs: LinearLayout
     private lateinit var rvParcelList: RecyclerView
     private lateinit var pbProgress: View
@@ -45,8 +56,16 @@ class WorkerSpaceFragment : Fragment() {
     private var allParcels = listOf<WorkerParcelItem>()
     private var activeFilter = "all"
     private var searchQuery = ""
+    private var selectedRunType = RUN_TYPE_ALL
+    private var runTypeOptions = listOf(RunTypeOption(RUN_TYPE_ALL, "All"))
+    private var suppressRunTypeEvents = false
+    private var loadGeneration = 0
+    private var employeeId = ""
 
     private val auth = FirebaseAuth.getInstance()
+    private val db = FirebaseDatabase.getInstance()
+    private var runsByAgentRef: DatabaseReference? = null
+    private var runsByAgentListener: ValueEventListener? = null
 
     // Scan result launcher — trim, crop before pipe (|)
     private val scanLauncher = registerForActivityResult(
@@ -74,9 +93,15 @@ class WorkerSpaceFragment : Fragment() {
         initViews(view)
         setupSearch()
         setupScanButton()
+        setupRunTypeSpinner()
         setupFilterTabs()
         setupAdapter()
         loadData()
+    }
+
+    override fun onDestroyView() {
+        detachRunsListener()
+        super.onDestroyView()
     }
 
     private fun initViews(view: View) {
@@ -90,6 +115,7 @@ class WorkerSpaceFragment : Fragment() {
         tvSearchClear = view.findViewById(R.id.twSearchClear)
         tvSearchScan = view.findViewById(R.id.twSearchScan)
         tvSearchCount = view.findViewById(R.id.twSearchCount)
+        spinnerRunType = view.findViewById(R.id.spinnerRunType)
         layoutFilterTabs = view.findViewById(R.id.layoutFilterTabs)
         rvParcelList = view.findViewById(R.id.rvParcelList)
         pbProgress = view.findViewById(R.id.twProgressBar)
@@ -116,6 +142,42 @@ class WorkerSpaceFragment : Fragment() {
         tvSearchClear.setOnClickListener {
             etSearch.text?.clear()
         }
+    }
+
+    private fun setupRunTypeSpinner() {
+        bindRunTypeSpinner()
+        spinnerRunType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (suppressRunTypeEvents) return
+                val nextRunType = runTypeOptions.getOrNull(position)?.key ?: RUN_TYPE_ALL
+                if (nextRunType == selectedRunType) return
+                selectedRunType = nextRunType
+                pbProgress.visibility = View.VISIBLE
+                tvEmpty.visibility = View.GONE
+                runsByAgentListener?.let { listener ->
+                    runsByAgentRef?.get()?.addOnSuccessListener { snap ->
+                        handleRunsSnapshot(snap)
+                    }?.addOnFailureListener {
+                        pbProgress.visibility = View.GONE
+                        tvEmpty.visibility = View.VISIBLE
+                        tvEmpty.text = "⚠ Run load failed: ${it.message?.take(60)}"
+                    }
+                }
+            }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+    }
+
+    private fun bindRunTypeSpinner() {
+        if (!::spinnerRunType.isInitialized) return
+        val labels = runTypeOptions.map { it.label }
+        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_item, labels)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        suppressRunTypeEvents = true
+        spinnerRunType.adapter = adapter
+        spinnerRunType.setSelection(runTypeOptions.indexOfFirst { it.key == selectedRunType }.coerceAtLeast(0))
+        suppressRunTypeEvents = false
     }
 
     private fun setupScanButton() {
@@ -406,12 +468,10 @@ class WorkerSpaceFragment : Fragment() {
         tvEmpty.visibility = View.GONE
 
         val uid = auth.currentUser?.uid ?: return
-        val db = com.google.firebase.database.FirebaseDatabase.getInstance()
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                // 1. Get employeeId
-                val employeeId = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                employeeId = withContext(Dispatchers.IO) {
                     db.reference.child("users/$uid/profile/company_info/employee_id")
                         .get().await().getValue(String::class.java)?.trim()
                 } ?: run {
@@ -421,122 +481,205 @@ class WorkerSpaceFragment : Fragment() {
                     return@launch
                 }
 
-                // 2. Get all run ids for this agent
-                val runSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    db.reference.child("courier/runs_by_agentId/$employeeId/delivery_run")
-                        .get().await()
-                }
-                if (!runSnap.exists()) {
-                    pbProgress.visibility = View.GONE
-                    tvEmpty.visibility = View.VISIBLE
-                    tvEmpty.text = "📭\n\nআজকের কোনো run নেই"
-                    return@launch
-                }
-
-                // Today's date range
-                val cal = java.util.Calendar.getInstance()
-                cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-                cal.set(java.util.Calendar.MINUTE, 0)
-                cal.set(java.util.Calendar.SECOND, 0)
-                cal.set(java.util.Calendar.MILLISECOND, 0)
-                val dayStart = cal.timeInMillis
-                val dayEnd   = dayStart + 24 * 60 * 60 * 1000 - 1
-
-                // 3. For each open run TODAY, get consignment ids + statuses
-                val consignmentStatuses = mutableMapOf<String, String>() // id → status from run
-                runSnap.children.forEach { runChild ->
-                    val runId    = runChild.key ?: return@forEach
-                    val runStatus = runChild.getValue(String::class.java) ?: "open"
-                    if (runStatus != "open") return@forEach
-
-                    // Extract timestamp from run_id: "run_1779963904137" → 1779963904137
-                    val runTimestamp = runId.removePrefix("run_").toLongOrNull() ?: return@forEach
-                    if (runTimestamp < dayStart || runTimestamp > dayEnd) return@forEach // শুধু open runs
-
-                    val consSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        db.reference.child("courier/run_routes/delivery_run/$runId/consignments")
-                            .get().await()
-                    }
-                    consSnap.children.forEach { c ->
-                        val cId     = c.key ?: return@forEach
-                        val cStatus = c.getValue(String::class.java) ?: "pending"
-                        consignmentStatuses[cId] = cStatus
-                    }
-                }
-
-                if (consignmentStatuses.isEmpty()) {
-                    pbProgress.visibility = View.GONE
-                    tvEmpty.visibility = View.VISIBLE
-                    tvEmpty.text = "📭\n\nকোনো consignment নেই"
-                    return@launch
-                }
-
-                // 4. Fetch full details from courier/consignments/
-                val parcels = mutableListOf<WorkerParcelItem>()
-                consignmentStatuses.entries.forEach { (cId, runStatus) ->
-                    val detailSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        db.reference.child("courier/consignments/$cId").get().await()
-                    }
-                    if (!detailSnap.exists()) return@forEach
-
-                    val name    = detailSnap.child("recipientName").getValue(String::class.java) ?: ""
-                    val phone   = detailSnap.child("recipientPhone").getValue(String::class.java) ?: ""
-                    val address = detailSnap.child("recipientAddress").getValue(String::class.java) ?: ""
-                    val cod     = detailSnap.child("collectableAmount").getValue(String::class.java)
-                        ?.toDoubleOrNull()?.toInt()
-                        ?: detailSnap.child("collectableAmount").getValue(Long::class.java)?.toInt()
-                        ?: 0
-                    val status  = runStatus // run এর status = source of truth
-                    val hub     = detailSnap.child("deliveryHub").getValue(String::class.java) ?: ""
-
-                    // Remarks from remarks_by_consignment
-                    val remarksSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        db.reference.child("courier/remarks_by_consignment/$cId")
-                            .limitToLast(5).get().await()
-                    }
-                    val history = remarksSnap.children.mapNotNull { r ->
-                        val type      = r.child("type").getValue(String::class.java) ?: return@mapNotNull null
-                        val rStatus   = r.child("status").getValue(String::class.java) ?: ""
-                        val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
-                        val timeStr   = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-                            .format(java.util.Date(createdAt))
-                        HistoryEntry(
-                            action     = type.uppercase(),
-                            remark     = rStatus,
-                            time       = timeStr,
-                            author     = "",
-                            authorRole = "agent"
-                        )
-                    }.toList()
-
-                    val lastRemark = history.lastOrNull()?.remark ?: ""
-
-                    parcels.add(WorkerParcelItem(
-                        id                = cId,
-                        customer          = name,
-                        phone             = phone,
-                        address           = address,
-                        cod               = cod,
-                        status            = status,
-                        remarks           = lastRemark,
-                        validationRequest = status == "verify_req",
-                        validationNote    = if (status == "verify_req") lastRemark else "",
-                        time              = hub,
-                        history           = history
-                    ))
-                }
-
-                allParcels = parcels.sortedBy { it.id }
-                setupFilterTabs()
-                applyFilters()
-
+                attachRunsListener(employeeId)
             } catch (e: Exception) {
                 tvEmpty.visibility = View.VISIBLE
                 tvEmpty.text = "⚠ Load failed: ${e.message?.take(60)}"
-            } finally {
                 pbProgress.visibility = View.GONE
             }
         }
+    }
+
+    private fun attachRunsListener(employeeId: String) {
+        detachRunsListener()
+        val ref = db.reference.child("courier/runs_by_agentId/$employeeId")
+        runsByAgentRef = ref
+        runsByAgentListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                handleRunsSnapshot(snapshot)
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                if (!isAdded) return
+                pbProgress.visibility = View.GONE
+                tvEmpty.visibility = View.VISIBLE
+                tvEmpty.text = "⚠ Run load failed: ${error.message.take(60)}"
+            }
+        }
+        ref.addValueEventListener(runsByAgentListener!!)
+    }
+
+    private fun detachRunsListener() {
+        val listener = runsByAgentListener ?: return
+        runsByAgentRef?.removeEventListener(listener)
+        runsByAgentListener = null
+        runsByAgentRef = null
+    }
+
+    private fun handleRunsSnapshot(runSnap: DataSnapshot) {
+        if (!isAdded) return
+
+        val runTypes = runSnap.children
+            .mapNotNull { typeSnap ->
+                val key = typeSnap.key?.trim().orEmpty()
+                key.takeIf { it.isNotBlank() && typeSnap.children.any() }
+            }
+            .distinct()
+            .sortedWith(compareBy<String> { runTypeSortIndex(it) }.thenBy { it })
+
+        runTypeOptions = listOf(RunTypeOption(RUN_TYPE_ALL, "All")) +
+            runTypes.map { RunTypeOption(it, formatRunTypeLabel(it)) }
+
+        if (selectedRunType != RUN_TYPE_ALL && selectedRunType !in runTypes) {
+            selectedRunType = RUN_TYPE_ALL
+        }
+        bindRunTypeSpinner()
+
+        if (!runSnap.exists() || runTypes.isEmpty()) {
+            allParcels = emptyList()
+            setupFilterTabs()
+            applyFilters()
+            pbProgress.visibility = View.GONE
+            tvEmpty.visibility = View.VISIBLE
+            tvEmpty.text = "📭\n\nকোনো run নেই"
+            return
+        }
+
+        val generation = ++loadGeneration
+        pbProgress.visibility = View.VISIBLE
+        tvEmpty.visibility = View.GONE
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val parcels = loadParcelsForSelectedRunType(runSnap)
+                if (!isAdded || generation != loadGeneration) return@launch
+                allParcels = parcels.sortedWith(compareBy<WorkerParcelItem> { it.time }.thenBy { it.id })
+                setupFilterTabs()
+                applyFilters()
+            } catch (e: Exception) {
+                if (!isAdded || generation != loadGeneration) return@launch
+                tvEmpty.visibility = View.VISIBLE
+                tvEmpty.text = "⚠ Load failed: ${e.message?.take(60)}"
+            } finally {
+                if (isAdded && generation == loadGeneration) {
+                    pbProgress.visibility = View.GONE
+                }
+            }
+        }
+    }
+
+    private suspend fun loadParcelsForSelectedRunType(runSnap: DataSnapshot): List<WorkerParcelItem> {
+        val selectedTypes = if (selectedRunType == RUN_TYPE_ALL) {
+            runSnap.children.toList()
+        } else {
+            listOf(runSnap.child(selectedRunType)).filter { it.exists() }
+        }
+
+        val dayStart = startOfLocalDay()
+        val dayEnd = endOfLocalDay(dayStart)
+        val consignmentRefs = linkedMapOf<String, ConsignmentRunRef>()
+
+        for (typeSnap in selectedTypes) {
+            val runType = typeSnap.key ?: continue
+            for (runChild in typeSnap.children) {
+                val runId = runChild.key ?: continue
+                val runTimestamp = parseRunTimestamp(runId, employeeId) ?: continue
+                if (runTimestamp !in dayStart..dayEnd) continue
+
+                val runStatus = readString(runChild, "status").ifBlank {
+                    runChild.getValue(String::class.java).orEmpty()
+                }.ifBlank { "open" }
+                if (!runStatus.equals("open", ignoreCase = true)) continue
+
+                val consSnap = withContext(Dispatchers.IO) {
+                    db.reference.child("courier/run_routes/$runType/$runId/consignments")
+                        .get().await()
+                }
+                consSnap.children.forEach { c ->
+                    val cId = c.key ?: return@forEach
+                    val routeStatus = c.getValue(String::class.java)
+                        ?: readString(c, "status")
+                    consignmentRefs[cId] = ConsignmentRunRef(runType, runId, routeStatus)
+                }
+            }
+        }
+
+        if (consignmentRefs.isEmpty()) return emptyList()
+
+        val parcels = mutableListOf<WorkerParcelItem>()
+        val statusBackfills = mutableMapOf<String, Any?>()
+        for ((cId, runRef) in consignmentRefs) {
+            val detailSnap = withContext(Dispatchers.IO) {
+                db.reference.child("courier/consignments/$cId").get().await()
+            }
+            if (!detailSnap.exists()) continue
+
+            val name = readString(detailSnap, "recipientName")
+            val phone = readString(detailSnap, "recipientPhone")
+            val address = readString(detailSnap, "recipientAddress")
+            val cod = readCod(detailSnap)
+            val hub = readString(detailSnap, "deliveryHub")
+            val sourceStatus = readString(detailSnap, "status").ifBlank { "pending" }
+            if (runRef.routeStatus.isNotBlank() && runRef.routeStatus != sourceStatus) {
+                statusBackfills["courier/run_routes/${runRef.runType}/${runRef.runId}/consignments/$cId"] = sourceStatus
+            }
+
+            val remarksSnap = withContext(Dispatchers.IO) {
+                db.reference.child("courier/remarks_by_consignment/$cId")
+                    .limitToLast(5).get().await()
+            }
+            val history = remarksSnap.children.mapNotNull { r ->
+                val type = readString(r, "type").ifBlank { return@mapNotNull null }
+                val rStatus = readString(r, "status")
+                val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
+                val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                    .format(java.util.Date(createdAt))
+                HistoryEntry(
+                    action = type.uppercase(),
+                    remark = rStatus,
+                    time = timeStr,
+                    author = "",
+                    authorRole = "agent"
+                )
+            }
+
+            val lastRemark = history.lastOrNull()?.remark ?: ""
+            parcels.add(
+                WorkerParcelItem(
+                    id = cId,
+                    customer = name,
+                    phone = phone,
+                    address = address,
+                    cod = cod,
+                    status = sourceStatus,
+                    remarks = lastRemark,
+                    validationRequest = sourceStatus == "verify_req",
+                    validationNote = if (sourceStatus == "verify_req") lastRemark else "",
+                    time = hub,
+                    history = history
+                )
+            )
+        }
+
+        if (statusBackfills.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                runCatching { db.reference.updateChildren(statusBackfills).await() }
+            }
+        }
+
+        return parcels
+    }
+
+    private fun readString(snap: DataSnapshot, child: String): String {
+        return snap.child(child).getValue(String::class.java)?.trim().orEmpty()
+    }
+
+    private fun readCod(snap: DataSnapshot): Int {
+        return snap.child("collectableAmount").getValue(String::class.java)
+            ?.toDoubleOrNull()?.toInt()
+            ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt()
+            ?: snap.child("collectableAmount").getValue(Double::class.java)?.toInt()
+            ?: 0
     }
 
     private fun applyFilters() {
@@ -598,4 +741,71 @@ class WorkerSpaceFragment : Fragment() {
         val statusPreview: String,
         val statusColorRes: Int
     )
+
+    data class RunTypeOption(val key: String, val label: String)
+    data class ConsignmentRunRef(
+        val runType: String,
+        val runId: String,
+        val routeStatus: String
+    )
+
+    companion object {
+        private const val RUN_TYPE_ALL = "all"
+        private val RUN_TYPE_ORDER = listOf("delivery_run", "pickup_run", "return_run")
+
+        private fun runTypeSortIndex(runType: String): Int {
+            val index = RUN_TYPE_ORDER.indexOf(runType)
+            return if (index >= 0) index else Int.MAX_VALUE
+        }
+
+        private fun formatRunTypeLabel(runType: String): String {
+            return runType.split("_")
+                .filter { it.isNotBlank() }
+                .joinToString(" ") { part ->
+                    part.replaceFirstChar { ch ->
+                        if (ch.isLowerCase()) ch.titlecase() else ch.toString()
+                    }
+                }
+        }
+
+        private fun parseRunTimestamp(runId: String, employeeId: String): Long? {
+            val trimmed = runId.trim()
+            val expectedPrefix = "run_${employeeId}_"
+            val rawTimestamp = if (employeeId.isNotBlank() && trimmed.startsWith(expectedPrefix)) {
+                trimmed.removePrefix(expectedPrefix)
+            } else {
+                trimmed.substringAfterLast("_", missingDelimiterValue = "")
+            }
+            val value = rawTimestamp.toLongOrNull() ?: return null
+            return if (value in 30000L..60000L) excelSerialDateToLocalMillis(value) else value
+        }
+
+        private fun excelSerialDateToLocalMillis(serialDay: Long): Long {
+            return java.util.Calendar.getInstance().apply {
+                clear()
+                set(1899, java.util.Calendar.DECEMBER, 30, 0, 0, 0)
+                add(java.util.Calendar.DAY_OF_YEAR, serialDay.toInt())
+            }.timeInMillis
+        }
+
+        private fun startOfLocalDay(anchorMs: Long = System.currentTimeMillis()): Long {
+            return java.util.Calendar.getInstance().apply {
+                timeInMillis = anchorMs
+                set(java.util.Calendar.HOUR_OF_DAY, 0)
+                set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+        }
+
+        private fun endOfLocalDay(dayStartMs: Long): Long {
+            return java.util.Calendar.getInstance().apply {
+                timeInMillis = dayStartMs
+                set(java.util.Calendar.HOUR_OF_DAY, 23)
+                set(java.util.Calendar.MINUTE, 59)
+                set(java.util.Calendar.SECOND, 59)
+                set(java.util.Calendar.MILLISECOND, 999)
+            }.timeInMillis
+        }
+    }
 }
