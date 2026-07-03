@@ -576,14 +576,6 @@ class HistoryFragment : Fragment() {
     }
 }
 
-data class ActionItem(
-    val id: String,
-    val remarks: String,
-    val timestamp: Long,
-    val type: String,
-    val source: String
-)
-
 class ActionLogAdapter(
     private var items: List<ActionItem>,
     private val onEdit: (ActionItem) -> Unit,
