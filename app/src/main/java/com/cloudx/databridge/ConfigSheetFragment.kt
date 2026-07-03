@@ -271,7 +271,7 @@ class ConfigSheetFragment : Fragment() {
     private var targetNode = "courier/consignments"
     private var primaryKeyField = ""  // LEGACY — colLetter selected as node key
     // NEW — composite primary key builder state (prefix + column parts, in order)
-    private val pendingPkParts = mutableListOf<SheetConn.PkPart>()
+    private val pendingPkParts = mutableListOf<PkPart>()
     // Custom fields added manually via "+ Add Field" — fieldName to label
     private val customMappingFields = mutableListOf<Pair<String, String>>()
     // Headers fetched from sheet (letter → header text)
@@ -386,7 +386,7 @@ class ConfigSheetFragment : Fragment() {
         btnAddPkPart        = view.findViewById(R.id.btnAddPkPart)
         tvPkPreview         = view.findViewById(R.id.tvPkPreview)
         btnAddPkPart?.setOnClickListener {
-            pendingPkParts.add(SheetConn.PkPart("fixed", ""))
+            pendingPkParts.add(PkPart("fixed", ""))
             renderPkBuilder()
         }
 
@@ -1333,8 +1333,8 @@ class ConfigSheetFragment : Fragment() {
             toast("⚠ Column mapping নেই — Step 5 complete করুন")
             return
         }
-        val pkParts: List<SheetConn.PkPart> = conn.effectivePkParts().ifEmpty {
-            conn.columnMapping["consignmentId"]?.let { listOf(SheetConn.PkPart("col", it)) } ?: emptyList()
+        val pkParts: List<PkPart> = conn.effectivePkParts().ifEmpty {
+            conn.columnMapping["consignmentId"]?.let { listOf(PkPart("col", it)) } ?: emptyList()
         }
         if (pkParts.isEmpty()) {
             toast("⚠ Primary key select করা নেই — Step 5 এ select করুন")
@@ -2398,7 +2398,7 @@ class ConfigSheetFragment : Fragment() {
                     val newType = if (pos == 1) "col" else "fixed"
                     if (index < pendingPkParts.size && pendingPkParts[index].type != newType) {
                         val newValue = if (newType == "col") headerLetters.firstOrNull() ?: "" else ""
-                        pendingPkParts[index] = SheetConn.PkPart(newType, newValue)
+                        pendingPkParts[index] = PkPart(newType, newValue)
                         renderPkBuilder()
                     }
                 }
@@ -3278,7 +3278,7 @@ class ConfigSheetFragment : Fragment() {
                             val pkParts    = connSnap.child("primaryKeyParts").children.mapNotNull { partSnap ->
                                 val t = partSnap.child("type").getValue(String::class.java) ?: return@mapNotNull null
                                 val v = partSnap.child("value").getValue(String::class.java) ?: ""
-                                SheetConn.PkPart(t, v)
+                                PkPart(t, v)
                             }
                             list.add(SheetConn(connId, nickname, branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at, colMap, objMapRaw, pkField, tgtNode, pkParts))
                         }
