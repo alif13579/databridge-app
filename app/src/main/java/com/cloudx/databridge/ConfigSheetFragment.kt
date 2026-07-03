@@ -1866,13 +1866,18 @@ class ConfigSheetFragment : Fragment() {
         val e = parseColInput(etColEnd?.text?.toString() ?: "")   ?: run { showErr("Valid end column দিন (J বা 10)"); return }
         if (s < 1 || e < s) { showErr("start ≤ end হতে হবে"); return }
 
-        val existing = activeConn()
+        // Match by the exact connectionId currently being managed/edited — do NOT fall back
+        // to the first connection in the branch, or a fresh "+ New Sheet" flow would
+        // incorrectly overwrite an existing entry.
+        val existing = connections[activeBranch]?.find { it.connectionId == activeConnectionId }
         val sRow = etStartRow?.text?.toString()?.trim()?.toIntOrNull()
         val eRow = etEndRow?.text?.toString()?.trim()?.toIntOrNull()
 
-        // Reuse existing connectionId when editing; generate new push key when creating
-        val connId = if (isRangeEdit && existing != null) existing.connectionId
-                     else db.reference.child("config/sheets/$activeBranch/connections").push().key ?: java.util.UUID.randomUUID().toString()
+        // Reuse existing connectionId whenever we're editing a known connection
+        // (covers both the row-range-only edit AND the full Reconnect wizard flow);
+        // only generate a brand-new push key when there's genuinely no existing match.
+        val connId = existing?.connectionId
+            ?: (db.reference.child("config/sheets/$activeBranch/connections").push().key ?: java.util.UUID.randomUUID().toString())
 
         val conn = SheetConn(
             connectionId= connId,
