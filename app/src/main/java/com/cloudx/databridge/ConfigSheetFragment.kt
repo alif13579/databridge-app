@@ -1520,10 +1520,14 @@ class ConfigSheetFragment : Fragment() {
                         val status = fieldMap["status"]?.toString() ?: ""
                         multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] = status
                     }
-                    // runs_by_agentId — same reverse-index pattern, for courier/run_routes/delivery_run sheets.
-                    if (basePath == "courier/run_routes/delivery_run" && agentIdValue.isNotBlank()) {
+                    // runs_by_agentId — same reverse-index pattern, generalized for ANY run type
+                    // under courier/run_routes/{runType}/ (delivery_run, pickup_run, return_run, etc.)
+                    // so future run types work automatically without code changes.
+                    val runTypeMatch = Regex("^courier/run_routes/([^/]+)$").find(basePath)
+                    if (runTypeMatch != null && agentIdValue.isNotBlank()) {
+                        val runType = runTypeMatch.groupValues[1]
                         val status = fieldMap["status"]?.toString() ?: ""
-                        multiUpdate["courier/runs_by_agentId/$agentIdValue/delivery_run/$conId"] = status
+                        multiUpdate["courier/runs_by_agentId/$agentIdValue/$runType/$conId"] = status
                     }
                     inserted++
                 } else {
@@ -1549,9 +1553,11 @@ class ConfigSheetFragment : Fragment() {
                             multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] =
                                 changedFields["status"].toString()
                         }
-                        // Update runs_by_agentId if status changed (same guarded pattern)
-                        if (basePath == "courier/run_routes/delivery_run" && "status" in changedFields && agentIdValue.isNotBlank()) {
-                            multiUpdate["courier/runs_by_agentId/$agentIdValue/delivery_run/$conId"] =
+                        // Update runs_by_agentId if status changed (same guarded pattern, generalized run type)
+                        val runTypeMatchUpd = Regex("^courier/run_routes/([^/]+)$").find(basePath)
+                        if (runTypeMatchUpd != null && "status" in changedFields && agentIdValue.isNotBlank()) {
+                            val runType = runTypeMatchUpd.groupValues[1]
+                            multiUpdate["courier/runs_by_agentId/$agentIdValue/$runType/$conId"] =
                                 changedFields["status"].toString()
                         }
                         updated++
