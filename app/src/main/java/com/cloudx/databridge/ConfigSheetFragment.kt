@@ -1581,10 +1581,12 @@ class ConfigSheetFragment : Fragment() {
     private fun normalizePhone(phone: String): String {
         val digits = phone.filter { it.isDigit() }
         return when {
-            digits.isBlank()          -> ""
-            digits.startsWith("880")  -> digits
-            digits.startsWith("0")    -> "88" + digits
-            else                      -> "88" + digits
+            digits.isBlank()                              -> ""
+            digits.startsWith("880") && digits.length == 13 -> digits
+            digits.startsWith("0")   && digits.length == 11 -> "88" + digits
+            // 10-digit local number missing leading 0 (e.g. 1885580909)
+            digits.length == 10                             -> "880" + digits
+            else                                             -> "88" + digits
         }
     }
 
