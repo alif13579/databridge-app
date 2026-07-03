@@ -111,6 +111,8 @@ class ConfigSheetFragment : Fragment() {
         val connectedBy:    String  = "",
         val connectedAt:    Long    = 0L,
         val columnMapping:  Map<String, String> = emptyMap(), // firebaseField → colLetter
+        // firebaseField → Pair(keyColLetter, valueColLetter) — for object/key-value fields
+        val objectColumnMapping: Map<String, Pair<String, String>> = emptyMap(),
         val targetNode:     String  = "courier/consignments",
     ) {
         val columns: List<String> get() = (colStart..colEnd).map { n ->
@@ -238,6 +240,10 @@ class ConfigSheetFragment : Fragment() {
     // Step 5 — column mapping
     // Firebase field → column letter selected by user
     private val pendingMapping = mutableMapOf<String, String>()
+    // Object-type fields: fieldName → Pair(keyColLetter, valueColLetter)
+    private val pendingObjectMapping = mutableMapOf<String, Pair<String, String>>()
+    // Track which custom fields are "object" type (vs default "key"/flat type)
+    private val objectTypeFields = mutableSetOf<String>()
     private var targetNode = "courier/consignments"
     // Custom fields added manually via "+ Add Field" — fieldName to label
     private val customMappingFields = mutableListOf<Pair<String, String>>()
@@ -1418,6 +1424,22 @@ class ConfigSheetFragment : Fragment() {
                 val normalizedPhone = normalizePhone(phoneField ?: "")
                 if (normalizedPhone.isNotBlank()) fieldMap["recipientPhone"] = normalizedPhone
 
+                // ── Object-type fields: build key-value pair from two columns ──
+                // e.g. field "consignments" with key=consignmentId col, value=status col
+                // writes to: {basePath}/{conId}/{field}/{keyColValue} = valueColValue
+                val objectFieldWrites = mutableMapOf<String, Any>()
+                conn.objectColumnMapping.forEach { (field, colPair) ->
+                    val (keyLetter, valueLetter) = colPair
+                    val keyIdx   = letterToIndex(keyLetter)
+                    val valueIdx = letterToIndex(valueLetter)
+                    if (keyIdx < 0 || valueIdx < 0) return@forEach
+                    val keyVal   = row.getOrElse(keyIdx)   { "" }.trim()
+                    val valueVal = row.getOrElse(valueIdx) { "" }.trim()
+                    if (keyVal.isNotBlank() && valueVal.isNotBlank()) {
+                        objectFieldWrites["$field/$keyVal"] = valueVal
+                    }
+                }
+
                 // ── Check Firebase exist ──────────────────────────────
                 val existSnap = withContext(Dispatchers.IO) {
                     try { db.reference.child("$basePath/$conId").get().await() }
@@ -1429,6 +1451,7 @@ class ConfigSheetFragment : Fragment() {
                 if (existSnap == null || !existSnap.exists()) {
                     // INSERT
                     fieldMap.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
+                    objectFieldWrites.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
                     // consignments_by_phone
                     if (normalizedPhone.isNotBlank()) {
                         val status = fieldMap["status"]?.toString() ?: ""
@@ -1445,6 +1468,11 @@ class ConfigSheetFragment : Fragment() {
                             else -> (firebaseVal?.toString() ?: "") == v.toString()
                         }
                         if (!same) changedFields[k] = v
+                    }
+                    // Object fields: compare each key-value pair individually
+                    objectFieldWrites.forEach { (path, v) ->
+                        val firebaseVal = existSnap.child(path).value
+                        if ((firebaseVal?.toString() ?: "") != v.toString()) changedFields[path] = v
                     }
                     if (changedFields.isNotEmpty()) {
                         changedFields.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
@@ -1803,6 +1831,7 @@ class ConfigSheetFragment : Fragment() {
             connectedBy = auth.currentUser?.uid ?: existing?.connectedBy ?: "",
             connectedAt = existing?.connectedAt ?: System.currentTimeMillis(),
             columnMapping = pendingMapping.toMap(),
+            objectColumnMapping = pendingObjectMapping.toMap(),
             targetNode    = etTargetNode?.text?.toString()?.trim()?.ifBlank { "courier/consignments" } ?: "courier/consignments",
         )
         val connList = connections.getOrPut(activeBranch) { mutableListOf() }
@@ -1900,6 +1929,18 @@ class ConfigSheetFragment : Fragment() {
 
     private fun showAddFieldDialog() {
         val ctx = context ?: return
+        // Step 1: choose field type — Key (flat) or Object (key-value pair)
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Field Type বেছে নিন")
+            .setItems(arrayOf("Key  (একটা column → একটা value)", "Object  (key-value pair, যেমন consignments)")) { _, which ->
+                if (which == 0) showAddKeyFieldDialog() else showAddObjectFieldDialog()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showAddKeyFieldDialog() {
+        val ctx = context ?: return
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
 
@@ -1917,7 +1958,7 @@ class ConfigSheetFragment : Fragment() {
         layout.addView(etFieldName)
 
         android.app.AlertDialog.Builder(ctx)
-            .setTitle("New Field যোগ করুন")
+            .setTitle("New Field যোগ করুন — Key")
             .setView(layout)
             .setPositiveButton("Add") { _, _ ->
                 val name = etFieldName.text.toString().trim()
@@ -1930,6 +1971,172 @@ class ConfigSheetFragment : Fragment() {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun showAddObjectFieldDialog() {
+        val ctx = context ?: return
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        val layout = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(24.dp(), 16.dp(), 24.dp(), 8.dp())
+        }
+        val etFieldName = EditText(ctx).apply {
+            hint = "Object name (e.g. consignments)"
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(10.dp(), 10.dp(), 10.dp(), 10.dp())
+            inputType = android.text.InputType.TYPE_CLASS_TEXT
+            textSize = 13f
+        }
+        layout.addView(etFieldName)
+
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("New Field যোগ করুন — Object")
+            .setView(layout)
+            .setPositiveButton("Add") { _, _ ->
+                val name = etFieldName.text.toString().trim()
+                if (name.isBlank()) return@setPositiveButton
+                if (!fetchedNodeKeys.contains(name) &&
+                    customMappingFields.none { it.first == name }) {
+                    customMappingFields.add(name to name)
+                    objectTypeFields.add(name)
+                    renderMappingStep()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Renders a row for an "object" type field — two dropdowns: Key column, Value column */
+    private fun renderObjectFieldRow(
+        ctx: android.content.Context,
+        container: android.widget.LinearLayout,
+        field: String,
+        label: String,
+        headerOptions: List<String>,
+        headerLetters: List<String>
+    ) {
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        val card = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            background  = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(12.dp(), 10.dp(), 12.dp(), 10.dp())
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = 10.dp() }
+        }
+
+        // Header: label + object badge + delete
+        val headerRow = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity     = android.view.Gravity.CENTER_VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = 8.dp() }
+        }
+        val tvLabel = TextView(ctx).apply {
+            text     = "$label  {}"
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#3B82F6"))
+            layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val btnDelete = TextView(ctx).apply {
+            text     = "✕"
+            textSize = 13f
+            setTextColor(android.graphics.Color.parseColor("#EF4444"))
+            setPadding(8.dp(), 0, 0, 0)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                customMappingFields.removeAll { it.first == field }
+                pendingObjectMapping.remove(field)
+                objectTypeFields.remove(field)
+                renderMappingStep()
+            }
+        }
+        headerRow.addView(tvLabel)
+        headerRow.addView(btnDelete)
+        card.addView(headerRow)
+
+        // Key dropdown row
+        val keyRow = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity     = android.view.Gravity.CENTER_VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = 6.dp() }
+        }
+        val tvKeyLabel = TextView(ctx).apply {
+            text = "Key:"
+            textSize = 11f
+            setTextColor(context.getColor(R.color.theme_text_muted))
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                44.dp(), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        val existing = pendingObjectMapping[field]
+
+        val spinnerKey = Spinner(ctx).apply {
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, 42.dp(), 1f)
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, headerOptions)
+            val selIdx = existing?.first?.let { headerLetters.indexOf(it).coerceAtLeast(0) } ?: 0
+            setSelection(selIdx)
+        }
+        keyRow.addView(tvKeyLabel)
+        keyRow.addView(spinnerKey)
+        card.addView(keyRow)
+
+        // Value dropdown row
+        val valueRow = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity     = android.view.Gravity.CENTER_VERTICAL
+        }
+        val tvValueLabel = TextView(ctx).apply {
+            text = "Value:"
+            textSize = 11f
+            setTextColor(context.getColor(R.color.theme_text_muted))
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                44.dp(), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        val spinnerValue = Spinner(ctx).apply {
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            layoutParams = android.widget.LinearLayout.LayoutParams(0, 42.dp(), 1f)
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, headerOptions)
+            val selIdx = existing?.second?.let { headerLetters.indexOf(it).coerceAtLeast(0) } ?: 0
+            setSelection(selIdx)
+        }
+        valueRow.addView(tvValueLabel)
+        valueRow.addView(spinnerValue)
+        card.addView(valueRow)
+
+        // Update pendingObjectMapping whenever either spinner changes
+        fun syncMapping() {
+            val keyLetter   = headerLetters.getOrElse(spinnerKey.selectedItemPosition) { "" }
+            val valueLetter = headerLetters.getOrElse(spinnerValue.selectedItemPosition) { "" }
+            if (keyLetter.isNotBlank() && valueLetter.isNotBlank()) {
+                pendingObjectMapping[field] = keyLetter to valueLetter
+            } else {
+                pendingObjectMapping.remove(field)
+            }
+        }
+        spinnerKey.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = syncMapping()
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        spinnerValue.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = syncMapping()
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+
+        container.addView(card)
     }
 
     private fun renderMappingStep() {
@@ -2039,6 +2246,13 @@ class ConfigSheetFragment : Fragment() {
 
         allFields2.forEach { (field, label) ->
             val isCustom = customMappingFields.any { it.first == field }
+            val isObjectField = field in objectTypeFields
+
+            if (isObjectField) {
+                renderObjectFieldRow(ctx, container, field, label, headerOptions, headerLetters)
+                return@forEach
+            }
+
             val row = android.widget.LinearLayout(ctx).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
                 gravity     = android.view.Gravity.CENTER_VERTICAL
@@ -2100,6 +2314,8 @@ class ConfigSheetFragment : Fragment() {
                     setOnClickListener {
                         customMappingFields.removeAll { it.first == field }
                         pendingMapping.remove(field)
+                        pendingObjectMapping.remove(field)
+                        objectTypeFields.remove(field)
                         renderMappingStep()
                     }
                 }
@@ -2130,6 +2346,8 @@ class ConfigSheetFragment : Fragment() {
         fetchedNodeKeys.clear()
         nodePreviewData = emptyMap()
         pendingMapping.clear()
+        pendingObjectMapping.clear()
+        objectTypeFields.clear()
         targetNode = "courier/consignments"
         etTargetNode?.setText("")
         tvFetchStatus?.text = ""
@@ -2162,6 +2380,14 @@ class ConfigSheetFragment : Fragment() {
         etTargetNode?.setText(conn.targetNode)
         pendingMapping.clear()
         pendingMapping.putAll(conn.columnMapping)
+        pendingObjectMapping.clear()
+        pendingObjectMapping.putAll(conn.objectColumnMapping)
+        objectTypeFields.clear()
+        objectTypeFields.addAll(conn.objectColumnMapping.keys)
+        // Re-add object fields as custom fields so they render in the mapping step
+        conn.objectColumnMapping.keys.forEach { key ->
+            if (customMappingFields.none { it.first == key }) customMappingFields.add(key to key)
+        }
     }
 
     private fun openRangeEditor() {
@@ -2728,8 +2954,14 @@ class ConfigSheetFragment : Fragment() {
                             val interval  = connSnap.child("syncIntervalMin").getValue(Int::class.java)    ?: 30
                             @Suppress("UNCHECKED_CAST")
                             val colMap     = (connSnap.child("columnMapping").value as? Map<String, String>) ?: emptyMap()
+                            val objMapRaw  = connSnap.child("objectColumnMapping").children.associate { fieldSnap ->
+                                fieldSnap.key.orEmpty() to Pair(
+                                    fieldSnap.child("key").getValue(String::class.java) ?: "",
+                                    fieldSnap.child("value").getValue(String::class.java) ?: ""
+                                )
+                            }.filterKeys { it.isNotBlank() }
                             val tgtNode    = connSnap.child("targetNode").getValue(String::class.java) ?: "courier/consignments"
-                            list.add(SheetConn(connId, nickname, branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at, colMap, tgtNode))
+                            list.add(SheetConn(connId, nickname, branchId, sheetId, sheetName, tabName, colS, colE, sRow, eRow, autoSync, interval, email, by, at, colMap, objMapRaw, tgtNode))
                         }
                         if (list.isNotEmpty()) connections[branchId] = list
                     }
@@ -2786,6 +3018,9 @@ class ConfigSheetFragment : Fragment() {
                     "connectedBy"     to conn.connectedBy,
                     "connectedAt"     to conn.connectedAt,
                     "columnMapping"   to conn.columnMapping,
+                    "objectColumnMapping" to conn.objectColumnMapping.mapValues {
+                        (_, pair) -> mapOf("key" to pair.first, "value" to pair.second)
+                    },
                     "targetNode"      to conn.targetNode,
                 )
                 val basePath = "config/sheets/${conn.branchId}/connections"
