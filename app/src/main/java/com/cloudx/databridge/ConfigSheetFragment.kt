@@ -1976,19 +1976,23 @@ class ConfigSheetFragment : Fragment() {
                 val rootUrl = db.reference.root.toString().trimEnd('/')
                 val authParam = idToken?.let { "&auth=$it" } ?: ""
                 val url = "$rootUrl/courier.json?shallow=true$authParam"
-                val body = withContext(Dispatchers.IO) {
+                Log.d("ConfigSheet", "🔍 Fetching courier nodes from: $rootUrl/courier.json?shallow=true (token: ${if (idToken != null) "present" else "MISSING"})")
+                val (responseCode, body) = withContext(Dispatchers.IO) {
                     val req = Request.Builder().url(url).build()
                     httpClient.newCall(req).execute().use { resp ->
-                        if (!resp.isSuccessful) null else resp.body?.string()
+                        resp.code to (if (!resp.isSuccessful) null else resp.body?.string())
                     }
                 }
+                Log.d("ConfigSheet", "🔍 courier.json response code=$responseCode body=$body")
                 courierChildNodes = if (body.isNullOrBlank() || body == "null") {
                     emptyList()
                 } else {
                     val obj = org.json.JSONObject(body)
                     obj.keys().asSequence().toList().sorted()
                 }
-            } catch (_: Exception) {
+                Log.d("ConfigSheet", "🔍 courierChildNodes = $courierChildNodes")
+            } catch (e: Exception) {
+                Log.e("ConfigSheet", "❌ fetchCourierChildNodes failed: ${e.message}", e)
                 courierChildNodes = emptyList()
             } finally {
                 courierNodesFetched = true
