@@ -590,17 +590,37 @@
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:layout_marginTop="16dp" android:visibility="gone">
 
-                <!-- Existing node picker under courier/ -->
+                <!-- Existing node picker under courier/ (searchable) -->
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="COURIER/ এর ভেতরে বিদ্যমান NODE (ঐচ্ছিক)"
+                    android:text="COURIER/ এর ভেতরে বিদ্যমান NODE"
                     android:textSize="10sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
-                <Spinner android:id="@+id/spinnerExistingNode"
+
+                <TextView android:id="@+id/tvExistingNodePicker"
                     android:layout_width="match_parent" android:layout_height="46dp"
                     android:background="@drawable/bg_input_rounded"
-                    android:layout_marginBottom="10dp" />
+                    android:paddingStart="12dp" android:paddingEnd="12dp"
+                    android:gravity="center_vertical"
+                    android:text="— Node বেছে নিন —"
+                    android:textSize="13sp"
+                    android:textColor="@color/theme_text_secondary"
+                    android:clickable="true" android:focusable="true"
+                    android:layout_marginBottom="6dp" />
 
-                <!-- Target node -->
+                <TextView android:id="@+id/tvSwitchToDropdown"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Want to select from dropdown?"
+                    android:textSize="11sp" android:textStyle="bold"
+                    android:textColor="#3B82F6"
+                    android:clickable="true" android:focusable="true"
+                    android:layout_marginBottom="10dp"
+                    android:visibility="gone" />
+
+                <!-- Target node (manual entry, "Others" mode) -->
+                <LinearLayout android:id="@+id/layoutManualTargetNode"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:visibility="gone">
+
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="TARGET NODE"
                     android:textSize="10sp" android:textStyle="bold"
@@ -622,7 +642,7 @@
                         android:layout_weight="1"
                         android:background="@drawable/bg_input_rounded"
                         android:padding="10dp" android:textSize="13sp"
-                        android:hint="courier/consignments"
+                        android:hint="run_routes/delivery_run"
                         android:inputType="text" android:maxLines="1"
                         android:layout_marginEnd="8dp" />
                     <Button android:id="@+id/btnFetchFields"
@@ -630,6 +650,8 @@
                         android:text="Fetch" android:textSize="12sp" android:textStyle="bold"
                         android:backgroundTint="#3B82F6" android:textColor="@color/theme_bg_card"
                         android:paddingStart="16dp" android:paddingEnd="16dp" />
+                </LinearLayout>
+
                 </LinearLayout>
 
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"

@@ -184,7 +184,9 @@ class ConfigSheetFragment : Fragment() {
     private var stepView1: View? = null; private var stepView2: View? = null
     private var stepView3: View? = null; private var stepView4: View? = null; private var stepView5: View? = null
     private var containerMapping: android.widget.LinearLayout? = null
-    private var spinnerExistingNode: Spinner? = null
+    private var tvExistingNodePicker: TextView? = null
+    private var tvSwitchToDropdown:   TextView? = null
+    private var layoutManualTargetNode: View? = null
     private var courierChildNodes: List<String> = emptyList()
     private var courierNodesFetched = false
     private var etTargetNode:     EditText? = null
@@ -379,7 +381,9 @@ class ConfigSheetFragment : Fragment() {
         stepView1 = view.findViewById(R.id.stepView1); stepView2 = view.findViewById(R.id.stepView2)
         stepView3 = view.findViewById(R.id.stepView3); stepView4 = view.findViewById(R.id.stepView4); stepView5 = view.findViewById(R.id.stepView5)
         containerMapping    = view.findViewById(R.id.containerMapping)
-        spinnerExistingNode = view.findViewById(R.id.spinnerExistingNode)
+        tvExistingNodePicker  = view.findViewById(R.id.tvExistingNodePicker)
+        tvSwitchToDropdown    = view.findViewById(R.id.tvSwitchToDropdown)
+        layoutManualTargetNode = view.findViewById(R.id.layoutManualTargetNode)
         etTargetNode        = view.findViewById(R.id.etTargetNode)
         btnFetchFields      = view.findViewById(R.id.btnFetchFields)
         pbFetchFields       = view.findViewById(R.id.pbFetchFields)
@@ -1994,23 +1998,103 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun populateExistingNodeSpinner() {
-        val ctx = context ?: return
-        val options = listOf("— নতুন path লিখুন —") + courierChildNodes
-        spinnerExistingNode?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, options)
+        // Default state: dropdown-label visible, manual box hidden
+        showNodeDropdownMode()
+
+        tvExistingNodePicker?.setOnClickListener { openNodePickerDialog() }
+        tvSwitchToDropdown?.setOnClickListener { showNodeDropdownMode() }
+
+        // Reflect current targetNode suffix: if it matches an existing top-level
+        // node, show dropdown mode with that label; otherwise (nested path or
+        // brand-new suffix) fall back to manual entry mode.
         val currentSuffix = etTargetNode?.text?.toString()?.trim()?.trim('/') ?: ""
-        val idx = courierChildNodes.indexOf(currentSuffix)
-        spinnerExistingNode?.setSelection(if (idx >= 0) idx + 1 else 0)
-        spinnerExistingNode?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                if (pos == 0) return // "নতুন path লিখুন" — leave manual entry as-is
-                val chosen = courierChildNodes.getOrNull(pos - 1) ?: return
+        if (currentSuffix.isNotBlank()) {
+            if (courierChildNodes.contains(currentSuffix)) {
+                tvExistingNodePicker?.text = currentSuffix
+            } else {
+                showNodeManualMode()
+            }
+        }
+    }
+
+    /** Show dropdown-label mode (hide manual "Others" entry box) */
+    private fun showNodeDropdownMode() {
+        tvExistingNodePicker?.visibility   = View.VISIBLE
+        layoutManualTargetNode?.visibility = View.GONE
+        tvSwitchToDropdown?.visibility     = View.GONE
+    }
+
+    /** Show manual "Others" entry mode (hide dropdown-label, show switch-back link) */
+    private fun showNodeManualMode() {
+        tvExistingNodePicker?.visibility   = View.GONE
+        layoutManualTargetNode?.visibility = View.VISIBLE
+        tvSwitchToDropdown?.visibility     = View.VISIBLE
+    }
+
+    /** Opens a searchable dialog listing courierChildNodes + an "Others" entry */
+    private fun openNodePickerDialog() {
+        val ctx = context ?: return
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        val root = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(20.dp(), 12.dp(), 20.dp(), 4.dp())
+        }
+        val etSearch = EditText(ctx).apply {
+            hint = "Search node..."
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(10.dp(), 10.dp(), 10.dp(), 10.dp())
+            textSize = 13f
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = 8.dp() }
+        }
+        val listView = android.widget.ListView(ctx).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 400.dp())
+        }
+        root.addView(etSearch)
+        root.addView(listView)
+
+        val fullOptions = courierChildNodes + listOf("Others")
+        var filtered = fullOptions
+        val adapter = ArrayAdapter(ctx, android.R.layout.simple_list_item_1, filtered.toMutableList())
+        listView.adapter = adapter
+
+        val dialog = android.app.AlertDialog.Builder(ctx)
+            .setTitle("Node বেছে নিন")
+            .setView(root)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val q = s?.toString()?.trim()?.lowercase() ?: ""
+                filtered = if (q.isBlank()) fullOptions else fullOptions.filter { it.lowercase().contains(q) || it == "Others" }
+                adapter.clear(); adapter.addAll(filtered); adapter.notifyDataSetChanged()
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+
+        listView.setOnItemClickListener { _, _, pos, _ ->
+            val chosen = filtered.getOrNull(pos) ?: return@setOnItemClickListener
+            dialog.dismiss()
+            if (chosen == "Others") {
+                showNodeManualMode()
+            } else {
+                tvExistingNodePicker?.text = chosen
                 etTargetNode?.setText(chosen)
                 val fullNode = "courier/$chosen"
                 targetNode = fullNode
+                showNodeDropdownMode()
                 fetchNodeKeys(fullNode) // auto column-detect on selection
             }
-            override fun onNothingSelected(p: AdapterView<*>?) {}
         }
+
+        dialog.show()
     }
 
     private fun fetchNodeKeys(node: String) {
