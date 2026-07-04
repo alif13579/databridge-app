@@ -45,6 +45,10 @@ class CallCenterFragment : Fragment() {
     // Best-effort fetch: remark-writing still works (falls back to "") if this fails.
     private var employeeId = ""
 
+    // systemId -> display name, fetched once per session (cheap: one bulk read of users/)
+    // and reused for every subsequent run listener trigger. Cleared on pull-to-refresh.
+    private var systemIdToName: Map<String, String> = emptyMap()
+
     private lateinit var adapter: CallCenterAdapter
 
     private var allParcels = listOf<CallCenterParcelItem>()
@@ -91,6 +95,7 @@ class CallCenterFragment : Fragment() {
         swipeRefresh = view.findViewById(R.id.swipeRefreshCca)
         swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
         swipeRefresh.setOnRefreshListener {
+            systemIdToName = emptyMap()
             detachRunsListener()
             loadData()
             swipeRefresh.isRefreshing = false
@@ -281,6 +286,33 @@ class CallCenterFragment : Fragment() {
         runsRef = null
     }
 
+    /**
+     * Fetches the systemId -> name map once (cached in systemIdToName), reused across every
+     * subsequent listener trigger until pull-to-refresh clears the cache. One bulk read of
+     * users/ instead of one query per distinct agent seen in today's runs.
+     */
+    private suspend fun ensureAgentNameMap(): Map<String, String> {
+        if (systemIdToName.isNotEmpty()) return systemIdToName
+        return try {
+            val snap = withContext(Dispatchers.IO) {
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .reference.child("users").get().await()
+            }
+            val map = mutableMapOf<String, String>()
+            snap.children.forEach { child ->
+                val sysId = child.child("profile/company_info/system_id")
+                    .getValue(String::class.java)?.trim()
+                val name = child.child("profile/name").getValue(String::class.java)?.trim()
+                    ?: child.child("name").getValue(String::class.java)?.trim()
+                if (!sysId.isNullOrBlank() && !name.isNullOrBlank()) map[sysId] = name
+            }
+            systemIdToName = map
+            map
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
     private suspend fun processRunsSnapshot(runsSnap: com.google.firebase.database.DataSnapshot) {
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
 
@@ -293,31 +325,37 @@ class CallCenterFragment : Fragment() {
         val dayStart = cal.timeInMillis
         val dayEnd   = dayStart + 24 * 60 * 60 * 1000 - 1
 
-        // Collect today's consignment ids + statuses
-        val consignmentStatuses = mutableMapOf<String, String>()
+        // Collect today's consignment ids + statuses + which agent's run they came from.
+        // agentSystemId is already a flat field on the run node (written by ConfigSheetFragment's
+        // sync) — reading it here costs nothing extra, it's already in the snapshot we have.
+        val consignmentInfo = mutableMapOf<String, Pair<String, String>>() // cId -> (agentSystemId, status)
         runsSnap.children.forEach { runSnap ->
             val runId = runSnap.key ?: return@forEach
             val runTimestamp = parseRunTimestamp(runId) ?: return@forEach
             if (runTimestamp < dayStart || runTimestamp > dayEnd) return@forEach
+            val agentSystemId = runSnap.child("agentSystemId").getValue(String::class.java)?.trim().orEmpty()
             runSnap.child("consignments").children.forEach { c ->
                 val cId     = c.key ?: return@forEach
                 val cStatus = c.getValue(String::class.java) ?: "pending"
-                consignmentStatuses[cId] = cStatus
+                consignmentInfo[cId] = agentSystemId to cStatus
             }
         }
 
-        if (consignmentStatuses.isEmpty()) {
+        if (consignmentInfo.isEmpty()) {
             pbProgress.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
             return
         }
 
+        // One-time (cached) bulk fetch of all agents' names — avoids N per-agent lookups.
+        val nameMap = ensureAgentNameMap()
+
         // Parallel fetch consignment details
         val parcels = coroutineScope {
-            consignmentStatuses.entries.map { entry ->
+            consignmentInfo.entries.map { entry ->
                 val cId = entry.key
-                val runStatus = entry.value
+                val (agentSystemId, runStatus) = entry.value
                 async(Dispatchers.IO) {
                     try {
                         val snap = db.reference.child("courier/consignments/$cId").get().await()
@@ -348,7 +386,7 @@ class CallCenterFragment : Fragment() {
                             validationRequest = status == "verify_req",
                             validationNote    = if (status == "verify_req") lastRemark else "",
                             time              = "",
-                            worker            = "",
+                            worker            = nameMap[agentSystemId] ?: agentSystemId,
                             branch            = hub
                         )
                     } catch (e: Exception) { null }
