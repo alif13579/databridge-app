@@ -429,9 +429,9 @@ class CallCenterFragment : Fragment() {
             val uid       = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
             val multiUpdate = mutableMapOf<String, Any>(
                 "courier/remarks_by_consignment/${item.id}/remarks_$timestamp" to mapOf(
-                    "agentSystemId" to "",           // CC agent — system_id fetch needed if required
+                    "agentSystemId" to "",
                     "remarks"       to fullRemark,
-                    "type"          to "cc_remark",
+                    "type"          to selectedStatus,
                     "status"        to selectedStatus,
                     "remarked_by"   to "support",
                     "createdAt"     to timestamp

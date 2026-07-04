@@ -364,7 +364,7 @@ class WorkerSpaceFragment : Fragment() {
                 val remarkData = mapOf(
                     "agentSystemId" to systemId,
                     "remarks"       to selectedLabel,
-                    "type"          to "agent_remark",
+                    "type"          to statusKey,
                     "status"        to statusKey,
                     "remarked_by"   to "worker",
                     "createdAt"     to timestamp,
