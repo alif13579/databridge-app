@@ -426,13 +426,18 @@ class CallCenterFragment : Fragment() {
             // Write to Firebase
             val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
             val timestamp = System.currentTimeMillis()
+            val uid       = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
             val multiUpdate = mutableMapOf<String, Any>(
                 "courier/remarks_by_consignment/${item.id}/remarks_$timestamp" to mapOf(
-                    "type"      to "cc_remark",
-                    "status"    to fullRemark,
-                    "createdAt" to timestamp
+                    "agentSystemId" to "",           // CC agent — system_id fetch needed if required
+                    "remarks"       to fullRemark,
+                    "type"          to "cc_remark",
+                    "status"        to selectedStatus,
+                    "remarked_by"   to "support",
+                    "createdAt"     to timestamp
                 ),
-                "courier/consignments_by_phone/${item.phone}/${item.id}" to selectedStatus
+                "courier/consignments/${item.id}/status"                       to selectedStatus,
+                "courier/consignments_by_phone/${item.phone}/${item.id}"       to selectedStatus
             )
             db.reference.updateChildren(multiUpdate)
 

@@ -358,6 +358,29 @@ class WorkerSpaceFragment : Fragment() {
             }?.findViewById<TextView>(R.id.twRemarkOptText)?.text?.toString() ?: ""
 
             if (statusKey.isNotBlank() && selectedLabel.isNotBlank()) {
+                val timestamp = System.currentTimeMillis()
+
+                // Write remark to Firebase
+                val remarkData = mapOf(
+                    "agentSystemId" to systemId,
+                    "remarks"       to selectedLabel,
+                    "type"          to "agent_remark",
+                    "status"        to statusKey,
+                    "remarked_by"   to "worker",
+                    "createdAt"     to timestamp,
+                    "runId"         to "run_${
+                        java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH)
+                            .format(java.util.Date())
+                    }_${systemId}"
+                )
+                val multiUpdate = mutableMapOf<String, Any>(
+                    "courier/remarks_by_consignment/${item.id}/remarks_$timestamp" to remarkData,
+                    "courier/consignments/${item.id}/status" to statusKey,
+                    "courier/consignments_by_phone/${item.phone}/${item.id}" to statusKey
+                )
+                db.reference.updateChildren(multiUpdate)
+
+                // Local update
                 val updatedParcels = allParcels.map {
                     if (it.id == item.id) {
                         val newHistory = it.history + HistoryEntry(
