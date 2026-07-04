@@ -105,6 +105,7 @@
                 android:textSize="12sp"/>
 
             <ImageView
+                android:id="@+id/ivBranchDropdownArrow"
                 android:layout_width="12dp"
                 android:layout_height="12dp"
                 android:src="@android:drawable/arrow_down_float"

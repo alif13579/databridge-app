@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.TypedValue
 import android.view.View
 import android.widget.ImageView
 import android.widget.TextView
@@ -519,6 +520,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         val tvRole      = header.findViewById<TextView>(R.id.tvDrawerRoleBadge)
         val tvBranch    = header.findViewById<TextView>(R.id.tvDrawerBranchName)
         val layoutBranch = header.findViewById<View>(R.id.layoutBranchSwitcher)
+        val ivArrow     = header.findViewById<View>(R.id.ivBranchDropdownArrow)
         val roleLabel = when {
             info.roleName.isNotBlank() -> info.roleName
             info.roleId.isNotBlank() -> info.roleId
@@ -529,6 +531,17 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         if (info.branchName.isNotBlank()) {
             tvBranch?.text          = info.branchName
             layoutBranch?.visibility = View.VISIBLE
+            val hasMultipleBranches = info.branchIds.size > 1
+            ivArrow?.visibility = if (hasMultipleBranches) View.VISIBLE else View.GONE
+            layoutBranch?.isClickable = hasMultipleBranches
+            layoutBranch?.isFocusable = hasMultipleBranches
+            if (hasMultipleBranches) {
+                val outValue = TypedValue()
+                header.context.theme.resolveAttribute(android.R.attr.selectableItemBackground, outValue, true)
+                layoutBranch?.setBackgroundResource(outValue.resourceId)
+            } else {
+                layoutBranch?.background = null
+            }
         } else {
             layoutBranch?.visibility = View.GONE
         }
