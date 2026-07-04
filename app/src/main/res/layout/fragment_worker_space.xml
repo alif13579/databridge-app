@@ -15,8 +15,8 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="@drawable/bg_header"
-                android:padding="16dp"
-                android:paddingBottom="12dp">
+                android:padding="10dp"
+                android:paddingBottom="6dp">
 
                 <!-- Top row: avatar + name + COD -->
                 <LinearLayout
@@ -24,7 +24,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:layout_marginBottom="14dp">
+                    android:layout_marginBottom="8dp">
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -35,12 +35,12 @@
 
                         <TextView
                             android:id="@+id/twAvatarIcon"
-                            android:layout_width="38dp"
-                            android:layout_height="38dp"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
                             android:background="@drawable/bg_avatar_gradient"
                             android:gravity="center"
                             android:text="📦"
-                            android:textSize="16dp" />
+                            android:textSize="14dp" />
 
                         <LinearLayout
                             android:layout_width="wrap_content"
@@ -79,7 +79,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Today's COD"
-                            android:textSize="11sp"
+                            android:textSize="10sp"
                             android:textColor="@color/theme_text_secondary" />
 
                         <TextView
@@ -87,19 +87,19 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="৳0"
-                            android:textSize="18sp"
+                            android:textSize="16sp"
                             android:textColor="@color/theme_accent"
                             android:textStyle="bold"
                             android:fontFamily="sans-serif-medium" />
 
                         <Spinner
                             android:id="@+id/spinnerRunType"
-                            android:layout_width="120dp"
-                            android:layout_height="34dp"
-                            android:layout_marginTop="6dp"
+                            android:layout_width="90dp"
+                            android:layout_height="26dp"
+                            android:layout_marginTop="4dp"
                             android:background="@drawable/bg_search_bar"
-                            android:paddingStart="8dp"
-                            android:paddingEnd="8dp"
+                            android:paddingStart="6dp"
+                            android:paddingEnd="6dp"
                             android:spinnerMode="dropdown" />
                     </LinearLayout>
                 </LinearLayout>
@@ -119,7 +119,7 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="10dp"
+                        android:padding="6dp"
                         android:background="@drawable/bg_stat_card"
                         android:layout_marginEnd="5dp">
 
@@ -128,7 +128,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textSize="22sp"
+                            android:textSize="18sp"
                             android:textColor="@color/theme_text_primary"
                             android:textStyle="bold"
                             android:fontFamily="sans-serif-medium" />
@@ -137,9 +137,9 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Total"
-                            android:textSize="11sp"
+                            android:textSize="10sp"
                             android:textColor="@color/theme_text_secondary"
-                            android:layout_marginTop="2dp" />
+                            android:layout_marginTop="1dp" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -149,7 +149,7 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="10dp"
+                        android:padding="6dp"
                         android:background="@drawable/bg_stat_card"
                         android:layout_marginEnd="5dp">
 
@@ -158,7 +158,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textSize="22sp"
+                            android:textSize="18sp"
                             android:textColor="@color/theme_green"
                             android:textStyle="bold"
                             android:fontFamily="sans-serif-medium" />
@@ -167,9 +167,9 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Confirmed"
-                            android:textSize="11sp"
+                            android:textSize="10sp"
                             android:textColor="@color/theme_text_secondary"
-                            android:layout_marginTop="2dp" />
+                            android:layout_marginTop="1dp" />
                     </LinearLayout>
 
                     <LinearLayout
@@ -179,7 +179,7 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="10dp"
+                        android:padding="6dp"
                         android:background="@drawable/bg_stat_card">
 
                         <TextView
@@ -187,7 +187,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textSize="22sp"
+                            android:textSize="18sp"
                             android:textColor="@color/theme_yellow"
                             android:textStyle="bold"
                             android:fontFamily="sans-serif-medium" />
@@ -196,9 +196,9 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Pending"
-                            android:textSize="11sp"
+                            android:textSize="10sp"
                             android:textColor="@color/theme_text_secondary"
-                            android:layout_marginTop="2dp" />
+                            android:layout_marginTop="1dp" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -210,8 +210,8 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:background="@drawable/bg_search_bar"
-                    android:padding="10dp"
-                    android:layout_marginTop="14dp">
+                    android:padding="7dp"
+                    android:layout_marginTop="8dp">
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -270,7 +270,7 @@
                     android:layout_height="wrap_content"
                     android:textSize="11sp"
                     android:textColor="@color/theme_text_secondary"
-                    android:layout_marginTop="6dp"
+                    android:layout_marginTop="4dp"
                     android:paddingStart="2dp"
                     android:visibility="gone" />
             </LinearLayout>
@@ -287,9 +287,9 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:padding="12dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp" />
+                    android:padding="8dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp" />
             </HorizontalScrollView>
 
             <!-- Shown only when the (relevant) run's status is "closed", so the agent
