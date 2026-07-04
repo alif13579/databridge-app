@@ -495,7 +495,7 @@ class WorkerSpaceFragment : Fragment() {
 
     private fun attachRunsListener(systemId: String) {
         detachRunsListener()
-        val ref = db.reference.child("courier/runs_by_agentId/$systemId")
+        val ref = db.reference.child("courier/runs_by_agentSystemId/$systemId")
         runsByAgentRef = ref
         runsByAgentListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
