@@ -493,7 +493,14 @@ class ScannerFragment : Fragment() {
         adapter.items = displayItems
         tvEmpty.visibility = if (displayItems.isEmpty()) View.VISIBLE else View.GONE
 
-        val allItems = localItems + uploadedItems
+        // Stats respect the date filter when active (All Scans tab), else show lifetime totals.
+        val hasDateFilter = filterFromDate != null && filterToDate != null
+        val allItems = if (hasDateFilter) {
+            val from = filterFromDate!!; val to = filterToDate!!
+            (localItems + uploadedItems).filter { it.scanAt in from..to }
+        } else {
+            localItems + uploadedItems
+        }
         tvTotalCount.text = allItems.size.toString()
         tvCameraCount.text = allItems.count { !it.manual }.toString()
         tvManualCount.text = allItems.count { it.manual }.toString()
