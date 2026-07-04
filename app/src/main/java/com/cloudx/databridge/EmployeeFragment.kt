@@ -70,6 +70,7 @@ class EmployeeFragment : Fragment() {
 
     data class UserEntry(
         val uid: String,
+        val systemId: String = "",
         val employeeId: String,
         val name: String,
         val email: String,
@@ -423,6 +424,7 @@ class EmployeeFragment : Fragment() {
 
                 allUsers = usersSnap.children.mapNotNull { child ->
                     val uid   = child.key ?: return@mapNotNull null
+                    val systemId = child.child("profile/company_info/system_id").getValue(String::class.java) ?: ""
                     val employeeId = child.child("profile/company_info/employee_id").getValue(String::class.java) ?: ""
                     val name  = child.child("profile/name").getValue(String::class.java)
                                 ?: child.child("name").getValue(String::class.java)
@@ -455,6 +457,7 @@ class EmployeeFragment : Fragment() {
                     val photoUrl    = child.child("profile/photo_url").getValue(String::class.java).orEmpty()
                     UserEntry(
                         uid         = uid,
+                        systemId    = systemId,
                         employeeId  = employeeId,
                         name        = name,
                         email       = email,
@@ -522,6 +525,28 @@ class EmployeeFragment : Fragment() {
     }
 
     private fun showUserDialog(title: String, user: UserEntry?, allowedRoles: List<String>) {
+        lifecycleScope.launch {
+            val nextSystemId = if (user == null) fetchNextSystemId() else user.systemId
+            buildUserDialog(title, user, allowedRoles, nextSystemId)
+        }
+    }
+
+    /** Scans all users' system_id, returns (max numeric + 1) as string. Falls back to "1". */
+    private suspend fun fetchNextSystemId(): String {
+        return try {
+            val snap = db.reference.child("users").get().await()
+            var maxId = 0
+            snap.children.forEach { child ->
+                val sid = child.child("profile/company_info/system_id").getValue(String::class.java)
+                sid?.toIntOrNull()?.let { if (it > maxId) maxId = it }
+            }
+            (maxId + 1).toString()
+        } catch (e: Exception) {
+            "1"
+        }
+    }
+
+    private fun buildUserDialog(title: String, user: UserEntry?, allowedRoles: List<String>, prefilledSystemId: String) {
         val ctx = requireContext()
         val layout = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -549,6 +574,9 @@ class EmployeeFragment : Fragment() {
         addLabel("Firebase UID (required for new user)")
         val etUid     = addInput("users/{uid}", user?.uid ?: "")
         etUid.isEnabled = (user == null)
+
+        addLabel("System ID")
+        val etSystemId = addInput("Auto-generated", prefilledSystemId)
 
         addLabel("Employee ID")
         val etEmployeeId = addInput("EMP001", user?.employeeId ?: "")
@@ -854,6 +882,7 @@ class EmployeeFragment : Fragment() {
                 .setView(layout)
                 .setPositiveButton("Save") { _, _ ->
                     val uid      = etUid.text.toString().trim()
+                    val systemId = etSystemId.text.toString().trim()
                     val employeeId = etEmployeeId.text.toString().trim()
                     val name     = etName.text.toString().trim()
                     val email    = etEmail.text.toString().trim()
@@ -868,7 +897,7 @@ class EmployeeFragment : Fragment() {
                     val sModel   = if (spModel.selectedItemPosition >= modelPlaceholderIdx) "" else modelValues.getOrNull(spModel.selectedItemPosition).orEmpty()
                     val fixedAmt = etFixed.text.toString().trim()
                     if (uid.isBlank()) { Toast.makeText(ctx, "UID required", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
-                    saveUser(uid, employeeId, name, email, roleId, picked, status, sType, agentType, sModel, fixedAmt, etPhone.text.toString().trim(), etDesig.text.toString().trim())
+                    saveUser(uid, systemId, employeeId, name, email, roleId, picked, status, sType, agentType, sModel, fixedAmt, etPhone.text.toString().trim(), etDesig.text.toString().trim())
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
@@ -887,12 +916,13 @@ class EmployeeFragment : Fragment() {
                 .setView(layout)
                 .setPositiveButton("Save") { _, _ ->
                     val uid    = etUid.text.toString().trim()
+                    val systemId = etSystemId.text.toString().trim()
                     val employeeId = etEmployeeId.text.toString().trim()
                     val name   = etName.text.toString().trim()
                     val email  = etEmail.text.toString().trim()
                     val roleId = allowedRoles.getOrNull(roleSpinner.selectedItemPosition) ?: ""
                     if (uid.isBlank()) { Toast.makeText(ctx, "UID required", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
-                    saveUser(uid, employeeId, name, email, roleId, emptyList(), "active", "", "", "", "", etPhone.text.toString().trim(), etDesig.text.toString().trim())
+                    saveUser(uid, systemId, employeeId, name, email, roleId, emptyList(), "active", "", "", "", "", etPhone.text.toString().trim(), etDesig.text.toString().trim())
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
@@ -900,7 +930,7 @@ class EmployeeFragment : Fragment() {
     }
 
     private fun saveUser(
-        uid: String, employeeId: String, name: String, email: String,
+        uid: String, systemId: String, employeeId: String, name: String, email: String,
         roleId: String, branchIds: List<String>, status: String,
         salaryType: String, agentType: String, salaryModel: String, fixedAmount: String,
         phone: String, designation: String
@@ -908,6 +938,7 @@ class EmployeeFragment : Fragment() {
         lifecycleScope.launch {
             try {
                 val updates = mutableMapOf<String, Any>(
+                    "users/$uid/profile/company_info/system_id"   to systemId,
                     "users/$uid/profile/company_info/employee_id" to employeeId,
                     "users/$uid/profile/company_info/role_id"     to roleId,
                     "users/$uid/profile/company_info/status"      to status,

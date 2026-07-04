@@ -49,6 +49,7 @@ class EmployeeEditFragment : Fragment() {
     private var savedSalaryModel = ""
 
     private lateinit var tvUid: TextView
+    private lateinit var etSystemId: EditText
     private lateinit var etEmployeeId: EditText
     private lateinit var etName: EditText
     private lateinit var etEmail: EditText
@@ -84,6 +85,7 @@ class EmployeeEditFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         tvUid            = view.findViewById(R.id.tvEmployeeUid)
+        etSystemId       = view.findViewById(R.id.etSystemId)
         etEmployeeId     = view.findViewById(R.id.etEmployeeId)
         etName           = view.findViewById(R.id.etEmployeeName)
         etEmail          = view.findViewById(R.id.etEmployeeEmail)
@@ -406,6 +408,7 @@ class EmployeeEditFragment : Fragment() {
             if (!isAdded) return
 
             tvUid.text = "UID: $uid"
+            etSystemId.setText(userSnap.child("company_info/system_id").getValue(String::class.java) ?: "")
             etEmployeeId.setText(userSnap.child("company_info/employee_id").getValue(String::class.java) ?: "")
             etName.setText(userSnap.child("name").getValue(String::class.java) ?: "")
             etEmail.setText(userSnap.child("email").getValue(String::class.java) ?: "")
@@ -631,8 +634,10 @@ class EmployeeEditFragment : Fragment() {
         lifecycleScope.launch {
             try {
                 btnSave.isEnabled = false
+                val sysId = etSystemId.text.toString().trim()
                 val empId = etEmployeeId.text.toString().trim()
                 val updates = mutableMapOf<String, Any?>(
+                    "users/$uid/profile/company_info/system_id"    to sysId,
                     "users/$uid/profile/company_info/employee_id"  to empId,
                     "users/$uid/profile/name"                      to name,
                     "users/$uid/profile/email"                     to emailText,

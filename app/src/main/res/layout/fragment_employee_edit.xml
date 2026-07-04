@@ -27,6 +27,18 @@
             android:textSize="11sp"
             android:layout_marginBottom="20dp"/>
 
+        <!-- System ID -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="System ID" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <EditText
+            android:id="@+id/etSystemId"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:hint="Auto-generated"
+            android:textColor="@color/theme_text_primary" android:textColorHint="@color/theme_text_secondary"
+            android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:textSize="14sp" android:inputType="number"
+            android:layout_marginBottom="12dp"/>
+
         <!-- Employee ID -->
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="Employee ID" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
