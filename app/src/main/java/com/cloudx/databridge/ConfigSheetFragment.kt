@@ -1501,9 +1501,9 @@ class ConfigSheetFragment : Fragment() {
                 if (normalizedPhone.isNotBlank()) fieldMap["recipientPhone"] = normalizedPhone
 
                 // userSystemId — used for runs_by_agentSystemId reverse-index
-                // Looks for systemId or system_id field in mapping (preferred over employee_id)
-                val userSystemId = fieldMap["systemId"]?.toString()?.trim().orEmpty()
-                    .ifBlank { fieldMap["system_id"]?.toString()?.trim().orEmpty() }
+                // Looks for agentSystemId or agent_system_id field in mapping (preferred over employee_id)
+                val userSystemId = fieldMap["agentSystemId"]?.toString()?.trim().orEmpty()
+                    .ifBlank { fieldMap["agent_system_id"]?.toString()?.trim().orEmpty() }
 
                 // ── Object-type fields: build key-value pair from two specs ────
                 // spec: "col:A" (dynamic, read from that column) or "fixed:text" (constant)
