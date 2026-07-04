@@ -17,6 +17,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -283,45 +284,47 @@ class CallCenterFragment : Fragment() {
         }
 
         // Parallel fetch consignment details
-        val parcels = consignmentStatuses.entries.map { entry ->
-            val cId = entry.key
-            val runStatus = entry.value
-            kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    val snap = db.reference.child("courier/consignments/$cId").get().await()
-                    if (!snap.exists()) return@async null
+        val parcels = coroutineScope {
+            consignmentStatuses.entries.map { entry ->
+                val cId = entry.key
+                val runStatus = entry.value
+                kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val snap = db.reference.child("courier/consignments/$cId").get().await()
+                        if (!snap.exists()) return@async null
 
-                    val name    = snap.child("recipientName").getValue(String::class.java) ?: ""
-                    val phone   = snap.child("recipientPhone").getValue(String::class.java) ?: ""
-                    val address = snap.child("recipientAddress").getValue(String::class.java) ?: ""
-                    val cod     = snap.child("collectableAmount").getValue(String::class.java)
-                        ?.toDoubleOrNull()?.toInt()
-                        ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0
-                    val hub     = snap.child("deliveryHub").getValue(String::class.java) ?: ""
-                    val status  = snap.child("status").getValue(String::class.java) ?: runStatus
+                        val name    = snap.child("recipientName").getValue(String::class.java) ?: ""
+                        val phone   = snap.child("recipientPhone").getValue(String::class.java) ?: ""
+                        val address = snap.child("recipientAddress").getValue(String::class.java) ?: ""
+                        val cod     = snap.child("collectableAmount").getValue(String::class.java)
+                            ?.toDoubleOrNull()?.toInt()
+                            ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0
+                        val hub     = snap.child("deliveryHub").getValue(String::class.java) ?: ""
+                        val status  = snap.child("status").getValue(String::class.java) ?: runStatus
 
-                    val remarkSnap = db.reference.child("courier/remarks_by_consignment/$cId")
-                        .limitToLast(1).get().await()
-                    val lastRemark = remarkSnap.children.firstOrNull()
-                        ?.child("status")?.getValue(String::class.java) ?: ""
+                        val remarkSnap = db.reference.child("courier/remarks_by_consignment/$cId")
+                            .limitToLast(1).get().await()
+                        val lastRemark = remarkSnap.children.firstOrNull()
+                            ?.child("status")?.getValue(String::class.java) ?: ""
 
-                    CallCenterParcelItem(
-                        id                = cId,
-                        customer          = name,
-                        phone             = phone,
-                        address           = address,
-                        cod               = cod,
-                        status            = status,
-                        remarks           = lastRemark,
-                        validationRequest = status == "verify_req",
-                        validationNote    = if (status == "verify_req") lastRemark else "",
-                        time              = "",
-                        worker            = "",
-                        branch            = hub
-                    )
-                } catch (e: Exception) { null }
-            }
-        }.mapNotNull { it.await() }
+                        CallCenterParcelItem(
+                            id                = cId,
+                            customer          = name,
+                            phone             = phone,
+                            address           = address,
+                            cod               = cod,
+                            status            = status,
+                            remarks           = lastRemark,
+                            validationRequest = status == "verify_req",
+                            validationNote    = if (status == "verify_req") lastRemark else "",
+                            time              = "",
+                            worker            = "",
+                            branch            = hub
+                        )
+                    } catch (e: Exception) { null }
+                }
+            }.mapNotNull { it.await() }
+        }
 
         if (!isAdded) return
         allParcels = parcels.sortedBy { it.id }
