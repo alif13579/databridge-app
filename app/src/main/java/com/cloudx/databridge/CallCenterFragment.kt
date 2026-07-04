@@ -283,7 +283,9 @@ class CallCenterFragment : Fragment() {
         }
 
         // Parallel fetch consignment details
-        val parcels = consignmentStatuses.entries.map { (cId, runStatus) ->
+        val parcels = consignmentStatuses.entries.map { entry ->
+            val cId = entry.key
+            val runStatus = entry.value
             kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val snap = db.reference.child("courier/consignments/$cId").get().await()
