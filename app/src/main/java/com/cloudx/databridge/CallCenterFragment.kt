@@ -76,6 +76,7 @@ class CallCenterFragment : Fragment() {
         initViews(view)
         setupFilterTabs()
         setupAdapter()
+        loadCcRemarkOptions()
         loadData()
     }
 
@@ -98,6 +99,7 @@ class CallCenterFragment : Fragment() {
         swipeRefresh.setOnRefreshListener {
             systemIdToName = emptyMap()
             detachRunsListener()
+            loadCcRemarkOptions()
             loadData()
             swipeRefresh.isRefreshing = false
         }
@@ -216,7 +218,7 @@ class CallCenterFragment : Fragment() {
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
         sortedEntries.forEach { (statusKey, count) ->
-            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey).label
+            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, ccStatusLang).label
             filters.add(FilterTab(statusKey, "$label($count)"))
         }
 
@@ -520,6 +522,65 @@ class CallCenterFragment : Fragment() {
         pbProgress.visibility = View.GONE
     }
 
+    /**
+     * Loads Call Center remark options for the "Set Remarks" sheet from config/remarks,
+     * respecting config/language/ccLang for which language to show remark text vs status
+     * label in (independent of workerLang — see ConfigLanguageFragment).
+     */
+    private fun loadCcRemarkOptions() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                StatusMetaCache.refresh()
+
+                val langValue = withContext(Dispatchers.IO) {
+                    com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                        .child("config/language/ccLang").get().await()
+                        .getValue(String::class.java)
+                }?.trim().orEmpty().ifBlank { "bn_en" }
+                val (remarkLang, statusLang) = parseLangPair(langValue)
+                ccStatusLang = statusLang
+
+                val remarksSnap = withContext(Dispatchers.IO) {
+                    com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                        .child("config/remarks").get().await()
+                }
+                val fetched = mutableListOf<CcRemarkOption>()
+                remarksSnap.children.forEach { groupSnap ->
+                    groupSnap.children.forEach { r ->
+                        val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
+                        val textEn = r.child("text_en").getValue(String::class.java)?.trim().orEmpty()
+                        val label = (if (remarkLang == "en") textEn.ifBlank { textBn } else textBn.ifBlank { textEn })
+                        if (label.isBlank()) return@forEach
+                        val target = r.child("target_status").getValue(String::class.java)?.trim()
+                            .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
+                        val metaEntry = StatusMetaCache.entries[target]
+                        val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
+                        fetched.add(
+                            CcRemarkOption(
+                                icon = "💬",
+                                label = label,
+                                statusKey = target,
+                                statusPreview = preview,
+                                statusColor = metaEntry?.color ?: android.graphics.Color.GRAY
+                            )
+                        )
+                    }
+                }
+
+                if (isAdded) {
+                    if (fetched.isNotEmpty()) ccRemarkOptions = fetched
+                    if (::adapter.isInitialized) {
+                        adapter.statusLang = ccStatusLang
+                        adapter.notifyDataSetChanged()
+                    }
+                    setupFilterTabs()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("CallCenter", "Failed to load remark options from config, using defaults", e)
+            }
+        }
+    }
+
     private fun showRemarksDialog(item: CallCenterParcelItem) {
         val dialog = BottomSheetDialog(requireContext())
         val view   = layoutInflater.inflate(R.layout.bottom_sheet_remarks, null)
@@ -533,22 +594,8 @@ class CallCenterFragment : Fragment() {
 
         tvTitle.text = "${item.customer} · ${item.id} · ${item.phone}"
 
-        // ── CC Remark options with auto-status ───────────────────────────
-        data class CcRemarkOption(
-            val icon: String,
-            val label: String,
-            val statusKey: String,
-            val statusPreview: String,
-            val statusColorRes: Int
-        )
-
-        val options = listOf(
-            CcRemarkOption("✅", "Customer delivery নিতে চান",        "confirmed", "✓ Confirmed",    R.color.theme_green),
-            CcRemarkOption("📵", "Customer ফোন ধরছে না",              "pending",   "◌ Pending",      R.color.theme_yellow),
-            CcRemarkOption("🔄", "পরে call করতে বলেছেন",             "pending",   "◌ Pending",      R.color.theme_yellow),
-            CcRemarkOption("📍", "Address ভুল / খুঁজে পাচ্ছি না",    "hold_req",  "⏸ Hold Request", R.color.theme_orange),
-            CcRemarkOption("🚫", "Customer delivery নেবে না",         "rejected",  "✗ Rejected",     R.color.theme_red)
-        )
+        // ── CC Remark options with auto-status (loaded from config/remarks) ─────
+        val options = ccRemarkOptions
 
         var selectedStatus      = ""
         var selectedRemarkText  = ""
@@ -583,7 +630,7 @@ class CallCenterFragment : Fragment() {
                 selectedStatus     = opt.statusKey
                 selectedRemarkText = opt.label
                 tvAutoStatus.text  = opt.statusPreview
-                tvAutoStatus.setTextColor(requireContext().getColor(opt.statusColorRes))
+                tvAutoStatus.setTextColor(opt.statusColor)
 
                 btnSave.isEnabled = true
                 btnSave.alpha     = 1f
@@ -695,4 +742,23 @@ class CallCenterFragment : Fragment() {
     }
 
     data class FilterTab(val key: String, val label: String)
+
+    data class CcRemarkOption(
+        val icon: String,
+        val label: String,
+        val statusKey: String,
+        val statusPreview: String,
+        val statusColor: Int
+    )
+
+    // Loaded from config/remarks (+ config/language/ccLang) — see loadCcRemarkOptions().
+    // Falls back to this small built-in set if config hasn't loaded yet or is empty.
+    private var ccRemarkOptions: List<CcRemarkOption> = listOf(
+        CcRemarkOption("✅", "Customer delivery নিতে চান", "confirmed", "✓ Confirmed", android.graphics.Color.parseColor("#16A34A")),
+        CcRemarkOption("📵", "Customer ফোন ধরছে না", "pending", "◌ Pending", android.graphics.Color.parseColor("#F59E0B")),
+        CcRemarkOption("🔄", "পরে call করতে বলেছেন", "pending", "◌ Pending", android.graphics.Color.parseColor("#F59E0B")),
+        CcRemarkOption("📍", "Address ভুল / খুঁজে পাচ্ছি না", "hold_req", "⏸ Hold Request", android.graphics.Color.parseColor("#F97316")),
+        CcRemarkOption("🚫", "Customer delivery নেবে না", "rejected", "✗ Rejected", android.graphics.Color.parseColor("#DC2626"))
+    )
+    private var ccStatusLang: String = "bn"
 }

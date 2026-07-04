@@ -24,6 +24,7 @@ class CallCenterAdapter(
 
     var expandedItemId: String? = null
         private set
+    var statusLang: String = "bn"
 
     /** Matches the previous behavior: collapse any expanded card (e.g. on a fresh filter/data pass). */
     fun collapseExpanded() {
@@ -147,7 +148,7 @@ class CallCenterAdapter(
             tvAddress.text = "📍 ${item.address}"
             tvCod.text = "৳${item.cod}"
 
-            val cfg = WorkerParcelAdapter.getStatusConfig(tvStatusBadge.context, item.status)
+            val cfg = WorkerParcelAdapter.getStatusConfig(tvStatusBadge.context, item.status, statusLang)
             tvStatusBadge.text = cfg.label
             tvStatusBadge.setTextColor(cfg.color)
             tvStatusBadge.setBackgroundColor(cfg.bg)

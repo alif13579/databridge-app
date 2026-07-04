@@ -58,6 +58,7 @@ class WorkerSpaceFragment : Fragment() {
     private lateinit var tvRunClosedBanner: TextView
 
     private lateinit var adapter: WorkerParcelAdapter
+    private var workerStatusLang: String = "bn"
 
     private var allParcels = listOf<WorkerParcelItem>()
     private var activeFilter = "all"
@@ -248,7 +249,7 @@ class WorkerSpaceFragment : Fragment() {
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
         sortedEntries.forEach { (statusKey, count) ->
-            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey).label
+            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, workerStatusLang).label
             filters.add(FilterTab(statusKey, "$label($count)"))
         }
 
@@ -310,22 +311,14 @@ class WorkerSpaceFragment : Fragment() {
     private fun loadRemarkOptions() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val metaSnap = withContext(Dispatchers.IO) {
-                    db.reference.child("config/statusMeta").get().await()
-                }
-                val statusLabel = mutableMapOf<String, String>()
-                val statusColor = mutableMapOf<String, Int>()
-                metaSnap.children.forEach { s ->
-                    val key = s.key ?: return@forEach
-                    val en = s.child("en").getValue(String::class.java)?.trim().orEmpty().ifBlank { key }
-                    val colorHex = s.child("color").getValue(String::class.java)?.trim().orEmpty()
-                    statusLabel[key] = en
-                    statusColor[key] = try {
-                        android.graphics.Color.parseColor(colorHex.ifBlank { "#6B7280" })
-                    } catch (_: Exception) {
-                        android.graphics.Color.GRAY
-                    }
-                }
+                StatusMetaCache.refresh()
+
+                val langValue = withContext(Dispatchers.IO) {
+                    db.reference.child("config/language/workerLang").get().await()
+                        .getValue(String::class.java)
+                }?.trim().orEmpty().ifBlank { "bn_bn" }
+                val (remarkLang, statusLang) = parseLangPair(langValue)
+                workerStatusLang = statusLang
 
                 val remarksSnap = withContext(Dispatchers.IO) {
                     db.reference.child("config/remarks").get().await()
@@ -335,24 +328,31 @@ class WorkerSpaceFragment : Fragment() {
                     groupSnap.children.forEach { r ->
                         val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
                         val textEn = r.child("text_en").getValue(String::class.java)?.trim().orEmpty()
-                        val label = textBn.ifBlank { textEn }
+                        val label = (if (remarkLang == "en") textEn.ifBlank { textBn } else textBn.ifBlank { textEn })
                         if (label.isBlank()) return@forEach
                         val target = r.child("target_status").getValue(String::class.java)?.trim()
                             .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
+                        val metaEntry = StatusMetaCache.entries[target]
+                        val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
                         fetched.add(
                             WorkerRemarkOption(
                                 icon = "💬",
                                 label = label,
                                 statusKey = target,
-                                statusPreview = statusLabel[target] ?: target,
-                                statusColor = statusColor[target] ?: android.graphics.Color.GRAY
+                                statusPreview = preview,
+                                statusColor = metaEntry?.color ?: android.graphics.Color.GRAY
                             )
                         )
                     }
                 }
 
-                if (isAdded && fetched.isNotEmpty()) {
-                    remarkOptions = fetched
+                if (isAdded) {
+                    if (fetched.isNotEmpty()) remarkOptions = fetched
+                    if (::adapter.isInitialized) {
+                        adapter.statusLang = workerStatusLang
+                        adapter.notifyDataSetChanged()
+                    }
+                    setupFilterTabs()
                 }
             } catch (e: Exception) {
                 Log.e("WorkerSpace", "Failed to load remark options from config, using defaults", e)

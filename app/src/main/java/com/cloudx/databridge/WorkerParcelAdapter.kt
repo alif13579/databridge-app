@@ -43,6 +43,7 @@ class WorkerParcelAdapter(
 ) : ListAdapter<WorkerParcelItem, WorkerParcelAdapter.Holder>(Diff()) {
 
     var expandedItemId: String? = null
+    var statusLang: String = "bn"
     private var previousExpandedPosition: Int? = null
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
@@ -83,7 +84,7 @@ class WorkerParcelAdapter(
         holder.tvAddress.text = "\uD83D\uDCCD ${item.address}"
         holder.tvCod.text = "৳${item.cod}"
 
-        val cfg = getStatusConfig(ctx, item.status)
+        val cfg = getStatusConfig(ctx, item.status, statusLang)
         holder.tvStatusBadge.text = cfg.label
         holder.tvStatusBadge.setTextColor(cfg.color)
         holder.tvStatusBadge.setBackgroundColor(cfg.bg)
@@ -150,7 +151,15 @@ class WorkerParcelAdapter(
     companion object {
         data class StatusConfig(val color: Int, val bg: Int, val label: String)
 
-        fun getStatusConfig(context: android.content.Context, status: String): StatusConfig = when (status) {
+        fun getStatusConfig(context: android.content.Context, status: String, statusLang: String = "bn"): StatusConfig {
+            StatusMetaCache.entries[status]?.let { entry ->
+                val label = if (statusLang == "en") entry.en else entry.bn
+                return StatusConfig(entry.color, entry.bg, label.ifBlank { status })
+            }
+            return getHardcodedStatusConfig(context, status)
+        }
+
+        private fun getHardcodedStatusConfig(context: android.content.Context, status: String): StatusConfig = when (status) {
             "confirmed" -> StatusConfig(
                 ContextCompat.getColor(context, R.color.theme_green),
                 ContextCompat.getColor(context, R.color.theme_bg_green),
