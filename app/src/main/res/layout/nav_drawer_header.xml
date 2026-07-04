@@ -61,6 +61,17 @@
             android:background="@drawable/bg_role_badge"
             android:visibility="gone"/>
 
+        <!-- 🆔 Employee ID / System ID -->
+        <TextView
+            android:id="@+id/tvDrawerEmpSysId"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="@color/theme_text_secondary"
+            android:textSize="10sp"
+            android:layout_marginTop="3dp"
+            android:visibility="gone"/>
+
         <!-- 🆔 Email / ID -->
         <TextView
             android:id="@+id/tvDrawerEmployeeId"

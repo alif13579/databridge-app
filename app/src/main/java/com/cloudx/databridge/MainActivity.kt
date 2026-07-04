@@ -323,6 +323,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         val ivAvatar    = header.findViewById<ImageView>(R.id.ivDrawerAvatar)
         val btnCopyUid  = header.findViewById<TextView>(R.id.btnCopyUid)
         val tvLastActive = header.findViewById<TextView>(R.id.tvDrawerLastActive)
+        val tvEmpSysId  = header.findViewById<TextView>(R.id.tvDrawerEmpSysId)
         val user = auth.currentUser
         if (user != null) {
             tvName.text = user.displayName ?: user.email?.substringBefore("@") ?: "User"
@@ -353,6 +354,23 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                     }
                 }, 1500)
             }
+            lifecycleScope.launch {
+                val ciSnap = runCatching {
+                    firebaseDb.getReference("users/${user.uid}/profile/company_info").get().await()
+                }.getOrNull()
+                val empId = ciSnap?.child("employee_id")?.getValue(String::class.java)?.takeIf { it.isNotBlank() }
+                val sysId = ciSnap?.child("system_id")?.getValue(String::class.java)?.takeIf { it.isNotBlank() }
+                if (empId != null || sysId != null) {
+                    val parts = mutableListOf<String>()
+                    empId?.let { parts.add("Emp: $it") }
+                    sysId?.let { parts.add("Sys: $it") }
+                    tvEmpSysId.text = parts.joinToString("  ·  ")
+                    tvEmpSysId.visibility = View.VISIBLE
+                } else {
+                    tvEmpSysId.visibility = View.GONE
+                }
+            }
+
             lifecycleScope.launch {
                 val snap = runCatching {
                     firebaseDb.getReference("users/${user.uid}/profile/lastActive").get().await()
