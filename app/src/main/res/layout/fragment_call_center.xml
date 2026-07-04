@@ -256,14 +256,19 @@
                     android:paddingEnd="16dp" />
             </HorizontalScrollView>
 
-            <!-- Parcel List Container — the RecyclerView is now the SOLE scrolling
-                 element (fills remaining space below the fixed header/tabs), which
+            <!-- Pull-to-refresh + Parcel List Container — the RecyclerView is now the SOLE
+                 scrolling element (fills remaining space below the fixed header/tabs), which
                  avoids the RecyclerView-in-ScrollView height-measurement race and
                  gives proper view recycling for smooth scroll on large lists. -->
-            <FrameLayout
+            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                android:id="@+id/swipeRefreshCca"
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
-                android:layout_weight="1"
+                android:layout_weight="1">
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
                 android:padding="12dp"
                 android:paddingStart="16dp"
                 android:paddingEnd="16dp"
@@ -295,6 +300,8 @@
                     android:clipToPadding="false"
                     android:scrollbars="vertical" />
             </FrameLayout>
+
+            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
     </LinearLayout>
 

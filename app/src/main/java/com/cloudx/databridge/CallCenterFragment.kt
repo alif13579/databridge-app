@@ -38,6 +38,7 @@ class CallCenterFragment : Fragment() {
     private lateinit var rvParcelList: RecyclerView
     private lateinit var pbProgress: ProgressBar
     private lateinit var tvEmpty: TextView
+    private lateinit var swipeRefresh: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 
     private lateinit var adapter: CallCenterAdapter
 
@@ -82,6 +83,13 @@ class CallCenterFragment : Fragment() {
         rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
+        swipeRefresh = view.findViewById(R.id.swipeRefreshCca)
+        swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
+        swipeRefresh.setOnRefreshListener {
+            detachRunsListener()
+            loadData()
+            swipeRefresh.isRefreshing = false
+        }
 
         val user = FirebaseAuth.getInstance().currentUser
         val displayName = user?.displayName ?: "Agent"
