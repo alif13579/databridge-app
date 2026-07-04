@@ -587,7 +587,7 @@ class WorkerSpaceFragment : Fragment() {
             val runType = typeSnap.key ?: continue
             for (runChild in typeSnap.children) {
                 val runId = runChild.key ?: continue
-                val runTimestamp = parseRunTimestamp(runId, employeeId) ?: continue
+                val runTimestamp = parseRunTimestamp(runId) ?: continue
                 if (runTimestamp !in dayStart..dayEnd) continue
 
                 val runStatus = readString(runChild, "status").ifBlank {
@@ -769,6 +769,8 @@ class WorkerSpaceFragment : Fragment() {
     companion object {
         private const val RUN_TYPE_ALL = "all"
         private val RUN_TYPE_ORDER = listOf("delivery_run", "pickup_run", "return_run")
+        // Run ID shape: run_{ddmmyy}_{employeeId} — ddmmyy is always exactly 6 zero-padded digits.
+        private val RUN_ID_PATTERN = Regex("^run_(\\d{6})_(.+)$")
 
         private fun runTypeSortIndex(runType: String): Int {
             val index = RUN_TYPE_ORDER.indexOf(runType)
@@ -785,24 +787,25 @@ class WorkerSpaceFragment : Fragment() {
                 }
         }
 
-        private fun parseRunTimestamp(runId: String, employeeId: String): Long? {
-            val trimmed = runId.trim()
-            val expectedPrefix = "run_${employeeId}_"
-            val rawTimestamp = if (employeeId.isNotBlank() && trimmed.startsWith(expectedPrefix)) {
-                trimmed.removePrefix(expectedPrefix)
-            } else {
-                trimmed.substringAfterLast("_", missingDelimiterValue = "")
-            }
-            val value = rawTimestamp.toLongOrNull() ?: return null
-            return if (value in 30000L..60000L) excelSerialDateToLocalMillis(value) else value
-        }
-
-        private fun excelSerialDateToLocalMillis(serialDay: Long): Long {
-            return java.util.Calendar.getInstance().apply {
-                clear()
-                set(1899, java.util.Calendar.DECEMBER, 30, 0, 0, 0)
-                add(java.util.Calendar.DAY_OF_YEAR, serialDay.toInt())
-            }.timeInMillis
+        /**
+         * Extracts the date portion from a run ID of the form "run_{ddmmyy}_{employeeId}"
+         * (ddmmyy is always exactly 6 zero-padded digits: day, month, 2-digit year — employeeId
+         * comes after and may itself contain underscores). Returns local midnight (00:00:00)
+         * millis for that date, or null if the ID doesn't match the expected shape.
+         */
+        private fun parseRunTimestamp(runId: String): Long? {
+            val match = RUN_ID_PATTERN.matchEntire(runId.trim()) ?: return null
+            val ddmmyy = match.groupValues[1]
+            val day   = ddmmyy.substring(0, 2).toIntOrNull() ?: return null
+            val month = ddmmyy.substring(2, 4).toIntOrNull() ?: return null
+            val year  = ddmmyy.substring(4, 6).toIntOrNull() ?: return null
+            if (month !in 1..12 || day !in 1..31) return null
+            return try {
+                java.util.Calendar.getInstance().apply {
+                    clear()
+                    set(2000 + year, month - 1, day, 0, 0, 0)
+                }.timeInMillis
+            } catch (e: Exception) { null }
         }
 
         private fun startOfLocalDay(anchorMs: Long = System.currentTimeMillis()): Long {

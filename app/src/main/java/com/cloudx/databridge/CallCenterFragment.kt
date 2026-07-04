@@ -46,6 +46,9 @@ class CallCenterFragment : Fragment() {
     private var branchFilter = "all"
     private var branches = listOf<String>()
 
+    // Run ID shape: run_{ddmmyy}_{employeeId} — ddmmyy is always exactly 6 zero-padded digits.
+    private val RUN_ID_PATTERN = Regex("^run_(\\d{6})_(.+)$")
+
     override fun onDestroyView() {
         super.onDestroyView()
         detachRunsListener()
@@ -485,26 +488,24 @@ class CallCenterFragment : Fragment() {
     }
 
     /**
-     * Extracts the timestamp portion from a run ID of the form "run_{agentId}_{timestamp}"
-     * (agentId may itself contain underscores). Call Center sees runs from every agent, so —
-     * unlike WorkerSpaceFragment, which knows its own employeeId — this always takes the
-     * LAST underscore-separated segment as the timestamp.
-     *
-     * If that value falls in the 30000..60000 range it's treated as an Excel/Sheets serial
-     * date (days since 1899-12-30) rather than a raw millis timestamp, and converted accordingly.
+     * Extracts the date portion from a run ID of the form "run_{ddmmyy}_{employeeId}"
+     * (ddmmyy is always exactly 6 zero-padded digits: day, month, 2-digit year — employeeId
+     * comes after and may itself contain underscores). Returns local midnight (00:00:00)
+     * millis for that date, or null if the ID doesn't match the expected shape.
      */
     private fun parseRunTimestamp(runId: String): Long? {
-        val rawTimestamp = runId.trim().substringAfterLast("_", missingDelimiterValue = "")
-        val value = rawTimestamp.toLongOrNull() ?: return null
-        return if (value in 30000L..60000L) excelSerialDateToLocalMillis(value) else value
-    }
-
-    private fun excelSerialDateToLocalMillis(serialDay: Long): Long {
-        return java.util.Calendar.getInstance().apply {
-            clear()
-            set(1899, java.util.Calendar.DECEMBER, 30, 0, 0, 0)
-            add(java.util.Calendar.DAY_OF_YEAR, serialDay.toInt())
-        }.timeInMillis
+        val match = RUN_ID_PATTERN.matchEntire(runId.trim()) ?: return null
+        val ddmmyy = match.groupValues[1]
+        val day   = ddmmyy.substring(0, 2).toIntOrNull() ?: return null
+        val month = ddmmyy.substring(2, 4).toIntOrNull() ?: return null
+        val year  = ddmmyy.substring(4, 6).toIntOrNull() ?: return null
+        if (month !in 1..12 || day !in 1..31) return null
+        return try {
+            java.util.Calendar.getInstance().apply {
+                clear()
+                set(2000 + year, month - 1, day, 0, 0, 0)
+            }.timeInMillis
+        } catch (e: Exception) { null }
     }
 
     data class FilterTab(val key: String, val label: String)

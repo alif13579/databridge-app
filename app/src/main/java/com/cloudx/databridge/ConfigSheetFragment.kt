@@ -96,7 +96,10 @@ class ConfigSheetFragment : Fragment() {
 
     // A single component of a composite primary key.
     // type = "fixed" → `value` is literal text (e.g. "run_")
-    // type = "col"   → `value` is a sheet column letter whose row-value gets read dynamically
+    // type = "col"   → `value` is a sheet column letter whose row-value gets read dynamically (raw, unformatted)
+    // type = "date"  → `value` is a sheet column letter; the cell value is parsed (via
+    //                  parseSheetTimestamp — handles Excel-serial numbers and common date
+    //                  strings) and formatted as ddMMyy (e.g. "040726"), always 6 digits.
     data class PkPart(
         val type:  String = "col",
         val value: String = "",
@@ -1400,15 +1403,34 @@ class ConfigSheetFragment : Fragment() {
             }
 
             // Builds the composite primary key for one row by concatenating its parts in order.
-            fun buildPrimaryKey(row: List<String>): String = pkParts.joinToString("") { part ->
-                when (part.type) {
-                    "fixed" -> part.value
-                    "col" -> {
-                        val idx = letterToIndex(part.value)
-                        if (idx < 0) "" else row.getOrElse(idx) { "" }.trim()
+            // If a "date" part fails to parse, the whole key comes back blank so the existing
+            // conId.isBlank() check skips the row — a malformed key (e.g. missing date segment)
+            // must never be produced.
+            fun buildPrimaryKey(row: List<String>): String {
+                var dateParseFailed = false
+                val key = pkParts.joinToString("") { part ->
+                    when (part.type) {
+                        "fixed" -> part.value
+                        "col" -> {
+                            val idx = letterToIndex(part.value)
+                            if (idx < 0) "" else row.getOrElse(idx) { "" }.trim()
+                        }
+                        "date" -> {
+                            val idx = letterToIndex(part.value)
+                            val raw = if (idx < 0) "" else row.getOrElse(idx) { "" }.trim()
+                            val millis = if (raw.isNotBlank()) parseSheetTimestamp(raw) else null
+                            if (millis == null) {
+                                dateParseFailed = true
+                                ""
+                            } else {
+                                java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH)
+                                    .format(java.util.Date(millis))
+                            }
+                        }
+                        else -> ""
                     }
-                    else -> ""
                 }
+                return if (dateParseFailed) "" else key
             }
 
             // ── 4. Process rows ───────────────────────────────────────
@@ -1892,7 +1914,7 @@ class ConfigSheetFragment : Fragment() {
 
     private fun handleConnect() {
         if (pendingPkParts.isEmpty()) { showErr("Primary key এ কমপক্ষে একটা part (prefix/column) যোগ করুন — required"); return }
-        if (pendingPkParts.any { it.type == "col" && it.value.isBlank() }) { showErr("Primary key এর Column part-এ কলাম select করুন"); return }
+        if (pendingPkParts.any { (it.type == "col" || it.type == "date") && it.value.isBlank() }) { showErr("Primary key এর Column/Date part-এ কলাম select করুন"); return }
         val sheet   = selectedSheet ?: run { showErr("Sheet নেই"); return }
         if (selectedTab.isBlank())  { showErr("Tab নেই"); return }
         val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Valid start column দিন (A বা 1)"); return }
@@ -2551,8 +2573,8 @@ class ConfigSheetFragment : Fragment() {
                 layoutParams = android.widget.LinearLayout.LayoutParams(92.dp(), 40.dp())
                     .apply { marginEnd = 6.dp() }
                 adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
-                    listOf("Prefix", "Column"))
-                setSelection(if (part.type == "col") 1 else 0)
+                    listOf("Prefix", "Column", "Date"))
+                setSelection(when (part.type) { "col" -> 1; "date" -> 2; else -> 0 })
             }
 
             val valueInput = EditText(ctx).apply {
@@ -2584,11 +2606,11 @@ class ConfigSheetFragment : Fragment() {
                     if (headerOptions.isEmpty()) listOf("— কোনো column নেই —") else headerOptions)
                 val idx = headerLetters.indexOf(part.value).coerceAtLeast(0)
                 setSelection(idx)
-                visibility = if (part.type == "col") View.VISIBLE else View.GONE
+                visibility = if (part.type == "col" || part.type == "date") View.VISIBLE else View.GONE
                 onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                     override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                         if (index < pendingPkParts.size && headerLetters.isNotEmpty() &&
-                            pendingPkParts[index].type == "col") {
+                            (pendingPkParts[index].type == "col" || pendingPkParts[index].type == "date")) {
                             pendingPkParts[index] = pendingPkParts[index].copy(value = headerLetters.getOrElse(pos) { "" })
                             updatePkPreview()
                         }
@@ -2599,9 +2621,9 @@ class ConfigSheetFragment : Fragment() {
 
             typeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    val newType = if (pos == 1) "col" else "fixed"
+                    val newType = when (pos) { 1 -> "col"; 2 -> "date"; else -> "fixed" }
                     if (index < pendingPkParts.size && pendingPkParts[index].type != newType) {
-                        val newValue = if (newType == "col") headerLetters.firstOrNull() ?: "" else ""
+                        val newValue = if (newType == "col" || newType == "date") headerLetters.firstOrNull() ?: "" else ""
                         pendingPkParts[index] = PkPart(newType, newValue)
                         renderPkBuilder()
                     }
@@ -2641,6 +2663,7 @@ class ConfigSheetFragment : Fragment() {
             when (part.type) {
                 "fixed" -> part.value
                 "col"   -> if (part.value.isBlank()) "{?}" else "{${sheetHeaders[part.value] ?: part.value}}"
+                "date"  -> "ddmmyy"
                 else    -> ""
             }
         }
