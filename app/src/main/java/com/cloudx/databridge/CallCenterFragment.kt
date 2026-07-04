@@ -271,8 +271,7 @@ class CallCenterFragment : Fragment() {
                         ?.toDoubleOrNull()?.toInt()
                         ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0
                     val hub     = snap.child("deliveryHub").getValue(String::class.java) ?: ""
-                    val status  = db.reference.child("courier/consignments/$cId/status")
-                        .get().await().getValue(String::class.java) ?: runStatus
+                    val status  = snap.child("status").getValue(String::class.java) ?: runStatus
 
                     val remarkSnap = db.reference.child("courier/remarks_by_consignment/$cId")
                         .limitToLast(1).get().await()
