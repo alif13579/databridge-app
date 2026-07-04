@@ -35,6 +35,7 @@
     <color name="theme_green">#059669</color>
     <color name="theme_red">#dc2626</color>
     <color name="theme_yellow">#d97706</color>
+    <color name="theme_brand_red">#E8380D</color>
 
     <!-- Borders -->
     <color name="theme_border">#e2e8f0</color>
