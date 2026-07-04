@@ -17,6 +17,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -288,7 +290,7 @@ class CallCenterFragment : Fragment() {
             consignmentStatuses.entries.map { entry ->
                 val cId = entry.key
                 val runStatus = entry.value
-                kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+                async(Dispatchers.IO) {
                     try {
                         val snap = db.reference.child("courier/consignments/$cId").get().await()
                         if (!snap.exists()) return@async null
