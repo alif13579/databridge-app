@@ -1403,24 +1403,27 @@ class ConfigSheetFragment : Fragment() {
             }
 
             // Builds the composite primary key for one row by concatenating its parts in order.
-            // If a "date" part fails to parse, the whole key comes back blank so the existing
-            // conId.isBlank() check skips the row — a malformed key (e.g. missing date segment)
-            // must never be produced.
+            // If ANY part fails to resolve (a "date" part that won't parse, OR a "col" part whose
+            // cell is blank — e.g. agentSystemId missing) the whole key comes back blank so the
+            // existing conId.isBlank() check skips the row — a malformed/incomplete key must never
+            // be produced (e.g. "run_040726_" with the agent segment silently missing).
             fun buildPrimaryKey(row: List<String>): String {
-                var dateParseFailed = false
+                var partFailed = false
                 val key = pkParts.joinToString("") { part ->
                     when (part.type) {
                         "fixed" -> part.value
                         "col" -> {
                             val idx = letterToIndex(part.value)
-                            if (idx < 0) "" else row.getOrElse(idx) { "" }.trim()
+                            val v = if (idx < 0) "" else row.getOrElse(idx) { "" }.trim()
+                            if (v.isBlank()) partFailed = true
+                            v
                         }
                         "date" -> {
                             val idx = letterToIndex(part.value)
                             val raw = if (idx < 0) "" else row.getOrElse(idx) { "" }.trim()
                             val millis = if (raw.isNotBlank()) parseSheetTimestamp(raw) else null
                             if (millis == null) {
-                                dateParseFailed = true
+                                partFailed = true
                                 ""
                             } else {
                                 java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH)
@@ -1430,7 +1433,7 @@ class ConfigSheetFragment : Fragment() {
                         else -> ""
                     }
                 }
-                return if (dateParseFailed) "" else key
+                return if (partFailed) "" else key
             }
 
             // ── 4. Process rows ───────────────────────────────────────
