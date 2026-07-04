@@ -292,6 +292,21 @@
                     android:paddingEnd="16dp" />
             </HorizontalScrollView>
 
+            <!-- Shown only when the (relevant) run's status is "closed", so the agent
+                 immediately knows they can't get new parcels for that run right now. -->
+            <TextView
+                android:id="@+id/twRunClosedBanner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#FEF3C7"
+                android:textColor="#92400E"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:padding="10dp"
+                android:visibility="gone"
+                android:text="🔒 Run বন্ধ হয়ে গেছে" />
+
             <!-- Parcel List Container — the RecyclerView is now the SOLE scrolling
                  element (fills remaining space below the fixed header/tabs), which
                  avoids the RecyclerView-in-ScrollView height-measurement race. -->

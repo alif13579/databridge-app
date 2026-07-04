@@ -53,6 +53,7 @@ class WorkerSpaceFragment : Fragment() {
     private lateinit var rvParcelList: RecyclerView
     private lateinit var pbProgress: View
     private lateinit var tvEmpty: TextView
+    private lateinit var tvRunClosedBanner: TextView
 
     private lateinit var adapter: WorkerParcelAdapter
 
@@ -69,6 +70,13 @@ class WorkerSpaceFragment : Fragment() {
     private val db = FirebaseDatabase.getInstance()
     private var runsByAgentRef: DatabaseReference? = null
     private var runsByAgentListener: ValueEventListener? = null
+
+    // Direct live listeners on courier/run_routes/{runType}/{todayRunId}, one per run type —
+    // catches BOTH new consignments being added to the run AND the run's own status changing,
+    // instead of relying solely on runs_by_agentSystemId (which only updates on status changes).
+    private val runNodeListeners = mutableMapOf<String, Pair<DatabaseReference, ValueEventListener>>()
+    private val runStatusByType = mutableMapOf<String, String>()
+    private var lastRunsSnapshot: DataSnapshot? = null
 
     // Scan result launcher — trim, crop before pipe (|)
     private val scanLauncher = registerForActivityResult(
@@ -123,6 +131,7 @@ class WorkerSpaceFragment : Fragment() {
         rvParcelList = view.findViewById(R.id.rvParcelList)
         pbProgress = view.findViewById(R.id.twProgressBar)
         tvEmpty = view.findViewById(R.id.twEmptyState)
+        tvRunClosedBanner = view.findViewById(R.id.twRunClosedBanner)
 
         // Set user info
         val user = auth.currentUser
@@ -155,6 +164,7 @@ class WorkerSpaceFragment : Fragment() {
                 val nextRunType = runTypeOptions.getOrNull(position)?.key ?: RUN_TYPE_ALL
                 if (nextRunType == selectedRunType) return
                 selectedRunType = nextRunType
+                updateRunStatusBanner()
                 pbProgress.visibility = View.VISIBLE
                 tvEmpty.visibility = View.GONE
                 runsByAgentListener?.let { listener ->
@@ -513,14 +523,19 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     private fun detachRunsListener() {
-        val listener = runsByAgentListener ?: return
-        runsByAgentRef?.removeEventListener(listener)
+        runsByAgentListener?.let { listener -> runsByAgentRef?.removeEventListener(listener) }
         runsByAgentListener = null
         runsByAgentRef = null
+
+        runNodeListeners.values.forEach { (ref, listener) -> ref.removeEventListener(listener) }
+        runNodeListeners.clear()
+        runStatusByType.clear()
+        lastRunsSnapshot = null
     }
 
     private fun handleRunsSnapshot(runSnap: DataSnapshot) {
         if (!isAdded) return
+        lastRunsSnapshot = runSnap
 
         val runTypes = runSnap.children
             .mapNotNull { typeSnap ->
@@ -537,6 +552,7 @@ class WorkerSpaceFragment : Fragment() {
             selectedRunType = RUN_TYPE_ALL
         }
         bindRunTypeSpinner()
+        syncRunNodeListeners(runTypes)
 
         if (!runSnap.exists() || runTypes.isEmpty()) {
             allParcels = emptyList()
@@ -548,6 +564,10 @@ class WorkerSpaceFragment : Fragment() {
             return
         }
 
+        triggerReload(runSnap)
+    }
+
+    private fun triggerReload(runSnap: DataSnapshot) {
         val generation = ++loadGeneration
         pbProgress.visibility = View.VISIBLE
         tvEmpty.visibility = View.GONE
@@ -571,8 +591,62 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
-    private suspend fun loadParcelsForSelectedRunType(runSnap: DataSnapshot): List<WorkerParcelItem> = coroutineScope {
-        // Build deterministic run ID: run_{ddMMyy}_{systemId}
+    /**
+     * Attaches a direct ValueEventListener on courier/run_routes/{runType}/{todayRunId} for every
+     * active run type, so BOTH a new consignment being added to the run's `consignments` map AND
+     * the run's own `status` flipping (e.g. to "closed") are reflected instantly — unlike
+     * runs_by_agentSystemId, which only changes when the run's status field changes.
+     */
+    private fun syncRunNodeListeners(runTypes: List<String>) {
+        val todayRunId = computeTodayRunId()
+
+        // Drop listeners for run types that no longer exist for this agent today.
+        val stale = runNodeListeners.keys - runTypes.toSet()
+        stale.forEach { rt ->
+            runNodeListeners.remove(rt)?.let { (ref, listener) -> ref.removeEventListener(listener) }
+            runStatusByType.remove(rt)
+        }
+
+        // Attach a listener for every run type not already being watched.
+        runTypes.forEach { rt ->
+            if (runNodeListeners.containsKey(rt)) return@forEach
+            val ref = db.reference.child("courier/run_routes/$rt/$todayRunId")
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    if (!isAdded) return
+                    val status = snapshot.child("status").getValue(String::class.java)
+                        ?.trim().orEmpty().ifBlank { "open" }
+                    runStatusByType[rt] = status
+                    updateRunStatusBanner()
+                    lastRunsSnapshot?.let { triggerReload(it) }
+                }
+                override fun onCancelled(error: DatabaseError) { /* transient — next write will retry */ }
+            }
+            ref.addValueEventListener(listener)
+            runNodeListeners[rt] = ref to listener
+        }
+
+        updateRunStatusBanner()
+    }
+
+    /** Shows a "closed" banner only for the run type(s) currently relevant to the selected filter. */
+    private fun updateRunStatusBanner() {
+        if (!::tvRunClosedBanner.isInitialized) return
+        val relevantTypes = if (selectedRunType == RUN_TYPE_ALL) runStatusByType.keys.toList() else listOf(selectedRunType)
+        val closedTypes = relevantTypes.filter { runStatusByType[it].equals("closed", ignoreCase = true) }
+
+        if (closedTypes.isEmpty()) {
+            tvRunClosedBanner.visibility = View.GONE
+            return
+        }
+        tvRunClosedBanner.visibility = View.VISIBLE
+        tvRunClosedBanner.text = if (selectedRunType == RUN_TYPE_ALL)
+            "🔒 বন্ধ: ${closedTypes.joinToString(", ") { formatRunTypeLabel(it) }}"
+        else "🔒 আজকের ${formatRunTypeLabel(selectedRunType)} বন্ধ হয়ে গেছে"
+    }
+
+    /** Deterministic today's run ID: run_{ddMMyy}_{systemId} — same formula used everywhere a run ID is needed. */
+    private fun computeTodayRunId(): String {
         val today = java.util.Calendar.getInstance()
         val ddMMyy = String.format(
             "%02d%02d%02d",
@@ -580,7 +654,11 @@ class WorkerSpaceFragment : Fragment() {
             today.get(java.util.Calendar.MONTH) + 1,
             today.get(java.util.Calendar.YEAR) % 100
         )
-        val todayRunId = "run_${ddMMyy}_${systemId}"
+        return "run_${ddMMyy}_${systemId}"
+    }
+
+    private suspend fun loadParcelsForSelectedRunType(runSnap: DataSnapshot): List<WorkerParcelItem> = coroutineScope {
+        val todayRunId = computeTodayRunId()
 
         // Determine which run types to fetch
         val runTypesToFetch = if (selectedRunType == RUN_TYPE_ALL) {
