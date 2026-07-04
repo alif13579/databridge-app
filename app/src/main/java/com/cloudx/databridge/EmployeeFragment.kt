@@ -525,25 +525,17 @@ class EmployeeFragment : Fragment() {
     }
 
     private fun showUserDialog(title: String, user: UserEntry?, allowedRoles: List<String>) {
-        lifecycleScope.launch {
-            val nextSystemId = if (user == null) fetchNextSystemId() else user.systemId
-            buildUserDialog(title, user, allowedRoles, nextSystemId)
-        }
+        val nextSystemId = if (user == null) generateSystemId() else user.systemId
+        buildUserDialog(title, user, allowedRoles, nextSystemId)
     }
 
     /** Scans all users' system_id, returns (max numeric + 1) as string. Falls back to "1". */
-    private suspend fun fetchNextSystemId(): String {
-        return try {
-            val snap = db.reference.child("users").get().await()
-            var maxId = 0
-            snap.children.forEach { child ->
-                val sid = child.child("profile/company_info/system_id").getValue(String::class.java)
-                sid?.toIntOrNull()?.let { if (it > maxId) maxId = it }
-            }
-            (maxId + 1).toString()
-        } catch (e: Exception) {
-            "1"
-        }
+    /** Generates System ID: U + DDMMYY + 4-digit random, e.g. U0407262653 */
+    private fun generateSystemId(): String {
+        val sdf = java.text.SimpleDateFormat("ddMMyy", java.util.Locale.US)
+        val datePart = sdf.format(java.util.Date())
+        val randomPart = (0..9999).random().toString().padStart(4, '0')
+        return "U$datePart$randomPart"
     }
 
     private fun buildUserDialog(title: String, user: UserEntry?, allowedRoles: List<String>, prefilledSystemId: String) {
