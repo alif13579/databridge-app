@@ -25,10 +25,17 @@ class ScannerFragment : Fragment() {
     private var currentTab = ScanTab.NEW_SCAN
     private var isBatchMode = false
 
+    // Date range filter for "All Scans" tab (millis, null = no bound)
+    private var filterFromDate: Long? = null
+    private var filterToDate: Long? = null
+
     // UI
     private lateinit var rv: RecyclerView
     private lateinit var tvEmpty: TextView
     private lateinit var btnUpload: Button
+    private lateinit var layoutDateFilter: View
+    private lateinit var tvDateFilterLabel: TextView
+    private lateinit var btnClearDateFilter: View
     private lateinit var btnSingleScan: Button
     private lateinit var btnBatchScan: Button
     private lateinit var btnManual: Button
@@ -89,6 +96,17 @@ class ScannerFragment : Fragment() {
         rv = view.findViewById(R.id.rvScans)
         tvEmpty = view.findViewById(R.id.tvEmpty)
         btnUpload = view.findViewById(R.id.btnUpload)
+        layoutDateFilter = view.findViewById(R.id.layoutDateFilter)
+        tvDateFilterLabel = view.findViewById(R.id.tvDateFilterLabel)
+        btnClearDateFilter = view.findViewById(R.id.btnClearDateFilter)
+
+        layoutDateFilter.setOnClickListener { showDateRangePickerDialog() }
+        btnClearDateFilter.setOnClickListener {
+            filterFromDate = null
+            filterToDate = null
+            updateDateFilterLabel()
+            render()
+        }
         tvTotalCount = view.findViewById(R.id.tvTotalCount)
         tvCameraCount = view.findViewById(R.id.tvCameraCount)
         tvManualCount = view.findViewById(R.id.tvManualCount)
@@ -404,6 +422,50 @@ class ScannerFragment : Fragment() {
             }
     }
 
+    // ── Date range filter ─────────────────────────────────────────────
+    private fun showDateRangePickerDialog() {
+        val builder = com.google.android.material.datepicker.MaterialDatePicker.Builder.dateRangePicker()
+            .setTitleText("Date range বেছে নিন")
+
+        if (filterFromDate != null && filterToDate != null) {
+            builder.setSelection(
+                androidx.core.util.Pair(filterFromDate, filterToDate)
+            )
+        }
+
+        val picker = builder.build()
+        picker.addOnPositiveButtonClickListener { selection ->
+            // Normalize to full-day bounds: from = start of day, to = end of day
+            val cal = java.util.Calendar.getInstance()
+            cal.timeInMillis = selection.first
+            cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0)
+            cal.set(java.util.Calendar.SECOND, 0); cal.set(java.util.Calendar.MILLISECOND, 0)
+            filterFromDate = cal.timeInMillis
+
+            cal.timeInMillis = selection.second
+            cal.set(java.util.Calendar.HOUR_OF_DAY, 23); cal.set(java.util.Calendar.MINUTE, 59)
+            cal.set(java.util.Calendar.SECOND, 59); cal.set(java.util.Calendar.MILLISECOND, 999)
+            filterToDate = cal.timeInMillis
+
+            updateDateFilterLabel()
+            render()
+        }
+        picker.show(parentFragmentManager, "scan_date_range_picker")
+    }
+
+    private fun updateDateFilterLabel() {
+        val from = filterFromDate
+        val to   = filterToDate
+        if (from == null || to == null) {
+            tvDateFilterLabel.text = "All time"
+            btnClearDateFilter.visibility = View.GONE
+        } else {
+            val fmt = java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
+            tvDateFilterLabel.text = "${fmt.format(java.util.Date(from))} – ${fmt.format(java.util.Date(to))}"
+            btnClearDateFilter.visibility = View.VISIBLE
+        }
+    }
+
     // ── Render ─────────────────────────────────────────────────────────
     private fun render() {
         val isNewTab = currentTab == ScanTab.NEW_SCAN
@@ -413,10 +475,19 @@ class ScannerFragment : Fragment() {
             displayItems = localItems.toList()
             btnUpload.visibility = if (localItems.isNotEmpty()) View.VISIBLE else View.GONE
             tvEmpty.text = "📦\n\nNo parcels scanned yet\n\nUse Single, Batch or Manual to begin"
+            layoutDateFilter.visibility = View.GONE
         } else {
-            displayItems = uploadedItems.toList()
+            displayItems = uploadedItems.filter { item ->
+                val from = filterFromDate
+                val to   = filterToDate
+                (from == null || item.scanAt >= from) && (to == null || item.scanAt <= to)
+            }
             btnUpload.visibility = View.GONE
-            tvEmpty.text = "📦\n\nNo uploaded scans found"
+            tvEmpty.text = if (filterFromDate != null || filterToDate != null)
+                "📦\n\nএই সময়সীমায় কোনো scan নেই"
+            else
+                "📦\n\nNo uploaded scans found"
+            layoutDateFilter.visibility = View.VISIBLE
         }
 
         adapter.items = displayItems
