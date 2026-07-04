@@ -41,6 +41,11 @@ class CallCenterFragment : Fragment() {
     private var branchFilter = "all"
     private var branches = listOf<String>()
 
+    override fun onDestroyView() {
+        super.onDestroyView()
+        detachRunsListener()
+    }
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -184,56 +189,80 @@ class CallCenterFragment : Fragment() {
         }
     }
 
+    private var runsListener: com.google.firebase.database.ValueEventListener? = null
+    private var runsRef: com.google.firebase.database.DatabaseReference? = null
+
     private fun loadData() {
         pbProgress.visibility = View.VISIBLE
         tvEmpty.visibility    = View.GONE
+        detachRunsListener()
+        attachRunsListener()
+    }
 
+    private fun attachRunsListener() {
+        val db  = com.google.firebase.database.FirebaseDatabase.getInstance()
+        val ref = db.reference.child("courier/run_routes/delivery_run")
+        runsRef = ref
+        runsListener = object : com.google.firebase.database.ValueEventListener {
+            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                if (!isAdded) return
+                viewLifecycleOwner.lifecycleScope.launch { processRunsSnapshot(snapshot) }
+            }
+            override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                if (!isAdded) return
+                pbProgress.visibility = View.GONE
+                tvEmpty.visibility    = View.VISIBLE
+                tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
+            }
+        }
+        ref.addValueEventListener(runsListener!!)
+    }
+
+    private fun detachRunsListener() {
+        val listener = runsListener ?: return
+        runsRef?.removeEventListener(listener)
+        runsListener = null
+        runsRef = null
+    }
+
+    private suspend fun processRunsSnapshot(runsSnap: com.google.firebase.database.DataSnapshot) {
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
 
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                // Today's date range
-                val cal = java.util.Calendar.getInstance()
-                cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-                cal.set(java.util.Calendar.MINUTE, 0)
-                cal.set(java.util.Calendar.SECOND, 0)
-                cal.set(java.util.Calendar.MILLISECOND, 0)
-                val dayStart = cal.timeInMillis
-                val dayEnd   = dayStart + 24 * 60 * 60 * 1000 - 1
+        // Today's date range
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        val dayStart = cal.timeInMillis
+        val dayEnd   = dayStart + 24 * 60 * 60 * 1000 - 1
 
-                // 1. Fetch all today's delivery runs
-                val runsSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    db.reference.child("courier/run_routes/delivery_run").get().await()
-                }
+        // Collect today's consignment ids + statuses
+        val consignmentStatuses = mutableMapOf<String, String>()
+        runsSnap.children.forEach { runSnap ->
+            val runId = runSnap.key ?: return@forEach
+            val runTimestamp = runId.removePrefix("run_").toLongOrNull() ?: return@forEach
+            if (runTimestamp < dayStart || runTimestamp > dayEnd) return@forEach
+            runSnap.child("consignments").children.forEach { c ->
+                val cId     = c.key ?: return@forEach
+                val cStatus = c.getValue(String::class.java) ?: "pending"
+                consignmentStatuses[cId] = cStatus
+            }
+        }
 
-                // Collect all consignment ids from today's runs
-                val consignmentStatuses = mutableMapOf<String, String>()
-                runsSnap.children.forEach { runSnap ->
-                    val runId = runSnap.key ?: return@forEach
-                    val runTimestamp = runId.removePrefix("run_").toLongOrNull() ?: return@forEach
-                    if (runTimestamp < dayStart || runTimestamp > dayEnd) return@forEach
+        if (consignmentStatuses.isEmpty()) {
+            pbProgress.visibility = View.GONE
+            tvEmpty.visibility    = View.VISIBLE
+            tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
+            return
+        }
 
-                    runSnap.child("consignments").children.forEach { c ->
-                        val cId     = c.key ?: return@forEach
-                        val cStatus = c.getValue(String::class.java) ?: "pending"
-                        consignmentStatuses[cId] = cStatus
-                    }
-                }
-
-                if (consignmentStatuses.isEmpty()) {
-                    pbProgress.visibility = View.GONE
-                    tvEmpty.visibility    = View.VISIBLE
-                    tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
-                    return@launch
-                }
-
-                // 2. Fetch consignment details
-                val parcels = mutableListOf<CallCenterParcelItem>()
-                consignmentStatuses.entries.forEach { (cId, runStatus) ->
-                    val snap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        db.reference.child("courier/consignments/$cId").get().await()
-                    }
-                    if (!snap.exists()) return@forEach
+        // Parallel fetch consignment details
+        val parcels = consignmentStatuses.entries.map { (cId, runStatus) ->
+            kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val snap = db.reference.child("courier/consignments/$cId").get().await()
+                    if (!snap.exists()) return@async null
 
                     val name    = snap.child("recipientName").getValue(String::class.java) ?: ""
                     val phone   = snap.child("recipientPhone").getValue(String::class.java) ?: ""
@@ -242,59 +271,56 @@ class CallCenterFragment : Fragment() {
                         ?.toDoubleOrNull()?.toInt()
                         ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0
                     val hub     = snap.child("deliveryHub").getValue(String::class.java) ?: ""
+                    val status  = db.reference.child("courier/consignments/$cId/status")
+                        .get().await().getValue(String::class.java) ?: runStatus
 
-                    // Last remark
-                    val remarkSnap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        db.reference.child("courier/remarks_by_consignment/$cId")
-                            .limitToLast(1).get().await()
-                    }
+                    val remarkSnap = db.reference.child("courier/remarks_by_consignment/$cId")
+                        .limitToLast(1).get().await()
                     val lastRemark = remarkSnap.children.firstOrNull()
                         ?.child("status")?.getValue(String::class.java) ?: ""
 
-                    parcels.add(CallCenterParcelItem(
+                    CallCenterParcelItem(
                         id                = cId,
                         customer          = name,
                         phone             = phone,
                         address           = address,
                         cod               = cod,
-                        status            = runStatus,
+                        status            = status,
                         remarks           = lastRemark,
-                        validationRequest = runStatus == "verify_req",
-                        validationNote    = if (runStatus == "verify_req") lastRemark else "",
+                        validationRequest = status == "verify_req",
+                        validationNote    = if (status == "verify_req") lastRemark else "",
                         time              = "",
                         worker            = "",
                         branch            = hub
-                    ))
-                }
-
-                allParcels = parcels.sortedBy { it.id }
-                branches   = allParcels.map { it.branch }.filter { it.isNotBlank() }.distinct().sorted()
-                setupBranchChips()
-                setupFilterTabs()
-
-                adapter = CallCenterAdapter(
-                    onCall = { item -> AutoDialHelper.dial(this@CallCenterFragment, item.phone) },
-                    onSetRemarks = { item -> showRemarksDialog(item) },
-                    onValidate = { item ->
-                        allParcels = allParcels.map {
-                            if (it.id == item.id) it.copy(
-                                validationRequest = false,
-                                status  = "confirmed",
-                                remarks = "Validated by call center"
-                            ) else it
-                        }
-                        applyFilters()
-                    }
-                )
-                applyFilters()
-
-            } catch (e: Exception) {
-                tvEmpty.visibility = View.VISIBLE
-                tvEmpty.text       = "⚠ Load failed: ${e.message?.take(60)}"
-            } finally {
-                pbProgress.visibility = View.GONE
+                    )
+                } catch (e: Exception) { null }
             }
+        }.mapNotNull { it.await() }
+
+        if (!isAdded) return
+        allParcels = parcels.sortedBy { it.id }
+        branches   = allParcels.map { it.branch }.filter { it.isNotBlank() }.distinct().sorted()
+        setupBranchChips()
+        setupFilterTabs()
+
+        if (adapter == null) {
+            adapter = CallCenterAdapter(
+                onCall        = { item -> AutoDialHelper.dial(this@CallCenterFragment, item.phone) },
+                onSetRemarks  = { item -> showRemarksDialog(item) },
+                onValidate    = { item ->
+                    allParcels = allParcels.map {
+                        if (it.id == item.id) it.copy(
+                            validationRequest = false,
+                            status  = "confirmed",
+                            remarks = "Validated by call center"
+                        ) else it
+                    }
+                    applyFilters()
+                }
+            )
         }
+        applyFilters()
+        pbProgress.visibility = View.GONE
     }
 
     private fun showRemarksDialog(item: CallCenterParcelItem) {
