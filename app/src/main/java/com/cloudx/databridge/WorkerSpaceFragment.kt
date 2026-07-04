@@ -63,7 +63,7 @@ class WorkerSpaceFragment : Fragment() {
     private var runTypeOptions = listOf(RunTypeOption(RUN_TYPE_ALL, "All"))
     private var suppressRunTypeEvents = false
     private var loadGeneration = 0
-    private var employeeId = ""
+    private var systemId = ""
 
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseDatabase.getInstance()
@@ -474,17 +474,17 @@ class WorkerSpaceFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                employeeId = withContext(Dispatchers.IO) {
-                    db.reference.child("users/$uid/profile/company_info/employee_id")
+                systemId = withContext(Dispatchers.IO) {
+                    db.reference.child("users/$uid/profile/company_info/system_id")
                         .get().await().getValue(String::class.java)?.trim()
                 } ?: run {
                     pbProgress.visibility = View.GONE
                     tvEmpty.visibility = View.VISIBLE
-                    tvEmpty.text = "⚠ Employee ID পাওয়া যায়নি"
+                    tvEmpty.text = "⚠ System ID পাওয়া যায়নি"
                     return@launch
                 }
 
-                attachRunsListener(employeeId)
+                attachRunsListener(systemId)
             } catch (e: Exception) {
                 tvEmpty.visibility = View.VISIBLE
                 tvEmpty.text = "⚠ Load failed: ${e.message?.take(60)}"
@@ -493,9 +493,9 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
-    private fun attachRunsListener(employeeId: String) {
+    private fun attachRunsListener(systemId: String) {
         detachRunsListener()
-        val ref = db.reference.child("courier/runs_by_agentId/$employeeId")
+        val ref = db.reference.child("courier/runs_by_agentId/$systemId")
         runsByAgentRef = ref
         runsByAgentListener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {
@@ -572,47 +572,37 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     private suspend fun loadParcelsForSelectedRunType(runSnap: DataSnapshot): List<WorkerParcelItem> = coroutineScope {
-        val selectedTypes = if (selectedRunType == RUN_TYPE_ALL) {
-            runSnap.children.toList()
+        // Build deterministic run ID: run_{ddMMyy}_{systemId}
+        val today = java.util.Calendar.getInstance()
+        val ddMMyy = String.format(
+            "%02d%02d%02d",
+            today.get(java.util.Calendar.DAY_OF_MONTH),
+            today.get(java.util.Calendar.MONTH) + 1,
+            today.get(java.util.Calendar.YEAR) % 100
+        )
+        val todayRunId = "run_${ddMMyy}_${systemId}"
+
+        // Determine which run types to fetch
+        val runTypesToFetch = if (selectedRunType == RUN_TYPE_ALL) {
+            runSnap.children.mapNotNull { it.key?.trim()?.takeIf { k -> k.isNotBlank() } }.distinct()
         } else {
-            listOf(runSnap.child(selectedRunType)).filter { it.exists() }
+            listOf(selectedRunType)
         }
 
-        val dayStart = startOfLocalDay()
-        val dayEnd = endOfLocalDay(dayStart)
-
-        // Step 1 (no I/O): figure out which runs are actually eligible (today + open).
-        val eligibleRuns = mutableListOf<Pair<String, String>>()
-        for (typeSnap in selectedTypes) {
-            val runType = typeSnap.key ?: continue
-            for (runChild in typeSnap.children) {
-                val runId = runChild.key ?: continue
-                val runTimestamp = parseRunTimestamp(runId) ?: continue
-                if (runTimestamp !in dayStart..dayEnd) continue
-
-                val runStatus = readString(runChild, "status").ifBlank {
-                    runChild.getValue(String::class.java).orEmpty()
-                }.ifBlank { "open" }
-                if (!runStatus.equals("open", ignoreCase = true)) continue
-
-                eligibleRuns.add(runType to runId)
-            }
-        }
-
-        // Step 2: fetch every eligible run's consignments map IN PARALLEL instead of one-by-one.
+        // Step 2: fetch today's run for each type IN PARALLEL using deterministic run ID
         val consignmentRefs = linkedMapOf<String, ConsignmentRunRef>()
-        val runFetches = eligibleRuns.map { (runType, runId) ->
+        val runFetches = runTypesToFetch.map { runType ->
             async(Dispatchers.IO) {
-                val snap = db.reference.child("courier/run_routes/$runType/$runId/consignments")
+                val snap = db.reference.child("courier/run_routes/$runType/$todayRunId/consignments")
                     .get().await()
-                Triple(runType, runId, snap)
+                Pair(runType, snap)
             }
         }
-        runFetches.awaitAll().forEach { (runType, runId, consSnap) ->
+        runFetches.awaitAll().forEach { (runType, consSnap) ->
             consSnap.children.forEach { c ->
                 val cId = c.key ?: return@forEach
                 val routeStatus = c.getValue(String::class.java) ?: readString(c, "status")
-                consignmentRefs[cId] = ConsignmentRunRef(runType, runId, routeStatus)
+                consignmentRefs[cId] = ConsignmentRunRef(runType, todayRunId, routeStatus)
             }
         }
 
@@ -788,7 +778,7 @@ class WorkerSpaceFragment : Fragment() {
         }
 
         /**
-         * Extracts the date portion from a run ID of the form "run_{ddmmyy}_{employeeId}"
+         * Extracts the date portion from a run ID of the form "run_{ddMMyy}_{systemId}"
          * (ddmmyy is always exactly 6 zero-padded digits: day, month, 2-digit year — employeeId
          * comes after and may itself contain underscores). Returns local midnight (00:00:00)
          * millis for that date, or null if the ID doesn't match the expected shape.

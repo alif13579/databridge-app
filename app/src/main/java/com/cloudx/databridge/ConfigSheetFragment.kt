@@ -1500,8 +1500,10 @@ class ConfigSheetFragment : Fragment() {
                 val normalizedPhone = normalizePhone(phoneField ?: "")
                 if (normalizedPhone.isNotBlank()) fieldMap["recipientPhone"] = normalizedPhone
 
-                // agentId — used for the runs_by_agentId reverse-index (run_routes sheets only)
-                val agentIdValue = fieldMap["agentId"]?.toString()?.trim().orEmpty()
+                // userSystemId — used for runs_by_agentId reverse-index
+                // Looks for systemId or system_id field in mapping (preferred over employee_id)
+                val userSystemId = fieldMap["systemId"]?.toString()?.trim().orEmpty()
+                    .ifBlank { fieldMap["system_id"]?.toString()?.trim().orEmpty() }
 
                 // ── Object-type fields: build key-value pair from two specs ────
                 // spec: "col:A" (dynamic, read from that column) or "fixed:text" (constant)
@@ -1550,10 +1552,10 @@ class ConfigSheetFragment : Fragment() {
                     // under courier/run_routes/{runType}/ (delivery_run, pickup_run, return_run, etc.)
                     // so future run types work automatically without code changes.
                     val runTypeMatch = Regex("^courier/run_routes/([^/]+)$").find(basePath)
-                    if (runTypeMatch != null && agentIdValue.isNotBlank()) {
+                    if (runTypeMatch != null && userSystemId.isNotBlank()) {
                         val runType = runTypeMatch.groupValues[1]
                         val status = fieldMap["status"]?.toString() ?: ""
-                        multiUpdate["courier/runs_by_agentId/$agentIdValue/$runType/$conId"] = status
+                        multiUpdate["courier/runs_by_agentId/$userSystemId/$runType/$conId"] = status
                     }
                     inserted++
                 } else {
@@ -1581,9 +1583,9 @@ class ConfigSheetFragment : Fragment() {
                         }
                         // Update runs_by_agentId if status changed (same guarded pattern, generalized run type)
                         val runTypeMatchUpd = Regex("^courier/run_routes/([^/]+)$").find(basePath)
-                        if (runTypeMatchUpd != null && "status" in changedFields && agentIdValue.isNotBlank()) {
+                        if (runTypeMatchUpd != null && "status" in changedFields && userSystemId.isNotBlank()) {
                             val runType = runTypeMatchUpd.groupValues[1]
-                            multiUpdate["courier/runs_by_agentId/$agentIdValue/$runType/$conId"] =
+                            multiUpdate["courier/runs_by_agentId/$userSystemId/$runType/$conId"] =
                                 changedFields["status"].toString()
                         }
                         updated++
