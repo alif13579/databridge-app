@@ -36,6 +36,7 @@ class ScannerFragment : Fragment() {
     private lateinit var layoutDateFilter: View
     private lateinit var tvDateFilterLabel: TextView
     private lateinit var btnClearDateFilter: View
+    private lateinit var btnExportCsv: View
     private lateinit var btnSingleScan: Button
     private lateinit var btnBatchScan: Button
     private lateinit var btnManual: Button
@@ -99,6 +100,7 @@ class ScannerFragment : Fragment() {
         layoutDateFilter = view.findViewById(R.id.layoutDateFilter)
         tvDateFilterLabel = view.findViewById(R.id.tvDateFilterLabel)
         btnClearDateFilter = view.findViewById(R.id.btnClearDateFilter)
+        btnExportCsv = view.findViewById(R.id.btnExportCsv)
 
         layoutDateFilter.setOnClickListener { showDateRangePickerDialog() }
         btnClearDateFilter.setOnClickListener {
@@ -107,6 +109,7 @@ class ScannerFragment : Fragment() {
             updateDateFilterLabel()
             render()
         }
+        btnExportCsv.setOnClickListener { exportScansToCsv() }
         tvTotalCount = view.findViewById(R.id.tvTotalCount)
         tvCameraCount = view.findViewById(R.id.tvCameraCount)
         tvManualCount = view.findViewById(R.id.tvManualCount)
@@ -422,6 +425,75 @@ class ScannerFragment : Fragment() {
             }
     }
 
+    // ── CSV export ────────────────────────────────────────────────────
+    private fun exportScansToCsv() {
+        val from = filterFromDate
+        val to   = filterToDate
+        val items = uploadedItems.filter { item ->
+            (from == null || item.scanAt >= from) && (to == null || item.scanAt <= to)
+        }.sortedBy { it.scanAt }
+
+        if (items.isEmpty()) {
+            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো scan নেই", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val dateFmt = java.text.SimpleDateFormat("dd-MM-yyyy", java.util.Locale.getDefault())
+        val timeFmt = java.text.SimpleDateFormat("hh:mm:ss a", java.util.Locale.getDefault())
+
+        val csv = StringBuilder()
+        csv.append("Timestamp,Date,Time,Scanned Data\n")
+        items.forEach { item ->
+            val ts = item.scanAt
+            val date = dateFmt.format(java.util.Date(ts))
+            val time = timeFmt.format(java.util.Date(ts))
+            val code = item.code.replace("\"", "\"\"") // escape quotes
+            csv.append("$ts,$date,$time,\"$code\"\n")
+        }
+
+        val fileName = "DataBridge_Scans_${System.currentTimeMillis()}.csv"
+
+        try {
+            val resolver = requireContext().contentResolver
+            val uri: android.net.Uri?
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/csv")
+                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                }
+                uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            } else {
+                @Suppress("DEPRECATION")
+                val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                val file = java.io.File(downloadsDir, fileName)
+                uri = android.net.Uri.fromFile(file)
+            }
+
+            if (uri == null) {
+                Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            resolver.openOutputStream(uri)?.use { out ->
+                out.write(csv.toString().toByteArray())
+            }
+
+            Toast.makeText(requireContext(), "✅ CSV Downloads এ সেভ হয়েছে (${items.size} rows)", Toast.LENGTH_LONG).show()
+
+            // Offer to share/open immediately
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "CSV শেয়ার করুন"))
+
+        } catch (e: Exception) {
+            Toast.makeText(requireContext(), "⚠ Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
     // ── Date range filter ─────────────────────────────────────────────
     private fun showDateRangePickerDialog() {
         val builder = com.google.android.material.datepicker.MaterialDatePicker.Builder.dateRangePicker()
@@ -476,6 +548,7 @@ class ScannerFragment : Fragment() {
             btnUpload.visibility = if (localItems.isNotEmpty()) View.VISIBLE else View.GONE
             tvEmpty.text = "📦\n\nNo parcels scanned yet\n\nUse Single, Batch or Manual to begin"
             layoutDateFilter.visibility = View.GONE
+            btnExportCsv.visibility = View.GONE
         } else {
             displayItems = uploadedItems.filter { item ->
                 val from = filterFromDate
@@ -488,6 +561,7 @@ class ScannerFragment : Fragment() {
             else
                 "📦\n\nNo uploaded scans found"
             layoutDateFilter.visibility = View.VISIBLE
+            btnExportCsv.visibility = View.VISIBLE
         }
 
         adapter.items = displayItems

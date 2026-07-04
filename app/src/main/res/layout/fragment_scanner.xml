@@ -79,6 +79,19 @@
                     android:src="@android:drawable/arrow_down_float"
                     app:tint="@color/theme_text_secondary" />
             </LinearLayout>
+
+            <!-- ⬇️ CSV export (visible only on "All Scans" tab) -->
+            <ImageView
+                android:id="@+id/btnExportCsv"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="8dp"
+                android:padding="8dp"
+                android:src="@android:drawable/stat_sys_download"
+                android:background="@drawable/bg_search_bar"
+                android:contentDescription="Download CSV"
+                android:visibility="gone"
+                app:tint="@color/theme_text_primary" />
         </LinearLayout>
 
         <!-- Count Badges -->
