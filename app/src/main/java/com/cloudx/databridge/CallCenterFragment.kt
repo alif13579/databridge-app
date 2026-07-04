@@ -22,6 +22,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 class CallCenterFragment : Fragment() {
 
@@ -39,6 +40,10 @@ class CallCenterFragment : Fragment() {
     private lateinit var pbProgress: ProgressBar
     private lateinit var tvEmpty: TextView
     private lateinit var swipeRefresh: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+
+    // Current CC agent's Employee ID — attached to remarks so it's clear who left them.
+    // Best-effort fetch: remark-writing still works (falls back to "") if this fails.
+    private var employeeId = ""
 
     private lateinit var adapter: CallCenterAdapter
 
@@ -94,6 +99,18 @@ class CallCenterFragment : Fragment() {
         val user = FirebaseAuth.getInstance().currentUser
         val displayName = user?.displayName ?: "Agent"
         tvAgentInfo.text = "$displayName · Supervisor"
+
+        user?.uid?.let { uid ->
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    employeeId = withContext(Dispatchers.IO) {
+                        com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                            .child("users/$uid/profile/company_info/employee_id")
+                            .get().await().getValue(String::class.java)?.trim().orEmpty()
+                    }
+                } catch (e: Exception) { /* remark writing still works without it */ }
+            }
+        }
     }
 
     private fun setupAdapter() {
@@ -434,11 +451,12 @@ class CallCenterFragment : Fragment() {
             // Write to Firebase
             val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
             val timestamp = System.currentTimeMillis()
-            val uid       = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
             val multiUpdate = mutableMapOf<String, Any>(
                 "courier/remarks_by_consignment/${item.id}/remarks_$timestamp" to mapOf(
                     "agentSystemId" to "",
+                    "employeeId"    to employeeId,
                     "remarks"       to fullRemark,
+                    "note"          to noteText,
                     "type"          to selectedStatus,
                     "status"        to selectedStatus,
                     "remarked_by"   to "support",

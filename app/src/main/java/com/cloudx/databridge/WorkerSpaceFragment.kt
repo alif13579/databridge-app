@@ -66,6 +66,9 @@ class WorkerSpaceFragment : Fragment() {
     private var suppressRunTypeEvents = false
     private var loadGeneration = 0
     private var systemId = ""
+    // Current worker's Employee ID — attached to remarks so it's clear who left them.
+    // Best-effort fetch: remark-writing still works (falls back to "") if this fails.
+    private var employeeId = ""
 
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseDatabase.getInstance()
@@ -371,6 +374,7 @@ class WorkerSpaceFragment : Fragment() {
                 // Write remark to Firebase
                 val remarkData = mapOf(
                     "agentSystemId" to systemId,
+                    "employeeId"    to employeeId,
                     "remarks"       to selectedLabel,
                     "type"          to statusKey,
                     "status"        to statusKey,
@@ -526,6 +530,16 @@ class WorkerSpaceFragment : Fragment() {
                 }
 
                 attachRunsListener(systemId)
+
+                // Best-effort employeeId fetch for remark attribution — doesn't gate the run listener
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        employeeId = withContext(Dispatchers.IO) {
+                            db.reference.child("users/$uid/profile/company_info/employee_id")
+                                .get().await().getValue(String::class.java)?.trim().orEmpty()
+                        }
+                    } catch (e: Exception) { /* remark writing still works without it */ }
+                }
             } catch (e: Exception) {
                 tvEmpty.visibility = View.VISIBLE
                 tvEmpty.text = "⚠ Load failed: ${e.message?.take(60)}"
