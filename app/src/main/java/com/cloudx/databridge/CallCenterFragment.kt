@@ -92,6 +92,7 @@ class CallCenterFragment : Fragment() {
         rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
+        spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
         swipeRefresh = view.findViewById(R.id.swipeRefreshCca)
         swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
         swipeRefresh.setOnRefreshListener {
@@ -253,21 +254,44 @@ class CallCenterFragment : Fragment() {
     private var runsListener: com.google.firebase.database.ValueEventListener? = null
     private var runsRef: com.google.firebase.database.DatabaseReference? = null
 
+    // ── Run type selection (mirrors WorkerSpaceFragment pattern) ──────
+    private lateinit var spinnerCcRunType: Spinner
+    data class CcRunTypeOption(val key: String, val label: String)
+    private val CC_RUN_TYPE_ALL = "__ALL__"
+    private var ccSelectedRunType = CC_RUN_TYPE_ALL
+    private var ccRunTypeOptions = listOf(CcRunTypeOption(CC_RUN_TYPE_ALL, "All"))
+    private var rootRunTypesRef: com.google.firebase.database.DatabaseReference? = null
+    private var rootRunTypesListener: com.google.firebase.database.ValueEventListener? = null
+
     private fun loadData() {
         pbProgress.visibility = View.VISIBLE
         tvEmpty.visibility    = View.GONE
         detachRunsListener()
-        attachRunsListener()
+        attachRootRunTypesListener()
     }
 
-    private fun attachRunsListener() {
+    /** Discovers available run types under courier/run_routes (delivery_run, pickup_run, etc). */
+    private fun attachRootRunTypesListener() {
+        detachRootRunTypesListener()
         val db  = com.google.firebase.database.FirebaseDatabase.getInstance()
-        val ref = db.reference.child("courier/run_routes/delivery_run")
-        runsRef = ref
-        runsListener = object : com.google.firebase.database.ValueEventListener {
+        val ref = db.reference.child("courier/run_routes")
+        rootRunTypesRef = ref
+        rootRunTypesListener = object : com.google.firebase.database.ValueEventListener {
             override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                 if (!isAdded) return
-                viewLifecycleOwner.lifecycleScope.launch { processRunsSnapshot(snapshot) }
+                val runTypes = snapshot.children
+                    .mapNotNull { it.key?.trim()?.takeIf { k -> k.isNotBlank() } }
+                    .distinct()
+                    .sorted()
+
+                ccRunTypeOptions = listOf(CcRunTypeOption(CC_RUN_TYPE_ALL, "All")) +
+                    runTypes.map { CcRunTypeOption(it, formatCcRunTypeLabel(it)) }
+
+                if (ccSelectedRunType != CC_RUN_TYPE_ALL && ccSelectedRunType !in runTypes) {
+                    ccSelectedRunType = CC_RUN_TYPE_ALL
+                }
+                bindCcRunTypeSpinner()
+                attachRunsListener(runTypes)
             }
             override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
                 if (!isAdded) return
@@ -276,7 +300,95 @@ class CallCenterFragment : Fragment() {
                 tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
             }
         }
-        ref.addValueEventListener(runsListener!!)
+        ref.addValueEventListener(rootRunTypesListener!!)
+    }
+
+    private fun detachRootRunTypesListener() {
+        val listener = rootRunTypesListener ?: return
+        rootRunTypesRef?.removeEventListener(listener)
+        rootRunTypesListener = null
+        rootRunTypesRef = null
+    }
+
+    private fun bindCcRunTypeSpinner() {
+        if (!::spinnerCcRunType.isInitialized) return
+        val ctx = context ?: return
+        val labels = ccRunTypeOptions.map { it.label }
+        val adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, labels)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerCcRunType.adapter = adapter
+        spinnerCcRunType.setSelection(ccRunTypeOptions.indexOfFirst { it.key == ccSelectedRunType }.coerceAtLeast(0))
+        spinnerCcRunType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val nextType = ccRunTypeOptions.getOrNull(position)?.key ?: CC_RUN_TYPE_ALL
+                if (nextType == ccSelectedRunType) return
+                ccSelectedRunType = nextType
+                loadData()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    private fun formatCcRunTypeLabel(runType: String): String =
+        runType.split("_")
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { part ->
+                part.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
+            }
+
+    /** Attaches a listener on the selected run type's node (or the first discovered type when "All"). */
+    private fun attachRunsListener(discoveredTypes: List<String>) {
+        val db = com.google.firebase.database.FirebaseDatabase.getInstance()
+        val typesToWatch = if (ccSelectedRunType == CC_RUN_TYPE_ALL) discoveredTypes else listOf(ccSelectedRunType)
+
+        if (typesToWatch.isEmpty()) {
+            pbProgress.visibility = View.GONE
+            tvEmpty.visibility    = View.VISIBLE
+            tvEmpty.text          = "📭\n\nকোনো run নেই"
+            return
+        }
+
+        // For "All", merge every run type's snapshot together before processing.
+        val mergedSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
+        var remaining = typesToWatch.size
+
+        typesToWatch.forEach { runType ->
+            val ref = db.reference.child("courier/run_routes/$runType")
+            val listener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                    if (!isAdded) return
+                    mergedSnapshots[runType] = snapshot
+                    if (mergedSnapshots.size >= typesToWatch.size) {
+                        viewLifecycleOwner.lifecycleScope.launch { processRunTypeSnapshots(mergedSnapshots.values.toList()) }
+                    }
+                }
+                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                    if (!isAdded) return
+                    pbProgress.visibility = View.GONE
+                    tvEmpty.visibility    = View.VISIBLE
+                    tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
+                }
+            }
+            ref.addValueEventListener(listener)
+            // Reuse existing single-ref tracking for the primary type; extra types are cleaned
+            // up together in detachRunsListener via the shared list below.
+            ccActiveListeners.add(ref to listener)
+        }
+    }
+
+    private val ccActiveListeners = mutableListOf<Pair<com.google.firebase.database.DatabaseReference, com.google.firebase.database.ValueEventListener>>()
+
+    /** Merges multiple run_type snapshots into one combined view, then runs the existing pipeline. */
+    private suspend fun processRunTypeSnapshots(snapshots: List<com.google.firebase.database.DataSnapshot>) {
+        if (snapshots.size == 1) {
+            processRunsSnapshot(snapshots.first())
+            return
+        }
+        // Multiple run types selected ("All") — process each and concatenate results.
+        // processRunsSnapshot already updates the shared list; run sequentially to avoid races.
+        snapshots.forEachIndexed { idx, snap ->
+            processRunsSnapshot(snap, append = idx > 0)
+        }
     }
 
     private fun detachRunsListener() {
@@ -284,6 +396,10 @@ class CallCenterFragment : Fragment() {
         runsRef?.removeEventListener(listener)
         runsListener = null
         runsRef = null
+
+        ccActiveListeners.forEach { (ref, l) -> ref.removeEventListener(l) }
+        ccActiveListeners.clear()
+        detachRootRunTypesListener()
     }
 
     /**
@@ -313,7 +429,7 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    private suspend fun processRunsSnapshot(runsSnap: com.google.firebase.database.DataSnapshot) {
+    private suspend fun processRunsSnapshot(runsSnap: com.google.firebase.database.DataSnapshot, append: Boolean = false) {
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
 
         // Today's date range
@@ -395,7 +511,8 @@ class CallCenterFragment : Fragment() {
         }
 
         if (!isAdded) return
-        allParcels = parcels.sortedBy { it.id }
+        val combined = if (append) (allParcels + parcels).distinctBy { it.id } else parcels
+        allParcels = combined.sortedBy { it.id }
         branches   = allParcels.map { it.branch }.filter { it.isNotBlank() }.distinct().sorted()
         setupBranchChips()
         setupFilterTabs()

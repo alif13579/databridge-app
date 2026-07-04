@@ -91,6 +91,16 @@
                             android:textColor="@color/theme_purple_light"
                             android:textStyle="bold"
                             android:fontFamily="sans-serif-medium" />
+
+                        <Spinner
+                            android:id="@+id/spinnerCcRunType"
+                            android:layout_width="90dp"
+                            android:layout_height="26dp"
+                            android:layout_marginTop="4dp"
+                            android:background="@drawable/bg_search_bar"
+                            android:paddingStart="6dp"
+                            android:paddingEnd="6dp"
+                            android:spinnerMode="dropdown" />
                     </LinearLayout>
                 </LinearLayout>
 
