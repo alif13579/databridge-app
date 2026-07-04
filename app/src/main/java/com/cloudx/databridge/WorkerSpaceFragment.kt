@@ -53,6 +53,7 @@ class WorkerSpaceFragment : Fragment() {
     private lateinit var rvParcelList: RecyclerView
     private lateinit var pbProgress: View
     private lateinit var tvEmpty: TextView
+    private lateinit var swipeRefresh: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
     private lateinit var tvRunClosedBanner: TextView
 
     private lateinit var adapter: WorkerParcelAdapter
@@ -131,6 +132,13 @@ class WorkerSpaceFragment : Fragment() {
         rvParcelList = view.findViewById(R.id.rvParcelList)
         pbProgress = view.findViewById(R.id.twProgressBar)
         tvEmpty = view.findViewById(R.id.twEmptyState)
+        swipeRefresh = view.findViewById(R.id.swipeRefresh)
+        swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
+        swipeRefresh.setOnRefreshListener {
+            detachRunsListener()
+            loadData()
+            swipeRefresh.isRefreshing = false
+        }
         tvRunClosedBanner = view.findViewById(R.id.twRunClosedBanner)
 
         // Set user info
