@@ -26,13 +26,14 @@ import androidx.fragment.app.Fragment
 object AutoDialHelper {
 
     fun dial(fragment: Fragment, phone: String) {
+        val normalizedPhone = normalizeBdPhone(phone)
         val ctx = fragment.requireContext()
         val autoDial = ctx
             .getSharedPreferences("databridge_toggles", Context.MODE_PRIVATE)
             .getBoolean("auto_dial", false)
 
         if (!autoDial) {
-            openDialpad(fragment, phone)
+            openDialpad(fragment, normalizedPhone)
             return
         }
 
@@ -41,7 +42,7 @@ object AutoDialHelper {
             != PackageManager.PERMISSION_GRANTED
         ) {
             Toast.makeText(ctx, "Auto dial needs Call permission. Opening dialer.", Toast.LENGTH_SHORT).show()
-            openDialpad(fragment, phone)
+            openDialpad(fragment, normalizedPhone)
             return
         }
 
@@ -54,13 +55,29 @@ object AutoDialHelper {
             }
 
             if (accounts.size >= 2) {
-                showSimChooser(fragment, phone, accounts, telecom)
+                showSimChooser(fragment, normalizedPhone, accounts, telecom)
             } else {
-                callDirect(fragment, phone)
+                callDirect(fragment, normalizedPhone)
             }
         } else {
-            callDirect(fragment, phone)
+            callDirect(fragment, normalizedPhone)
         }
+    }
+
+    /**
+     * Normalizes a Bangladeshi mobile number to the local 01XXXXXXXXX dial format,
+     * regardless of how it was stored: "8801885580909", "+8801885580909",
+     * "1885580909" (missing leading 0), or already-correct "01885580909".
+     */
+    private fun normalizeBdPhone(raw: String): String {
+        var digits = raw.filter { it.isDigit() }
+        if (digits.startsWith("880") && digits.length >= 12) {
+            digits = digits.removePrefix("880")
+        }
+        if (digits.isNotEmpty() && !digits.startsWith("0")) {
+            digits = "0$digits"
+        }
+        return digits
     }
 
     // ── private helpers ───────────────────────────────────────────────────────
