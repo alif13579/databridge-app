@@ -27,6 +27,9 @@ import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -568,7 +571,7 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
-    private suspend fun loadParcelsForSelectedRunType(runSnap: DataSnapshot): List<WorkerParcelItem> {
+    private suspend fun loadParcelsForSelectedRunType(runSnap: DataSnapshot): List<WorkerParcelItem> = coroutineScope {
         val selectedTypes = if (selectedRunType == RUN_TYPE_ALL) {
             runSnap.children.toList()
         } else {
@@ -577,8 +580,9 @@ class WorkerSpaceFragment : Fragment() {
 
         val dayStart = startOfLocalDay()
         val dayEnd = endOfLocalDay(dayStart)
-        val consignmentRefs = linkedMapOf<String, ConsignmentRunRef>()
 
+        // Step 1 (no I/O): figure out which runs are actually eligible (today + open).
+        val eligibleRuns = mutableListOf<Pair<String, String>>()
         for (typeSnap in selectedTypes) {
             val runType = typeSnap.key ?: continue
             for (runChild in typeSnap.children) {
@@ -591,28 +595,45 @@ class WorkerSpaceFragment : Fragment() {
                 }.ifBlank { "open" }
                 if (!runStatus.equals("open", ignoreCase = true)) continue
 
-                val consSnap = withContext(Dispatchers.IO) {
-                    db.reference.child("courier/run_routes/$runType/$runId/consignments")
-                        .get().await()
-                }
-                consSnap.children.forEach { c ->
-                    val cId = c.key ?: return@forEach
-                    val routeStatus = c.getValue(String::class.java)
-                        ?: readString(c, "status")
-                    consignmentRefs[cId] = ConsignmentRunRef(runType, runId, routeStatus)
-                }
+                eligibleRuns.add(runType to runId)
             }
         }
 
-        if (consignmentRefs.isEmpty()) return emptyList()
+        // Step 2: fetch every eligible run's consignments map IN PARALLEL instead of one-by-one.
+        val consignmentRefs = linkedMapOf<String, ConsignmentRunRef>()
+        val runFetches = eligibleRuns.map { (runType, runId) ->
+            async(Dispatchers.IO) {
+                val snap = db.reference.child("courier/run_routes/$runType/$runId/consignments")
+                    .get().await()
+                Triple(runType, runId, snap)
+            }
+        }
+        runFetches.awaitAll().forEach { (runType, runId, consSnap) ->
+            consSnap.children.forEach { c ->
+                val cId = c.key ?: return@forEach
+                val routeStatus = c.getValue(String::class.java) ?: readString(c, "status")
+                consignmentRefs[cId] = ConsignmentRunRef(runType, runId, routeStatus)
+            }
+        }
+
+        if (consignmentRefs.isEmpty()) return@coroutineScope emptyList()
+
+        // Step 3: fetch consignment details + remarks history for EVERY consignment IN PARALLEL.
+        data class ItemFetch(val cId: String, val runRef: ConsignmentRunRef, val detailSnap: DataSnapshot, val remarksSnap: DataSnapshot)
+        val itemFetches = consignmentRefs.map { (cId, runRef) ->
+            async(Dispatchers.IO) {
+                val detailSnap = db.reference.child("courier/consignments/$cId").get().await()
+                val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
+                    .limitToLast(5).get().await()
+                ItemFetch(cId, runRef, detailSnap, remarksSnap)
+            }
+        }
 
         val parcels = mutableListOf<WorkerParcelItem>()
         val statusBackfills = mutableMapOf<String, Any?>()
-        for ((cId, runRef) in consignmentRefs) {
-            val detailSnap = withContext(Dispatchers.IO) {
-                db.reference.child("courier/consignments/$cId").get().await()
-            }
-            if (!detailSnap.exists()) continue
+        itemFetches.awaitAll().forEach { fetch ->
+            val (cId, runRef, detailSnap, remarksSnap) = fetch
+            if (!detailSnap.exists()) return@forEach
 
             val name = readString(detailSnap, "recipientName")
             val phone = readString(detailSnap, "recipientPhone")
@@ -624,10 +645,6 @@ class WorkerSpaceFragment : Fragment() {
                 statusBackfills["courier/run_routes/${runRef.runType}/${runRef.runId}/consignments/$cId"] = sourceStatus
             }
 
-            val remarksSnap = withContext(Dispatchers.IO) {
-                db.reference.child("courier/remarks_by_consignment/$cId")
-                    .limitToLast(5).get().await()
-            }
             val history = remarksSnap.children.mapNotNull { r ->
                 val type = readString(r, "type").ifBlank { return@mapNotNull null }
                 val rStatus = readString(r, "status")
@@ -667,7 +684,7 @@ class WorkerSpaceFragment : Fragment() {
             }
         }
 
-        return parcels
+        parcels
     }
 
     private fun readString(snap: DataSnapshot, child: String): String {
