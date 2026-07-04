@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -111,6 +112,7 @@ class WorkerSpaceFragment : Fragment() {
         setupRunTypeSpinner()
         setupFilterTabs()
         setupAdapter()
+        loadRemarkOptions()
         loadData()
     }
 
@@ -139,6 +141,7 @@ class WorkerSpaceFragment : Fragment() {
         swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
         swipeRefresh.setOnRefreshListener {
             detachRunsListener()
+            loadRemarkOptions()
             loadData()
             swipeRefresh.isRefreshing = false
         }
@@ -298,6 +301,65 @@ class WorkerSpaceFragment : Fragment() {
         rvParcelList.adapter = adapter
     }
 
+    /**
+     * Loads remark options for the "Set Remarks" sheet from config/remarks (admin-managed in
+     * ConfigRemarksFragment) instead of a fixed hardcoded list. Each remark's target_status is
+     * resolved against config/statusMeta for its display label + color. Falls back to the
+     * built-in default list (see remarkOptions' initializer) if config is empty/unreachable.
+     */
+    private fun loadRemarkOptions() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val metaSnap = withContext(Dispatchers.IO) {
+                    db.reference.child("config/statusMeta").get().await()
+                }
+                val statusLabel = mutableMapOf<String, String>()
+                val statusColor = mutableMapOf<String, Int>()
+                metaSnap.children.forEach { s ->
+                    val key = s.key ?: return@forEach
+                    val en = s.child("en").getValue(String::class.java)?.trim().orEmpty().ifBlank { key }
+                    val colorHex = s.child("color").getValue(String::class.java)?.trim().orEmpty()
+                    statusLabel[key] = en
+                    statusColor[key] = try {
+                        android.graphics.Color.parseColor(colorHex.ifBlank { "#6B7280" })
+                    } catch (_: Exception) {
+                        android.graphics.Color.GRAY
+                    }
+                }
+
+                val remarksSnap = withContext(Dispatchers.IO) {
+                    db.reference.child("config/remarks").get().await()
+                }
+                val fetched = mutableListOf<WorkerRemarkOption>()
+                remarksSnap.children.forEach { groupSnap ->
+                    groupSnap.children.forEach { r ->
+                        val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
+                        val textEn = r.child("text_en").getValue(String::class.java)?.trim().orEmpty()
+                        val label = textBn.ifBlank { textEn }
+                        if (label.isBlank()) return@forEach
+                        val target = r.child("target_status").getValue(String::class.java)?.trim()
+                            .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
+                        fetched.add(
+                            WorkerRemarkOption(
+                                icon = "💬",
+                                label = label,
+                                statusKey = target,
+                                statusPreview = statusLabel[target] ?: target,
+                                statusColor = statusColor[target] ?: android.graphics.Color.GRAY
+                            )
+                        )
+                    }
+                }
+
+                if (isAdded && fetched.isNotEmpty()) {
+                    remarkOptions = fetched
+                }
+            } catch (e: Exception) {
+                Log.e("WorkerSpace", "Failed to load remark options from config, using defaults", e)
+            }
+        }
+    }
+
     private fun showWorkerRemarksDialog(item: WorkerParcelItem) {
         val dialog = BottomSheetDialog(requireContext())
         val view = layoutInflater.inflate(R.layout.bottom_sheet_worker_remarks, null)
@@ -305,13 +367,7 @@ class WorkerSpaceFragment : Fragment() {
         val tvSub = view.findViewById<TextView>(R.id.twWorkerRemarkSub)
         val tvStatusPreview = view.findViewById<TextView>(R.id.twWorkerRemarkStatusPreview)
 
-        val options = listOf(
-            WorkerRemarkOption("✅", "Customer কে parcel delivery করা হচ্ছে", "confirmed", "✓ Confirmed", R.color.theme_green),
-            WorkerRemarkOption("📵", "Customer ফোন ধরছে না", "verify_req", "⚡ Verify Request", R.color.theme_purple),
-            WorkerRemarkOption("📍", "Address খুঁজে পাচ্ছি না", "verify_req", "⚡ Verify Request", R.color.theme_purple),
-            WorkerRemarkOption("🚫", "Customer refuse করল", "return_req", "↩ Return Request", R.color.theme_red),
-            WorkerRemarkOption("💬", "Customer পাচ্ছি না", "verify_req", "⚡ Verify Request", R.color.theme_purple)
-        )
+        val options = remarkOptions
 
         val optionViews = mutableListOf<View>()
         val layoutOptions = view.findViewById<LinearLayout>(R.id.layoutWorkerRemarkOptions)
@@ -341,7 +397,7 @@ class WorkerSpaceFragment : Fragment() {
                     .setTextColor(requireContext().getColor(R.color.theme_text_remark_opt_selected))
                 optView.findViewById<View>(R.id.viewRemarkOptSelected).visibility = View.VISIBLE
 
-                val previewColor = requireContext().getColor(opt.statusColorRes)
+                val previewColor = opt.statusColor
                 tvStatusPreview.text = opt.statusPreview
                 tvStatusPreview.setTextColor(previewColor)
                 tvStatusPreview.tag = opt.statusKey
@@ -864,12 +920,23 @@ class WorkerSpaceFragment : Fragment() {
 
 
     data class FilterTab(val key: String, val label: String)
+
+    // Remark options for the "Set Remarks" sheet — loaded from config/remarks (target_status
+    // per remark, set by admins in ConfigRemarksFragment). Falls back to a small built-in set
+    // if the config hasn't loaded yet or is empty, so the feature never breaks entirely.
+    private var remarkOptions: List<WorkerRemarkOption> = listOf(
+        WorkerRemarkOption("✅", "Customer কে parcel delivery করা হচ্ছে", "confirmed", "✓ Confirmed", android.graphics.Color.parseColor("#16A34A")),
+        WorkerRemarkOption("📵", "Customer ফোন ধরছে না", "verify_req", "⚡ Verify Request", android.graphics.Color.parseColor("#7C3AED")),
+        WorkerRemarkOption("📍", "Address খুঁজে পাচ্ছি না", "verify_req", "⚡ Verify Request", android.graphics.Color.parseColor("#7C3AED")),
+        WorkerRemarkOption("🚫", "Customer refuse করল", "return_req", "↩ Return Request", android.graphics.Color.parseColor("#DC2626")),
+        WorkerRemarkOption("💬", "Customer পাচ্ছি না", "verify_req", "⚡ Verify Request", android.graphics.Color.parseColor("#7C3AED"))
+    )
     data class WorkerRemarkOption(
         val icon: String,
         val label: String,
         val statusKey: String,
         val statusPreview: String,
-        val statusColorRes: Int
+        val statusColor: Int
     )
 
     data class RunTypeOption(val key: String, val label: String)
