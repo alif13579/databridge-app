@@ -13,6 +13,8 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
@@ -30,7 +32,7 @@ class CallCenterFragment : Fragment() {
     private lateinit var layoutBranchFilter: HorizontalScrollView
     private lateinit var layoutBranchChips: LinearLayout
     private lateinit var layoutFilterTabs: LinearLayout
-    private lateinit var layoutParcelContainer: LinearLayout
+    private lateinit var rvParcelList: RecyclerView
     private lateinit var pbProgress: ProgressBar
     private lateinit var tvEmpty: TextView
 
@@ -57,6 +59,7 @@ class CallCenterFragment : Fragment() {
 
         initViews(view)
         setupFilterTabs()
+        setupAdapter()
         loadData()
     }
 
@@ -70,13 +73,35 @@ class CallCenterFragment : Fragment() {
         layoutBranchFilter = view.findViewById(R.id.layoutCcaBranchFilter)
         layoutBranchChips = view.findViewById(R.id.layoutCcaBranchChips)
         layoutFilterTabs = view.findViewById(R.id.layoutCcaFilterTabs)
-        layoutParcelContainer = view.findViewById(R.id.layoutCcaParcelContainer)
+        rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
 
         val user = FirebaseAuth.getInstance().currentUser
         val displayName = user?.displayName ?: "Agent"
         tvAgentInfo.text = "$displayName · Supervisor"
+    }
+
+    private fun setupAdapter() {
+        adapter = CallCenterAdapter(
+            onCall = { item -> AutoDialHelper.dial(this@CallCenterFragment, item.phone) },
+            onSetRemarks = { item -> showRemarksDialog(item) },
+            onValidate = { item ->
+                allParcels = allParcels.map {
+                    if (it.id == item.id) it.copy(
+                        validationRequest = false,
+                        status = "confirmed",
+                        remarks = "Validated by call center"
+                    ) else it
+                }
+                applyFilters()
+            }
+        )
+        rvParcelList.layoutManager = LinearLayoutManager(requireContext())
+        rvParcelList.adapter = adapter
+        // Item views recycle instead of being fully re-inflated on every refresh/filter.
+        rvParcelList.setHasFixedSize(false)
+        rvParcelList.setItemViewCacheSize(8)
     }
 
     private fun setupBranchChips() {
@@ -301,23 +326,6 @@ class CallCenterFragment : Fragment() {
         branches   = allParcels.map { it.branch }.filter { it.isNotBlank() }.distinct().sorted()
         setupBranchChips()
         setupFilterTabs()
-
-        if (adapter == null) {
-            adapter = CallCenterAdapter(
-                onCall        = { item -> AutoDialHelper.dial(this@CallCenterFragment, item.phone) },
-                onSetRemarks  = { item -> showRemarksDialog(item) },
-                onValidate    = { item ->
-                    allParcels = allParcels.map {
-                        if (it.id == item.id) it.copy(
-                            validationRequest = false,
-                            status  = "confirmed",
-                            remarks = "Validated by call center"
-                        ) else it
-                    }
-                    applyFilters()
-                }
-            )
-        }
         applyFilters()
         pbProgress.visibility = View.GONE
     }
@@ -462,17 +470,11 @@ class CallCenterFragment : Fragment() {
         tvStatRejected.text = rejected.toString()
         tvValidationCount.text = "$validationCount pending"
 
-        // Render list
-        adapter.items = filtered
-        adapter.expandedItemId = null
-
-        layoutParcelContainer.removeAllViews()
-        if (filtered.isEmpty()) {
-            tvEmpty.visibility = View.VISIBLE
-        } else {
-            tvEmpty.visibility = View.GONE
-            adapter.renderInto(layoutParcelContainer)
-        }
+        // Render list — DiffUtil computes the minimal set of changes, so the
+        // RecyclerView only rebinds/animates rows that actually changed.
+        adapter.collapseExpanded()
+        tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+        adapter.submitParcels(filtered)
     }
 
     /**
