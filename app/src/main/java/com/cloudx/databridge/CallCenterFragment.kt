@@ -241,7 +241,7 @@ class CallCenterFragment : Fragment() {
         val consignmentStatuses = mutableMapOf<String, String>()
         runsSnap.children.forEach { runSnap ->
             val runId = runSnap.key ?: return@forEach
-            val runTimestamp = runId.removePrefix("run_").toLongOrNull() ?: return@forEach
+            val runTimestamp = parseRunTimestamp(runId) ?: return@forEach
             if (runTimestamp < dayStart || runTimestamp > dayEnd) return@forEach
             runSnap.child("consignments").children.forEach { c ->
                 val cId     = c.key ?: return@forEach
@@ -474,6 +474,29 @@ class CallCenterFragment : Fragment() {
             tvEmpty.visibility = View.GONE
             adapter.renderInto(layoutParcelContainer)
         }
+    }
+
+    /**
+     * Extracts the timestamp portion from a run ID of the form "run_{agentId}_{timestamp}"
+     * (agentId may itself contain underscores). Call Center sees runs from every agent, so —
+     * unlike WorkerSpaceFragment, which knows its own employeeId — this always takes the
+     * LAST underscore-separated segment as the timestamp.
+     *
+     * If that value falls in the 30000..60000 range it's treated as an Excel/Sheets serial
+     * date (days since 1899-12-30) rather than a raw millis timestamp, and converted accordingly.
+     */
+    private fun parseRunTimestamp(runId: String): Long? {
+        val rawTimestamp = runId.trim().substringAfterLast("_", missingDelimiterValue = "")
+        val value = rawTimestamp.toLongOrNull() ?: return null
+        return if (value in 30000L..60000L) excelSerialDateToLocalMillis(value) else value
+    }
+
+    private fun excelSerialDateToLocalMillis(serialDay: Long): Long {
+        return java.util.Calendar.getInstance().apply {
+            clear()
+            set(1899, java.util.Calendar.DECEMBER, 30, 0, 0, 0)
+            add(java.util.Calendar.DAY_OF_YEAR, serialDay.toInt())
+        }.timeInMillis
     }
 
     data class FilterTab(val key: String, val label: String)
