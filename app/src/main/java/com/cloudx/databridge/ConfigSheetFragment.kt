@@ -1599,6 +1599,15 @@ class ConfigSheetFragment : Fragment() {
                         catch (_: Exception) {}
                     }
                 }
+
+                // Live progress — updates the busy overlay after every row, like a running counter
+                val processedSoFar = inserted + updated + skipped
+                setBusy(
+                    true,
+                    "Firebase sync করছে...\n\n" +
+                    "✅ Inserted: $inserted   🔄 Updated: $updated   ⏭ Skipped: $skipped\n" +
+                    "📦 Processed: $processedSoFar / ${dataRows.size}"
+                )
             }
 
             // ── 5. Summary dialog ─────────────────────────────────────

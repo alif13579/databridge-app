@@ -976,7 +976,8 @@
         <TextView android:id="@+id/tvSheetBusy"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="Loading..." android:textColor="@color/theme_bg_card"
-            android:textSize="13sp" android:textStyle="bold" android:layout_marginTop="12dp" />
+            android:textSize="13sp" android:textStyle="bold" android:layout_marginTop="12dp"
+            android:gravity="center" android:lineSpacingExtra="4dp" />
     </LinearLayout>
 
 </FrameLayout>
