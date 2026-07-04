@@ -34,7 +34,7 @@
             android:textSize="14sp"
             android:textStyle="bold"
             android:textColor="@color/theme_text_primary"
-            android:maxLines="1"
+            android:maxLines="3"
             android:ellipsize="end" />
 
         <TextView
@@ -48,24 +48,13 @@
     </LinearLayout>
 
     <ImageButton
-        android:id="@+id/btnEditScan"
+        android:id="@+id/btnScanMenu"
         android:layout_width="32dp"
         android:layout_height="32dp"
-        android:src="@drawable/ic_edit_24"
-        android:background="@drawable/btn_edit_scan"
-        android:padding="6dp"
-        android:layout_marginEnd="6dp"
-        android:contentDescription="Edit"
-        app:tint="@color/theme_yellow" />
-
-    <ImageButton
-        android:id="@+id/btnDeleteScan"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:src="@drawable/ic_delete_24"
-        android:background="@drawable/btn_delete_scan"
-        android:padding="6dp"
-        android:contentDescription="Delete"
-        app:tint="@color/theme_red" />
+        android:src="@android:drawable/ic_menu_more"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="4dp"
+        android:contentDescription="More options"
+        app:tint="@color/theme_text_secondary" />
 
 </LinearLayout>

@@ -111,8 +111,19 @@ class ScannerAdapter(
                 holder.tvIcon.text = if (item.manual) "✏️" else "📷"
                 holder.tvCode.text = item.code
                 holder.tvMeta.text = "${TIME_FMT.format(Date(item.scanAt))} • ${if (item.manual) "Manual" else "Scanned"}"
-                holder.btnDelete.setOnClickListener { onDelete(item) }
-                holder.btnEdit.setOnClickListener { onEdit(item) }
+                holder.btnMenu.setOnClickListener { anchor ->
+                    val popup = android.widget.PopupMenu(anchor.context, anchor)
+                    popup.menu.add(0, 1, 0, "Edit")
+                    popup.menu.add(0, 2, 1, "Delete")
+                    popup.setOnMenuItemClickListener { menuItem ->
+                        when (menuItem.itemId) {
+                            1 -> { onEdit(item); true }
+                            2 -> { onDelete(item); true }
+                            else -> false
+                        }
+                    }
+                    popup.show()
+                }
                 holder.itemView.alpha = 1.0f
             }
         }
@@ -124,8 +135,7 @@ class ScannerAdapter(
         val tvIcon: TextView = view.findViewById(R.id.tvScanIcon)
         val tvCode: TextView = view.findViewById(R.id.tvScanCode)
         val tvMeta: TextView = view.findViewById(R.id.tvScanMeta)
-        val btnDelete: View = view.findViewById(R.id.btnDeleteScan)
-        val btnEdit: View = view.findViewById(R.id.btnEditScan)
+        val btnMenu: View = view.findViewById(R.id.btnScanMenu)
     }
 
     class DateDividerHolder(view: View) : RecyclerView.ViewHolder(view) {
