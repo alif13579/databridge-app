@@ -3277,8 +3277,22 @@ class ConfigSheetFragment : Fragment() {
 
             container.addView(row)
         }
+
+        updateConnectButtonState()
     }
 
+    /** Enables Connect/Save only when the node is confirmed, primary key is valid, and at
+     *  least one field (flat or object) is mapped — mirrors handleConnect()'s own checks so
+     *  the button reflects readiness before the user even taps it. */
+    private fun updateConnectButtonState() {
+        val hasValidPk = pendingPkParts.isNotEmpty() &&
+            pendingPkParts.none { (it.type == "col" || it.type == "date") && it.value.isBlank() }
+        val hasAtLeastOneField = pendingMapping.isNotEmpty() || pendingObjectMapping.isNotEmpty()
+        val ready = nodeMappingConfirmed && hasValidPk && hasAtLeastOneField
+
+        btnConnect?.isEnabled = ready
+        btnConnect?.alpha = if (ready) 1.0f else 0.45f
+    }
 
     private fun clearConnectForm() {
         availableSheets = emptyList(); selectedSheet = null
