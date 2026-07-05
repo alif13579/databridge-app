@@ -2447,14 +2447,16 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    /** Recursively renders a DataSnapshot as an indented tree string (nested objects included). */
+    /** Recursively renders a DataSnapshot as an indented tree string (nested objects included).
+     *  Only the first 3 keys at each level are shown, to keep the preview short even when a
+     *  node has hundreds/thousands of children (e.g. many run_ids or consignments). */
     private fun buildFirebaseTreeString(
         snap: com.google.firebase.database.DataSnapshot,
         indent: Int
     ): String {
         val pad = "  ".repeat(indent)
         val sb = StringBuilder()
-        snap.children.forEach { child ->
+        snap.children.take(3).forEach { child ->
             val key = child.key ?: return@forEach
             if (child.hasChildren()) {
                 sb.append("$pad├─ $key:\n")
