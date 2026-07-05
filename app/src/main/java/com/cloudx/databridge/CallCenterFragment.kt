@@ -819,24 +819,46 @@ class CallCenterFragment : Fragment() {
             val fullRemark = if (noteText.isNotBlank()) "$selectedRemarkText — $noteText"
                              else selectedRemarkText
 
-            // Write to Firebase
+            // Write to Firebase — remark and status are written as SEPARATE operations
+            // (not one atomic multi-path update) so the remark always gets saved even if
+            // the status/consignments write gets rejected by a role-restricted rule.
             val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
             val timestamp = System.currentTimeMillis()
-            val multiUpdate = mutableMapOf<String, Any>(
-                "courier/remarks_by_consignment/${item.id}/remarks_$timestamp" to mapOf(
-                    "agentSystemId" to "",
-                    "employeeId"    to employeeId,
-                    "remarks"       to fullRemark,
-                    "note"          to noteText,
-                    "type"          to selectedStatus,
-                    "status"        to selectedStatus,
-                    "remarked_by"   to "support",
-                    "createdAt"     to timestamp
-                ),
-                "courier/consignments/${item.id}/status"                       to selectedStatus,
-                "courier/consignments_by_phone/${item.phone}/${item.id}"       to selectedStatus
+
+            val remarkData = mapOf(
+                "agentSystemId" to "",
+                "employeeId"    to employeeId,
+                "remarks"       to fullRemark,
+                "note"          to noteText,
+                "type"          to selectedStatus,
+                "status"        to selectedStatus,
+                "remarked_by"   to "support",
+                "createdAt"     to timestamp
             )
-            db.reference.updateChildren(multiUpdate)
+            db.reference.child("courier/remarks_by_consignment/${item.id}/remarks_$timestamp")
+                .setValue(remarkData)
+                .addOnFailureListener { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "CallCenterFragment", action = "remark_write",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("consignmentId" to item.id, "employeeId" to employeeId)
+                    )
+                    Toast.makeText(requireContext(), "⚠ Remark save হয়নি: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+
+            val statusUpdate = mapOf<String, Any>(
+                "courier/consignments/${item.id}/status"                 to selectedStatus,
+                "courier/consignments_by_phone/${item.phone}/${item.id}" to selectedStatus
+            )
+            db.reference.updateChildren(statusUpdate)
+                .addOnFailureListener { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "CallCenterFragment", action = "status_write",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("consignmentId" to item.id)
+                    )
+                    Toast.makeText(requireContext(), "⚠ Status update হয়নি: ${e.message}", Toast.LENGTH_LONG).show()
+                }
 
             allParcels = allParcels.map {
                 if (it.id == item.id) it.copy(
