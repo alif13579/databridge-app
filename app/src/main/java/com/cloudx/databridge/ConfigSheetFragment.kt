@@ -1531,9 +1531,9 @@ class ConfigSheetFragment : Fragment() {
                 val conId = buildPrimaryKey(row)
                 if (conId.isBlank()) { skipped++; continue }
 
-                // Build field map from column mapping
+                // Build field map from column mapping (drift-corrected: resolvedMapping)
                 val fieldMap = mutableMapOf<String, Any>()
-                conn.columnMapping.forEach { (field, colLetter) ->
+                resolvedMapping.forEach { (field, colLetter) ->
                     if (field == "createdAt" || field == "updatedAt") return@forEach // handled below with validation
                     val idx = letterToIndex(colLetter)
                     if (idx < 0) return@forEach
