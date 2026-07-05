@@ -2457,18 +2457,11 @@ class ConfigSheetFragment : Fragment() {
         snap.children.forEach { child ->
             val key = child.key ?: return@forEach
             if (child.hasChildren()) {
-                // Object type — show key + child count, not values
-                val childCount = child.childrenCount
-                sb.append("$pad├─ $key: { $childCount fields }\n")
+                sb.append("$pad├─ $key:\n")
+                sb.append(buildFirebaseTreeString(child, indent + 1))
             } else {
-                // Scalar — show key + type only, no actual value
-                val valueType = when (child.value) {
-                    is Long, is Int, is Double -> "number"
-                    is Boolean -> "boolean"
-                    is String  -> "text"
-                    else -> "value"
-                }
-                sb.append("$pad├─ $key: ($valueType)\n")
+                val v = child.value?.toString()?.take(40) ?: ""
+                sb.append("$pad├─ $key: $v\n")
             }
         }
         return sb.toString()
