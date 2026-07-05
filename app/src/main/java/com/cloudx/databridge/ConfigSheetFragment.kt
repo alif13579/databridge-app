@@ -105,6 +105,12 @@ class ConfigSheetFragment : Fragment() {
         val value: String = "",
     )
 
+    /** Maps a Firebase field to a sheet column — stores both letter AND header name for drift detection. */
+    data class ColMapping(
+        val col:    String = "",   // sheet column letter (e.g. "F")
+        val header: String = "",   // exact sheet header text at time of connect (e.g. "Status")
+    )
+
     data class SheetConn(
         val connectionId:   String  = "",   // Firebase push key
         val nickname:       String  = "",   // user-defined label
@@ -121,7 +127,7 @@ class ConfigSheetFragment : Fragment() {
         val googleEmail:    String  = "",
         val connectedBy:    String  = "",
         val connectedAt:    Long    = 0L,
-        val columnMapping:  Map<String, String> = emptyMap(), // firebaseField → colLetter
+        val columnMapping:  Map<String, ColMapping> = emptyMap(), // firebaseField → ColMapping(col, header)
         // firebaseField → Pair(keyColLetter, valueColLetter) — for object/key-value fields
         val objectColumnMapping: Map<String, Pair<String, String>> = emptyMap(),
         val primaryKeyField: String = "",  // LEGACY — colLetter whose value = Firebase node key
@@ -270,7 +276,7 @@ class ConfigSheetFragment : Fragment() {
 
     // Step 5 — column mapping
     // Firebase field → column letter selected by user
-    private val pendingMapping = mutableMapOf<String, String>()
+    private val pendingMapping = mutableMapOf<String, ColMapping>()
     // Object-type fields: fieldName → Pair(keySpec, valueSpec)
     // spec format: "col:A" (dynamic, column letter) or "fixed:someText" (constant value)
     private val pendingObjectMapping = mutableMapOf<String, Pair<String, String>>()
@@ -1346,7 +1352,7 @@ class ConfigSheetFragment : Fragment() {
             return
         }
         val pkParts: List<PkPart> = conn.effectivePkParts().ifEmpty {
-            conn.columnMapping["consignmentId"]?.let { listOf(PkPart("col", it)) } ?: emptyList()
+            conn.columnMapping["consignmentId"]?.col?.let { listOf(PkPart("col", it)) } ?: emptyList()
         }
         if (pkParts.isEmpty()) {
             toast("⚠ Primary key select করা নেই — Step 5 এ select করুন")
@@ -1392,7 +1398,73 @@ class ConfigSheetFragment : Fragment() {
             if (allRows == null) { setBusy(false); toast("⚠ Sheet fetch failed"); return }
 
             // First row = header, rest = data
-            val dataRows = if (allRows.size > 1) allRows.drop(1) else allRows
+            val headerRow = allRows.firstOrNull() ?: emptyList()
+            val dataRows  = if (allRows.size > 1) allRows.drop(1) else allRows
+
+            // ── 3. Column drift detection ─────────────────────────────
+            val currentHeaders = headerRow.mapIndexed { idx, header ->
+                colIndexToLetter(conn.colStart + idx) to header.trim()
+            }.toMap()
+
+            val driftFields    = mutableListOf<Triple<String, String, String>>()
+            val resolvedMapping = mutableMapOf<String, String>()
+
+            conn.columnMapping.forEach { (field, cm) ->
+                if (cm.col.isBlank()) return@forEach
+                val currentHeader = currentHeaders[cm.col]
+                when {
+                    currentHeader != null && currentHeader == cm.header ->
+                        resolvedMapping[field] = cm.col
+                    cm.header.isNotBlank() -> {
+                        val newCol = currentHeaders.entries.firstOrNull { it.value == cm.header }?.key
+                        if (newCol != null) {
+                            resolvedMapping[field] = newCol
+                            driftFields.add(Triple(field, cm.header, "moved: ${cm.col} → $newCol"))
+                        } else {
+                            driftFields.add(Triple(field, cm.header, "missing"))
+                            resolvedMapping[field] = cm.col
+                        }
+                    }
+                    else -> resolvedMapping[field] = cm.col
+                }
+            }
+
+            if (driftFields.isNotEmpty()) {
+                setBusy(false)
+                val moved   = driftFields.filter { it.third.startsWith("moved") }
+                val missing = driftFields.filter { it.third == "missing" }
+                val message = buildString {
+                    if (moved.isNotEmpty()) {
+                        append("📍 Column সরে গেছে (auto-corrected):\n")
+                        moved.forEach { (field, header, info) ->
+                            append("  • \"$header\" ($field): ${info.removePrefix("moved: ")}\n")
+                        }
+                        if (missing.isNotEmpty()) append("\n")
+                    }
+                    if (missing.isNotEmpty()) {
+                        append("⚠ Header পাওয়া যায়নি:\n")
+                        missing.forEach { (field, header, _) ->
+                            append("  • \"$header\" ($field)\n")
+                        }
+                    }
+                }
+                val hasMissing = missing.isNotEmpty()
+                if (!isAdded) return
+                val proceed = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
+                    android.app.AlertDialog.Builder(ctx)
+                        .setTitle(if (hasMissing) "⚠ Column Drift সনাক্ত!" else "📍 Column পরিবর্তন")
+                        .setMessage(message.trim())
+                        .setPositiveButton(if (hasMissing) "Reposition করুন" else "এভাবেই Sync করুন") { _, _ ->
+                            if (hasMissing) { openRangeEditor(); cont.resume(false) {} }
+                            else cont.resume(true) {}
+                        }
+                        .setNegativeButton("বাতিল") { _, _ -> cont.resume(false) {} }
+                        .setCancelable(false)
+                        .show()
+                }
+                if (!proceed) return
+                setBusy(true, "Sync করছে...")
+            }
 
             if (dataRows.isEmpty()) { setBusy(false); toast("⚠ Sheet এ কোনো data নেই"); return }
 
@@ -1462,11 +1534,11 @@ class ConfigSheetFragment : Fragment() {
                 //    2) must not be in the future
                 //    3) createdAt must not be after updatedAt
                 val nowMillis = System.currentTimeMillis()
-                val createdRaw = conn.columnMapping["createdAt"]?.let { colLetter ->
+                val createdRaw = resolvedMapping["createdAt"]?.let { colLetter ->
                     val idx = letterToIndex(colLetter)
                     if (idx >= 0) row.getOrElse(idx) { "" }.trim() else ""
                 } ?: ""
-                val updatedRaw = conn.columnMapping["updatedAt"]?.let { colLetter ->
+                val updatedRaw = resolvedMapping["updatedAt"]?.let { colLetter ->
                     val idx = letterToIndex(colLetter)
                     if (idx >= 0) row.getOrElse(idx) { "" }.trim() else ""
                 } ?: ""
@@ -1496,7 +1568,7 @@ class ConfigSheetFragment : Fragment() {
                 updatedAtMillis?.let { fieldMap["updatedAt"] = it }
 
                 // Normalize phone
-                val phoneField = conn.columnMapping["recipientPhone"]?.let { colLetter ->
+                val phoneField = resolvedMapping["recipientPhone"]?.let { colLetter ->
                     val idx = letterToIndex(colLetter)
                     if (idx >= 0) row.getOrElse(idx) { "" }.trim() else ""
                 }
@@ -1995,7 +2067,7 @@ class ConfigSheetFragment : Fragment() {
                 val h = header.lowercase().trim()
                 keyParts.any { part -> h.contains(part) || part.contains(h) }
             }
-            if (matched != null) pendingMapping[firebaseKey] = matched.key
+            if (matched != null) pendingMapping[firebaseKey] = ColMapping(col = matched.key, header = matched.value)
         }
     }
 
@@ -2316,7 +2388,7 @@ class ConfigSheetFragment : Fragment() {
                     android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 44.dp())
                 adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
                     listOf("— Skip —") + headerOptions)
-                val existingLetter = editField?.let { pendingMapping[it] }
+                val existingLetter = editField?.let { pendingMapping[it]?.col }
                 val idx = existingLetter?.let { headerLetters.indexOf(it) + 1 } ?: 0
                 setSelection(idx.coerceAtLeast(0))
             }
@@ -2837,7 +2909,7 @@ class ConfigSheetFragment : Fragment() {
                 background = resources.getDrawable(R.drawable.bg_input_rounded, null)
                 layoutParams = android.widget.LinearLayout.LayoutParams(0, 44.dp(), 1.2f)
                 adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, headerOptions)
-                val matchedLetter = pendingMapping[field]
+                val matchedLetter = pendingMapping[field]?.col
                 val selIdx = if (matchedLetter != null) headerLetters.indexOf(matchedLetter).coerceAtLeast(0) else 0
                 setSelection(selIdx)
                 onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -3507,7 +3579,19 @@ class ConfigSheetFragment : Fragment() {
                             val autoSync  = connSnap.child("autoSync")       .getValue(Boolean::class.java) ?: false
                             val interval  = connSnap.child("syncIntervalMin").getValue(Int::class.java)    ?: 30
                             @Suppress("UNCHECKED_CAST")
-                            val colMap     = (connSnap.child("columnMapping").value as? Map<String, String>) ?: emptyMap()
+                            val colMap: Map<String, ColMapping> = connSnap.child("columnMapping").children.associate { fieldSnap ->
+                                val k = fieldSnap.key ?: ""
+                                val v = fieldSnap.value
+                                val cm = when (v) {
+                                    is Map<*, *> -> ColMapping(
+                                        col    = v["col"]?.toString() ?: "",
+                                        header = v["header"]?.toString() ?: ""
+                                    )
+                                    is String -> ColMapping(col = v, header = "") // legacy
+                                    else -> ColMapping()
+                                }
+                                k to cm
+                            }
                             val objMapRaw  = connSnap.child("objectColumnMapping").children.associate { fieldSnap ->
                                 fieldSnap.key.orEmpty() to Pair(
                                     fieldSnap.child("key").getValue(String::class.java) ?: "",
@@ -3577,7 +3661,9 @@ class ConfigSheetFragment : Fragment() {
                     "googleEmail"     to conn.googleEmail,
                     "connectedBy"     to conn.connectedBy,
                     "connectedAt"     to conn.connectedAt,
-                    "columnMapping"   to conn.columnMapping,
+                    "columnMapping"   to conn.columnMapping.mapValues { (_, cm) ->
+                        mapOf("col" to cm.col, "header" to cm.header)
+                    },
                     "objectColumnMapping" to conn.objectColumnMapping.mapValues {
                         (_, pair) -> mapOf("key" to pair.first, "value" to pair.second)
                     },
