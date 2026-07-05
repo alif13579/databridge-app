@@ -2399,8 +2399,16 @@ class ConfigSheetFragment : Fragment() {
 
         val isEdit = editField != null
         val existingIsObject = editField != null && editField in objectTypeFields
-        val headerOptions = sheetHeaders.map { (letter, text) -> "$letter: $text" }
         val headerLetters = sheetHeaders.keys.toList()
+        // Mark headers already used by OTHER flat (Key-type) fields — visual hint only, not
+        // enforced here since Object-type key/value may legitimately reuse the same header.
+        val usedByFlatFields = pendingMapping
+            .filterKeys { it != editField }
+            .values.map { it.col }
+            .toSet()
+        val headerOptions = sheetHeaders.map { (letter, text) ->
+            if (letter in usedByFlatFields) "✓ $letter: $text  (ব্যবহৃত)" else "$letter: $text"
+        }
 
         val root = android.widget.LinearLayout(ctx).apply {
             orientation = android.widget.LinearLayout.VERTICAL
@@ -2606,13 +2614,27 @@ class ConfigSheetFragment : Fragment() {
                     }
                     pendingObjectMapping[name] = keySpec to valueSpec
                 } else {
-                    objectTypeFields.remove(name)
-                    pendingObjectMapping.remove(name)
                     val idx = keyColSpinner?.selectedItemPosition ?: 0
                     if (idx > 0) {
                         val letter = headerLetters.getOrElse(idx - 1) { "" }
-                        if (letter.isNotBlank()) pendingMapping[name] = letter
+                        if (letter.isNotBlank()) {
+                            val usedElsewhere = pendingMapping.filterKeys { it != name }.values.map { it.col }.toSet()
+                            if (letter in usedElsewhere) {
+                                toast("⚠ এই column আগে থেকেই অন্য field-এ ব্যবহৃত হয়েছে")
+                                return@setPositiveButton
+                            }
+                            val headerText = sheetHeaders[letter] ?: ""
+                            objectTypeFields.remove(name)
+                            pendingObjectMapping.remove(name)
+                            pendingMapping[name] = ColMapping(col = letter, header = headerText)
+                        } else {
+                            objectTypeFields.remove(name)
+                            pendingObjectMapping.remove(name)
+                            pendingMapping.remove(name)
+                        }
                     } else {
+                        objectTypeFields.remove(name)
+                        pendingObjectMapping.remove(name)
                         pendingMapping.remove(name)
                     }
                 }
@@ -3001,19 +3023,57 @@ class ConfigSheetFragment : Fragment() {
             val spinner = Spinner(ctx).apply {
                 background = resources.getDrawable(R.drawable.bg_input_rounded, null)
                 layoutParams = android.widget.LinearLayout.LayoutParams(0, 44.dp(), 1.2f)
-                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, headerOptions)
+            }
+
+            /** Rebuilds the adapter, marking headers already used by OTHER flat fields. */
+            fun refreshSpinnerAdapter() {
+                val usedElsewhere = pendingMapping
+                    .filterKeys { it != field }
+                    .values.map { it.col }
+                    .toSet()
+                val displayLabels = headerOptions.mapIndexed { idx, label ->
+                    val letter = headerLetters.getOrElse(idx) { "" }
+                    if (letter.isNotBlank() && letter in usedElsewhere) "✓ $label  (ব্যবহৃত হয়েছে)" else label
+                }
+                val adapter = object : ArrayAdapter<String>(ctx, android.R.layout.simple_spinner_dropdown_item, displayLabels) {
+                    override fun isEnabled(position: Int): Boolean {
+                        val letter = headerLetters.getOrElse(position) { "" }
+                        return letter.isBlank() || letter !in usedElsewhere
+                    }
+                    override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                        val v = super.getDropDownView(position, convertView, parent) as TextView
+                        val letter = headerLetters.getOrElse(position) { "" }
+                        val disabled = letter.isNotBlank() && letter in usedElsewhere
+                        v.setTextColor(android.graphics.Color.parseColor(if (disabled) "#9CA3AF" else "#111827"))
+                        return v
+                    }
+                }
+                spinner.adapter = adapter
                 val matchedLetter = pendingMapping[field]?.col
                 val selIdx = if (matchedLetter != null) headerLetters.indexOf(matchedLetter).coerceAtLeast(0) else 0
-                setSelection(selIdx)
-                onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                    override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                        val letter = headerLetters.getOrElse(pos) { "" }
-                        if (letter.isBlank()) pendingMapping.remove(field)
-                        else pendingMapping[field] = letter
-                        tvStatus.text = if (pendingMapping.containsKey(field)) "✓" else ""
+                spinner.setSelection(selIdx)
+            }
+            refreshSpinnerAdapter()
+
+            spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    val letter = headerLetters.getOrElse(pos) { "" }
+                    if (letter.isBlank()) {
+                        pendingMapping.remove(field)
+                    } else {
+                        // Guard against duplicate selection sneaking through (e.g. programmatic set)
+                        val usedElsewhere = pendingMapping.filterKeys { it != field }.values.map { it.col }.toSet()
+                        if (letter in usedElsewhere) {
+                            toast("⚠ এই column আগে থেকেই অন্য field-এ ব্যবহৃত হয়েছে")
+                            refreshSpinnerAdapter() // revert visual selection
+                            return
+                        }
+                        val headerText = sheetHeaders[letter] ?: ""
+                        pendingMapping[field] = ColMapping(col = letter, header = headerText)
                     }
-                    override fun onNothingSelected(p: AdapterView<*>?) {}
+                    tvStatus.text = if (pendingMapping.containsKey(field)) "✓" else ""
                 }
+                override fun onNothingSelected(p: AdapterView<*>?) {}
             }
 
             // Delete button for custom fields
