@@ -590,69 +590,71 @@
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:layout_marginTop="16dp" android:visibility="gone">
 
-                <!-- Existing node picker under courier/ (searchable) -->
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="COURIER/ এর ভেতরে বিদ্যমান NODE"
-                    android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
-
-                <TextView android:id="@+id/tvExistingNodePicker"
-                    android:layout_width="match_parent" android:layout_height="46dp"
-                    android:background="@drawable/bg_input_rounded"
-                    android:paddingStart="12dp" android:paddingEnd="12dp"
-                    android:gravity="center_vertical"
-                    android:text="— Node বেছে নিন —"
-                    android:textSize="13sp"
-                    android:textColor="@color/theme_text_secondary"
-                    android:clickable="true" android:focusable="true"
-                    android:layout_marginBottom="6dp" />
-
-                <TextView android:id="@+id/tvSwitchToDropdown"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Want to select from dropdown?"
-                    android:textSize="11sp" android:textStyle="bold"
-                    android:textColor="#3B82F6"
-                    android:clickable="true" android:focusable="true"
-                    android:layout_marginBottom="10dp"
-                    android:visibility="gone" />
-
-                <!-- Target node (manual entry, "Others" mode) -->
-                <LinearLayout android:id="@+id/layoutManualTargetNode"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:visibility="gone">
-
+                <!-- Hierarchical node picker under courier/ -->
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="TARGET NODE"
                     android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="6dp" />
 
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:layout_marginBottom="6dp"
-                    android:gravity="center_vertical">
-                    <TextView android:id="@+id/tvTargetNodePrefix"
-                        android:layout_width="wrap_content" android:layout_height="46dp"
-                        android:text="courier/" android:gravity="center_vertical"
-                        android:textSize="13sp" android:textStyle="bold"
-                        android:textColor="@color/theme_text_secondary"
-                        android:background="@drawable/bg_input_rounded"
-                        android:paddingStart="10dp" android:paddingEnd="4dp"
-                        android:layout_marginEnd="4dp" />
-                    <EditText android:id="@+id/etTargetNode"
-                        android:layout_width="0dp" android:layout_height="46dp"
+                <!-- Breadcrumb showing the path built so far -->
+                <TextView android:id="@+id/tvNodeBreadcrumb"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:minHeight="36dp"
+                    android:background="@drawable/bg_input_rounded"
+                    android:backgroundTint="#EFF6FF"
+                    android:paddingStart="12dp" android:paddingEnd="12dp"
+                    android:paddingTop="8dp" android:paddingBottom="8dp"
+                    android:text="courier/ —"
+                    android:textSize="12sp" android:textStyle="bold"
+                    android:textColor="#1D4ED8"
+                    android:layout_marginBottom="8dp" />
+
+                <!-- Cascading dropdowns get added here programmatically, one per depth level -->
+                <LinearLayout android:id="@+id/containerNodeDropdowns"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <!-- Inline "create new node" input (shown at whichever depth user picks it) -->
+                <LinearLayout android:id="@+id/layoutCreateNewNode"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp" android:visibility="gone">
+                    <EditText android:id="@+id/etNewNodeName"
+                        android:layout_width="0dp" android:layout_height="44dp"
                         android:layout_weight="1"
                         android:background="@drawable/bg_input_rounded"
                         android:padding="10dp" android:textSize="13sp"
-                        android:hint="run_routes/delivery_run"
+                        android:hint="নতুন node name লিখুন"
                         android:inputType="text" android:maxLines="1"
                         android:layout_marginEnd="8dp" />
-                    <Button android:id="@+id/btnFetchFields"
-                        android:layout_width="wrap_content" android:layout_height="46dp"
-                        android:text="Fetch" android:textSize="12sp" android:textStyle="bold"
-                        android:backgroundTint="#3B82F6" android:textColor="@color/theme_bg_card"
-                        android:paddingStart="16dp" android:paddingEnd="16dp" />
+                    <Button android:id="@+id/btnConfirmNewNode"
+                        android:layout_width="wrap_content" android:layout_height="44dp"
+                        android:text="✓ Add" android:textSize="12sp" android:textStyle="bold"
+                        android:backgroundTint="#16A34A" android:textColor="@color/theme_bg_card"
+                        android:paddingStart="14dp" android:paddingEnd="14dp"
+                        android:layout_marginEnd="6dp" />
+                    <Button android:id="@+id/btnCancelNewNode"
+                        android:layout_width="wrap_content" android:layout_height="44dp"
+                        android:text="✕" android:textSize="12sp" android:textStyle="bold"
+                        android:backgroundTint="#F3F4F6" android:textColor="@color/theme_text_secondary"
+                        android:paddingStart="12dp" android:paddingEnd="12dp" />
                 </LinearLayout>
 
-                </LinearLayout>
+                <TextView android:id="@+id/btnResetNodePicker"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="↺ Reset"
+                    android:textSize="11sp"
+                    android:textColor="@color/theme_text_muted"
+                    android:clickable="true" android:focusable="true"
+                    android:layout_marginBottom="10dp" />
+
+                <!-- Hidden helpers kept for compatibility with existing fetch/save logic -->
+                <EditText android:id="@+id/etTargetNode"
+                    android:layout_width="0dp" android:layout_height="0dp"
+                    android:visibility="gone" />
+                <Button android:id="@+id/btnFetchFields"
+                    android:layout_width="0dp" android:layout_height="0dp"
+                    android:visibility="gone" />
 
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:orientation="horizontal" android:gravity="center_vertical"

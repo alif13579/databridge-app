@@ -193,11 +193,19 @@ class ConfigSheetFragment : Fragment() {
     private var stepView1: View? = null; private var stepView2: View? = null
     private var stepView3: View? = null; private var stepView4: View? = null; private var stepView5: View? = null
     private var containerMapping: android.widget.LinearLayout? = null
-    private var tvExistingNodePicker: TextView? = null
-    private var tvSwitchToDropdown:   TextView? = null
-    private var layoutManualTargetNode: View? = null
+    private var tvNodeBreadcrumb: TextView? = null
+    private var containerNodeDropdowns: android.widget.LinearLayout? = null
+    private var layoutCreateNewNode: View? = null
+    private var etNewNodeName: EditText? = null
+    private var btnConfirmNewNode: Button? = null
+    private var btnCancelNewNode: Button? = null
+    private var btnResetNodePicker: TextView? = null
+
+    // Path segments chosen so far, e.g. ["run_routes", "delivery_run"]
+    private var nodePickerPath = mutableListOf<String>()
+    // Cache of fetched children per path (path joined with "/" -> list of child keys)
+    private val nodeChildrenCache = mutableMapOf<String, List<String>>()
     private var courierChildNodes: List<String> = emptyList()
-    private var courierNodesFetched = false
     private var etTargetNode:     EditText? = null
     private var btnFetchFields:   android.widget.Button? = null
     private var pbFetchFields:    ProgressBar? = null
@@ -390,9 +398,13 @@ class ConfigSheetFragment : Fragment() {
         stepView1 = view.findViewById(R.id.stepView1); stepView2 = view.findViewById(R.id.stepView2)
         stepView3 = view.findViewById(R.id.stepView3); stepView4 = view.findViewById(R.id.stepView4); stepView5 = view.findViewById(R.id.stepView5)
         containerMapping    = view.findViewById(R.id.containerMapping)
-        tvExistingNodePicker  = view.findViewById(R.id.tvExistingNodePicker)
-        tvSwitchToDropdown    = view.findViewById(R.id.tvSwitchToDropdown)
-        layoutManualTargetNode = view.findViewById(R.id.layoutManualTargetNode)
+        tvNodeBreadcrumb        = view.findViewById(R.id.tvNodeBreadcrumb)
+        containerNodeDropdowns  = view.findViewById(R.id.containerNodeDropdowns)
+        layoutCreateNewNode     = view.findViewById(R.id.layoutCreateNewNode)
+        etNewNodeName           = view.findViewById(R.id.etNewNodeName)
+        btnConfirmNewNode       = view.findViewById(R.id.btnConfirmNewNode)
+        btnCancelNewNode        = view.findViewById(R.id.btnCancelNewNode)
+        btnResetNodePicker      = view.findViewById(R.id.btnResetNodePicker)
         etTargetNode        = view.findViewById(R.id.etTargetNode)
         btnFetchFields      = view.findViewById(R.id.btnFetchFields)
         pbFetchFields       = view.findViewById(R.id.pbFetchFields)
@@ -2075,143 +2087,224 @@ class ConfigSheetFragment : Fragment() {
     private var nodePreviewExpanded = true
 
     /**
-     * Fetches the immediate child keys under "courier/" (shallow — just key names, not full data)
-     * so the user can pick an existing node from a dropdown instead of typing blind.
-     * Cached for the lifetime of the fragment; harmless if it fails (falls back to manual typing).
+     * Fetches the immediate child keys under "courier/{relativePath}" (shallow — just key
+     * names, not full data). Cached per-path for the fragment's lifetime.
      */
-    private fun fetchCourierChildNodes() {
-        if (courierNodesFetched) { populateExistingNodeSpinner(); return }
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                val idToken = withContext(Dispatchers.IO) {
-                    try { auth.currentUser?.getIdToken(false)?.await()?.token } catch (_: Exception) { null }
-                }
-                val rootUrl = db.reference.root.toString().trimEnd('/')
-                val authParam = idToken?.let { "&auth=$it" } ?: ""
-                val url = "$rootUrl/courier.json?shallow=true$authParam"
-                Log.d("ConfigSheet", "🔍 Fetching courier nodes from: $rootUrl/courier.json?shallow=true (token: ${if (idToken != null) "present" else "MISSING"})")
-                val (responseCode, body) = withContext(Dispatchers.IO) {
-                    val req = Request.Builder().url(url).build()
-                    httpClient.newCall(req).execute().use { resp ->
-                        resp.code to (if (!resp.isSuccessful) null else resp.body?.string())
-                    }
-                }
-                Log.d("ConfigSheet", "🔍 courier.json response code=$responseCode body=$body")
-                courierChildNodes = if (body.isNullOrBlank() || body == "null") {
-                    emptyList()
-                } else {
-                    val obj = org.json.JSONObject(body)
-                    obj.keys().asSequence().toList().sorted()
-                }
-                Log.d("ConfigSheet", "🔍 courierChildNodes = $courierChildNodes")
-            } catch (e: Exception) {
-                Log.e("ConfigSheet", "❌ fetchCourierChildNodes failed: ${e.message}", e)
-                courierChildNodes = emptyList()
-            } finally {
-                courierNodesFetched = true
-                if (isAdded) populateExistingNodeSpinner()
+    private suspend fun fetchChildKeysAt(relativePath: String): List<String> {
+        nodeChildrenCache[relativePath]?.let { return it }
+        return try {
+            val idToken = withContext(Dispatchers.IO) {
+                try { auth.currentUser?.getIdToken(false)?.await()?.token } catch (_: Exception) { null }
             }
-        }
-    }
-
-    private fun populateExistingNodeSpinner() {
-        // Default state: dropdown-label visible, manual box hidden
-        showNodeDropdownMode()
-
-        tvExistingNodePicker?.setOnClickListener { openNodePickerDialog() }
-        tvSwitchToDropdown?.setOnClickListener { showNodeDropdownMode() }
-
-        // Reflect current targetNode suffix: if it matches an existing top-level
-        // node, show dropdown mode with that label; otherwise (nested path or
-        // brand-new suffix) fall back to manual entry mode.
-        val currentSuffix = etTargetNode?.text?.toString()?.trim()?.trim('/') ?: ""
-        if (currentSuffix.isNotBlank()) {
-            if (courierChildNodes.contains(currentSuffix)) {
-                tvExistingNodePicker?.text = currentSuffix
+            val rootUrl = db.reference.root.toString().trimEnd('/')
+            val authParam = idToken?.let { "&auth=$it" } ?: ""
+            val fullPath = if (relativePath.isBlank()) "courier" else "courier/$relativePath"
+            val url = "$rootUrl/$fullPath.json?shallow=true$authParam"
+            val body = withContext(Dispatchers.IO) {
+                val req = Request.Builder().url(url).build()
+                httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) null else resp.body?.string()
+                }
+            }
+            val keys = if (body.isNullOrBlank() || body == "null") {
+                emptyList()
             } else {
-                showNodeManualMode()
+                val obj = org.json.JSONObject(body)
+                obj.keys().asSequence().toList().sorted()
+            }
+            nodeChildrenCache[relativePath] = keys
+            keys
+        } catch (e: Exception) {
+            Log.e("ConfigSheet", "❌ fetchChildKeysAt($relativePath) failed: ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    /** Kicks off the hierarchical node picker by loading courier/'s top-level children. */
+    private fun fetchCourierChildNodes() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            courierChildNodes = fetchChildKeysAt("")
+            if (isAdded) initNodePicker()
+        }
+    }
+
+    /** Sets up the picker: restores existing targetNode path if any, else starts fresh. */
+    private fun initNodePicker() {
+        val existingSuffix = etTargetNode?.text?.toString()?.trim()?.trim('/') ?: ""
+        nodePickerPath = if (existingSuffix.isNotBlank()) {
+            existingSuffix.split("/").filter { it.isNotBlank() }.toMutableList()
+        } else {
+            mutableListOf()
+        }
+        btnResetNodePicker?.setOnClickListener {
+            nodePickerPath.clear()
+            layoutCreateNewNode?.visibility = View.GONE
+            renderNodePicker()
+        }
+        renderNodePicker()
+    }
+
+    private fun updateBreadcrumb() {
+        val ctx = context ?: return
+        if (nodePickerPath.isEmpty()) {
+            tvNodeBreadcrumb?.text = "courier/ —"
+            return
+        }
+        tvNodeBreadcrumb?.text = "courier/" + nodePickerPath.joinToString("/")
+    }
+
+    /** Commits the currently built path as the target node and triggers field auto-detect. */
+    private fun commitNodePath() {
+        val suffix = nodePickerPath.joinToString("/")
+        etTargetNode?.setText(suffix)
+        val fullNode = "courier/$suffix"
+        targetNode = fullNode
+        updateBreadcrumb()
+        fetchNodeKeys(fullNode)
+    }
+
+    /**
+     * Renders one dropdown per depth level of nodePickerPath, plus one more dropdown for the
+     * next level if the last selected node has children. Each dropdown offers existing child
+     * keys plus a "+ Create New" option.
+     */
+    private fun renderNodePicker() {
+        val ctx = context ?: return
+        val container = containerNodeDropdowns ?: return
+        container.removeAllViews()
+        layoutCreateNewNode?.visibility = View.GONE
+        updateBreadcrumb()
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            var depth = 0
+            var currentOptions = courierChildNodes
+
+            while (true) {
+                val selectedAtDepth = nodePickerPath.getOrNull(depth)
+                addNodeDropdownRow(container, ctx, depth, currentOptions, selectedAtDepth)
+
+                if (selectedAtDepth == null) break // nothing chosen yet at this depth — stop here
+
+                // Fetch this selection's children to decide whether to render another level
+                val childPath = nodePickerPath.subList(0, depth + 1).joinToString("/")
+                val children = fetchChildKeysAt(childPath)
+                if (!isAdded) return@launch
+
+                if (children.isEmpty()) {
+                    // Leaf reached — this is the final selected node
+                    commitNodePath()
+                    break
+                }
+                currentOptions = children
+                depth++
             }
         }
     }
 
-    /** Show dropdown-label mode (hide manual "Others" entry box) */
-    private fun showNodeDropdownMode() {
-        tvExistingNodePicker?.visibility   = View.VISIBLE
-        layoutManualTargetNode?.visibility = View.GONE
-        tvSwitchToDropdown?.visibility     = View.GONE
-    }
-
-    /** Show manual "Others" entry mode (hide dropdown-label, show switch-back link) */
-    private fun showNodeManualMode() {
-        tvExistingNodePicker?.visibility   = View.GONE
-        layoutManualTargetNode?.visibility = View.VISIBLE
-        tvSwitchToDropdown?.visibility     = View.VISIBLE
-    }
-
-    /** Opens a searchable dialog listing courierChildNodes + an "Others" entry */
-    private fun openNodePickerDialog() {
-        val ctx = context ?: return
+    /** Builds and adds a single dropdown row for one depth level. */
+    private fun addNodeDropdownRow(
+        container: android.widget.LinearLayout,
+        ctx: android.content.Context,
+        depth: Int,
+        options: List<String>,
+        selectedKey: String?
+    ) {
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
 
-        val root = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(20.dp(), 12.dp(), 20.dp(), 4.dp())
-        }
-        val etSearch = EditText(ctx).apply {
-            hint = "Search node..."
-            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
-            setPadding(10.dp(), 10.dp(), 10.dp(), 10.dp())
-            textSize = 13f
+        val row = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = 8.dp() }
         }
-        val listView = android.widget.ListView(ctx).apply {
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 400.dp())
-        }
-        root.addView(etSearch)
-        root.addView(listView)
 
-        val fullOptions = courierChildNodes + listOf("Others")
-        var filtered = fullOptions
-        val adapter = ArrayAdapter(ctx, android.R.layout.simple_list_item_1, filtered.toMutableList())
-        listView.adapter = adapter
-
-        val dialog = android.app.AlertDialog.Builder(ctx)
-            .setTitle("Node বেছে নিন")
-            .setView(root)
-            .setNegativeButton("Cancel", null)
-            .create()
-
-        etSearch.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                val q = s?.toString()?.trim()?.lowercase() ?: ""
-                filtered = if (q.isBlank()) fullOptions else fullOptions.filter { it.lowercase().contains(q) || it == "Others" }
-                adapter.clear(); adapter.addAll(filtered); adapter.notifyDataSetChanged()
+        if (depth > 0) {
+            val connector = TextView(ctx).apply {
+                text = "└─"
+                textSize = 12f
+                setTextColor(android.graphics.Color.parseColor("#E8380D"))
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    (depth * 12).dp(), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                )
             }
-            override fun afterTextChanged(s: android.text.Editable?) {}
-        })
-
-        listView.setOnItemClickListener { _, _, pos, _ ->
-            val chosen = filtered.getOrNull(pos) ?: return@setOnItemClickListener
-            dialog.dismiss()
-            if (chosen == "Others") {
-                showNodeManualMode()
-            } else {
-                tvExistingNodePicker?.text = chosen
-                etTargetNode?.setText(chosen)
-                val fullNode = "courier/$chosen"
-                targetNode = fullNode
-                showNodeDropdownMode()
-                fetchNodeKeys(fullNode) // auto column-detect on selection
-            }
+            row.addView(connector)
         }
 
-        dialog.show()
+        val spinner = Spinner(ctx).apply {
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { height = 44.dp() }
+        }
+        val labels = listOf("— select করুন —") + options + listOf("+ Create New")
+        spinner.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, labels)
+        val selIdx = selectedKey?.let { options.indexOf(it) + 1 } ?: 0
+        spinner.setSelection(selIdx.coerceAtLeast(0))
+
+        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (pos == 0) return // placeholder
+                if (pos == labels.size - 1) {
+                    // "+ Create New" chosen at this depth
+                    showCreateNewNodeInput(depth)
+                    return
+                }
+                val chosen = options[pos - 1]
+                if (nodePickerPath.getOrNull(depth) == chosen) return // no-op re-select
+                // Truncate path to this depth, then set the new choice
+                nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
+                nodePickerPath.add(chosen)
+                renderNodePicker()
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+
+        row.addView(spinner)
+        container.addView(row)
+    }
+
+    /** Shows the inline "create new node" input, wired to insert at the given depth. */
+    private fun showCreateNewNodeInput(depth: Int) {
+        layoutCreateNewNode?.visibility = View.VISIBLE
+        etNewNodeName?.setText("")
+        etNewNodeName?.requestFocus()
+
+        btnConfirmNewNode?.setOnClickListener {
+            val name = etNewNodeName?.text?.toString()?.trim() ?: ""
+            if (name.isBlank()) {
+                toast("⚠ Node name দিন")
+                return@setOnClickListener
+            }
+            nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
+            nodePickerPath.add(name)
+            layoutCreateNewNode?.visibility = View.GONE
+            // A freshly created node has no children yet — commit immediately.
+            commitNodePath()
+            renderNodePickerKeepingNewNode(depth, name)
+        }
+        btnCancelNewNode?.setOnClickListener {
+            layoutCreateNewNode?.visibility = View.GONE
+        }
+    }
+
+    /** Re-renders the picker after creating a brand-new node, without a failed child-fetch. */
+    private fun renderNodePickerKeepingNewNode(depth: Int, newName: String) {
+        val ctx = context ?: return
+        val container = containerNodeDropdowns ?: return
+        container.removeAllViews()
+        updateBreadcrumb()
+
+        // Render existing depths normally, then the final row shows the new node as selected
+        // with no further drill-down (since it doesn't exist in Firebase yet).
+        var options = courierChildNodes
+        for (d in 0 until depth) {
+            addNodeDropdownRow(container, ctx, d, options, nodePickerPath.getOrNull(d))
+            val childPath = nodePickerPath.subList(0, d + 1).joinToString("/")
+            options = nodeChildrenCache[childPath] ?: emptyList()
+        }
+        addNodeDropdownRow(container, ctx, depth, options, newName)
     }
 
     private fun fetchNodeKeys(node: String) {
