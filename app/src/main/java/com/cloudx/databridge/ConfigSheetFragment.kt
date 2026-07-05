@@ -2449,23 +2449,31 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** Recursively renders a DataSnapshot as an indented tree string (nested objects included).
-     *  Only the first 3 keys at each level are shown, to keep the preview short even when a
-     *  node has hundreds/thousands of children (e.g. many run_ids or consignments). */
+     *  Flat (scalar) fields at a level are all shown in full. Only when a level itself is a
+     *  nested object with children is that inner list capped to its first 3 keys — this keeps
+     *  previews short for huge nested collections (many run_ids, many consignments) without
+     *  hiding any of the actual flat field names the user needs to see for mapping. */
     private fun buildFirebaseTreeString(
         snap: com.google.firebase.database.DataSnapshot,
         indent: Int
     ): String {
         val pad = "  ".repeat(indent)
         val sb = StringBuilder()
-        snap.children.take(3).forEach { child ->
+        val allChildren = snap.children.toList()
+        val flatChildren   = allChildren.filter { !it.hasChildren() }
+        val nestedChildren = allChildren.filter { it.hasChildren() }
+
+        // Flat fields: show all of them, in their original order relative to nested ones
+        // isn't critical for a preview, so render flats first then nested-with-limit.
+        flatChildren.forEach { child ->
             val key = child.key ?: return@forEach
-            if (child.hasChildren()) {
-                sb.append("$pad├─ $key:\n")
-                sb.append(buildFirebaseTreeString(child, indent + 1))
-            } else {
-                val v = child.value?.toString()?.take(40) ?: ""
-                sb.append("$pad├─ $key: $v\n")
-            }
+            val v = child.value?.toString()?.take(40) ?: ""
+            sb.append("$pad├─ $key: $v\n")
+        }
+        nestedChildren.take(3).forEach { child ->
+            val key = child.key ?: return@forEach
+            sb.append("$pad├─ $key:\n")
+            sb.append(buildFirebaseTreeString(child, indent + 1))
         }
         return sb.toString()
     }
