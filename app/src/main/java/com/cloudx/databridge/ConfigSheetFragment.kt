@@ -2299,21 +2299,20 @@ class ConfigSheetFragment : Fragment() {
 
         row.addView(spinner)
 
-        if (depth > 0) {
-            val btnCancel = TextView(ctx).apply {
-                text = "✕"
-                textSize = 15f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(android.graphics.Color.parseColor("#EF4444"))
-                setPadding(10.dp(), 6.dp(), 4.dp(), 6.dp())
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                setOnClickListener { cancelNodeAtDepth(depth) }
-            }
-            row.addView(btnCancel)
+        // ✕ button for ALL depths (depth 0 resets entire path)
+        val btnCancel = TextView(ctx).apply {
+            text = "✕"
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#EF4444"))
+            setPadding(10.dp(), 6.dp(), 4.dp(), 6.dp())
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener { cancelNodeAtDepth(depth) }
         }
+        row.addView(btnCancel)
 
         container.addView(row)
     }
@@ -2321,8 +2320,13 @@ class ConfigSheetFragment : Fragment() {
     /** ✕ pressed on the dropdown at [depth] — clears this depth's selection and everything
      *  deeper than it, letting the user jump back to this level and pick a different branch. */
     private fun cancelNodeAtDepth(depth: Int) {
-        nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
-        nodePickerRevealedDepth = depth
+        if (depth == 0) {
+            nodePickerPath.clear()
+            nodePickerRevealedDepth = 0
+        } else {
+            nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
+            nodePickerRevealedDepth = depth
+        }
         nodeMappingConfirmed = false
         renderNodePicker()
     }
@@ -2453,11 +2457,18 @@ class ConfigSheetFragment : Fragment() {
         snap.children.forEach { child ->
             val key = child.key ?: return@forEach
             if (child.hasChildren()) {
-                sb.append("$pad├─ $key:\n")
-                sb.append(buildFirebaseTreeString(child, indent + 1))
+                // Object type — show key + child count, not values
+                val childCount = child.childrenCount
+                sb.append("$pad├─ $key: { $childCount fields }\n")
             } else {
-                val v = child.value?.toString()?.take(40) ?: ""
-                sb.append("$pad├─ $key: $v\n")
+                // Scalar — show key + type only, no actual value
+                val valueType = when (child.value) {
+                    is Long, is Int, is Double -> "number"
+                    is Boolean -> "boolean"
+                    is String  -> "text"
+                    else -> "value"
+                }
+                sb.append("$pad├─ $key: ($valueType)\n")
             }
         }
         return sb.toString()
@@ -2470,6 +2481,7 @@ class ConfigSheetFragment : Fragment() {
         nodeMappingConfirmed = true
         commitNodePath()
         renderNodePicker()
+        renderMappingStep()
     }
 
     /** Shows the inline "create new node" input, wired to insert at the given depth. */
