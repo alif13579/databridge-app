@@ -2317,15 +2317,16 @@ class ConfigSheetFragment : Fragment() {
         container.addView(row)
     }
 
-    /** ✕ pressed on the dropdown at [depth] — clears this depth's selection and everything
-     *  deeper than it, letting the user jump back to this level and pick a different branch. */
+    /** ✕ pressed on the dropdown at [depth] — removes this dropdown and everything deeper
+     *  than it entirely, reverting to the parent depth's "+ Next level?" button (as if that
+     *  level had never been drilled into). Depth 0 clears the whole path back to the start. */
     private fun cancelNodeAtDepth(depth: Int) {
         if (depth == 0) {
             nodePickerPath.clear()
             nodePickerRevealedDepth = 0
         } else {
             nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
-            nodePickerRevealedDepth = depth
+            nodePickerRevealedDepth = depth - 1
         }
         nodeMappingConfirmed = false
         renderNodePicker()
