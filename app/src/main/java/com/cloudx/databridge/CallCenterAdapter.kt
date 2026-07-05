@@ -26,6 +26,14 @@ class CallCenterAdapter(
         private set
     var statusLang: String = "bn"
 
+    // consignmentId -> glow color (null/absent = no glow). Set by the fragment as the
+    // Auto Call sequence progresses (queued/calling/done) or a card is manually dialed.
+    var callStates: Map<String, Int> = emptyMap()
+        set(value) {
+            field = value
+            notifyDataSetChanged()
+        }
+
     /** Matches the previous behavior: collapse any expanded card (e.g. on a fresh filter/data pass). */
     fun collapseExpanded() {
         expandedItemId = null
@@ -95,6 +103,7 @@ class CallCenterAdapter(
                 row.parcel,
                 row.isExpanded,
                 statusLang = statusLang,
+                glowColor = callStates[row.parcel.id],
                 onToggleExpand = { toggleExpanded(row.parcel.id) },
                 onCall = onCall,
                 onSetRemarks = onSetRemarks,
@@ -140,6 +149,7 @@ class CallCenterAdapter(
             item: CallCenterParcelItem,
             isExpanded: Boolean,
             statusLang: String,
+            glowColor: Int?,
             onToggleExpand: () -> Unit,
             onCall: (CallCenterParcelItem) -> Unit,
             onSetRemarks: (CallCenterParcelItem) -> Unit,
@@ -149,6 +159,8 @@ class CallCenterAdapter(
             tvMeta.text = "${item.id} · ${item.phone}"
             tvAddress.text = "📍 ${item.address}"
             tvCod.text = "৳${item.cod}"
+
+            applyCallStateGlow(itemView, glowColor)
 
             val cfg = WorkerParcelAdapter.getStatusConfig(tvStatusBadge.context, item.status, statusLang)
             tvStatusBadge.text = cfg.label
@@ -189,5 +201,54 @@ class CallCenterAdapter(
     companion object {
         private const val VIEW_TYPE_HEADER = 0
         private const val VIEW_TYPE_CARD = 1
+    }
+}
+
+/**
+ * Applies (or clears) a colored glow to a call-progress card, indicating Auto Call state:
+ *   green  = call done (auto-dialed or manually dialed)
+ *   yellow = queued, waiting its turn
+ *   purple = currently being dialed
+ *   null   = never called — no glow, normal card look
+ *
+ * Uses a colored border on every API level (universal), plus a real colored shadow on
+ * API 28+ where View.outlineSpotShadowColor/outlineAmbientShadowColor are available —
+ * older devices still clearly show the colored border, just without the soft shadow blur.
+ */
+fun applyCallStateGlow(view: View, glowColor: Int?) {
+    val density = view.resources.displayMetrics.density
+    val cornerRadiusPx = 14f * density
+    val fillColor = androidx.core.content.ContextCompat.getColor(view.context, R.color.theme_bg_card)
+
+    if (glowColor == null) {
+        val normal = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+            cornerRadius = cornerRadiusPx
+            setColor(fillColor)
+            setStroke((1 * density).toInt(), androidx.core.content.ContextCompat.getColor(view.context, R.color.theme_border))
+        }
+        view.background = normal
+        view.elevation = 0f
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            view.outlineSpotShadowColor = android.graphics.Color.BLACK
+            view.outlineAmbientShadowColor = android.graphics.Color.BLACK
+        }
+        return
+    }
+
+    val glow = android.graphics.drawable.GradientDrawable().apply {
+        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+        cornerRadius = cornerRadiusPx
+        setColor(fillColor)
+        setStroke((2.5f * density).toInt(), glowColor)
+    }
+    view.background = glow
+
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+        view.outlineSpotShadowColor = glowColor
+        view.outlineAmbientShadowColor = glowColor
+        view.elevation = 10f * density
+    } else {
+        view.elevation = 0f
     }
 }

@@ -59,8 +59,15 @@ class CallCenterFragment : Fragment() {
     // Auto Call (sequential dialer) state
     private var autoCallGapSeconds = 8
     private var autoCallJob: Job? = null
-    private var autoCallQueue: List<String> = emptyList()
+    private var autoCallQueue: List<String> = emptyList()      // phone numbers, in dial order
+    private var autoCallQueueIds: List<String> = emptyList()   // matching parcel ids, same order
     private var autoCallIndex = 0
+
+    // Per-parcel call-progress glow: id -> color. Persists across pause/stop (done stays green).
+    private val callCardStates = mutableMapOf<String, Int>()
+    private val colorCallDone = android.graphics.Color.parseColor("#16A34A")
+    private val colorCallQueued = android.graphics.Color.parseColor("#F59E0B")
+    private val colorCallCalling = android.graphics.Color.parseColor("#7C3AED")
 
     // Current CC agent's Employee ID — attached to remarks so it's clear who left them.
     // Best-effort fetch: remark-writing still works (falls back to "") if this fails.
@@ -186,6 +193,10 @@ class CallCenterFragment : Fragment() {
     }
 
     /** Starts (or resumes) sequentially dialing every currently-pending parcel's number. */
+    private fun pushCallStates() {
+        if (::adapter.isInitialized) adapter.callStates = callCardStates.toMap()
+    }
+
     private fun startAutoCall() {
         val ctx = requireContext()
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CALL_PHONE)
@@ -199,8 +210,19 @@ class CallCenterFragment : Fragment() {
 
         // Fresh queue only when not resuming a paused run (queue empty or we've reached the end).
         if (autoCallQueue.isEmpty() || autoCallIndex >= autoCallQueue.size) {
-            autoCallQueue = allParcels.filter { it.status == "pending" }.map { it.phone }.filter { it.isNotBlank() }
+            val pending = allParcels.filter { it.status == "pending" && it.phone.isNotBlank() }
+            autoCallQueue = pending.map { it.phone }
+            autoCallQueueIds = pending.map { it.id }
             autoCallIndex = 0
+            // Mark the whole fresh queue as "waiting its turn".
+            autoCallQueueIds.forEach { id -> callCardStates[id] = colorCallQueued }
+            pushCallStates()
+        } else {
+            // Resuming a paused run — re-mark anything still pending its turn as queued again.
+            for (i in autoCallIndex until autoCallQueueIds.size) {
+                callCardStates[autoCallQueueIds[i]] = colorCallQueued
+            }
+            pushCallStates()
         }
 
         if (autoCallQueue.isEmpty()) {
@@ -212,37 +234,65 @@ class CallCenterFragment : Fragment() {
         autoCallJob = viewLifecycleOwner.lifecycleScope.launch {
             while (autoCallIndex < autoCallQueue.size) {
                 val phone = autoCallQueue[autoCallIndex]
+                val id = autoCallQueueIds[autoCallIndex]
+
+                // Mark previous item done now that we're moving past it.
+                if (autoCallIndex > 0) {
+                    callCardStates[autoCallQueueIds[autoCallIndex - 1]] = colorCallDone
+                }
+                callCardStates[id] = colorCallCalling
+                pushCallStates()
+
                 AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
                 autoCallIndex++
                 delay(autoCallGapSeconds * 1000L)
             }
-            // Finished the whole queue
+            // Finished the whole queue — mark the last item done too.
             if (isAdded) {
+                autoCallQueueIds.lastOrNull()?.let { lastId -> callCardStates[lastId] = colorCallDone }
+                pushCallStates()
                 btnAutoCallStartPause.text = "▶ Start"
                 autoCallQueue = emptyList()
+                autoCallQueueIds = emptyList()
                 autoCallIndex = 0
                 Toast.makeText(requireContext(), "Auto Call finished", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
+    /** Marks the in-progress item done (its call was already placed) and un-queues the rest. */
+    private fun settleGlowStatesOnHalt() {
+        autoCallQueueIds.getOrNull(autoCallIndex)?.let { id -> callCardStates[id] = colorCallDone }
+        for (i in (autoCallIndex + 1) until autoCallQueueIds.size) {
+            callCardStates.remove(autoCallQueueIds[i])
+        }
+        pushCallStates()
+    }
+
     private fun pauseAutoCall() {
         autoCallJob?.cancel()
         autoCallJob = null
+        settleGlowStatesOnHalt()
         btnAutoCallStartPause.text = "▶ Start"
     }
 
     private fun stopAutoCall() {
         autoCallJob?.cancel()
         autoCallJob = null
+        settleGlowStatesOnHalt()
         autoCallQueue = emptyList()
+        autoCallQueueIds = emptyList()
         autoCallIndex = 0
         btnAutoCallStartPause.text = "▶ Start"
     }
 
     private fun setupAdapter() {
         adapter = CallCenterAdapter(
-            onCall = { item -> AutoDialHelper.dial(this@CallCenterFragment, item.phone) },
+            onCall = { item ->
+                AutoDialHelper.dial(this@CallCenterFragment, item.phone)
+                callCardStates[item.id] = colorCallDone
+                pushCallStates()
+            },
             onSetRemarks = { item -> showRemarksDialog(item) },
             onValidate = { item ->
                 allParcels = allParcels.map {
