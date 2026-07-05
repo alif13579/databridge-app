@@ -203,6 +203,13 @@ class ConfigSheetFragment : Fragment() {
 
     // Path segments chosen so far, e.g. ["run_routes", "delivery_run"]
     private var nodePickerPath = mutableListOf<String>()
+    // Deepest dropdown row currently rendered — advanced only via the "+ Next level?" button,
+    // so a new dropdown never appears automatically after a selection/confirm.
+    private var nodePickerRevealedDepth = 0
+    // True once the user has explicitly confirmed a target node (via the tree-preview "Yes"
+    // button, the true-leaf auto-commit, "+ Create New", or the manual Fetch Fields button).
+    // Primary Key / Fields sections stay hidden until this is true.
+    private var nodeMappingConfirmed = false
     // Cache of fetched children per path (path joined with "/" -> list of child keys)
     private val nodeChildrenCache = mutableMapOf<String, List<String>>()
     private var courierChildNodes: List<String> = emptyList()
@@ -547,6 +554,7 @@ class ConfigSheetFragment : Fragment() {
             if (suffix.isBlank()) { showErr("Node path দিন (courier/ এর পরের অংশ)"); return@setOnClickListener }
             val node = "courier/$suffix"
             targetNode = node
+            nodeMappingConfirmed = true
             fetchNodeKeys(node)
         }
 
@@ -2136,8 +2144,15 @@ class ConfigSheetFragment : Fragment() {
         } else {
             mutableListOf()
         }
+        // If editing an already-saved target node, keep its whole path visible (no need to
+        // re-click "+ Next level?" for levels that were already picked before), and treat it
+        // as already confirmed since its fields were presumably mapped previously.
+        nodePickerRevealedDepth = (nodePickerPath.size - 1).coerceAtLeast(0)
+        nodeMappingConfirmed = nodePickerPath.isNotEmpty()
         btnResetNodePicker?.setOnClickListener {
             nodePickerPath.clear()
+            nodePickerRevealedDepth = 0
+            nodeMappingConfirmed = false
             layoutCreateNewNode?.visibility = View.GONE
             renderNodePicker()
         }
@@ -2164,9 +2179,12 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /**
-     * Renders one dropdown per depth level of nodePickerPath, plus one more dropdown for the
-     * next level if the last selected node has children. Each dropdown offers existing child
-     * keys plus a "+ Create New" option.
+     * Renders one dropdown per revealed depth level of nodePickerPath. A new depth's dropdown
+     * only appears after the user taps "+ Next level?" below the deepest one — it never shows
+     * automatically just because a selection (or confirm) happened. Once the deepest selection
+     * has children, a single tree-preview + confirm box is shown at the bottom (not repeated
+     * per depth) so the user can lock in that node as the mapping target using its first child
+     * as an example record, or keep drilling instead.
      */
     private fun renderNodePicker() {
         val ctx = context ?: return
@@ -2179,13 +2197,13 @@ class ConfigSheetFragment : Fragment() {
             var depth = 0
             var currentOptions = courierChildNodes
 
-            while (true) {
+            while (depth <= nodePickerRevealedDepth) {
                 val selectedAtDepth = nodePickerPath.getOrNull(depth)
                 addNodeDropdownRow(container, ctx, depth, currentOptions, selectedAtDepth)
 
                 if (selectedAtDepth == null) break // nothing chosen yet at this depth — stop here
 
-                // Fetch this selection's children to decide whether to render another level
+                // Fetch this selection's children to decide whether there's a next level at all
                 val childPath = nodePickerPath.subList(0, depth + 1).joinToString("/")
                 val children = fetchChildKeysAt(childPath)
                 if (!isAdded) return@launch
@@ -2193,17 +2211,26 @@ class ConfigSheetFragment : Fragment() {
                 if (children.isEmpty()) {
                     // True leaf — no further children exist here at all (e.g. a plain scalar
                     // field), so there is nothing to preview/confirm; commit as-is.
+                    nodeMappingConfirmed = true
                     commitNodePath()
                     break
                 }
 
-                // Has children (could be a record collection with dynamic keys like run IDs) —
-                // show a live example-record tree preview + confirm option here, while still
-                // letting the user drill into the next dropdown if they'd rather go deeper.
-                addTreePreviewSection(container, ctx, depth, childPath)
-
                 currentOptions = children
+
+                if (depth == nodePickerRevealedDepth) {
+                    // Deepest revealed row has children — offer to go one level deeper, but
+                    // don't render that next dropdown until the user explicitly asks for it.
+                    addNextLevelButton(container, ctx, depth)
+                    break
+                }
                 depth++
+            }
+
+            // One tree-preview + confirm box at the bottom, reflecting the current deepest
+            // selection — never repeated per depth, never pushed in "above" a dropdown.
+            if (nodePickerPath.isNotEmpty()) {
+                addTreePreviewSection(container, ctx, nodePickerPath.size - 1, nodePickerPath.joinToString("/"))
             }
         }
     }
@@ -2263,6 +2290,8 @@ class ConfigSheetFragment : Fragment() {
                 // Truncate path to this depth, then set the new choice
                 nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
                 nodePickerPath.add(chosen)
+                nodePickerRevealedDepth = depth
+                nodeMappingConfirmed = false
                 renderNodePicker()
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
@@ -2293,7 +2322,34 @@ class ConfigSheetFragment : Fragment() {
      *  deeper than it, letting the user jump back to this level and pick a different branch. */
     private fun cancelNodeAtDepth(depth: Int) {
         nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
+        nodePickerRevealedDepth = depth
+        nodeMappingConfirmed = false
         renderNodePicker()
+    }
+
+    /** "+ Next level?" pressed below the deepest revealed dropdown — reveals the next one. */
+    private fun addNextLevelButton(container: android.widget.LinearLayout, ctx: android.content.Context, depth: Int) {
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        val btn = TextView(ctx).apply {
+            text = "+ Next level?"
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#2563EB"))
+            setPadding(4.dp(), 4.dp(), 4.dp(), 10.dp())
+            isClickable = true
+            isFocusable = true
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener {
+                nodePickerRevealedDepth = depth + 1
+                renderNodePicker()
+            }
+        }
+        container.addView(btn)
     }
 
     /**
@@ -2411,6 +2467,7 @@ class ConfigSheetFragment : Fragment() {
      *  any deeper selection) and runs the normal commit+auto-map flow. */
     private fun confirmAtDepth(depth: Int) {
         nodePickerPath = nodePickerPath.subList(0, depth + 1).toMutableList()
+        nodeMappingConfirmed = true
         commitNodePath()
         renderNodePicker()
     }
@@ -3035,75 +3092,24 @@ class ConfigSheetFragment : Fragment() {
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
 
-        // ── Node preview tree ─────────────────────────────────────────
-        if (nodePreviewData.isNotEmpty()) {
-            val treeCard = android.widget.LinearLayout(ctx).apply {
-                orientation = android.widget.LinearLayout.VERTICAL
-                background  = resources.getDrawable(R.drawable.bg_card_rounded, null)
-                setPadding(14.dp(), 12.dp(), 14.dp(), 12.dp())
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = 14.dp() }
+        // Fields / Primary Key are only shown once the target node has been explicitly
+        // confirmed in the picker above (tree-preview "Yes", true-leaf auto-commit, "+ Create
+        // New", or the manual Fetch Fields button) — avoids showing a stale/empty section
+        // while the user is still choosing a node, and avoids duplicating the tree preview
+        // that's already shown live during node picking.
+        if (!nodeMappingConfirmed) {
+            btnAddMappingField?.visibility = View.GONE
+            val tvWaiting = TextView(ctx).apply {
+                text      = "⬆ উপরে node পিক করে \"Yes, confirm করো\" চাপুন — তারপর এখানে Primary Key ও Field mapping দেখাবে"
+                textSize  = 12f
+                setTextColor(context!!.getColor(R.color.theme_text_muted))
+                gravity   = android.view.Gravity.CENTER
+                setPadding(16.dp(), 20.dp(), 16.dp(), 20.dp())
             }
-            // Header row with expand/collapse
-            val treeHeader = android.widget.LinearLayout(ctx).apply {
-                orientation = android.widget.LinearLayout.HORIZONTAL
-                gravity     = android.view.Gravity.CENTER_VERTICAL
-                isClickable = true
-                isFocusable = true
-            }
-            val tvTreeArrow = TextView(ctx).apply {
-                text     = if (nodePreviewExpanded) "▼" else "▶"
-                textSize = 11f
-                setTextColor(context!!.getColor(R.color.theme_text_secondary))
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { marginEnd = 8.dp() }
-            }
-            val tvTreeTitle = TextView(ctx).apply {
-                text     = "📁 ${targetNode.trimEnd('/')}/${nodePreviewData.values.firstOrNull() ?: "..."}"
-                textSize = 11f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(context!!.getColor(R.color.theme_text_primary))
-                layoutParams = android.widget.LinearLayout.LayoutParams(0,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            treeHeader.addView(tvTreeArrow)
-            treeHeader.addView(tvTreeTitle)
-
-            // Tree body
-            val treeBody = android.widget.LinearLayout(ctx).apply {
-                orientation = android.widget.LinearLayout.VERTICAL
-                setPadding(16.dp(), 8.dp(), 0, 0)
-                visibility  = if (nodePreviewExpanded) android.view.View.VISIBLE else android.view.View.GONE
-            }
-            nodePreviewData.entries.forEachIndexed { idx, (key, value) ->
-                val isLast = idx == nodePreviewData.size - 1
-                val tvRow = TextView(ctx).apply {
-                    text      = "${if (isLast) "└─" else "├─"} $key: \"$value\""
-                    textSize  = 11f
-                    setTextColor(context!!.getColor(R.color.theme_text_secondary))
-                    typeface = android.graphics.Typeface.MONOSPACE
-                    layoutParams = android.widget.LinearLayout.LayoutParams(
-                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { bottomMargin = 2.dp() }
-                }
-                treeBody.addView(tvRow)
-            }
-
-            treeHeader.setOnClickListener {
-                nodePreviewExpanded = !nodePreviewExpanded
-                tvTreeArrow.text = if (nodePreviewExpanded) "▼" else "▶"
-                treeBody.visibility = if (nodePreviewExpanded) android.view.View.VISIBLE else android.view.View.GONE
-            }
-
-            treeCard.addView(treeHeader)
-            treeCard.addView(treeBody)
-            container.addView(treeCard)
+            container.addView(tvWaiting)
+            return
         }
+        btnAddMappingField?.visibility = View.VISIBLE
 
         // Primary key builder renders independently of fetched/custom fields state
         renderPkBuilder()
