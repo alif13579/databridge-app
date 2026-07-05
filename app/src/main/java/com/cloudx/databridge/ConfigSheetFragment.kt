@@ -2193,6 +2193,11 @@ class ConfigSheetFragment : Fragment() {
         layoutCreateNewNode?.visibility = View.GONE
         updateBreadcrumb()
 
+        if (nodeMappingConfirmed) {
+            renderLockedNodeSummary(container, ctx)
+            return
+        }
+
         viewLifecycleOwner.lifecycleScope.launch {
             var depth = 0
             var currentOptions = courierChildNodes
@@ -2213,7 +2218,8 @@ class ConfigSheetFragment : Fragment() {
                     // field), so there is nothing to preview/confirm; commit as-is.
                     nodeMappingConfirmed = true
                     commitNodePath()
-                    break
+                    renderNodePicker()
+                    return@launch
                 }
 
                 currentOptions = children
@@ -2233,6 +2239,52 @@ class ConfigSheetFragment : Fragment() {
                 addTreePreviewSection(container, ctx, nodePickerPath.size - 1, nodePickerPath.joinToString("/"))
             }
         }
+    }
+
+    /** Shown once the node is confirmed — replaces the dropdowns with a read-only summary
+     *  and an explicit Unlock button, so the user can't accidentally change the node while
+     *  still seeing an editable-looking dropdown. */
+    private fun renderLockedNodeSummary(container: android.widget.LinearLayout, ctx: android.content.Context) {
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        val box = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(12.dp(), 10.dp(), 12.dp(), 10.dp())
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(
+                android.graphics.Color.parseColor("#F0FDF4")
+            )
+        }
+        box.addView(TextView(ctx).apply {
+            text = "🔒 courier/" + nodePickerPath.joinToString("/")
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#16A34A"))
+            layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        box.addView(TextView(ctx).apply {
+            text = "🔓 Unlock"
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#EF4444"))
+            isClickable = true
+            isFocusable = true
+            setPadding(10.dp(), 4.dp(), 4.dp(), 4.dp())
+            setOnClickListener { unlockNodePicker() }
+        })
+        container.addView(box)
+    }
+
+    /** Unlocks the node picker so the user can pick a different node — reveals the dropdowns
+     *  again at the currently selected depth without wiping the mapped fields, since the user
+     *  might just want to inspect/adjust the node choice and re-confirm the same one. */
+    private fun unlockNodePicker() {
+        nodeMappingConfirmed = false
+        renderNodePicker()
+        renderMappingStep()
     }
 
     /** Builds and adds a single dropdown row for one depth level. */
@@ -2503,9 +2555,11 @@ class ConfigSheetFragment : Fragment() {
             nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
             nodePickerPath.add(name)
             layoutCreateNewNode?.visibility = View.GONE
-            // A freshly created node has no children yet — commit immediately.
+            // A freshly created node has no children yet — commit immediately and lock.
+            nodeMappingConfirmed = true
             commitNodePath()
-            renderNodePickerKeepingNewNode(depth, name)
+            renderNodePicker()
+            renderMappingStep()
         }
         btnCancelNewNode?.setOnClickListener {
             layoutCreateNewNode?.visibility = View.GONE
