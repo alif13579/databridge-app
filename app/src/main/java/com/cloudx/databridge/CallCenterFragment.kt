@@ -1,19 +1,26 @@
 package com.cloudx.databridge
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ProgressBar
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Spinner
 import android.widget.ArrayAdapter
 import android.widget.AdapterView
+import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -21,8 +28,10 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -43,6 +52,15 @@ class CallCenterFragment : Fragment() {
     private lateinit var pbProgress: ProgressBar
     private lateinit var tvEmpty: TextView
     private lateinit var swipeRefresh: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+    private lateinit var switchAutoCall: Switch
+    private lateinit var btnAutoCallStartPause: android.widget.Button
+    private lateinit var btnAutoCallGapMenu: TextView
+
+    // Auto Call (sequential dialer) state
+    private var autoCallGapSeconds = 8
+    private var autoCallJob: Job? = null
+    private var autoCallQueue: List<String> = emptyList()
+    private var autoCallIndex = 0
 
     // Current CC agent's Employee ID — attached to remarks so it's clear who left them.
     // Best-effort fetch: remark-writing still works (falls back to "") if this fails.
@@ -64,6 +82,7 @@ class CallCenterFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        stopAutoCall()
         detachRunsListener()
     }
 
@@ -107,6 +126,11 @@ class CallCenterFragment : Fragment() {
             swipeRefresh.isRefreshing = false
         }
 
+        switchAutoCall = view.findViewById(R.id.switchCcAutoCall)
+        btnAutoCallStartPause = view.findViewById(R.id.btnCcAutoCallStartPause)
+        btnAutoCallGapMenu = view.findViewById(R.id.btnCcAutoCallGapMenu)
+        setupAutoCallControls()
+
         val user = FirebaseAuth.getInstance().currentUser
         val displayName = user?.displayName ?: "Agent"
         tvAgentInfo.text = "$displayName · Supervisor"
@@ -122,6 +146,98 @@ class CallCenterFragment : Fragment() {
                 } catch (e: Exception) { /* remark writing still works without it */ }
             }
         }
+    }
+
+    private fun setupAutoCallControls() {
+        val prefs = requireContext().getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
+        autoCallGapSeconds = prefs.getInt("cc_auto_call_gap_seconds", 8)
+
+        switchAutoCall.setOnCheckedChangeListener(null)
+        switchAutoCall.isChecked = false
+        switchAutoCall.setOnCheckedChangeListener { _, isChecked ->
+            btnAutoCallStartPause.visibility = if (isChecked) View.VISIBLE else View.GONE
+            if (!isChecked) stopAutoCall()
+        }
+
+        btnAutoCallGapMenu.setOnClickListener { showAutoCallGapMenu() }
+
+        btnAutoCallStartPause.setOnClickListener {
+            if (autoCallJob?.isActive == true) {
+                pauseAutoCall()
+            } else {
+                startAutoCall()
+            }
+        }
+    }
+
+    private fun showAutoCallGapMenu() {
+        val popup = PopupMenu(requireContext(), btnAutoCallGapMenu)
+        val gaps = listOf(5, 8, 10, 15, 20, 30)
+        gaps.forEach { seconds -> popup.menu.add("$seconds sec gap") }
+        popup.setOnMenuItemClickListener { item ->
+            val seconds = item.title.toString().split(" ").firstOrNull()?.toIntOrNull() ?: return@setOnMenuItemClickListener false
+            autoCallGapSeconds = seconds
+            requireContext().getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("cc_auto_call_gap_seconds", seconds).apply()
+            Toast.makeText(requireContext(), "Auto Call gap set to ${seconds}s", Toast.LENGTH_SHORT).show()
+            true
+        }
+        popup.show()
+    }
+
+    /** Starts (or resumes) sequentially dialing every currently-pending parcel's number. */
+    private fun startAutoCall() {
+        val ctx = requireContext()
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CALL_PHONE)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Toast.makeText(ctx, "Auto Call needs Call permission first.", Toast.LENGTH_LONG).show()
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", ctx.packageName, null)))
+            switchAutoCall.isChecked = false
+            return
+        }
+
+        // Fresh queue only when not resuming a paused run (queue empty or we've reached the end).
+        if (autoCallQueue.isEmpty() || autoCallIndex >= autoCallQueue.size) {
+            autoCallQueue = allParcels.filter { it.status == "pending" }.map { it.phone }.filter { it.isNotBlank() }
+            autoCallIndex = 0
+        }
+
+        if (autoCallQueue.isEmpty()) {
+            Toast.makeText(ctx, "No pending parcels to call.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        btnAutoCallStartPause.text = "⏸ Pause"
+        autoCallJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (autoCallIndex < autoCallQueue.size) {
+                val phone = autoCallQueue[autoCallIndex]
+                AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
+                autoCallIndex++
+                delay(autoCallGapSeconds * 1000L)
+            }
+            // Finished the whole queue
+            if (isAdded) {
+                btnAutoCallStartPause.text = "▶ Start"
+                autoCallQueue = emptyList()
+                autoCallIndex = 0
+                Toast.makeText(requireContext(), "Auto Call finished", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun pauseAutoCall() {
+        autoCallJob?.cancel()
+        autoCallJob = null
+        btnAutoCallStartPause.text = "▶ Start"
+    }
+
+    private fun stopAutoCall() {
+        autoCallJob?.cancel()
+        autoCallJob = null
+        autoCallQueue = emptyList()
+        autoCallIndex = 0
+        btnAutoCallStartPause.text = "▶ Start"
     }
 
     private fun setupAdapter() {

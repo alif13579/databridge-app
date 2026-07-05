@@ -25,10 +25,10 @@ import androidx.fragment.app.Fragment
  */
 object AutoDialHelper {
 
-    fun dial(fragment: Fragment, phone: String) {
+    fun dial(fragment: Fragment, phone: String, forceDirect: Boolean = false) {
         val normalizedPhone = normalizeBdPhone(phone)
         val ctx = fragment.requireContext()
-        val autoDial = ctx
+        val autoDial = forceDirect || ctx
             .getSharedPreferences("databridge_toggles", Context.MODE_PRIVATE)
             .getBoolean("auto_dial", false)
 

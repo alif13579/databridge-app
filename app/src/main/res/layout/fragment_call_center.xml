@@ -104,6 +104,58 @@
                     </LinearLayout>
                 </LinearLayout>
 
+                <!-- Auto Call row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:background="@drawable/bg_stat_card"
+                    android:padding="8dp"
+                    android:paddingStart="12dp"
+                    android:layout_marginBottom="12dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="📞 Auto Call (Pending)"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/theme_text_primary" />
+
+                    <Button
+                        android:id="@+id/btnCcAutoCallStartPause"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="▶ Start"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/theme_bg_card"
+                        android:backgroundTint="#7C3AED"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="14dp"
+                        android:layout_marginEnd="8dp"
+                        android:visibility="gone" />
+
+                    <Switch
+                        android:id="@+id/switchCcAutoCall"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+
+                    <TextView
+                        android:id="@+id/btnCcAutoCallGapMenu"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:text="⋮"
+                        android:textSize="18sp"
+                        android:gravity="center"
+                        android:textColor="@color/theme_text_secondary"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackgroundBorderless" />
+                </LinearLayout>
+
                 <!-- Stats grid: 4 columns -->
                 <LinearLayout
                     android:layout_width="match_parent"
