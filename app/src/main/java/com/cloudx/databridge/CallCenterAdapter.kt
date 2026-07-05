@@ -94,6 +94,7 @@ class CallCenterAdapter(
             is Row.CardRow -> (holder as CardHolder).bind(
                 row.parcel,
                 row.isExpanded,
+                statusLang = statusLang,
                 onToggleExpand = { toggleExpanded(row.parcel.id) },
                 onCall = onCall,
                 onSetRemarks = onSetRemarks,
@@ -138,6 +139,7 @@ class CallCenterAdapter(
         fun bind(
             item: CallCenterParcelItem,
             isExpanded: Boolean,
+            statusLang: String,
             onToggleExpand: () -> Unit,
             onCall: (CallCenterParcelItem) -> Unit,
             onSetRemarks: (CallCenterParcelItem) -> Unit,
