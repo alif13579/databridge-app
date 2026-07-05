@@ -2191,10 +2191,17 @@ class ConfigSheetFragment : Fragment() {
                 if (!isAdded) return@launch
 
                 if (children.isEmpty()) {
-                    // Leaf reached — this is the final selected node
+                    // True leaf — no further children exist here at all (e.g. a plain scalar
+                    // field), so there is nothing to preview/confirm; commit as-is.
                     commitNodePath()
                     break
                 }
+
+                // Has children (could be a record collection with dynamic keys like run IDs) —
+                // show a live example-record tree preview + confirm option here, while still
+                // letting the user drill into the next dropdown if they'd rather go deeper.
+                addTreePreviewSection(container, ctx, depth, childPath)
+
                 currentOptions = children
                 depth++
             }
@@ -2262,7 +2269,150 @@ class ConfigSheetFragment : Fragment() {
         }
 
         row.addView(spinner)
+
+        if (depth > 0) {
+            val btnCancel = TextView(ctx).apply {
+                text = "✕"
+                textSize = 15f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(android.graphics.Color.parseColor("#EF4444"))
+                setPadding(10.dp(), 6.dp(), 4.dp(), 6.dp())
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                setOnClickListener { cancelNodeAtDepth(depth) }
+            }
+            row.addView(btnCancel)
+        }
+
         container.addView(row)
+    }
+
+    /** ✕ pressed on the dropdown at [depth] — clears this depth's selection and everything
+     *  deeper than it, letting the user jump back to this level and pick a different branch. */
+    private fun cancelNodeAtDepth(depth: Int) {
+        nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
+        renderNodePicker()
+    }
+
+    /**
+     * Fetches the first example child under "courier/$pathSoFar" and renders it as a nested
+     * tree, with a confirm button that locks in [pathSoFar] as the target node (using this
+     * example record's fields for auto-mapping) — without forcing the user to keep drilling
+     * into a dropdown of raw dynamic keys (e.g. individual run IDs).
+     */
+    private fun addTreePreviewSection(
+        container: android.widget.LinearLayout,
+        ctx: android.content.Context,
+        depth: Int,
+        pathSoFar: String
+    ) {
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        val box = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(12.dp(), 10.dp(), 12.dp(), 10.dp())
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = 10.dp() }
+        }
+        box.addView(TextView(ctx).apply {
+            text = "⏳ Example data লোড হচ্ছে…"
+            textSize = 12f
+            setTextColor(android.graphics.Color.parseColor("#6B7280"))
+        })
+        container.addView(box)
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val snap = try {
+                withContext(Dispatchers.IO) {
+                    db.reference.child("courier/$pathSoFar").limitToFirst(1).get().await()
+                }
+            } catch (e: Exception) {
+                Log.e("ConfigSheet", "❌ tree preview fetch failed for $pathSoFar: ${e.message}", e)
+                null
+            }
+            if (!isAdded) return@launch
+            box.removeAllViews()
+
+            if (snap == null || !snap.exists() || !snap.hasChildren()) {
+                box.addView(TextView(ctx).apply {
+                    text = "⚠ এখানে কোনো example data পাওয়া যায়নি"
+                    textSize = 12f
+                    setTextColor(android.graphics.Color.parseColor("#F59E0B"))
+                })
+                return@launch
+            }
+
+            val firstChild = snap.children.first()
+            val treeText = buildFirebaseTreeString(firstChild, 0).ifBlank { "(no fields)" }
+
+            box.addView(TextView(ctx).apply {
+                text = "📄 Example (${firstChild.key}):"
+                textSize = 12f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(android.graphics.Color.parseColor("#374151"))
+            })
+            box.addView(TextView(ctx).apply {
+                text = treeText
+                textSize = 11f
+                typeface = android.graphics.Typeface.MONOSPACE
+                setTextColor(android.graphics.Color.parseColor("#111827"))
+                setPadding(0, 6.dp(), 0, 6.dp())
+            })
+            box.addView(TextView(ctx).apply {
+                text = "এই tree অনুযায়ী auto-map করতে চান?"
+                textSize = 12f
+                setTextColor(android.graphics.Color.parseColor("#6B7280"))
+            })
+            box.addView(android.widget.Button(ctx).apply {
+                text = "✅ Yes, confirm করো"
+                textSize = 11f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(android.graphics.Color.WHITE)
+                backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    android.graphics.Color.parseColor("#16A34A")
+                )
+                setPadding(20.dp(), 6.dp(), 20.dp(), 6.dp())
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = 6.dp() }
+                setOnClickListener { confirmAtDepth(depth) }
+            })
+        }
+    }
+
+    /** Recursively renders a DataSnapshot as an indented tree string (nested objects included). */
+    private fun buildFirebaseTreeString(
+        snap: com.google.firebase.database.DataSnapshot,
+        indent: Int
+    ): String {
+        val pad = "  ".repeat(indent)
+        val sb = StringBuilder()
+        snap.children.forEach { child ->
+            val key = child.key ?: return@forEach
+            if (child.hasChildren()) {
+                sb.append("$pad├─ $key:\n")
+                sb.append(buildFirebaseTreeString(child, indent + 1))
+            } else {
+                val v = child.value?.toString()?.take(40) ?: ""
+                sb.append("$pad├─ $key: $v\n")
+            }
+        }
+        return sb.toString()
+    }
+
+    /** "Yes, confirm করো" pressed at [depth] — locks the path to exactly this depth (dropping
+     *  any deeper selection) and runs the normal commit+auto-map flow. */
+    private fun confirmAtDepth(depth: Int) {
+        nodePickerPath = nodePickerPath.subList(0, depth + 1).toMutableList()
+        commitNodePath()
+        renderNodePicker()
     }
 
     /** Shows the inline "create new node" input, wired to insert at the given depth. */
