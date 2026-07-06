@@ -151,27 +151,7 @@ class ConfigRemarksFragment : Fragment() {
     }
 
     private suspend fun loadRemarks() {
-        var snap = db.reference.child(activeScope.firebaseNode).get().await()
-
-        // One-time migration: if the new scoped node is empty but the old shared
-        // config/remarks still has data, copy it into BOTH scoped nodes so no existing
-        // remarks are lost, then re-read from the scoped node as normal going forward.
-        if (!snap.exists()) {
-            val legacySnap = db.reference.child("config/remarks").get().await()
-            if (legacySnap.exists()) {
-                val legacyPayload = legacySnap.value
-                if (legacyPayload != null) {
-                    try {
-                        db.reference.child("config/remarks_worker").setValue(legacyPayload).await()
-                        db.reference.child("config/remarks_call_center").setValue(legacyPayload).await()
-                    } catch (e: Exception) {
-                        Log.e("ConfigRemarks", "Legacy remarks migration failed", e)
-                    }
-                    snap = db.reference.child(activeScope.firebaseNode).get().await()
-                }
-            }
-        }
-
+        val snap = db.reference.child(activeScope.firebaseNode).get().await()
         val loaded = mutableMapOf<String, MutableList<ConfigState.Remark>>()
         if (snap.exists()) {
             snap.children.forEach { statusSnap ->
