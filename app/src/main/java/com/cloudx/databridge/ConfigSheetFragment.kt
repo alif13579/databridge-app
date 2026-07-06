@@ -3380,7 +3380,7 @@ class ConfigSheetFragment : Fragment() {
                     .toSet()
                 val displayLabels = headerOptions.mapIndexed { idx, label ->
                     val letter = headerLetters.getOrElse(idx) { "" }
-                    if (letter.isNotBlank() && letter in usedElsewhere) "✓ $label  (ব্যবহৃত হয়েছে)" else label
+                    if (letter.isNotBlank() && letter in usedElsewhere) "✓ $label" else label
                 }
                 val adapter = object : ArrayAdapter<String>(ctx, android.R.layout.simple_spinner_dropdown_item, displayLabels) {
                     override fun isEnabled(position: Int): Boolean {
@@ -3406,6 +3406,7 @@ class ConfigSheetFragment : Fragment() {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                     val letter = headerLetters.getOrElse(pos) { "" }
                     if (letter.isBlank()) {
+                        if (!pendingMapping.containsKey(field)) return
                         pendingMapping.remove(field)
                     } else {
                         // Guard against duplicate selection sneaking through (e.g. programmatic set)
@@ -3416,9 +3417,14 @@ class ConfigSheetFragment : Fragment() {
                             return
                         }
                         val headerText = sheetHeaders[letter] ?: ""
+                        if (pendingMapping[field]?.col == letter) return
                         pendingMapping[field] = ColMapping(col = letter, header = headerText)
                     }
-                    tvStatus.text = if (pendingMapping.containsKey(field)) "✓" else ""
+                    // Re-render so every OTHER flat-field dropdown refreshes which columns
+                    // are now taken — a single row's local adapter has no way to know
+                    // about a sibling row's selection otherwise (this was the bug: a
+                    // header selected in one dropdown stayed selectable in others).
+                    renderMappingStep()
                 }
                 override fun onNothingSelected(p: AdapterView<*>?) {}
             }
