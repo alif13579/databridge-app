@@ -3294,6 +3294,17 @@ class ConfigSheetFragment : Fragment() {
         // Primary key builder renders independently of fetched/custom fields state
         renderPkBuilder()
 
+        // Ensure every already-mapped field (from a previously saved connection) shows up
+        // as a row, even if the latest node-fetch sample didn't happen to include that key
+        // as a child (e.g. right after reconnecting — prefillConnectForm() restores
+        // pendingMapping, but a subsequent fetch clears customMappingFields and only
+        // re-populates it from whatever the live sample record contains).
+        pendingMapping.keys.forEach { key ->
+            if (fetchedNodeKeys.none { it == key } && customMappingFields.none { it.first == key }) {
+                customMappingFields.add(key to key)
+            }
+        }
+
         // ── Empty state ───────────────────────────────────────────────
         val allFields = fetchedNodeKeys.map { it to it } + customMappingFields
         if (allFields.isEmpty()) {
