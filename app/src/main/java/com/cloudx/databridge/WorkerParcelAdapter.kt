@@ -95,7 +95,9 @@ class WorkerParcelAdapter(
         holder.tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE
 
         // Agent remarks
-        if (item.remarks.isNotBlank()) {
+        // Don't show remarks text if it's the same as the parcel status badge above —
+        // that would just show the same thing twice (e.g. both "delivered").
+        if (item.remarks.isNotBlank() && item.remarkStatus != item.status) {
             holder.tvRemarks.text = "\uD83D\uDCAC ${item.remarks}"
             holder.tvRemarks.visibility = View.VISIBLE
         } else {

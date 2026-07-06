@@ -169,7 +169,9 @@ class CallCenterAdapter(
 
             tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE
 
-            if (item.remarks.isNotBlank()) {
+            // Don't show remarks text if it's the same as the parcel status badge above —
+            // that would just show the same thing twice (e.g. both "delivered").
+            if (item.remarks.isNotBlank() && item.remarkStatus != item.status) {
                 tvRemarks.text = "💬 ${item.remarks}"
                 tvRemarks.visibility = View.VISIBLE
             } else {
