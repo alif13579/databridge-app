@@ -69,9 +69,6 @@ class WorkerSpaceFragment : Fragment() {
     private var loadGeneration = 0
     private var systemId = ""
     private var userId = ""
-    // Current worker's Employee ID — attached to remarks so it's clear who left them.
-    // Best-effort fetch: remark-writing still works (falls back to "") if this fails.
-    private var employeeId = ""
     private var agentPhone = ""
 
     private val auth = FirebaseAuth.getInstance()
@@ -434,7 +431,6 @@ class WorkerSpaceFragment : Fragment() {
                 // consignments write gets rejected by a role-restricted rule.
                 val remarkData = mapOf(
                     "agentSystemId" to systemId,
-                    "employeeId"    to employeeId,
                     "userId"        to userId,
                     "remarks"       to selectedLabel,
                     "status"        to statusKey,
@@ -451,7 +447,7 @@ class WorkerSpaceFragment : Fragment() {
                         FirebaseErrorLogger.log(
                             screen = "WorkerSpaceFragment", action = "remark_write",
                             errorMessage = e.message ?: "unknown",
-                            extra = mapOf("consignmentId" to item.id, "employeeId" to employeeId)
+                            extra = mapOf("consignmentId" to item.id, "userId" to userId)
                         )
                         android.widget.Toast.makeText(
                             requireContext(), "⚠ Remark save হয়নি: ${e.message}", android.widget.Toast.LENGTH_LONG
@@ -614,21 +610,19 @@ class WorkerSpaceFragment : Fragment() {
 
                 attachRunsListener(systemId)
 
-                // Best-effort: employeeId + agentPhone for remark attribution + WhatsApp template
+                // Best-effort: agentPhone for WhatsApp template
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
                         val profileSnap = withContext(Dispatchers.IO) {
                             db.reference.child("users/$uid/profile").get().await()
                         }
-                        employeeId = profileSnap.child("company_info/employee_id")
-                            .getValue(String::class.java)?.trim().orEmpty()
                         agentPhone = profileSnap.child("phone")
                             .getValue(String::class.java)?.trim().orEmpty()
                             .ifBlank {
                                 profileSnap.child("company_info/phone")
                                     .getValue(String::class.java)?.trim().orEmpty()
                             }
-                    } catch (e: Exception) { /* remark writing still works without it */ }
+                    } catch (e: Exception) { /* WhatsApp template still works without agentPhone */ }
                 }
             } catch (e: Exception) {
                 tvEmpty.visibility = View.VISIBLE
@@ -854,14 +848,14 @@ class WorkerSpaceFragment : Fragment() {
                 val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                 val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
-                val remarkedBy   = readString(r, "remarked_by")
-                val rEmployeeId  = readString(r, "employeeId")
-                val authorRole   = if (remarkedBy == "support") "cc" else "agent"
+                val remarkedBy = readString(r, "remarked_by")
+                val rUserId    = readString(r, "userId").ifBlank { readString(r, "employeeId") }
+                val authorRole = if (remarkedBy == "support") "cc" else "agent"
                 val author = when {
-                    remarkedBy == "support" && rEmployeeId.isNotBlank() -> "$rEmployeeId · CC"
-                    remarkedBy == "support"                             -> "CC"
-                    rEmployeeId.isNotBlank()                            -> rEmployeeId
-                    else                                                -> "Agent"
+                    remarkedBy == "support" && rUserId.isNotBlank() -> "$rUserId · CC"
+                    remarkedBy == "support"                         -> "CC"
+                    rUserId.isNotBlank()                            -> rUserId
+                    else                                            -> "Agent"
                 }
                 HistoryEntry(
                     action = rStatus.uppercase(),

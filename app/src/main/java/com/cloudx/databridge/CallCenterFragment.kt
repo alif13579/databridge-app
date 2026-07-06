@@ -69,9 +69,8 @@ class CallCenterFragment : Fragment() {
     private val colorCallQueued = android.graphics.Color.parseColor("#F59E0B")
     private val colorCallCalling = android.graphics.Color.parseColor("#7C3AED")
 
-    // Current CC agent's Employee ID — attached to remarks so it's clear who left them.
-    // Best-effort fetch: remark-writing still works (falls back to "") if this fails.
-    private var employeeId = ""
+    // Firebase UID of the current CC agent — used as userId in remark writes for users/{uid} lookup.
+    private var userId = ""
 
     // systemId -> display name, fetched once per session (cheap: one bulk read of users/)
     // and reused for every subsequent run listener trigger. Cleared on pull-to-refresh.
@@ -143,15 +142,7 @@ class CallCenterFragment : Fragment() {
         tvAgentInfo.text = "$displayName · Supervisor"
 
         user?.uid?.let { uid ->
-            viewLifecycleOwner.lifecycleScope.launch {
-                try {
-                    employeeId = withContext(Dispatchers.IO) {
-                        com.google.firebase.database.FirebaseDatabase.getInstance().reference
-                            .child("users/$uid/profile/company_info/employee_id")
-                            .get().await().getValue(String::class.java)?.trim().orEmpty()
-                    }
-                } catch (e: Exception) { /* remark writing still works without it */ }
-            }
+            userId = uid
         }
     }
 
@@ -831,8 +822,7 @@ class CallCenterFragment : Fragment() {
             val timestamp = System.currentTimeMillis()
 
             val remarkData = mapOf(
-                "agentSystemId" to "",
-                "employeeId"    to employeeId,
+                "userId"        to userId,
                 "remarks"       to fullRemark,
                 "note"          to noteText,
                 "status"        to selectedStatus,
@@ -845,7 +835,7 @@ class CallCenterFragment : Fragment() {
                     FirebaseErrorLogger.log(
                         screen = "CallCenterFragment", action = "remark_write",
                         errorMessage = e.message ?: "unknown",
-                        extra = mapOf("consignmentId" to item.id, "employeeId" to employeeId)
+                        extra = mapOf("consignmentId" to item.id, "userId" to userId)
                     )
                     Toast.makeText(requireContext(), "⚠ Remark save হয়নি: ${e.message}", Toast.LENGTH_LONG).show()
                 }
