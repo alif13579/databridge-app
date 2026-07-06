@@ -815,7 +815,7 @@ class WorkerSpaceFragment : Fragment() {
             async(Dispatchers.IO) {
                 val detailSnap = db.reference.child("courier/consignments/$cId").get().await()
                 val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
-                    .limitToLast(5).get().await()
+                    .get().await()
                 ItemFetch(cId, runRef, detailSnap, remarksSnap)
             }
         }
@@ -842,12 +842,21 @@ class WorkerSpaceFragment : Fragment() {
                 val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                 val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
+                val remarkedBy   = readString(r, "remarked_by")
+                val rEmployeeId  = readString(r, "employeeId")
+                val authorRole   = if (remarkedBy == "support") "cc" else "agent"
+                val author = when {
+                    remarkedBy == "support" && rEmployeeId.isNotBlank() -> "$rEmployeeId · CC"
+                    remarkedBy == "support"                             -> "CC"
+                    rEmployeeId.isNotBlank()                            -> rEmployeeId
+                    else                                                -> "Agent"
+                }
                 HistoryEntry(
                     action = rStatus.uppercase(),
                     remark = rLabel,
                     time = timeStr,
-                    author = "",
-                    authorRole = "agent"
+                    author = author,
+                    authorRole = authorRole
                 )
             }
             val lastRemarkStatus = remarksSnap.children.lastOrNull()
