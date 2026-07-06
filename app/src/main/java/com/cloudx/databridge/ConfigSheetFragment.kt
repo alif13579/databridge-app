@@ -2605,10 +2605,12 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** Recursively renders a DataSnapshot as an indented tree string (nested objects included).
-     *  Flat (scalar) fields at a level are all shown in full. Only when a level itself is a
-     *  nested object with children is that inner list capped to its first 3 keys — this keeps
-     *  previews short for huge nested collections (many run_ids, many consignments) without
-     *  hiding any of the actual flat field names the user needs to see for mapping. */
+     *  Top-level (indent 0) flat fields are a node's own distinct fields (e.g. agentSystemId,
+     *  status, createdAt) — always shown in full. Once recursed into a nested level (indent > 0,
+     *  e.g. the individual entries inside "consignments"), those are typically many repetitive
+     *  entries of the identical shape, so they're capped to the first 3 with a "... আরও N" line —
+     *  showing all of them would just be a meaningless wall of identical-looking rows. Distinct
+     *  nested-object FIELDS at any level are separately capped to the first 3 as well. */
     private fun buildFirebaseTreeString(
         snap: com.google.firebase.database.DataSnapshot,
         indent: Int
@@ -2619,12 +2621,14 @@ class ConfigSheetFragment : Fragment() {
         val flatChildren   = allChildren.filter { !it.hasChildren() }
         val nestedChildren = allChildren.filter { it.hasChildren() }
 
-        // Flat fields: show all of them, in their original order relative to nested ones
-        // isn't critical for a preview, so render flats first then nested-with-limit.
-        flatChildren.forEach { child ->
+        val flatToShow = if (indent == 0) flatChildren else flatChildren.take(3)
+        flatToShow.forEach { child ->
             val key = child.key ?: return@forEach
             val v = child.value?.toString()?.take(40) ?: ""
             sb.append("$pad├─ $key: $v\n")
+        }
+        if (indent > 0 && flatChildren.size > flatToShow.size) {
+            sb.append("$pad└─ ... আরও ${flatChildren.size - flatToShow.size}টা\n")
         }
         nestedChildren.take(3).forEach { child ->
             val key = child.key ?: return@forEach
