@@ -659,8 +659,12 @@ class CallCenterFragment : Fragment() {
 
                         val remarkSnap = db.reference.child("courier/remarks_by_consignment/$cId")
                             .limitToLast(1).get().await()
-                        val lastRemark = remarkSnap.children.firstOrNull()
+                        val remarkStatus = remarkSnap.children.firstOrNull()
                             ?.child("status")?.getValue(String::class.java) ?: ""
+                        val remarkLabel = if (remarkStatus.isNotBlank()) {
+                            context?.let { WorkerParcelAdapter.getStatusConfig(it, remarkStatus, "bn").label }
+                                ?: remarkStatus
+                        } else ""
 
                         CallCenterParcelItem(
                             id                = cId,
@@ -669,9 +673,10 @@ class CallCenterFragment : Fragment() {
                             address           = address,
                             cod               = cod,
                             status            = status,
-                            remarks           = lastRemark,
-                            validationRequest = status == "verify_req",
-                            validationNote    = if (status == "verify_req") lastRemark else "",
+                            remarks           = remarkLabel,
+                            remarkStatus      = remarkStatus,
+                            validationRequest = remarkStatus == "verify_req",
+                            validationNote    = if (remarkStatus == "verify_req") remarkLabel else "",
                             time              = "",
                             worker            = nameMap[agentSystemId] ?: agentSystemId,
                             branch            = hub
@@ -846,24 +851,14 @@ class CallCenterFragment : Fragment() {
                     Toast.makeText(requireContext(), "⚠ Remark save হয়নি: ${e.message}", Toast.LENGTH_LONG).show()
                 }
 
-            val statusUpdate = mapOf<String, Any>(
-                "courier/consignments/${item.id}/status"                 to selectedStatus,
-                "courier/consignments_by_phone/${item.phone}/${item.id}" to selectedStatus
-            )
-            db.reference.updateChildren(statusUpdate)
-                .addOnFailureListener { e ->
-                    FirebaseErrorLogger.log(
-                        screen = "CallCenterFragment", action = "status_write",
-                        errorMessage = e.message ?: "unknown",
-                        extra = mapOf("consignmentId" to item.id)
-                    )
-                    Toast.makeText(requireContext(), "⚠ Status update হয়নি: ${e.message}", Toast.LENGTH_LONG).show()
-                }
+            // Parcel status (courier/consignments/{id}/status) is a SEPARATE concept from
+            // remark status and is NEVER written/changed from here — only the remark's own
+            // "status" field above (already saved as part of remarkData) represents this.
 
             allParcels = allParcels.map {
                 if (it.id == item.id) it.copy(
                     validationRequest = false,
-                    status  = selectedStatus,
+                    remarkStatus = selectedStatus,
                     remarks = fullRemark
                 ) else it
             }

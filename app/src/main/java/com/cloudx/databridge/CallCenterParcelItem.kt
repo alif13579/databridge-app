@@ -8,6 +8,9 @@ data class CallCenterParcelItem(
     val cod: Int,
     val status: String,
     val remarks: String,
+    // The latest remark's own status key (e.g. "verify_req") — independent of `status`
+    // (the parcel's real delivery status). Never written to courier/consignments/{id}/status.
+    val remarkStatus: String = "",
     val validationRequest: Boolean,
     val validationNote: String,
     val time: String,

@@ -456,21 +456,9 @@ class WorkerSpaceFragment : Fragment() {
                         ).show()
                     }
 
-                val statusUpdate = mapOf<String, Any>(
-                    "courier/consignments/${item.id}/status" to statusKey,
-                    "courier/consignments_by_phone/${item.phone}/${item.id}" to statusKey
-                )
-                db.reference.updateChildren(statusUpdate)
-                    .addOnFailureListener { e ->
-                        FirebaseErrorLogger.log(
-                            screen = "WorkerSpaceFragment", action = "status_write",
-                            errorMessage = e.message ?: "unknown",
-                            extra = mapOf("consignmentId" to item.id)
-                        )
-                        android.widget.Toast.makeText(
-                            requireContext(), "⚠ Status update হয়নি: ${e.message}", android.widget.Toast.LENGTH_LONG
-                        ).show()
-                    }
+                // Parcel status (courier/consignments/{id}/status) is a SEPARATE concept from
+                // remark status and is NEVER written/changed from here — only the remark's own
+                // "status" field (already saved as part of remarkData above) represents this.
 
                 // Local update
                 val updatedParcels = allParcels.map {
@@ -483,7 +471,7 @@ class WorkerSpaceFragment : Fragment() {
                             authorRole = "agent"
                         )
                         it.copy(
-                            status = statusKey,
+                            remarkStatus = statusKey,
                             remarks = selectedLabel,
                             validationRequest = (statusKey == "verify_req"),
                             history = newHistory
@@ -841,17 +829,22 @@ class WorkerSpaceFragment : Fragment() {
             val history = remarksSnap.children.mapNotNull { r ->
                 val type = readString(r, "type").ifBlank { return@mapNotNull null }
                 val rStatus = readString(r, "status")
+                val rLabel = if (rStatus.isNotBlank()) {
+                    context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
+                } else ""
                 val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                 val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
                 HistoryEntry(
                     action = type.uppercase(),
-                    remark = rStatus,
+                    remark = rLabel,
                     time = timeStr,
                     author = "",
                     authorRole = "agent"
                 )
             }
+            val lastRemarkStatus = remarksSnap.children.lastOrNull()
+                ?.child("status")?.getValue(String::class.java) ?: ""
 
             val lastRemark = history.lastOrNull()?.remark ?: ""
             parcels.add(
@@ -863,8 +856,9 @@ class WorkerSpaceFragment : Fragment() {
                     cod = cod,
                     status = sourceStatus,
                     remarks = lastRemark,
-                    validationRequest = sourceStatus == "verify_req",
-                    validationNote = if (sourceStatus == "verify_req") lastRemark else "",
+                    remarkStatus = lastRemarkStatus,
+                    validationRequest = lastRemarkStatus == "verify_req",
+                    validationNote = if (lastRemarkStatus == "verify_req") lastRemark else "",
                     time = hub,
                     history = history
                 )

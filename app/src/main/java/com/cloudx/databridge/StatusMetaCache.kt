@@ -17,7 +17,12 @@ object StatusMetaCache {
         val bn: String,
         val en: String,
         val color: Int,
-        val bg: Int
+        val bg: Int,
+        // false only when config/statusMeta/{key}/updatesParcelStatus is explicitly set to
+        // false — e.g. "verify_request" (a remark/attempt outcome, not a real delivery
+        // outcome) shouldn't overwrite the parcel's actual courier/consignments/{id}/status.
+        // Defaults to true (old behavior) for any status that doesn't set this field.
+        val updatesParcelStatus: Boolean = true
     )
 
     @Volatile
@@ -44,7 +49,9 @@ object StatusMetaCache {
                 } catch (_: Exception) {
                     android.graphics.Color.LTGRAY
                 }
-                map[key] = Entry(bn, en, color, bg)
+                val updatesParcelStatus = s.child("updatesParcelStatus")
+                    .getValue(Boolean::class.java) ?: true
+                map[key] = Entry(bn, en, color, bg, updatesParcelStatus)
             }
             if (map.isNotEmpty()) entries = map
         } catch (_: Exception) {
@@ -57,6 +64,15 @@ object StatusMetaCache {
         val e = entries[statusKey] ?: return null
         return if (statusLang == "en") e.en else e.bn
     }
+
+    /**
+     * Whether selecting [statusKey] should overwrite courier/consignments/{id}/status (the
+     * parcel's actual delivery status) and consignments_by_phone. True unless the status is
+     * explicitly configured with updatesParcelStatus=false in config/statusMeta (e.g.
+     * "verify_request" — a remark/attempt outcome, not a real delivery-status change).
+     */
+    fun updatesParcelStatus(statusKey: String): Boolean =
+        entries[statusKey]?.updatesParcelStatus ?: true
 }
 
 /** Parses a "{remarkLang}_{statusLang}" language value (e.g. "bn_en") into its two parts. */
