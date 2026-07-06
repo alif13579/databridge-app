@@ -305,6 +305,9 @@ class ConfigSheetFragment : Fragment() {
     private val customMappingFields = mutableListOf<Pair<String, String>>()
     // Headers fetched from sheet (letter → header text)
     private var sheetHeaders: Map<String, String> = emptyMap()
+    // First actual data row from the sheet (colLetter -> cell text), used to preview
+    // primary key / field mapping with real values instead of placeholders.
+    private var sampleSheetRow: Map<String, String> = emptyMap()
 
     // All Firebase fields for orders/
     // Dynamic keys fetched from Firebase node — replaces hardcoded mappingFields
@@ -1248,6 +1251,17 @@ class ConfigSheetFragment : Fragment() {
                 }
                 sheetHeaders = newHeaders
             }
+            // Capture first actual data row (row after header) so Step 5 can preview
+            // primary key / field mapping with real values instead of placeholders.
+            val firstDataRow = rows.getOrNull(1)
+            if (firstDataRow != null) {
+                val newSample = mutableMapOf<String, String>()
+                firstDataRow.forEachIndexed { idx, text ->
+                    val letter = colIndexToLetter(colStart + idx)
+                    newSample[letter] = text
+                }
+                sampleSheetRow = newSample
+            }
             renderLivePreviewTable(rows, colStart, colEnd)
 
         } catch (e: Exception) {
@@ -2026,6 +2040,7 @@ class ConfigSheetFragment : Fragment() {
         val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Valid start column দিন (A বা 1)"); return }
         val e = parseColInput(etColEnd?.text?.toString() ?: "")   ?: run { showErr("Valid end column দিন (J বা 10)"); return }
         if (s < 1 || e < s) { showErr("start ≤ end হতে হবে"); return }
+        if (pendingMapping.isEmpty() && pendingObjectMapping.isEmpty()) { showErr("কমপক্ষে একটা field map করুন"); return }
 
         // Match by the exact connectionId currently being managed/edited — do NOT fall back
         // to the first connection in the branch, or a fresh "+ New Sheet" flow would
@@ -2060,6 +2075,81 @@ class ConfigSheetFragment : Fragment() {
             primaryKeyParts = pendingPkParts.toList(),
             targetNode    = "courier/" + (etTargetNode?.text?.toString()?.trim()?.trim('/')?.ifBlank { "consignments" } ?: "consignments"),
         )
+
+        showReviewDialog(conn, isNew = existing == null)
+    }
+
+    /** Final review before committing — shows target node, primary key format, and every
+     *  mapped field with real sample data, so a mistaken mapping is caught before it triggers
+     *  a potentially large sync against live Firebase data. */
+    private fun showReviewDialog(conn: SheetConn, isNew: Boolean) {
+        val ctx = context ?: return
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        val scroll = android.widget.ScrollView(ctx)
+        val root = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(24.dp(), 16.dp(), 24.dp(), 8.dp())
+        }
+        scroll.addView(root)
+
+        fun sectionTitle(text: String) = TextView(ctx).apply {
+            this.text = text; textSize = 11f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#6B7280"))
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 10.dp(); bottomMargin = 4.dp() }
+        }
+        fun valueLine(text: String, color: String = "#111827") = TextView(ctx).apply {
+            this.text = text; textSize = 13f
+            setTextColor(android.graphics.Color.parseColor(color))
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = 2.dp() }
+        }
+
+        root.addView(sectionTitle("TARGET NODE"))
+        root.addView(valueLine(conn.targetNode, "#1D4ED8"))
+
+        root.addView(sectionTitle("PRIMARY KEY (sample থেকে তৈরি)"))
+        root.addView(valueLine(tvPkPreview?.text?.toString()?.removePrefix("Preview (1st row): ")?.removePrefix("Preview: ") ?: "—"))
+
+        root.addView(sectionTitle("MAPPED FIELDS (${conn.columnMapping.size + conn.objectColumnMapping.size})"))
+        if (conn.columnMapping.isEmpty() && conn.objectColumnMapping.isEmpty()) {
+            root.addView(valueLine("⚠ কোনো field map করা হয়নি", "#F59E0B"))
+        } else {
+            conn.columnMapping.forEach { (field, colMap) ->
+                val sample = sampleSheetRow[colMap.col]?.takeIf { it.isNotBlank() } ?: "(খালি)"
+                root.addView(valueLine("• $field  →  ${colMap.header.ifBlank { colMap.col }}  =  \"$sample\""))
+            }
+            conn.objectColumnMapping.forEach { (field, spec) ->
+                fun resolve(s: String): String = when {
+                    s.startsWith("fixed:") -> "\"${s.removePrefix("fixed:")}\" (fixed)"
+                    s.startsWith("col:") -> {
+                        val letter = s.removePrefix("col:")
+                        val sample = sampleSheetRow[letter]?.takeIf { it.isNotBlank() } ?: "(খালি)"
+                        "${sheetHeaders[letter] ?: letter} = \"$sample\""
+                    }
+                    else -> s
+                }
+                root.addView(valueLine("• $field { key: ${resolve(spec.first)}, value: ${resolve(spec.second)} }"))
+            }
+        }
+
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle(if (isNew) "নতুন Sheet Connect করার আগে যাচাই করুন" else "Update করার আগে যাচাই করুন")
+            .setView(scroll)
+            .setPositiveButton(if (isNew) "✅ Connect করুন" else "✅ Update করুন") { _, _ -> commitConnection(conn, isNew) }
+            .setNegativeButton("সম্পাদনা চালিয়ে যান", null)
+            .show()
+    }
+
+    /** Actually persists the connection after the user has reviewed and confirmed it. */
+    private fun commitConnection(conn: SheetConn, isNew: Boolean) {
         val connList = connections.getOrPut(activeBranch) { mutableListOf() }
         val idx = connList.indexOfFirst { it.connectionId == conn.connectionId }
         if (idx >= 0) connList[idx] = conn else connList.add(conn)
@@ -2067,7 +2157,7 @@ class ConfigSheetFragment : Fragment() {
         // Expand this branch so newly added sheet card is visible
         expandedBranch = activeBranch
         saveToFirebase(conn)
-        toast(if (existing == null) "✅ $activeBranch connected!" else "✅ Range updated")
+        toast(if (isNew) "✅ $activeBranch connected!" else "✅ Range updated")
         screen = if (isRangeEdit) Screen.MANAGING else Screen.BRANCH_SELECT
         isRangeEdit = false
         render()
@@ -2278,13 +2368,27 @@ class ConfigSheetFragment : Fragment() {
         container.addView(box)
     }
 
-    /** Unlocks the node picker so the user can pick a different node — reveals the dropdowns
-     *  again at the currently selected depth without wiping the mapped fields, since the user
-     *  might just want to inspect/adjust the node choice and re-confirm the same one. */
+    /** Unlocks the node picker so the user can pick a different node. Warns first if there are
+     *  already-mapped fields, since changing the node may make those column mappings irrelevant
+     *  (they aren't auto-cleared — just flagged as a risk before the user proceeds). */
     private fun unlockNodePicker() {
-        nodeMappingConfirmed = false
-        renderNodePicker()
-        renderMappingStep()
+        val hasExistingMapping = pendingMapping.isNotEmpty() || pendingObjectMapping.isNotEmpty() || pendingPkParts.isNotEmpty()
+        if (!hasExistingMapping) {
+            nodeMappingConfirmed = false
+            renderNodePicker()
+            renderMappingStep()
+            return
+        }
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Node পরিবর্তন করবেন?")
+            .setMessage("Primary key ও field mapping ইতিমধ্যে সেট করা আছে। Node পরিবর্তন করলে এই mapping গুলো নতুন node এর জন্য সঠিক নাও হতে পারে। আপনাকে সেগুলো আবার review করতে হবে।\n\nContinue করবেন?")
+            .setPositiveButton("হ্যাঁ, Node পরিবর্তন করবো") { _, _ ->
+                nodeMappingConfirmed = false
+                renderNodePicker()
+                renderMappingStep()
+            }
+            .setNegativeButton("না, থাকুক", null)
+            .show()
     }
 
     /** Builds and adds a single dropdown row for one depth level. */
@@ -3137,15 +3241,21 @@ class ConfigSheetFragment : Fragment() {
             tvPkPreview?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
             return
         }
+        val todayDdMmYy = java.text.SimpleDateFormat("ddMMyy", java.util.Locale.US).format(java.util.Date())
         val preview = pendingPkParts.joinToString("") { part ->
             when (part.type) {
                 "fixed" -> part.value
-                "col"   -> if (part.value.isBlank()) "{?}" else "{${sheetHeaders[part.value] ?: part.value}}"
-                "date"  -> "ddmmyy"
+                "col"   -> {
+                    if (part.value.isBlank()) "{?}"
+                    else sampleSheetRow[part.value]?.takeIf { it.isNotBlank() }
+                        ?: "{${sheetHeaders[part.value] ?: part.value}}"
+                }
+                "date"  -> todayDdMmYy
                 else    -> ""
             }
         }
-        tvPkPreview?.text = "Preview: $preview"
+        val usingRealData = sampleSheetRow.isNotEmpty()
+        tvPkPreview?.text = if (usingRealData) "Preview (1st row): $preview" else "Preview: $preview"
         tvPkPreview?.setTextColor(context?.getColor(R.color.theme_text_secondary) ?: android.graphics.Color.DKGRAY)
     }
 
