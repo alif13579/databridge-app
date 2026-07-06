@@ -443,7 +443,7 @@ class WorkerSpaceFragment : Fragment() {
                 val selectedOption = options.firstOrNull { it.label == selectedLabel && it.statusKey == statusKey }
                 val templateId = selectedOption?.templateId.orEmpty()
                 var sentViaRemarkTemplate = false
-                if (templateId.isNotBlank()) {
+                if (templateId.isNotBlank() && WhatsAppSender.isEnabled(requireContext())) {
                     val template = whatsappTemplatesCache[templateId]
                     if (template != null && template.body.isNotBlank()) {
                         val filledMessage = WhatsAppHelper.fillTemplate(

@@ -831,7 +831,7 @@ class CallCenterFragment : Fragment() {
             val fullRemark = if (noteText.isNotBlank()) "$selectedRemarkText — $noteText"
                              else selectedRemarkText
 
-            if (selectedTemplateId.isNotBlank()) {
+            if (selectedTemplateId.isNotBlank() && WhatsAppSender.isEnabled(requireContext())) {
                 val template = whatsappTemplatesCache[selectedTemplateId]
                 if (template != null && template.body.isNotBlank()) {
                     val filledMessage = WhatsAppHelper.fillTemplate(
