@@ -427,16 +427,57 @@ class ScannerFragment : Fragment() {
 
     // ── CSV export ────────────────────────────────────────────────────
     private fun exportScansToCsv() {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("CSV Export")
+            .setItems(arrayOf("📱 WhatsApp এ পাঠান", "⬇️ Download করুন")) { _, which ->
+                if (which == 0) promptWhatsAppNumber() else saveCsvAndDownload()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun promptWhatsAppNumber() {
+        val ctx = requireContext()
+        val input = EditText(ctx).apply {
+            hint = "01XXXXXXXXX"
+            inputType = android.text.InputType.TYPE_CLASS_PHONE
+            setPadding(40, 24, 40, 24)
+        }
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("WhatsApp Number")
+            .setView(input)
+            .setPositiveButton("Send") { _, _ ->
+                val raw = input.text.toString().trim()
+                if (raw.isBlank()) {
+                    Toast.makeText(ctx, "⚠ Number দিন", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val normalized = normalizeWhatsAppNumber(raw)
+                saveCsvAndSendToWhatsApp(normalized)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun normalizeWhatsAppNumber(raw: String): String {
+        val digits = raw.filter { it.isDigit() }
+        return when {
+            digits.startsWith("880") && digits.length == 13 -> digits
+            digits.startsWith("0") && digits.length == 11 -> "88$digits"
+            digits.length == 10 -> "880$digits"
+            else -> digits
+        }
+    }
+
+    /** Builds the CSV content for the currently filtered scans. Returns null if empty. */
+    private fun buildCsvContent(): Pair<String, Int>? {
         val from = filterFromDate
         val to   = filterToDate
         val items = uploadedItems.filter { item ->
             (from == null || item.scanAt >= from) && (to == null || item.scanAt <= to)
         }.sortedBy { it.scanAt }
 
-        if (items.isEmpty()) {
-            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো scan নেই", Toast.LENGTH_SHORT).show()
-            return
-        }
+        if (items.isEmpty()) return null
 
         val dateFmt = java.text.SimpleDateFormat("dd-MM-yyyy", java.util.Locale.getDefault())
         val timeFmt = java.text.SimpleDateFormat("hh:mm:ss a", java.util.Locale.getDefault())
@@ -447,12 +488,59 @@ class ScannerFragment : Fragment() {
             val ts = item.scanAt
             val date = dateFmt.format(java.util.Date(ts))
             val time = timeFmt.format(java.util.Date(ts))
-            val code = item.code.replace("\"", "\"\"") // escape quotes
+            val code = item.code.replace("\"", "\"\"")
             csv.append("$ts,$date,$time,\"$code\"\n")
         }
+        return csv.toString() to items.size
+    }
 
+    /** Saves CSV to app-specific cache dir (for sharing via FileProvider) — no storage permission needed. */
+    private fun saveCsvToCache(csvContent: String): android.net.Uri? {
+        return try {
+            val fileName = "DataBridge_Scans_${System.currentTimeMillis()}.csv"
+            val cacheDir = java.io.File(requireContext().cacheDir, "exports").apply { mkdirs() }
+            val file = java.io.File(cacheDir, fileName)
+            file.writeText(csvContent)
+            androidx.core.content.FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                file
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun saveCsvAndSendToWhatsApp(phone: String) {
+        val (csvContent, count) = buildCsvContent() ?: run {
+            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো scan নেই", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = saveCsvToCache(csvContent) ?: run {
+            Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra("jid", "$phone@s.whatsapp.net")
+                setPackage("com.whatsapp")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(intent)
+            Toast.makeText(requireContext(), "📤 CSV পাঠানো হচ্ছে ($count rows)", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(requireContext(), "⚠ WhatsApp খোলা যায়নি — installed আছে কিনা দেখুন", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun saveCsvAndDownload() {
+        val (csvContent, count) = buildCsvContent() ?: run {
+            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো scan নেই", Toast.LENGTH_SHORT).show()
+            return
+        }
         val fileName = "DataBridge_Scans_${System.currentTimeMillis()}.csv"
-
         try {
             val resolver = requireContext().contentResolver
             val uri: android.net.Uri?
@@ -469,26 +557,12 @@ class ScannerFragment : Fragment() {
                 val file = java.io.File(downloadsDir, fileName)
                 uri = android.net.Uri.fromFile(file)
             }
-
             if (uri == null) {
                 Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
                 return
             }
-
-            resolver.openOutputStream(uri)?.use { out ->
-                out.write(csv.toString().toByteArray())
-            }
-
-            Toast.makeText(requireContext(), "✅ CSV Downloads এ সেভ হয়েছে (${items.size} rows)", Toast.LENGTH_LONG).show()
-
-            // Offer to share/open immediately
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/csv"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(shareIntent, "CSV শেয়ার করুন"))
-
+            resolver.openOutputStream(uri)?.use { out -> out.write(csvContent.toByteArray()) }
+            Toast.makeText(requireContext(), "✅ CSV Downloads এ সেভ হয়েছে ($count rows)", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(requireContext(), "⚠ Export failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
