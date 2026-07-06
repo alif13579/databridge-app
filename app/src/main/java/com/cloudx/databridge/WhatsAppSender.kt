@@ -23,6 +23,7 @@ object WhatsAppSender {
     const val DEFAULT_TEMPLATE =
         "হ্যালো {customer_name}, আপনার একটি পার্সেল (মূল্য ৳{parcel_value}) আজ ডেলিভারির জন্য পাঠানো হয়েছে।\n" +
         "ঠিকানা: {address}\n" +
+        "যেকোনো প্রয়োজনে কল করুন: {agent_phone}\n" +
         "ধন্যবাদ।"
 
     fun isEnabled(context: Context): Boolean =
@@ -56,7 +57,18 @@ object WhatsAppSender {
         val international = "880" + local.removePrefix("0")  // -> 8801XXXXXXXXX (wa.me format)
 
         var message = getTemplate(ctx)
-        variables.forEach { (key, value) -> message = message.replace("{$key}", value) }
+        variables.forEach { (key, value) ->
+            if (key == "agent_phone" && value.isBlank()) {
+                // Remove the whole line containing {agent_phone} so no empty line appears
+                message = message.lines()
+                    .filter { !it.contains("{agent_phone}") }
+                    .joinToString("\n")
+            } else {
+                message = message.replace("{$key}", value)
+            }
+        }
+        // Clean up any remaining unresolved placeholders
+        message = message.replace(Regex("\\{agent_phone\\}"), "")
 
         try {
             val uri = Uri.parse("https://wa.me/$international?text=${Uri.encode(message)}")

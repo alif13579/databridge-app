@@ -68,9 +68,11 @@ class WorkerSpaceFragment : Fragment() {
     private var suppressRunTypeEvents = false
     private var loadGeneration = 0
     private var systemId = ""
+    private var userId = ""
     // Current worker's Employee ID — attached to remarks so it's clear who left them.
     // Best-effort fetch: remark-writing still works (falls back to "") if this fails.
     private var employeeId = ""
+    private var agentPhone = ""
 
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseDatabase.getInstance()
@@ -433,6 +435,7 @@ class WorkerSpaceFragment : Fragment() {
                 val remarkData = mapOf(
                     "agentSystemId" to systemId,
                     "employeeId"    to employeeId,
+                    "userId"        to userId,
                     "remarks"       to selectedLabel,
                     "status"        to statusKey,
                     "remarked_by"   to "worker",
@@ -484,10 +487,11 @@ class WorkerSpaceFragment : Fragment() {
                     this@WorkerSpaceFragment,
                     item.phone,
                     mapOf(
-                        "customer_name" to item.customer,
-                        "parcel_value" to item.cod.toString(),
-                        "address" to item.address,
-                        "consignment_id" to item.id
+                        "customer_name"  to item.customer,
+                        "parcel_value"   to item.cod.toString(),
+                        "address"        to item.address,
+                        "consignment_id" to item.id,
+                        "agent_phone"    to agentPhone
                     )
                 )
             }
@@ -594,6 +598,7 @@ class WorkerSpaceFragment : Fragment() {
         tvEmpty.visibility = View.GONE
 
         val uid = auth.currentUser?.uid ?: return
+        userId = uid
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
@@ -609,13 +614,20 @@ class WorkerSpaceFragment : Fragment() {
 
                 attachRunsListener(systemId)
 
-                // Best-effort employeeId fetch for remark attribution — doesn't gate the run listener
+                // Best-effort: employeeId + agentPhone for remark attribution + WhatsApp template
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        employeeId = withContext(Dispatchers.IO) {
-                            db.reference.child("users/$uid/profile/company_info/employee_id")
-                                .get().await().getValue(String::class.java)?.trim().orEmpty()
+                        val profileSnap = withContext(Dispatchers.IO) {
+                            db.reference.child("users/$uid/profile").get().await()
                         }
+                        employeeId = profileSnap.child("company_info/employee_id")
+                            .getValue(String::class.java)?.trim().orEmpty()
+                        agentPhone = profileSnap.child("phone")
+                            .getValue(String::class.java)?.trim().orEmpty()
+                            .ifBlank {
+                                profileSnap.child("company_info/phone")
+                                    .getValue(String::class.java)?.trim().orEmpty()
+                            }
                     } catch (e: Exception) { /* remark writing still works without it */ }
                 }
             } catch (e: Exception) {

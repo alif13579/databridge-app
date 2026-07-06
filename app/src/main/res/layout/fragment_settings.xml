@@ -156,7 +156,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Variables: {customer_name}, {parcel_value}, {address}, {consignment_id}"
+                    android:text="Variables: {customer_name}, {parcel_value}, {address}, {consignment_id}, {agent_phone}"
                     android:textSize="11sp"
                     android:textColor="@color/theme_text_secondary"
                     android:layout_marginBottom="8dp" />
