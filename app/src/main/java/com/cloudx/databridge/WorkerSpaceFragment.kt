@@ -434,7 +434,6 @@ class WorkerSpaceFragment : Fragment() {
                     "agentSystemId" to systemId,
                     "employeeId"    to employeeId,
                     "remarks"       to selectedLabel,
-                    "type"          to statusKey,
                     "status"        to statusKey,
                     "remarked_by"   to "worker",
                     "createdAt"     to timestamp,
@@ -838,16 +837,13 @@ class WorkerSpaceFragment : Fragment() {
             }
 
             val history = remarksSnap.children.mapNotNull { r ->
-                val type = readString(r, "type").ifBlank { return@mapNotNull null }
-                val rStatus = readString(r, "status")
-                val rLabel = if (rStatus.isNotBlank()) {
-                    context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
-                } else ""
+                val rStatus = readString(r, "status").ifBlank { return@mapNotNull null }
+                val rLabel = context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
                 val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                 val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
                 HistoryEntry(
-                    action = type.uppercase(),
+                    action = rStatus.uppercase(),
                     remark = rLabel,
                     time = timeStr,
                     author = "",

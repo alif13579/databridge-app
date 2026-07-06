@@ -835,7 +835,6 @@ class CallCenterFragment : Fragment() {
                 "employeeId"    to employeeId,
                 "remarks"       to fullRemark,
                 "note"          to noteText,
-                "type"          to selectedStatus,
                 "status"        to selectedStatus,
                 "remarked_by"   to "support",
                 "createdAt"     to timestamp
