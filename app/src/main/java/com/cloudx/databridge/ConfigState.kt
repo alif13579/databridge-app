@@ -31,6 +31,13 @@ object ConfigState {
         val text_bn:       String = "",
         val text_en:       String = "",
         val target_status: String = "",
+        val template_id:   String = "", // optional — linked WhatsApp template, blank = no auto-message
+    )
+
+    data class WhatsAppTemplate(
+        val id:   String = "",
+        val name: String = "", // admin-facing label, e.g. "Delivery confirmation"
+        val body: String = "", // message text with placeholders: {name} {phone} {address} {cod} {consignmentId} {hub}
     )
 
     // Statuses and remarks are admin-created and loaded from Firebase only.
@@ -65,6 +72,7 @@ object ConfigState {
     var statuses:   List<String>                     = BASE_STATUSES.toMutableList()
     var statusMeta: Map<String, StatusMeta>          = BASE_STATUS_META.toMutableMap()
     var remarks:    MutableMap<String, MutableList<Remark>> = defaultRemarks()
+    var whatsappTemplates: MutableMap<String, WhatsAppTemplate> = mutableMapOf()
     var workerLang: String                           = "bn_bn"
     var ccLang:     String                           = "bn_en"
 
@@ -73,6 +81,7 @@ object ConfigState {
         statuses   = BASE_STATUSES.toMutableList()
         statusMeta = BASE_STATUS_META.toMutableMap()
         remarks    = defaultRemarks()
+        whatsappTemplates = mutableMapOf()
         workerLang = "bn_bn"
         ccLang     = "bn_en"
     }

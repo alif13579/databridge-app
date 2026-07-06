@@ -90,11 +90,26 @@ class ConfigRemarksFragment : Fragment() {
         try {
             loadStatusMeta()
             loadRemarks()
+            loadWhatsAppTemplates()
             true
         } catch (e: Exception) {
             Log.e("ConfigRemarks", "Failed to load config", e)
             false
         }
+
+    private suspend fun loadWhatsAppTemplates() {
+        val snap = db.reference.child("config/whatsappTemplates").get().await()
+        val loaded = mutableMapOf<String, ConfigState.WhatsAppTemplate>()
+        if (snap.exists()) {
+            snap.children.forEach { t ->
+                val id   = t.key ?: return@forEach
+                val name = t.child("name").getValue(String::class.java) ?: ""
+                val body = t.child("body").getValue(String::class.java) ?: ""
+                loaded[id] = ConfigState.WhatsAppTemplate(id, name, body)
+            }
+        }
+        ConfigState.whatsappTemplates = loaded
+    }
 
     private suspend fun loadStatusMeta() {
         val snap = db.reference.child("config/statusMeta").get().await()
@@ -130,7 +145,8 @@ class ConfigRemarksFragment : Fragment() {
                     val textBn = r.child("text_bn").getValue(String::class.java) ?: ""
                     val textEn = r.child("text_en").getValue(String::class.java) ?: ""
                     val targetStatus = r.child("target_status").getValue(String::class.java) ?: key
-                    list.add(ConfigState.Remark(id, textBn, textEn, targetStatus))
+                    val templateId   = r.child("template_id").getValue(String::class.java) ?: ""
+                    list.add(ConfigState.Remark(id, textBn, textEn, targetStatus, templateId))
                 }
                 if (list.isNotEmpty()) loaded[key] = list
             }
@@ -320,10 +336,34 @@ class ConfigRemarksFragment : Fragment() {
             background = resources.getDrawable(R.drawable.bg_input_rounded, null)
             setPadding(dp(10), dp(10), dp(10), dp(10))
             textSize = 13f
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+        }
+
+        val tvTemplateLabel = TextView(ctx).apply {
+            text = "WhatsApp Template (ঐচ্ছিক)"
+            textSize = 10f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, dp(5))
+        }
+        val templates = ConfigState.whatsappTemplates.values.sortedBy { it.name }
+        val templateOptions = listOf("— কোনো Template না —") + templates.map { it.name }
+        val currentTemplateIdx = templates.indexOfFirst { it.id == remark.template_id }
+        val templateSpinner = Spinner(ctx).apply {
+            minimumHeight = dp(46)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(dp(8), 0, dp(8), 0)
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, templateOptions)
+            setSelection(if (currentTemplateIdx >= 0) currentTemplateIdx + 1 else 0)
         }
 
         layout.addView(etBnEdit)
         layout.addView(etEnEdit)
+        layout.addView(tvTemplateLabel)
+        layout.addView(templateSpinner)
 
         android.app.AlertDialog.Builder(ctx)
             .setTitle("Remark Edit করুন")
@@ -335,17 +375,18 @@ class ConfigRemarksFragment : Fragment() {
                     Toast.makeText(ctx, "বাংলা বা English রিমার্ক দিন", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                handleEdit(group, remark.id, newBn, newEn)
+                val newTemplateId = templates.getOrNull(templateSpinner.selectedItemPosition - 1)?.id ?: ""
+                handleEdit(group, remark.id, newBn, newEn, newTemplateId)
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun handleEdit(group: String, id: String, newBn: String, newEn: String) {
+    private fun handleEdit(group: String, id: String, newBn: String, newEn: String, newTemplateId: String) {
         val list = remarks[group] ?: return
         val idx = list.indexOfFirst { it.id == id }
         if (idx < 0) return
-        list[idx] = list[idx].copy(text_bn = newBn, text_en = newEn)
+        list[idx] = list[idx].copy(text_bn = newBn, text_en = newEn, template_id = newTemplateId)
         ConfigState.remarks = remarks
         bindAll()
         viewLifecycleOwner.lifecycleScope.launch {
@@ -417,12 +458,28 @@ class ConfigRemarksFragment : Fragment() {
         )
         spinner.setSelection(sorted.indexOf(activeStatus).coerceAtLeast(0))
 
+        // WhatsApp template picker (optional — "কোনো Template না" = no auto-message)
+        val templates = ConfigState.whatsappTemplates.values.sortedBy { it.name }
+        val templateOptions = listOf("— কোনো Template না —") + templates.map { it.name }
+        val templateSpinner = Spinner(ctx).apply {
+            minimumHeight = dp(46)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
+            setPadding(dp(8), 0, dp(8), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, templateOptions)
+        }
+
         content.addView(label("বাংলা"))
         content.addView(bnInput)
         content.addView(label("English"))
         content.addView(enInput)
         content.addView(label("Group"))
         content.addView(spinner)
+        content.addView(label("WhatsApp Template (ঐচ্ছিক)"))
+        content.addView(templateSpinner)
 
         val dialog = AlertDialog.Builder(ctx)
             .setTitle("নতুন Remark")
@@ -441,7 +498,8 @@ class ConfigRemarksFragment : Fragment() {
                     enInput.error = "বাংলা বা English রিমার্ক দিন"
                 } else {
                     dialog.dismiss()
-                    addRemark(bn, en, target)
+                    val selectedTemplateId = templates.getOrNull(templateSpinner.selectedItemPosition - 1)?.id ?: ""
+                    addRemark(bn, en, target, selectedTemplateId)
                 }
             }
         }
@@ -456,6 +514,7 @@ class ConfigRemarksFragment : Fragment() {
         bn: String,
         en: String,
         target: String,
+        templateId: String = "",
         onSuccess: () -> Unit = {},
     ) {
         val remark = ConfigState.Remark(
@@ -463,6 +522,7 @@ class ConfigRemarksFragment : Fragment() {
             text_bn = bn.ifEmpty { en },
             text_en = en.ifEmpty { bn },
             target_status = target,
+            template_id = templateId,
         )
         remarks.getOrPut(target) { mutableListOf() }.add(remark)
         ConfigState.remarks = remarks
@@ -520,6 +580,7 @@ class ConfigRemarksFragment : Fragment() {
                             "text_bn"       to r.text_bn,
                             "text_en"       to r.text_en,
                             "target_status" to r.target_status,
+                            "template_id"   to r.template_id,
                         )
                     }
                     payload[statusKey] = rows

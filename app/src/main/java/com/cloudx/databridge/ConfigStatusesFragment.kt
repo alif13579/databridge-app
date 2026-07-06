@@ -134,7 +134,8 @@ class ConfigStatusesFragment : Fragment() {
                 val textBn = r.child("text_bn").getValue(String::class.java) ?: ""
                 val textEn = r.child("text_en").getValue(String::class.java) ?: ""
                 val targetStatus = r.child("target_status").getValue(String::class.java) ?: key
-                list.add(ConfigState.Remark(id, textBn, textEn, targetStatus))
+                val templateId   = r.child("template_id").getValue(String::class.java) ?: ""
+                list.add(ConfigState.Remark(id, textBn, textEn, targetStatus, templateId))
             }
             loaded[key] = list
         }
@@ -561,6 +562,7 @@ class ConfigStatusesFragment : Fragment() {
                             "text_bn"       to r.text_bn,
                             "text_en"       to r.text_en,
                             "target_status" to r.target_status,
+                            "template_id"   to r.template_id,
                         )
                     }.toMap()
                 }

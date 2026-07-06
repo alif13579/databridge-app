@@ -709,6 +709,18 @@ class CallCenterFragment : Fragment() {
                     com.google.firebase.database.FirebaseDatabase.getInstance().reference
                         .child("config/remarks").get().await()
                 }
+                val templatesSnap = withContext(Dispatchers.IO) {
+                    com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                        .child("config/whatsappTemplates").get().await()
+                }
+                val loadedTemplates = mutableMapOf<String, ConfigState.WhatsAppTemplate>()
+                templatesSnap.children.forEach { t ->
+                    val tid  = t.key ?: return@forEach
+                    val name = t.child("name").getValue(String::class.java) ?: ""
+                    val body = t.child("body").getValue(String::class.java) ?: ""
+                    loadedTemplates[tid] = ConfigState.WhatsAppTemplate(tid, name, body)
+                }
+                whatsappTemplatesCache = loadedTemplates
                 val fetched = mutableListOf<CcRemarkOption>()
                 remarksSnap.children.forEach { groupSnap ->
                     groupSnap.children.forEach { r ->
@@ -718,6 +730,7 @@ class CallCenterFragment : Fragment() {
                         if (label.isBlank()) return@forEach
                         val target = r.child("target_status").getValue(String::class.java)?.trim()
                             .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
+                        val templateId = r.child("template_id").getValue(String::class.java)?.trim().orEmpty()
                         val metaEntry = StatusMetaCache.entries[target]
                         val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
                         fetched.add(
@@ -726,7 +739,8 @@ class CallCenterFragment : Fragment() {
                                 label = label,
                                 statusKey = target,
                                 statusPreview = preview,
-                                statusColor = metaEntry?.color ?: android.graphics.Color.GRAY
+                                statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
+                                templateId = templateId
                             )
                         )
                     }
@@ -764,6 +778,7 @@ class CallCenterFragment : Fragment() {
 
         var selectedStatus      = ""
         var selectedRemarkText  = ""
+        var selectedTemplateId  = ""
         val optionViews         = mutableListOf<android.view.View>()
 
         for (opt in options) {
@@ -794,6 +809,7 @@ class CallCenterFragment : Fragment() {
                 // Update auto-status preview
                 selectedStatus     = opt.statusKey
                 selectedRemarkText = opt.label
+                selectedTemplateId = opt.templateId
                 tvAutoStatus.text  = opt.statusPreview
                 tvAutoStatus.setTextColor(opt.statusColor)
 
@@ -814,6 +830,22 @@ class CallCenterFragment : Fragment() {
             val noteText   = etRemarks.text?.toString()?.trim() ?: ""
             val fullRemark = if (noteText.isNotBlank()) "$selectedRemarkText — $noteText"
                              else selectedRemarkText
+
+            if (selectedTemplateId.isNotBlank()) {
+                val template = whatsappTemplatesCache[selectedTemplateId]
+                if (template != null && template.body.isNotBlank()) {
+                    val filledMessage = WhatsAppHelper.fillTemplate(
+                        body = template.body,
+                        name = item.customer,
+                        phone = item.phone,
+                        address = item.address,
+                        cod = item.cod.toString(),
+                        consignmentId = item.id,
+                        hub = ""
+                    )
+                    WhatsAppHelper.send(requireContext(), item.phone, filledMessage)
+                }
+            }
 
             // Write to Firebase — remark and status are written as SEPARATE operations
             // (not one atomic multi-path update) so the remark always gets saved even if
@@ -923,11 +955,13 @@ class CallCenterFragment : Fragment() {
         val label: String,
         val statusKey: String,
         val statusPreview: String,
-        val statusColor: Int
+        val statusColor: Int,
+        val templateId: String = ""
     )
 
     // Loaded from config/remarks (+ config/language/ccLang) — see loadCcRemarkOptions().
     // Falls back to this small built-in set if config hasn't loaded yet or is empty.
+    private var whatsappTemplatesCache: Map<String, ConfigState.WhatsAppTemplate> = emptyMap()
     private var ccRemarkOptions: List<CcRemarkOption> = listOf(
         CcRemarkOption("✅", "Customer delivery নিতে চান", "confirmed", "✓ Confirmed", android.graphics.Color.parseColor("#16A34A")),
         CcRemarkOption("📵", "Customer ফোন ধরছে না", "pending", "◌ Pending", android.graphics.Color.parseColor("#F59E0B")),

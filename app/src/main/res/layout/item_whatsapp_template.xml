@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="11dp"
+    android:background="@drawable/bg_card_rounded"
+    android:layout_marginBottom="8dp">
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="📱" android:textSize="16sp" android:layout_marginEnd="10dp" />
+
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+        android:layout_weight="1" android:orientation="vertical">
+        <TextView android:id="@+id/tvTemplateName" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface" />
+        <TextView android:id="@+id/tvTemplateBody" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:textSize="11sp" android:textColor="#9CA3AF"
+            android:layout_marginTop="2dp" android:maxLines="2"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <Button android:id="@+id/btnEditTemplate"
+        android:layout_width="wrap_content" android:layout_height="32dp"
+        android:text="Edit" android:textSize="11sp" android:textStyle="bold"
+        android:paddingStart="10dp" android:paddingEnd="10dp"
+        android:backgroundTint="#F9FAFB" android:textColor="#374151"
+        android:layout_marginEnd="6dp" />
+
+    <Button android:id="@+id/btnDeleteTemplate"
+        android:layout_width="wrap_content" android:layout_height="32dp"
+        android:text="Delete" android:textSize="11sp" android:textStyle="bold"
+        android:paddingStart="10dp" android:paddingEnd="10dp"
+        android:backgroundTint="#FFF5F5" android:textColor="#EF4444" />
+</LinearLayout>

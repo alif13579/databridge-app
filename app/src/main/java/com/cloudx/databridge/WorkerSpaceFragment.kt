@@ -322,6 +322,17 @@ class WorkerSpaceFragment : Fragment() {
                 val remarksSnap = withContext(Dispatchers.IO) {
                     db.reference.child("config/remarks").get().await()
                 }
+                val templatesSnap = withContext(Dispatchers.IO) {
+                    db.reference.child("config/whatsappTemplates").get().await()
+                }
+                val loadedTemplates = mutableMapOf<String, ConfigState.WhatsAppTemplate>()
+                templatesSnap.children.forEach { t ->
+                    val tid  = t.key ?: return@forEach
+                    val name = t.child("name").getValue(String::class.java) ?: ""
+                    val body = t.child("body").getValue(String::class.java) ?: ""
+                    loadedTemplates[tid] = ConfigState.WhatsAppTemplate(tid, name, body)
+                }
+                whatsappTemplatesCache = loadedTemplates
                 val fetched = mutableListOf<WorkerRemarkOption>()
                 remarksSnap.children.forEach { groupSnap ->
                     groupSnap.children.forEach { r ->
@@ -331,6 +342,7 @@ class WorkerSpaceFragment : Fragment() {
                         if (label.isBlank()) return@forEach
                         val target = r.child("target_status").getValue(String::class.java)?.trim()
                             .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
+                        val templateId = r.child("template_id").getValue(String::class.java)?.trim().orEmpty()
                         val metaEntry = StatusMetaCache.entries[target]
                         val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
                         fetched.add(
@@ -339,7 +351,8 @@ class WorkerSpaceFragment : Fragment() {
                                 label = label,
                                 statusKey = target,
                                 statusPreview = preview,
-                                statusColor = metaEntry?.color ?: android.graphics.Color.GRAY
+                                statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
+                                templateId = templateId
                             )
                         )
                     }
@@ -426,6 +439,27 @@ class WorkerSpaceFragment : Fragment() {
             if (statusKey.isNotBlank() && selectedLabel.isNotBlank()) {
                 val timestamp = System.currentTimeMillis()
 
+                // Resolve which option was picked (for its optional WhatsApp template)
+                val selectedOption = options.firstOrNull { it.label == selectedLabel && it.statusKey == statusKey }
+                val templateId = selectedOption?.templateId.orEmpty()
+                var sentViaRemarkTemplate = false
+                if (templateId.isNotBlank()) {
+                    val template = whatsappTemplatesCache[templateId]
+                    if (template != null && template.body.isNotBlank()) {
+                        val filledMessage = WhatsAppHelper.fillTemplate(
+                            body = template.body,
+                            name = item.customer,
+                            phone = item.phone,
+                            address = item.address,
+                            cod = item.cod.toString(),
+                            consignmentId = item.id,
+                            hub = ""
+                        )
+                        WhatsAppHelper.send(requireContext(), item.phone, filledMessage)
+                        sentViaRemarkTemplate = true
+                    }
+                }
+
                 // Write remark and status as SEPARATE Firebase operations (not one atomic
                 // multi-path update) so the remark always gets saved even if the status/
                 // consignments write gets rejected by a role-restricted rule.
@@ -479,17 +513,22 @@ class WorkerSpaceFragment : Fragment() {
                 allParcels = updatedParcels
                 applyFilters()
 
-                WhatsAppSender.sendIfEnabled(
-                    this@WorkerSpaceFragment,
-                    item.phone,
-                    mapOf(
-                        "customer_name"  to item.customer,
-                        "parcel_value"   to item.cod.toString(),
-                        "address"        to item.address,
-                        "consignment_id" to item.id,
-                        "agent_phone"    to agentPhone
+                // Global fallback template (Settings → Automatic WhatsApp Sender) — only fires
+                // if this specific remark had NO linked template above, so a customer never
+                // gets two WhatsApp messages for one remark.
+                if (!sentViaRemarkTemplate) {
+                    WhatsAppSender.sendIfEnabled(
+                        this@WorkerSpaceFragment,
+                        item.phone,
+                        mapOf(
+                            "customer_name"  to item.customer,
+                            "parcel_value"   to item.cod.toString(),
+                            "address"        to item.address,
+                            "consignment_id" to item.id,
+                            "agent_phone"    to agentPhone
+                        )
                     )
-                )
+                }
             }
             dialog.dismiss()
         }
@@ -964,6 +1003,7 @@ class WorkerSpaceFragment : Fragment() {
     // Remark options for the "Set Remarks" sheet — loaded from config/remarks (target_status
     // per remark, set by admins in ConfigRemarksFragment). Falls back to a small built-in set
     // if the config hasn't loaded yet or is empty, so the feature never breaks entirely.
+    private var whatsappTemplatesCache: Map<String, ConfigState.WhatsAppTemplate> = emptyMap()
     private var remarkOptions: List<WorkerRemarkOption> = listOf(
         WorkerRemarkOption("✅", "Customer কে parcel delivery করা হচ্ছে", "confirmed", "✓ Confirmed", android.graphics.Color.parseColor("#16A34A")),
         WorkerRemarkOption("📵", "Customer ফোন ধরছে না", "verify_req", "⚡ Verify Request", android.graphics.Color.parseColor("#7C3AED")),
@@ -976,7 +1016,8 @@ class WorkerSpaceFragment : Fragment() {
         val label: String,
         val statusKey: String,
         val statusPreview: String,
-        val statusColor: Int
+        val statusColor: Int,
+        val templateId: String = "" // optional linked WhatsApp template
     )
 
     data class RunTypeOption(val key: String, val label: String)
