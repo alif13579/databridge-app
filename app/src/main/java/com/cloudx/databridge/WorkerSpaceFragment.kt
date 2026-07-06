@@ -492,6 +492,17 @@ class WorkerSpaceFragment : Fragment() {
                 }
                 allParcels = updatedParcels
                 applyFilters()
+
+                WhatsAppSender.sendIfEnabled(
+                    this@WorkerSpaceFragment,
+                    item.phone,
+                    mapOf(
+                        "customer_name" to item.customer,
+                        "parcel_value" to item.cod.toString(),
+                        "address" to item.address,
+                        "consignment_id" to item.id
+                    )
+                )
             }
             dialog.dismiss()
         }

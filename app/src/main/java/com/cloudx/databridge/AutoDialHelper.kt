@@ -69,7 +69,7 @@ object AutoDialHelper {
      * regardless of how it was stored: "8801885580909", "+8801885580909",
      * "1885580909" (missing leading 0), or already-correct "01885580909".
      */
-    private fun normalizeBdPhone(raw: String): String {
+    internal fun normalizeBdPhone(raw: String): String {
         var digits = raw.filter { it.isDigit() }
         if (digits.startsWith("880") && digits.length >= 12) {
             digits = digits.removePrefix("880")
