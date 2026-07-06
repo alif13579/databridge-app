@@ -21,139 +21,161 @@
             android:textStyle="bold"
             android:textColor="?attr/colorOnSurface" />
 
-        <HorizontalScrollView
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none">
+            android:layout_height="wrap_content">
 
-            <LinearLayout
-                android:layout_width="wrap_content"
+            <HorizontalScrollView
+                android:id="@+id/scrollConfigTabs"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingStart="8dp">
+                android:scrollbars="none">
 
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:gravity="center_horizontal">
-                    <TextView
-                        android:id="@+id/tabRemarks"
+                    android:orientation="horizontal"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="28dp">
+
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="💬 Remarks"
-                        android:padding="12dp"
-                        android:textSize="13sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurface"
-                        android:clickable="true"
-                        android:focusable="true" />
-                    <View
-                        android:id="@+id/indicatorRemarks"
-                        android:layout_width="match_parent"
-                        android:layout_height="2.5dp"
-                        android:background="#E8380D"
-                        android:visibility="invisible" />
-                </LinearLayout>
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal">
+                        <TextView
+                            android:id="@+id/tabRemarks"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="💬 Remarks"
+                            android:padding="12dp"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="?attr/colorOnSurface"
+                            android:clickable="true"
+                            android:focusable="true" />
+                        <View
+                            android:id="@+id/indicatorRemarks"
+                            android:layout_width="match_parent"
+                            android:layout_height="2.5dp"
+                            android:background="#E8380D"
+                            android:visibility="invisible" />
+                    </LinearLayout>
 
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:gravity="center_horizontal">
-                    <TextView
-                        android:id="@+id/tabLanguage"
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="🌐 Language"
-                        android:padding="12dp"
-                        android:textSize="13sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurface"
-                        android:clickable="true"
-                        android:focusable="true" />
-                    <View
-                        android:id="@+id/indicatorLanguage"
-                        android:layout_width="match_parent"
-                        android:layout_height="2.5dp"
-                        android:background="#E8380D"
-                        android:visibility="invisible" />
-                </LinearLayout>
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal">
+                        <TextView
+                            android:id="@+id/tabLanguage"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🌐 Language"
+                            android:padding="12dp"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="?attr/colorOnSurface"
+                            android:clickable="true"
+                            android:focusable="true" />
+                        <View
+                            android:id="@+id/indicatorLanguage"
+                            android:layout_width="match_parent"
+                            android:layout_height="2.5dp"
+                            android:background="#E8380D"
+                            android:visibility="invisible" />
+                    </LinearLayout>
 
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:gravity="center_horizontal">
-                    <TextView
-                        android:id="@+id/tabStatuses"
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="🏷️ Statuses"
-                        android:padding="12dp"
-                        android:textSize="13sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurface"
-                        android:clickable="true"
-                        android:focusable="true" />
-                    <View
-                        android:id="@+id/indicatorStatuses"
-                        android:layout_width="match_parent"
-                        android:layout_height="2.5dp"
-                        android:background="#E8380D"
-                        android:visibility="invisible" />
-                </LinearLayout>
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal">
+                        <TextView
+                            android:id="@+id/tabStatuses"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🏷️ Statuses"
+                            android:padding="12dp"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="?attr/colorOnSurface"
+                            android:clickable="true"
+                            android:focusable="true" />
+                        <View
+                            android:id="@+id/indicatorStatuses"
+                            android:layout_width="match_parent"
+                            android:layout_height="2.5dp"
+                            android:background="#E8380D"
+                            android:visibility="invisible" />
+                    </LinearLayout>
 
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:gravity="center_horizontal">
-                    <TextView
-                        android:id="@+id/tabSheet"
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="📊 Sheet"
-                        android:padding="12dp"
-                        android:textSize="13sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurface"
-                        android:clickable="true"
-                        android:focusable="true" />
-                    <View
-                        android:id="@+id/indicatorSheet"
-                        android:layout_width="match_parent"
-                        android:layout_height="2.5dp"
-                        android:background="#E8380D"
-                        android:visibility="invisible" />
-                </LinearLayout>
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal">
+                        <TextView
+                            android:id="@+id/tabSheet"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📊 Sheet"
+                            android:padding="12dp"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="?attr/colorOnSurface"
+                            android:clickable="true"
+                            android:focusable="true" />
+                        <View
+                            android:id="@+id/indicatorSheet"
+                            android:layout_width="match_parent"
+                            android:layout_height="2.5dp"
+                            android:background="#E8380D"
+                            android:visibility="invisible" />
+                    </LinearLayout>
 
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:gravity="center_horizontal">
-                    <TextView
-                        android:id="@+id/tabWhatsApp"
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="📱 WhatsApp"
-                        android:padding="12dp"
-                        android:textSize="13sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurface"
-                        android:clickable="true"
-                        android:focusable="true" />
-                    <View
-                        android:id="@+id/indicatorWhatsApp"
-                        android:layout_width="match_parent"
-                        android:layout_height="2.5dp"
-                        android:background="#E8380D"
-                        android:visibility="invisible" />
-                </LinearLayout>
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal">
+                        <TextView
+                            android:id="@+id/tabWhatsApp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📱 WhatsApp"
+                            android:padding="12dp"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="?attr/colorOnSurface"
+                            android:clickable="true"
+                            android:focusable="true" />
+                        <View
+                            android:id="@+id/indicatorWhatsApp"
+                            android:layout_width="match_parent"
+                            android:layout_height="2.5dp"
+                            android:background="#E8380D"
+                            android:visibility="invisible" />
+                    </LinearLayout>
 
-            </LinearLayout>
-        </HorizontalScrollView>
+                </LinearLayout>
+            </HorizontalScrollView>
+
+            <!-- Visual hint that the tab row scrolls further right — hidden once fully scrolled -->
+            <TextView
+                android:id="@+id/tvConfigTabsScrollHint"
+                android:layout_width="22dp"
+                android:layout_height="22dp"
+                android:layout_gravity="center_vertical|end"
+                android:layout_marginEnd="4dp"
+                android:text="›"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:gravity="center"
+                android:background="@drawable/bg_scroll_hint_circle"
+                android:elevation="2dp" />
+        </FrameLayout>
 
         <View
             android:layout_width="match_parent"

@@ -66,6 +66,18 @@ class ConfigFragment : Fragment() {
 
         contentFrame = view.findViewById(R.id.configContentFrame)
 
+        // Visual hint that the tab row scrolls further right (hidden once fully scrolled)
+        val scrollTabs    = view.findViewById<android.widget.HorizontalScrollView>(R.id.scrollConfigTabs)
+        val scrollHint    = view.findViewById<TextView>(R.id.tvConfigTabsScrollHint)
+        fun updateScrollHint() {
+            val child = scrollTabs.getChildAt(0) ?: return
+            val canScrollMore = child.width > scrollTabs.width &&
+                scrollTabs.scrollX + scrollTabs.width < child.width - 4
+            scrollHint.visibility = if (canScrollMore) View.VISIBLE else View.INVISIBLE
+        }
+        scrollTabs.viewTreeObserver.addOnGlobalLayoutListener { updateScrollHint() }
+        scrollTabs.setOnScrollChangeListener { _, _, _, _, _ -> updateScrollHint() }
+
         tabRemarks .setOnClickListener { switchTab(Tab.REMARKS) }
         tabLanguage.setOnClickListener { switchTab(Tab.LANGUAGE) }
         tabStatuses.setOnClickListener { switchTab(Tab.STATUSES) }
