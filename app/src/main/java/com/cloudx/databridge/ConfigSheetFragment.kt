@@ -2193,6 +2193,11 @@ class ConfigSheetFragment : Fragment() {
         layoutCreateNewNode?.visibility = View.GONE
         updateBreadcrumb()
 
+        if (nodeMappingConfirmed) {
+            renderLockedNodeSummary(container, ctx)
+            return
+        }
+
         viewLifecycleOwner.lifecycleScope.launch {
             var depth = 0
             var currentOptions = courierChildNodes
@@ -2213,7 +2218,8 @@ class ConfigSheetFragment : Fragment() {
                     // field), so there is nothing to preview/confirm; commit as-is.
                     nodeMappingConfirmed = true
                     commitNodePath()
-                    break
+                    renderNodePicker()
+                    return@launch
                 }
 
                 currentOptions = children
@@ -2233,6 +2239,52 @@ class ConfigSheetFragment : Fragment() {
                 addTreePreviewSection(container, ctx, nodePickerPath.size - 1, nodePickerPath.joinToString("/"))
             }
         }
+    }
+
+    /** Shown once the node is confirmed — replaces the dropdowns with a read-only summary
+     *  and an explicit Unlock button, so the user can't accidentally change the node while
+     *  still seeing an editable-looking dropdown. */
+    private fun renderLockedNodeSummary(container: android.widget.LinearLayout, ctx: android.content.Context) {
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        val box = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(12.dp(), 10.dp(), 12.dp(), 10.dp())
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(
+                android.graphics.Color.parseColor("#F0FDF4")
+            )
+        }
+        box.addView(TextView(ctx).apply {
+            text = "🔒 courier/" + nodePickerPath.joinToString("/")
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#16A34A"))
+            layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        box.addView(TextView(ctx).apply {
+            text = "🔓 Unlock"
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#EF4444"))
+            isClickable = true
+            isFocusable = true
+            setPadding(10.dp(), 4.dp(), 4.dp(), 4.dp())
+            setOnClickListener { unlockNodePicker() }
+        })
+        container.addView(box)
+    }
+
+    /** Unlocks the node picker so the user can pick a different node — reveals the dropdowns
+     *  again at the currently selected depth without wiping the mapped fields, since the user
+     *  might just want to inspect/adjust the node choice and re-confirm the same one. */
+    private fun unlockNodePicker() {
+        nodeMappingConfirmed = false
+        renderNodePicker()
+        renderMappingStep()
     }
 
     /** Builds and adds a single dropdown row for one depth level. */
@@ -2299,30 +2351,35 @@ class ConfigSheetFragment : Fragment() {
 
         row.addView(spinner)
 
-        if (depth > 0) {
-            val btnCancel = TextView(ctx).apply {
-                text = "✕"
-                textSize = 15f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(android.graphics.Color.parseColor("#EF4444"))
-                setPadding(10.dp(), 6.dp(), 4.dp(), 6.dp())
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                setOnClickListener { cancelNodeAtDepth(depth) }
-            }
-            row.addView(btnCancel)
+        // ✕ button for ALL depths (depth 0 resets entire path)
+        val btnCancel = TextView(ctx).apply {
+            text = "✕"
+            textSize = 15f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#EF4444"))
+            setPadding(10.dp(), 6.dp(), 4.dp(), 6.dp())
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            setOnClickListener { cancelNodeAtDepth(depth) }
         }
+        row.addView(btnCancel)
 
         container.addView(row)
     }
 
-    /** ✕ pressed on the dropdown at [depth] — clears this depth's selection and everything
-     *  deeper than it, letting the user jump back to this level and pick a different branch. */
+    /** ✕ pressed on the dropdown at [depth] — removes this dropdown and everything deeper
+     *  than it entirely, reverting to the parent depth's "+ Next level?" button (as if that
+     *  level had never been drilled into). Depth 0 clears the whole path back to the start. */
     private fun cancelNodeAtDepth(depth: Int) {
-        nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
-        nodePickerRevealedDepth = depth
+        if (depth == 0) {
+            nodePickerPath.clear()
+            nodePickerRevealedDepth = 0
+        } else {
+            nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
+            nodePickerRevealedDepth = depth - 1
+        }
         nodeMappingConfirmed = false
         renderNodePicker()
     }
@@ -2443,22 +2500,32 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    /** Recursively renders a DataSnapshot as an indented tree string (nested objects included). */
+    /** Recursively renders a DataSnapshot as an indented tree string (nested objects included).
+     *  Flat (scalar) fields at a level are all shown in full. Only when a level itself is a
+     *  nested object with children is that inner list capped to its first 3 keys — this keeps
+     *  previews short for huge nested collections (many run_ids, many consignments) without
+     *  hiding any of the actual flat field names the user needs to see for mapping. */
     private fun buildFirebaseTreeString(
         snap: com.google.firebase.database.DataSnapshot,
         indent: Int
     ): String {
         val pad = "  ".repeat(indent)
         val sb = StringBuilder()
-        snap.children.forEach { child ->
+        val allChildren = snap.children.toList()
+        val flatChildren   = allChildren.filter { !it.hasChildren() }
+        val nestedChildren = allChildren.filter { it.hasChildren() }
+
+        // Flat fields: show all of them, in their original order relative to nested ones
+        // isn't critical for a preview, so render flats first then nested-with-limit.
+        flatChildren.forEach { child ->
             val key = child.key ?: return@forEach
-            if (child.hasChildren()) {
-                sb.append("$pad├─ $key:\n")
-                sb.append(buildFirebaseTreeString(child, indent + 1))
-            } else {
-                val v = child.value?.toString()?.take(40) ?: ""
-                sb.append("$pad├─ $key: $v\n")
-            }
+            val v = child.value?.toString()?.take(40) ?: ""
+            sb.append("$pad├─ $key: $v\n")
+        }
+        nestedChildren.take(3).forEach { child ->
+            val key = child.key ?: return@forEach
+            sb.append("$pad├─ $key:\n")
+            sb.append(buildFirebaseTreeString(child, indent + 1))
         }
         return sb.toString()
     }
@@ -2470,6 +2537,7 @@ class ConfigSheetFragment : Fragment() {
         nodeMappingConfirmed = true
         commitNodePath()
         renderNodePicker()
+        renderMappingStep()
     }
 
     /** Shows the inline "create new node" input, wired to insert at the given depth. */
@@ -2487,9 +2555,11 @@ class ConfigSheetFragment : Fragment() {
             nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
             nodePickerPath.add(name)
             layoutCreateNewNode?.visibility = View.GONE
-            // A freshly created node has no children yet — commit immediately.
+            // A freshly created node has no children yet — commit immediately and lock.
+            nodeMappingConfirmed = true
             commitNodePath()
-            renderNodePickerKeepingNewNode(depth, name)
+            renderNodePicker()
+            renderMappingStep()
         }
         btnCancelNewNode?.setOnClickListener {
             layoutCreateNewNode?.visibility = View.GONE
@@ -3261,8 +3331,22 @@ class ConfigSheetFragment : Fragment() {
 
             container.addView(row)
         }
+
+        updateConnectButtonState()
     }
 
+    /** Enables Connect/Save only when the node is confirmed, primary key is valid, and at
+     *  least one field (flat or object) is mapped — mirrors handleConnect()'s own checks so
+     *  the button reflects readiness before the user even taps it. */
+    private fun updateConnectButtonState() {
+        val hasValidPk = pendingPkParts.isNotEmpty() &&
+            pendingPkParts.none { (it.type == "col" || it.type == "date") && it.value.isBlank() }
+        val hasAtLeastOneField = pendingMapping.isNotEmpty() || pendingObjectMapping.isNotEmpty()
+        val ready = nodeMappingConfirmed && hasValidPk && hasAtLeastOneField
+
+        btnConnect?.isEnabled = ready
+        btnConnect?.alpha = if (ready) 1.0f else 0.45f
+    }
 
     private fun clearConnectForm() {
         availableSheets = emptyList(); selectedSheet = null

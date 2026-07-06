@@ -99,6 +99,105 @@
                 android:trackTint="#555555" />
         </LinearLayout>
 
+        <!-- Switch: Automatic WhatsApp Sender -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="24dp">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Automatic WhatsApp Sender"
+                        android:textColor="@color/theme_text_primary"
+                        android:textSize="16sp" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Remark save হলে WhatsApp message খুলবে (agent-এর এক tap লাগবে)"
+                        android:textColor="@color/theme_text_secondary"
+                        android:textSize="12sp"
+                        android:layout_marginTop="2dp" />
+                </LinearLayout>
+                <Switch
+                    android:id="@+id/switchWhatsAppSender"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:thumbTint="@color/theme_text_accent"
+                    android:trackTint="#555555" />
+            </LinearLayout>
+
+            <!-- Template editor — visible only when toggle is ON -->
+            <LinearLayout
+                android:id="@+id/layoutWhatsAppTemplate"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="12dp"
+                android:visibility="gone">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Message Template"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary"
+                    android:layout_marginBottom="4dp" />
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Variables: {customer_name}, {parcel_value}, {address}, {consignment_id}"
+                    android:textSize="11sp"
+                    android:textColor="@color/theme_text_secondary"
+                    android:layout_marginBottom="8dp" />
+                <EditText
+                    android:id="@+id/etWhatsAppTemplate"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_input_rounded"
+                    android:padding="12dp"
+                    android:textSize="13sp"
+                    android:inputType="textMultiLine"
+                    android:minLines="4"
+                    android:maxLines="8"
+                    android:gravity="top"
+                    android:layout_marginBottom="8dp" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="end">
+                    <Button
+                        android:id="@+id/btnWhatsAppTemplateReset"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="Reset"
+                        android:textSize="12sp"
+                        android:textColor="@color/theme_text_secondary"
+                        android:backgroundTint="@color/theme_bg_card"
+                        android:layout_marginEnd="8dp" />
+                    <Button
+                        android:id="@+id/btnWhatsAppTemplateSave"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="Save"
+                        android:textSize="12sp"
+                        android:textColor="@color/theme_bg_card"
+                        android:backgroundTint="#16A34A" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
         <!-- Switch 3: Auto copy to clipboard -->
         <LinearLayout
             android:layout_width="match_parent"

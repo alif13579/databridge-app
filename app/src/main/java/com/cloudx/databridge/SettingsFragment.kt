@@ -32,6 +32,7 @@ class SettingsFragment : Fragment() {
 
     private lateinit var switchAutoDialer: Switch
     private lateinit var switchAutoDial: Switch
+    private lateinit var switchWhatsAppSender: Switch
     private lateinit var switchIncomingAlert: Switch
     private lateinit var switchSound: Switch
     private lateinit var switchAutoCopy: Switch
@@ -77,6 +78,7 @@ class SettingsFragment : Fragment() {
     private fun initViews() {
         switchAutoDialer     = binding.findViewById(R.id.switchAutoDialer)
         switchAutoDial       = binding.findViewById(R.id.switchAutoDial)
+        switchWhatsAppSender = binding.findViewById(R.id.switchWhatsAppSender)
         switchIncomingAlert  = binding.findViewById(R.id.switchIncomingAlert)
         switchSound          = binding.findViewById(R.id.switchSound)
         switchAutoCopy       = binding.findViewById(R.id.switchAutoCopy)
@@ -117,6 +119,42 @@ class SettingsFragment : Fragment() {
         switchAutoDialer.isChecked = togglePrefs.getBoolean("auto_open_dialer", false)
         switchAutoDialer.setOnCheckedChangeListener { _, isChecked ->
             togglePrefs.edit().putBoolean("auto_open_dialer", isChecked).apply()
+        }
+
+        // WhatsApp Sender
+        val ctx = requireContext()
+        val layoutTemplate = binding.findViewById<android.widget.LinearLayout>(R.id.layoutWhatsAppTemplate)
+        val etTemplate = binding.findViewById<android.widget.EditText>(R.id.etWhatsAppTemplate)
+        val btnSave = binding.findViewById<android.widget.Button>(R.id.btnWhatsAppTemplateSave)
+        val btnReset = binding.findViewById<android.widget.Button>(R.id.btnWhatsAppTemplateReset)
+
+        fun refreshTemplateVisibility(enabled: Boolean) {
+            layoutTemplate.visibility = if (enabled) View.VISIBLE else View.GONE
+            if (enabled && etTemplate.text.isNullOrBlank()) {
+                etTemplate.setText(WhatsAppSender.getTemplate(ctx))
+            }
+        }
+
+        switchWhatsAppSender.setOnCheckedChangeListener(null)
+        switchWhatsAppSender.isChecked = WhatsAppSender.isEnabled(ctx)
+        refreshTemplateVisibility(switchWhatsAppSender.isChecked)
+        switchWhatsAppSender.setOnCheckedChangeListener { _, isChecked ->
+            WhatsAppSender.setEnabled(ctx, isChecked)
+            refreshTemplateVisibility(isChecked)
+        }
+
+        etTemplate.setText(WhatsAppSender.getTemplate(ctx))
+        btnSave.setOnClickListener {
+            val text = etTemplate.text.toString().trim()
+            if (text.isNotBlank()) {
+                WhatsAppSender.setTemplate(ctx, text)
+                Toast.makeText(ctx, "Template saved ✓", Toast.LENGTH_SHORT).show()
+            }
+        }
+        btnReset.setOnClickListener {
+            etTemplate.setText(WhatsAppSender.DEFAULT_TEMPLATE)
+            WhatsAppSender.setTemplate(ctx, WhatsAppSender.DEFAULT_TEMPLATE)
+            Toast.makeText(ctx, "Template reset to default", Toast.LENGTH_SHORT).show()
         }
 
         switchIncomingAlert.setOnCheckedChangeListener(null)
