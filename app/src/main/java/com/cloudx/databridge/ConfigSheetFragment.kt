@@ -2627,9 +2627,6 @@ class ConfigSheetFragment : Fragment() {
             val v = child.value?.toString()?.take(40) ?: ""
             sb.append("$pad├─ $key: $v\n")
         }
-        if (indent > 0 && flatChildren.size > flatToShow.size) {
-            sb.append("$pad└─ ... আরও ${flatChildren.size - flatToShow.size}টা\n")
-        }
         nestedChildren.take(3).forEach { child ->
             val key = child.key ?: return@forEach
             sb.append("$pad├─ $key:\n")
