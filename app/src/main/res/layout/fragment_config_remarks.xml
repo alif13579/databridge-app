@@ -14,6 +14,35 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
+        <!-- Scope toggle: which app's remarks are being managed -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@drawable/bg_input_rounded"
+            android:layout_marginBottom="14dp">
+
+            <TextView
+                android:id="@+id/tabRemarksWorker"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="🚴 Worker"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tabRemarksCallCenter"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="📞 Call Center"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

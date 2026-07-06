@@ -707,7 +707,7 @@ class CallCenterFragment : Fragment() {
 
                 val remarksSnap = withContext(Dispatchers.IO) {
                     com.google.firebase.database.FirebaseDatabase.getInstance().reference
-                        .child("config/remarks").get().await()
+                        .child("config/remarks_call_center").get().await()
                 }
                 val templatesSnap = withContext(Dispatchers.IO) {
                     com.google.firebase.database.FirebaseDatabase.getInstance().reference

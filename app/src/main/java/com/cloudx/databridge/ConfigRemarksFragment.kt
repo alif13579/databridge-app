@@ -34,6 +34,15 @@ class ConfigRemarksFragment : Fragment() {
     private var remarks: MutableMap<String, MutableList<ConfigState.Remark>> = ConfigState.remarks
     private var activeStatus: String = statuses.firstOrNull { (remarks[it]?.size ?: 0) > 0 } ?: statuses.firstOrNull() ?: "DELIVERED"
 
+    // Which app's remarks are being managed — Worker and Call Center have separate,
+    // independent remark lists (config/remarks_worker vs config/remarks_call_center) so
+    // status-changing actions available to one role never leak into the other's picker.
+    private enum class RemarkScope(val firebaseNode: String) {
+        WORKER("config/remarks_worker"),
+        CALL_CENTER("config/remarks_call_center")
+    }
+    private var activeScope: RemarkScope = RemarkScope.WORKER
+
     // Guard: true while we're programmatically setting spinner selection
     private var isProgrammaticSelection = false
 
@@ -46,6 +55,8 @@ class ConfigRemarksFragment : Fragment() {
     private lateinit var spinnerTarget:  Spinner
     private lateinit var btnAdd:         Button
     private lateinit var btnOpenCreate:  TextView
+    private lateinit var tabWorker:      TextView
+    private lateinit var tabCallCenter:  TextView
     private lateinit var busyOverlay:    View
     private lateinit var tvBusy:         TextView
 
@@ -63,8 +74,14 @@ class ConfigRemarksFragment : Fragment() {
         spinnerTarget = view.findViewById(R.id.spinnerTargetStatus)
         btnAdd        = view.findViewById(R.id.btnAddRemark)
         btnOpenCreate = view.findViewById(R.id.btnOpenCreateRemark)
+        tabWorker     = view.findViewById(R.id.tabRemarksWorker)
+        tabCallCenter = view.findViewById(R.id.tabRemarksCallCenter)
         busyOverlay   = view.findViewById(R.id.remarksBusyOverlay)
         tvBusy        = view.findViewById(R.id.tvRemarksBusy)
+
+        updateScopeTabStyles()
+        tabWorker.setOnClickListener { switchScope(RemarkScope.WORKER) }
+        tabCallCenter.setOnClickListener { switchScope(RemarkScope.CALL_CENTER) }
 
         // Load from Firebase then bind
         loadFromFirebase()
@@ -134,7 +151,27 @@ class ConfigRemarksFragment : Fragment() {
     }
 
     private suspend fun loadRemarks() {
-        val snap = db.reference.child("config/remarks").get().await()
+        var snap = db.reference.child(activeScope.firebaseNode).get().await()
+
+        // One-time migration: if the new scoped node is empty but the old shared
+        // config/remarks still has data, copy it into BOTH scoped nodes so no existing
+        // remarks are lost, then re-read from the scoped node as normal going forward.
+        if (!snap.exists()) {
+            val legacySnap = db.reference.child("config/remarks").get().await()
+            if (legacySnap.exists()) {
+                val legacyPayload = legacySnap.value
+                if (legacyPayload != null) {
+                    try {
+                        db.reference.child("config/remarks_worker").setValue(legacyPayload).await()
+                        db.reference.child("config/remarks_call_center").setValue(legacyPayload).await()
+                    } catch (e: Exception) {
+                        Log.e("ConfigRemarks", "Legacy remarks migration failed", e)
+                    }
+                    snap = db.reference.child(activeScope.firebaseNode).get().await()
+                }
+            }
+        }
+
         val loaded = mutableMapOf<String, MutableList<ConfigState.Remark>>()
         if (snap.exists()) {
             snap.children.forEach { statusSnap ->
@@ -159,6 +196,29 @@ class ConfigRemarksFragment : Fragment() {
             statuses.contains(activeStatus) -> activeStatus
             else -> ""
         }
+    }
+
+    /** Switches between managing Worker vs Call Center remarks — reloads from the
+     *  corresponding scoped Firebase node and re-binds the whole screen. */
+    private fun switchScope(scope: RemarkScope) {
+        if (scope == activeScope) return
+        activeScope = scope
+        updateScopeTabStyles()
+        loadFromFirebase()
+    }
+
+    private fun updateScopeTabStyles() {
+        if (!::tabWorker.isInitialized) return
+        val ctx = requireContext()
+        val activeBg   = ctx.getColor(R.color.theme_bg_card)
+        val inactiveBg = android.graphics.Color.TRANSPARENT
+        val activeText   = android.graphics.Color.parseColor("#E8380D")
+        val inactiveText = ctx.getColor(R.color.theme_text_muted)
+
+        tabWorker.setBackgroundColor(if (activeScope == RemarkScope.WORKER) activeBg else inactiveBg)
+        tabWorker.setTextColor(if (activeScope == RemarkScope.WORKER) activeText else inactiveText)
+        tabCallCenter.setBackgroundColor(if (activeScope == RemarkScope.CALL_CENTER) activeBg else inactiveBg)
+        tabCallCenter.setTextColor(if (activeScope == RemarkScope.CALL_CENTER) activeText else inactiveText)
     }
 
     // ── Bind UI ───────────────────────────────────────────────────────────────
@@ -586,7 +646,7 @@ class ConfigRemarksFragment : Fragment() {
                     payload[statusKey] = rows
                 }
             }
-            db.reference.child("config/remarks").setValue(payload).await()
+            db.reference.child(activeScope.firebaseNode).setValue(payload).await()
             true
         } catch (e: Exception) {
             Log.e("ConfigRemarks", "Failed to save remarks", e)

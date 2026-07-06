@@ -320,7 +320,7 @@ class WorkerSpaceFragment : Fragment() {
                 workerStatusLang = statusLang
 
                 val remarksSnap = withContext(Dispatchers.IO) {
-                    db.reference.child("config/remarks").get().await()
+                    db.reference.child("config/remarks_worker").get().await()
                 }
                 val templatesSnap = withContext(Dispatchers.IO) {
                     db.reference.child("config/whatsappTemplates").get().await()
