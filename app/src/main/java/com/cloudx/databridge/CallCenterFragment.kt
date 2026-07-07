@@ -665,12 +665,15 @@ class CallCenterFragment : Fragment() {
 
                         val remarkSnap = db.reference.child("courier/remarks_by_consignment/$cId")
                             .limitToLast(1).get().await()
-                        val remarkStatus = remarkSnap.children.firstOrNull()
-                            ?.child("status")?.getValue(String::class.java) ?: ""
+                        val latestEntry = remarkSnap.children.firstOrNull()
+                        val remarkStatus = latestEntry?.child("status")?.getValue(String::class.java) ?: ""
                         val remarkLabel = if (remarkStatus.isNotBlank()) {
                             context?.let { WorkerParcelAdapter.getStatusConfig(it, remarkStatus, "bn").label }
                                 ?: remarkStatus
-                        } else ""
+                        } else {
+                            // Note-only entry (no target status) — show the raw remark/note text instead
+                            latestEntry?.child("remarks")?.getValue(String::class.java) ?: ""
+                        }
 
                         CallCenterParcelItem(
                             id                = cId,
@@ -727,7 +730,12 @@ class CallCenterFragment : Fragment() {
                     val latest = sorted.firstOrNull()
                     val latestRemark = latest?.let {
                         val status = it.child("status").getValue(String::class.java)?.trim().orEmpty()
-                        WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label
+                        if (status.isNotBlank()) {
+                            WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label
+                        } else {
+                            // Note-only entry (no target status) — show the raw remark/note text instead
+                            it.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                        }
                     }.orEmpty()
 
                     val idx = allParcels.indexOfFirst { it.id == cId }
@@ -887,23 +895,43 @@ class CallCenterFragment : Fragment() {
                 tvAutoStatus.text  = opt.statusPreview
                 tvAutoStatus.setTextColor(opt.statusColor)
 
-                btnSave.isEnabled = true
-                btnSave.alpha     = 1f
+                refreshSaveEnabled()
             }
 
             optionViews.add(optView)
             layoutOptions.addView(optView)
         }
 
-        // Disabled until option selected
+        // Enabled once EITHER a remark option is picked OR the note has text —
+        // a note alone (no predefined remark) must still be saveable.
         btnSave.isEnabled = false
         btnSave.alpha     = 0.5f
 
+        fun refreshSaveEnabled() {
+            val hasNote = etRemarks.text?.toString()?.trim().orEmpty().isNotBlank()
+            val enabled = selectedStatus.isNotBlank() || hasNote
+            btnSave.isEnabled = enabled
+            btnSave.alpha     = if (enabled) 1f else 0.5f
+        }
+
+        etRemarks.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { refreshSaveEnabled() }
+        })
+
         btnSave.setOnClickListener {
-            if (selectedStatus.isBlank()) return@setOnClickListener
-            val noteText   = etRemarks.text?.toString()?.trim() ?: ""
-            val fullRemark = if (noteText.isNotBlank()) "$selectedRemarkText — $noteText"
-                             else selectedRemarkText
+            val noteText = etRemarks.text?.toString()?.trim() ?: ""
+            if (selectedStatus.isBlank() && noteText.isBlank()) return@setOnClickListener
+
+            // If a remark option was picked: "label — note" (or just label if no note).
+            // If NO option was picked but there's a note: the note itself IS the remark,
+            // and no target status is applied (status stays blank — this is a note-only entry).
+            val fullRemark = when {
+                selectedStatus.isNotBlank() && noteText.isNotBlank() -> "$selectedRemarkText — $noteText"
+                selectedStatus.isNotBlank()                          -> selectedRemarkText
+                else                                                 -> noteText
+            }
 
             if (selectedTemplateId.isNotBlank() && WhatsAppSender.isEnabled(requireContext())) {
                 val template = whatsappTemplatesCache[selectedTemplateId]
