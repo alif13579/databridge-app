@@ -863,6 +863,24 @@ class CallCenterFragment : Fragment() {
         var selectedTemplateId  = ""
         val optionViews         = mutableListOf<android.view.View>()
 
+        // Enabled once EITHER a remark option is picked OR the note has text —
+        // a note alone (no predefined remark) must still be saveable.
+        btnSave.isEnabled = false
+        btnSave.alpha     = 0.5f
+
+        fun refreshSaveEnabled() {
+            val hasNote = etRemarks.text?.toString()?.trim().orEmpty().isNotBlank()
+            val enabled = selectedStatus.isNotBlank() || hasNote
+            btnSave.isEnabled = enabled
+            btnSave.alpha     = if (enabled) 1f else 0.5f
+        }
+
+        etRemarks.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { refreshSaveEnabled() }
+        })
+
         for (opt in options) {
             val optView = layoutInflater.inflate(R.layout.item_worker_remark_option, layoutOptions, false)
             val tvIcon  = optView.findViewById<TextView>(R.id.twRemarkOptIcon)
@@ -901,24 +919,6 @@ class CallCenterFragment : Fragment() {
             optionViews.add(optView)
             layoutOptions.addView(optView)
         }
-
-        // Enabled once EITHER a remark option is picked OR the note has text —
-        // a note alone (no predefined remark) must still be saveable.
-        btnSave.isEnabled = false
-        btnSave.alpha     = 0.5f
-
-        fun refreshSaveEnabled() {
-            val hasNote = etRemarks.text?.toString()?.trim().orEmpty().isNotBlank()
-            val enabled = selectedStatus.isNotBlank() || hasNote
-            btnSave.isEnabled = enabled
-            btnSave.alpha     = if (enabled) 1f else 0.5f
-        }
-
-        etRemarks.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) { refreshSaveEnabled() }
-        })
 
         btnSave.setOnClickListener {
             val noteText = etRemarks.text?.toString()?.trim() ?: ""
