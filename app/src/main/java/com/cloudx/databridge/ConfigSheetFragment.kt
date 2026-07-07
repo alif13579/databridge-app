@@ -2605,12 +2605,12 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** Recursively renders a DataSnapshot as an indented tree string (nested objects included).
-     *  Top-level (indent 0) flat fields are a node's own distinct fields (e.g. agentSystemId,
-     *  status, createdAt) — always shown in full. Once recursed into a nested level (indent > 0,
-     *  e.g. the individual entries inside "consignments"), those are typically many repetitive
-     *  entries of the identical shape, so they're capped to the first 3 with a "... আরও N" line —
-     *  showing all of them would just be a meaningless wall of identical-looking rows. Distinct
-     *  nested-object FIELDS at any level are separately capped to the first 3 as well. */
+     *  Only ONE example nested child is recursed into at any level (e.g. one run under
+     *  delivery_run, not three) — showing multiple siblings just repeats the same shape and
+     *  makes the preview needlessly long. A node's own flat (scalar) fields are shown in full
+     *  UNLESS there are many of them (> 8), which means this node itself is a bulk key-value
+     *  collection (e.g. consignments/{id}: "status") rather than a handful of named fields —
+     *  those get capped to 3, since every entry has the identical shape anyway. */
     private fun buildFirebaseTreeString(
         snap: com.google.firebase.database.DataSnapshot,
         indent: Int
@@ -2621,13 +2621,13 @@ class ConfigSheetFragment : Fragment() {
         val flatChildren   = allChildren.filter { !it.hasChildren() }
         val nestedChildren = allChildren.filter { it.hasChildren() }
 
-        val flatToShow = if (indent == 0) flatChildren else flatChildren.take(3)
+        val flatToShow = if (flatChildren.size > 8) flatChildren.take(3) else flatChildren
         flatToShow.forEach { child ->
             val key = child.key ?: return@forEach
             val v = child.value?.toString()?.take(40) ?: ""
             sb.append("$pad├─ $key: $v\n")
         }
-        nestedChildren.take(3).forEach { child ->
+        nestedChildren.take(1).forEach { child ->
             val key = child.key ?: return@forEach
             sb.append("$pad├─ $key:\n")
             sb.append(buildFirebaseTreeString(child, indent + 1))
@@ -3532,6 +3532,10 @@ class ConfigSheetFragment : Fragment() {
         pendingPkParts.clear()
         targetNode = "courier/consignments"
         etTargetNode?.setText("")
+        nodePickerPath.clear()
+        nodePickerRevealedDepth = 0
+        nodeMappingConfirmed = false
+        nodeChildrenCache.clear()
         tvFetchStatus?.text = ""
         if (googleAccount != null) loadSheetsForAccount()
     }
