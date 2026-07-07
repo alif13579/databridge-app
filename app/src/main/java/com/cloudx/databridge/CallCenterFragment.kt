@@ -717,30 +717,12 @@ class CallCenterFragment : Fragment() {
                         val status = it.child("status").getValue(String::class.java)?.trim().orEmpty()
                         WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label
                     }.orEmpty()
-                    val latestTime = latest?.let {
-                        val ts = it.child("createdAt").getValue(Long::class.java) ?: 0L
-                        java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date(ts))
-                    }.orEmpty()
-                    val latestAuthor = latest?.let {
-                        val by = it.child("remarked_by").getValue(String::class.java).orEmpty()
-                        val uid = it.child("userId").getValue(String::class.java).orEmpty()
-                            .ifBlank { it.child("employeeId").getValue(String::class.java).orEmpty() }
-                        when {
-                            by == "support" && uid.isNotBlank() -> "$uid · CC"
-                            by == "support" -> "CC"
-                            uid.isNotBlank() -> uid
-                            else -> "Agent"
-                        }
-                    }.orEmpty()
 
                     val idx = allParcels.indexOfFirst { it.id == cId }
                     if (idx != -1) {
                         allParcels = allParcels.toMutableList().also {
                             it[idx] = it[idx].copy(
-                                remarks = latestRemark,
-                                ccRemark = latestRemark,
-                                ccRemarkTime = latestTime,
-                                ccRemarkAuthor = latestAuthor
+                                remarks = latestRemark
                             )
                         }
                         applyFilters()
