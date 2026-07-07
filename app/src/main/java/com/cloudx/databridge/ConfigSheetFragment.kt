@@ -2608,9 +2608,12 @@ class ConfigSheetFragment : Fragment() {
      *  Only ONE example nested child is recursed into at any level (e.g. one run under
      *  delivery_run, not three) — showing multiple siblings just repeats the same shape and
      *  makes the preview needlessly long. A node's own flat (scalar) fields are shown in full
-     *  UNLESS there are many of them (> 8), which means this node itself is a bulk key-value
-     *  collection (e.g. consignments/{id}: "status") rather than a handful of named fields —
-     *  those get capped to 3, since every entry has the identical shape anyway. */
+     *  UNLESS there are many of them (> 15), which means this node itself is a bulk key-value
+     *  collection (e.g. consignments/{id}: "status") rather than one record's own named fields —
+     *  those get capped to 3, since every entry has the identical shape anyway. The threshold is
+     *  set well above any single record's realistic field count (a consignment or run typically
+     *  has well under 15 fields, and that count can vary a bit between records) so an individual
+     *  record's fields are never truncated — only a true repeated-entries collection is. */
     private fun buildFirebaseTreeString(
         snap: com.google.firebase.database.DataSnapshot,
         indent: Int
@@ -2621,7 +2624,7 @@ class ConfigSheetFragment : Fragment() {
         val flatChildren   = allChildren.filter { !it.hasChildren() }
         val nestedChildren = allChildren.filter { it.hasChildren() }
 
-        val flatToShow = if (flatChildren.size > 8) flatChildren.take(3) else flatChildren
+        val flatToShow = if (flatChildren.size > 15) flatChildren.take(3) else flatChildren
         flatToShow.forEach { child ->
             val key = child.key ?: return@forEach
             val v = child.value?.toString()?.take(40) ?: ""
