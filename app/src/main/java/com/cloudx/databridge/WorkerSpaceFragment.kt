@@ -802,12 +802,21 @@ class WorkerSpaceFragment : Fragment() {
                         )
                     }.sortedBy { it.time }
 
+                    val lastRemarkStatus = snapshot.children
+                        .mapNotNull { r -> r.child("status").getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() } }
+                        .lastOrNull() ?: ""
                     val lastRemark = history.lastOrNull()?.remark ?: ""
                     val idx = allParcels.indexOfFirst { it.id == cId }
                     if (idx != -1) {
+                        val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status
                         allParcels = allParcels.toMutableList().also {
-                            it[idx] = it[idx].copy(remarks = lastRemark, history = history)
+                            it[idx] = it[idx].copy(
+                                status  = effectiveStatus,
+                                remarks = lastRemark,
+                                history = history
+                            )
                         }
+                        setupFilterTabs()
                         applyFilters()
                     }
                 }

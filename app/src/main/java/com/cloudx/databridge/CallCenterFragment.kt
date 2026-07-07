@@ -397,19 +397,32 @@ class CallCenterFragment : Fragment() {
     }
 
     private fun updateFilterChips() {
+        val ctx = requireContext()
         for (i in 0 until layoutFilterTabs.childCount) {
-            val chip = layoutFilterTabs.getChildAt(i) as TextView
-            val isActive = chip.tag == statusFilter
+            val chip = layoutFilterTabs.getChildAt(i) as? TextView ?: continue
+            val statusKey = chip.tag as? String ?: continue
+            val isActive = statusKey == statusFilter
+            val metaColor = if (statusKey == "all") null
+                else StatusMetaCache.entries[statusKey]?.color?.takeIf { it.isNotBlank() }
             chip.isSelected = isActive
-            chip.setBackgroundResource(
-                if (isActive) R.drawable.bg_filter_chip_active
-                else R.drawable.bg_filter_chip_inactive
-            )
-            chip.setTextColor(
-                requireContext().getColor(
-                    if (isActive) android.R.color.white else R.color.theme_text_secondary
-                )
-            )
+            if (isActive && metaColor != null) {
+                try {
+                    val color = android.graphics.Color.parseColor(metaColor)
+                    chip.background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(color); cornerRadius = 24f
+                    }
+                    chip.setTextColor(android.graphics.Color.WHITE)
+                } catch (_: Exception) {
+                    chip.setBackgroundResource(R.drawable.bg_filter_chip_active)
+                    chip.setTextColor(ctx.getColor(android.R.color.white))
+                }
+            } else if (isActive) {
+                chip.setBackgroundResource(R.drawable.bg_filter_chip_active)
+                chip.setTextColor(ctx.getColor(android.R.color.white))
+            } else {
+                chip.setBackgroundResource(R.drawable.bg_filter_chip_inactive)
+                chip.setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            }
         }
     }
 
