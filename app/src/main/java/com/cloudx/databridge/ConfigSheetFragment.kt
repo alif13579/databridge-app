@@ -2190,11 +2190,23 @@ class ConfigSheetFragment : Fragment() {
         activeConnectionId = conn.connectionId
         // Expand this branch so newly added sheet card is visible
         expandedBranch = activeBranch
-        saveToFirebase(conn)
-        toast(if (isNew) "✅ $activeBranch connected!" else "✅ Range updated")
         screen = if (isRangeEdit) Screen.MANAGING else Screen.BRANCH_SELECT
         isRangeEdit = false
         render()
+
+        // Wait for the actual Firebase write before claiming success — previously this fired
+        // saveToFirebase() without waiting and showed "✅ connected!" unconditionally, so a
+        // failed write (permission denied, network drop) looked identical to a real success
+        // and the connection silently never made it to Firebase.
+        val owner = viewLifecycleOwnerLiveData.value ?: return
+        owner.lifecycleScope.launch {
+            val ok = saveToFirebase(conn)
+            if (ok) {
+                toast(if (isNew) "✅ $activeBranch connected!" else "✅ Range updated")
+            } else {
+                toast("⚠ Firebase-এ save ব্যর্থ হয়েছে — নেটওয়ার্ক/permission চেক করে আবার চেষ্টা করুন")
+            }
+        }
     }
 
     private fun autoDetectMapping() {
@@ -4266,42 +4278,47 @@ class ConfigSheetFragment : Fragment() {
         }.distinct()
     }
 
-    private fun saveToFirebase(conn: SheetConn) {
-        val owner = viewLifecycleOwnerLiveData.value ?: return
-        owner.lifecycleScope.launch {
-            try {
-                val data = mapOf(
-                    "nickname"        to conn.nickname,
-                    "sheetId"         to conn.sheetId,
-                    "sheetName"       to conn.sheetName,
-                    "tabName"         to conn.tabName,
-                    "colStart"        to conn.colStart,
-                    "colEnd"          to conn.colEnd,
-                    "startRow"        to (conn.startRow ?: 1),
-                    "endRow"          to (conn.endRow   ?: 0),
-                    "autoSync"        to conn.autoSync,
-                    "syncIntervalMin" to conn.syncIntervalMin,
-                    "googleEmail"     to conn.googleEmail,
-                    "connectedBy"     to conn.connectedBy,
-                    "connectedAt"     to conn.connectedAt,
-                    "columnMapping"   to conn.columnMapping.mapValues { (_, cm) ->
-                        mapOf("col" to cm.col, "header" to cm.header)
-                    },
-                    "objectColumnMapping" to conn.objectColumnMapping.mapValues {
-                        (_, pair) -> mapOf("key" to pair.first, "value" to pair.second)
-                    },
-                    "primaryKeyField" to conn.primaryKeyField,
-                    "primaryKeyParts" to conn.primaryKeyParts.map { part ->
-                        mapOf("type" to part.type, "value" to part.value)
-                    },
-                    "targetNode"      to conn.targetNode,
-                )
-                val basePath = "config/sheets/${conn.branchId}/connections"
-                val connId = conn.connectionId.ifBlank { db.reference.child(basePath).push().key ?: return@launch }
-                db.reference.child("$basePath/$connId").setValue(data).await()
-                db.reference.child("config/sheets/${conn.branchId}/history").push()
-                    .setValue(data + mapOf("action" to "connected", "connectionId" to connId)).await()
-            } catch (_: Exception) {}
+    private suspend fun saveToFirebase(conn: SheetConn): Boolean {
+        return try {
+            val data = mapOf(
+                "nickname"        to conn.nickname,
+                "sheetId"         to conn.sheetId,
+                "sheetName"       to conn.sheetName,
+                "tabName"         to conn.tabName,
+                "colStart"        to conn.colStart,
+                "colEnd"          to conn.colEnd,
+                "startRow"        to (conn.startRow ?: 1),
+                "endRow"          to (conn.endRow   ?: 0),
+                "autoSync"        to conn.autoSync,
+                "syncIntervalMin" to conn.syncIntervalMin,
+                "googleEmail"     to conn.googleEmail,
+                "connectedBy"     to conn.connectedBy,
+                "connectedAt"     to conn.connectedAt,
+                "columnMapping"   to conn.columnMapping.mapValues { (_, cm) ->
+                    mapOf("col" to cm.col, "header" to cm.header)
+                },
+                "objectColumnMapping" to conn.objectColumnMapping.mapValues {
+                    (_, pair) -> mapOf("key" to pair.first, "value" to pair.second)
+                },
+                "primaryKeyField" to conn.primaryKeyField,
+                "primaryKeyParts" to conn.primaryKeyParts.map { part ->
+                    mapOf("type" to part.type, "value" to part.value)
+                },
+                "targetNode"      to conn.targetNode,
+            )
+            val basePath = "config/sheets/${conn.branchId}/connections"
+            val connId = conn.connectionId.ifBlank { db.reference.child(basePath).push().key ?: return false }
+            db.reference.child("$basePath/$connId").setValue(data).await()
+            db.reference.child("config/sheets/${conn.branchId}/history").push()
+                .setValue(data + mapOf("action" to "connected", "connectionId" to connId)).await()
+            true
+        } catch (e: Exception) {
+            FirebaseErrorLogger.log(
+                screen = "ConfigSheetFragment", action = "save_connection",
+                errorMessage = e.message ?: "unknown",
+                extra = mapOf("branchId" to conn.branchId, "connectionId" to conn.connectionId)
+            )
+            false
         }
     }
 
