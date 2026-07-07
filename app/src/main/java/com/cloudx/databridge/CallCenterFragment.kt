@@ -769,7 +769,8 @@ class CallCenterFragment : Fragment() {
                     loadedTemplates[tid] = ConfigState.WhatsAppTemplate(tid, name, body)
                 }
                 whatsappTemplatesCache = loadedTemplates
-                val fetched = mutableListOf<CcRemarkOption>()
+                data class FetchedCcRemark(val option: CcRemarkOption, val priority: Int)
+                val fetched = mutableListOf<FetchedCcRemark>()
                 remarksSnap.children.forEach { groupSnap ->
                     groupSnap.children.forEach { r ->
                         val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
@@ -779,9 +780,10 @@ class CallCenterFragment : Fragment() {
                         val target = r.child("target_status").getValue(String::class.java)?.trim()
                             .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
                         val templateId = r.child("template_id").getValue(String::class.java)?.trim().orEmpty()
+                        val priority = r.child("priority").getValue(Int::class.java) ?: 0
                         val metaEntry = StatusMetaCache.entries[target]
                         val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
-                        fetched.add(
+                        fetched.add(FetchedCcRemark(
                             CcRemarkOption(
                                 icon = "💬",
                                 label = label,
@@ -789,13 +791,14 @@ class CallCenterFragment : Fragment() {
                                 statusPreview = preview,
                                 statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
                                 templateId = templateId
-                            )
-                        )
+                            ),
+                            priority
+                        ))
                     }
                 }
 
                 if (isAdded) {
-                    ccRemarkOptions = fetched
+                    ccRemarkOptions = fetched.sortedByDescending { it.priority }.map { it.option }
                     if (::adapter.isInitialized) {
                         adapter.statusLang = ccStatusLang
                         adapter.notifyDataSetChanged()

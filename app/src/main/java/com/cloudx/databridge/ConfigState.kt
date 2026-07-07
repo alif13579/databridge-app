@@ -32,6 +32,7 @@ object ConfigState {
         val text_en:       String = "",
         val target_status: String = "",
         val template_id:   String = "", // optional — linked WhatsApp template, blank = no auto-message
+        val priority:      Int    = 0,  // higher = shown first in the remark picker
     )
 
     data class WhatsAppTemplate(
