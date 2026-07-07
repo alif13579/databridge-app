@@ -562,6 +562,9 @@ class CallCenterFragment : Fragment() {
         ccActiveListeners.forEach { (ref, l) -> ref.removeEventListener(l) }
         ccActiveListeners.clear()
         detachRootRunTypesListener()
+
+        ccRemarkNodeListeners.values.forEach { (ref, l) -> ref.removeEventListener(l) }
+        ccRemarkNodeListeners.clear()
     }
 
     /**
@@ -685,6 +688,69 @@ class CallCenterFragment : Fragment() {
         setupFilterTabs()
         applyFilters()
         pbProgress.visibility = View.GONE
+        if (!append) syncCcRemarkListeners(allParcels.map { it.id }.toSet())
+    }
+
+    // Per-parcel remark listeners for Call Center — keyed by consignmentId.
+    private val ccRemarkNodeListeners = mutableMapOf<String, Pair<com.google.firebase.database.DatabaseReference, com.google.firebase.database.ValueEventListener>>()
+
+    private fun syncCcRemarkListeners(currentIds: Set<String>) {
+        val stale = ccRemarkNodeListeners.keys - currentIds
+        stale.forEach { cId ->
+            ccRemarkNodeListeners.remove(cId)?.let { (ref, listener) -> ref.removeEventListener(listener) }
+        }
+
+        currentIds.forEach { cId ->
+            if (ccRemarkNodeListeners.containsKey(cId)) return@forEach
+            val ref = com.google.firebase.database.FirebaseDatabase.getInstance()
+                .reference.child("courier/remarks_by_consignment/$cId")
+            val listener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                    if (!isAdded) return
+                    val ctx = context ?: return
+                    // Find the most recent remark + update the card in-place.
+                    val sorted = snapshot.children.sortedByDescending {
+                        it.child("createdAt").getValue(Long::class.java) ?: 0L
+                    }
+                    val latest = sorted.firstOrNull()
+                    val latestRemark = latest?.let {
+                        val status = it.child("status").getValue(String::class.java)?.trim().orEmpty()
+                        WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label
+                    }.orEmpty()
+                    val latestTime = latest?.let {
+                        val ts = it.child("createdAt").getValue(Long::class.java) ?: 0L
+                        java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date(ts))
+                    }.orEmpty()
+                    val latestAuthor = latest?.let {
+                        val by = it.child("remarked_by").getValue(String::class.java).orEmpty()
+                        val uid = it.child("userId").getValue(String::class.java).orEmpty()
+                            .ifBlank { it.child("employeeId").getValue(String::class.java).orEmpty() }
+                        when {
+                            by == "support" && uid.isNotBlank() -> "$uid · CC"
+                            by == "support" -> "CC"
+                            uid.isNotBlank() -> uid
+                            else -> "Agent"
+                        }
+                    }.orEmpty()
+
+                    val idx = allParcels.indexOfFirst { it.id == cId }
+                    if (idx != -1) {
+                        allParcels = allParcels.toMutableList().also {
+                            it[idx] = it[idx].copy(
+                                remarks = latestRemark,
+                                ccRemark = latestRemark,
+                                ccRemarkTime = latestTime,
+                                ccRemarkAuthor = latestAuthor
+                            )
+                        }
+                        applyFilters()
+                    }
+                }
+                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
+            }
+            ref.addValueEventListener(listener)
+            ccRemarkNodeListeners[cId] = ref to listener
+        }
     }
 
     /**

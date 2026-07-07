@@ -699,6 +699,72 @@ class WorkerSpaceFragment : Fragment() {
         runNodeListeners.clear()
         runStatusByType.clear()
         lastRunsSnapshot = null
+
+        remarkNodeListeners.values.forEach { (ref, listener) -> ref.removeEventListener(listener) }
+        remarkNodeListeners.clear()
+    }
+
+    // Per-parcel remark listeners — keyed by consignmentId, replaced on every full reload.
+    private val remarkNodeListeners = mutableMapOf<String, Pair<DatabaseReference, ValueEventListener>>()
+
+    /**
+     * Attaches a ValueEventListener on courier/remarks_by_consignment/{cId} for every loaded
+     * parcel. When a new remark arrives (from CC or another worker), we update that single
+     * parcel's history in allParcels and re-apply filters — no full Firebase round-trip needed.
+     */
+    private fun syncRemarkListeners(currentIds: Set<String>) {
+        // Drop listeners for parcels no longer in the current run.
+        val stale = remarkNodeListeners.keys - currentIds
+        stale.forEach { cId ->
+            remarkNodeListeners.remove(cId)?.let { (ref, listener) -> ref.removeEventListener(listener) }
+        }
+
+        // Attach a listener for every parcel not already being watched.
+        currentIds.forEach { cId ->
+            if (remarkNodeListeners.containsKey(cId)) return@forEach
+            val ref = db.reference.child("courier/remarks_by_consignment/$cId")
+            val listener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    if (!isAdded) return
+                    val ctx = context ?: return
+                    val history = snapshot.children.mapNotNull { r ->
+                        val rStatus = readString(r, "status").ifBlank { return@mapNotNull null }
+                        val rLabel = WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label
+                        val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
+                        val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                            .format(java.util.Date(createdAt))
+                        val remarkedBy = readString(r, "remarked_by")
+                        val rUserId = readString(r, "userId").ifBlank { readString(r, "employeeId") }
+                        val authorRole = if (remarkedBy == "support") "cc" else "agent"
+                        val author = when {
+                            remarkedBy == "support" && rUserId.isNotBlank() -> "$rUserId · CC"
+                            remarkedBy == "support" -> "CC"
+                            rUserId.isNotBlank() -> rUserId
+                            else -> "Agent"
+                        }
+                        HistoryEntry(
+                            action = rStatus.uppercase(),
+                            remark = rLabel,
+                            time = timeStr,
+                            author = author,
+                            authorRole = authorRole
+                        )
+                    }.sortedBy { it.time }
+
+                    val lastRemark = history.lastOrNull()?.remark ?: ""
+                    val idx = allParcels.indexOfFirst { it.id == cId }
+                    if (idx != -1) {
+                        allParcels = allParcels.toMutableList().also {
+                            it[idx] = it[idx].copy(remarks = lastRemark, history = history)
+                        }
+                        applyFilters()
+                    }
+                }
+                override fun onCancelled(error: DatabaseError) {}
+            }
+            ref.addValueEventListener(listener)
+            remarkNodeListeners[cId] = ref to listener
+        }
     }
 
     private fun handleRunsSnapshot(runSnap: DataSnapshot) {
@@ -747,6 +813,7 @@ class WorkerSpaceFragment : Fragment() {
                 allParcels = parcels.sortedWith(compareBy<WorkerParcelItem> { it.time }.thenBy { it.id })
                 setupFilterTabs()
                 applyFilters()
+                syncRemarkListeners(parcels.map { it.id }.toSet())
             } catch (e: Exception) {
                 if (!isAdded || generation != loadGeneration) return@launch
                 tvEmpty.visibility = View.VISIBLE
