@@ -813,7 +813,7 @@ class CallCenterFragment : Fragment() {
                 }
 
                 if (isAdded) {
-                    if (fetched.isNotEmpty()) ccRemarkOptions = fetched
+                    ccRemarkOptions = fetched
                     if (::adapter.isInitialized) {
                         adapter.statusLang = ccStatusLang
                         adapter.notifyDataSetChanged()
@@ -841,6 +841,17 @@ class CallCenterFragment : Fragment() {
 
         // ── CC Remark options with auto-status (loaded from config/remarks) ─────
         val options = ccRemarkOptions
+
+        if (options.isEmpty()) {
+            val tv = TextView(requireContext())
+            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই।\nAdmin-কে config/remarks_call_center-এ remark যোগ করতে বলুন।"
+            tv.textSize = 13f
+            tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
+            tv.setPadding(0, 24, 0, 24)
+            layoutOptions.addView(tv)
+            dialog.show()
+            return
+        }
 
         var selectedStatus      = ""
         var selectedRemarkText  = ""
@@ -1028,12 +1039,6 @@ class CallCenterFragment : Fragment() {
     // Loaded from config/remarks (+ config/language/ccLang) — see loadCcRemarkOptions().
     // Falls back to this small built-in set if config hasn't loaded yet or is empty.
     private var whatsappTemplatesCache: Map<String, ConfigState.WhatsAppTemplate> = emptyMap()
-    private var ccRemarkOptions: List<CcRemarkOption> = listOf(
-        CcRemarkOption("✅", "Customer delivery নিতে চান", "confirmed", "✓ Confirmed", android.graphics.Color.parseColor("#16A34A")),
-        CcRemarkOption("📵", "Customer ফোন ধরছে না", "pending", "◌ Pending", android.graphics.Color.parseColor("#F59E0B")),
-        CcRemarkOption("🔄", "পরে call করতে বলেছেন", "pending", "◌ Pending", android.graphics.Color.parseColor("#F59E0B")),
-        CcRemarkOption("📍", "Address ভুল / খুঁজে পাচ্ছি না", "hold_req", "⏸ Hold Request", android.graphics.Color.parseColor("#F97316")),
-        CcRemarkOption("🚫", "Customer delivery নেবে না", "rejected", "✗ Rejected", android.graphics.Color.parseColor("#DC2626"))
-    )
+    private var ccRemarkOptions: List<CcRemarkOption> = emptyList()
     private var ccStatusLang: String = "bn"
 }

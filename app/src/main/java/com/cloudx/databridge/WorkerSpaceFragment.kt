@@ -359,7 +359,7 @@ class WorkerSpaceFragment : Fragment() {
                 }
 
                 if (isAdded) {
-                    if (fetched.isNotEmpty()) remarkOptions = fetched
+                    remarkOptions = fetched
                     if (::adapter.isInitialized) {
                         adapter.statusLang = workerStatusLang
                         adapter.notifyDataSetChanged()
@@ -380,10 +380,20 @@ class WorkerSpaceFragment : Fragment() {
         val tvStatusPreview = view.findViewById<TextView>(R.id.twWorkerRemarkStatusPreview)
 
         val options = remarkOptions
-
         val optionViews = mutableListOf<View>()
         val layoutOptions = view.findViewById<LinearLayout>(R.id.layoutWorkerRemarkOptions)
         layoutOptions.removeAllViews()
+
+        if (options.isEmpty()) {
+            val tv = TextView(requireContext())
+            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই।\nAdmin-কে config/remarks_worker-এ remark যোগ করতে বলুন।"
+            tv.textSize = 13f
+            tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
+            tv.setPadding(0, 24, 0, 24)
+            layoutOptions.addView(tv)
+            dialog.show()
+            return
+        }
 
         for (opt in options) {
             val optView = layoutInflater.inflate(R.layout.item_worker_remark_option, layoutOptions, false)
@@ -1071,13 +1081,7 @@ class WorkerSpaceFragment : Fragment() {
     // per remark, set by admins in ConfigRemarksFragment). Falls back to a small built-in set
     // if the config hasn't loaded yet or is empty, so the feature never breaks entirely.
     private var whatsappTemplatesCache: Map<String, ConfigState.WhatsAppTemplate> = emptyMap()
-    private var remarkOptions: List<WorkerRemarkOption> = listOf(
-        WorkerRemarkOption("✅", "Customer কে parcel delivery করা হচ্ছে", "confirmed", "✓ Confirmed", android.graphics.Color.parseColor("#16A34A")),
-        WorkerRemarkOption("📵", "Customer ফোন ধরছে না", "verify_req", "⚡ Verify Request", android.graphics.Color.parseColor("#7C3AED")),
-        WorkerRemarkOption("📍", "Address খুঁজে পাচ্ছি না", "verify_req", "⚡ Verify Request", android.graphics.Color.parseColor("#7C3AED")),
-        WorkerRemarkOption("🚫", "Customer refuse করল", "return_req", "↩ Return Request", android.graphics.Color.parseColor("#DC2626")),
-        WorkerRemarkOption("💬", "Customer পাচ্ছি না", "verify_req", "⚡ Verify Request", android.graphics.Color.parseColor("#7C3AED"))
-    )
+    private var remarkOptions: List<WorkerRemarkOption> = emptyList()
     data class WorkerRemarkOption(
         val icon: String,
         val label: String,
