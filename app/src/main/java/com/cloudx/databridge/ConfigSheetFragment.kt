@@ -3286,10 +3286,12 @@ class ConfigSheetFragment : Fragment() {
         val container = containerMapping ?: return
         container.removeAllViews()
 
-        // Pre-fill target node if saved
-        if (etTargetNode?.text.isNullOrBlank()) {
-            etTargetNode?.setText(targetNode.removePrefix("courier/"))
-        }
+        // NOTE: intentionally no auto-fill of etTargetNode from the `targetNode` default here.
+        // `targetNode` always holds *some* value ("courier/consignments" fallback for a brand
+        // new connection, or the real saved path once prefillConnectForm() runs for an existing
+        // one) — auto-filling on blank used to make new connections look "already chosen" and
+        // incorrectly lock the picker. prefillConnectForm() already sets etTargetNode directly
+        // for existing connections, so nothing needs to happen here for that case.
 
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
