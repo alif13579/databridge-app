@@ -402,14 +402,13 @@ class CallCenterFragment : Fragment() {
             val chip = layoutFilterTabs.getChildAt(i) as? TextView ?: continue
             val statusKey = chip.tag as? String ?: continue
             val isActive = statusKey == statusFilter
-            val metaColor = if (statusKey == "all") null
-                else StatusMetaCache.entries[statusKey]?.color?.takeIf { it.isNotBlank() }
+            val metaColor: Int? = if (statusKey == "all") null
+                else StatusMetaCache.entries[statusKey]?.color
             chip.isSelected = isActive
             if (isActive && metaColor != null) {
                 try {
-                    val color = android.graphics.Color.parseColor(metaColor)
                     chip.background = android.graphics.drawable.GradientDrawable().apply {
-                        setColor(color); cornerRadius = 24f
+                        setColor(metaColor); cornerRadius = 24f
                     }
                     chip.setTextColor(android.graphics.Color.WHITE)
                 } catch (_: Exception) {
