@@ -308,6 +308,10 @@ class ConfigSheetFragment : Fragment() {
     private val customMappingFields = mutableListOf<Pair<String, String>>()
     // Headers fetched from sheet (letter → header text)
     private var sheetHeaders: Map<String, String> = emptyMap()
+    // Once true, we stop auto-adjusting Col End from detected headers — either the user typed
+    // in it themselves, or it was restored from an already-saved connection.
+    private var colEndUserModified = false
+    private var isAutoAdjustingColEnd = false
     // First actual data row from the sheet (colLetter -> cell text), used to preview
     // primary key / field mapping with real values instead of placeholders.
     private var sampleSheetRow: Map<String, String> = emptyMap()
@@ -586,6 +590,13 @@ class ConfigSheetFragment : Fragment() {
 
         etColStart?.addTextChangedListener(colWatcher); etColEnd?.addTextChangedListener(colWatcher)
         etStartRow?.addTextChangedListener(colWatcher); etEndRow?.addTextChangedListener(colWatcher)
+        etColEnd?.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (!isAutoAdjustingColEnd) colEndUserModified = true
+            }
+        })
 
         btnDefineRow?.setOnClickListener {
             isRowRangeVisible = !isRowRangeVisible
@@ -1253,6 +1264,26 @@ class ConfigSheetFragment : Fragment() {
                     if (text.isNotBlank()) newHeaders[letter] = text
                 }
                 sheetHeaders = newHeaders
+
+                // Default Col End to the last non-blank header cell (e.g. header data only in
+                // col 1-3 → default end = 3), instead of whatever wide range was requested.
+                // Only when the user hasn't manually set Col End themselves.
+                if (!colEndUserModified) {
+                    val lastNonBlankOffset = headerRow.indexOfLast { it.isNotBlank() }
+                    if (lastNonBlankOffset >= 0) {
+                        val autoEnd = colStart + lastNonBlankOffset
+                        val currentEnd = parseColInput(etColEnd?.text?.toString() ?: "") ?: colEnd
+                        if (autoEnd in colStart..colEnd && autoEnd != currentEnd) {
+                            isAutoAdjustingColEnd = true
+                            etColEnd?.setText(autoEnd.toString())
+                            isAutoAdjustingColEnd = false
+                            updateColPreview()
+                            updateSummary()
+                            scheduleLivePreview()
+                            return
+                        }
+                    }
+                }
             }
             // Capture first actual data row (row after header) so Step 5 can preview
             // primary key / field mapping with real values instead of placeholders.
@@ -3541,6 +3572,7 @@ class ConfigSheetFragment : Fragment() {
         availableSheets = emptyList(); selectedSheet = null
         availableTabs   = emptyList(); selectedTab   = ""
         etColStart?.setText("1"); etColEnd?.setText("10")
+        colEndUserModified = false // let header-detection auto-set Col End for this fresh connection
         isRowRangeVisible = false
         layoutRowRange?.visibility = View.GONE
         btnDefineRow?.text = "+ Define Row Range"
@@ -3573,6 +3605,7 @@ class ConfigSheetFragment : Fragment() {
         updateSheetPickerLabel()
         etColStart?.setText(conn.colStart.toString())
         etColEnd?.setText(conn.colEnd.toString())
+        colEndUserModified = true // saved value is authoritative — don't auto-override it
         // Show row range fields if previously saved
         val hasSavedRows = (conn.startRow != null && conn.startRow != 1) || (conn.endRow != null && conn.endRow != 0)
         isRowRangeVisible = hasSavedRows
@@ -3613,6 +3646,7 @@ class ConfigSheetFragment : Fragment() {
         availableTabs = listOf(conn.tabName)
         etColStart?.setText(conn.colStart.toString())
         etColEnd?.setText(conn.colEnd.toString())
+        colEndUserModified = true // saved value is authoritative — don't auto-override it
         // Show row range if previously saved
         val hasSavedRows = (conn.startRow != null && conn.startRow != 1) || (conn.endRow != null && conn.endRow != 0)
         isRowRangeVisible = hasSavedRows
