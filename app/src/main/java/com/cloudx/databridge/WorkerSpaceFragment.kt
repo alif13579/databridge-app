@@ -333,7 +333,8 @@ class WorkerSpaceFragment : Fragment() {
                     loadedTemplates[tid] = ConfigState.WhatsAppTemplate(tid, name, body)
                 }
                 whatsappTemplatesCache = loadedTemplates
-                val fetched = mutableListOf<WorkerRemarkOption>()
+                data class FetchedRemark(val option: WorkerRemarkOption, val priority: Int)
+                val fetched = mutableListOf<FetchedRemark>()
                 remarksSnap.children.forEach { groupSnap ->
                     groupSnap.children.forEach { r ->
                         val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
@@ -343,9 +344,10 @@ class WorkerSpaceFragment : Fragment() {
                         val target = r.child("target_status").getValue(String::class.java)?.trim()
                             .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
                         val templateId = r.child("template_id").getValue(String::class.java)?.trim().orEmpty()
+                        val priority = r.child("priority").getValue(Int::class.java) ?: 0
                         val metaEntry = StatusMetaCache.entries[target]
                         val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
-                        fetched.add(
+                        fetched.add(FetchedRemark(
                             WorkerRemarkOption(
                                 icon = "💬",
                                 label = label,
@@ -353,13 +355,14 @@ class WorkerSpaceFragment : Fragment() {
                                 statusPreview = preview,
                                 statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
                                 templateId = templateId
-                            )
-                        )
+                            ),
+                            priority
+                        ))
                     }
                 }
 
                 if (isAdded) {
-                    remarkOptions = fetched
+                    remarkOptions = fetched.sortedByDescending { it.priority }.map { it.option }
                     if (::adapter.isInitialized) {
                         adapter.statusLang = workerStatusLang
                         adapter.notifyDataSetChanged()
@@ -386,11 +389,49 @@ class WorkerSpaceFragment : Fragment() {
 
         if (options.isEmpty()) {
             val tv = TextView(requireContext())
-            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই।\nAdmin-কে config/remarks_worker-এ remark যোগ করতে বলুন।"
+            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই। Admin-কে config/remarks_worker-এ remark যোগ করতে বলুন।\n\nনোট হিসেবে লিখতে পারেন:"
             tv.textSize = 13f
             tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
-            tv.setPadding(0, 24, 0, 24)
+            tv.setPadding(0, 24, 0, 12)
             layoutOptions.addView(tv)
+
+            val etNote = android.widget.EditText(requireContext()).apply {
+                hint = "এখানে note লিখুন..."
+                textSize = 13f
+                minLines = 3
+                background = requireContext().getDrawable(R.drawable.bg_input_rounded)
+                setPadding(24, 20, 24, 20)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = 16 }
+            }
+            layoutOptions.addView(etNote)
+
+            val btnSaveNote = android.widget.Button(requireContext())
+            btnSaveNote.text = "Note Save করুন"
+            btnSaveNote.setOnClickListener {
+                val noteText = etNote.text.toString().trim()
+                if (noteText.isBlank()) return@setOnClickListener
+                val timestamp = System.currentTimeMillis()
+                val remarkData = mapOf(
+                    "agentSystemId" to systemId,
+                    "userId"        to userId,
+                    "remarks"       to noteText,
+                    "note"          to noteText,
+                    "status"        to "",
+                    "remarked_by"   to "worker",
+                    "createdAt"     to timestamp,
+                    "runId"         to "run_${
+                        java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH).format(java.util.Date())
+                    }_${systemId}"
+                )
+                db.reference.child("courier/remarks_by_consignment/${item.id}/remarks_$timestamp")
+                    .setValue(remarkData)
+                android.widget.Toast.makeText(requireContext(), "✓ Note saved", android.widget.Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+            layoutOptions.addView(btnSaveNote)
             dialog.show()
             return
         }
@@ -761,12 +802,21 @@ class WorkerSpaceFragment : Fragment() {
                         )
                     }.sortedBy { it.time }
 
+                    val lastRemarkStatus = snapshot.children
+                        .mapNotNull { r -> r.child("status").getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() } }
+                        .lastOrNull() ?: ""
                     val lastRemark = history.lastOrNull()?.remark ?: ""
                     val idx = allParcels.indexOfFirst { it.id == cId }
                     if (idx != -1) {
+                        val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status
                         allParcels = allParcels.toMutableList().also {
-                            it[idx] = it[idx].copy(remarks = lastRemark, history = history)
+                            it[idx] = it[idx].copy(
+                                status  = effectiveStatus,
+                                remarks = lastRemark,
+                                history = history
+                            )
                         }
+                        setupFilterTabs()
                         applyFilters()
                     }
                 }

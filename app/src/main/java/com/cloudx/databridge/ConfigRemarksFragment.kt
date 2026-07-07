@@ -163,7 +163,8 @@ class ConfigRemarksFragment : Fragment() {
                     val textEn = r.child("text_en").getValue(String::class.java) ?: ""
                     val targetStatus = r.child("target_status").getValue(String::class.java) ?: key
                     val templateId   = r.child("template_id").getValue(String::class.java) ?: ""
-                    list.add(ConfigState.Remark(id, textBn, textEn, targetStatus, templateId))
+                    val priority     = r.child("priority").getValue(Int::class.java) ?: 0
+                    list.add(ConfigState.Remark(id, textBn, textEn, targetStatus, templateId, priority))
                 }
                 if (list.isNotEmpty()) loaded[key] = list
             }
@@ -382,6 +383,19 @@ class ConfigRemarksFragment : Fragment() {
             ).apply { bottomMargin = dp(10) }
         }
 
+        val etPriorityEdit = android.widget.EditText(ctx).apply {
+            hint = "Priority (বেশি = উপরে, default 0)"
+            setText(if (remark.priority != 0) remark.priority.toString() else "")
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            textSize = 13f
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+        }
+
         val tvTemplateLabel = TextView(ctx).apply {
             text = "WhatsApp Template (ঐচ্ছিক)"
             textSize = 10f
@@ -402,6 +416,14 @@ class ConfigRemarksFragment : Fragment() {
 
         layout.addView(etBnEdit)
         layout.addView(etEnEdit)
+        layout.addView(android.widget.TextView(ctx).apply {
+            text = "Priority (বেশি = উপরে)"
+            textSize = 10f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, dp(5))
+        })
+        layout.addView(etPriorityEdit)
         layout.addView(tvTemplateLabel)
         layout.addView(templateSpinner)
 
@@ -416,17 +438,18 @@ class ConfigRemarksFragment : Fragment() {
                     return@setPositiveButton
                 }
                 val newTemplateId = templates.getOrNull(templateSpinner.selectedItemPosition - 1)?.id ?: ""
-                handleEdit(group, remark.id, newBn, newEn, newTemplateId)
+                val newPriority = etPriorityEdit.text.toString().trim().toIntOrNull() ?: 0
+                handleEdit(group, remark.id, newBn, newEn, newTemplateId, newPriority)
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun handleEdit(group: String, id: String, newBn: String, newEn: String, newTemplateId: String) {
+    private fun handleEdit(group: String, id: String, newBn: String, newEn: String, newTemplateId: String, newPriority: Int = 0) {
         val list = remarks[group] ?: return
         val idx = list.indexOfFirst { it.id == id }
         if (idx < 0) return
-        list[idx] = list[idx].copy(text_bn = newBn, text_en = newEn, template_id = newTemplateId)
+        list[idx] = list[idx].copy(text_bn = newBn, text_en = newEn, template_id = newTemplateId, priority = newPriority)
         ConfigState.remarks = remarks
         bindAll()
         viewLifecycleOwner.lifecycleScope.launch {
@@ -482,6 +505,19 @@ class ConfigRemarksFragment : Fragment() {
 
         val bnInput = input("বাংলা টেক্সট...")
         val enInput = input("English text...")
+
+        val priorityInput = EditText(ctx).apply {
+            hint = "Priority (বেশি সংখ্যা = উপরে, default 0)"
+            textSize = 13f
+            minHeight = dp(46)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(2) }
+        }
         val spinner = Spinner(ctx).apply {
             minimumHeight = dp(46)
             background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
@@ -516,6 +552,8 @@ class ConfigRemarksFragment : Fragment() {
         content.addView(bnInput)
         content.addView(label("English"))
         content.addView(enInput)
+        content.addView(label("Priority (বেশি = উপরে)"))
+        content.addView(priorityInput)
         content.addView(label("Group"))
         content.addView(spinner)
         content.addView(label("WhatsApp Template (ঐচ্ছিক)"))
@@ -539,7 +577,8 @@ class ConfigRemarksFragment : Fragment() {
                 } else {
                     dialog.dismiss()
                     val selectedTemplateId = templates.getOrNull(templateSpinner.selectedItemPosition - 1)?.id ?: ""
-                    addRemark(bn, en, target, selectedTemplateId)
+                    val priority = priorityInput.text.toString().trim().toIntOrNull() ?: 0
+                    addRemark(bn, en, target, selectedTemplateId, priority)
                 }
             }
         }
@@ -555,6 +594,7 @@ class ConfigRemarksFragment : Fragment() {
         en: String,
         target: String,
         templateId: String = "",
+        priority: Int = 0,
         onSuccess: () -> Unit = {},
     ) {
         val remark = ConfigState.Remark(
@@ -563,6 +603,7 @@ class ConfigRemarksFragment : Fragment() {
             text_en = en.ifEmpty { bn },
             target_status = target,
             template_id = templateId,
+            priority = priority,
         )
         remarks.getOrPut(target) { mutableListOf() }.add(remark)
         ConfigState.remarks = remarks
@@ -621,6 +662,7 @@ class ConfigRemarksFragment : Fragment() {
                             "text_en"       to r.text_en,
                             "target_status" to r.target_status,
                             "template_id"   to r.template_id,
+                            "priority"      to r.priority,
                         )
                     }
                     payload[statusKey] = rows

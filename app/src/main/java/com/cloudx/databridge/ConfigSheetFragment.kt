@@ -203,6 +203,9 @@ class ConfigSheetFragment : Fragment() {
 
     // Path segments chosen so far, e.g. ["run_routes", "delivery_run"]
     private var nodePickerPath = mutableListOf<String>()
+    // Beyond this many children, a level is treated as a dynamic-key collection (e.g. run IDs)
+    // rather than a meaningful category list — offer the tree preview instead of a dropdown.
+    private val MAX_DRILLABLE_CHILDREN = 15
     // Deepest dropdown row currently rendered — advanced only via the "+ Next level?" button,
     // so a new dropdown never appears automatically after a selection/confirm.
     private var nodePickerRevealedDepth = 0
@@ -305,6 +308,10 @@ class ConfigSheetFragment : Fragment() {
     private val customMappingFields = mutableListOf<Pair<String, String>>()
     // Headers fetched from sheet (letter → header text)
     private var sheetHeaders: Map<String, String> = emptyMap()
+    // Once true, we stop auto-adjusting Col End from detected headers — either the user typed
+    // in it themselves, or it was restored from an already-saved connection.
+    private var colEndUserModified = false
+    private var isAutoAdjustingColEnd = false
     // First actual data row from the sheet (colLetter -> cell text), used to preview
     // primary key / field mapping with real values instead of placeholders.
     private var sampleSheetRow: Map<String, String> = emptyMap()
@@ -583,6 +590,13 @@ class ConfigSheetFragment : Fragment() {
 
         etColStart?.addTextChangedListener(colWatcher); etColEnd?.addTextChangedListener(colWatcher)
         etStartRow?.addTextChangedListener(colWatcher); etEndRow?.addTextChangedListener(colWatcher)
+        etColEnd?.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if (!isAutoAdjustingColEnd) colEndUserModified = true
+            }
+        })
 
         btnDefineRow?.setOnClickListener {
             isRowRangeVisible = !isRowRangeVisible
@@ -1250,6 +1264,26 @@ class ConfigSheetFragment : Fragment() {
                     if (text.isNotBlank()) newHeaders[letter] = text
                 }
                 sheetHeaders = newHeaders
+
+                // Default Col End to the last non-blank header cell (e.g. header data only in
+                // col 1-3 → default end = 3), instead of whatever wide range was requested.
+                // Only when the user hasn't manually set Col End themselves.
+                if (!colEndUserModified) {
+                    val lastNonBlankOffset = headerRow.indexOfLast { it.isNotBlank() }
+                    if (lastNonBlankOffset >= 0) {
+                        val autoEnd = colStart + lastNonBlankOffset
+                        val currentEnd = parseColInput(etColEnd?.text?.toString() ?: "") ?: colEnd
+                        if (autoEnd in colStart..colEnd && autoEnd != currentEnd) {
+                            isAutoAdjustingColEnd = true
+                            etColEnd?.setText(autoEnd.toString())
+                            isAutoAdjustingColEnd = false
+                            updateColPreview()
+                            updateSummary()
+                            scheduleLivePreview()
+                            return
+                        }
+                    }
+                }
             }
             // Capture first actual data row (row after header) so Step 5 can preview
             // primary key / field mapping with real values instead of placeholders.
@@ -2317,7 +2351,7 @@ class ConfigSheetFragment : Fragment() {
                 if (depth == nodePickerRevealedDepth) {
                     // Deepest revealed row has children — offer to go one level deeper, but
                     // don't render that next dropdown until the user explicitly asks for it.
-                    addNextLevelButton(container, ctx, depth)
+                    addNextLevelButton(container, ctx, depth, children.size)
                     break
                 }
                 depth++
@@ -2489,9 +2523,27 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** "+ Next level?" pressed below the deepest revealed dropdown — reveals the next one. */
-    private fun addNextLevelButton(container: android.widget.LinearLayout, ctx: android.content.Context, depth: Int) {
+    private fun addNextLevelButton(
+        container: android.widget.LinearLayout,
+        ctx: android.content.Context,
+        depth: Int,
+        childCount: Int
+    ) {
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
+
+        if (childCount > MAX_DRILLABLE_CHILDREN) {
+            // Likely a dynamic-key collection (e.g. hundreds/thousands of run IDs) — dumping
+            // all of them into a dropdown isn't useful. Point the user at the tree preview
+            // below (first example record) instead of offering to drill in further.
+            container.addView(TextView(ctx).apply {
+                text = "🔒 এই লেভেলে $childCount টা dynamic ID আছে — dropdown এ দেখানো হচ্ছে না, নিচের preview অনুযায়ী confirm করুন"
+                textSize = 11f
+                setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                setPadding(4.dp(), 4.dp(), 4.dp(), 10.dp())
+            })
+            return
+        }
 
         val btn = TextView(ctx).apply {
             text = "+ Next level?"
@@ -3268,10 +3320,12 @@ class ConfigSheetFragment : Fragment() {
         val container = containerMapping ?: return
         container.removeAllViews()
 
-        // Pre-fill target node if saved
-        if (etTargetNode?.text.isNullOrBlank()) {
-            etTargetNode?.setText(targetNode.removePrefix("courier/"))
-        }
+        // NOTE: intentionally no auto-fill of etTargetNode from the `targetNode` default here.
+        // `targetNode` always holds *some* value ("courier/consignments" fallback for a brand
+        // new connection, or the real saved path once prefillConnectForm() runs for an existing
+        // one) — auto-filling on blank used to make new connections look "already chosen" and
+        // incorrectly lock the picker. prefillConnectForm() already sets etTargetNode directly
+        // for existing connections, so nothing needs to happen here for that case.
 
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
@@ -3521,6 +3575,7 @@ class ConfigSheetFragment : Fragment() {
         availableSheets = emptyList(); selectedSheet = null
         availableTabs   = emptyList(); selectedTab   = ""
         etColStart?.setText("1"); etColEnd?.setText("10")
+        colEndUserModified = false // let header-detection auto-set Col End for this fresh connection
         isRowRangeVisible = false
         layoutRowRange?.visibility = View.GONE
         btnDefineRow?.text = "+ Define Row Range"
@@ -3553,6 +3608,7 @@ class ConfigSheetFragment : Fragment() {
         updateSheetPickerLabel()
         etColStart?.setText(conn.colStart.toString())
         etColEnd?.setText(conn.colEnd.toString())
+        colEndUserModified = true // saved value is authoritative — don't auto-override it
         // Show row range fields if previously saved
         val hasSavedRows = (conn.startRow != null && conn.startRow != 1) || (conn.endRow != null && conn.endRow != 0)
         isRowRangeVisible = hasSavedRows
@@ -3593,6 +3649,7 @@ class ConfigSheetFragment : Fragment() {
         availableTabs = listOf(conn.tabName)
         etColStart?.setText(conn.colStart.toString())
         etColEnd?.setText(conn.colEnd.toString())
+        colEndUserModified = true // saved value is authoritative — don't auto-override it
         // Show row range if previously saved
         val hasSavedRows = (conn.startRow != null && conn.startRow != 1) || (conn.endRow != null && conn.endRow != 0)
         isRowRangeVisible = hasSavedRows

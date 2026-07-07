@@ -397,19 +397,32 @@ class CallCenterFragment : Fragment() {
     }
 
     private fun updateFilterChips() {
+        val ctx = requireContext()
         for (i in 0 until layoutFilterTabs.childCount) {
-            val chip = layoutFilterTabs.getChildAt(i) as TextView
-            val isActive = chip.tag == statusFilter
+            val chip = layoutFilterTabs.getChildAt(i) as? TextView ?: continue
+            val statusKey = chip.tag as? String ?: continue
+            val isActive = statusKey == statusFilter
+            val metaColor = if (statusKey == "all") null
+                else StatusMetaCache.entries[statusKey]?.color?.takeIf { it.isNotBlank() }
             chip.isSelected = isActive
-            chip.setBackgroundResource(
-                if (isActive) R.drawable.bg_filter_chip_active
-                else R.drawable.bg_filter_chip_inactive
-            )
-            chip.setTextColor(
-                requireContext().getColor(
-                    if (isActive) android.R.color.white else R.color.theme_text_secondary
-                )
-            )
+            if (isActive && metaColor != null) {
+                try {
+                    val color = android.graphics.Color.parseColor(metaColor)
+                    chip.background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(color); cornerRadius = 24f
+                    }
+                    chip.setTextColor(android.graphics.Color.WHITE)
+                } catch (_: Exception) {
+                    chip.setBackgroundResource(R.drawable.bg_filter_chip_active)
+                    chip.setTextColor(ctx.getColor(android.R.color.white))
+                }
+            } else if (isActive) {
+                chip.setBackgroundResource(R.drawable.bg_filter_chip_active)
+                chip.setTextColor(ctx.getColor(android.R.color.white))
+            } else {
+                chip.setBackgroundResource(R.drawable.bg_filter_chip_inactive)
+                chip.setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            }
         }
     }
 
@@ -717,30 +730,12 @@ class CallCenterFragment : Fragment() {
                         val status = it.child("status").getValue(String::class.java)?.trim().orEmpty()
                         WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label
                     }.orEmpty()
-                    val latestTime = latest?.let {
-                        val ts = it.child("createdAt").getValue(Long::class.java) ?: 0L
-                        java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date(ts))
-                    }.orEmpty()
-                    val latestAuthor = latest?.let {
-                        val by = it.child("remarked_by").getValue(String::class.java).orEmpty()
-                        val uid = it.child("userId").getValue(String::class.java).orEmpty()
-                            .ifBlank { it.child("employeeId").getValue(String::class.java).orEmpty() }
-                        when {
-                            by == "support" && uid.isNotBlank() -> "$uid · CC"
-                            by == "support" -> "CC"
-                            uid.isNotBlank() -> uid
-                            else -> "Agent"
-                        }
-                    }.orEmpty()
 
                     val idx = allParcels.indexOfFirst { it.id == cId }
                     if (idx != -1) {
                         allParcels = allParcels.toMutableList().also {
                             it[idx] = it[idx].copy(
-                                remarks = latestRemark,
-                                ccRemark = latestRemark,
-                                ccRemarkTime = latestTime,
-                                ccRemarkAuthor = latestAuthor
+                                remarks = latestRemark
                             )
                         }
                         applyFilters()
@@ -787,7 +782,8 @@ class CallCenterFragment : Fragment() {
                     loadedTemplates[tid] = ConfigState.WhatsAppTemplate(tid, name, body)
                 }
                 whatsappTemplatesCache = loadedTemplates
-                val fetched = mutableListOf<CcRemarkOption>()
+                data class FetchedCcRemark(val option: CcRemarkOption, val priority: Int)
+                val fetched = mutableListOf<FetchedCcRemark>()
                 remarksSnap.children.forEach { groupSnap ->
                     groupSnap.children.forEach { r ->
                         val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
@@ -797,9 +793,10 @@ class CallCenterFragment : Fragment() {
                         val target = r.child("target_status").getValue(String::class.java)?.trim()
                             .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
                         val templateId = r.child("template_id").getValue(String::class.java)?.trim().orEmpty()
+                        val priority = r.child("priority").getValue(Int::class.java) ?: 0
                         val metaEntry = StatusMetaCache.entries[target]
                         val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
-                        fetched.add(
+                        fetched.add(FetchedCcRemark(
                             CcRemarkOption(
                                 icon = "💬",
                                 label = label,
@@ -807,13 +804,14 @@ class CallCenterFragment : Fragment() {
                                 statusPreview = preview,
                                 statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
                                 templateId = templateId
-                            )
-                        )
+                            ),
+                            priority
+                        ))
                     }
                 }
 
                 if (isAdded) {
-                    ccRemarkOptions = fetched
+                    ccRemarkOptions = fetched.sortedByDescending { it.priority }.map { it.option }
                     if (::adapter.isInitialized) {
                         adapter.statusLang = ccStatusLang
                         adapter.notifyDataSetChanged()
