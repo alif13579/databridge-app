@@ -203,6 +203,9 @@ class ConfigSheetFragment : Fragment() {
 
     // Path segments chosen so far, e.g. ["run_routes", "delivery_run"]
     private var nodePickerPath = mutableListOf<String>()
+    // Beyond this many children, a level is treated as a dynamic-key collection (e.g. run IDs)
+    // rather than a meaningful category list — offer the tree preview instead of a dropdown.
+    private val MAX_DRILLABLE_CHILDREN = 15
     // Deepest dropdown row currently rendered — advanced only via the "+ Next level?" button,
     // so a new dropdown never appears automatically after a selection/confirm.
     private var nodePickerRevealedDepth = 0
@@ -2317,7 +2320,7 @@ class ConfigSheetFragment : Fragment() {
                 if (depth == nodePickerRevealedDepth) {
                     // Deepest revealed row has children — offer to go one level deeper, but
                     // don't render that next dropdown until the user explicitly asks for it.
-                    addNextLevelButton(container, ctx, depth)
+                    addNextLevelButton(container, ctx, depth, children.size)
                     break
                 }
                 depth++
@@ -2489,9 +2492,27 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** "+ Next level?" pressed below the deepest revealed dropdown — reveals the next one. */
-    private fun addNextLevelButton(container: android.widget.LinearLayout, ctx: android.content.Context, depth: Int) {
+    private fun addNextLevelButton(
+        container: android.widget.LinearLayout,
+        ctx: android.content.Context,
+        depth: Int,
+        childCount: Int
+    ) {
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
+
+        if (childCount > MAX_DRILLABLE_CHILDREN) {
+            // Likely a dynamic-key collection (e.g. hundreds/thousands of run IDs) — dumping
+            // all of them into a dropdown isn't useful. Point the user at the tree preview
+            // below (first example record) instead of offering to drill in further.
+            container.addView(TextView(ctx).apply {
+                text = "🔒 এই লেভেলে $childCount টা dynamic ID আছে — dropdown এ দেখানো হচ্ছে না, নিচের preview অনুযায়ী confirm করুন"
+                textSize = 11f
+                setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                setPadding(4.dp(), 4.dp(), 4.dp(), 10.dp())
+            })
+            return
+        }
 
         val btn = TextView(ctx).apply {
             text = "+ Next level?"
