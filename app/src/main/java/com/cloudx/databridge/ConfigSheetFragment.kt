@@ -3397,8 +3397,46 @@ class ConfigSheetFragment : Fragment() {
                     }
                 }
                 spinner.adapter = adapter
-                val matchedLetter = pendingMapping[field]?.col
-                val selIdx = if (matchedLetter != null) headerLetters.indexOf(matchedLetter).coerceAtLeast(0) else 0
+
+                // Resolve which dropdown position to select for this field's saved mapping.
+                // 1) Saved column letter still points at the same header — fastest, most common.
+                // 2) Letter drifted (sheet reordered) but the exact saved header text still
+                //    exists somewhere in the current headers — relocate to it.
+                // 3) Neither — try a case/space-insensitive fuzzy match on header text
+                //    (e.g. saved "Delivery Status" vs current "deliveryStatus").
+                // 4) Nothing matches at all — leave blank, nothing to auto-fill.
+                val saved = pendingMapping[field]
+                fun normalize(s: String) = s.replace(" ", "").lowercase()
+                val selIdx = when {
+                    saved == null -> 0
+                    saved.col.isNotBlank() && headerLetters.contains(saved.col) &&
+                        sheetHeaders[saved.col] == saved.header ->
+                        headerLetters.indexOf(saved.col)
+                    saved.header.isNotBlank() -> {
+                        val exactIdx = headerLetters.indexOfFirst { letter ->
+                            letter.isNotBlank() && sheetHeaders[letter] == saved.header
+                        }
+                        val relocatedIdx = if (exactIdx >= 0) exactIdx else {
+                            val normSaved = normalize(saved.header)
+                            headerLetters.indexOfFirst { letter ->
+                                letter.isNotBlank() && normalize(sheetHeaders[letter] ?: "") == normSaved
+                            }
+                        }
+                        // Header moved to a different column — keep pendingMapping in sync
+                        // with what's actually being shown/selected, so Save uses the
+                        // relocated letter instead of the stale saved one.
+                        if (relocatedIdx > 0) {
+                            val newLetter = headerLetters[relocatedIdx]
+                            if (newLetter != saved.col) {
+                                pendingMapping[field] = ColMapping(col = newLetter, header = saved.header)
+                            }
+                        }
+                        relocatedIdx.coerceAtLeast(0)
+                    }
+                    saved.col.isNotBlank() && headerLetters.contains(saved.col) ->
+                        headerLetters.indexOf(saved.col)
+                    else -> 0
+                }
                 spinner.setSelection(selIdx)
             }
             refreshSpinnerAdapter()
