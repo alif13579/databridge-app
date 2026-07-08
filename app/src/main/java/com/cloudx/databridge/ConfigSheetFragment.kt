@@ -2166,6 +2166,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun handleConnect() {
+        if (!nodeMappingConfirmed) { showErr("আগে উপরে node পিক করে confirm করুন"); return }
         if (pendingPkParts.isEmpty()) { showErr("Primary key এ কমপক্ষে একটা part (prefix/column) যোগ করুন — required"); return }
         if (pendingPkParts.any { (it.type == "col" || it.type == "date") && it.value.isBlank() }) { showErr("Primary key এর Column/Date part-এ কলাম select করুন"); return }
         val sheet   = selectedSheet ?: run { showErr("Sheet নেই"); return }
@@ -2874,6 +2875,9 @@ class ConfigSheetFragment : Fragment() {
                     tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
                     nodePreviewData = emptyMap()
                     fetchedNodeKeys.clear()
+                    customMappingFields.clear()
+                    objectTypeFields.clear()
+                    pendingObjectMapping.clear()
                     renderMappingStep()
                     return@launch
                 }
@@ -2897,6 +2901,7 @@ class ConfigSheetFragment : Fragment() {
                 fetchedNodeKeys.clear()
                 fetchedNodeKeys.addAll(keys)
                 customMappingFields.clear()
+                pendingObjectMapping.clear()
 
                 // Auto-detect object-type fields (children that are themselves objects/maps)
                 objectTypeFields.clear()
@@ -3460,6 +3465,9 @@ class ConfigSheetFragment : Fragment() {
         // that's already shown live during node picking.
         if (!nodeMappingConfirmed) {
             btnAddMappingField?.visibility = View.GONE
+            containerPkBuilder?.removeAllViews()
+            btnAddPkPart?.visibility = View.GONE
+            tvPkPreview?.text = ""
             val tvWaiting = TextView(ctx).apply {
                 text      = "⬆ উপরে node পিক করে \"Yes, confirm করো\" চাপুন — তারপর এখানে Primary Key ও Field mapping দেখাবে"
                 textSize  = 12f
@@ -3471,6 +3479,7 @@ class ConfigSheetFragment : Fragment() {
             return
         }
         btnAddMappingField?.visibility = View.VISIBLE
+        btnAddPkPart?.visibility = View.VISIBLE
 
         // Primary key builder renders independently of fetched/custom fields state
         renderPkBuilder()
