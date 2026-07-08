@@ -3275,12 +3275,12 @@ class ConfigSheetFragment : Fragment() {
         card.addView(headerRow)
 
         val tvKey = TextView(ctx).apply {
-            text = "Key: ${specLabel(existing?.first)}"
+            text = "Key: ${specLabel(existing?.keySpec())}"
             textSize = 11f
             setTextColor(ctx.getColor(R.color.theme_text_secondary))
         }
         val tvValue = TextView(ctx).apply {
-            text = "Value: ${specLabel(existing?.second)}"
+            text = "Value: ${specLabel(existing?.valueSpec())}"
             textSize = 11f
             setTextColor(ctx.getColor(R.color.theme_text_secondary))
             layoutParams = android.widget.LinearLayout.LayoutParams(
