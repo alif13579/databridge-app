@@ -3530,8 +3530,8 @@ class ConfigSheetFragment : Fragment() {
             val tvLabel = TextView(ctx).apply {
                 text     = label
                 textSize = 12f
-                setTypeface(null, if (field == "consignmentId") android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-                setTextColor(android.graphics.Color.parseColor(if (isCustom) "#3B82F6" else "#374151"))
+                setTypeface(null, android.graphics.Typeface.NORMAL)
+                setTextColor(if (isCustom) android.graphics.Color.parseColor("#3B82F6") else context!!.getColor(R.color.theme_text_primary))
                 layoutParams = android.widget.LinearLayout.LayoutParams(0,
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
