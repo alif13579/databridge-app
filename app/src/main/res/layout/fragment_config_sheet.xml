@@ -590,147 +590,188 @@
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:layout_marginTop="16dp" android:visibility="gone">
 
-                <!-- Hierarchical node picker under courier/ -->
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="TARGET NODE"
-                    android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="6dp" />
-
-                <!-- Breadcrumb showing the path built so far -->
-                <TextView android:id="@+id/tvNodeBreadcrumb"
+                <!-- ═══ Card 1: Target node ═══ -->
+                <LinearLayout
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:minHeight="36dp"
-                    android:background="@drawable/bg_input_rounded"
-                    android:backgroundTint="#EFF6FF"
-                    android:paddingStart="12dp" android:paddingEnd="12dp"
-                    android:paddingTop="8dp" android:paddingBottom="8dp"
-                    android:text="courier/ —"
-                    android:textSize="12sp" android:textStyle="bold"
-                    android:textColor="#1D4ED8"
-                    android:layout_marginBottom="8dp" />
-
-                <!-- Cascading dropdowns get added here programmatically, one per depth level -->
-                <LinearLayout android:id="@+id/containerNodeDropdowns"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical" />
-
-                <!-- Inline "create new node" input (shown at whichever depth user picks it) -->
-                <LinearLayout android:id="@+id/layoutCreateNewNode"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp" android:visibility="gone">
-                    <EditText android:id="@+id/etNewNodeName"
-                        android:layout_width="0dp" android:layout_height="44dp"
-                        android:layout_weight="1"
-                        android:background="@drawable/bg_input_rounded"
-                        android:padding="10dp" android:textSize="13sp"
-                        android:hint="নতুন node name লিখুন"
-                        android:inputType="text" android:maxLines="1"
-                        android:layout_marginEnd="8dp" />
-                    <Button android:id="@+id/btnConfirmNewNode"
-                        android:layout_width="wrap_content" android:layout_height="44dp"
-                        android:text="✓ Add" android:textSize="12sp" android:textStyle="bold"
-                        android:backgroundTint="#16A34A" android:textColor="@color/theme_bg_card"
-                        android:paddingStart="14dp" android:paddingEnd="14dp"
-                        android:layout_marginEnd="6dp" />
-                    <Button android:id="@+id/btnCancelNewNode"
-                        android:layout_width="wrap_content" android:layout_height="44dp"
-                        android:text="✕" android:textSize="12sp" android:textStyle="bold"
-                        android:backgroundTint="#F3F4F6" android:textColor="@color/theme_text_secondary"
-                        android:paddingStart="12dp" android:paddingEnd="12dp" />
-                </LinearLayout>
-
-                <TextView android:id="@+id/btnResetNodePicker"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="↺ Reset"
-                    android:textSize="11sp"
-                    android:textColor="@color/theme_text_muted"
-                    android:clickable="true" android:focusable="true"
-                    android:layout_marginBottom="10dp" />
-
-                <!-- Hidden helpers kept for compatibility with existing fetch/save logic -->
-                <EditText android:id="@+id/etTargetNode"
-                    android:layout_width="0dp" android:layout_height="0dp"
-                    android:visibility="gone" />
-                <Button android:id="@+id/btnFetchFields"
-                    android:layout_width="0dp" android:layout_height="0dp"
-                    android:visibility="gone" />
-
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="14dp"
                     android:layout_marginBottom="14dp">
-                    <ProgressBar android:id="@+id/pbFetchFields"
-                        android:layout_width="16dp" android:layout_height="16dp"
-                        android:visibility="gone" android:layout_marginEnd="8dp" />
-                    <TextView android:id="@+id/tvFetchStatus"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:textSize="11sp" android:textColor="@color/theme_text_secondary" />
-                </LinearLayout>
 
-                <!-- Primary key selector -->
-                <Spinner android:id="@+id/spinnerPrimaryKey"
-                    android:layout_width="0dp" android:layout_height="0dp"
-                    android:visibility="gone" />
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="PRIMARY KEY (required)"
-                    android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="#E8380D" android:layout_marginBottom="4dp" />
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Prefix ও/অথবা একাধিক column জুড়ে (concat) Firebase node key বানান। যেমন: run_ + AgentID + Date"
-                    android:textSize="11sp" android:textColor="@color/theme_text_muted"
-                    android:layout_marginBottom="8dp" />
-                <LinearLayout android:id="@+id/containerPkBuilder"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:background="@drawable/bg_card_rounded"
-                    android:padding="10dp"
-                    android:layout_marginBottom="8dp" />
-                <TextView android:id="@+id/btnAddPkPart"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="+ Add Part"
-                    android:textSize="12sp" android:textStyle="bold"
-                    android:textColor="#E8380D"
-                    android:padding="6dp"
-                    android:layout_marginBottom="6dp" />
-                <TextView android:id="@+id/tvPkPreview"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:textSize="12sp" android:textStyle="bold"
-                    android:textColor="@color/theme_text_secondary"
-                    android:layout_marginBottom="16dp" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📁 Target node"
+                        android:textSize="14sp" android:textStyle="bold"
+                        android:textColor="@color/theme_text_primary" android:layout_marginBottom="2dp" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="ডেটা Firebase-এর কোন path-এ যাবে"
+                        android:textSize="11sp" android:textColor="@color/theme_text_muted"
+                        android:layout_marginBottom="10dp" />
 
-                <!-- Column mapping -->
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="COLUMN MAPPING"
-                    android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="4dp" />
-
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Sheet এর কোন column কোন Firebase field এ map হবে। ✓ মানে auto-detect হয়েছে।"
-                    android:textSize="11sp" android:textColor="@color/theme_text_muted"
-                    android:layout_marginBottom="14dp" />
-
-                <LinearLayout android:id="@+id/containerMapping"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:background="@drawable/bg_card_rounded"
-                    android:padding="14dp" />
-
-                <!-- Add field button -->
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:gravity="center_vertical"
-                    android:layout_marginTop="10dp">
-                    <View android:layout_width="0dp" android:layout_height="1dp"
-                        android:layout_weight="1" android:background="@color/theme_border" />
-                    <TextView android:id="@+id/btnAddMappingField"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="+ Add Field"
-                        android:textSize="12sp" android:textStyle="bold"
-                        android:textColor="#3B82F6"
+                    <!-- Breadcrumb showing the path built so far -->
+                    <TextView android:id="@+id/tvNodeBreadcrumb"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:minHeight="36dp"
+                        android:background="@drawable/bg_input_rounded"
+                        android:backgroundTint="#EFF6FF"
                         android:paddingStart="12dp" android:paddingEnd="12dp"
                         android:paddingTop="8dp" android:paddingBottom="8dp"
+                        android:text="courier/ —"
+                        android:textSize="12sp" android:textStyle="bold"
+                        android:textColor="#1D4ED8"
+                        android:layout_marginBottom="8dp" />
+
+                    <!-- Cascading dropdowns get added here programmatically, one per depth level -->
+                    <LinearLayout android:id="@+id/containerNodeDropdowns"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical" />
+
+                    <!-- Inline "create new node" input (shown at whichever depth user picks it) -->
+                    <LinearLayout android:id="@+id/layoutCreateNewNode"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:layout_marginBottom="8dp" android:visibility="gone">
+                        <EditText android:id="@+id/etNewNodeName"
+                            android:layout_width="0dp" android:layout_height="44dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_input_rounded"
+                            android:padding="10dp" android:textSize="13sp"
+                            android:hint="নতুন node name লিখুন"
+                            android:inputType="text" android:maxLines="1"
+                            android:layout_marginEnd="8dp" />
+                        <Button android:id="@+id/btnConfirmNewNode"
+                            android:layout_width="wrap_content" android:layout_height="44dp"
+                            android:text="✓ Add" android:textSize="12sp" android:textStyle="bold"
+                            android:backgroundTint="#16A34A" android:textColor="@color/theme_bg_card"
+                            android:paddingStart="14dp" android:paddingEnd="14dp"
+                            android:layout_marginEnd="6dp" />
+                        <Button android:id="@+id/btnCancelNewNode"
+                            android:layout_width="wrap_content" android:layout_height="44dp"
+                            android:text="✕" android:textSize="12sp" android:textStyle="bold"
+                            android:backgroundTint="#F3F4F6" android:textColor="@color/theme_text_secondary"
+                            android:paddingStart="12dp" android:paddingEnd="12dp" />
+                    </LinearLayout>
+
+                    <TextView android:id="@+id/btnResetNodePicker"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="↺ Reset"
+                        android:textSize="11sp"
+                        android:textColor="@color/theme_text_muted"
+                        android:clickable="true" android:focusable="true" />
+
+                    <!-- Hidden helpers kept for compatibility with existing fetch/save logic -->
+                    <EditText android:id="@+id/etTargetNode"
+                        android:layout_width="0dp" android:layout_height="0dp"
+                        android:visibility="gone" />
+                    <Button android:id="@+id/btnFetchFields"
+                        android:layout_width="0dp" android:layout_height="0dp"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <!-- ═══ Card 2: Primary key ═══ -->
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="14dp"
+                    android:layout_marginBottom="14dp">
+
+                    <Spinner android:id="@+id/spinnerPrimaryKey"
+                        android:layout_width="0dp" android:layout_height="0dp"
+                        android:visibility="gone" />
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🔑 Primary key"
+                        android:textSize="14sp" android:textStyle="bold"
+                        android:textColor="@color/theme_text_primary" android:layout_marginBottom="2dp" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Firebase-এ যে key দিয়ে row সেভ হবে (required)। Prefix ও/অথবা একাধিক column জুড়ে বানান — যেমন: run_ + Date + AgentID"
+                        android:textSize="11sp" android:textColor="@color/theme_text_muted"
+                        android:layout_marginBottom="10dp" />
+
+                    <LinearLayout android:id="@+id/containerPkBuilder"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp"
+                        android:layout_marginBottom="8dp" />
+                    <TextView android:id="@+id/btnAddPkPart"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="+ Add Part"
+                        android:textSize="12sp" android:textStyle="bold"
+                        android:textColor="#E8380D"
+                        android:padding="6dp"
+                        android:layout_marginBottom="6dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="8dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="👁 Preview:"
+                            android:textSize="11sp" android:textColor="@color/theme_text_muted"
+                            android:layout_marginEnd="6dp" />
+                        <TextView android:id="@+id/tvPkPreview"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:textSize="12sp" android:textStyle="bold"
+                            android:fontFamily="monospace"
+                            android:textColor="@color/theme_text_primary" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- ═══ Card 3: Field mapping ═══ -->
+                <LinearLayout
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="14dp">
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="📋 Field mapping"
+                        android:textSize="14sp" android:textStyle="bold"
+                        android:textColor="@color/theme_text_primary" android:layout_marginBottom="2dp" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Sheet এর কোন column কোন Firebase field এ map হবে। ✓ মানে auto-detect হয়েছে।"
+                        android:textSize="11sp" android:textColor="@color/theme_text_muted"
+                        android:layout_marginBottom="8dp" />
+
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:layout_marginBottom="10dp">
+                        <ProgressBar android:id="@+id/pbFetchFields"
+                            android:layout_width="16dp" android:layout_height="16dp"
+                            android:visibility="gone" android:layout_marginEnd="8dp" />
+                        <TextView android:id="@+id/tvFetchStatus"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:textSize="11sp" android:textColor="@color/theme_text_secondary" />
+                    </LinearLayout>
+
+                    <!-- Node structure preview (if data exists) gets prepended here at runtime,
+                         followed by the field mapping rows themselves. -->
+                    <LinearLayout android:id="@+id/containerMapping"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp" />
+
+                    <!-- Add field button -->
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical"
+                        android:layout_marginTop="10dp">
+                        <View android:layout_width="0dp" android:layout_height="1dp"
+                            android:layout_weight="1" android:background="@color/theme_border" />
+                        <TextView android:id="@+id/btnAddMappingField"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="+ Add Field"
+                            android:textSize="12sp" android:textStyle="bold"
+                            android:textColor="#3B82F6"
+                            android:paddingStart="12dp" android:paddingEnd="12dp"
+                            android:paddingTop="8dp" android:paddingBottom="8dp"
                         android:clickable="true" android:focusable="true" />
                     <View android:layout_width="0dp" android:layout_height="1dp"
                         android:layout_weight="1" android:background="@color/theme_border" />
+                </LinearLayout>
+
                 </LinearLayout>
 
             </LinearLayout>
