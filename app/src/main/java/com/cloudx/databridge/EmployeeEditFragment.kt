@@ -655,8 +655,9 @@ class EmployeeEditFragment : Fragment() {
                     "users/$uid/profile/company_info/agent_type"   to agentType,
                     "users/$uid/profile/company_info/salary_model" to salaryModel,
                     "users/$uid/profile/company_info/fixed_amount" to fixedAmount,
-                    // Reverse-index: systemId → uid
-                    "users_by_systemId/$sysId"                     to uid,
+                    // Reverse-index: systemId → {uid, status}
+                    "users_by_systemId/$sysId/uid"                 to uid,
+                    "users_by_systemId/$sysId/status"              to status,
                 )
                 // Sync branch employees index: add for all selected
                 selectedBranchIds.forEach { bid ->

@@ -595,7 +595,7 @@ class CallCenterFragment : Fragment() {
             val sysIdToUid = mutableMapOf<String, String>()
             indexSnap.children.forEach { child ->
                 val sysId = child.key?.trim()
-                val uid   = child.getValue(String::class.java)?.trim()
+                val uid   = child.child("uid").getValue(String::class.java)?.trim()
                 if (!sysId.isNullOrBlank() && !uid.isNullOrBlank()) sysIdToUid[sysId] = uid
             }
             // Step 2: uid → name from users/{uid}/profile/name (fresh, never stale)
