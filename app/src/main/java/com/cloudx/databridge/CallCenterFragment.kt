@@ -587,15 +587,27 @@ class CallCenterFragment : Fragment() {
     private suspend fun ensureAgentNameMap(): Map<String, String> {
         if (systemIdToName.isNotEmpty()) return systemIdToName
         return try {
-            val snap = withContext(Dispatchers.IO) {
-                com.google.firebase.database.FirebaseDatabase.getInstance()
-                    .reference.child("users_by_systemId").get().await()
+            val db = com.google.firebase.database.FirebaseDatabase.getInstance()
+            // Step 1: systemId → uid from reverse-index (single node read)
+            val indexSnap = withContext(Dispatchers.IO) {
+                db.reference.child("users_by_systemId").get().await()
             }
-            val map = mutableMapOf<String, String>()
-            snap.children.forEach { child ->
+            val sysIdToUid = mutableMapOf<String, String>()
+            indexSnap.children.forEach { child ->
                 val sysId = child.key?.trim()
-                val name  = child.child("name").getValue(String::class.java)?.trim()
-                if (!sysId.isNullOrBlank() && !name.isNullOrBlank()) map[sysId] = name
+                val uid   = child.getValue(String::class.java)?.trim()
+                if (!sysId.isNullOrBlank() && !uid.isNullOrBlank()) sysIdToUid[sysId] = uid
+            }
+            // Step 2: uid → name from users/{uid}/profile/name (fresh, never stale)
+            val map = mutableMapOf<String, String>()
+            sysIdToUid.forEach { (sysId, uid) ->
+                val name = withContext(Dispatchers.IO) {
+                    runCatching {
+                        db.reference.child("users/$uid/profile/name").get().await()
+                            .getValue(String::class.java)?.trim()
+                    }.getOrNull()
+                }
+                if (!name.isNullOrBlank()) map[sysId] = name
             }
             systemIdToName = map
             map
