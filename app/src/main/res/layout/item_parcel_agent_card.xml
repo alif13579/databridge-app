@@ -110,7 +110,7 @@
         android:text="💬 Customer want to receive today"
         android:textSize="11sp"
         android:textColor="@color/theme_text_secondary"
-        android:background="@color/theme_bg_inner"
+        android:background="@drawable/bg_remark_chip"
         android:padding="6dp"
         android:paddingStart="8dp"
         android:layout_marginTop="6dp"

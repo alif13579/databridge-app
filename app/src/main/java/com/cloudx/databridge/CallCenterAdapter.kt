@@ -171,10 +171,13 @@ class CallCenterAdapter(
 
             // Badge shows the effective status; this line shows the actual remark text
             // written by whoever set it, so the agent can read exactly what was said
-            // (not just the status label).
+            // (not just the status label). Colored to match the same status for quick
+            // visual scanning — a red remark jumps out as much as the red badge does.
             if (item.remarks.isNotBlank()) {
                 tvRemarks.text = "💬 ${item.remarks}"
                 tvRemarks.visibility = View.VISIBLE
+                tvRemarks.setTextColor(cfg.color)
+                tvRemarks.backgroundTintList = android.content.res.ColorStateList.valueOf(cfg.bg)
             } else {
                 tvRemarks.visibility = View.GONE
             }
