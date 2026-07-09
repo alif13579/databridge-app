@@ -169,9 +169,15 @@ class CallCenterAdapter(
 
             tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE
 
-            // remarkStatus already drives the badge above (effectiveStatus) — no need for a
-            // separate "💬 remark text" line duplicating the same information.
-            tvRemarks.visibility = View.GONE
+            // Badge shows the effective status; this line shows the actual remark text
+            // written by whoever set it, so the agent can read exactly what was said
+            // (not just the status label).
+            if (item.remarks.isNotBlank()) {
+                tvRemarks.text = "💬 ${item.remarks}"
+                tvRemarks.visibility = View.VISIBLE
+            } else {
+                tvRemarks.visibility = View.GONE
+            }
 
             if (item.validationNote.isNotBlank()) {
                 tvValidationNote.text = "⚡ Worker: ${item.validationNote}"
