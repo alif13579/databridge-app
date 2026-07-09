@@ -111,20 +111,16 @@ class BranchListFragment : Fragment() {
 
         lifecycleScope.launch {
             try {
-                // Load managers for names
-                val usersSnap = db.reference.child("users").get().await()
-                managers.clear()
-                usersSnap.children.forEach { child ->
-                    val uid = child.key ?: return@forEach
-                    val name = child.child("profile/name").getValue(String::class.java) ?: uid.take(6)
-                    managers.add(uid to name)
-                }
-
-                // Load branches
+                // Load branches — manager_name is already stored on the branch node,
+                // so no full users/ scan needed. For the rare case it's missing,
+                // fetch only that specific user's name.
                 val branchesSnap = db.reference.child("branches").get().await()
-                allBranches = branchesSnap.children.mapNotNull { child ->
+                val missingManagerUids = mutableSetOf<String>()
+                val rawBranches = branchesSnap.children.mapNotNull { child ->
                     val branchId   = child.key ?: return@mapNotNull null
                     val managerUid = child.child("manager_uid").getValue(String::class.java) ?: ""
+                    val cachedName = child.child("manager_name").getValue(String::class.java)
+                    if (cachedName.isNullOrBlank() && managerUid.isNotBlank()) missingManagerUids.add(managerUid)
                     BranchEntry(
                         branchId      = branchId,
                         branchCode    = child.child("branch_code").getValue(String::class.java) ?: "",
@@ -136,13 +132,26 @@ class BranchListFragment : Fragment() {
                         email         = child.child("email").getValue(String::class.java) ?: "",
                         phone         = child.child("phone").getValue(String::class.java) ?: "",
                         managerUid    = managerUid,
-                        managerName   = child.child("manager_name").getValue(String::class.java)
-                                        ?: managers.find { it.first == managerUid }?.second ?: "None",
+                        managerName   = cachedName ?: "",
                         parentBranchId = child.child("parent_branch_id").getValue(String::class.java) ?: "",
                         status        = child.child("status").getValue(String::class.java) ?: "active",
                         imageUrl      = child.child("image_url").getValue(String::class.java) ?: "",
                         createdAt     = child.child("created_at").getValue(Long::class.java) ?: 0L
                     )
+                }
+                // Fetch only missing manager names (targeted per-uid, not full scan)
+                managers.clear()
+                missingManagerUids.forEach { uid ->
+                    val name = runCatching {
+                        db.reference.child("users/$uid/profile/name").get().await()
+                            .getValue(String::class.java)
+                    }.getOrNull() ?: uid.take(6)
+                    managers.add(uid to name)
+                }
+                allBranches = rawBranches.map { b ->
+                    if (b.managerName.isBlank() && b.managerUid.isNotBlank())
+                        b.copy(managerName = managers.find { it.first == b.managerUid }?.second ?: "None")
+                    else b
                 }.sortedBy { it.name }
 
                 pbLoading.visibility = View.GONE
