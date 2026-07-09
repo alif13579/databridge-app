@@ -479,7 +479,7 @@ class CallCenterFragment : Fragment() {
     }
 
     /** Discovers today's runs, scoped strictly to the CC agent's OWN assigned branches via
-     *  courier/runs_by_branch/{branchId} — never reads other branches' data or the full
+     *  courier/runs_by_branchId/{branchId} — never reads other branches' data or the full
      *  historical courier/run_routes tree. */
     private fun attachRootRunTypesListener() {
         detachRootRunTypesListener()
@@ -496,7 +496,7 @@ class CallCenterFragment : Fragment() {
         val branchIdsSnapshot = myBranchIds // stable copy for the closures below
 
         branchIdsSnapshot.forEach { branchId ->
-            val ref = db.reference.child("courier/runs_by_branch/$branchId")
+            val ref = db.reference.child("courier/runs_by_branchId/$branchId")
             val listener = object : com.google.firebase.database.ValueEventListener {
                 override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                     if (!isAdded) return
@@ -712,7 +712,7 @@ class CallCenterFragment : Fragment() {
                             ?.toDoubleOrNull()?.toInt()
                             ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0
                         // Prefer the run's locked-in branch (authoritative, set once at run
-                        // creation — see runs_by_branch). Falls back to the parcel's own
+                        // creation — see runs_by_branchId). Falls back to the parcel's own
                         // deliveryHub only for pre-migration runs that predate resolvedBranchIds.
                         val hub = resolvedBranch.ifBlank {
                             snap.child("deliveryHub").getValue(String::class.java) ?: ""

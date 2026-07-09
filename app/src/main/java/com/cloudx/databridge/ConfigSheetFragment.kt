@@ -1683,6 +1683,28 @@ class ConfigSheetFragment : Fragment() {
             val dateIssues = mutableListOf<String>()
             val basePath = conn.targetNode.trimEnd('/')
 
+            // ── runs_by_branchId support: resolve each agent's CURRENT branch_ids once per
+            // sync (not per row) — same one-time-bulk-read pattern as CallCenterFragment's
+            // ensureAgentNameMap(). Only fetched when syncing a run_routes target, since
+            // plain courier/consignments syncs never need it.
+            val isRunRoutesTarget = Regex("^courier/run_routes/[^/]+$").matches(basePath)
+            val agentBranchMap: Map<String, List<String>> = if (isRunRoutesTarget) {
+                try {
+                    val usersSnap = withContext(Dispatchers.IO) {
+                        db.reference.child("users").get().await()
+                    }
+                    val map = mutableMapOf<String, List<String>>()
+                    usersSnap.children.forEach { child ->
+                        val sysId = child.child("profile/company_info/system_id")
+                            .getValue(String::class.java)?.trim()
+                        val branchIds = child.child("profile/company_info/branch_ids")
+                            .children.mapNotNull { it.getValue(String::class.java) }
+                        if (!sysId.isNullOrBlank() && branchIds.isNotEmpty()) map[sysId] = branchIds
+                    }
+                    map
+                } catch (e: Exception) { emptyMap() }
+            } else emptyMap()
+
             for (row in dataRows) {
                 val conId = buildPrimaryKey(row)
                 if (conId.isBlank()) { skipped++; continue }
@@ -1798,6 +1820,19 @@ class ConfigSheetFragment : Fragment() {
                         val runType = runTypeMatch.groupValues[1]
                         val status = fieldMap["status"]?.toString() ?: ""
                         multiUpdate["courier/runs_by_agentSystemId/$userSystemId/$runType/$conId"] = status
+
+                        // runs_by_branchId — branch is resolved ONCE at run-creation time (the agent's
+                        // branch_ids *right now*), then locked in via resolvedBranchIds on the run
+                        // node itself. If the agent switches branch tomorrow, tomorrow's runId is a
+                        // different key entirely (date-scoped), so it re-resolves naturally — today's
+                        // already-created run intentionally stays put.
+                        val agentBranchIds = agentBranchMap[userSystemId].orEmpty()
+                        if (agentBranchIds.isNotEmpty()) {
+                            multiUpdate["$basePath/$conId/resolvedBranchIds"] = agentBranchIds
+                            agentBranchIds.forEach { branchId ->
+                                multiUpdate["courier/runs_by_branchId/$branchId/$runType/$conId"] = status
+                            }
+                        }
                     }
                     inserted++
                 } else {
@@ -1830,7 +1865,7 @@ class ConfigSheetFragment : Fragment() {
                             multiUpdate["courier/runs_by_agentSystemId/$userSystemId/$runType/$conId"] =
                                 changedFields["status"].toString()
 
-                            // runs_by_branch — branch was already locked in at INSERT time
+                            // runs_by_branchId — branch was already locked in at INSERT time
                             // (resolvedBranchIds on the run node). We only propagate the new
                             // status here; we deliberately do NOT re-resolve the agent's branch,
                             // since today's run must stay attached to the branch it was created in
@@ -1838,7 +1873,7 @@ class ConfigSheetFragment : Fragment() {
                             val lockedBranchIds = existSnap?.child("resolvedBranchIds")
                                 ?.children?.mapNotNull { it.getValue(String::class.java) }.orEmpty()
                             lockedBranchIds.forEach { branchId ->
-                                multiUpdate["courier/runs_by_branch/$branchId/$runType/$conId"] =
+                                multiUpdate["courier/runs_by_branchId/$branchId/$runType/$conId"] =
                                     changedFields["status"].toString()
                             }
                         }
