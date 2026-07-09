@@ -82,6 +82,14 @@ class CallCenterFragment : Fragment() {
     private var statusFilter = "all"
     private var branchFilter = "all"
     private var branches = listOf<String>()
+    // CC agent's own assigned branches (RbacManager, loaded at login) — scopes ALL data fetching.
+    private var myBranchIds: List<String> = emptyList()
+    // (runType/runId) keys that already have a dedicated live listener attached — prevents
+    // re-attaching duplicates every time a branch index snapshot re-fires.
+    private val ccAttachedRunKeys = mutableSetOf<String>()
+    // Cache of each attached run node's latest snapshot; the full parcel list is rebuilt from
+    // this cache whenever any one run node changes (new consignment, status update, etc).
+    private val ccRunNodeSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
 
     // Run ID shape: run_{ddmmyy}_{employeeId} — ddmmyy is always exactly 6 zero-padded digits.
     private val RUN_ID_PATTERN = Regex("^run_(\\d{6})_(.+)$")
@@ -425,17 +433,12 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    private var runsListener: com.google.firebase.database.ValueEventListener? = null
-    private var runsRef: com.google.firebase.database.DatabaseReference? = null
-
     // ── Run type selection (mirrors WorkerSpaceFragment pattern) ──────
     private lateinit var spinnerCcRunType: Spinner
     data class CcRunTypeOption(val key: String, val label: String)
     private val CC_RUN_TYPE_ALL = "__ALL__"
     private var ccSelectedRunType = CC_RUN_TYPE_ALL
     private var ccRunTypeOptions = listOf(CcRunTypeOption(CC_RUN_TYPE_ALL, "All"))
-    private var rootRunTypesRef: com.google.firebase.database.DatabaseReference? = null
-    private var rootRunTypesListener: com.google.firebase.database.ValueEventListener? = null
 
     private fun loadData() {
         pbProgress.visibility = View.VISIBLE
@@ -444,44 +447,49 @@ class CallCenterFragment : Fragment() {
         attachRootRunTypesListener()
     }
 
-    /** Discovers available run types under courier/run_routes (delivery_run, pickup_run, etc). */
+    /** Discovers today's runs, scoped strictly to the CC agent's OWN assigned branches via
+     *  courier/runs_by_branch/{branchId} — never reads other branches' data or the full
+     *  historical courier/run_routes tree. */
     private fun attachRootRunTypesListener() {
         detachRootRunTypesListener()
-        val db  = com.google.firebase.database.FirebaseDatabase.getInstance()
-        val ref = db.reference.child("courier/run_routes")
-        rootRunTypesRef = ref
-        rootRunTypesListener = object : com.google.firebase.database.ValueEventListener {
-            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
-                if (!isAdded) return
-                val runTypes = snapshot.children
-                    .mapNotNull { it.key?.trim()?.takeIf { k -> k.isNotBlank() } }
-                    .distinct()
-                    .sorted()
-
-                ccRunTypeOptions = listOf(CcRunTypeOption(CC_RUN_TYPE_ALL, "All")) +
-                    runTypes.map { CcRunTypeOption(it, formatCcRunTypeLabel(it)) }
-
-                if (ccSelectedRunType != CC_RUN_TYPE_ALL && ccSelectedRunType !in runTypes) {
-                    ccSelectedRunType = CC_RUN_TYPE_ALL
-                }
-                bindCcRunTypeSpinner()
-                attachRunsListener(runTypes)
-            }
-            override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
-                if (!isAdded) return
-                pbProgress.visibility = View.GONE
-                tvEmpty.visibility    = View.VISIBLE
-                tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
-            }
+        myBranchIds = RbacManager.current.branchIds
+        if (myBranchIds.isEmpty()) {
+            pbProgress.visibility = View.GONE
+            tvEmpty.visibility    = View.VISIBLE
+            tvEmpty.text          = "⚠ কোনো branch assigned নেই — admin-এর সাথে যোগাযোগ করুন"
+            return
         }
-        ref.addValueEventListener(rootRunTypesListener!!)
+
+        val db = com.google.firebase.database.FirebaseDatabase.getInstance()
+        val branchSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
+        val branchIdsSnapshot = myBranchIds // stable copy for the closures below
+
+        branchIdsSnapshot.forEach { branchId ->
+            val ref = db.reference.child("courier/runs_by_branch/$branchId")
+            val listener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                    if (!isAdded) return
+                    branchSnapshots[branchId] = snapshot
+                    if (branchSnapshots.size >= branchIdsSnapshot.size) {
+                        onBranchIndexesLoaded(branchSnapshots.values.toList())
+                    }
+                }
+                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                    if (!isAdded) return
+                    pbProgress.visibility = View.GONE
+                    tvEmpty.visibility    = View.VISIBLE
+                    tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
+                }
+            }
+            ref.addValueEventListener(listener)
+            ccActiveListeners.add(ref to listener)
+        }
     }
 
     private fun detachRootRunTypesListener() {
-        val listener = rootRunTypesListener ?: return
-        rootRunTypesRef?.removeEventListener(listener)
-        rootRunTypesListener = null
-        rootRunTypesRef = null
+        // Branch-index listeners live in ccActiveListeners now (shared cleanup with per-run
+        // listeners in detachRunsListener) — nothing separate to tear down here. Kept as a
+        // no-op so loadData()'s call site doesn't need to change.
     }
 
     private fun bindCcRunTypeSpinner() {
@@ -510,11 +518,23 @@ class CallCenterFragment : Fragment() {
                 part.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
             }
 
-    /** Attaches a listener on the selected run type's node (or the first discovered type when "All"). */
-    private fun attachRunsListener(discoveredTypes: List<String>) {
-        val db = com.google.firebase.database.FirebaseDatabase.getInstance()
-        val typesToWatch = if (ccSelectedRunType == CC_RUN_TYPE_ALL) discoveredTypes else listOf(ccSelectedRunType)
+    /** Called once every assigned branch's index snapshot has arrived (and again whenever any
+     *  of them change — new run created, a run's representative status updated, etc). Derives
+     *  today's candidate runs and attaches a dedicated live listener per run node. */
+    private fun onBranchIndexesLoaded(branchSnapshots: List<com.google.firebase.database.DataSnapshot>) {
+        if (!isAdded) return
 
+        val runTypes = branchSnapshots.flatMap { snap -> snap.children.mapNotNull { it.key } }
+            .distinct().sorted()
+
+        ccRunTypeOptions = listOf(CcRunTypeOption(CC_RUN_TYPE_ALL, "All")) +
+            runTypes.map { CcRunTypeOption(it, formatCcRunTypeLabel(it)) }
+        if (ccSelectedRunType != CC_RUN_TYPE_ALL && ccSelectedRunType !in runTypes) {
+            ccSelectedRunType = CC_RUN_TYPE_ALL
+        }
+        bindCcRunTypeSpinner()
+
+        val typesToWatch = if (ccSelectedRunType == CC_RUN_TYPE_ALL) runTypes else listOf(ccSelectedRunType)
         if (typesToWatch.isEmpty()) {
             pbProgress.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
@@ -522,58 +542,64 @@ class CallCenterFragment : Fragment() {
             return
         }
 
-        // For "All", merge every run type's snapshot together before processing.
-        val mergedSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
-        var remaining = typesToWatch.size
+        // Today's date range — same bounds as before, just applied earlier (at the small
+        // branch-index level) instead of after pulling the entire historical run_routes tree.
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        val dayStart = cal.timeInMillis
+        val dayEnd   = dayStart + 24 * 60 * 60 * 1000 - 1
 
-        typesToWatch.forEach { runType ->
-            val ref = db.reference.child("courier/run_routes/$runType")
+        // Dedupe (runType, runId) across branches — a multi-branch agent's run is written into
+        // EVERY one of their assigned branches' indexes, but it's a single real run node.
+        val candidateKeys = mutableSetOf<Pair<String, String>>()
+        branchSnapshots.forEach { branchSnap ->
+            branchSnap.children.forEach { runTypeSnap ->
+                val runType = runTypeSnap.key ?: return@forEach
+                if (runType !in typesToWatch) return@forEach
+                runTypeSnap.children.forEach { runIdSnap ->
+                    val runId = runIdSnap.key ?: return@forEach
+                    val ts = parseRunTimestamp(runId) ?: return@forEach
+                    if (ts in dayStart..dayEnd) candidateKeys.add(runType to runId)
+                }
+            }
+        }
+
+        if (candidateKeys.isEmpty()) {
+            pbProgress.visibility = View.GONE
+            tvEmpty.visibility    = View.VISIBLE
+            tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
+            return
+        }
+
+        val db = com.google.firebase.database.FirebaseDatabase.getInstance()
+        candidateKeys.forEach { (runType, runId) ->
+            val key = "$runType/$runId"
+            if (key in ccAttachedRunKeys) return@forEach
+            ccAttachedRunKeys.add(key)
+            val ref = db.reference.child("courier/run_routes/$runType/$runId")
             val listener = object : com.google.firebase.database.ValueEventListener {
                 override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                     if (!isAdded) return
-                    mergedSnapshots[runType] = snapshot
-                    if (mergedSnapshots.size >= typesToWatch.size) {
-                        viewLifecycleOwner.lifecycleScope.launch { processRunTypeSnapshots(mergedSnapshots.values.toList()) }
-                    }
+                    ccRunNodeSnapshots[key] = snapshot
+                    viewLifecycleOwner.lifecycleScope.launch { reprocessAllCachedRuns() }
                 }
-                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
-                    if (!isAdded) return
-                    pbProgress.visibility = View.GONE
-                    tvEmpty.visibility    = View.VISIBLE
-                    tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
-                }
+                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
             }
             ref.addValueEventListener(listener)
-            // Reuse existing single-ref tracking for the primary type; extra types are cleaned
-            // up together in detachRunsListener via the shared list below.
             ccActiveListeners.add(ref to listener)
         }
     }
 
     private val ccActiveListeners = mutableListOf<Pair<com.google.firebase.database.DatabaseReference, com.google.firebase.database.ValueEventListener>>()
 
-    /** Merges multiple run_type snapshots into one combined view, then runs the existing pipeline. */
-    private suspend fun processRunTypeSnapshots(snapshots: List<com.google.firebase.database.DataSnapshot>) {
-        if (snapshots.size == 1) {
-            processRunsSnapshot(snapshots.first())
-            return
-        }
-        // Multiple run types selected ("All") — process each and concatenate results.
-        // processRunsSnapshot already updates the shared list; run sequentially to avoid races.
-        snapshots.forEachIndexed { idx, snap ->
-            processRunsSnapshot(snap, append = idx > 0)
-        }
-    }
-
     private fun detachRunsListener() {
-        val listener = runsListener ?: return
-        runsRef?.removeEventListener(listener)
-        runsListener = null
-        runsRef = null
-
         ccActiveListeners.forEach { (ref, l) -> ref.removeEventListener(l) }
         ccActiveListeners.clear()
-        detachRootRunTypesListener()
+        ccRunNodeSnapshots.clear()
+        ccAttachedRunKeys.clear()
 
         ccRemarkNodeListeners.values.forEach { (ref, l) -> ref.removeEventListener(l) }
         ccRemarkNodeListeners.clear()
@@ -606,31 +632,25 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    private suspend fun processRunsSnapshot(runsSnap: com.google.firebase.database.DataSnapshot, append: Boolean = false) {
+    /** Rebuilds the full parcel list from ccRunNodeSnapshots (every currently-attached run
+     *  node's latest snapshot) — called whenever any one of those run nodes changes. Today/branch
+     *  filtering already happened upstream when candidates were selected, so every cached run
+     *  here is guaranteed relevant. */
+    private suspend fun reprocessAllCachedRuns() {
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
 
-        // Today's date range
-        val cal = java.util.Calendar.getInstance()
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        cal.set(java.util.Calendar.MINUTE, 0)
-        cal.set(java.util.Calendar.SECOND, 0)
-        cal.set(java.util.Calendar.MILLISECOND, 0)
-        val dayStart = cal.timeInMillis
-        val dayEnd   = dayStart + 24 * 60 * 60 * 1000 - 1
-
-        // Collect today's consignment ids + statuses + which agent's run they came from.
-        // agentSystemId is already a flat field on the run node (written by ConfigSheetFragment's
-        // sync) — reading it here costs nothing extra, it's already in the snapshot we have.
-        val consignmentInfo = mutableMapOf<String, Pair<String, String>>() // cId -> (agentSystemId, status)
-        runsSnap.children.forEach { runSnap ->
-            val runId = runSnap.key ?: return@forEach
-            val runTimestamp = parseRunTimestamp(runId) ?: return@forEach
-            if (runTimestamp < dayStart || runTimestamp > dayEnd) return@forEach
+        // Collect consignment ids + statuses + which agent's run + which branch they came from.
+        // agentSystemId and resolvedBranchIds are flat fields on the run node (written by
+        // ConfigSheetFragment's sync) — reading them here costs nothing extra.
+        val consignmentInfo = mutableMapOf<String, Triple<String, String, String>>() // cId -> (agentSystemId, status, branch)
+        ccRunNodeSnapshots.values.forEach { runSnap ->
             val agentSystemId = runSnap.child("agentSystemId").getValue(String::class.java)?.trim().orEmpty()
+            val resolvedBranch = runSnap.child("resolvedBranchIds").children
+                .mapNotNull { it.getValue(String::class.java) }.firstOrNull().orEmpty()
             runSnap.child("consignments").children.forEach { c ->
                 val cId     = c.key ?: return@forEach
                 val cStatus = c.getValue(String::class.java) ?: "pending"
-                consignmentInfo[cId] = agentSystemId to cStatus
+                consignmentInfo[cId] = Triple(agentSystemId, cStatus, resolvedBranch)
             }
         }
 
@@ -648,7 +668,7 @@ class CallCenterFragment : Fragment() {
         val parcels = coroutineScope {
             consignmentInfo.entries.map { entry ->
                 val cId = entry.key
-                val (agentSystemId, runStatus) = entry.value
+                val (agentSystemId, runStatus, resolvedBranch) = entry.value
                 async(Dispatchers.IO) {
                     try {
                         val snap = db.reference.child("courier/consignments/$cId").get().await()
@@ -660,7 +680,12 @@ class CallCenterFragment : Fragment() {
                         val cod     = snap.child("collectableAmount").getValue(String::class.java)
                             ?.toDoubleOrNull()?.toInt()
                             ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0
-                        val hub     = snap.child("deliveryHub").getValue(String::class.java) ?: ""
+                        // Prefer the run's locked-in branch (authoritative, set once at run
+                        // creation — see runs_by_branch). Falls back to the parcel's own
+                        // deliveryHub only for pre-migration runs that predate resolvedBranchIds.
+                        val hub = resolvedBranch.ifBlank {
+                            snap.child("deliveryHub").getValue(String::class.java) ?: ""
+                        }
                         val status  = snap.child("status").getValue(String::class.java) ?: runStatus
 
                         val remarkSnap = db.reference.child("courier/remarks_by_consignment/$cId")
@@ -696,18 +721,21 @@ class CallCenterFragment : Fragment() {
         }
 
         if (!isAdded) return
-        val combined = if (append) (allParcels + parcels).distinctBy { it.id } else parcels
-        allParcels = combined.sortedBy { it.id }
-        branches   = allParcels.map { it.branch }.filter { it.isNotBlank() }.distinct().sorted()
+        allParcels = parcels.sortedBy { it.id }
+        // Branch chips reflect the CC agent's OWN assignment (RbacManager), not whatever
+        // branches happen to show up in the fetched parcels — Karim (Sonargaon only) never
+        // sees a "Bandar" chip even if a stray legacy parcel's deliveryHub said otherwise.
+        branches = myBranchIds
         setupBranchChips()
         setupFilterTabs()
         applyFilters()
         pbProgress.visibility = View.GONE
-        if (!append) syncCcRemarkListeners(allParcels.map { it.id }.toSet())
+        syncCcRemarkListeners(allParcels.map { it.id }.toSet())
     }
 
     // Per-parcel remark listeners for Call Center — keyed by consignmentId.
     private val ccRemarkNodeListeners = mutableMapOf<String, Pair<com.google.firebase.database.DatabaseReference, com.google.firebase.database.ValueEventListener>>()
+
 
     private fun syncCcRemarkListeners(currentIds: Set<String>) {
         val stale = ccRemarkNodeListeners.keys - currentIds

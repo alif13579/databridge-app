@@ -1829,6 +1829,18 @@ class ConfigSheetFragment : Fragment() {
                             val runType = runTypeMatchUpd.groupValues[1]
                             multiUpdate["courier/runs_by_agentSystemId/$userSystemId/$runType/$conId"] =
                                 changedFields["status"].toString()
+
+                            // runs_by_branch — branch was already locked in at INSERT time
+                            // (resolvedBranchIds on the run node). We only propagate the new
+                            // status here; we deliberately do NOT re-resolve the agent's branch,
+                            // since today's run must stay attached to the branch it was created in
+                            // even if the agent's branch assignment changes later today.
+                            val lockedBranchIds = existSnap?.child("resolvedBranchIds")
+                                ?.children?.mapNotNull { it.getValue(String::class.java) }.orEmpty()
+                            lockedBranchIds.forEach { branchId ->
+                                multiUpdate["courier/runs_by_branch/$branchId/$runType/$conId"] =
+                                    changedFields["status"].toString()
+                            }
                         }
                         updated++
                     } else {
