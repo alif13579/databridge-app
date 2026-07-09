@@ -589,14 +589,12 @@ class CallCenterFragment : Fragment() {
         return try {
             val snap = withContext(Dispatchers.IO) {
                 com.google.firebase.database.FirebaseDatabase.getInstance()
-                    .reference.child("users").get().await()
+                    .reference.child("users_by_systemId").get().await()
             }
             val map = mutableMapOf<String, String>()
             snap.children.forEach { child ->
-                val sysId = child.child("profile/company_info/system_id")
-                    .getValue(String::class.java)?.trim()
-                val name = child.child("profile/name").getValue(String::class.java)?.trim()
-                    ?: child.child("name").getValue(String::class.java)?.trim()
+                val sysId = child.key?.trim()
+                val name  = child.child("name").getValue(String::class.java)?.trim()
                 if (!sysId.isNullOrBlank() && !name.isNullOrBlank()) map[sysId] = name
             }
             systemIdToName = map

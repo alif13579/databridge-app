@@ -945,6 +945,11 @@ class EmployeeFragment : Fragment() {
                     "users/$uid/profile/phone"                    to phone,
                     "users/$uid/profile/user_id"                  to uid
                 )
+                // Reverse-index: systemId → {uid, name}
+                if (systemId.isNotBlank()) {
+                    updates["users_by_systemId/$systemId/uid"]  = uid
+                    updates["users_by_systemId/$systemId/name"] = name
+                }
                 // Sync branch employees index
                 branchIds.forEach { bid ->
                     updates["branches/$bid/employees/$uid"] = mapOf("employee_id" to employeeId, "user_id" to uid)
