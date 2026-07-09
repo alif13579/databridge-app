@@ -82,6 +82,11 @@ class CallCenterFragment : Fragment() {
     private var statusFilter = "all"
     private var branchFilter = "all"
     private var branches = listOf<String>()
+    // "priority" (default) = only verify_req parcels — agents who sent a request, called first.
+    // "all" = every branch-scoped parcel regardless of request, for random spot-verification.
+    private var ccAccessMode = "priority"
+    private lateinit var tvModePriority: TextView
+    private lateinit var tvModeAllAgents: TextView
     // CC agent's own assigned branches (RbacManager, loaded at login) — scopes ALL data fetching.
     private var myBranchIds: List<String> = emptyList()
     // (runType/runId) keys that already have a dedicated live listener attached — prevents
@@ -110,6 +115,7 @@ class CallCenterFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         initViews(view)
+        updateAccessModeToggle()
         setupFilterTabs()
         setupAdapter()
         loadCcRemarkOptions()
@@ -126,6 +132,14 @@ class CallCenterFragment : Fragment() {
         layoutBranchFilter = view.findViewById(R.id.layoutCcaBranchFilter)
         layoutBranchChips = view.findViewById(R.id.layoutCcaBranchChips)
         layoutFilterTabs = view.findViewById(R.id.layoutCcaFilterTabs)
+        tvModePriority = view.findViewById(R.id.tvCcaModePriority)
+        tvModeAllAgents = view.findViewById(R.id.tvCcaModeAllAgents)
+        tvModePriority.setOnClickListener {
+            if (ccAccessMode != "priority") { ccAccessMode = "priority"; updateAccessModeToggle(); applyFilters() }
+        }
+        tvModeAllAgents.setOnClickListener {
+            if (ccAccessMode != "all") { ccAccessMode = "all"; updateAccessModeToggle(); applyFilters() }
+        }
         rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
@@ -309,6 +323,23 @@ class CallCenterFragment : Fragment() {
         // Item views recycle instead of being fully re-inflated on every refresh/filter.
         rvParcelList.setHasFixedSize(false)
         rvParcelList.setItemViewCacheSize(8)
+    }
+
+    private fun updateAccessModeToggle() {
+        val ctx = context ?: return
+        val priorityActive = ccAccessMode == "priority"
+        tvModePriority.setBackgroundResource(
+            if (priorityActive) R.drawable.bg_filter_chip_active else R.drawable.bg_filter_chip_inactive
+        )
+        tvModePriority.setTextColor(
+            ctx.getColor(if (priorityActive) android.R.color.white else R.color.theme_text_secondary)
+        )
+        tvModeAllAgents.setBackgroundResource(
+            if (!priorityActive) R.drawable.bg_filter_chip_active else R.drawable.bg_filter_chip_inactive
+        )
+        tvModeAllAgents.setTextColor(
+            ctx.getColor(if (!priorityActive) android.R.color.white else R.color.theme_text_secondary)
+        )
     }
 
     private fun setupBranchChips() {
@@ -1027,6 +1058,12 @@ class CallCenterFragment : Fragment() {
 
     private fun applyFilters() {
         var filtered = allParcels
+
+        // Access mode — Priority shows only agents who actually sent a verify request;
+        // All Agents shows everyone in-branch regardless, for random spot-verification.
+        if (ccAccessMode == "priority") {
+            filtered = filtered.filter { it.validationRequest }
+        }
 
         // Branch filter
         if (branchFilter != "all") {

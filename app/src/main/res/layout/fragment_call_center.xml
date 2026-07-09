@@ -284,6 +284,42 @@
                     </LinearLayout>
                 </LinearLayout>
 
+                <!-- Access Mode Toggle: Priority (verify_req only) vs All Agents (branch-wide) -->
+                <LinearLayout
+                    android:id="@+id/layoutCcaAccessMode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal"
+                    android:weightSum="2">
+
+                    <TextView
+                        android:id="@+id/tvCcaModePriority"
+                        android:layout_width="0dp"
+                        android:layout_height="38dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="6dp"
+                        android:gravity="center"
+                        android:text="🔔 Priority Queue"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_filter_chip_active"
+                        android:textColor="@android:color/white" />
+
+                    <TextView
+                        android:id="@+id/tvCcaModeAllAgents"
+                        android:layout_width="0dp"
+                        android:layout_height="38dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="6dp"
+                        android:gravity="center"
+                        android:text="👥 All Agents"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:background="@drawable/bg_filter_chip_inactive"
+                        android:textColor="@color/theme_text_secondary" />
+                </LinearLayout>
+
                 <!-- Branch Filter Chips (dynamic visibility) -->
                 <HorizontalScrollView
                     android:id="@+id/layoutCcaBranchFilter"
