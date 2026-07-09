@@ -43,6 +43,7 @@ class EmployeeEditFragment : Fragment() {
     private val salaryModelOptions = mutableListOf<SalaryModelOption>()
     private val selectedBranchIds = mutableSetOf<String>()
     private val originalBranchIds = mutableSetOf<String>()
+    private var originalSystemId = ""
     private var suppressAgentEvents = false
     private var suppressSalaryModelEvents = false
     private var savedAgentType = ""
@@ -408,7 +409,8 @@ class EmployeeEditFragment : Fragment() {
             if (!isAdded) return
 
             tvUid.text = "UID: $uid"
-            etSystemId.setText(userSnap.child("company_info/system_id").getValue(String::class.java) ?: "")
+            originalSystemId = userSnap.child("company_info/system_id").getValue(String::class.java) ?: ""
+            etSystemId.setText(originalSystemId)
             etEmployeeId.setText(userSnap.child("company_info/employee_id").getValue(String::class.java) ?: "")
             etName.setText(userSnap.child("name").getValue(String::class.java) ?: "")
             etEmail.setText(userSnap.child("email").getValue(String::class.java) ?: "")
@@ -631,10 +633,12 @@ class EmployeeEditFragment : Fragment() {
         val salaryModel = if (selectedModelPos >= modelPlaceholderIdx) "" else salaryModelOptions.getOrNull(selectedModelPos)?.id.orEmpty()
         val fixedAmount = etFixedAmount.text.toString().trim()
 
+        val sysId = etSystemId.text.toString().trim()
+        if (sysId.isBlank()) { toast("System ID required"); return }
+
         lifecycleScope.launch {
             try {
                 btnSave.isEnabled = false
-                val sysId = etSystemId.text.toString().trim()
                 val empId = etEmployeeId.text.toString().trim()
                 val updates = mutableMapOf<String, Any?>(
                     "users/$uid/profile/company_info/system_id"    to sysId,
@@ -650,13 +654,19 @@ class EmployeeEditFragment : Fragment() {
                     "users/$uid/profile/company_info/salary_type"  to salaryType,
                     "users/$uid/profile/company_info/agent_type"   to agentType,
                     "users/$uid/profile/company_info/salary_model" to salaryModel,
-                    "users/$uid/profile/company_info/fixed_amount" to fixedAmount
+                    "users/$uid/profile/company_info/fixed_amount" to fixedAmount,
+                    // Reverse-index: systemId → uid
+                    "users_by_systemId/$sysId"                     to uid,
                 )
                 // Sync branch employees index: add for all selected
                 selectedBranchIds.forEach { bid ->
                     updates["branches/$bid/employees/$uid"] = mapOf("employee_id" to empId, "user_id" to uid)
                 }
                 db.reference.updateChildren(updates).await()
+                // Remove old systemId entry if it changed
+                if (originalSystemId.isNotBlank() && originalSystemId != sysId) {
+                    db.reference.child("users_by_systemId/$originalSystemId").removeValue().await()
+                }
                 // Remove from old branch indices no longer selected
                 val toRemove = originalBranchIds.minus(selectedBranchIds)
                 for (oldId in toRemove) {
