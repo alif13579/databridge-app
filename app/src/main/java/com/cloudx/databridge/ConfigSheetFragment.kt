@@ -1110,7 +1110,59 @@ class ConfigSheetFragment : Fragment() {
             2 -> updateSheetPickerLabel()
             3 -> updateTabSpinner()
             4 -> { updateColPreview(); updateSummary(); scheduleLivePreview() }
-            5 -> { fetchCourierChildNodes(); renderMappingStep() }
+            5 -> {
+                fetchCourierChildNodes()
+                // On reconnect, sheetHeaders may be empty (not fetched yet) even though
+                // pendingMapping is already populated. Fetch the header row first so saved
+                // column letters can be pre-selected in the mapping spinners.
+                if (sheetHeaders.isEmpty()
+                    && (pendingMapping.isNotEmpty() || pendingObjectMapping.isNotEmpty())
+                    && googleAccount != null && selectedSheet != null && selectedTab.isNotBlank()) {
+                    val account = googleAccount!!
+                    val sheet   = selectedSheet!!
+                    val tab     = selectedTab
+                    val conn    = activeConn()
+                    val s       = conn?.colStart ?: etColStart?.text?.toString()?.trim()?.toIntOrNull() ?: 1
+                    val e       = conn?.colEnd   ?: etColEnd?.text?.toString()?.trim()?.toIntOrNull() ?: 10
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        try {
+                            val token = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                try { com.google.android.gms.auth.GoogleAuthUtil.getToken(requireContext(), account.account!!, OAUTH_SCOPE) }
+                                catch (_: Exception) { null }
+                            }
+                            if (token != null) {
+                                val startLetter = colIndexToLetter(s)
+                                val endLetter   = colIndexToLetter(e)
+                                val sRow = etStartRow?.text?.toString()?.trim()?.toIntOrNull() ?: 1
+                                val range = "$tab!${startLetter}${sRow}:${endLetter}${sRow}"
+                                val encoded = java.net.URLEncoder.encode(range, "UTF-8")
+                                val url = "https://sheets.googleapis.com/v4/spreadsheets/${sheet.id}/values/$encoded"
+                                val rows = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    val req = okhttp3.Request.Builder().url(url)
+                                        .header("Authorization", "Bearer $token").build()
+                                    httpClient.newCall(req).execute().use { resp ->
+                                        if (!resp.isSuccessful) return@withContext null
+                                        val arr = org.json.JSONObject(resp.body?.string() ?: "").optJSONArray("values")
+                                            ?: return@withContext null
+                                        if (arr.length() == 0) return@withContext null
+                                        val row = arr.getJSONArray(0)
+                                        (0 until row.length()).map { j -> row.optString(j, "") }
+                                    }
+                                }
+                                val newHeaders = mutableMapOf<String, String>()
+                                rows?.forEachIndexed { idx, header ->
+                                    val letter = colIndexToLetter(s + idx)
+                                    if (header.isNotBlank()) newHeaders[letter] = header
+                                }
+                                if (newHeaders.isNotEmpty()) sheetHeaders = newHeaders
+                            }
+                        } catch (_: Exception) { }
+                        if (isAdded) renderMappingStep()
+                    }
+                } else {
+                    renderMappingStep()
+                }
+            }
         }
     }
 
@@ -3764,6 +3816,8 @@ class ConfigSheetFragment : Fragment() {
         pendingObjectMapping.putAll(conn.objectColumnMapping)
         objectTypeFields.clear()
         objectTypeFields.addAll(conn.objectColumnMapping.keys)
+        // Existing connection — target node was already confirmed when it was saved
+        nodeMappingConfirmed = conn.targetNode.isNotBlank()
         // Re-add object fields as custom fields so they render in the mapping step
         conn.objectColumnMapping.keys.forEach { key ->
             if (customMappingFields.none { it.first == key }) customMappingFields.add(key to key)
