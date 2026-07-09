@@ -162,21 +162,16 @@ class CallCenterAdapter(
 
             applyCallStateGlow(itemView, glowColor)
 
-            val cfg = WorkerParcelAdapter.getStatusConfig(tvStatusBadge.context, item.status, statusLang)
+            val cfg = WorkerParcelAdapter.getStatusConfig(tvStatusBadge.context, item.effectiveStatus, statusLang)
             tvStatusBadge.text = cfg.label
             tvStatusBadge.setTextColor(cfg.color)
             tvStatusBadge.setBackgroundColor(cfg.bg)
 
             tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE
 
-            // Don't show remarks text if it's the same as the parcel status badge above —
-            // that would just show the same thing twice (e.g. both "delivered").
-            if (item.remarks.isNotBlank() && item.remarkStatus != item.status) {
-                tvRemarks.text = "💬 ${item.remarks}"
-                tvRemarks.visibility = View.VISIBLE
-            } else {
-                tvRemarks.visibility = View.GONE
-            }
+            // remarkStatus already drives the badge above (effectiveStatus) — no need for a
+            // separate "💬 remark text" line duplicating the same information.
+            tvRemarks.visibility = View.GONE
 
             if (item.validationNote.isNotBlank()) {
                 tvValidationNote.text = "⚡ Worker: ${item.validationNote}"

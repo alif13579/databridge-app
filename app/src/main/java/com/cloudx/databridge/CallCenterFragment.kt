@@ -359,7 +359,7 @@ class CallCenterFragment : Fragment() {
     private fun setupFilterTabs() {
         layoutFilterTabs.removeAllViews()
         val total        = allParcels.size
-        val statusCounts = allParcels.groupingBy { it.status }.eachCount()
+        val statusCounts = allParcels.groupingBy { it.effectiveStatus }.eachCount()
 
         // Reset active filter if it no longer exists in data
         if (statusFilter != "all" && !statusCounts.containsKey(statusFilter)) {
@@ -1015,15 +1015,15 @@ class CallCenterFragment : Fragment() {
             filtered = filtered.filter { it.branch == branchFilter }
         }
 
-        // Status filter — dynamic exact match
+        // Status filter — dynamic exact match, remark status takes priority over parcel status
         filtered = if (statusFilter == "all") filtered
-                   else filtered.filter { it.status == statusFilter }
+                   else filtered.filter { it.effectiveStatus == statusFilter }
 
         // Update stats
         val total = allParcels.size
-        val confirmed = allParcels.count { it.status == "confirmed" }
-        val pending = allParcels.count { it.status == "pending" }
-        val rejected = allParcels.count { it.status == "rejected" }
+        val confirmed = allParcels.count { it.effectiveStatus == "confirmed" }
+        val pending = allParcels.count { it.effectiveStatus == "pending" }
+        val rejected = allParcels.count { it.effectiveStatus == "rejected" }
         val validationCount = allParcels.count { it.validationRequest }
 
         tvStatTotal.text = total.toString()
