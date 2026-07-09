@@ -3441,8 +3441,16 @@ class ConfigSheetFragment : Fragment() {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                     val newType = when (pos) { 1 -> "col"; 2 -> "date"; else -> "fixed" }
                     if (index < pendingPkParts.size && pendingPkParts[index].type != newType) {
-                        val newValue = if (newType == "col" || newType == "date") headerLetters.firstOrNull() ?: "" else ""
-                        pendingPkParts[index] = PkPart(newType, newValue)
+                        val cur = pendingPkParts[index]
+                        val newValue = if (newType == "col" || newType == "date") {
+                            // keep the same column letter if we're switching between col ↔ date
+                            if (cur.type == "col" || cur.type == "date") cur.value
+                            else headerLetters.firstOrNull() ?: ""
+                        } else ""
+                        val newHeader = if ((newType == "col" || newType == "date") && newValue.isNotBlank())
+                            sheetHeaders[newValue] ?: cur.header
+                        else ""
+                        pendingPkParts[index] = PkPart(newType, newValue, newHeader)
                         renderPkBuilder()
                     }
                 }
