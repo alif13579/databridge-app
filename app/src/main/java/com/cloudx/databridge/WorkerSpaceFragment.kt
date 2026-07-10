@@ -235,16 +235,13 @@ class WorkerSpaceFragment : Fragment() {
             activeFilter = "all"
         }
 
-        // Ordered chips: pending first, confirmed, then the rest
-        val statusOrder = listOf(
-            "pending", "verify_req", "delivery_req", "hold_req",
-            "confirmed", "delivered", "return_req", "rejected"
+        // Chips sorted by config/statusMeta/{key}/priority (admin-managed in
+        // ConfigStatusesFragment) — higher priority first. Ties broken alphabetically
+        // for a stable order; unconfigured statuses (priority 0) sort last together.
+        val sortedEntries = statusCounts.entries.sortedWith(
+            compareByDescending<Map.Entry<String, Int>> { StatusMetaCache.entries[it.key]?.priority ?: 0 }
+                .thenBy { it.key }
         )
-        val sortedEntries = statusCounts.entries.sortedWith { a, b ->
-            val ai = statusOrder.indexOf(a.key).let { if (it == -1) Int.MAX_VALUE else it }
-            val bi = statusOrder.indexOf(b.key).let { if (it == -1) Int.MAX_VALUE else it }
-            ai.compareTo(bi)
-        }
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
         sortedEntries.forEach { (statusKey, count) ->
@@ -268,19 +265,31 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     private fun updateFilterChips() {
+        val ctx = requireContext()
         for (i in 0 until layoutFilterTabs.childCount) {
             val chip = layoutFilterTabs.getChildAt(i) as TextView
-            val isActive = chip.tag == activeFilter
+            val statusKey = chip.tag as? String ?: continue
+            val isActive = statusKey == activeFilter
+            val metaColor: Int? = if (statusKey == "all") null
+                else StatusMetaCache.entries[statusKey]?.color
             chip.isSelected = isActive
-            chip.setBackgroundResource(
-                if (isActive) R.drawable.bg_filter_chip_active
-                else R.drawable.bg_filter_chip_inactive
-            )
-            chip.setTextColor(
-                requireContext().getColor(
-                    if (isActive) android.R.color.white else R.color.theme_text_secondary
-                )
-            )
+            if (isActive && metaColor != null) {
+                try {
+                    chip.background = android.graphics.drawable.GradientDrawable().apply {
+                        setColor(metaColor); cornerRadius = 24f
+                    }
+                    chip.setTextColor(ctx.getColor(android.R.color.white))
+                } catch (_: Exception) {
+                    chip.setBackgroundResource(R.drawable.bg_filter_chip_active)
+                    chip.setTextColor(ctx.getColor(android.R.color.white))
+                }
+            } else if (isActive) {
+                chip.setBackgroundResource(R.drawable.bg_filter_chip_active)
+                chip.setTextColor(ctx.getColor(android.R.color.white))
+            } else {
+                chip.setBackgroundResource(R.drawable.bg_filter_chip_inactive)
+                chip.setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            }
         }
     }
 

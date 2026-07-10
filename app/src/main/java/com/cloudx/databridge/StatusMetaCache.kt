@@ -22,7 +22,11 @@ object StatusMetaCache {
         // false — e.g. "verify_request" (a remark/attempt outcome, not a real delivery
         // outcome) shouldn't overwrite the parcel's actual courier/consignments/{id}/status.
         // Defaults to true (old behavior) for any status that doesn't set this field.
-        val updatesParcelStatus: Boolean = true
+        val updatesParcelStatus: Boolean = true,
+        // Chip sort order — higher priority sorts first. Mirrors config/statusMeta/{key}/priority,
+        // the same field ConfigStatusesFragment's admin panel edits. Defaults to 0 for any
+        // status that doesn't set this field (sorts after anything with an explicit priority).
+        val priority: Int = 0
     )
 
     @Volatile
@@ -51,7 +55,8 @@ object StatusMetaCache {
                 }
                 val updatesParcelStatus = s.child("updatesParcelStatus")
                     .getValue(Boolean::class.java) ?: true
-                map[key] = Entry(bn, en, color, bg, updatesParcelStatus)
+                val priority = s.child("priority").getValue(Int::class.java) ?: 0
+                map[key] = Entry(bn, en, color, bg, updatesParcelStatus, priority)
             }
             if (map.isNotEmpty()) entries = map
         } catch (_: Exception) {
