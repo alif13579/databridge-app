@@ -73,8 +73,9 @@ class CallCenterFragment : Fragment() {
     // Firebase UID of the current CC agent — used as userId in remark writes for users/{uid} lookup.
     private var userId = ""
 
-    // systemId -> display name, fetched once per session (cheap: one bulk read of users/)
-    // and reused for every subsequent run listener trigger. Cleared on pull-to-refresh.
+    // systemId -> display name, fetched once per session via users_by_systemId reverse-index
+    // + parallel per-uid name lookup (see ensureAgentNameMap()), reused for every subsequent
+    // run listener trigger. Cleared on pull-to-refresh.
     private var systemIdToName: Map<String, String> = emptyMap()
 
     private lateinit var adapter: CallCenterAdapter
