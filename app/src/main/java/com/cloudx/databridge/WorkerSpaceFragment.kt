@@ -815,8 +815,12 @@ class WorkerSpaceFragment : Fragment() {
                             val remarkedBy: String, val rUserId: String
                         )
                         val raw = snapshot.children.mapNotNull { r ->
-                            val rStatus = readString(r, "status").ifBlank { return@mapNotNull null }
-                            val rLabel = WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label
+                            val rStatus = readString(r, "status")
+                            val rNote   = readString(r, "remarks")
+                            if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                            val rLabel = if (rStatus.isNotBlank()) {
+                                WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label
+                            } else rNote
                             val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                             val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
                                 .format(java.util.Date(createdAt))
@@ -840,7 +844,7 @@ class WorkerSpaceFragment : Fragment() {
                                 else -> "Agent"
                             }
                             HistoryEntry(
-                                action = e.rStatus.uppercase(),
+                                action = e.rStatus.ifBlank { "NOTE" }.uppercase(),
                                 remark = e.rLabel,
                                 time = e.timeStr,
                                 author = author,
@@ -1069,8 +1073,12 @@ class WorkerSpaceFragment : Fragment() {
             }
 
             val history = remarksSnap.children.mapNotNull { r ->
-                val rStatus = readString(r, "status").ifBlank { return@mapNotNull null }
-                val rLabel = context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
+                val rStatus = readString(r, "status")
+                val rNote   = readString(r, "remarks")
+                if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                val rLabel = if (rStatus.isNotBlank()) {
+                    context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
+                } else rNote
                 val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                 val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
@@ -1085,13 +1093,13 @@ class WorkerSpaceFragment : Fragment() {
                     else                                                     -> "Agent"
                 }
                 HistoryEntry(
-                    action = rStatus.uppercase(),
+                    action = rStatus.ifBlank { "NOTE" }.uppercase(),
                     remark = rLabel,
                     time = timeStr,
                     author = author,
                     authorRole = authorRole
                 )
-            }
+            }.sortedBy { it.time }
             val lastRemarkStatus = remarksSnap.children.lastOrNull()
                 ?.child("status")?.getValue(String::class.java) ?: ""
 
