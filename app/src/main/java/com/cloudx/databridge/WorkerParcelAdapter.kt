@@ -36,7 +36,8 @@ data class HistoryEntry(
     val remark: String,
     val time: String,
     val author: String,
-    val authorRole: String
+    val authorRole: String,
+    val authorPhotoUrl: String = ""
 )
 
 class WorkerParcelAdapter(

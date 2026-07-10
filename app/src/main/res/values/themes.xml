@@ -26,4 +26,9 @@
     <item name="colorSecondary">#00d4ff</item>
     <item name="android:statusBarColor">#1a1a2e</item>
 </style>
+
+<style name="CircleImageStyle">
+    <item name="cornerFamily">rounded</item>
+    <item name="cornerSize">50%</item>
+</style>
 </resources>

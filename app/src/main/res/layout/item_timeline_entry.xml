@@ -5,20 +5,21 @@
     android:orientation="horizontal"
     android:gravity="start">
 
-    <!-- Left side: dot + line -->
+    <!-- Left side: avatar + line -->
     <LinearLayout
-        android:layout_width="28dp"
+        android:layout_width="36dp"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:gravity="center_horizontal"
-        android:layout_marginEnd="12dp">
+        android:layout_marginEnd="10dp">
 
-        <View
-            android:id="@+id/viewTimelineDot"
-            android:layout_width="10dp"
-            android:layout_height="10dp"
-            android:background="@drawable/bg_timeline_dot"
-            android:layout_marginTop="3dp" />
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/ivTimelineAvatar"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:scaleType="centerCrop"
+            android:background="@drawable/bg_timeline_avatar_placeholder"
+            app:shapeAppearanceOverlay="@style/CircleImageStyle" />
 
         <View
             android:id="@+id/viewTimelineLine"
@@ -26,7 +27,7 @@
             android:layout_height="match_parent"
             android:minHeight="24dp"
             android:background="@color/theme_bg_timeline_line"
-            android:layout_marginTop="2dp" />
+            android:layout_marginTop="4dp" />
     </LinearLayout>
 
     <!-- Right side: content -->
@@ -37,15 +38,35 @@
         android:orientation="vertical"
         android:paddingBottom="14dp">
 
-        <TextView
-            android:id="@+id/twTimelineStatus"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="ASSIGNED"
-            android:textSize="10sp"
-            android:textColor="@color/theme_accent"
-            android:textStyle="bold"
-            android:includeFontPadding="false" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/twTimelineAuthor"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Sonia Akter"
+                android:textSize="12sp"
+                android:textColor="@color/theme_text_primary"
+                android:textStyle="bold"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/twTimelineStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ASSIGNED"
+                android:textSize="10sp"
+                android:textColor="@color/theme_accent"
+                android:textStyle="bold"
+                android:includeFontPadding="false" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/twTimelineRemark"
@@ -62,7 +83,7 @@
             android:id="@+id/twTimelineMeta"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="9:00 AM · System"
+            android:text="10-07-26 09:00:00 AM"
             android:textSize="10sp"
             android:textColor="@color/theme_text_secondary"
             android:layout_marginTop="3dp"

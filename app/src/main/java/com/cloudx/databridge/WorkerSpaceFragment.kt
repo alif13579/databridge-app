@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
+import coil.load
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -75,6 +76,7 @@ class WorkerSpaceFragment : Fragment() {
     // repeated remarks by the same author (worker or CC agent) don't refetch. Cleared on
     // pull-to-refresh alongside the other per-session caches.
     private val uidNameCache = mutableMapOf<String, String>()
+    private val uidPhotoCache = mutableMapOf<String, String>()
 
     /** Resolves [uid] to a display name via users/{uid}/profile/name — direct O(1) access,
      *  cached in [uidNameCache] after the first lookup. Falls back to the raw uid if the
@@ -82,13 +84,12 @@ class WorkerSpaceFragment : Fragment() {
     private suspend fun resolveUserName(uid: String): String {
         if (uid.isBlank()) return "Agent"
         uidNameCache[uid]?.let { return it }
-        val name = withContext(Dispatchers.IO) {
-            runCatching {
-                db.reference.child("users/$uid/profile/name").get().await()
-                    .getValue(String::class.java)?.trim()
-            }.getOrNull()
-        }?.takeIf { it.isNotBlank() } ?: uid
+        val snap = withContext(Dispatchers.IO) {
+            runCatching { db.reference.child("users/$uid/profile").get().await() }.getOrNull()
+        }
+        val name = snap?.child("name")?.getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() } ?: uid
         uidNameCache[uid] = name
+        uidPhotoCache[uid] = snap?.child("photo_url")?.getValue(String::class.java)?.trim().orEmpty()
         return name
     }
 
@@ -667,27 +668,33 @@ class WorkerSpaceFragment : Fragment() {
         } else {
             for ((index, entry) in historyEntries.withIndex()) {
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
-                val dotColor = when (entry.authorRole) {
-                    "cc" -> R.color.theme_accent
-                    "system" -> R.color.theme_text_muted
-                    else -> R.color.theme_accent
-                }
                 val statusColor = when (entry.authorRole) {
                     "cc" -> R.color.theme_accent
                     "system" -> R.color.theme_text_muted
                     else -> R.color.theme_accent
                 }
 
-                val tvDot = timelineView.findViewById<View>(R.id.viewTimelineDot)
+                val ivAvatar = timelineView.findViewById<android.widget.ImageView>(R.id.ivTimelineAvatar)
                 val tvLine = timelineView.findViewById<View>(R.id.viewTimelineLine)
+                val tvAuthor = timelineView.findViewById<TextView>(R.id.twTimelineAuthor)
                 val tvStatus = timelineView.findViewById<TextView>(R.id.twTimelineStatus)
                 val tvRemark = timelineView.findViewById<TextView>(R.id.twTimelineRemark)
                 val tvMeta = timelineView.findViewById<TextView>(R.id.twTimelineMeta)
 
-                tvDot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
-                    requireContext().getColor(dotColor)
-                ))
+                if (entry.authorPhotoUrl.isNotBlank()) {
+                    ivAvatar.load(entry.authorPhotoUrl) {
+                        crossfade(true)
+                        placeholder(R.drawable.bg_timeline_avatar_placeholder)
+                        error(R.drawable.bg_timeline_avatar_placeholder)
+                    }
+                } else {
+                    ivAvatar.setImageDrawable(null)
+                    ivAvatar.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
+                }
+
                 tvLine.visibility = if (index < historyEntries.size - 1) View.VISIBLE else View.GONE
+
+                tvAuthor.text = entry.author
 
                 tvStatus.text = entry.action
                 tvStatus.setTextColor(requireContext().getColor(statusColor))
@@ -695,8 +702,7 @@ class WorkerSpaceFragment : Fragment() {
                 tvRemark.text = entry.remark
                 tvRemark.visibility = if (entry.remark.isNotBlank()) View.VISIBLE else View.GONE
 
-                val authorLabel = if (entry.authorRole == "cc") "${entry.author}" else entry.author
-                tvMeta.text = "${entry.time} · ${authorLabel}"
+                tvMeta.text = entry.time
 
                 layoutTimeline.addView(timelineView)
             }
@@ -822,14 +828,14 @@ class WorkerSpaceFragment : Fragment() {
                                 WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label
                             } else rNote
                             val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
-                            val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                            val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                                 .format(java.util.Date(createdAt))
                             val remarkedBy = readString(r, "remarked_by")
                             val rUserId = readString(r, "userId")
                             RawEntry(rStatus, rLabel, timeStr, remarkedBy, rUserId)
                         }
-                        // Resolve every distinct uid to a name in parallel (direct users/{uid}
-                        // access — no full-tree scan, no reverse-index needed for this lookup).
+                        // Resolve every distinct uid to a name+photo in parallel (direct
+                        // users/{uid} access — no full-tree scan, no reverse-index needed).
                         val distinctUids = raw.map { it.rUserId }.filter { it.isNotBlank() }.distinct()
                         coroutineScope {
                             distinctUids.map { uid -> async(Dispatchers.IO) { resolveUserName(uid) } }.awaitAll()
@@ -837,6 +843,7 @@ class WorkerSpaceFragment : Fragment() {
                         val history = raw.map { e ->
                             val authorRole = if (e.remarkedBy == "support") "cc" else "agent"
                             val resolvedName = if (e.rUserId.isNotBlank()) uidNameCache[e.rUserId] else null
+                            val resolvedPhoto = if (e.rUserId.isNotBlank()) uidPhotoCache[e.rUserId] else null
                             val author = when {
                                 e.remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
                                 e.remarkedBy == "support" -> "CC"
@@ -848,7 +855,8 @@ class WorkerSpaceFragment : Fragment() {
                                 remark = e.rLabel,
                                 time = e.timeStr,
                                 author = author,
-                                authorRole = authorRole
+                                authorRole = authorRole,
+                                authorPhotoUrl = resolvedPhoto.orEmpty()
                             )
                         }.sortedBy { it.time }
 
@@ -1080,11 +1088,12 @@ class WorkerSpaceFragment : Fragment() {
                     context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
                 } else rNote
                 val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
-                val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
                 val remarkedBy = readString(r, "remarked_by")
                 val rUserId    = readString(r, "userId")
-                val resolvedName = if (rUserId.isNotBlank()) uidNameCache[rUserId] else null
+                val resolvedName  = if (rUserId.isNotBlank()) uidNameCache[rUserId] else null
+                val resolvedPhoto = if (rUserId.isNotBlank()) uidPhotoCache[rUserId] else null
                 val authorRole = if (remarkedBy == "support") "cc" else "agent"
                 val author = when {
                     remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
@@ -1097,7 +1106,8 @@ class WorkerSpaceFragment : Fragment() {
                     remark = rLabel,
                     time = timeStr,
                     author = author,
-                    authorRole = authorRole
+                    authorRole = authorRole,
+                    authorPhotoUrl = resolvedPhoto.orEmpty()
                 )
             }.sortedBy { it.time }
             val lastRemarkStatus = remarksSnap.children.lastOrNull()
