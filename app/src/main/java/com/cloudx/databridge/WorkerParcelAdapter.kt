@@ -6,7 +6,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -159,13 +158,24 @@ class WorkerParcelAdapter(
     companion object {
         data class StatusConfig(val color: Int, val bg: Int, val label: String)
 
-        /** Compact age badge (e.g. "0D", "3D", "12D") — days elapsed since createdAt, using
-         *  current time as the reference point (a card's age keeps growing until resolved). */
+        /**
+         * Compact age badge — shows how old a parcel is:
+         *   Xm  = less than 1 hour (minutes)
+         *   Xh  = less than 1 day (hours)
+         *   XD  = 1 or more days (minimum 1D — never 0D)
+         * If createdAt is missing/zero (field not synced yet), returns "1D" as a safe fallback.
+         */
         fun formatAgeCompact(createdAt: Long): String {
-            if (createdAt <= 0L) return ""
+            if (createdAt <= 0L) return "1D"
             val diffMs = (System.currentTimeMillis() - createdAt).coerceAtLeast(0L)
-            val days = diffMs / (24 * 60 * 60 * 1000)
-            return "${days}D"
+            val minutes = diffMs / (60 * 1000)
+            val hours   = diffMs / (60 * 60 * 1000)
+            val days    = diffMs / (24 * 60 * 60 * 1000)
+            return when {
+                minutes < 60  -> "${minutes}m"
+                hours   < 24  -> "${hours}h"
+                else          -> "${days.coerceAtLeast(1)}D"
+            }
         }
 
         fun getStatusConfig(context: android.content.Context, status: String, statusLang: String = "bn"): StatusConfig {
@@ -173,55 +183,11 @@ class WorkerParcelAdapter(
                 val label = if (statusLang == "en") entry.en else entry.bn
                 return StatusConfig(entry.color, entry.bg, label.ifBlank { status })
             }
-            return getHardcodedStatusConfig(context, status)
-        }
-
-        private fun getHardcodedStatusConfig(context: android.content.Context, status: String): StatusConfig = when (status) {
-            "confirmed" -> StatusConfig(
-                ContextCompat.getColor(context, R.color.theme_green),
-                ContextCompat.getColor(context, R.color.theme_bg_green),
-                "✓ Confirmed"
-            )
-            "rejected" -> StatusConfig(
-                ContextCompat.getColor(context, R.color.theme_red),
-                ContextCompat.getColor(context, R.color.theme_bg_red),
-                "✗ Rejected"
-            )
-            "pending" -> StatusConfig(
-                ContextCompat.getColor(context, R.color.theme_yellow),
-                ContextCompat.getColor(context, R.color.theme_bg_yellow),
-                "◌ Pending"
-            )
-            "delivered" -> StatusConfig(
-                ContextCompat.getColor(context, R.color.theme_green),
-                ContextCompat.getColor(context, R.color.theme_bg_green),
-                "✓ Delivered"
-            )
-            "delivery_req" -> StatusConfig(
-                ContextCompat.getColor(context, R.color.theme_accent),
-                ContextCompat.getColor(context, R.color.theme_bg_accent),
-                "🚚 Delivery Request"
-            )
-            "hold_req" -> StatusConfig(
-                ContextCompat.getColor(context, R.color.theme_orange),
-                ContextCompat.getColor(context, R.color.theme_bg_orange),
-                "⏸ Hold Request"
-            )
-            "return_req" -> StatusConfig(
-                ContextCompat.getColor(context, R.color.theme_red),
-                ContextCompat.getColor(context, R.color.theme_bg_red),
-                "↩ Return Request"
-            )
-            "verify_req" -> StatusConfig(
-                ContextCompat.getColor(context, R.color.theme_purple),
-                ContextCompat.getColor(context, R.color.theme_bg_validation),
-                "⚡ Verify Request"
-            )
-            else -> StatusConfig(
-                ContextCompat.getColor(context, R.color.theme_text_secondary),
-                ContextCompat.getColor(context, R.color.theme_bg_inner),
-                status
-            )
+            // Cache miss — StatusMetaCache not yet loaded or this status not in config.
+            // Show raw status key in neutral gray so nothing is silently hidden.
+            val neutral   = android.graphics.Color.parseColor("#6B7280")
+            val neutralBg = android.graphics.Color.parseColor("#F3F4F6")
+            return StatusConfig(neutral, neutralBg, status)
         }
     }
 
