@@ -30,6 +30,7 @@ import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -581,8 +582,9 @@ class CallCenterFragment : Fragment() {
 
     /**
      * Fetches the systemId -> name map once (cached in systemIdToName), reused across every
-     * subsequent listener trigger until pull-to-refresh clears the cache. One bulk read of
-     * users/ instead of one query per distinct agent seen in today's runs.
+     * subsequent listener trigger until pull-to-refresh clears the cache. Uses the
+     * users_by_systemId reverse-index for O(1) targeted lookups instead of scanning
+     * the full users/ tree, then resolves names for those uids in parallel.
      */
     private suspend fun ensureAgentNameMap(): Map<String, String> {
         if (systemIdToName.isNotEmpty()) return systemIdToName
@@ -598,16 +600,21 @@ class CallCenterFragment : Fragment() {
                 val uid   = child.child("uid").getValue(String::class.java)?.trim()
                 if (!sysId.isNullOrBlank() && !uid.isNullOrBlank()) sysIdToUid[sysId] = uid
             }
-            // Step 2: uid → name from users/{uid}/profile/name (fresh, never stale)
-            val map = mutableMapOf<String, String>()
-            sysIdToUid.forEach { (sysId, uid) ->
-                val name = withContext(Dispatchers.IO) {
-                    runCatching {
-                        db.reference.child("users/$uid/profile/name").get().await()
-                            .getValue(String::class.java)?.trim()
-                    }.getOrNull()
-                }
-                if (!name.isNullOrBlank()) map[sysId] = name
+            // Step 2: uid → name from users/{uid}/profile/name (fresh, never stale).
+            // Fired in parallel via async — N concurrent round-trips instead of N
+            // sequential ones, since each fetch is independent of the others.
+            val map = coroutineScope {
+                sysIdToUid.map { (sysId, uid) ->
+                    async(Dispatchers.IO) {
+                        val name = runCatching {
+                            db.reference.child("users/$uid/profile/name").get().await()
+                                .getValue(String::class.java)?.trim()
+                        }.getOrNull()
+                        sysId to name
+                    }
+                }.awaitAll()
+                    .filter { !it.second.isNullOrBlank() }
+                    .associate { it.first to it.second!! }
             }
             systemIdToName = map
             map

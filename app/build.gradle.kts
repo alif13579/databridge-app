@@ -23,11 +23,8 @@ android {
 
     defaultConfig {
         applicationId = "com.cloudx.databridge"
-        minSdk = 23           // ✅ Android 6.0+ → ~99% devices covered (firebase-auth requires 23+)
-        targetSdk = 34
-        versionCode = 109
-        versionName = "5.13.14"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        versionCode = 110
+        versionName = "5.13.15"
         multiDexEnabled = true                                         // ✅ Large app support
         vectorDrawables.useSupportLibrary = true       // ✅ Vector drawable on API 21+
     }
