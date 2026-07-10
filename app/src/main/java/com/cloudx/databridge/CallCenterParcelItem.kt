@@ -15,7 +15,8 @@ data class CallCenterParcelItem(
     val validationNote: String,
     val time: String,
     val worker: String,
-    val branch: String
+    val branch: String,
+    val history: List<HistoryEntry> = emptyList()
 ) {
     /** remarkStatus (if set) always takes priority over the raw parcel status — this is
      *  what the card's status chip shows and what filters/tabs match against. */

@@ -323,7 +323,7 @@ class WorkerSpaceFragment : Fragment() {
             onSetRemarks = { item ->
                 showWorkerRemarksDialog(item)
             },
-            onViewLog = { item ->
+            onLongPress = { item ->
                 showActionHistoryDialog(item)
             }
         )

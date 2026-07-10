@@ -208,20 +208,6 @@
             android:textColor="@color/theme_text_inverse"
             android:gravity="center"
             android:background="@drawable/btn_action_cyan"
-            android:layout_marginEnd="4dp"
-            android:includeFontPadding="false" />
-
-        <TextView
-            android:id="@+id/btnParcelViewLog"
-            android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_weight="1"
-            android:text="📋 Log"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:textColor="@color/theme_text_inverse"
-            android:gravity="center"
-            android:background="@drawable/bg_action_button_purple"
             android:includeFontPadding="false" />
     </LinearLayout>
 

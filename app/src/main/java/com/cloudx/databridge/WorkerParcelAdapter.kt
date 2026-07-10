@@ -42,7 +42,7 @@ data class HistoryEntry(
 class WorkerParcelAdapter(
     private val onCall: (WorkerParcelItem) -> Unit,
     private val onSetRemarks: (WorkerParcelItem) -> Unit,
-    private val onViewLog: (WorkerParcelItem) -> Unit
+    private val onLongPress: (WorkerParcelItem) -> Unit
 ) : ListAdapter<WorkerParcelItem, WorkerParcelAdapter.Holder>(Diff()) {
 
     var expandedItemId: String? = null
@@ -64,7 +64,6 @@ class WorkerParcelAdapter(
         val layoutActions: View = view.findViewById(R.id.layoutParcelActions)
         val btnCall: View = view.findViewById(R.id.btnParcelCall)
         val btnSetRemarks: View = view.findViewById(R.id.btnParcelSetRemarks)
-        val btnViewLog: View = view.findViewById(R.id.btnParcelViewLog)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
@@ -125,7 +124,6 @@ class WorkerParcelAdapter(
         holder.layoutActions.visibility = if (isExpanded) View.VISIBLE else View.GONE
         holder.btnCall.visibility = if (isExpanded) View.VISIBLE else View.GONE
         holder.btnSetRemarks.visibility = if (isExpanded) View.VISIBLE else View.GONE
-        holder.btnViewLog.visibility = if (isExpanded) View.VISIBLE else View.GONE
 
         holder.itemView.setOnClickListener {
             val previousId = expandedItemId
@@ -147,10 +145,10 @@ class WorkerParcelAdapter(
                 }
             }
         }
+        holder.itemView.setOnLongClickListener { onLongPress(item); true }
 
         holder.btnCall.setOnClickListener { onCall(item) }
         holder.btnSetRemarks.setOnClickListener { onSetRemarks(item) }
-        holder.btnViewLog.setOnClickListener { onViewLog(item) }
     }
 
     companion object {

@@ -19,6 +19,7 @@ class CallCenterAdapter(
     private val onCall: (CallCenterParcelItem) -> Unit,
     private val onSetRemarks: (CallCenterParcelItem) -> Unit,
     private val onValidate: (CallCenterParcelItem) -> Unit,
+    private val onLongPress: (CallCenterParcelItem) -> Unit,
     private val onGroupClick: ((WorkerGroup) -> Unit)? = null
 ) : ListAdapter<CallCenterAdapter.Row, RecyclerView.ViewHolder>(RowDiff()) {
 
@@ -107,7 +108,8 @@ class CallCenterAdapter(
                 onToggleExpand = { toggleExpanded(row.parcel.id) },
                 onCall = onCall,
                 onSetRemarks = onSetRemarks,
-                onValidate = onValidate
+                onValidate = onValidate,
+                onLongPress = onLongPress
             )
         }
     }
@@ -153,7 +155,8 @@ class CallCenterAdapter(
             onToggleExpand: () -> Unit,
             onCall: (CallCenterParcelItem) -> Unit,
             onSetRemarks: (CallCenterParcelItem) -> Unit,
-            onValidate: (CallCenterParcelItem) -> Unit
+            onValidate: (CallCenterParcelItem) -> Unit,
+            onLongPress: (CallCenterParcelItem) -> Unit
         ) {
             tvCustomer.text = item.customer
             tvMeta.text = "${item.id} · ${item.phone}"
@@ -193,6 +196,7 @@ class CallCenterAdapter(
             btnValidate.visibility = if (isExpanded && item.validationRequest) View.VISIBLE else View.GONE
 
             itemView.setOnClickListener { onToggleExpand() }
+            itemView.setOnLongClickListener { onLongPress(item); true }
             btnCall.setOnClickListener { onCall(item) }
             btnSetRemarks.setOnClickListener { onSetRemarks(item) }
             btnValidate.setOnClickListener { onValidate(item) }

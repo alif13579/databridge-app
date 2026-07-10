@@ -73,6 +73,28 @@ class CallCenterFragment : Fragment() {
     // Firebase UID of the current CC agent — used as userId in remark writes for users/{uid} lookup.
     private var userId = ""
 
+    // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
+    // repeated remark authors (workers or other CC agents) across a session don't refetch.
+    // Cleared on pull-to-refresh alongside systemIdToName.
+    private val uidNameCache = mutableMapOf<String, String>()
+
+    /** Resolves [uid] to a display name via users/{uid}/profile/name — direct O(1) access,
+     *  cached in [uidNameCache] after the first lookup. Falls back to the raw uid if the
+     *  profile/name is missing or the fetch fails. */
+    private suspend fun resolveUserName(uid: String): String {
+        if (uid.isBlank()) return "Agent"
+        uidNameCache[uid]?.let { return it }
+        val name = withContext(Dispatchers.IO) {
+            runCatching {
+                com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .reference.child("users/$uid/profile/name").get().await()
+                    .getValue(String::class.java)?.trim()
+            }.getOrNull()
+        }?.takeIf { it.isNotBlank() } ?: uid
+        uidNameCache[uid] = name
+        return name
+    }
+
     // systemId -> display name, fetched once per session via users_by_systemId reverse-index
     // + parallel per-uid name lookup (see ensureAgentNameMap()), reused for every subsequent
     // run listener trigger. Cleared on pull-to-refresh.
@@ -128,6 +150,7 @@ class CallCenterFragment : Fragment() {
         swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
         swipeRefresh.setOnRefreshListener {
             systemIdToName = emptyMap()
+            uidNameCache.clear()
             detachRunsListener()
             loadCcRemarkOptions()
             loadData()
@@ -296,13 +319,77 @@ class CallCenterFragment : Fragment() {
                     ) else it
                 }
                 applyFilters()
-            }
+            },
+            onLongPress = { item -> showActionHistoryDialog(item) }
         )
         rvParcelList.layoutManager = LinearLayoutManager(requireContext())
         rvParcelList.adapter = adapter
         // Item views recycle instead of being fully re-inflated on every refresh/filter.
         rvParcelList.setHasFixedSize(false)
         rvParcelList.setItemViewCacheSize(8)
+    }
+
+    /**
+     * Long-press journey popup — shows a parcel's full remark history (courier/
+     * remarks_by_consignment/{id}), built in processRunsSnapshot()/syncCcRemarkListeners()
+     * with each entry's author already resolved to a real name (see resolveUserName()).
+     * Reuses the same bottom_sheet_action_history layout as WorkerSpaceFragment.
+     */
+    private fun showActionHistoryDialog(item: CallCenterParcelItem) {
+        val dialog = BottomSheetDialog(requireContext())
+        val view = layoutInflater.inflate(R.layout.bottom_sheet_action_history, null)
+        val tvTitle = view.findViewById<TextView>(R.id.twHistoryTitle)
+        val tvSub = view.findViewById<TextView>(R.id.twHistorySub)
+        val layoutTimeline = view.findViewById<LinearLayout>(R.id.layoutTimeline)
+
+        tvTitle.text = "Journey Log"
+        tvSub.text = "${item.id} · ${item.customer}"
+
+        layoutTimeline.removeAllViews()
+
+        if (item.history.isEmpty()) {
+            val emptyView = LayoutInflater.from(requireContext())
+                .inflate(R.layout.item_timeline_empty, layoutTimeline, false)
+            layoutTimeline.addView(emptyView)
+        } else {
+            for ((index, entry) in item.history.withIndex()) {
+                val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
+                val dotColor = when (entry.authorRole) {
+                    "cc" -> R.color.theme_accent
+                    "system" -> R.color.theme_text_muted
+                    else -> R.color.theme_accent
+                }
+                val statusColor = dotColor
+
+                val tvDot = timelineView.findViewById<View>(R.id.viewTimelineDot)
+                val tvLine = timelineView.findViewById<View>(R.id.viewTimelineLine)
+                val tvStatus = timelineView.findViewById<TextView>(R.id.twTimelineStatus)
+                val tvRemark = timelineView.findViewById<TextView>(R.id.twTimelineRemark)
+                val tvMeta = timelineView.findViewById<TextView>(R.id.twTimelineMeta)
+
+                tvDot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    requireContext().getColor(dotColor)
+                ))
+                tvLine.visibility = if (index < item.history.size - 1) View.VISIBLE else View.GONE
+
+                tvStatus.text = entry.action
+                tvStatus.setTextColor(requireContext().getColor(statusColor))
+
+                tvRemark.text = entry.remark
+                tvRemark.visibility = if (entry.remark.isNotBlank()) View.VISIBLE else View.GONE
+
+                tvMeta.text = "${entry.time} · ${entry.author}"
+
+                layoutTimeline.addView(timelineView)
+            }
+        }
+
+        view.findViewById<TextView>(R.id.btnHistoryClose).setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.setContentView(view)
+        dialog.show()
     }
 
     private fun setupBranchChips() {
@@ -660,9 +747,9 @@ class CallCenterFragment : Fragment() {
         // One-time (cached) bulk fetch of all agents' names — avoids N per-agent lookups.
         val nameMap = ensureAgentNameMap()
 
-        // Parallel fetch consignment details
+        // Parallel fetch consignment details + full remark history
         val parcels = coroutineScope {
-            consignmentInfo.entries.map { entry ->
+            val fetches = consignmentInfo.entries.map { entry ->
                 val cId = entry.key
                 val (agentSystemId, runStatus) = entry.value
                 async(Dispatchers.IO) {
@@ -679,9 +766,10 @@ class CallCenterFragment : Fragment() {
                         val hub     = snap.child("deliveryHub").getValue(String::class.java) ?: ""
                         val status  = snap.child("status").getValue(String::class.java) ?: runStatus
 
-                        val remarkSnap = db.reference.child("courier/remarks_by_consignment/$cId")
-                            .limitToLast(1).get().await()
-                        val latestEntry = remarkSnap.children.firstOrNull()
+                        // Full remark history (not just the latest) — needed for the journey popup.
+                        val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
+                            .get().await()
+                        val latestEntry = remarksSnap.children.lastOrNull()
                         val remarkStatus = latestEntry?.child("status")?.getValue(String::class.java) ?: ""
                         val remarkLabel = if (remarkStatus.isNotBlank()) {
                             context?.let { WorkerParcelAdapter.getStatusConfig(it, remarkStatus, "bn").label }
@@ -691,24 +779,68 @@ class CallCenterFragment : Fragment() {
                             latestEntry?.child("remarks")?.getValue(String::class.java) ?: ""
                         }
 
-                        CallCenterParcelItem(
-                            id                = cId,
-                            customer          = name,
-                            phone             = phone,
-                            address           = address,
-                            cod               = cod,
-                            status            = status,
-                            remarks           = remarkLabel,
-                            remarkStatus      = remarkStatus,
-                            validationRequest = remarkStatus == "verify_req",
-                            validationNote    = if (remarkStatus == "verify_req") remarkLabel else "",
-                            time              = "",
-                            worker            = nameMap[agentSystemId] ?: agentSystemId,
-                            branch            = hub
+                        Triple(
+                            CallCenterParcelItem(
+                                id                = cId,
+                                customer          = name,
+                                phone             = phone,
+                                address           = address,
+                                cod               = cod,
+                                status            = status,
+                                remarks           = remarkLabel,
+                                remarkStatus      = remarkStatus,
+                                validationRequest = remarkStatus == "verify_req",
+                                validationNote    = if (remarkStatus == "verify_req") remarkLabel else "",
+                                time              = "",
+                                worker            = nameMap[agentSystemId] ?: agentSystemId,
+                                branch            = hub
+                            ),
+                            remarksSnap,
+                            agentSystemId
                         )
                     } catch (e: Exception) { null }
                 }
             }.mapNotNull { it.await() }
+
+            // Pre-resolve every distinct remark-author uid across ALL fetched parcels in one
+            // parallel batch (direct users/{uid} access — remark data already carries the uid).
+            val allUids = fetches.flatMap { (_, remarksSnap, _) -> remarksSnap.children }
+                .mapNotNull { it.child("userId").getValue(String::class.java)?.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+            allUids.map { uid -> async(Dispatchers.IO) { resolveUserName(uid) } }.awaitAll()
+
+            fetches.map { (item, remarksSnap, agentSystemId) ->
+                val history = remarksSnap.children.mapNotNull { r ->
+                    val rStatus = r.child("status").getValue(String::class.java)?.trim().orEmpty()
+                    val rNote = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                    if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                    val rLabel = if (rStatus.isNotBlank()) {
+                        context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
+                    } else rNote
+                    val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
+                    val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                        .format(java.util.Date(createdAt))
+                    val remarkedBy = r.child("remarked_by").getValue(String::class.java)?.trim().orEmpty()
+                    val rUserId = r.child("userId").getValue(String::class.java)?.trim().orEmpty()
+                    val resolvedName = if (rUserId.isNotBlank()) uidNameCache[rUserId] else null
+                    val authorRole = if (remarkedBy == "support") "cc" else "agent"
+                    val author = when {
+                        remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
+                        remarkedBy == "support"                                  -> "CC"
+                        !resolvedName.isNullOrBlank()                            -> resolvedName
+                        else                                                     -> nameMap[agentSystemId] ?: agentSystemId
+                    }
+                    HistoryEntry(
+                        action = rStatus.ifBlank { "NOTE" }.uppercase(),
+                        remark = rLabel,
+                        time = timeStr,
+                        author = author,
+                        authorRole = authorRole
+                    )
+                }.sortedBy { it.time }
+                item.copy(history = history)
+            }
         }
 
         if (!isAdded) return
@@ -739,29 +871,73 @@ class CallCenterFragment : Fragment() {
                 override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                     if (!isAdded) return
                     val ctx = context ?: return
-                    // Find the most recent remark + update the card in-place.
-                    val sorted = snapshot.children.sortedByDescending {
-                        it.child("createdAt").getValue(Long::class.java) ?: 0L
-                    }
-                    val latest = sorted.firstOrNull()
-                    val latestRemark = latest?.let {
-                        val status = it.child("status").getValue(String::class.java)?.trim().orEmpty()
-                        if (status.isNotBlank()) {
-                            WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label
-                        } else {
-                            // Note-only entry (no target status) — show the raw remark/note text instead
-                            it.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        // Find the most recent remark + update the card in-place.
+                        val sorted = snapshot.children.sortedByDescending {
+                            it.child("createdAt").getValue(Long::class.java) ?: 0L
                         }
-                    }.orEmpty()
+                        val latest = sorted.firstOrNull()
+                        val latestRemark = latest?.let {
+                            val status = it.child("status").getValue(String::class.java)?.trim().orEmpty()
+                            if (status.isNotBlank()) {
+                                WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label
+                            } else {
+                                // Note-only entry (no target status) — show the raw remark/note text instead
+                                it.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                            }
+                        }.orEmpty()
 
-                    val idx = allParcels.indexOfFirst { it.id == cId }
-                    if (idx != -1) {
-                        allParcels = allParcels.toMutableList().also {
-                            it[idx] = it[idx].copy(
-                                remarks = latestRemark
-                            )
+                        // Resolve every distinct author uid in this remark set in parallel
+                        // (direct users/{uid} access), then rebuild the full journey history.
+                        val distinctUids = snapshot.children
+                            .mapNotNull { it.child("userId").getValue(String::class.java)?.trim() }
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                        coroutineScope {
+                            distinctUids.map { uid -> async(Dispatchers.IO) { resolveUserName(uid) } }.awaitAll()
                         }
-                        applyFilters()
+
+                        if (!isAdded) return@launch
+                        val fallbackWorker = allParcels.firstOrNull { it.id == cId }?.worker ?: "Agent"
+                        val history = snapshot.children.mapNotNull { r ->
+                            val rStatus = r.child("status").getValue(String::class.java)?.trim().orEmpty()
+                            val rNote = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                            if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                            val rLabel = if (rStatus.isNotBlank())
+                                WorkerParcelAdapter.getStatusConfig(ctx, rStatus, ccStatusLang).label
+                            else rNote
+                            val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
+                            val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                                .format(java.util.Date(createdAt))
+                            val remarkedBy = r.child("remarked_by").getValue(String::class.java)?.trim().orEmpty()
+                            val rUserId = r.child("userId").getValue(String::class.java)?.trim().orEmpty()
+                            val resolvedName = if (rUserId.isNotBlank()) uidNameCache[rUserId] else null
+                            val authorRole = if (remarkedBy == "support") "cc" else "agent"
+                            val author = when {
+                                remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
+                                remarkedBy == "support"                                  -> "CC"
+                                !resolvedName.isNullOrBlank()                            -> resolvedName
+                                else                                                     -> fallbackWorker
+                            }
+                            HistoryEntry(
+                                action = rStatus.ifBlank { "NOTE" }.uppercase(),
+                                remark = rLabel,
+                                time = timeStr,
+                                author = author,
+                                authorRole = authorRole
+                            )
+                        }.sortedBy { it.time }
+
+                        val idx = allParcels.indexOfFirst { it.id == cId }
+                        if (idx != -1) {
+                            allParcels = allParcels.toMutableList().also {
+                                it[idx] = it[idx].copy(
+                                    remarks = latestRemark,
+                                    history = history
+                                )
+                            }
+                            applyFilters()
+                        }
                     }
                 }
                 override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
