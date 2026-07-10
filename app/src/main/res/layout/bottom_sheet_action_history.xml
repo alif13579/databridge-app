@@ -63,6 +63,114 @@
             android:includeFontPadding="false" />
     </LinearLayout>
 
+    <!-- Overview: current status, created/updated timestamps, age -->
+    <LinearLayout
+        android:id="@+id/layoutHistoryOverview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/theme_bg_inner"
+        android:padding="12dp"
+        android:layout_marginBottom="14dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Parcel Status"
+                android:textSize="11sp"
+                android:textColor="@color/theme_text_secondary"
+                android:includeFontPadding="false" />
+            <TextView
+                android:id="@+id/twOverviewStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="PENDING"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_accent"
+                android:includeFontPadding="false" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Created At"
+                android:textSize="11sp"
+                android:textColor="@color/theme_text_secondary"
+                android:includeFontPadding="false" />
+            <TextView
+                android:id="@+id/twOverviewCreatedAt"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="—"
+                android:textSize="11sp"
+                android:textColor="@color/theme_text_primary"
+                android:includeFontPadding="false" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Updated At"
+                android:textSize="11sp"
+                android:textColor="@color/theme_text_secondary"
+                android:includeFontPadding="false" />
+            <TextView
+                android:id="@+id/twOverviewUpdatedAt"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="—"
+                android:textSize="11sp"
+                android:textColor="@color/theme_text_primary"
+                android:includeFontPadding="false" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Age"
+                android:textSize="11sp"
+                android:textColor="@color/theme_text_secondary"
+                android:includeFontPadding="false" />
+            <TextView
+                android:id="@+id/twOverviewAge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="—"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_text_primary"
+                android:includeFontPadding="false" />
+        </LinearLayout>
+    </LinearLayout>
+
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

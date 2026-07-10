@@ -624,19 +624,62 @@ class WorkerSpaceFragment : Fragment() {
         dialog.show()
     }
 
+    /** Formats the gap between updatedAt and createdAt as a human-readable age
+     *  (e.g. "2 Days", "1 Day", "5 Hours", "Just now"). */
+    private fun formatAge(createdAt: Long, updatedAt: Long): String {
+        if (createdAt <= 0L) return "—"
+        val end = if (updatedAt > 0L) updatedAt else System.currentTimeMillis()
+        val diffMs = (end - createdAt).coerceAtLeast(0L)
+        val days = diffMs / (24 * 60 * 60 * 1000)
+        val hours = diffMs / (60 * 60 * 1000)
+        val minutes = diffMs / (60 * 1000)
+        return when {
+            days >= 1  -> "$days ${if (days == 1L) "Day" else "Days"}"
+            hours >= 1 -> "$hours ${if (hours == 1L) "Hour" else "Hours"}"
+            minutes >= 1 -> "$minutes ${if (minutes == 1L) "Minute" else "Minutes"}"
+            else -> "Just now"
+        }
+    }
+
     private fun showActionHistoryDialog(item: WorkerParcelItem) {
         val dialog = BottomSheetDialog(requireContext())
         val view = layoutInflater.inflate(R.layout.bottom_sheet_action_history, null)
         val tvTitle = view.findViewById<TextView>(R.id.twHistoryTitle)
         val tvSub = view.findViewById<TextView>(R.id.twHistorySub)
         val layoutTimeline = view.findViewById<LinearLayout>(R.id.layoutTimeline)
+        val tvOvStatus = view.findViewById<TextView>(R.id.twOverviewStatus)
+        val tvOvCreatedAt = view.findViewById<TextView>(R.id.twOverviewCreatedAt)
+        val tvOvUpdatedAt = view.findViewById<TextView>(R.id.twOverviewUpdatedAt)
+        val tvOvAge = view.findViewById<TextView>(R.id.twOverviewAge)
 
         tvTitle.text = "Action History"
         tvSub.text = "${item.id} · ${item.customer}"
 
+        // Overview
+        val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.status, "bn")
+        tvOvStatus.text = cfg.label
+        tvOvStatus.setTextColor(cfg.color)
+        val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
+        tvOvCreatedAt.text = if (item.createdAt > 0) fullFmt.format(java.util.Date(item.createdAt)) else "—"
+        tvOvUpdatedAt.text = if (item.updatedAt > 0) fullFmt.format(java.util.Date(item.updatedAt)) else "—"
+        tvOvAge.text = formatAge(item.createdAt, item.updatedAt)
+
         layoutTimeline.removeAllViews()
 
         val historyEntries = mutableListOf<HistoryEntry>()
+
+        // Always lead with the parcel's actual creation — the true start of its journey.
+        if (item.createdAt > 0) {
+            historyEntries.add(
+                HistoryEntry(
+                    action = "CREATED",
+                    remark = "Parcel তৈরি হয়েছে",
+                    time = fullFmt.format(java.util.Date(item.createdAt)),
+                    author = "System",
+                    authorRole = "system"
+                )
+            )
+        }
 
         if (item.history.isEmpty()) {
             historyEntries.add(
@@ -1114,6 +1157,8 @@ class WorkerSpaceFragment : Fragment() {
                 ?.child("status")?.getValue(String::class.java) ?: ""
 
             val lastRemark = history.lastOrNull()?.remark ?: ""
+            val createdAtVal = detailSnap.child("createdAt").getValue(Long::class.java) ?: 0L
+            val updatedAtVal = detailSnap.child("updatedAt").getValue(Long::class.java) ?: 0L
             parcels.add(
                 WorkerParcelItem(
                     id = cId,
@@ -1127,6 +1172,8 @@ class WorkerSpaceFragment : Fragment() {
                     validationRequest = lastRemarkStatus == "verify_req",
                     validationNote = if (lastRemarkStatus == "verify_req") lastRemark else "",
                     time = hub,
+                    createdAt = createdAtVal,
+                    updatedAt = updatedAtVal,
                     history = history
                 )
             )

@@ -16,6 +16,8 @@ data class CallCenterParcelItem(
     val time: String,
     val worker: String,
     val branch: String,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
     val history: List<HistoryEntry> = emptyList()
 ) {
     /** remarkStatus (if set) always takes priority over the raw parcel status — this is

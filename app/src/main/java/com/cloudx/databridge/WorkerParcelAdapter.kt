@@ -28,6 +28,8 @@ data class WorkerParcelItem(
     val ccRemark: String = "",
     val ccRemarkTime: String = "",
     val ccRemarkAuthor: String = "",
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
     val history: List<HistoryEntry> = emptyList()
 )
 

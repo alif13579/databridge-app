@@ -360,24 +360,68 @@ class CallCenterFragment : Fragment() {
      * with each entry's author already resolved to a real name (see resolveUserName()).
      * Reuses the same bottom_sheet_action_history layout as WorkerSpaceFragment.
      */
+    /** Formats the gap between updatedAt and createdAt as a human-readable age
+     *  (e.g. "2 Days", "1 Day", "5 Hours", "Just now"). */
+    private fun formatAge(createdAt: Long, updatedAt: Long): String {
+        if (createdAt <= 0L) return "—"
+        val end = if (updatedAt > 0L) updatedAt else System.currentTimeMillis()
+        val diffMs = (end - createdAt).coerceAtLeast(0L)
+        val days = diffMs / (24 * 60 * 60 * 1000)
+        val hours = diffMs / (60 * 60 * 1000)
+        val minutes = diffMs / (60 * 1000)
+        return when {
+            days >= 1  -> "$days ${if (days == 1L) "Day" else "Days"}"
+            hours >= 1 -> "$hours ${if (hours == 1L) "Hour" else "Hours"}"
+            minutes >= 1 -> "$minutes ${if (minutes == 1L) "Minute" else "Minutes"}"
+            else -> "Just now"
+        }
+    }
+
     private fun showActionHistoryDialog(item: CallCenterParcelItem) {
         val dialog = BottomSheetDialog(requireContext())
         val view = layoutInflater.inflate(R.layout.bottom_sheet_action_history, null)
         val tvTitle = view.findViewById<TextView>(R.id.twHistoryTitle)
         val tvSub = view.findViewById<TextView>(R.id.twHistorySub)
         val layoutTimeline = view.findViewById<LinearLayout>(R.id.layoutTimeline)
+        val tvOvStatus = view.findViewById<TextView>(R.id.twOverviewStatus)
+        val tvOvCreatedAt = view.findViewById<TextView>(R.id.twOverviewCreatedAt)
+        val tvOvUpdatedAt = view.findViewById<TextView>(R.id.twOverviewUpdatedAt)
+        val tvOvAge = view.findViewById<TextView>(R.id.twOverviewAge)
 
         tvTitle.text = "Journey Log"
         tvSub.text = "${item.id} · ${item.customer}"
 
+        // Overview
+        val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.effectiveStatus, "bn")
+        tvOvStatus.text = cfg.label
+        tvOvStatus.setTextColor(cfg.color)
+        val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
+        tvOvCreatedAt.text = if (item.createdAt > 0) fullFmt.format(java.util.Date(item.createdAt)) else "—"
+        tvOvUpdatedAt.text = if (item.updatedAt > 0) fullFmt.format(java.util.Date(item.updatedAt)) else "—"
+        tvOvAge.text = formatAge(item.createdAt, item.updatedAt)
+
         layoutTimeline.removeAllViews()
 
-        if (item.history.isEmpty()) {
+        val historyEntries = mutableListOf<HistoryEntry>()
+        if (item.createdAt > 0) {
+            historyEntries.add(
+                HistoryEntry(
+                    action = "CREATED",
+                    remark = "Parcel তৈরি হয়েছে",
+                    time = fullFmt.format(java.util.Date(item.createdAt)),
+                    author = "System",
+                    authorRole = "system"
+                )
+            )
+        }
+        historyEntries.addAll(item.history)
+
+        if (historyEntries.isEmpty()) {
             val emptyView = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_timeline_empty, layoutTimeline, false)
             layoutTimeline.addView(emptyView)
         } else {
-            for ((index, entry) in item.history.withIndex()) {
+            for ((index, entry) in historyEntries.withIndex()) {
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
                 val statusColor = when (entry.authorRole) {
                     "cc" -> R.color.theme_accent
@@ -403,7 +447,7 @@ class CallCenterFragment : Fragment() {
                     ivAvatar.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
                 }
 
-                tvLine.visibility = if (index < item.history.size - 1) View.VISIBLE else View.GONE
+                tvLine.visibility = if (index < historyEntries.size - 1) View.VISIBLE else View.GONE
 
                 tvAuthor.text = entry.author
 
@@ -834,6 +878,8 @@ class CallCenterFragment : Fragment() {
                             snap.child("deliveryHub").getValue(String::class.java) ?: ""
                         }
                         val status  = snap.child("status").getValue(String::class.java) ?: runStatus
+                        val createdAtVal = snap.child("createdAt").getValue(Long::class.java) ?: 0L
+                        val updatedAtVal = snap.child("updatedAt").getValue(Long::class.java) ?: 0L
 
                         // Full remark history (not just the latest) — needed for the journey popup.
                         val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
@@ -862,7 +908,9 @@ class CallCenterFragment : Fragment() {
                                 validationNote    = if (remarkStatus == "verify_req") remarkLabel else "",
                                 time              = "",
                                 worker            = nameMap[agentSystemId] ?: agentSystemId,
-                                branch            = hub
+                                branch            = hub,
+                                createdAt         = createdAtVal,
+                                updatedAt         = updatedAtVal
                             ),
                             remarksSnap,
                             agentSystemId
