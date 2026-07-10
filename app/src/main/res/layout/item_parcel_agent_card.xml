@@ -80,13 +80,23 @@
             android:layout_marginStart="10dp">
 
             <TextView
+                android:id="@+id/tvAgtAge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="3D"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_text_muted" />
+
+            <TextView
                 android:id="@+id/tvAgtCod"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="৳850"
                 android:textSize="14sp"
                 android:textColor="@color/theme_accent"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                android:layout_marginTop="2dp" />
 
             <TextView
                 android:id="@+id/tvAgtStatusBadge"

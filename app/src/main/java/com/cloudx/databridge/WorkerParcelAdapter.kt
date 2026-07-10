@@ -58,6 +58,7 @@ class WorkerParcelAdapter(
         val tvMeta: TextView = view.findViewById(R.id.tvParcelMeta)
         val tvAddress: TextView = view.findViewById(R.id.tvParcelAddress)
         val tvCod: TextView = view.findViewById(R.id.tvParcelCod)
+        val tvAge: TextView = view.findViewById(R.id.tvParcelAge)
         val tvStatusBadge: TextView = view.findViewById(R.id.tvParcelStatusBadge)
         val tvRemarks: TextView = view.findViewById(R.id.tvParcelRemarks)
         val tvValidationNote: TextView = view.findViewById(R.id.tvParcelValidationNote)
@@ -88,6 +89,7 @@ class WorkerParcelAdapter(
 
         holder.tvAddress.text = "\uD83D\uDCCD ${item.address}"
         holder.tvCod.text = "৳${item.cod}"
+        holder.tvAge.text = formatAgeCompact(item.createdAt)
 
         val cfg = getStatusConfig(ctx, item.status, statusLang)
         holder.tvStatusBadge.text = cfg.label
@@ -156,6 +158,15 @@ class WorkerParcelAdapter(
 
     companion object {
         data class StatusConfig(val color: Int, val bg: Int, val label: String)
+
+        /** Compact age badge (e.g. "0D", "3D", "12D") — days elapsed since createdAt, using
+         *  current time as the reference point (a card's age keeps growing until resolved). */
+        fun formatAgeCompact(createdAt: Long): String {
+            if (createdAt <= 0L) return ""
+            val diffMs = (System.currentTimeMillis() - createdAt).coerceAtLeast(0L)
+            val days = diffMs / (24 * 60 * 60 * 1000)
+            return "${days}D"
+        }
 
         fun getStatusConfig(context: android.content.Context, status: String, statusLang: String = "bn"): StatusConfig {
             StatusMetaCache.entries[status]?.let { entry ->

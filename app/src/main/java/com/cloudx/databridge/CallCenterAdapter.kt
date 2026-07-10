@@ -139,6 +139,7 @@ class CallCenterAdapter(
         private val tvMeta: TextView = view.findViewById(R.id.tvAgtMeta)
         private val tvAddress: TextView = view.findViewById(R.id.tvAgtAddress)
         private val tvCod: TextView = view.findViewById(R.id.tvAgtCod)
+        private val tvAge: TextView = view.findViewById(R.id.tvAgtAge)
         private val tvStatusBadge: TextView = view.findViewById(R.id.tvAgtStatusBadge)
         private val tvRemarks: TextView = view.findViewById(R.id.tvAgtRemarks)
         private val tvValidationNote: TextView = view.findViewById(R.id.tvAgtValidationNote)
@@ -162,6 +163,7 @@ class CallCenterAdapter(
             tvMeta.text = "${item.id} · ${item.phone}"
             tvAddress.text = "📍 ${item.address}"
             tvCod.text = "৳${item.cod}"
+            tvAge.text = WorkerParcelAdapter.formatAgeCompact(item.createdAt)
 
             applyCallStateGlow(itemView, glowColor)
 
