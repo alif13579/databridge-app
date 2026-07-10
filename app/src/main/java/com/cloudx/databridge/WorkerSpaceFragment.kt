@@ -71,6 +71,27 @@ class WorkerSpaceFragment : Fragment() {
     private var userId = ""
     private var agentPhone = ""
 
+    // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
+    // repeated remarks by the same author (worker or CC agent) don't refetch. Cleared on
+    // pull-to-refresh alongside the other per-session caches.
+    private val uidNameCache = mutableMapOf<String, String>()
+
+    /** Resolves [uid] to a display name via users/{uid}/profile/name — direct O(1) access,
+     *  cached in [uidNameCache] after the first lookup. Falls back to the raw uid if the
+     *  profile/name is missing or the fetch fails. */
+    private suspend fun resolveUserName(uid: String): String {
+        if (uid.isBlank()) return "Agent"
+        uidNameCache[uid]?.let { return it }
+        val name = withContext(Dispatchers.IO) {
+            runCatching {
+                db.reference.child("users/$uid/profile/name").get().await()
+                    .getValue(String::class.java)?.trim()
+            }.getOrNull()
+        }?.takeIf { it.isNotBlank() } ?: uid
+        uidNameCache[uid] = name
+        return name
+    }
+
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseDatabase.getInstance()
     private var runsByAgentRef: DatabaseReference? = null
@@ -140,6 +161,7 @@ class WorkerSpaceFragment : Fragment() {
         swipeRefresh = view.findViewById(R.id.swipeRefresh)
         swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
         swipeRefresh.setOnRefreshListener {
+            uidNameCache.clear()
             detachRunsListener()
             loadRemarkOptions()
             loadData()
@@ -787,46 +809,63 @@ class WorkerSpaceFragment : Fragment() {
                 override fun onDataChange(snapshot: DataSnapshot) {
                     if (!isAdded) return
                     val ctx = context ?: return
-                    val history = snapshot.children.mapNotNull { r ->
-                        val rStatus = readString(r, "status").ifBlank { return@mapNotNull null }
-                        val rLabel = WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label
-                        val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
-                        val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-                            .format(java.util.Date(createdAt))
-                        val remarkedBy = readString(r, "remarked_by")
-                        val rUserId = readString(r, "userId").ifBlank { readString(r, "employeeId") }
-                        val authorRole = if (remarkedBy == "support") "cc" else "agent"
-                        val author = when {
-                            remarkedBy == "support" && rUserId.isNotBlank() -> "$rUserId · CC"
-                            remarkedBy == "support" -> "CC"
-                            rUserId.isNotBlank() -> rUserId
-                            else -> "Agent"
-                        }
-                        HistoryEntry(
-                            action = rStatus.uppercase(),
-                            remark = rLabel,
-                            time = timeStr,
-                            author = author,
-                            authorRole = authorRole
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        data class RawEntry(
+                            val rStatus: String, val rLabel: String, val timeStr: String,
+                            val remarkedBy: String, val rUserId: String
                         )
-                    }.sortedBy { it.time }
-
-                    val lastRemarkStatus = snapshot.children
-                        .mapNotNull { r -> r.child("status").getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() } }
-                        .lastOrNull() ?: ""
-                    val lastRemark = history.lastOrNull()?.remark ?: ""
-                    val idx = allParcels.indexOfFirst { it.id == cId }
-                    if (idx != -1) {
-                        val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status
-                        allParcels = allParcels.toMutableList().also {
-                            it[idx] = it[idx].copy(
-                                status  = effectiveStatus,
-                                remarks = lastRemark,
-                                history = history
-                            )
+                        val raw = snapshot.children.mapNotNull { r ->
+                            val rStatus = readString(r, "status").ifBlank { return@mapNotNull null }
+                            val rLabel = WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label
+                            val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
+                            val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                                .format(java.util.Date(createdAt))
+                            val remarkedBy = readString(r, "remarked_by")
+                            val rUserId = readString(r, "userId")
+                            RawEntry(rStatus, rLabel, timeStr, remarkedBy, rUserId)
                         }
-                        setupFilterTabs()
-                        applyFilters()
+                        // Resolve every distinct uid to a name in parallel (direct users/{uid}
+                        // access — no full-tree scan, no reverse-index needed for this lookup).
+                        val distinctUids = raw.map { it.rUserId }.filter { it.isNotBlank() }.distinct()
+                        coroutineScope {
+                            distinctUids.map { uid -> async(Dispatchers.IO) { resolveUserName(uid) } }.awaitAll()
+                        }
+                        val history = raw.map { e ->
+                            val authorRole = if (e.remarkedBy == "support") "cc" else "agent"
+                            val resolvedName = if (e.rUserId.isNotBlank()) uidNameCache[e.rUserId] else null
+                            val author = when {
+                                e.remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
+                                e.remarkedBy == "support" -> "CC"
+                                !resolvedName.isNullOrBlank() -> resolvedName
+                                else -> "Agent"
+                            }
+                            HistoryEntry(
+                                action = e.rStatus.uppercase(),
+                                remark = e.rLabel,
+                                time = e.timeStr,
+                                author = author,
+                                authorRole = authorRole
+                            )
+                        }.sortedBy { it.time }
+
+                        if (!isAdded) return@launch
+                        val lastRemarkStatus = snapshot.children
+                            .mapNotNull { r -> r.child("status").getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() } }
+                            .lastOrNull() ?: ""
+                        val lastRemark = history.lastOrNull()?.remark ?: ""
+                        val idx = allParcels.indexOfFirst { it.id == cId }
+                        if (idx != -1) {
+                            val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status
+                            allParcels = allParcels.toMutableList().also {
+                                it[idx] = it[idx].copy(
+                                    status  = effectiveStatus,
+                                    remarks = lastRemark,
+                                    history = history
+                                )
+                            }
+                            setupFilterTabs()
+                            applyFilters()
+                        }
                     }
                 }
                 override fun onCancelled(error: DatabaseError) {}
@@ -1000,10 +1039,22 @@ class WorkerSpaceFragment : Fragment() {
                 ItemFetch(cId, runRef, detailSnap, remarksSnap)
             }
         }
+        val fetches = itemFetches.awaitAll()
+
+        // Pre-resolve every distinct remark author uid across ALL parcels in one parallel
+        // batch — direct users/{uid} access, cached in uidNameCache so the per-parcel loop
+        // below never blocks on a network round-trip.
+        val allUids = fetches.flatMap { it.remarksSnap.children }
+            .mapNotNull { it.child("userId").getValue(String::class.java)?.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        coroutineScope {
+            allUids.map { uid -> async(Dispatchers.IO) { resolveUserName(uid) } }.awaitAll()
+        }
 
         val parcels = mutableListOf<WorkerParcelItem>()
         val statusBackfills = mutableMapOf<String, Any?>()
-        itemFetches.awaitAll().forEach { fetch ->
+        fetches.forEach { fetch ->
             val (cId, runRef, detailSnap, remarksSnap) = fetch
             if (!detailSnap.exists()) return@forEach
 
@@ -1024,13 +1075,14 @@ class WorkerSpaceFragment : Fragment() {
                 val timeStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
                 val remarkedBy = readString(r, "remarked_by")
-                val rUserId    = readString(r, "userId").ifBlank { readString(r, "employeeId") }
+                val rUserId    = readString(r, "userId")
+                val resolvedName = if (rUserId.isNotBlank()) uidNameCache[rUserId] else null
                 val authorRole = if (remarkedBy == "support") "cc" else "agent"
                 val author = when {
-                    remarkedBy == "support" && rUserId.isNotBlank() -> "$rUserId · CC"
-                    remarkedBy == "support"                         -> "CC"
-                    rUserId.isNotBlank()                            -> rUserId
-                    else                                            -> "Agent"
+                    remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
+                    remarkedBy == "support"                                  -> "CC"
+                    !resolvedName.isNullOrBlank()                            -> resolvedName
+                    else                                                     -> "Agent"
                 }
                 HistoryEntry(
                     action = rStatus.uppercase(),
