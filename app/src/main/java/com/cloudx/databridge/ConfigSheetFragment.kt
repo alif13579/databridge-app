@@ -308,6 +308,12 @@ class ConfigSheetFragment : Fragment() {
     private var isRangeEdit = false   // true = opened from Manage → Positioning, not full reconnect
     private var selectedNickname = ""   // nickname entered in step 3
 
+    // Step 5 primary button can behave as Connect (new), Save (edited existing), or Exit Wizard
+    // (existing connection reopened with zero changes). Decided centrally in
+    // updateConnectButtonState() and read by the click handler.
+    private enum class PrimaryAction { NEW, SAVE, EXIT }
+    private var primaryAction = PrimaryAction.NEW
+
     // Step 5 — column mapping
     // Firebase field → column letter selected by user
     private val pendingMapping = mutableMapOf<String, ColMapping>()
@@ -544,7 +550,9 @@ class ConfigSheetFragment : Fragment() {
 
         btnNext?.setOnClickListener { advanceStep() }
         btnBack?.setOnClickListener { if (connectStep > 1) { connectStep--; renderConnectStep() } }
-        btnConnect?.setOnClickListener { handleConnect() }
+        btnConnect?.setOnClickListener {
+            if (primaryAction == PrimaryAction.EXIT) exitWizardNoChanges() else handleConnect()
+        }
 
         btnPickAccount?.setOnClickListener { pickGoogleAccount() }
 
@@ -1097,7 +1105,9 @@ class ConfigSheetFragment : Fragment() {
             else             -> View.GONE
         }
         btnConnect?.visibility = if (connectStep == 5) View.VISIBLE else View.GONE
-        btnConnect?.text = if (connections[activeBranch]?.any { it.connectionId == activeConnectionId } == true) "Save" else "Connect"
+        // Text + enabled state (Connect / Save / Exit Wizard) is decided centrally so it stays in
+        // sync with live dirty-detection.
+        if (connectStep == 5) updateConnectButtonState()
 
         // Cancel button label changes in range edit mode
         (btnCancelConn as? TextView)?.text = if (isRangeEdit) "Cancel" else "✕"
@@ -2409,11 +2419,20 @@ class ConfigSheetFragment : Fragment() {
     }
 
     private fun autoDetectMapping() {
-        pendingMapping.clear()
+        val editing = isEditingExistingConn()
+        // For a NEW connection, recompute cleanly (original behaviour). For an EXISTING connection
+        // being reconnected/edited, NEVER wipe the saved mapping — only fill unmapped gaps, so the
+        // user's saved column↔header choices are preserved for both preview and sync.
+        if (!editing) pendingMapping.clear()
         if (sheetHeaders.isEmpty()) return
         // Match each Firebase key against sheet headers by similarity
         val allKeys = fetchedNodeKeys + customMappingFields.map { it.first }
         allKeys.forEach { firebaseKey ->
+            // Editing existing: skip any key that's already mapped (saved or user-set) or is an
+            // object field — auto-detect must only touch fields with no mapping yet.
+            if (editing && (pendingMapping.containsKey(firebaseKey) ||
+                    pendingObjectMapping.containsKey(firebaseKey) ||
+                    firebaseKey in objectTypeFields)) return@forEach
             val keyLower = firebaseKey.lowercase()
             // Split camelCase: "recipientName" → ["recipient", "name"]
             val keyParts = keyLower.replace(Regex("([a-z])([A-Z])"), "$1 $2")
@@ -2973,10 +2992,14 @@ class ConfigSheetFragment : Fragment() {
                     tvFetchStatus?.text = "⚠ Data নেই — manually field add করুন"
                     tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
                     nodePreviewData = emptyMap()
-                    fetchedNodeKeys.clear()
-                    customMappingFields.clear()
-                    objectTypeFields.clear()
-                    pendingObjectMapping.clear()
+                    // When reconnecting an existing connection, keep the saved mapping visible even
+                    // if the node currently has no data — otherwise the preview would blank out.
+                    if (!isEditingExistingConn()) {
+                        fetchedNodeKeys.clear()
+                        customMappingFields.clear()
+                        objectTypeFields.clear()
+                        pendingObjectMapping.clear()
+                    }
                     renderMappingStep()
                     return@launch
                 }
@@ -2996,6 +3019,14 @@ class ConfigSheetFragment : Fragment() {
                     tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
                     return@launch
                 }
+
+                // Snapshot saved mappings so a reconnect "Fetch Fields" never destroys the user's
+                // saved object config — fresh auto-detection runs first, then saved values are
+                // layered back on top (saved always wins). Flat mapping survives automatically
+                // because it's never cleared here and autoDetectMapping() is non-destructive.
+                val editingExisting = isEditingExistingConn()
+                val savedObjMapping    = if (editingExisting) HashMap(pendingObjectMapping) else null
+                val savedObjTypeFields = if (editingExisting) HashSet(objectTypeFields) else null
 
                 fetchedNodeKeys.clear()
                 fetchedNodeKeys.addAll(keys)
@@ -3031,6 +3062,10 @@ class ConfigSheetFragment : Fragment() {
                         }
                     }
                 }
+
+                // Restore saved object mapping on top of fresh auto-detection (reconnect only).
+                savedObjTypeFields?.let { objectTypeFields.addAll(it) }
+                savedObjMapping?.let { pendingObjectMapping.putAll(it) }
 
                 autoDetectMapping()
                 nodePreviewExpanded = true
@@ -3530,6 +3565,7 @@ class ConfigSheetFragment : Fragment() {
         if (pendingPkParts.isEmpty()) {
             tvPkPreview?.text = "⚠ কমপক্ষে একটা part যোগ করুন"
             tvPkPreview?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
+            updateConnectButtonState()   // keep Exit/Save button in sync with pk edits
             return
         }
         val todayDdMmYy = java.text.SimpleDateFormat("ddMMyy", java.util.Locale.US).format(java.util.Date())
@@ -3548,6 +3584,7 @@ class ConfigSheetFragment : Fragment() {
         val usingRealData = sampleSheetRow.isNotEmpty()
         tvPkPreview?.text = if (usingRealData) "Preview (1st row): $preview" else "Preview: $preview"
         tvPkPreview?.setTextColor(context?.getColor(R.color.theme_text_secondary) ?: android.graphics.Color.DKGRAY)
+        updateConnectButtonState()   // keep Exit/Save button in sync with pk edits
     }
 
     private fun renderMappingStep() {
@@ -3603,7 +3640,10 @@ class ConfigSheetFragment : Fragment() {
         }
 
         // ── Empty state ───────────────────────────────────────────────
-        val allFields = fetchedNodeKeys.map { it to it } + customMappingFields
+        // De-duplicate: a key can legitimately appear in BOTH fetchedNodeKeys (live sample) and
+        // customMappingFields (restored on reconnect / re-added above). Without distinctBy the
+        // same field/object renders twice — this was the "objects double hoye jacche" bug.
+        val allFields = (fetchedNodeKeys.map { it to it } + customMappingFields).distinctBy { it.first }
         if (allFields.isEmpty()) {
             val tvEmpty = TextView(ctx).apply {
                 text      = "Node fetch করুন অথবা নিচে manually field add করুন"
@@ -3797,17 +3837,128 @@ class ConfigSheetFragment : Fragment() {
         updateConnectButtonState()
     }
 
-    /** Enables Connect/Save only when the node is confirmed, primary key is valid, and at
-     *  least one field (flat or object) is mapped — mirrors handleConnect()'s own checks so
-     *  the button reflects readiness before the user even taps it. */
+    /** Strict lookup of the connection being edited — no firstOrNull fallback (unlike activeConn),
+     *  so a brand-new "+ New Sheet" flow (activeConnectionId == "") is never mistaken for an edit. */
+    private fun editingConn(): SheetConn? =
+        connections[activeBranch]?.find { it.connectionId == activeConnectionId }
+
+    private fun isEditingExistingConn(): Boolean = editingConn() != null
+
+    // ── Dirty detection (Exit Wizard vs Save) ──────────────────────────────────────────────
+    // Signatures are LETTER-INSENSITIVE: they key on header text, not column letters, so the
+    // automatic drift-relocation done while rendering step 5 is NOT mistaken for a user edit.
+    // A genuine remap (field pointed at a different header), add/remove field, range/tab/sheet/
+    // nickname/target-node/primary-key change all DO change the signature. The comparison mirrors
+    // exactly what handleConnect() would persist. Safety rule: if anything can't be resolved we
+    // return "dirty", so we never show "Exit Wizard" while a real change is pending.
+    private fun sigCol(cm: ColMapping): String =
+        if (cm.header.isNotBlank()) "h:${cm.header.trim().lowercase()}" else "c:${cm.col}"
+
+    private fun sigObj(o: ObjectColMapping): String {
+        fun p(header: String, col: String) =
+            if (header.isNotBlank()) "h:${header.trim().lowercase()}" else "c:$col"
+        return "${p(o.keyHeader, o.keyCol)}~${p(o.valueHeader, o.valueCol)}"
+    }
+
+    private fun sigPk(part: PkPart): String = when (part.type) {
+        "fixed" -> "fixed:${part.value.trim()}"
+        else    -> "${part.type}:" +
+            if (part.header.isNotBlank()) "h:${part.header.trim().lowercase()}" else "v:${part.value}"
+    }
+
+    private fun buildEditSignature(
+        sheetId: String, tabName: String, colStart: Int, colEnd: Int,
+        startRow: Int?, endRow: Int?, nickname: String, targetNode: String,
+        colMap: Map<String, ColMapping>, objMap: Map<String, ObjectColMapping>,
+        pkParts: List<PkPart>
+    ): String {
+        val sRow = startRow?.takeIf { it > 1 } ?: 0   // null / 1 → "no custom start"
+        val eRow = endRow?.takeIf { it > 0 } ?: 0     // null / 0 → "no custom end"
+        val node = targetNode.trim().trimEnd('/')
+        val flat = colMap.entries
+            .filter { it.value.col.isNotBlank() || it.value.header.isNotBlank() }
+            .map { "${it.key}=${sigCol(it.value)}" }.sorted().joinToString("|")
+        val obj = objMap.entries
+            .map { "${it.key}=${sigObj(it.value)}" }.sorted().joinToString("|")
+        val pk = pkParts.joinToString(">") { sigPk(it) }   // order matters for a composite key
+        return listOf(
+            "sheet=$sheetId", "tab=${tabName.trim()}",
+            "cols=$colStart:$colEnd", "rows=$sRow:$eRow",
+            "nick=${nickname.trim()}", "node=$node",
+            "flat=$flat", "obj=$obj", "pk=$pk"
+        ).joinToString("§")
+    }
+
+    /** Signature of the saved connection exactly as it lives in memory/Firebase. */
+    private fun savedSignatureOf(conn: SheetConn): String = buildEditSignature(
+        conn.sheetId, conn.tabName, conn.colStart, conn.colEnd,
+        conn.startRow, conn.endRow, conn.nickname, conn.targetNode,
+        conn.columnMapping, conn.objectColumnMapping, conn.effectivePkParts()
+    )
+
+    /** Signature of the in-progress wizard state, from the SAME sources handleConnect() reads.
+     *  Returns null when the state can't be fully resolved → caller treats that as dirty. */
+    private fun currentSignatureOrNull(): String? {
+        val sheet = selectedSheet ?: return null
+        if (selectedTab.isBlank()) return null
+        val cs = parseColInput(etColStart?.text?.toString() ?: "") ?: return null
+        val ce = parseColInput(etColEnd?.text?.toString() ?: "") ?: return null
+        val sRow = etStartRow?.text?.toString()?.trim()?.toIntOrNull()
+        val eRow = etEndRow?.text?.toString()?.trim()?.toIntOrNull()
+        val node = "courier/" +
+            (etTargetNode?.text?.toString()?.trim()?.trim('/')?.ifBlank { "consignments" } ?: "consignments")
+        return buildEditSignature(
+            sheet.id, selectedTab, cs, ce, sRow, eRow, selectedNickname, node,
+            pendingMapping, pendingObjectMapping, pendingPkParts
+        )
+    }
+
+    /** True only when reconnecting an EXISTING connection and nothing a Save would write changed. */
+    private fun isReconnectUnchanged(): Boolean {
+        if (isRangeEdit) return false            // range-edit keeps its own Cancel/Save
+        val conn = editingConn() ?: return false // new connection → never "unchanged"
+        val current = currentSignatureOrNull() ?: return false
+        return current == savedSignatureOf(conn)
+    }
+
+    /** Leaves the reconnect wizard WITHOUT saving. Mirrors the ✕ cancel path so no partial state
+     *  leaks, and never writes to Firebase — the saved connection stays exactly as it was. */
+    private fun exitWizardNoChanges() {
+        isRangeEdit = false
+        screen = Screen.BRANCH_SELECT
+        render()
+    }
+
+    /** Decides the step-5 primary button: Exit Wizard (existing + no change), Save (existing +
+     *  changed & ready), or Connect (new & ready). Enable/alpha mirror handleConnect()'s checks so
+     *  the button reflects readiness before it's tapped. Called from every place that can change
+     *  the wizard state (mapping render, pk edits, step navigation). */
     private fun updateConnectButtonState() {
         val hasValidPk = pendingPkParts.isNotEmpty() &&
             pendingPkParts.none { (it.type == "col" || it.type == "date") && it.value.isBlank() }
         val hasAtLeastOneField = pendingMapping.isNotEmpty() || pendingObjectMapping.isNotEmpty()
         val ready = nodeMappingConfirmed && hasValidPk && hasAtLeastOneField
 
-        btnConnect?.isEnabled = ready
-        btnConnect?.alpha = if (ready) 1.0f else 0.45f
+        when {
+            isReconnectUnchanged() -> {
+                primaryAction = PrimaryAction.EXIT
+                btnConnect?.text = "Exit Wizard"
+                btnConnect?.isEnabled = true
+                btnConnect?.alpha = 1.0f
+            }
+            isEditingExistingConn() -> {
+                primaryAction = PrimaryAction.SAVE
+                btnConnect?.text = "Save"
+                btnConnect?.isEnabled = ready
+                btnConnect?.alpha = if (ready) 1.0f else 0.45f
+            }
+            else -> {
+                primaryAction = PrimaryAction.NEW
+                btnConnect?.text = "Connect"
+                btnConnect?.isEnabled = ready
+                btnConnect?.alpha = if (ready) 1.0f else 0.45f
+            }
+        }
     }
 
     private fun clearConnectForm() {
@@ -3839,6 +3990,10 @@ class ConfigSheetFragment : Fragment() {
 
     private fun prefillConnectForm() {
         val conn = activeConn() ?: return
+        // Reset transient node/field state so stale keys from a PREVIOUS connect/reconnect in the
+        // same session can't survive into this one and cause duplicate rows (see allFields dedup).
+        fetchedNodeKeys.clear()
+        customMappingFields.clear()
         selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
         selectedTab = conn.tabName
         selectedNickname = conn.nickname
@@ -3873,9 +4028,11 @@ class ConfigSheetFragment : Fragment() {
         objectTypeFields.addAll(conn.objectColumnMapping.keys)
         // Existing connection — target node was already confirmed when it was saved
         nodeMappingConfirmed = conn.targetNode.isNotBlank()
-        // Re-add object fields as custom fields so they render in the mapping step
+        // Re-add object fields as custom fields so they render in the mapping step. Guard against
+        // BOTH lists so an object key already present in fetchedNodeKeys is never double-added.
         conn.objectColumnMapping.keys.forEach { key ->
-            if (customMappingFields.none { it.first == key }) customMappingFields.add(key to key)
+            if (fetchedNodeKeys.none { it == key } && customMappingFields.none { it.first == key })
+                customMappingFields.add(key to key)
         }
     }
 
