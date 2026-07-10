@@ -61,6 +61,14 @@ class CallCenterFragment : Fragment() {
     // Auto Call (sequential dialer) state
     private var autoCallGapSeconds = 8
     private var autoCallJob: Job? = null
+
+    // ── Auto Call filter preference ──────────────────────────────────
+    // "status" = only cards whose status is in autoCallStatuses go into the queue.
+    // "aging"  = ignore status, only the age condition below applies.
+    private var autoCallMode = "status"
+    private var autoCallStatuses = mutableSetOf("pending")
+    private var autoCallAgeEnabled = false
+    private var autoCallMinAgeDays = 3
     private var autoCallQueue: List<String> = emptyList()      // phone numbers, in dial order
     private var autoCallQueueIds: List<String> = emptyList()   // matching parcel ids, same order
     private var autoCallIndex = 0
@@ -199,6 +207,10 @@ class CallCenterFragment : Fragment() {
     private fun setupAutoCallControls() {
         val prefs = requireContext().getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
         autoCallGapSeconds = prefs.getInt("cc_auto_call_gap_seconds", 8)
+        autoCallMode = prefs.getString("cc_auto_call_mode", "status") ?: "status"
+        autoCallStatuses = (prefs.getStringSet("cc_auto_call_statuses", setOf("pending")) ?: setOf("pending")).toMutableSet()
+        autoCallAgeEnabled = prefs.getBoolean("cc_auto_call_age_enabled", false)
+        autoCallMinAgeDays = prefs.getInt("cc_auto_call_min_age_days", 3)
 
         switchAutoCall.setOnCheckedChangeListener(null)
         switchAutoCall.isChecked = false
@@ -219,18 +231,144 @@ class CallCenterFragment : Fragment() {
     }
 
     private fun showAutoCallGapMenu() {
-        val popup = PopupMenu(requireContext(), btnAutoCallGapMenu)
-        val gaps = listOf(5, 8, 10, 15, 20, 30)
-        gaps.forEach { seconds -> popup.menu.add("$seconds sec gap") }
-        popup.setOnMenuItemClickListener { item ->
-            val seconds = item.title.toString().split(" ").firstOrNull()?.toIntOrNull() ?: return@setOnMenuItemClickListener false
-            autoCallGapSeconds = seconds
-            requireContext().getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("cc_auto_call_gap_seconds", seconds).apply()
-            Toast.makeText(requireContext(), "Auto Call gap set to ${seconds}s", Toast.LENGTH_SHORT).show()
-            true
+        val ctx = requireContext()
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        val scroll = android.widget.ScrollView(ctx)
+        val root = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(24.dp(), 16.dp(), 24.dp(), 8.dp())
         }
-        popup.show()
+        scroll.addView(root)
+
+        fun sectionTitle(text: String) = TextView(ctx).apply {
+            this.text = text; textSize = 11f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#6B7280"))
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 10.dp(); bottomMargin = 4.dp() }
+        }
+
+        // ── Gap ──────────────────────────────────────────────────────
+        root.addView(sectionTitle("Gap (প্রতিটা call এর মাঝে)"))
+        val gapSpinner = Spinner(ctx).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 44.dp())
+        }
+        val gapOptions = listOf(5, 8, 10, 15, 20, 30)
+        gapSpinner.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
+            gapOptions.map { "$it sec" })
+        gapSpinner.setSelection(gapOptions.indexOf(autoCallGapSeconds).coerceAtLeast(0))
+        root.addView(gapSpinner)
+
+        // ── Call Preference ──────────────────────────────────────────
+        root.addView(sectionTitle("Call Preference"))
+        val modeSpinner = Spinner(ctx).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 44.dp())
+        }
+        val modeOptions = listOf("status" to "Status Wise", "aging" to "Aging Wise")
+        modeSpinner.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
+            modeOptions.map { it.second })
+        modeSpinner.setSelection(modeOptions.indexOfFirst { it.first == autoCallMode }.coerceAtLeast(0))
+        root.addView(modeSpinner)
+
+        // ── Status checklist (shown only in Status Wise mode) ─────────
+        val statusContainer = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+        }
+        root.addView(statusContainer)
+
+        val statusCheckboxes = mutableListOf<Pair<String, android.widget.CheckBox>>()
+        fun buildStatusChecklist() {
+            statusContainer.removeAllViews()
+            statusCheckboxes.clear()
+            statusContainer.addView(sectionTitle("কোন কোন Status এ Call যাবে"))
+            val allStatuses = StatusMetaCache.entries.entries.sortedByDescending { it.value.priority }
+            if (allStatuses.isEmpty()) {
+                statusContainer.addView(TextView(ctx).apply {
+                    text = "কোনো status পাওয়া যায়নি"; textSize = 12f
+                    setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                })
+            }
+            allStatuses.forEach { (key, entry) ->
+                val cb = android.widget.CheckBox(ctx).apply {
+                    text = entry.bn.ifBlank { key }
+                    isChecked = key in autoCallStatuses
+                    textSize = 13f
+                }
+                statusCheckboxes.add(key to cb)
+                statusContainer.addView(cb)
+            }
+        }
+
+        // ── Age condition ──────────────────────────────────────────────
+        root.addView(sectionTitle("Age Condition (ঐচ্ছিক)"))
+        val ageRow = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        val cbAgeEnabled = android.widget.CheckBox(ctx).apply {
+            text = "More than"
+            isChecked = autoCallAgeEnabled
+            textSize = 13f
+        }
+        val etAgeDays = EditText(ctx).apply {
+            setText(autoCallMinAgeDays.toString())
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            layoutParams = android.widget.LinearLayout.LayoutParams(60.dp(), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+            gravity = android.view.Gravity.CENTER
+            isEnabled = autoCallAgeEnabled
+        }
+        val tvAgeDaysLabel = TextView(ctx).apply {
+            text = " দিনের বেশি বয়স"
+            textSize = 13f
+            setTextColor(android.graphics.Color.parseColor("#111827"))
+        }
+        cbAgeEnabled.setOnCheckedChangeListener { _, checked -> etAgeDays.isEnabled = checked }
+        ageRow.addView(cbAgeEnabled)
+        ageRow.addView(etAgeDays)
+        ageRow.addView(tvAgeDaysLabel)
+        root.addView(ageRow)
+
+        // Toggle status checklist visibility based on mode
+        fun refreshModeVisibility() {
+            val isStatusMode = modeOptions[modeSpinner.selectedItemPosition].first == "status"
+            statusContainer.visibility = if (isStatusMode) View.VISIBLE else View.GONE
+        }
+        modeSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = refreshModeVisibility()
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        buildStatusChecklist()
+        refreshModeVisibility()
+
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Auto Call Settings")
+            .setView(scroll)
+            .setPositiveButton("Save") { _, _ ->
+                autoCallGapSeconds = gapOptions[gapSpinner.selectedItemPosition]
+                autoCallMode = modeOptions[modeSpinner.selectedItemPosition].first
+                autoCallStatuses = statusCheckboxes.filter { it.second.isChecked }.map { it.first }.toMutableSet()
+                autoCallAgeEnabled = cbAgeEnabled.isChecked
+                autoCallMinAgeDays = etAgeDays.text.toString().toIntOrNull()?.coerceAtLeast(0) ?: 3
+
+                requireContext().getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putInt("cc_auto_call_gap_seconds", autoCallGapSeconds)
+                    .putString("cc_auto_call_mode", autoCallMode)
+                    .putStringSet("cc_auto_call_statuses", autoCallStatuses)
+                    .putBoolean("cc_auto_call_age_enabled", autoCallAgeEnabled)
+                    .putInt("cc_auto_call_min_age_days", autoCallMinAgeDays)
+                    .apply()
+
+                Toast.makeText(requireContext(), "Auto Call settings সেভ হয়েছে", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     /** Starts (or resumes) sequentially dialing every currently-pending parcel's number. */
@@ -251,9 +389,26 @@ class CallCenterFragment : Fragment() {
 
         // Fresh queue only when not resuming a paused run (queue empty or we've reached the end).
         if (autoCallQueue.isEmpty() || autoCallIndex >= autoCallQueue.size) {
-            val pending = allParcels.filter { it.status == "pending" && it.phone.isNotBlank() }
-            autoCallQueue = pending.map { it.phone }
-            autoCallQueueIds = pending.map { it.id }
+            val eligible = allParcels.filter { p ->
+                if (p.phone.isBlank()) return@filter false
+                val matchesMode = when (autoCallMode) {
+                    "status" -> p.effectiveStatus in autoCallStatuses
+                    "aging"  -> true // aging mode ignores status entirely
+                    else     -> p.status == "pending"
+                }
+                val matchesAge = if (autoCallAgeEnabled) {
+                    val days = if (p.createdAt > 0) (System.currentTimeMillis() - p.createdAt) / (24 * 60 * 60 * 1000) else 0L
+                    days > autoCallMinAgeDays
+                } else true
+                matchesMode && matchesAge
+            }
+            if (eligible.isEmpty()) {
+                Toast.makeText(ctx, "এই filter অনুযায়ী কোনো parcel পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+                switchAutoCall.isChecked = false
+                return
+            }
+            autoCallQueue = eligible.map { it.phone }
+            autoCallQueueIds = eligible.map { it.id }
             autoCallIndex = 0
             // Mark the whole fresh queue as "waiting its turn".
             autoCallQueueIds.forEach { id -> callCardStates[id] = colorCallQueued }
