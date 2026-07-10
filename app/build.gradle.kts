@@ -23,7 +23,7 @@ android {
 
     defaultConfig {
         applicationId = "com.cloudx.databridge"
-        minSdk = 21
+        minSdk = 23
         targetSdk = 34
         versionCode = 120
         versionName = "5.17.2"
@@ -111,7 +111,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
 
-    // ✅ লাইফসাইকেল লাইব্রেরি ব্যাকগ্রাউন্ট ট্র্যাকিং করার জন্য (ProcessLifecycleOwner)
+    // ✅ লাইফসাইকেল লাইব্রেরি ব্যাকগ্রাউন্ড ট্র্যাকিং করার জন্য (ProcessLifecycleOwner)
     implementation("androidx.lifecycle:lifecycle-process:2.8.2")
     implementation("androidx.lifecycle:lifecycle-common-java8:2.8.2")
 
