@@ -1229,6 +1229,19 @@ class WorkerSpaceFragment : Fragment() {
         filtered = if (activeFilter == "all") filtered
                    else filtered.filter { it.status == activeFilter }
 
+        // Group same-phone parcels together so the group stripe renders correctly.
+        // Stable sort: primary key = normalized phone (groups same-customer parcels),
+        // secondary = original index within the group (preserves relative order).
+        if (filtered.any { a -> filtered.any { b -> b !== a && b.phone.isNotBlank() && b.phone.filter { c -> c.isDigit() }.takeLast(10) == a.phone.filter { c -> c.isDigit() }.takeLast(10) } }) {
+            val indexed = filtered.mapIndexed { i, item -> i to item }
+            filtered = indexed.sortedWith(
+                compareBy(
+                    { if (it.second.phone.isBlank()) "zzz${it.first}" else it.second.phone.filter { c -> c.isDigit() }.takeLast(10) },
+                    { it.first }
+                )
+            ).map { it.second }
+        }
+
         updateCounts()
 
         adapter.submitList(filtered)

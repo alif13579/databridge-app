@@ -67,7 +67,11 @@ class WorkerParcelAdapter(
         val layoutActions: View = view.findViewById(R.id.layoutParcelActions)
         val btnCall: View = view.findViewById(R.id.btnParcelCall)
         val btnSetRemarks: View = view.findViewById(R.id.btnParcelSetRemarks)
+        val viewGroupStripe: View = view.findViewById(R.id.viewGroupStripe)
     }
+
+    // Color used for the left stripe on same-phone grouped cards
+    private val GROUP_STRIPE_COLOR = android.graphics.Color.parseColor("#3B82F6")
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
         val view = LayoutInflater.from(parent.context)
@@ -79,6 +83,34 @@ class WorkerParcelAdapter(
         val item = getItem(position)
         val isExpanded = item.id == expandedItemId
         val ctx = holder.itemView.context
+
+        // ── Group stripe: detect same-phone neighbours ──────────────
+        val normalizedPhone = item.phone.filter { it.isDigit() }.takeLast(10)
+        val prevPhone = if (position > 0) getItem(position - 1).phone.filter { it.isDigit() }.takeLast(10) else ""
+        val nextPhone = if (position < currentList.size - 1) getItem(position + 1).phone.filter { it.isDigit() }.takeLast(10) else ""
+        val hasPrev = normalizedPhone.isNotBlank() && normalizedPhone == prevPhone
+        val hasNext = normalizedPhone.isNotBlank() && normalizedPhone == nextPhone
+        val inGroup = hasPrev || hasNext
+
+        // Count the group size for the "X/N" badge
+        if (inGroup) {
+            var groupStart = position
+            while (groupStart > 0 && getItem(groupStart - 1).phone.filter { it.isDigit() }.takeLast(10) == normalizedPhone) groupStart--
+            var groupEnd = position
+            while (groupEnd < currentList.size - 1 && getItem(groupEnd + 1).phone.filter { it.isDigit() }.takeLast(10) == normalizedPhone) groupEnd++
+            val groupSize = groupEnd - groupStart + 1
+            val groupPos  = position - groupStart + 1
+            holder.tvAge.text = "${formatAgeCompact(item.createdAt)}  $groupPos/$groupSize"
+        } else {
+            holder.tvAge.text = formatAgeCompact(item.createdAt)
+        }
+
+        // Stripe: show on all cards in a group, tighten margin between grouped cards
+        holder.viewGroupStripe.visibility = if (inGroup) View.VISIBLE else View.GONE
+        holder.viewGroupStripe.setBackgroundColor(GROUP_STRIPE_COLOR)
+        val rootParams = holder.itemView.layoutParams as? android.view.ViewGroup.MarginLayoutParams
+        rootParams?.bottomMargin = if (hasNext) 4 else 10   // tight spacing within group
+        holder.itemView.layoutParams = rootParams
 
         holder.tvCustomer.text = item.customer
 
