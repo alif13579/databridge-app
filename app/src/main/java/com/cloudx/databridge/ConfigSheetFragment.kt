@@ -1743,6 +1743,13 @@ class ConfigSheetFragment : Fragment() {
 
             var inserted = 0; var updated = 0; var skipped = 0
             val dateIssues = mutableListOf<String>()
+            // Captures the ACTUAL exception from a failed updateChildren() call, keyed by
+            // conId — previously swallowed silently (catch (_: Exception) {}), which is why
+            // sync could report "Inserted/Updated" counts while Firebase showed no change:
+            // inserted++/updated++ happen based on what we INTENDED to write, not on
+            // confirmation the write succeeded. Now surfaced in the summary dialog so a
+            // permission-denied or validation-rule rejection is visible instead of silent.
+            val writeFailures = mutableListOf<String>()
             val basePath = conn.targetNode.trimEnd('/')
 
             // ── runs_by_branchId support: resolve each agent's CURRENT branch_ids once per
@@ -1856,10 +1863,16 @@ class ConfigSheetFragment : Fragment() {
                 }
 
                 // ── Check Firebase exist ──────────────────────────────
+                var existReadFailed = false
                 val existSnap = withContext(Dispatchers.IO) {
                     try { db.reference.child("$basePath/$conId").get().await() }
-                    catch (e: Exception) { null }
+                    catch (e: Exception) {
+                        existReadFailed = true
+                        writeFailures.add("$conId → read check failed: ${e.message?.take(80) ?: e.javaClass.simpleName}")
+                        null
+                    }
                 }
+                if (existReadFailed) { skipped++; continue }
 
                 val multiUpdate = mutableMapOf<String, Any>()
 
@@ -1948,8 +1961,11 @@ class ConfigSheetFragment : Fragment() {
                 // Multi-path write
                 if (multiUpdate.isNotEmpty()) {
                     withContext(Dispatchers.IO) {
-                        try { db.reference.updateChildren(multiUpdate).await() }
-                        catch (_: Exception) {}
+                        try {
+                            db.reference.updateChildren(multiUpdate).await()
+                        } catch (e: Exception) {
+                            writeFailures.add("$conId → ${e.message?.take(80) ?: e.javaClass.simpleName}")
+                        }
                     }
                 }
 
@@ -1971,14 +1987,24 @@ class ConfigSheetFragment : Fragment() {
                 val more  = if (dateIssues.size > 10) "\n…আরও ${dateIssues.size - 10}টি" else ""
                 "\n\n⚠ Date সংক্রান্ত সমস্যা (${dateIssues.size}টি):\n$shown$more"
             } else ""
+            // writeFailures means the row was COUNTED as inserted/updated above but the actual
+            // Firebase write was rejected (permission-denied, validation rule, etc.) — shown
+            // separately and loudly so this doesn't look like a silent success.
+            val failuresText = if (writeFailures.isNotEmpty()) {
+                val shown = writeFailures.take(10).joinToString("\n") { "• $it" }
+                val more  = if (writeFailures.size > 10) "\n…আরও ${writeFailures.size - 10}টি" else ""
+                "\n\n❌ Firebase-এ write ব্যর্থ হয়েছে (${writeFailures.size}টি) — এই row গুলো Inserted/Updated " +
+                "count-এ ধরা হয়েছে কিন্তু আসলে save হয়নি:\n$shown$more\n\n" +
+                "সাধারণত Firebase Security Rules-এ এই path-এ write permission নেই।"
+            } else ""
             android.app.AlertDialog.Builder(ctx)
-                .setTitle("✅ Sync Complete")
+                .setTitle(if (writeFailures.isEmpty()) "✅ Sync Complete" else "⚠ Sync Complete — with errors")
                 .setMessage(
                     "Inserted : $inserted\n" +
                     "Updated  : $updated\n" +
                     "Skipped  : $skipped\n" +
                     "Total    : ${dataRows.size}" +
-                    issuesText
+                    issuesText + failuresText
                 )
                 .setPositiveButton("OK", null)
                 .show()
