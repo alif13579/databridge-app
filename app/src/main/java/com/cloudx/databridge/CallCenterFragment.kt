@@ -49,8 +49,8 @@ class CallCenterFragment : Fragment() {
     private lateinit var tvStatConfirmed: TextView
     private lateinit var tvStatPending: TextView
     private lateinit var tvStatRejected: TextView
-    private lateinit var layoutBranchFilter: HorizontalScrollView
-    private lateinit var layoutBranchChips: LinearLayout
+    private lateinit var tvModeDropdown: TextView
+    private lateinit var tvBranchDropdown: TextView
     private lateinit var layoutFilterTabs: LinearLayout
     private lateinit var rvParcelList: RecyclerView
     private lateinit var pbProgress: ProgressBar
@@ -129,13 +129,13 @@ class CallCenterFragment : Fragment() {
     private lateinit var layoutCollapsibleSection: LinearLayout
     private var isHeaderExpanded = false // starts collapsed to save screen space
     private var statusFilter = "all"
-    private var branchFilter = "all"
+    private val selectedBranchIds = mutableSetOf<String>()
+    private val branchIdToName = mutableMapOf<String, String>()
     private var branches = listOf<String>()
     // "priority" (default) = only verify_req parcels — agents who sent a request, called first.
     // "all" = every branch-scoped parcel regardless of request, for random spot-verification.
     private var ccAccessMode = "priority"
-    private lateinit var tvModePriority: TextView
-    private lateinit var tvModeAllAgents: TextView
+    // ccAccessMode: "priority" = only verify_req parcels, "all" = every branch-scoped parcel
     // CC agent's own assigned branches (RbacManager, loaded at login) — scopes ALL data fetching.
     private var myBranchIds: List<String> = emptyList()
     // (runType/runId) keys that already have a dedicated live listener attached — prevents
@@ -164,7 +164,7 @@ class CallCenterFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         initViews(view)
-        updateAccessModeToggle()
+        updateModeDropdownLabel()
         setupFilterTabs()
         setupAdapter()
         loadCcRemarkOptions()
@@ -178,17 +178,11 @@ class CallCenterFragment : Fragment() {
         tvStatConfirmed = view.findViewById(R.id.twCcaStatConfirmedValue)
         tvStatPending = view.findViewById(R.id.twCcaStatPendingValue)
         tvStatRejected = view.findViewById(R.id.twCcaStatRejectedValue)
-        layoutBranchFilter = view.findViewById(R.id.layoutCcaBranchFilter)
-        layoutBranchChips = view.findViewById(R.id.layoutCcaBranchChips)
+        tvModeDropdown = view.findViewById(R.id.tvCcaModeDropdown)
+        tvBranchDropdown = view.findViewById(R.id.tvCcaBranchDropdown)
+        tvModeDropdown.setOnClickListener { showModeDropdown() }
+        tvBranchDropdown.setOnClickListener { showBranchDropdown() }
         layoutFilterTabs = view.findViewById(R.id.layoutCcaFilterTabs)
-        tvModePriority = view.findViewById(R.id.tvCcaModePriority)
-        tvModeAllAgents = view.findViewById(R.id.tvCcaModeAllAgents)
-        tvModePriority.setOnClickListener {
-            if (ccAccessMode != "priority") { ccAccessMode = "priority"; updateAccessModeToggle(); applyFilters() }
-        }
-        tvModeAllAgents.setOnClickListener {
-            if (ccAccessMode != "all") { ccAccessMode = "all"; updateAccessModeToggle(); applyFilters() }
-        }
         rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
@@ -649,74 +643,101 @@ class CallCenterFragment : Fragment() {
         dialog.show()
     }
 
-    private fun updateAccessModeToggle() {
+    private fun updateModeDropdownLabel() {
         val ctx = context ?: return
-        val priorityActive = ccAccessMode == "priority"
-        tvModePriority.setBackgroundResource(
-            if (priorityActive) R.drawable.bg_filter_chip_active else R.drawable.bg_filter_chip_inactive
-        )
-        tvModePriority.setTextColor(
-            ctx.getColor(if (priorityActive) android.R.color.white else R.color.theme_text_secondary)
-        )
-        tvModeAllAgents.setBackgroundResource(
-            if (!priorityActive) R.drawable.bg_filter_chip_active else R.drawable.bg_filter_chip_inactive
-        )
-        tvModeAllAgents.setTextColor(
-            ctx.getColor(if (!priorityActive) android.R.color.white else R.color.theme_text_secondary)
-        )
+        val isPriority = ccAccessMode == "priority"
+        tvModeDropdown.text = if (isPriority) "🔔 Priority ▾" else "👥 All Agents ▾"
+        tvModeDropdown.setBackgroundResource(R.drawable.bg_filter_chip_active)
+        tvModeDropdown.setTextColor(ctx.getColor(android.R.color.white))
     }
 
-    private fun setupBranchChips() {
-        layoutBranchChips.removeAllViews()
+    private fun showModeDropdown() {
+        val ctx = context ?: return
+        val options = arrayOf("🔔 Priority Queue", "👥 All Agents")
+        val currentIndex = if (ccAccessMode == "priority") 0 else 1
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Access Mode")
+            .setSingleChoiceItems(options, currentIndex) { dialog, which ->
+                ccAccessMode = if (which == 0) "priority" else "all"
+                updateModeDropdownLabel()
+                applyFilters()
+                dialog.dismiss()
+            }
+            .show()
+    }
 
+    private fun setupBranchDropdown() {
         if (branches.size <= 1) {
-            layoutBranchFilter.visibility = View.GONE
+            tvBranchDropdown.visibility = View.GONE
             return
         }
-
-        layoutBranchFilter.visibility = View.VISIBLE
-
-        // "All Branches" chip
-        val allChip = layoutInflater.inflate(R.layout.item_branch_chip, layoutBranchChips, false) as TextView
-        allChip.text = "All Branches"
-        allChip.tag = "all"
-        allChip.setOnClickListener {
-            branchFilter = "all"
-            updateBranchChips()
-            applyFilters()
-        }
-        layoutBranchChips.addView(allChip)
-
-        for (branch in branches) {
-            val chip = layoutInflater.inflate(R.layout.item_branch_chip, layoutBranchChips, false) as TextView
-            chip.text = branch
-            chip.tag = branch
-            chip.setOnClickListener {
-                branchFilter = branch
-                updateBranchChips()
-                applyFilters()
+        tvBranchDropdown.visibility = View.VISIBLE
+        viewLifecycleOwner.lifecycleScope.launch {
+            val db = com.google.firebase.database.FirebaseDatabase.getInstance()
+            branches.forEach { branchId ->
+                if (!branchIdToName.containsKey(branchId)) {
+                    val name = withContext(Dispatchers.IO) {
+                        runCatching {
+                            db.reference.child("branches/$branchId/name").get().await()
+                                .getValue(String::class.java) ?: branchId
+                        }.getOrDefault(branchId)
+                    }
+                    branchIdToName[branchId] = name
+                }
             }
-            layoutBranchChips.addView(chip)
+            updateBranchDropdownLabel()
         }
-
-        updateBranchChips()
     }
 
-    private fun updateBranchChips() {
-        for (i in 0 until layoutBranchChips.childCount) {
-            val chip = layoutBranchChips.getChildAt(i) as TextView
-            val isActive = chip.tag == branchFilter
-            chip.isSelected = isActive
-            chip.setBackgroundResource(
-                if (isActive) R.drawable.bg_filter_chip_active_purple
-                else R.drawable.bg_filter_chip_inactive
-            )
-            chip.setTextColor(
-                requireContext().getColor(
-                    if (isActive) android.R.color.white else R.color.theme_text_secondary
-                )
-            )
+    private fun updateBranchDropdownLabel() {
+        val ctx = context ?: return
+        val selected = selectedBranchIds.intersect(branches.toSet())
+        val isFiltered = selected.isNotEmpty() && selected.size < branches.size
+        val label = when {
+            !isFiltered -> "All Branches ▾"
+            selected.size == 1 -> "${branchIdToName[selected.first()] ?: selected.first()} ▾"
+            selected.size == 2 -> {
+                val names = selected.map { branchIdToName[it] ?: it }
+                "${names[0]} & ${names[1]} ▾"
+            }
+            else -> {
+                val names = selected.take(2).map { branchIdToName[it] ?: it }
+                "Filter for ${names[0]}, ${names[1]} & ${selected.size - 2} more ▾"
+            }
         }
+        tvBranchDropdown.text = label
+        tvBranchDropdown.setBackgroundResource(
+            if (isFiltered) R.drawable.bg_filter_chip_active_purple else R.drawable.bg_filter_chip_inactive
+        )
+        tvBranchDropdown.setTextColor(
+            ctx.getColor(if (isFiltered) android.R.color.white else R.color.theme_text_secondary)
+        )
+    }
+
+    private fun showBranchDropdown() {
+        val ctx = context ?: return
+        val branchArray = branches.toTypedArray()
+        val names = branchArray.map { branchIdToName[it] ?: it }.toTypedArray()
+        val checked = BooleanArray(branchArray.size) { i ->
+            selectedBranchIds.isEmpty() || branchArray[i] in selectedBranchIds
+        }
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Select Branches")
+            .setMultiChoiceItems(names, checked) { _, which, isChecked ->
+                if (isChecked) selectedBranchIds.add(branchArray[which])
+                else selectedBranchIds.remove(branchArray[which])
+            }
+            .setPositiveButton("Apply") { _, _ ->
+                if (selectedBranchIds.size >= branches.size) selectedBranchIds.clear()
+                updateBranchDropdownLabel()
+                applyFilters()
+            }
+            .setNeutralButton("All") { _, _ ->
+                selectedBranchIds.clear()
+                updateBranchDropdownLabel()
+                applyFilters()
+            }
+            .show()
     }
 
     private fun setupFilterTabs() {
@@ -1110,13 +1131,14 @@ class CallCenterFragment : Fragment() {
                         val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
                             .get().await()
                         val latestEntry = remarksSnap.children.lastOrNull()
-                        val remarkStatus = latestEntry?.child("status")?.getValue(String::class.java) ?: ""
-                        val remarkLabel = if (remarkStatus.isNotBlank()) {
-                            context?.let { WorkerParcelAdapter.getStatusConfig(it, remarkStatus, "bn").label }
-                                ?: remarkStatus
-                        } else {
-                            // Note-only entry (no target status) — show the raw remark/note text instead
-                            latestEntry?.child("remarks")?.getValue(String::class.java) ?: ""
+                        val remarkStatus = latestEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
+                        val remarkText = latestEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
+                        val remarkLabel = when {
+                            remarkText.isNotBlank() -> remarkText
+                            remarkStatus.isNotBlank() -> context?.let {
+                                WorkerParcelAdapter.getStatusConfig(it, remarkStatus, "bn").label
+                            } ?: remarkStatus
+                            else -> ""
                         }
 
                         Triple(
@@ -1193,7 +1215,7 @@ class CallCenterFragment : Fragment() {
         // branches happen to show up in the fetched parcels — Karim (Sonargaon only) never
         // sees a "Bandar" chip even if a stray legacy parcel's deliveryHub said otherwise.
         branches = myBranchIds
-        setupBranchChips()
+        setupBranchDropdown()
         setupFilterTabs()
         bindCcAgentSpinner()
         applyFilters()
@@ -1227,11 +1249,11 @@ class CallCenterFragment : Fragment() {
                         val latest = sorted.firstOrNull()
                         val latestRemark = latest?.let {
                             val status = it.child("status").getValue(String::class.java)?.trim().orEmpty()
-                            if (status.isNotBlank()) {
-                                WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label
-                            } else {
-                                // Note-only entry (no target status) — show the raw remark/note text instead
-                                it.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                            val remarkText = it.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                            when {
+                                remarkText.isNotBlank() -> remarkText
+                                status.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label
+                                else -> ""
                             }
                         }.orEmpty()
 
@@ -1548,9 +1570,9 @@ class CallCenterFragment : Fragment() {
             filtered = filtered.filter { it.validationRequest }
         }
 
-        // Branch filter
-        if (branchFilter != "all") {
-            filtered = filtered.filter { it.branch == branchFilter }
+        // Branch filter — empty selectedBranchIds means all branches
+        if (selectedBranchIds.isNotEmpty()) {
+            filtered = filtered.filter { it.branch in selectedBranchIds }
         }
 
         // Agent (worker) filter

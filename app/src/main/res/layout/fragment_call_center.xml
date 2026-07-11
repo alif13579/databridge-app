@@ -66,6 +66,44 @@
                                 android:textSize="11sp"
                                 android:textColor="@color/theme_text_secondary"
                                 android:layout_marginTop="1dp" />
+
+                            <!-- Mode + Branch filter dropdowns -->
+                            <LinearLayout
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal"
+                                android:layout_marginTop="5dp"
+                                android:gravity="center_vertical">
+
+                                <TextView
+                                    android:id="@+id/tvCcaModeDropdown"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="24dp"
+                                    android:text="🔔 Priority ▾"
+                                    android:textSize="10sp"
+                                    android:gravity="center"
+                                    android:paddingStart="7dp"
+                                    android:paddingEnd="7dp"
+                                    android:background="@drawable/bg_filter_chip_active"
+                                    android:textColor="@android:color/white"
+                                    android:layout_marginEnd="4dp"
+                                    android:clickable="true"
+                                    android:focusable="true" />
+
+                                <TextView
+                                    android:id="@+id/tvCcaBranchDropdown"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="24dp"
+                                    android:text="All Branches ▾"
+                                    android:textSize="10sp"
+                                    android:gravity="center"
+                                    android:paddingStart="7dp"
+                                    android:paddingEnd="7dp"
+                                    android:background="@drawable/bg_filter_chip_inactive"
+                                    android:textColor="@color/theme_text_secondary"
+                                    android:clickable="true"
+                                    android:focusable="true" />
+                            </LinearLayout>
                         </LinearLayout>
                     </LinearLayout>
 
@@ -386,57 +424,7 @@
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- Access Mode Toggle: Priority (verify_req only) vs All Agents (branch-wide) -->
-                <LinearLayout
-                    android:id="@+id/layoutCcaAccessMode"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:orientation="horizontal"
-                    android:weightSum="2">
 
-                    <TextView
-                        android:id="@+id/tvCcaModePriority"
-                        android:layout_width="0dp"
-                        android:layout_height="38dp"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="6dp"
-                        android:gravity="center"
-                        android:text="🔔 Priority Queue"
-                        android:textSize="12sp"
-                        android:textStyle="bold"
-                        android:background="@drawable/bg_filter_chip_active"
-                        android:textColor="@android:color/white" />
-
-                    <TextView
-                        android:id="@+id/tvCcaModeAllAgents"
-                        android:layout_width="0dp"
-                        android:layout_height="38dp"
-                        android:layout_weight="1"
-                        android:layout_marginStart="6dp"
-                        android:gravity="center"
-                        android:text="👥 All Agents"
-                        android:textSize="12sp"
-                        android:textStyle="bold"
-                        android:background="@drawable/bg_filter_chip_inactive"
-                        android:textColor="@color/theme_text_secondary" />
-                </LinearLayout>
-
-                <!-- Branch Filter Chips (dynamic visibility) -->
-                <HorizontalScrollView
-                    android:id="@+id/layoutCcaBranchFilter"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:scrollbars="none"
-                    android:visibility="gone">
-
-                    <LinearLayout
-                        android:id="@+id/layoutCcaBranchChips"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal" />
-                </HorizontalScrollView>
 
                 </LinearLayout>
                 <!-- /layoutCcaCollapsibleSection -->
