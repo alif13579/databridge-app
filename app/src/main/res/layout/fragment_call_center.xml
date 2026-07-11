@@ -102,7 +102,109 @@
                             android:paddingEnd="6dp"
                             android:spinnerMode="dropdown" />
                     </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tvCcaCollapseArrow"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:layout_marginStart="4dp"
+                        android:layout_gravity="top"
+                        android:text="▼"
+                        android:textSize="13sp"
+                        android:gravity="center"
+                        android:textColor="@color/theme_text_secondary"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackgroundBorderless" />
                 </LinearLayout>
+
+                <!-- Search bar + Agent filter (always visible, independent of collapse state) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="10dp">
+
+                    <LinearLayout
+                        android:id="@+id/layoutCcaSearchBar"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:background="@drawable/bg_search_bar"
+                        android:padding="7dp"
+                        android:layout_marginEnd="8dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🔍"
+                            android:textSize="15sp"
+                            android:alpha="0.5" />
+
+                        <EditText
+                            android:id="@+id/twCcaSearchInput"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:background="@null"
+                            android:hint="Search phone, ID or COD..."
+                            android:textColorHint="@color/theme_text_secondary"
+                            android:textColor="@color/theme_text_primary"
+                            android:textSize="13sp"
+                            android:paddingStart="10dp"
+                            android:paddingEnd="10dp"
+                            android:inputType="text"
+                            android:maxLines="1"
+                            android:fontFamily="sans-serif" />
+
+                        <TextView
+                            android:id="@+id/twCcaSearchClear"
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:text="✕"
+                            android:textSize="11sp"
+                            android:textColor="@color/theme_text_secondary"
+                            android:gravity="center"
+                            android:visibility="gone"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:background="?attr/selectableItemBackgroundBorderless" />
+                    </LinearLayout>
+
+                    <Spinner
+                        android:id="@+id/spinnerCcaAgent"
+                        android:layout_width="100dp"
+                        android:layout_height="34dp"
+                        android:background="@drawable/bg_search_bar"
+                        android:paddingStart="6dp"
+                        android:paddingEnd="6dp"
+                        android:spinnerMode="dropdown" />
+                </LinearLayout>
+
+                <!-- Search result count -->
+                <TextView
+                    android:id="@+id/twCcaSearchCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="11sp"
+                    android:textColor="@color/theme_text_secondary"
+                    android:layout_marginTop="-4dp"
+                    android:layout_marginBottom="6dp"
+                    android:paddingStart="2dp"
+                    android:visibility="gone" />
+
+                <!-- Collapsible section: Auto Call, Stats, Access Mode, Branch chips —
+                     collapsed by default so the header doesn't eat half the screen; the
+                     arrow above toggles this. -->
+                <LinearLayout
+                    android:id="@+id/layoutCcaCollapsibleSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
 
                 <!-- Auto Call row -->
                 <LinearLayout
@@ -335,6 +437,9 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal" />
                 </HorizontalScrollView>
+
+                </LinearLayout>
+                <!-- /layoutCcaCollapsibleSection -->
             </LinearLayout>
 
             <!-- Status Filter Tabs -->

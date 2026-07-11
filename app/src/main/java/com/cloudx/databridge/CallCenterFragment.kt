@@ -10,6 +10,8 @@ import coil.load
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.text.Editable
+import android.text.TextWatcher
 import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -114,6 +116,18 @@ class CallCenterFragment : Fragment() {
     private lateinit var adapter: CallCenterAdapter
 
     private var allParcels = listOf<CallCenterParcelItem>()
+    private lateinit var etSearch: EditText
+    private lateinit var tvSearchClear: TextView
+    private lateinit var tvSearchCount: TextView
+    private var searchQuery: String = ""
+
+    private lateinit var spinnerCcAgent: Spinner
+    private var agentFilter: String = "all"
+    private var ccAgentOptions: List<String> = listOf("all")
+
+    private lateinit var tvCollapseArrow: TextView
+    private lateinit var layoutCollapsibleSection: LinearLayout
+    private var isHeaderExpanded = false // starts collapsed to save screen space
     private var statusFilter = "all"
     private var branchFilter = "all"
     private var branches = listOf<String>()
@@ -179,6 +193,15 @@ class CallCenterFragment : Fragment() {
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
+
+        etSearch = view.findViewById(R.id.twCcaSearchInput)
+        tvSearchClear = view.findViewById(R.id.twCcaSearchClear)
+        tvSearchCount = view.findViewById(R.id.twCcaSearchCount)
+        spinnerCcAgent = view.findViewById(R.id.spinnerCcaAgent)
+        tvCollapseArrow = view.findViewById(R.id.tvCcaCollapseArrow)
+        layoutCollapsibleSection = view.findViewById(R.id.layoutCcaCollapsibleSection)
+        setupSearch()
+        setupCollapseToggle()
         swipeRefresh = view.findViewById(R.id.swipeRefreshCca)
         swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
         swipeRefresh.setOnRefreshListener {
@@ -841,6 +864,53 @@ class CallCenterFragment : Fragment() {
         }
     }
 
+    private fun setupSearch() {
+        etSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                searchQuery = s?.toString()?.trim() ?: ""
+                tvSearchClear.visibility = if (searchQuery.isNotEmpty()) View.VISIBLE else View.GONE
+                applyFilters()
+            }
+        })
+        tvSearchClear.setOnClickListener { etSearch.text?.clear() }
+    }
+
+    private fun setupCollapseToggle() {
+        layoutCollapsibleSection.visibility = if (isHeaderExpanded) View.VISIBLE else View.GONE
+        tvCollapseArrow.text = if (isHeaderExpanded) "▲" else "▼"
+        tvCollapseArrow.setOnClickListener {
+            isHeaderExpanded = !isHeaderExpanded
+            layoutCollapsibleSection.visibility = if (isHeaderExpanded) View.VISIBLE else View.GONE
+            tvCollapseArrow.text = if (isHeaderExpanded) "▲" else "▼"
+        }
+    }
+
+    /** Rebuilds the agent filter dropdown from whichever workers currently have parcels. */
+    private fun bindCcAgentSpinner() {
+        if (!::spinnerCcAgent.isInitialized) return
+        val ctx = context ?: return
+        val agents = allParcels.map { it.worker }.filter { it.isNotBlank() }.distinct().sorted()
+        ccAgentOptions = listOf("all") + agents
+        if (agentFilter != "all" && agentFilter !in agents) agentFilter = "all" // agent no longer present
+
+        val labels = listOf("👥 All Agents") + agents
+        val adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, labels)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerCcAgent.adapter = adapter
+        spinnerCcAgent.setSelection(ccAgentOptions.indexOf(agentFilter).coerceAtLeast(0))
+        spinnerCcAgent.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val next = ccAgentOptions.getOrNull(position) ?: "all"
+                if (next == agentFilter) return
+                agentFilter = next
+                applyFilters()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
     private fun formatCcRunTypeLabel(runType: String): String =
         runType.split("_")
             .filter { it.isNotBlank() }
@@ -1125,6 +1195,7 @@ class CallCenterFragment : Fragment() {
         branches = myBranchIds
         setupBranchChips()
         setupFilterTabs()
+        bindCcAgentSpinner()
         applyFilters()
         pbProgress.visibility = View.GONE
         syncCcRemarkListeners(allParcels.map { it.id }.toSet())
@@ -1480,6 +1551,33 @@ class CallCenterFragment : Fragment() {
         // Branch filter
         if (branchFilter != "all") {
             filtered = filtered.filter { it.branch == branchFilter }
+        }
+
+        // Agent (worker) filter
+        if (agentFilter != "all") {
+            filtered = filtered.filter { it.worker == agentFilter }
+        }
+
+        // Search filter — phone, ID, customer name, or COD amount
+        if (searchQuery.isNotBlank()) {
+            val q = searchQuery.lowercase()
+            filtered = filtered.filter {
+                it.phone.contains(q) ||
+                it.id.lowercase().contains(q) ||
+                it.customer.lowercase().contains(q) ||
+                it.cod.toString().contains(q)
+            }
+            tvSearchCount.visibility = View.VISIBLE
+            tvSearchCount.text = if (filtered.isEmpty()) {
+                "⚠ No results for \"$searchQuery\""
+            } else {
+                "${filtered.size} result${if (filtered.size > 1) "s" else ""} found"
+            }
+            tvSearchCount.setTextColor(
+                if (filtered.isEmpty()) 0xFFef4444.toInt() else 0xFF64748b.toInt()
+            )
+        } else {
+            tvSearchCount.visibility = View.GONE
         }
 
         // Status filter — dynamic exact match, remark status takes priority over parcel status
