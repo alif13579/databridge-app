@@ -163,7 +163,7 @@ class MemoryFragment : Fragment() {
         btnTogglePickup   = view.findViewById(R.id.btnTogglePickup)
         swipeRefresh      = view.findViewById(R.id.swipeMemory)
 
-        adapter = MemoryAdapter(entries, onDelete = { deleteEntry(it) }, onEdit = { startEditEntry(it) })
+        adapter = MemoryAdapter(entries, onDelete = { deleteEntry(it) }, onEdit = { startEditEntry(it) }, onView = { showEntryDetails(it) })
         rvList.layoutManager = LinearLayoutManager(requireContext())
         rvList.adapter = adapter
 
@@ -674,6 +674,28 @@ class MemoryFragment : Fragment() {
                 showError(e.message)
             }
         }
+    }
+
+    private fun showEntryDetails(entry: MemoryEntry) {
+        val dateText = SimpleDateFormat("dd-MMM-yy, EEE h:mm a", Locale.getDefault()).format(Date(entry.createdAt))
+        val total = entry.parcelCommission + entry.documentCommission + entry.parcelPickupCommission + entry.documentPickupCommission
+        val msg = buildString {
+            append("Date: $dateText")
+            append("\nModel: ${entry.model}")
+            append("\nDelivery: Parcel ${entry.parcelDelivery}/${entry.parcelAssigned} (${(entry.parcelSuccessRate * 100).toInt()}%)")
+            append("\nDelivery: Doc ${entry.documentDelivery}/${entry.documentAssigned} (${(entry.documentSuccessRate * 100).toInt()}%)")
+            append("\nPickup: Parcel ${entry.parcelPickup}/${entry.parcelPickupAssigned} (${(entry.parcelPickupSuccessRate * 100).toInt()}%)")
+            append("\nPickup: Doc ${entry.documentPickup}/${entry.documentPickupAssigned} (${(entry.documentPickupSuccessRate * 100).toInt()}%)")
+            append("\n\nEarnings")
+            append("\nDelivery: ৳${(entry.parcelCommission + entry.documentCommission).toInt()}")
+            append("\nPickup: ৳${(entry.parcelPickupCommission + entry.documentPickupCommission).toInt()}")
+            append("\nTotal: ৳${total.toInt()}")
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle("Entry details")
+            .setMessage(msg)
+            .setPositiveButton("Close", null)
+            .show()
     }
 
     private fun showError(message: String?) {
