@@ -1750,6 +1750,10 @@ class ConfigSheetFragment : Fragment() {
             // confirmation the write succeeded. Now surfaced in the summary dialog so a
             // permission-denied or validation-rule rejection is visible instead of silent.
             val writeFailures = mutableListOf<String>()
+            // systemIds seen in this sync that had NO branch_ids on their users/{uid} profile —
+            // means runs_by_branchId was silently never written for their runs. Deduped (Set)
+            // since the same agent can appear across many rows.
+            val branchlessAgentSystemIds = mutableSetOf<String>()
             val basePath = conn.targetNode.trimEnd('/')
 
             // ── runs_by_branchId support: resolve each agent's CURRENT branch_ids once per
@@ -1757,6 +1761,7 @@ class ConfigSheetFragment : Fragment() {
             // ensureAgentNameMap(). Only fetched when syncing a run_routes target, since
             // plain courier/consignments syncs never need it.
             val isRunRoutesTarget = Regex("^courier/run_routes/[^/]+$").matches(basePath)
+            var usersReadFailedForBranchMap = false
             val agentBranchMap: Map<String, List<String>> = if (isRunRoutesTarget) {
                 try {
                     val usersSnap = withContext(Dispatchers.IO) {
@@ -1771,7 +1776,10 @@ class ConfigSheetFragment : Fragment() {
                         if (!sysId.isNullOrBlank() && branchIds.isNotEmpty()) map[sysId] = branchIds
                     }
                     map
-                } catch (e: Exception) { emptyMap() }
+                } catch (e: Exception) {
+                    usersReadFailedForBranchMap = true
+                    emptyMap()
+                }
             } else emptyMap()
 
             for (row in dataRows) {
@@ -1907,6 +1915,8 @@ class ConfigSheetFragment : Fragment() {
                             agentBranchIds.forEach { branchId ->
                                 multiUpdate["courier/runs_by_branchId/$branchId/$runType/$conId"] = status
                             }
+                        } else {
+                            branchlessAgentSystemIds.add(userSystemId)
                         }
                     }
                     inserted++
@@ -1997,6 +2007,18 @@ class ConfigSheetFragment : Fragment() {
                 "count-এ ধরা হয়েছে কিন্তু আসলে save হয়নি:\n$shown$more\n\n" +
                 "সাধারণত Firebase Security Rules-এ এই path-এ write permission নেই।"
             } else ""
+            val branchlessText = when {
+                usersReadFailedForBranchMap ->
+                    "\n\n⚠ runs_by_branchId তৈরি হয়নি — users/ node read করা যায়নি (permission/network সমস্যা)।"
+                branchlessAgentSystemIds.isNotEmpty() -> {
+                    val shown = branchlessAgentSystemIds.take(10).joinToString(", ")
+                    val more  = if (branchlessAgentSystemIds.size > 10) " …আরও ${branchlessAgentSystemIds.size - 10}টি" else ""
+                    "\n\n⚠ এই agent-দের কোনো branch_ids assign করা নেই বলে runs_by_branchId তৈরি হয়নি " +
+                    "(${branchlessAgentSystemIds.size}টি systemId): $shown$more\n" +
+                    "Employee edit থেকে এদের branch assign করুন।"
+                }
+                else -> ""
+            }
             android.app.AlertDialog.Builder(ctx)
                 .setTitle(if (writeFailures.isEmpty()) "✅ Sync Complete" else "⚠ Sync Complete — with errors")
                 .setMessage(
@@ -2004,7 +2026,7 @@ class ConfigSheetFragment : Fragment() {
                     "Updated  : $updated\n" +
                     "Skipped  : $skipped\n" +
                     "Total    : ${dataRows.size}" +
-                    issuesText + failuresText
+                    issuesText + failuresText + branchlessText
                 )
                 .setPositiveButton("OK", null)
                 .show()
