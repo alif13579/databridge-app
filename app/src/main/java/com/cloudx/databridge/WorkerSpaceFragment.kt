@@ -19,6 +19,7 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -331,6 +332,23 @@ class WorkerSpaceFragment : Fragment() {
 
         rvParcelList.layoutManager = LinearLayoutManager(requireContext())
         rvParcelList.adapter = adapter
+
+        // Swipe shortcuts: right = call, left = remarks. Card always snaps back after firing.
+        ItemTouchHelper(
+            SwipeActionCallback(
+                context = requireContext(),
+                onSwipeRight = { position ->
+                    adapter.currentList.getOrNull(position)?.let { item ->
+                        AutoDialHelper.dial(this, item.phone)
+                    }
+                },
+                onSwipeLeft = { position ->
+                    adapter.currentList.getOrNull(position)?.let { item ->
+                        showWorkerRemarksDialog(item)
+                    }
+                }
+            )
+        ).attachToRecyclerView(rvParcelList)
     }
 
     /**
@@ -663,6 +681,8 @@ class WorkerSpaceFragment : Fragment() {
         tvOvCreatedAt.text = if (item.createdAt > 0) fullFmt.format(java.util.Date(item.createdAt)) else "—"
         tvOvUpdatedAt.text = if (item.updatedAt > 0) fullFmt.format(java.util.Date(item.updatedAt)) else "—"
         tvOvAge.text = formatAge(item.createdAt, item.updatedAt)
+        val (ovAgeColor, _) = WorkerParcelAdapter.ageColorFor(item.createdAt)
+        tvOvAge.setTextColor(ovAgeColor)
 
         layoutTimeline.removeAllViews()
 

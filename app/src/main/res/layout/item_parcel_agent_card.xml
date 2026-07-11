@@ -1,13 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:background="@drawable/bg_parcel_card"
-    android:layout_marginBottom="8dp"
-    android:padding="12dp"
-    android:paddingStart="18dp"
-    android:paddingEnd="14dp">
+    android:layout_marginBottom="8dp">
+
+    <!-- Age badge — fixed to top-right corner regardless of card height -->
+    <TextView
+        android:id="@+id/tvAgtAge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="8dp"
+        android:text="3D"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:textColor="@color/theme_text_muted"
+        android:background="@drawable/bg_age_badge"
+        android:paddingStart="7dp"
+        android:paddingEnd="7dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:includeFontPadding="false"
+        android:elevation="2dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/bg_parcel_card"
+        android:padding="12dp"
+        android:paddingStart="18dp"
+        android:paddingEnd="14dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -77,16 +101,8 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="end"
-            android:layout_marginStart="10dp">
-
-            <TextView
-                android:id="@+id/tvAgtAge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="3D"
-                android:textSize="9sp"
-                android:textStyle="bold"
-                android:textColor="@color/theme_text_muted" />
+            android:layout_marginStart="10dp"
+            android:layout_marginTop="12dp">
 
             <TextView
                 android:id="@+id/tvAgtCod"
@@ -195,4 +211,5 @@
             android:visibility="gone" />
     </LinearLayout>
 
-</LinearLayout>
+    </LinearLayout>
+</FrameLayout>

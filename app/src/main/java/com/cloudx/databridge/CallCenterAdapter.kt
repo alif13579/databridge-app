@@ -76,6 +76,13 @@ class CallCenterAdapter(
         submitList(rows)
     }
 
+    /** Returns the parcel at [position] if that row is a card row, else null (e.g. a header row). */
+    fun parcelAt(position: Int): CallCenterParcelItem? =
+        (currentList.getOrNull(position) as? Row.CardRow)?.parcel
+
+    /** True if the row at [position] is swipeable (a card, not a worker group header). */
+    fun isCardRow(position: Int): Boolean = currentList.getOrNull(position) is Row.CardRow
+
     private fun toggleExpanded(id: String) {
         expandedItemId = if (expandedItemId == id) null else id
         // Rebuild rows with updated isExpanded flags from the currently shown list.
@@ -164,6 +171,10 @@ class CallCenterAdapter(
             tvAddress.text = "📍 ${item.address}"
             tvCod.text = "৳${item.cod}"
             tvAge.text = WorkerParcelAdapter.formatAgeCompact(item.createdAt)
+            val (ageColor, ageBold) = WorkerParcelAdapter.ageColorFor(item.createdAt)
+            tvAge.setTextColor(ageColor)
+            tvAge.setTypeface(null, if (ageBold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            tvAge.textSize = if (ageBold) 11f else 10f
 
             applyCallStateGlow(itemView, glowColor)
 

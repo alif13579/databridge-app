@@ -104,6 +104,10 @@ class WorkerParcelAdapter(
         } else {
             holder.tvAge.text = formatAgeCompact(item.createdAt)
         }
+        val (ageColor, ageBold) = ageColorFor(item.createdAt)
+        holder.tvAge.setTextColor(ageColor)
+        holder.tvAge.setTypeface(null, if (ageBold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        holder.tvAge.textSize = if (ageBold) 11f else 10f
 
         // Stripe: show on all cards in a group, tighten margin between grouped cards
         holder.viewGroupStripe.visibility = if (inGroup) View.VISIBLE else View.GONE
@@ -120,7 +124,6 @@ class WorkerParcelAdapter(
 
         holder.tvAddress.text = "\uD83D\uDCCD ${item.address}"
         holder.tvCod.text = "৳${item.cod}"
-        holder.tvAge.text = formatAgeCompact(item.createdAt)
 
         val cfg = getStatusConfig(ctx, item.status, statusLang)
         holder.tvStatusBadge.text = cfg.label
@@ -207,6 +210,29 @@ class WorkerParcelAdapter(
                 minutes < 60  -> "${minutes}m"
                 hours   < 24  -> "${hours}h"
                 else          -> "${days.coerceAtLeast(1)}D"
+            }
+        }
+
+        /**
+         * Age-based color for the corner badge and journey-log "Age" summary line.
+         *   < 2 days (0–48h)  -> grey
+         *   2 days (48–72h)   -> yellow
+         *   3 days (72–96h)   -> red
+         *   4+ days (96h+)    -> red, bold
+         * Returns (colorInt, isBold).
+         */
+        fun ageColorFor(createdAt: Long): Pair<Int, Boolean> {
+            val grey   = android.graphics.Color.parseColor("#6B7280")
+            val yellow = android.graphics.Color.parseColor("#F59E0B")
+            val red    = android.graphics.Color.parseColor("#EF4444")
+            if (createdAt <= 0L) return grey to false
+            val diffMs = (System.currentTimeMillis() - createdAt).coerceAtLeast(0L)
+            val days = diffMs / (24 * 60 * 60 * 1000)
+            return when {
+                days >= 4 -> red to true
+                days >= 3 -> red to false
+                days >= 2 -> yellow to false
+                else      -> grey to false
             }
         }
 

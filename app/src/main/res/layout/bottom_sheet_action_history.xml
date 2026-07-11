@@ -51,13 +51,14 @@
 
         <TextView
             android:id="@+id/btnHistoryClose"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:text="✕"
-            android:textSize="13sp"
-            android:textColor="@color/theme_text_secondary"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:textColor="#EF4444"
             android:gravity="center"
-            android:background="@color/theme_bg_inner"
+            android:background="@drawable/bg_close_button_red"
             android:clickable="true"
             android:focusable="true"
             android:includeFontPadding="false" />
