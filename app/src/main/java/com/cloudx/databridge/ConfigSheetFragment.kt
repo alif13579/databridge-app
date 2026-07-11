@@ -1756,31 +1756,40 @@ class ConfigSheetFragment : Fragment() {
             val branchlessAgentSystemIds = mutableSetOf<String>()
             val basePath = conn.targetNode.trimEnd('/')
 
-            // ── runs_by_branchId support: resolve each agent's CURRENT branch_ids once per
-            // sync (not per row) — same one-time-bulk-read pattern as CallCenterFragment's
-            // ensureAgentNameMap(). Only fetched when syncing a run_routes target, since
-            // plain courier/consignments syncs never need it.
-            val isRunRoutesTarget = Regex("^courier/run_routes/[^/]+$").matches(basePath)
-            var usersReadFailedForBranchMap = false
-            val agentBranchMap: Map<String, List<String>> = if (isRunRoutesTarget) {
-                try {
-                    val usersSnap = withContext(Dispatchers.IO) {
-                        db.reference.child("users").get().await()
-                    }
-                    val map = mutableMapOf<String, List<String>>()
-                    usersSnap.children.forEach { child ->
-                        val sysId = child.child("profile/company_info/system_id")
+            // ── runs_by_branchId support: resolve each agent's branch_ids ON DEMAND, cached
+            // per systemId — NOT a bulk scan of the whole users/ tree. For each distinct
+            // agentSystemId encountered in the sheet: users_by_systemId/{sysId}/uid (O(1)
+            // reverse-index lookup) -> users/{uid}/profile/company_info/branch_ids (O(1)
+            // direct read). Cached so an agent with many rows/consignments in this sync is
+            // only fetched once, not once per row.
+            val agentBranchCache = mutableMapOf<String, List<String>>()
+            val branchResolveFailures = mutableListOf<String>()     // the lookup itself threw
+
+            suspend fun resolveAgentBranchIds(systemId: String): List<String> {
+                agentBranchCache[systemId]?.let { return it }
+                val branchIds = try {
+                    val uid = withContext(Dispatchers.IO) {
+                        db.reference.child("users_by_systemId/$systemId/uid").get().await()
                             .getValue(String::class.java)?.trim()
-                        val branchIds = child.child("profile/company_info/branch_ids")
-                            .children.mapNotNull { it.getValue(String::class.java) }
-                        if (!sysId.isNullOrBlank() && branchIds.isNotEmpty()) map[sysId] = branchIds
                     }
-                    map
+                    if (uid.isNullOrBlank()) {
+                        branchlessAgentSystemIds.add(systemId)
+                        emptyList()
+                    } else {
+                        val ids = withContext(Dispatchers.IO) {
+                            db.reference.child("users/$uid/profile/company_info/branch_ids")
+                                .get().await().children.mapNotNull { it.getValue(String::class.java) }
+                        }
+                        if (ids.isEmpty()) branchlessAgentSystemIds.add(systemId)
+                        ids
+                    }
                 } catch (e: Exception) {
-                    usersReadFailedForBranchMap = true
-                    emptyMap()
+                    branchResolveFailures.add("$systemId → ${e.message?.take(80) ?: e.javaClass.simpleName}")
+                    emptyList()
                 }
-            } else emptyMap()
+                agentBranchCache[systemId] = branchIds
+                return branchIds
+            }
 
             for (row in dataRows) {
                 val conId = buildPrimaryKey(row)
@@ -1909,14 +1918,12 @@ class ConfigSheetFragment : Fragment() {
                         // node itself. If the agent switches branch tomorrow, tomorrow's runId is a
                         // different key entirely (date-scoped), so it re-resolves naturally — today's
                         // already-created run intentionally stays put.
-                        val agentBranchIds = agentBranchMap[userSystemId].orEmpty()
+                        val agentBranchIds = resolveAgentBranchIds(userSystemId)
                         if (agentBranchIds.isNotEmpty()) {
                             multiUpdate["$basePath/$conId/resolvedBranchIds"] = agentBranchIds
                             agentBranchIds.forEach { branchId ->
                                 multiUpdate["courier/runs_by_branchId/$branchId/$runType/$conId"] = status
                             }
-                        } else {
-                            branchlessAgentSystemIds.add(userSystemId)
                         }
                     }
                     inserted++
@@ -2008,12 +2015,16 @@ class ConfigSheetFragment : Fragment() {
                 "সাধারণত Firebase Security Rules-এ এই path-এ write permission নেই।"
             } else ""
             val branchlessText = when {
-                usersReadFailedForBranchMap ->
-                    "\n\n⚠ runs_by_branchId তৈরি হয়নি — users/ node read করা যায়নি (permission/network সমস্যা)।"
+                branchResolveFailures.isNotEmpty() -> {
+                    val shown = branchResolveFailures.take(10).joinToString("\n") { "• $it" }
+                    val more  = if (branchResolveFailures.size > 10) "\n…আরও ${branchResolveFailures.size - 10}টি" else ""
+                    "\n\n⚠ runs_by_branchId resolve করতে ব্যর্থ (${branchResolveFailures.size}টি agent) — " +
+                    "users_by_systemId বা users/ read সমস্যা:\n$shown$more"
+                }
                 branchlessAgentSystemIds.isNotEmpty() -> {
                     val shown = branchlessAgentSystemIds.take(10).joinToString(", ")
                     val more  = if (branchlessAgentSystemIds.size > 10) " …আরও ${branchlessAgentSystemIds.size - 10}টি" else ""
-                    "\n\n⚠ এই agent-দের কোনো branch_ids assign করা নেই বলে runs_by_branchId তৈরি হয়নি " +
+                    "\n\n⚠ এই agent-দের uid পাওয়া যায়নি বা branch_ids assign করা নেই বলে runs_by_branchId তৈরি হয়নি " +
                     "(${branchlessAgentSystemIds.size}টি systemId): $shown$more\n" +
                     "Employee edit থেকে এদের branch assign করুন।"
                 }
