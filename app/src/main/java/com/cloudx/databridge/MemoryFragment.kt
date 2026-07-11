@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -47,6 +48,12 @@ class MemoryFragment : Fragment() {
     private lateinit var tvSuccessAvg: TextView
     private lateinit var tvSuccessMax: TextView
     private lateinit var tvSuccessMin: TextView
+    private lateinit var tvDeliveryCount: TextView
+    private lateinit var tvPickupCount: TextView
+    private lateinit var rowSummaryHeader: LinearLayout
+    private lateinit var layoutSummaryContent: LinearLayout
+    private lateinit var ivSummaryArrow: ImageView
+    private var summaryExpanded = true
     private lateinit var btnDateFrom: Button
     private lateinit var btnDateTo: Button
     private lateinit var btnClearDateFrom: ImageButton
@@ -133,6 +140,16 @@ class MemoryFragment : Fragment() {
         tvSuccessAvg      = view.findViewById(R.id.tvSuccessAvg)
         tvSuccessMax      = view.findViewById(R.id.tvSuccessMax)
         tvSuccessMin      = view.findViewById(R.id.tvSuccessMin)
+        tvDeliveryCount   = view.findViewById(R.id.tvMemoryDeliveryCount)
+        tvPickupCount     = view.findViewById(R.id.tvMemoryPickupCount)
+        rowSummaryHeader  = view.findViewById(R.id.rowSummaryHeader)
+        layoutSummaryContent = view.findViewById(R.id.layoutSummaryContent)
+        ivSummaryArrow    = view.findViewById(R.id.ivSummaryArrow)
+        rowSummaryHeader.setOnClickListener {
+            summaryExpanded = !summaryExpanded
+            layoutSummaryContent.visibility = if (summaryExpanded) View.VISIBLE else View.GONE
+            ivSummaryArrow.rotation = if (summaryExpanded) 0f else 180f
+        }
         btnDateFrom       = view.findViewById(R.id.btnDateFrom)
         btnDateTo         = view.findViewById(R.id.btnDateTo)
         btnClearDateFrom  = view.findViewById(R.id.btnClearDateFrom)
@@ -146,7 +163,7 @@ class MemoryFragment : Fragment() {
         btnTogglePickup   = view.findViewById(R.id.btnTogglePickup)
         swipeRefresh      = view.findViewById(R.id.swipeMemory)
 
-        adapter = MemoryAdapter(entries, onDelete = { deleteEntry(it) }, onEdit = { startEditEntry(it) }, onView = { showEntryDetails(it) })
+        adapter = MemoryAdapter(entries, onDelete = { deleteEntry(it) }, onEdit = { startEditEntry(it) })
         rvList.layoutManager = LinearLayoutManager(requireContext())
         rvList.adapter = adapter
 
@@ -659,28 +676,6 @@ class MemoryFragment : Fragment() {
         }
     }
 
-    private fun showEntryDetails(entry: MemoryEntry) {
-        val dateText = SimpleDateFormat("dd MMM yyyy, h:mm a", Locale.getDefault()).format(Date(entry.createdAt))
-        val total = entry.parcelCommission + entry.documentCommission + entry.parcelPickupCommission + entry.documentPickupCommission
-        val msg = buildString {
-            append("Date: $dateText")
-            append("\nModel: ${entry.model}")
-            append("\nDelivery: Parcel ${entry.parcelDelivery}/${entry.parcelAssigned} (${(entry.parcelSuccessRate * 100).toInt()}%)")
-            append("\nDelivery: Doc ${entry.documentDelivery}/${entry.documentAssigned} (${(entry.documentSuccessRate * 100).toInt()}%)")
-            append("\nPickup: Parcel ${entry.parcelPickup}/${entry.parcelPickupAssigned} (${(entry.parcelPickupSuccessRate * 100).toInt()}%)")
-            append("\nPickup: Doc ${entry.documentPickup}/${entry.documentPickupAssigned} (${(entry.documentPickupSuccessRate * 100).toInt()}%)")
-            append("\n\nEarnings")
-            append("\nDelivery: ৳${(entry.parcelCommission + entry.documentCommission).toInt()}")
-            append("\nPickup: ৳${(entry.parcelPickupCommission + entry.documentPickupCommission).toInt()}")
-            append("\nTotal: ৳${total.toInt()}")
-        }
-        AlertDialog.Builder(requireContext())
-            .setTitle("Entry details")
-            .setMessage(msg)
-            .setPositiveButton("Close", null)
-            .show()
-    }
-
     private fun showError(message: String?) {
         if (message.isNullOrBlank()) {
             tvError.visibility = View.GONE
@@ -716,6 +711,11 @@ class MemoryFragment : Fragment() {
         tvSuccessAvg.text = "${sAvg.toInt()}%"
         tvSuccessMax.text = "${sMax.toInt()}%"
         tvSuccessMin.text = "${sMin.toInt()}%"
+
+        val totalDelivery = entries.sumOf { it.parcelDelivery + it.documentDelivery }
+        val totalPickup = entries.sumOf { it.parcelPickup + it.documentPickup }
+        tvDeliveryCount.text = "$totalDelivery"
+        tvPickupCount.text = "$totalPickup"
 
         val todayKey = fmtDate.format(Date())
         val todaySum = entries.filter { fmtDate.format(Date(it.createdAt)) == todayKey }

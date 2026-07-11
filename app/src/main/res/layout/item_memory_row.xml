@@ -10,16 +10,29 @@
     android:clickable="true"
     android:focusable="true">
 
-    <!-- Date row -->
-    <TextView
-        android:id="@+id/tvMemoryDate"
-        android:layout_width="wrap_content"
+    <!-- Date row + expand arrow -->
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="12 Jan, 10:00 AM"
-        android:textColor="@color/theme_text_secondary"
-        android:textSize="11sp"
-        android:letterSpacing="0.03"
-        android:layout_marginBottom="4dp"/>
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView
+            android:id="@+id/tvMemoryDate"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="12-Jan-26, Mon 10:00 AM"
+            android:textColor="@color/theme_text_secondary"
+            android:textSize="11sp"
+            android:letterSpacing="0.03"/>
+        <ImageView
+            android:id="@+id/ivMemoryArrow"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:src="@android:drawable/arrow_down_float"
+            app:tint="@color/theme_text_secondary"
+            android:contentDescription="Expand entry details"/>
+    </LinearLayout>
 
     <!-- Counts -->
     <TextView
@@ -29,7 +42,34 @@
         android:text="Parcel: 10, Doc: 5"
         android:textColor="@color/theme_text_primary"
         android:textSize="13sp"
-        android:lineSpacingExtra="2dp"/>
+        android:lineSpacingExtra="2dp"
+        android:layout_marginTop="4dp"/>
+
+    <!-- Expandable detail block: assigned counts, success rates, earnings breakdown
+         (previously shown only in an AlertDialog via onView — now inline, toggled by
+         ivMemoryArrow / the whole card). Hidden by default. -->
+    <LinearLayout
+        android:id="@+id/layoutMemoryDetail"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="8dp"
+        android:paddingTop="8dp">
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/theme_divider"
+            android:layout_marginBottom="8dp"/>
+        <TextView
+            android:id="@+id/tvMemoryDetailText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="@color/theme_text_secondary"
+            android:textSize="12sp"
+            android:lineSpacingExtra="3dp"/>
+    </LinearLayout>
 
     <!-- Earnings + Actions row -->
     <LinearLayout

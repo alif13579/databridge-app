@@ -148,14 +148,42 @@
             android:background="@color/theme_bg_card"
             android:padding="16dp"
             android:layout_marginBottom="12dp">
-            <TextView
-                android:layout_width="wrap_content"
+
+            <!-- Header row: title + collapse/expand arrow. Tapping anywhere on this row
+                 toggles layoutSummaryContent below — summary box eats a lot of vertical
+                 space, so agents can collapse it once they've checked it. -->
+            <LinearLayout
+                android:id="@+id/rowSummaryHeader"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Summary (current date range)"
-                android:textColor="@color/theme_text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="12dp"/>
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:layout_marginBottom="12dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Summary (current date range)"
+                    android:textColor="@color/theme_text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold"/>
+                <ImageView
+                    android:id="@+id/ivSummaryArrow"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:src="@android:drawable/arrow_up_float"
+                    app:tint="@color/theme_text_secondary"
+                    android:contentDescription="Collapse/expand summary"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/layoutSummaryContent"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -211,6 +239,47 @@
                 </LinearLayout>
             </LinearLayout>
 
+            <!-- Delivery / Pickup totals row (new) -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:weightSum="2"
+                android:layout_marginBottom="8dp">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Delivery count" android:textColor="@color/theme_text_secondary" android:textSize="11sp"/>
+                    <TextView
+                        android:id="@+id/tvMemoryDeliveryCount"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0"
+                        android:textColor="@color/theme_text_primary"
+                        android:textSize="14sp"
+                        android:textStyle="bold"/>
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Pickup count" android:textColor="@color/theme_text_secondary" android:textSize="11sp"/>
+                    <TextView
+                        android:id="@+id/tvMemoryPickupCount"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0"
+                        android:textColor="@color/theme_text_primary"
+                        android:textSize="14sp"
+                        android:textStyle="bold"/>
+                </LinearLayout>
+            </LinearLayout>
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -261,6 +330,7 @@
                         android:textColor="#ffb347"
                         android:textSize="14sp"/>
                 </LinearLayout>
+            </LinearLayout>
             </LinearLayout>
         </LinearLayout>
 
