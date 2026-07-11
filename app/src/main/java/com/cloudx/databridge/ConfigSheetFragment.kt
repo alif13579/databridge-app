@@ -222,6 +222,11 @@ class ConfigSheetFragment : Fragment() {
     // Beyond this many children, a level is treated as a dynamic-key collection (e.g. run IDs)
     // rather than a meaningful category list — offer the tree preview instead of a dropdown.
     private val MAX_DRILLABLE_CHILDREN = 15
+    // Hidden marker child written under a "+ Create New" node so the otherwise-empty node
+    // physically persists in courier/ (Firebase drops childless nodes) and shows up on the
+    // next shallow fetch. Filtered out of every wizard listing/preview so it's never shown
+    // as a selectable child, an example record, or a mappable field.
+    private val NODE_META_KEY = "__meta__"
     // Deepest dropdown row currently rendered — advanced only via the "+ Next level?" button,
     // so a new dropdown never appears automatically after a selection/confirm.
     private var nodePickerRevealedDepth = 0
@@ -2538,7 +2543,7 @@ class ConfigSheetFragment : Fragment() {
                 emptyList()
             } else {
                 val obj = org.json.JSONObject(body)
-                obj.keys().asSequence().toList()
+                obj.keys().asSequence().filter { it != NODE_META_KEY }.toList()
             }
             // Merge in any "known" (created-but-still-empty) direct children of this path
             // from the registry, so a node created via "+ Create New" doesn't disappear
@@ -2690,33 +2695,25 @@ class ConfigSheetFragment : Fragment() {
 
                 if (selectedAtDepth == null) break // nothing chosen yet at this depth — stop here
 
-                // Fetch this selection's children to decide whether there's a next level at all
+                // Fetch this selection's children to decide whether a deeper level exists.
                 val childPath = nodePickerPath.subList(0, depth + 1).joinToString("/")
                 val children = fetchChildKeysAt(childPath)
                 if (!isAdded) return@launch
 
-                if (children.isEmpty()) {
-                    // True leaf — no further children exist here at all (e.g. a plain scalar
-                    // field), so there is nothing to preview/confirm; commit as-is.
-                    nodeMappingConfirmed = true
-                    commitNodePath()
-                    renderNodePicker()
-                    return@launch
-                }
-
                 currentOptions = children
 
                 if (depth == nodePickerRevealedDepth) {
-                    // Deepest revealed row has children — offer to go one level deeper, but
-                    // don't render that next dropdown until the user explicitly asks for it.
-                    addNextLevelButton(container, ctx, depth, children.size)
+                    // Deepest revealed row — show the action row below it. Selecting a node
+                    // NEVER auto-locks (even a childless/leaf node): the user decides via the
+                    // "+ Next level?" / "🔒 Lock this path" buttons here.
+                    addNodeActionRow(container, ctx, depth, children.size)
                     break
                 }
                 depth++
             }
 
-            // One tree-preview + confirm box at the bottom, reflecting the current deepest
-            // selection — never repeated per depth, never pushed in "above" a dropdown.
+            // Informational example-data preview for the current deepest selection (read-only —
+            // locking is done explicitly via the action row's Lock button, not from here).
             if (nodePickerPath.isNotEmpty()) {
                 addTreePreviewSection(container, ctx, nodePickerPath.size - 1, nodePickerPath.joinToString("/"))
             }
@@ -2880,8 +2877,11 @@ class ConfigSheetFragment : Fragment() {
         renderNodePicker()
     }
 
-    /** "+ Next level?" pressed below the deepest revealed dropdown — reveals the next one. */
-    private fun addNextLevelButton(
+    /** Action row rendered below the deepest selected dropdown. Offers two explicit choices:
+     *  "+ Next level?" (reveal a child dropdown to drill deeper or Create New a child) and
+     *  "🔒 Lock this path" (commit the current path as the mapping target). Selecting a node
+     *  alone never locks — locking is always the user's explicit action here. */
+    private fun addNodeActionRow(
         container: android.widget.LinearLayout,
         ctx: android.content.Context,
         depth: Int,
@@ -2890,37 +2890,74 @@ class ConfigSheetFragment : Fragment() {
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
 
-        if (childCount > MAX_DRILLABLE_CHILDREN) {
-            // Likely a dynamic-key collection (e.g. hundreds/thousands of run IDs) — dumping
-            // all of them into a dropdown isn't useful. Point the user at the tree preview
-            // below (first example record) instead of offering to drill in further.
-            container.addView(TextView(ctx).apply {
-                text = "🔒 এই লেভেলে $childCount টা dynamic ID আছে — dropdown এ দেখানো হচ্ছে না, নিচের preview অনুযায়ী confirm করুন"
-                textSize = 11f
-                setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
-                setPadding(4.dp(), 4.dp(), 4.dp(), 10.dp())
-            })
-            return
+        val row = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(4.dp(), 2.dp(), 4.dp(), 10.dp())
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
 
-        val btn = TextView(ctx).apply {
-            text = "+ Next level?"
-            textSize = 12f
+        if (childCount > MAX_DRILLABLE_CHILDREN) {
+            // Likely a dynamic-key collection (e.g. hundreds/thousands of run IDs) — dumping
+            // all of them into a dropdown isn't useful, so hide "+ Next level?" and let the
+            // user lock this path using the example preview below.
+            row.addView(TextView(ctx).apply {
+                text = "⚠ $childCount টা dynamic ID — dropdown এ নয়, নিচের preview অনুযায়ী Lock করুন"
+                textSize = 11f
+                setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+        } else {
+            // Always shown — even for a childless node — so the user can drill in and
+            // Create New a child under it (courier/run_routes → courier/run_routes/delivery_run).
+            row.addView(TextView(ctx).apply {
+                text = "+ Next level?"
+                textSize = 12f
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                setTextColor(android.graphics.Color.parseColor("#2563EB"))
+                setPadding(4.dp(), 6.dp(), 4.dp(), 6.dp())
+                isClickable = true
+                isFocusable = true
+                layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener {
+                    nodePickerRevealedDepth = depth + 1
+                    renderNodePicker()
+                }
+            })
+        }
+
+        row.addView(android.widget.Button(ctx).apply {
+            text = "🔒 Lock this path"
+            textSize = 11f
             setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(android.graphics.Color.parseColor("#2563EB"))
-            setPadding(4.dp(), 4.dp(), 4.dp(), 10.dp())
-            isClickable = true
-            isFocusable = true
+            setTextColor(android.graphics.Color.WHITE)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(
+                android.graphics.Color.parseColor("#16A34A")
+            )
+            setPadding(16.dp(), 4.dp(), 16.dp(), 4.dp())
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            setOnClickListener {
-                nodePickerRevealedDepth = depth + 1
-                renderNodePicker()
-            }
-        }
-        container.addView(btn)
+            setOnClickListener { lockNodePath(depth) }
+        })
+
+        container.addView(row)
+    }
+
+    /** Locks the path up to [depth] as the target node and runs the normal commit + auto-map
+     *  flow. This is the ONLY place a selection becomes the committed mapping target. */
+    private fun lockNodePath(depth: Int) {
+        nodePickerPath = nodePickerPath.subList(0, depth + 1).toMutableList()
+        nodeMappingConfirmed = true
+        commitNodePath()
+        renderNodePicker()
+        renderMappingStep()
     }
 
     /**
@@ -2957,7 +2994,9 @@ class ConfigSheetFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val snap = try {
                 withContext(Dispatchers.IO) {
-                    db.reference.child("courier/$pathSoFar").limitToFirst(1).get().await()
+                    // Fetch 2 so a leading hidden meta marker can be skipped while still leaving
+                    // a real example record (only one meta marker can ever precede real records).
+                    db.reference.child("courier/$pathSoFar").limitToFirst(2).get().await()
                 }
             } catch (e: Exception) {
                 Log.e("ConfigSheet", "❌ tree preview fetch failed for $pathSoFar: ${e.message}", e)
@@ -2966,16 +3005,15 @@ class ConfigSheetFragment : Fragment() {
             if (!isAdded) return@launch
             box.removeAllViews()
 
-            if (snap == null || !snap.exists() || !snap.hasChildren()) {
+            val firstChild = snap?.children?.firstOrNull { it.key != NODE_META_KEY }
+            if (snap == null || !snap.exists() || firstChild == null) {
                 box.addView(TextView(ctx).apply {
-                    text = "⚠ এখানে কোনো example data পাওয়া যায়নি"
+                    text = "⚠ এখানে এখনো কোনো example data নেই (খালি node) — child তৈরি করতে \"+ Next level?\" ব্যবহার করুন"
                     textSize = 12f
                     setTextColor(android.graphics.Color.parseColor("#F59E0B"))
                 })
                 return@launch
             }
-
-            val firstChild = snap.children.first()
             val treeText = buildFirebaseTreeString(firstChild, 0).ifBlank { "(no fields)" }
 
             box.addView(TextView(ctx).apply {
@@ -2992,24 +3030,10 @@ class ConfigSheetFragment : Fragment() {
                 setPadding(0, 6.dp(), 0, 6.dp())
             })
             box.addView(TextView(ctx).apply {
-                text = "এই tree অনুযায়ী auto-map করতে চান?"
-                textSize = 12f
-                setTextColor(android.graphics.Color.parseColor("#6B7280"))
-            })
-            box.addView(android.widget.Button(ctx).apply {
-                text = "✅ Yes, confirm করো"
+                text = "☝️ এই node এর ডেটা এমন দেখতে। এটাকে target হিসেবে নিতে উপরের \"🔒 Lock this path\" চাপুন।"
                 textSize = 11f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(android.graphics.Color.WHITE)
-                backgroundTintList = android.content.res.ColorStateList.valueOf(
-                    android.graphics.Color.parseColor("#16A34A")
-                )
-                setPadding(20.dp(), 6.dp(), 20.dp(), 6.dp())
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { topMargin = 6.dp() }
-                setOnClickListener { confirmAtDepth(depth) }
+                setTextColor(android.graphics.Color.parseColor("#6B7280"))
+                setPadding(0, 6.dp(), 0, 0)
             })
         }
     }
@@ -3030,7 +3054,7 @@ class ConfigSheetFragment : Fragment() {
     ): String {
         val pad = "  ".repeat(indent)
         val sb = StringBuilder()
-        val allChildren = snap.children.toList()
+        val allChildren = snap.children.toList().filter { it.key != NODE_META_KEY }
         val flatChildren   = allChildren.filter { !it.hasChildren() }
         val nestedChildren = allChildren.filter { it.hasChildren() }
 
@@ -3048,47 +3072,69 @@ class ConfigSheetFragment : Fragment() {
         return sb.toString()
     }
 
-    /** "Yes, confirm করো" pressed at [depth] — locks the path to exactly this depth (dropping
-     *  any deeper selection) and runs the normal commit+auto-map flow. */
-    private fun confirmAtDepth(depth: Int) {
-        nodePickerPath = nodePickerPath.subList(0, depth + 1).toMutableList()
-        nodeMappingConfirmed = true
-        commitNodePath()
-        renderNodePicker()
-        renderMappingStep()
-    }
-
-    /** Shows the inline "create new node" input, wired to insert at the given depth. */
+    /** Shows the inline "create new node" input, wired to insert at the given depth. On confirm
+     *  the node is physically created under courier/ (with a hidden meta marker so an empty node
+     *  persists and re-appears on the next fetch) and revealed as the deepest selection — the
+     *  user is NOT auto-locked, so they can either drill deeper (Create New a child) or Lock. */
     private fun showCreateNewNodeInput(depth: Int) {
         layoutCreateNewNode?.visibility = View.VISIBLE
         etNewNodeName?.setText("")
         etNewNodeName?.requestFocus()
 
         btnConfirmNewNode?.setOnClickListener {
-            val name = etNewNodeName?.text?.toString()?.trim() ?: ""
+            val name = etNewNodeName?.text?.toString()?.trim()?.trim('/') ?: ""
             if (name.isBlank()) {
                 toast("⚠ Node name দিন")
+                return@setOnClickListener
+            }
+            // Firebase keys can't contain  . # $ [ ] /  — reject so this stays exactly one level.
+            if (name.contains(Regex("[./#$\\[\\]]"))) {
+                toast("⚠ Node name এ  . # \$ [ ] /  ব্যবহার করা যাবে না")
                 return@setOnClickListener
             }
             nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
             nodePickerPath.add(name)
             layoutCreateNewNode?.visibility = View.GONE
-            // A freshly created node has no children yet — commit immediately and lock.
-            nodeMappingConfirmed = true
+            val newPath = nodePickerPath.joinToString("/")
+            val parentPath = nodePickerPath.subList(0, depth).joinToString("/")
+
             viewLifecycleOwner.lifecycleScope.launch {
-                // Register in config/known_nodes so this node survives being empty (Firebase
-                // treats a childless node as non-existent) and still shows up in the dropdown
-                // next time — courier/ itself is never touched, so this can't be mistaken for
-                // a real consignment/run by CallCenterFragment/WorkerSpaceFragment etc.
-                registerKnownNode(nodePickerPath.joinToString("/"))
+                // Physically create courier/{newPath} (live) with a hidden meta marker so the
+                // otherwise-empty node persists and shows up on the next shallow fetch. Keep the
+                // known_nodes registry entry too as a fallback for the dropdown merge.
+                createNodePhysically(newPath)
+                registerKnownNode(newPath)
                 if (!isAdded) return@launch
-                commitNodePath()
+                // Invalidate the parent's cached child list so the new node appears immediately.
+                nodeChildrenCache.remove(parentPath)
+                if (parentPath.isBlank()) courierChildNodes = fetchChildKeysAt("")
+                // Do NOT auto-lock. Reveal the new node as the deepest selection so the user can
+                // drill deeper (Create New a child) or explicitly Lock it as the target.
+                nodePickerRevealedDepth = depth
+                nodeMappingConfirmed = false
                 renderNodePicker()
-                renderMappingStep()
+                toast("✅ courier/$newPath তৈরি হয়েছে")
             }
         }
         btnCancelNewNode?.setOnClickListener {
             layoutCreateNewNode?.visibility = View.GONE
+        }
+    }
+
+    /** Physically creates courier/[relativePath] in Firebase by writing a hidden meta marker
+     *  child, so an otherwise-empty node persists (Firebase drops childless nodes) and appears
+     *  in the next shallow child listing. The marker key ([NODE_META_KEY]) is filtered out of
+     *  every wizard listing/preview, so it's never shown as a child, example record, or field. */
+    private suspend fun createNodePhysically(relativePath: String) {
+        if (relativePath.isBlank()) return
+        try {
+            withContext(Dispatchers.IO) {
+                db.reference.child("courier/$relativePath/$NODE_META_KEY")
+                    .setValue(mapOf("created_at" to System.currentTimeMillis()))
+                    .await()
+            }
+        } catch (e: Exception) {
+            Log.e("ConfigSheet", "❌ createNodePhysically($relativePath) failed: ${e.message}", e)
         }
     }
 
@@ -3118,13 +3164,21 @@ class ConfigSheetFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val snap = withContext(Dispatchers.IO) {
-                    db.reference.child(node).limitToFirst(1).get().await()
+                    // Fetch 2 so a leading hidden meta marker can be skipped and still leave a
+                    // real example record (only one meta marker can ever precede real records).
+                    db.reference.child(node).limitToFirst(2).get().await()
                 }
                 if (!isAdded) return@launch
                 pbFetchFields?.visibility = View.GONE
                 btnFetchFields?.isEnabled = true
 
-                if (!snap.exists()) {
+                // Pick the first real child, skipping the hidden meta marker of a freshly
+                // "+ Create New"-ed node. If nothing but the marker exists, treat as empty.
+                val exampleChild = if (snap.hasChildren())
+                    snap.children.firstOrNull { it.key != NODE_META_KEY }
+                else snap
+
+                if (!snap.exists() || exampleChild == null) {
                     tvFetchStatus?.text = "⚠ Data নেই — manually field add করুন"
                     tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
                     nodePreviewData = emptyMap()
@@ -3140,12 +3194,13 @@ class ConfigSheetFragment : Fragment() {
                     return@launch
                 }
 
-                val firstChild = if (snap.hasChildren()) snap.children.first() else snap
-                val keys = firstChild.children.mapNotNull { it.key }.toList()
+                val firstChild = exampleChild
+                val keys = firstChild.children.mapNotNull { it.key }.filter { it != NODE_META_KEY }.toList()
 
                 // Store preview values
                 nodePreviewData = firstChild.children.mapNotNull { child ->
                     val k = child.key ?: return@mapNotNull null
+                    if (k == NODE_META_KEY) return@mapNotNull null
                     val v = child.value?.toString()?.take(40) ?: ""
                     k to v
                 }.toMap()
