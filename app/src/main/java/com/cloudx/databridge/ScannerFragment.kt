@@ -52,7 +52,10 @@ class ScannerFragment : Fragment() {
 
     private val scanLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == android.app.Activity.RESULT_OK) {
-            val code = res.data?.getStringExtra("SCAN_RESULT")
+            val rawCode = res.data?.getStringExtra("SCAN_RESULT")
+            // Some barcodes encode extra data after a '|' (e.g. "DB12345|120") — only the
+            // part before the '|' is the actual code we want to keep.
+            val code = rawCode?.substringBefore('|')?.trim()
             if (!code.isNullOrBlank()) {
                 addItem(code, manual = false)
                 // Batch mode: auto re-launch after each successful scan
@@ -430,43 +433,10 @@ class ScannerFragment : Fragment() {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("CSV Export")
             .setItems(arrayOf("📱 WhatsApp এ পাঠান", "⬇️ Download করুন")) { _, which ->
-                if (which == 0) promptWhatsAppNumber() else saveCsvAndDownload()
+                if (which == 0) saveCsvAndSendToWhatsApp() else saveCsvAndDownload()
             }
             .setNegativeButton("Cancel", null)
             .show()
-    }
-
-    private fun promptWhatsAppNumber() {
-        val ctx = requireContext()
-        val input = EditText(ctx).apply {
-            hint = "01XXXXXXXXX"
-            inputType = android.text.InputType.TYPE_CLASS_PHONE
-            setPadding(40, 24, 40, 24)
-        }
-        android.app.AlertDialog.Builder(ctx)
-            .setTitle("WhatsApp Number")
-            .setView(input)
-            .setPositiveButton("Send") { _, _ ->
-                val raw = input.text.toString().trim()
-                if (raw.isBlank()) {
-                    Toast.makeText(ctx, "⚠ Number দিন", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                val normalized = normalizeWhatsAppNumber(raw)
-                saveCsvAndSendToWhatsApp(normalized)
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun normalizeWhatsAppNumber(raw: String): String {
-        val digits = raw.filter { it.isDigit() }
-        return when {
-            digits.startsWith("880") && digits.length == 13 -> digits
-            digits.startsWith("0") && digits.length == 11 -> "88$digits"
-            digits.length == 10 -> "880$digits"
-            else -> digits
-        }
     }
 
     /** Builds the CSV content for the currently filtered scans. Returns null if empty. */
@@ -511,7 +481,7 @@ class ScannerFragment : Fragment() {
         }
     }
 
-    private fun saveCsvAndSendToWhatsApp(phone: String) {
+    private fun saveCsvAndSendToWhatsApp() {
         val (csvContent, count) = buildCsvContent() ?: run {
             Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো scan নেই", Toast.LENGTH_SHORT).show()
             return
@@ -521,10 +491,11 @@ class ScannerFragment : Fragment() {
             return
         }
         try {
+            // No "jid" extra here on purpose — without a target chat pinned, WhatsApp opens
+            // its own contact/group picker so the user can choose exactly who to send this to.
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/csv"
                 putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra("jid", "$phone@s.whatsapp.net")
                 setPackage("com.whatsapp")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
