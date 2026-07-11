@@ -231,6 +231,13 @@ class ConfigSheetFragment : Fragment() {
     private var nodeMappingConfirmed = false
     // Cache of fetched children per path (path joined with "/" -> list of child keys)
     private val nodeChildrenCache = mutableMapOf<String, List<String>>()
+    // Registry of node paths "created" via the wizard's "+ Create New" box but not yet
+    // holding real synced data — so they still show up in the picker dropdown next time
+    // instead of vanishing (Firebase treats an empty node as non-existent). Stored OUTSIDE
+    // courier/ entirely (config/known_nodes) so it never pollutes the actual data tree that
+    // CallCenterFragment/WorkerSpaceFragment iterate as real consignment/run records.
+    // null = not yet loaded this session; loaded once and cached.
+    private var knownNodePaths: MutableList<String>? = null
     private var courierChildNodes: List<String> = emptyList()
     private var etTargetNode:     EditText? = null
     private var btnFetchFields:   android.widget.Button? = null
@@ -2527,18 +2534,80 @@ class ConfigSheetFragment : Fragment() {
                     if (!resp.isSuccessful) null else resp.body?.string()
                 }
             }
-            val keys = if (body.isNullOrBlank() || body == "null") {
+            val liveKeys = if (body.isNullOrBlank() || body == "null") {
                 emptyList()
             } else {
                 val obj = org.json.JSONObject(body)
-                obj.keys().asSequence().toList().sorted()
+                obj.keys().asSequence().toList()
             }
+            // Merge in any "known" (created-but-still-empty) direct children of this path
+            // from the registry, so a node created via "+ Create New" doesn't disappear
+            // from the dropdown just because it has no real data yet.
+            val knownChildrenHere = loadKnownNodePaths().mapNotNull { known ->
+                when {
+                    relativePath.isBlank() && !known.contains("/") -> known
+                    known.startsWith("$relativePath/") &&
+                        !known.removePrefix("$relativePath/").contains("/") ->
+                        known.removePrefix("$relativePath/")
+                    else -> null
+                }
+            }
+            val keys = (liveKeys + knownChildrenHere).distinct().sorted()
             nodeChildrenCache[relativePath] = keys
             keys
         } catch (e: Exception) {
             Log.e("ConfigSheet", "❌ fetchChildKeysAt($relativePath) failed: ${e.message}", e)
             emptyList()
         }
+    }
+
+    /** Loads the config/known_nodes registry once per session (cached in [knownNodePaths]) —
+     *  the list of "courier/..." suffixes created via "+ Create New" in the wizard, whether or
+     *  not they hold real data yet. */
+    private suspend fun loadKnownNodePaths(): List<String> {
+        knownNodePaths?.let { return it }
+        val loaded = try {
+            val snap = withContext(Dispatchers.IO) {
+                db.reference.child("config/known_nodes").get().await()
+            }
+            snap.children.mapNotNull { it.getValue(String::class.java) }.toMutableList()
+        } catch (e: Exception) {
+            mutableListOf()
+        }
+        knownNodePaths = loaded
+        return loaded
+    }
+
+    /** Registers [relativePath] (e.g. "run_routes" or "run_routes/delivery_run") in the
+     *  config/known_nodes registry — called when the user confirms a brand-new node via
+     *  "+ Create New" so it survives being empty and still shows up in the dropdown on the
+     *  next render/session, without writing any placeholder into courier/ itself. Invalidates
+     *  the parent path's cached child list so the new node appears immediately. */
+    private suspend fun registerKnownNode(relativePath: String) {
+        if (relativePath.isBlank()) return
+        val current = loadKnownNodePaths()
+        if (relativePath in current) return // already known — nothing to do
+        val sanitizedKey = relativePath.replace(Regex("[./#$\\[\\]]"), "_")
+        // '/' is deliberately in that char class — without sanitizing it, Firebase's child()
+        // would interpret a key containing '/' as a NESTED path (e.g. "run_routes/delivery_run"
+        // would create config/known_nodes/run_routes/delivery_run as a tree, not a flat key),
+        // breaking loadKnownNodePaths()'s assumption that each registry entry is a leaf String.
+        try {
+            withContext(Dispatchers.IO) {
+                db.reference.child("config/known_nodes/$sanitizedKey").setValue(relativePath).await()
+            }
+        } catch (e: Exception) {
+            Log.e("ConfigSheet", "❌ registerKnownNode($relativePath) failed: ${e.message}", e)
+        }
+        knownNodePaths?.add(relativePath)
+        val parentPath = relativePath.substringBeforeLast("/", "")
+        nodeChildrenCache.remove(parentPath)
+        // courierChildNodes is a separately-cached snapshot of the root listing (used directly
+        // by renderNodePicker()'s depth-0 dropdown) — refresh it too so a newly created
+        // top-level node (or any node, cheaply, since this just re-reads the now-invalidated
+        // or already-correct cache) is visible immediately if the user unlocks and re-opens
+        // the picker in the same session.
+        courierChildNodes = fetchChildKeysAt("")
     }
 
     /** Kicks off the hierarchical node picker by loading courier/'s top-level children. */
@@ -3006,9 +3075,17 @@ class ConfigSheetFragment : Fragment() {
             layoutCreateNewNode?.visibility = View.GONE
             // A freshly created node has no children yet — commit immediately and lock.
             nodeMappingConfirmed = true
-            commitNodePath()
-            renderNodePicker()
-            renderMappingStep()
+            viewLifecycleOwner.lifecycleScope.launch {
+                // Register in config/known_nodes so this node survives being empty (Firebase
+                // treats a childless node as non-existent) and still shows up in the dropdown
+                // next time — courier/ itself is never touched, so this can't be mistaken for
+                // a real consignment/run by CallCenterFragment/WorkerSpaceFragment etc.
+                registerKnownNode(nodePickerPath.joinToString("/"))
+                if (!isAdded) return@launch
+                commitNodePath()
+                renderNodePicker()
+                renderMappingStep()
+            }
         }
         btnCancelNewNode?.setOnClickListener {
             layoutCreateNewNode?.visibility = View.GONE
@@ -4043,6 +4120,7 @@ class ConfigSheetFragment : Fragment() {
         nodePickerRevealedDepth = 0
         nodeMappingConfirmed = false
         nodeChildrenCache.clear()
+        knownNodePaths = null
         tvFetchStatus?.text = ""
         if (googleAccount != null) loadSheetsForAccount()
     }
