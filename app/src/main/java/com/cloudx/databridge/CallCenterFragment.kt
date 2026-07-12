@@ -621,11 +621,11 @@ class CallCenterFragment : Fragment() {
         } else {
             for ((index, entry) in historyEntries.withIndex()) {
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
-                val statusColor = when (entry.authorRole) {
-                    "cc" -> R.color.theme_accent
-                    "system" -> R.color.theme_text_muted
-                    else -> R.color.theme_accent
-                }
+                val statusCfg = WorkerParcelAdapter.getStatusConfig(
+                    requireContext(),
+                    entry.action.lowercase().replace(" ", "_"),
+                    ccStatusLang
+                )
 
                 val ivAvatar = timelineView.findViewById<android.widget.ImageView>(R.id.ivTimelineAvatar)
                 val tvLine = timelineView.findViewById<View>(R.id.viewTimelineLine)
@@ -650,7 +650,8 @@ class CallCenterFragment : Fragment() {
                 tvAuthor.text = entry.author
 
                 tvStatus.text = entry.action
-                tvStatus.setTextColor(requireContext().getColor(statusColor))
+                tvStatus.setTextColor(statusCfg.color)
+                tvStatus.backgroundTintList = android.content.res.ColorStateList.valueOf(statusCfg.bg)
 
                 tvRemark.text = entry.remark
                 tvRemark.visibility = if (entry.remark.isNotBlank()) View.VISIBLE else View.GONE
@@ -1272,9 +1273,11 @@ class CallCenterFragment : Fragment() {
                     val rStatus = r.child("status").getValue(String::class.java)?.trim().orEmpty()
                     val rNote = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
                     if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
-                    val rLabel = if (rStatus.isNotBlank()) {
-                        context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
-                    } else rNote
+                    val rLabel = when {
+                        rNote.isNotBlank()   -> rNote
+                        rStatus.isNotBlank() -> context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
+                        else                 -> ""
+                    }
                     val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                     val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                         .format(java.util.Date(createdAt))
@@ -1392,9 +1395,11 @@ class CallCenterFragment : Fragment() {
                             val rStatus = r.child("status").getValue(String::class.java)?.trim().orEmpty()
                             val rNote = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
                             if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
-                            val rLabel = if (rStatus.isNotBlank())
-                                WorkerParcelAdapter.getStatusConfig(ctx, rStatus, ccStatusLang).label
-                            else rNote
+                            val rLabel = when {
+                                rNote.isNotBlank()   -> rNote
+                                rStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, rStatus, ccStatusLang).label
+                                else                 -> ""
+                            }
                             val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                             val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                                 .format(java.util.Date(createdAt))
