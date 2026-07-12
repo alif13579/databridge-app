@@ -924,9 +924,11 @@ class WorkerSpaceFragment : Fragment() {
                             val rStatus = readString(r, "status")
                             val rNote   = readString(r, "remarks")
                             if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
-                            val rLabel = if (rStatus.isNotBlank()) {
-                                WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label
-                            } else rNote
+                            val rLabel = when {
+                                rNote.isNotBlank()   -> rNote
+                                rStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label
+                                else                 -> ""
+                            }
                             val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                             val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                                 .format(java.util.Date(createdAt))
@@ -1184,9 +1186,11 @@ class WorkerSpaceFragment : Fragment() {
                 val rStatus = readString(r, "status")
                 val rNote   = readString(r, "remarks")
                 if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
-                val rLabel = if (rStatus.isNotBlank()) {
-                    context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
-                } else rNote
+                val rLabel = when {
+                    rNote.isNotBlank()   -> rNote
+                    rStatus.isNotBlank() -> context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
+                    else                 -> ""
+                }
                 val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                 val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
