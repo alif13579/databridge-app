@@ -857,6 +857,8 @@ class WorkerSpaceFragment : Fragment() {
 
     // Per-parcel remark listeners — keyed by consignmentId, replaced on every full reload.
     private val remarkNodeListeners = mutableMapOf<String, Pair<DatabaseReference, ValueEventListener>>()
+    // Tracks last-seen remark timestamp per consignment to detect genuinely new CC remarks
+    private val workerLastSeenRemarkAt = mutableMapOf<String, Long>()
 
     /**
      * Attaches a ValueEventListener on courier/remarks_by_consignment/{cId} for every loaded
@@ -883,6 +885,41 @@ class WorkerSpaceFragment : Fragment() {
                             val rStatus: String, val rLabel: String, val timeStr: String,
                             val remarkedBy: String, val rUserId: String
                         )
+
+                        // ── New CC-remark notification ────────────────────────────
+                        // Find the latest remark overall (by createdAt); notify only
+                        // if it's from a CC agent (remarkedBy == "support") and is
+                        // genuinely new (not the initial listener fire).
+                        val sortedByTime = snapshot.children.sortedByDescending {
+                            it.child("createdAt").getValue(Long::class.java) ?: 0L
+                        }
+                        val latestSnap = sortedByTime.firstOrNull()
+                        val latestCreatedAt = latestSnap?.child("createdAt")?.getValue(Long::class.java) ?: 0L
+                        val prevAt = workerLastSeenRemarkAt[cId] ?: 0L
+                        if (latestCreatedAt > prevAt && prevAt > 0L) {
+                            val remarkedBy = latestSnap?.child("remarked_by")?.getValue(String::class.java)?.trim().orEmpty()
+                            if (remarkedBy == "support") {
+                                val parcel = allParcels.firstOrNull { it.id == cId }
+                                val customer = parcel?.customer?.takeIf { it.isNotBlank() } ?: cId
+                                val remarkText = latestSnap?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
+                                val remarkStatus = latestSnap?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
+                                val message = when {
+                                    remarkText.isNotBlank() -> remarkText
+                                    remarkStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, remarkStatus, workerStatusLang).label
+                                    else -> "CC থেকে নতুন রিমার্ক এসেছে"
+                                }
+                                AppNotificationManager.add(
+                                    ctx,
+                                    AppNotificationManager.NotifItem(
+                                        title = "CC Remark — $customer",
+                                        message = message,
+                                        type = "remark"
+                                    )
+                                )
+                            }
+                        }
+                        workerLastSeenRemarkAt[cId] = latestCreatedAt
+                        // ─────────────────────────────────────────────────────────
                         val raw = snapshot.children.mapNotNull { r ->
                             val rStatus = readString(r, "status")
                             val rNote   = readString(r, "remarks")
