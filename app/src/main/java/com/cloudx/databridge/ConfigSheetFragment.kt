@@ -63,7 +63,7 @@ class ConfigSheetFragment : Fragment() {
 
     // ── State machine ─────────────────────────────────────────────────
     // (ConfigScreen / ConfigPrimaryAction enums → ConfigSheetModels.kt)
-    private var screen       = ConfigConfigScreen.BRANCH_SELECT
+    private var screen       = ConfigScreen.BRANCH_SELECT
     private var activeBranch = ""
     private var connectStep  = 1   // 1=Account  2=Sheet  3=Tab  4=Columns
 
