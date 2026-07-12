@@ -293,13 +293,13 @@ class ConfigSheetFragment : Fragment() {
             val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
                 .requestProfile()
-                .requestScopes(Scope(SCOPE_DRIVE), Scope(SCOPE_SHEETS))
+                .requestScopes(Scope(ConfigSheetDriveApi.SCOPE_DRIVE), Scope(ConfigSheetDriveApi.SCOPE_SHEETS))
                 .build()
             googleSignInClient = GoogleSignIn.getClient(requireActivity(), gso)
 
             // Restore last signed-in account if scopes still granted
             GoogleSignIn.getLastSignedInAccount(requireContext())?.let { acc ->
-                if (GoogleSignIn.hasPermissions(acc, Scope(SCOPE_DRIVE), Scope(SCOPE_SHEETS))) {
+                if (GoogleSignIn.hasPermissions(acc, Scope(ConfigSheetDriveApi.SCOPE_DRIVE), Scope(ConfigSheetDriveApi.SCOPE_SHEETS))) {
                     googleAccount = acc
                 }
             }
