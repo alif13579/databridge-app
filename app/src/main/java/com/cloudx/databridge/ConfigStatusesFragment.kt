@@ -48,6 +48,13 @@ class ConfigStatusesFragment : Fragment() {
     private var newColorIdx: Int = 0
     private val statusColors = ConfigState.STATUS_COLORS
 
+    // Worker and call-center remark pickers use separate Firebase nodes
+    // (config/remarks_worker vs config/remarks_call_center — see ConfigRemarksFragment).
+    // Status deletion must count/migrate remarks in BOTH scopes independently, otherwise
+    // remarks silently become orphaned when their status is deleted.
+    private var remarksWorker:     MutableMap<String, MutableList<ConfigState.Remark>> = mutableMapOf()
+    private var remarksCallCenter: MutableMap<String, MutableList<ConfigState.Remark>> = mutableMapOf()
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_config_statuses, container, false)
 
@@ -119,13 +126,14 @@ class ConfigStatusesFragment : Fragment() {
         }
 
     private suspend fun loadRemarks() {
-        val snap = db.reference.child("config/remarks").get().await()
-        if (!snap.exists()) {
-            ConfigState.remarks = mutableMapOf()
-            return
-        }
+        remarksWorker = loadRemarksFromNode("config/remarks_worker")
+        remarksCallCenter = loadRemarksFromNode("config/remarks_call_center")
+    }
 
+    private suspend fun loadRemarksFromNode(node: String): MutableMap<String, MutableList<ConfigState.Remark>> {
+        val snap = db.reference.child(node).get().await()
         val loaded = mutableMapOf<String, MutableList<ConfigState.Remark>>()
+        if (!snap.exists()) return loaded
         snap.children.forEach { statusSnap ->
             val key = statusSnap.key ?: return@forEach
             val list = mutableListOf<ConfigState.Remark>()
@@ -135,11 +143,12 @@ class ConfigStatusesFragment : Fragment() {
                 val textEn = r.child("text_en").getValue(String::class.java) ?: ""
                 val targetStatus = r.child("target_status").getValue(String::class.java) ?: key
                 val templateId   = r.child("template_id").getValue(String::class.java) ?: ""
-                list.add(ConfigState.Remark(id, textBn, textEn, targetStatus, templateId))
+                val priority     = r.child("priority").getValue(Int::class.java) ?: 0
+                list.add(ConfigState.Remark(id, textBn, textEn, targetStatus, templateId, priority))
             }
-            loaded[key] = list
+            if (list.isNotEmpty()) loaded[key] = list
         }
-        ConfigState.remarks = loaded
+        return loaded
     }
 
     // ── Bind status list ──────────────────────────────────────────────────────
@@ -148,8 +157,10 @@ class ConfigStatusesFragment : Fragment() {
         val sorted = sortedStatuses()
         tvEmpty.visibility = if (sorted.isEmpty()) View.VISIBLE else View.GONE
         sorted.forEach { key ->
-            val meta    = ConfigState.statusMeta[key] ?: return@forEach
-            val count   = ConfigState.remarks[key]?.size ?: 0
+            val meta       = ConfigState.statusMeta[key] ?: return@forEach
+            val countW     = remarksWorker[key]?.size ?: 0
+            val countCC    = remarksCallCenter[key]?.size ?: 0
+            val count      = countW + countCC
 
             val row = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_status_row, statusListContainer, false)
@@ -163,8 +174,9 @@ class ConfigStatusesFragment : Fragment() {
             val tvCustom = row.findViewById<TextView>(R.id.tvStatusCustomBadge)
             tvCustom.visibility = View.GONE
 
+            val breakdown = if (count > 0) " (Worker $countW · Agent $countCC)" else ""
             row.findViewById<TextView>(R.id.tvStatusSubtitle).text =
-                "$key · Priority: ${meta.priority} · $count remark${if (count != 1) "s" else ""}"
+                "$key · Priority: ${meta.priority} · $count remark${if (count != 1) "s" else ""}$breakdown"
 
             row.findViewById<View>(R.id.btnEditStatus).setOnClickListener { openEditDialog(key) }
 
@@ -239,42 +251,80 @@ class ConfigStatusesFragment : Fragment() {
 
     // ── Delete dialog (openDelete + confirmDelete in JSX) ─────────────────────
     private fun openDeleteDialog(key: String) {
-        val ctx    = requireContext()
-        val others = ConfigState.statuses.filter { it != key }
-        val toMigrateCount = ConfigState.remarks[key]?.size ?: 0
+        val ctx        = requireContext()
+        val others     = ConfigState.statuses.filter { it != key }
+        val otherLabels = others.map { ConfigState.statusMeta[it]?.en ?: it }
+        val workerCount = remarksWorker[key]?.size ?: 0
+        val ccCount     = remarksCallCenter[key]?.size ?: 0
+        val canMigrate  = others.isNotEmpty()
 
-        val spinMigrate = Spinner(ctx)
-        val adapter     = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
-            others.map { ConfigState.statusMeta[it]?.en ?: it })
-        spinMigrate.adapter = adapter
+        var spinWorker: Spinner? = null
+        var spinCC: Spinner? = null
 
-        val msg = if (toMigrateCount > 0)
-            if (others.isEmpty()) "$toMigrateCount রিমার্ক মুছে যাবে"
-            else "$toMigrateCount রিমার্ক অন্য status-এ মাইগ্রেট হবে"
-        else "এই status স্থায়ীভাবে মুছে যাবে"
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (16 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
+        }
+
+        if (workerCount > 0 && canMigrate) {
+            container.addView(TextView(ctx).apply {
+                text = "Worker remarks ($workerCount টি) — কোন status-এ migrate হবে:"
+                setPadding(0, (12 * resources.displayMetrics.density).toInt(), 0, 8)
+            })
+            spinWorker = Spinner(ctx).apply {
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, otherLabels)
+            }
+            container.addView(spinWorker)
+        }
+        if (ccCount > 0 && canMigrate) {
+            container.addView(TextView(ctx).apply {
+                text = "Agent/CC remarks ($ccCount টি) — কোন status-এ migrate হবে:"
+                setPadding(0, (12 * resources.displayMetrics.density).toInt(), 0, 8)
+            })
+            spinCC = Spinner(ctx).apply {
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, otherLabels)
+            }
+            container.addView(spinCC)
+        }
+
+        val msg = when {
+            workerCount == 0 && ccCount == 0 -> "এই status স্থায়ীভাবে মুছে যাবে"
+            !canMigrate -> "Worker: $workerCount, Agent: $ccCount টি রিমার্ক আছে কিন্তু migrate করার মতো অন্য status নেই — সব মুছে যাবে"
+            else -> "Worker: $workerCount, Agent: $ccCount টি রিমার্ক অন্য status-এ মাইগ্রেট হবে"
+        }
 
         AlertDialog.Builder(ctx)
             .setTitle("Delete $key?")
             .setMessage(msg)
-            .apply { if (toMigrateCount > 0 && others.isNotEmpty()) setView(spinMigrate) }
+            .apply { if ((workerCount > 0 || ccCount > 0) && canMigrate) setView(container) }
             .setPositiveButton("Delete") { _, _ ->
-                val migrateTarget = if (toMigrateCount > 0 && others.isNotEmpty())
-                    others.getOrElse(spinMigrate.selectedItemPosition) { others.first() }
-                else null
-                confirmDelete(key, migrateTarget)
+                val migrateWorkerTarget = if (workerCount > 0 && canMigrate)
+                    others.getOrElse(spinWorker?.selectedItemPosition ?: 0) { others.first() } else null
+                val migrateCcTarget = if (ccCount > 0 && canMigrate)
+                    others.getOrElse(spinCC?.selectedItemPosition ?: 0) { others.first() } else null
+                confirmDelete(key, migrateWorkerTarget, migrateCcTarget)
             }
             .setNegativeButton("বাতিল", null)
             .show()
     }
 
-    private fun confirmDelete(key: String, migrateTarget: String?) {
-        // Migrate remarks (mirrors JSX confirmDelete)
-        val toMigrate = ConfigState.remarks[key] ?: emptyList()
-        if (migrateTarget != null && toMigrate.isNotEmpty()) {
-            val updated = toMigrate.map { it.copy(target_status = migrateTarget) }
-            ConfigState.remarks.getOrPut(migrateTarget) { mutableListOf() }.addAll(updated)
+    private fun confirmDelete(key: String, migrateWorkerTarget: String?, migrateCcTarget: String?) {
+        // Migrate worker remarks to the chosen target status (or drop if none chosen).
+        val toMigrateWorker = remarksWorker[key] ?: emptyList()
+        if (migrateWorkerTarget != null && toMigrateWorker.isNotEmpty()) {
+            val updated = toMigrateWorker.map { it.copy(target_status = migrateWorkerTarget) }
+            remarksWorker.getOrPut(migrateWorkerTarget) { mutableListOf() }.addAll(updated)
         }
-        ConfigState.remarks.remove(key)
+        remarksWorker.remove(key)
+
+        // Migrate call-center remarks to the chosen target status (independent choice).
+        val toMigrateCc = remarksCallCenter[key] ?: emptyList()
+        if (migrateCcTarget != null && toMigrateCc.isNotEmpty()) {
+            val updated = toMigrateCc.map { it.copy(target_status = migrateCcTarget) }
+            remarksCallCenter.getOrPut(migrateCcTarget) { mutableListOf() }.addAll(updated)
+        }
+        remarksCallCenter.remove(key)
 
         ConfigState.statuses = ConfigState.statuses.filter { it != key }
         val newMeta = ConfigState.statusMeta.toMutableMap()
@@ -283,7 +333,10 @@ class ConfigStatusesFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Deleting...")
-            if (saveStatusMeta() && saveRemarks()) {
+            val ok = saveStatusMeta() &&
+                saveRemarksNode("config/remarks_worker", remarksWorker) &&
+                saveRemarksNode("config/remarks_call_center", remarksCallCenter)
+            if (ok) {
                 reloadConfig()
                 bindStatusList()
                 setBusy(false)
@@ -319,7 +372,6 @@ class ConfigStatusesFragment : Fragment() {
         )
         ConfigState.statusMeta = newMeta
         ConfigState.statuses   = ConfigState.statuses + rawKey
-        ConfigState.remarks.getOrPut(rawKey) { mutableListOf() }
 
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Creating...")
@@ -475,7 +527,6 @@ class ConfigStatusesFragment : Fragment() {
         )
         ConfigState.statusMeta = newMeta
         ConfigState.statuses = ConfigState.statuses + key
-        ConfigState.remarks.getOrPut(key) { mutableListOf() }
 
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Creating...")
@@ -490,7 +541,6 @@ class ConfigStatusesFragment : Fragment() {
                 val rolledBack = ConfigState.statusMeta.toMutableMap()
                 rolledBack.remove(key)
                 ConfigState.statusMeta = rolledBack
-                ConfigState.remarks.remove(key)
                 bindStatusList()
                 setBusy(false)
                 Toast.makeText(requireContext(), "Status create failed", Toast.LENGTH_LONG).show()
@@ -551,10 +601,13 @@ class ConfigStatusesFragment : Fragment() {
             false
         }
 
-    private suspend fun saveRemarks(): Boolean =
+    private suspend fun saveRemarksNode(
+        node: String,
+        data: Map<String, List<ConfigState.Remark>>
+    ): Boolean =
         try {
             val payload = mutableMapOf<String, Any>()
-            ConfigState.remarks.forEach { (statusKey, list) ->
+            data.forEach { (statusKey, list) ->
                 if (list.isNotEmpty()) {
                     payload[statusKey] = list.mapIndexed { i, r ->
                         "$i" to mapOf(
@@ -563,14 +616,15 @@ class ConfigStatusesFragment : Fragment() {
                             "text_en"       to r.text_en,
                             "target_status" to r.target_status,
                             "template_id"   to r.template_id,
+                            "priority"      to r.priority,
                         )
                     }.toMap()
                 }
             }
-            db.reference.child("config/remarks").setValue(payload).await()
+            db.reference.child(node).setValue(payload).await()
             true
         } catch (e: Exception) {
-            Log.e("ConfigStatuses", "Failed to save remarks", e)
+            Log.e("ConfigStatuses", "Failed to save remarks to $node", e)
             false
         }
 

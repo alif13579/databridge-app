@@ -7,11 +7,16 @@ package com.cloudx.databridge
  *   statuses, statusMeta, remarks, workerLang, ccLang
  *
  * Firebase paths:
- *   config/remarks/{statusKey}[]/         ← RemarksFragment r/w
- *   config/language/workerLang            ← LanguageFragment r/w
- *   config/language/ccLang                ← LanguageFragment r/w
- *   config/statusMeta/{key}/...           ← StatusesFragment r/w
- *   config/sheets/{branchId}/current/     ← SheetFragment r/w
+ *   config/remarks_worker/{statusKey}[]/      ← RemarksFragment r/w (worker scope)
+ *   config/remarks_call_center/{statusKey}[]/ ← RemarksFragment r/w (call-center scope)
+ *   config/language/workerLang                ← LanguageFragment r/w
+ *   config/language/ccLang                     ← LanguageFragment r/w
+ *   config/statusMeta/{key}/...                ← StatusesFragment r/w
+ *   config/sheets/{branchId}/current/          ← SheetFragment r/w
+ *
+ * Note: ConfigState.remarks is unused/legacy — StatusesFragment reads/writes the two
+ * scoped nodes directly (own remarksWorker/remarksCallCenter maps) since remark counts
+ * and delete-migration must be checked per scope independently.
  */
 object ConfigState {
 
