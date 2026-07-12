@@ -731,11 +731,11 @@ class WorkerSpaceFragment : Fragment() {
         } else {
             for ((index, entry) in historyEntries.withIndex()) {
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
-                val statusColor = when (entry.authorRole) {
-                    "cc" -> R.color.theme_accent
-                    "system" -> R.color.theme_text_muted
-                    else -> R.color.theme_accent
-                }
+                val statusCfg = WorkerParcelAdapter.getStatusConfig(
+                    requireContext(),
+                    entry.action.lowercase().replace(" ", "_"),
+                    workerStatusLang
+                )
 
                 val ivAvatar = timelineView.findViewById<android.widget.ImageView>(R.id.ivTimelineAvatar)
                 val tvLine = timelineView.findViewById<View>(R.id.viewTimelineLine)
@@ -760,7 +760,8 @@ class WorkerSpaceFragment : Fragment() {
                 tvAuthor.text = entry.author
 
                 tvStatus.text = entry.action
-                tvStatus.setTextColor(requireContext().getColor(statusColor))
+                tvStatus.setTextColor(statusCfg.color)
+                tvStatus.backgroundTintList = android.content.res.ColorStateList.valueOf(statusCfg.bg)
 
                 tvRemark.text = entry.remark
                 tvRemark.visibility = if (entry.remark.isNotBlank()) View.VISIBLE else View.GONE

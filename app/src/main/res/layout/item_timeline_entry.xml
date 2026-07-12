@@ -62,11 +62,16 @@
                 android:id="@+id/twTimelineStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="ASSIGNED"
-                android:textSize="10sp"
+                android:text="HOLD"
+                android:textSize="9sp"
                 android:textColor="@color/theme_accent"
                 android:textStyle="bold"
-                android:includeFontPadding="false" />
+                android:includeFontPadding="false"
+                android:background="@drawable/bg_remark_chip"
+                android:paddingStart="7dp"
+                android:paddingEnd="7dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp" />
         </LinearLayout>
 
         <TextView
