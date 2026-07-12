@@ -212,14 +212,19 @@
                             android:background="?attr/selectableItemBackgroundBorderless" />
                     </LinearLayout>
 
-                    <Spinner
-                        android:id="@+id/spinnerCcaAgent"
-                        android:layout_width="100dp"
+                    <TextView
+                        android:id="@+id/tvCcaAgentDropdown"
+                        android:layout_width="wrap_content"
                         android:layout_height="34dp"
-                        android:background="@drawable/bg_search_bar"
-                        android:paddingStart="6dp"
-                        android:paddingEnd="6dp"
-                        android:spinnerMode="dropdown" />
+                        android:text="👥 All Agents ▾"
+                        android:textSize="10sp"
+                        android:gravity="center"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:background="@drawable/bg_filter_chip_inactive"
+                        android:textColor="@color/theme_text_secondary"
+                        android:clickable="true"
+                        android:focusable="true" />
                 </LinearLayout>
 
                 <!-- Search result count -->
