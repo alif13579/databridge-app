@@ -18,6 +18,9 @@ import java.util.Locale
  */
 class NotificationListBottomSheet : BottomSheetDialogFragment() {
 
+    /** Called when the user taps a notification that has a linked parcel. */
+    var onParcelClick: ((parcelId: String, scope: String) -> Unit)? = null
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -126,6 +129,15 @@ class NotificationListBottomSheet : BottomSheetDialogFragment() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).also { it.bottomMargin = (8 * dp).toInt() }
+            // Tappable only when the notification links to a specific parcel
+            if (item.parcelId.isNotBlank()) {
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    onParcelClick?.invoke(item.parcelId, item.scope)
+                    dismissAllowingStateLoss()
+                }
+            }
         }
 
         // Icon + title row
@@ -150,7 +162,7 @@ class NotificationListBottomSheet : BottomSheetDialogFragment() {
         }
 
         val tvTitleText = TextView(ctx).apply {
-            text = item.title
+            text = if (item.parcelId.isNotBlank()) "${item.title}  →" else item.title
             textSize = 13f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setTextColor(ctx.getColor(R.color.theme_text_primary))

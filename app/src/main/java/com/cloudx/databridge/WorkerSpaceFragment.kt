@@ -129,6 +129,11 @@ class WorkerSpaceFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        // Notification tap-to-navigate: expand this parcel after data loads
+        arguments?.getString("expand_parcel_id")?.takeIf { it.isNotBlank() }?.let {
+            pendingExpandParcelId = it
+        }
+
         initViews(view)
         setupSearch()
         setupScanButton()
@@ -860,6 +865,8 @@ class WorkerSpaceFragment : Fragment() {
     private val remarkNodeListeners = mutableMapOf<String, Pair<DatabaseReference, ValueEventListener>>()
     // Tracks last-seen remark timestamp per consignment to detect genuinely new CC remarks
     private val workerLastSeenRemarkAt = mutableMapOf<String, Long>()
+    // Parcel ID to expand after data loads (set when navigating from a notification tap).
+    private var pendingExpandParcelId: String? = null
 
     /**
      * Attaches a ValueEventListener on courier/remarks_by_consignment/{cId} for every loaded
@@ -914,7 +921,9 @@ class WorkerSpaceFragment : Fragment() {
                                     AppNotificationManager.NotifItem(
                                         title = "CC Remark — $customer",
                                         message = message,
-                                        type = "remark"
+                                        type = "remark",
+                                        parcelId = cId,
+                                        scope = "worker"
                                     )
                                 )
                             }
@@ -1306,11 +1315,23 @@ class WorkerSpaceFragment : Fragment() {
 
         updateCounts()
 
+        // If navigated from a notification, expand the target parcel
+        val targetId = pendingExpandParcelId
+        if (targetId != null) {
+            adapter.expandedItemId = targetId
+            pendingExpandParcelId = null
+        }
         adapter.submitList(filtered)
         tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
         tvEmpty.text = if (allParcels.isEmpty()) "📭\n\nNo parcels found"
             else if (searchQuery.isNotBlank()) "📭\n\nNo results for \"$searchQuery\""
             else "📭\n\nNo ${activeFilter} parcels"
+
+        // Scroll to the expanded parcel after layout
+        if (targetId != null) {
+            val idx = filtered.indexOfFirst { it.id == targetId }
+            if (idx >= 0) rvParcelList.post { rvParcelList.smoothScrollToPosition(idx) }
+        }
     }
 
     private fun updateCounts() {

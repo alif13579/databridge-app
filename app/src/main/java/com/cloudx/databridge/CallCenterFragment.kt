@@ -80,6 +80,9 @@ class CallCenterFragment : Fragment() {
     // (vs. initial listener fire on attach) and trigger in-app notifications.
     private val ccLastSeenRemarkAt = mutableMapOf<String, Long>()
 
+    // Parcel ID to expand after data loads (set when navigating from a notification tap).
+    private var pendingExpandParcelId: String? = null
+
     // Per-parcel call-progress glow: id -> color. Persists across pause/stop (done stays green).
     private val callCardStates = mutableMapOf<String, Int>()
     private val colorCallDone = android.graphics.Color.parseColor("#16A34A")
@@ -167,6 +170,11 @@ class CallCenterFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        // Notification tap-to-navigate: expand this parcel after data loads
+        arguments?.getString("expand_parcel_id")?.takeIf { it.isNotBlank() }?.let {
+            pendingExpandParcelId = it
+        }
 
         initViews(view)
         updateModeDropdownLabel()
@@ -1363,7 +1371,9 @@ class CallCenterFragment : Fragment() {
                                 AppNotificationManager.NotifItem(
                                     title = "New Remark — $customer",
                                     message = message,
-                                    type = "remark"
+                                    type = "remark",
+                                    parcelId = cId,
+                                    scope = "cc"
                                 )
                             )
                         }
@@ -1755,9 +1765,22 @@ class CallCenterFragment : Fragment() {
 
         // Render list — DiffUtil computes the minimal set of changes, so the
         // RecyclerView only rebinds/animates rows that actually changed.
-        adapter.collapseExpanded()
+        val targetId = pendingExpandParcelId
+        if (targetId != null) {
+            // Don't collapse — set expansion to the notification target before submit
+            adapter.expandedItemId = targetId
+            pendingExpandParcelId = null
+        } else {
+            adapter.collapseExpanded()
+        }
         tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
         adapter.submitParcels(filtered)
+
+        // Scroll to the expanded parcel (post so RecyclerView has measured the new items)
+        if (targetId != null) {
+            val idx = filtered.indexOfFirst { it.id == targetId }
+            if (idx >= 0) rvParcelList.post { rvParcelList.smoothScrollToPosition(idx) }
+        }
     }
 
     /**

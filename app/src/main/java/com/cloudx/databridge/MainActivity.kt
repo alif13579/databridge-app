@@ -222,7 +222,14 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         findViewById<FrameLayout>(R.id.layoutNotifBell)?.setOnClickListener {
             AppNotificationManager.markAllRead()
             tvNotifBadge?.visibility = View.GONE
-            NotificationListBottomSheet().show(supportFragmentManager, "notif_list")
+            val sheet = NotificationListBottomSheet()
+            sheet.onParcelClick = { parcelId, scope ->
+                when (scope) {
+                    "worker" -> navigateToWorkerSpaceWithParcel(parcelId)
+                    else     -> navigateToCallCenterWithParcel(parcelId)
+                }
+            }
+            sheet.show(supportFragmentManager, "notif_list")
         }
         AppNotificationManager.setBadgeListener { count ->
             runOnUiThread {
@@ -775,6 +782,26 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         loadFragment(CallCenterFragment())
         if (bottomNav.menu.findItem(R.id.nav_call_center) != null) {
             bottomNav.selectedItemId = R.id.nav_call_center
+        }
+    }
+
+    fun navigateToCallCenterWithParcel(parcelId: String) {
+        val fragment = CallCenterFragment().apply {
+            arguments = android.os.Bundle().apply { putString("expand_parcel_id", parcelId) }
+        }
+        loadFragment(fragment)
+        if (bottomNav.menu.findItem(R.id.nav_call_center) != null) {
+            bottomNav.selectedItemId = R.id.nav_call_center
+        }
+    }
+
+    fun navigateToWorkerSpaceWithParcel(parcelId: String) {
+        val fragment = WorkerSpaceFragment().apply {
+            arguments = android.os.Bundle().apply { putString("expand_parcel_id", parcelId) }
+        }
+        loadFragment(fragment)
+        if (bottomNav.menu.findItem(R.id.nav_space) != null) {
+            bottomNav.selectedItemId = R.id.nav_space
         }
     }
 

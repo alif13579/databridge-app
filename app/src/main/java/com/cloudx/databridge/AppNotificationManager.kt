@@ -17,7 +17,9 @@ object AppNotificationManager {
         val title: String,
         val message: String,
         val timestamp: Long = System.currentTimeMillis(),
-        val type: String = "remark", // "remark" | "alert" | etc.
+        val type: String = "remark",   // "remark" | "alert" | etc.
+        val parcelId: String = "",     // consignment ID — for tap-to-navigate
+        val scope: String = "cc",      // "cc" | "worker" — which fragment to open
         var read: Boolean = false
     )
 
