@@ -126,21 +126,21 @@ class CallCenterFragment : Fragment() {
     private lateinit var tvSearchCount: TextView
     private var searchQuery: String = ""
 
-    private lateinit var tvAgentDropdown: TextView
-    private val selectedAgentFilters: MutableSet<String> = mutableSetOf() // empty = all agents
-    private var ccAgentOptions: List<String> = emptyList() // known agent display-names
+    private lateinit var spinnerCcAgent: Spinner
+    private var agentFilter: String = "all"
+    private var ccAgentOptions: List<String> = listOf("all")
 
     private lateinit var tvCollapseArrow: TextView
     private lateinit var layoutCollapsibleSection: LinearLayout
     private var isHeaderExpanded = false // starts collapsed to save screen space
     private var statusFilter = "all"
     private val selectedBranchIds = mutableSetOf<String>()
-    private val branchIdToName = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val branchIdToName = mutableMapOf<String, String>()
     private var branches = listOf<String>()
-    // "priority" = only verify_req parcels (agents who sent a request, called first).
+    // "priority" (default) = only verify_req parcels — agents who sent a request, called first.
     // "all" = every branch-scoped parcel regardless of request, for random spot-verification.
-    // Both may be selected simultaneously — see showModeDropdown() / applyFilters().
-    private val selectedAccessModes: MutableSet<String> = mutableSetOf("priority")
+    private var ccAccessMode = "priority"
+    // ccAccessMode: "priority" = only verify_req parcels, "all" = every branch-scoped parcel
     // CC agent's own assigned branches (RbacManager, loaded at login) — scopes ALL data fetching.
     private var myBranchIds: List<String> = emptyList()
     // (runType/runId) keys that already have a dedicated live listener attached — prevents
@@ -187,7 +187,6 @@ class CallCenterFragment : Fragment() {
         tvBranchDropdown = view.findViewById(R.id.tvCcaBranchDropdown)
         tvModeDropdown.setOnClickListener { showModeDropdown() }
         tvBranchDropdown.setOnClickListener { showBranchDropdown() }
-        tvAgentDropdown.setOnClickListener { showAgentDropdown() }
         layoutFilterTabs = view.findViewById(R.id.layoutCcaFilterTabs)
         rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
@@ -197,7 +196,7 @@ class CallCenterFragment : Fragment() {
         etSearch = view.findViewById(R.id.twCcaSearchInput)
         tvSearchClear = view.findViewById(R.id.twCcaSearchClear)
         tvSearchCount = view.findViewById(R.id.twCcaSearchCount)
-        tvAgentDropdown = view.findViewById(R.id.tvCcaAgentDropdown)
+        spinnerCcAgent = view.findViewById(R.id.spinnerCcaAgent)
         tvCollapseArrow = view.findViewById(R.id.tvCcaCollapseArrow)
         layoutCollapsibleSection = view.findViewById(R.id.layoutCcaCollapsibleSection)
         setupSearch()
@@ -672,12 +671,8 @@ class CallCenterFragment : Fragment() {
 
     private fun updateModeDropdownLabel() {
         val ctx = context ?: return
-        val label = when {
-            selectedAccessModes.containsAll(listOf("priority", "all")) -> "🔔+👥 Both ▾"
-            "priority" in selectedAccessModes -> "🔔 Priority ▾"
-            else -> "👥 All Agents ▾"
-        }
-        tvModeDropdown.text = label
+        val isPriority = ccAccessMode == "priority"
+        tvModeDropdown.text = if (isPriority) "🔔 Priority ▾" else "👥 All Agents ▾"
         tvModeDropdown.setBackgroundResource(R.drawable.bg_filter_chip_active)
         tvModeDropdown.setTextColor(ctx.getColor(android.R.color.white))
     }
@@ -685,22 +680,15 @@ class CallCenterFragment : Fragment() {
     private fun showModeDropdown() {
         val ctx = context ?: return
         val options = arrayOf("🔔 Priority Queue", "👥 All Agents")
-        val keys = arrayOf("priority", "all")
-        val checked = BooleanArray(keys.size) { i -> keys[i] in selectedAccessModes }
+        val currentIndex = if (ccAccessMode == "priority") 0 else 1
         android.app.AlertDialog.Builder(ctx)
             .setTitle("Access Mode")
-            .setMultiChoiceItems(options, checked) { _, which, isChecked ->
-                if (isChecked) selectedAccessModes.add(keys[which])
-                else selectedAccessModes.remove(keys[which])
-            }
-            .setPositiveButton("Apply") { _, _ ->
-                // Both being deselected isn't a meaningful state — fall back to "all"
-                // rather than showing an empty/undefined list.
-                if (selectedAccessModes.isEmpty()) selectedAccessModes.add("all")
+            .setSingleChoiceItems(options, currentIndex) { dialog, which ->
+                ccAccessMode = if (which == 0) "priority" else "all"
                 updateModeDropdownLabel()
                 applyFilters()
+                dialog.dismiss()
             }
-            .setNegativeButton("Cancel", null)
             .show()
     }
 
@@ -946,68 +934,28 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    /** Rebuilds the agent filter dropdown options from whichever workers currently have parcels. */
+    /** Rebuilds the agent filter dropdown from whichever workers currently have parcels. */
     private fun bindCcAgentSpinner() {
-        if (!::tvAgentDropdown.isInitialized) return
+        if (!::spinnerCcAgent.isInitialized) return
+        val ctx = context ?: return
         val agents = allParcels.map { it.worker }.filter { it.isNotBlank() }.distinct().sorted()
-        ccAgentOptions = agents
-        // Drop any previously-selected agent who no longer has any parcels.
-        selectedAgentFilters.retainAll(agents.toSet())
-        updateAgentDropdownLabel()
-    }
+        ccAgentOptions = listOf("all") + agents
+        if (agentFilter != "all" && agentFilter !in agents) agentFilter = "all" // agent no longer present
 
-    private fun updateAgentDropdownLabel() {
-        val ctx = context ?: return
-        val selected = selectedAgentFilters.intersect(ccAgentOptions.toSet())
-        val isFiltered = selected.isNotEmpty() && selected.size < ccAgentOptions.size
-        val label = when {
-            !isFiltered -> "👥 All Agents ▾"
-            selected.size == 1 -> "${selected.first()} ▾"
-            selected.size == 2 -> {
-                val names = selected.toList()
-                "${names[0]} & ${names[1]} ▾"
-            }
-            else -> {
-                val names = selected.take(2).toList()
-                "${names[0]}, ${names[1]} & ${selected.size - 2} more ▾"
-            }
-        }
-        tvAgentDropdown.text = label
-        tvAgentDropdown.setBackgroundResource(
-            if (isFiltered) R.drawable.bg_filter_chip_active_purple else R.drawable.bg_filter_chip_inactive
-        )
-        tvAgentDropdown.setTextColor(
-            ctx.getColor(if (isFiltered) android.R.color.white else R.color.theme_text_secondary)
-        )
-    }
-
-    private fun showAgentDropdown() {
-        val ctx = context ?: return
-        if (ccAgentOptions.isEmpty()) {
-            Toast.makeText(ctx, "এখনো কোনো agent-এর parcel নেই", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val agentArray = ccAgentOptions.toTypedArray()
-        val checked = BooleanArray(agentArray.size) { i ->
-            selectedAgentFilters.isEmpty() || agentArray[i] in selectedAgentFilters
-        }
-        android.app.AlertDialog.Builder(ctx)
-            .setTitle("Select Agents")
-            .setMultiChoiceItems(agentArray, checked) { _, which, isChecked ->
-                if (isChecked) selectedAgentFilters.add(agentArray[which])
-                else selectedAgentFilters.remove(agentArray[which])
-            }
-            .setPositiveButton("Apply") { _, _ ->
-                if (selectedAgentFilters.size >= ccAgentOptions.size) selectedAgentFilters.clear()
-                updateAgentDropdownLabel()
+        val labels = listOf("👥 All Agents") + agents
+        val adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, labels)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerCcAgent.adapter = adapter
+        spinnerCcAgent.setSelection(ccAgentOptions.indexOf(agentFilter).coerceAtLeast(0))
+        spinnerCcAgent.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val next = ccAgentOptions.getOrNull(position) ?: "all"
+                if (next == agentFilter) return
+                agentFilter = next
                 applyFilters()
             }
-            .setNeutralButton("All") { _, _ ->
-                selectedAgentFilters.clear()
-                updateAgentDropdownLabel()
-                applyFilters()
-            }
-            .show()
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
     }
 
     private fun formatCcRunTypeLabel(runType: String): String =
@@ -1201,22 +1149,6 @@ class CallCenterFragment : Fragment() {
                         val hub = resolvedBranch.ifBlank {
                             snap.child("deliveryHub").getValue(String::class.java) ?: ""
                         }
-                        // Resolve to a display name (not the raw id) — reuses/feeds the same
-                        // branchIdToName cache the branch-filter dropdown uses, and self-heals
-                        // (fetches + caches on demand) instead of depending on that dropdown's
-                        // own async population having already finished.
-                        val hubName = when {
-                            hub.isBlank() -> hub
-                            branchIdToName.containsKey(hub) -> branchIdToName[hub] ?: hub
-                            else -> {
-                                val resolved = runCatching {
-                                    db.reference.child("branches/$hub/name").get().await()
-                                        .getValue(String::class.java)
-                                }.getOrNull()?.takeIf { it.isNotBlank() } ?: hub
-                                branchIdToName[hub] = resolved
-                                resolved
-                            }
-                        }
                         val status  = snap.child("status").getValue(String::class.java) ?: runStatus
                         val createdAtVal = snap.child("createdAt").getValue(Long::class.java) ?: 0L
                         val updatedAtVal = snap.child("updatedAt").getValue(Long::class.java) ?: 0L
@@ -1249,7 +1181,7 @@ class CallCenterFragment : Fragment() {
                                 validationNote    = if (remarkStatus == "verify_req") remarkLabel else "",
                                 time              = "",
                                 worker            = nameMap[agentSystemId] ?: agentSystemId,
-                                branch            = hubName,
+                                branch            = hub,
                                 createdAt         = createdAtVal,
                                 updatedAt         = updatedAtVal
                             ),
@@ -1688,12 +1620,9 @@ class CallCenterFragment : Fragment() {
     private fun applyFilters() {
         var filtered = allParcels
 
-        // Access mode — Priority-only shows just agents who sent a verify request;
-        // All-only shows everyone in-branch regardless, for random spot-verification;
-        // both selected shows everyone, priority (validation-requested) parcels first.
-        val modeHasPriority = "priority" in selectedAccessModes
-        val modeHasAll = "all" in selectedAccessModes
-        if (modeHasPriority && !modeHasAll) {
+        // Access mode — Priority shows only agents who actually sent a verify request;
+        // All Agents shows everyone in-branch regardless, for random spot-verification.
+        if (ccAccessMode == "priority") {
             filtered = filtered.filter { it.validationRequest }
         }
 
@@ -1702,9 +1631,9 @@ class CallCenterFragment : Fragment() {
             filtered = filtered.filter { it.branch in selectedBranchIds }
         }
 
-        // Agent (worker) filter — empty selectedAgentFilters means all agents
-        if (selectedAgentFilters.isNotEmpty()) {
-            filtered = filtered.filter { it.worker in selectedAgentFilters }
+        // Agent (worker) filter
+        if (agentFilter != "all") {
+            filtered = filtered.filter { it.worker == agentFilter }
         }
 
         // Search filter — phone, ID, customer name, or COD amount
@@ -1732,13 +1661,6 @@ class CallCenterFragment : Fragment() {
         // Status filter — dynamic exact match, remark status takes priority over parcel status
         filtered = if (statusFilter == "all") filtered
                    else filtered.filter { it.effectiveStatus == statusFilter }
-
-        // When both Priority Queue and All Agents are selected, surface priority
-        // (validation-requested) parcels first — stable sort keeps each group's
-        // own existing relative order intact.
-        if (modeHasPriority && modeHasAll) {
-            filtered = filtered.sortedByDescending { it.validationRequest }
-        }
 
         // Update stats
         val total = allParcels.size

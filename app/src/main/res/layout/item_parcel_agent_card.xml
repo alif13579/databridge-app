@@ -101,7 +101,8 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:gravity="end"
-            android:layout_marginStart="10dp">
+            android:layout_marginStart="10dp"
+            android:layout_marginTop="12dp">
 
             <TextView
                 android:id="@+id/tvAgtCod"
