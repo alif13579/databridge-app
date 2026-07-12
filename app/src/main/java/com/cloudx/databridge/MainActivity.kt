@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import coil.load
@@ -213,6 +214,20 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 drawerLayout.closeDrawer(GravityCompat.START)
             } else {
                 drawerLayout.openDrawer(GravityCompat.START)
+            }
+        }
+
+        // ── Notification bell ────────────────────────────────────────────
+        val tvNotifBadge = findViewById<TextView>(R.id.tvNotifBadge)
+        findViewById<FrameLayout>(R.id.layoutNotifBell)?.setOnClickListener {
+            AppNotificationManager.markAllRead()
+            tvNotifBadge?.visibility = View.GONE
+            NotificationListBottomSheet().show(supportFragmentManager, "notif_list")
+        }
+        AppNotificationManager.setBadgeListener { count ->
+            runOnUiThread {
+                tvNotifBadge?.text = if (count > 99) "99+" else count.toString()
+                tvNotifBadge?.visibility = if (count > 0) View.VISIBLE else View.GONE
             }
         }
     }

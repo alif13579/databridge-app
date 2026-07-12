@@ -76,6 +76,10 @@ class CallCenterFragment : Fragment() {
     private var autoCallQueueIds: List<String> = emptyList()   // matching parcel ids, same order
     private var autoCallIndex = 0
 
+    // Per-consignment last-seen remark timestamp — used to detect genuinely new remarks
+    // (vs. initial listener fire on attach) and trigger in-app notifications.
+    private val ccLastSeenRemarkAt = mutableMapOf<String, Long>()
+
     // Per-parcel call-progress glow: id -> color. Persists across pause/stop (done stays green).
     private val callCardStates = mutableMapOf<String, Int>()
     private val colorCallDone = android.graphics.Color.parseColor("#16A34A")
@@ -1268,6 +1272,32 @@ class CallCenterFragment : Fragment() {
                             it.child("createdAt").getValue(Long::class.java) ?: 0L
                         }
                         val latest = sorted.firstOrNull()
+
+                        // ── New-remark notification ───────────────────────────────
+                        // Skip the very first fire (initial attach) by checking prevAt > 0.
+                        val latestCreatedAt = latest?.child("createdAt")?.getValue(Long::class.java) ?: 0L
+                        val prevAt = ccLastSeenRemarkAt[cId] ?: 0L
+                        if (latestCreatedAt > prevAt && prevAt > 0L) {
+                            val parcel = allParcels.firstOrNull { it.id == cId }
+                            val customer = parcel?.customer?.takeIf { it.isNotBlank() } ?: cId
+                            val remarkText = latest?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
+                            val remarkStatus = latest?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
+                            val message = when {
+                                remarkText.isNotBlank() -> remarkText
+                                remarkStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, remarkStatus, ccStatusLang).label
+                                else -> "নতুন রিমার্ক এসেছে"
+                            }
+                            AppNotificationManager.add(
+                                ctx,
+                                AppNotificationManager.NotifItem(
+                                    title = "New Remark — $customer",
+                                    message = message,
+                                    type = "remark"
+                                )
+                            )
+                        }
+                        ccLastSeenRemarkAt[cId] = latestCreatedAt
+                        // ─────────────────────────────────────────────────────────
                         val latestRemark = latest?.let {
                             val status = it.child("status").getValue(String::class.java)?.trim().orEmpty()
                             val remarkText = it.child("remarks").getValue(String::class.java)?.trim().orEmpty()
