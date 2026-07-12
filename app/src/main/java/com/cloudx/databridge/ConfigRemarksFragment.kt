@@ -253,7 +253,8 @@ class ConfigRemarksFragment : Fragment() {
             tvEmpty.visibility = View.VISIBLE
             return
         }
-        val list = remarks[activeStatus] ?: emptyList()
+        // Sort by priority descending (higher number = higher priority = top)
+        val list = (remarks[activeStatus] ?: emptyList()).sortedByDescending { it.priority }
         tvEmpty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
         list.forEach { r ->
             val row = LayoutInflater.from(requireContext())
@@ -261,6 +262,15 @@ class ConfigRemarksFragment : Fragment() {
 
             row.findViewById<TextView>(R.id.tvRemarkBn).text = r.text_bn
             row.findViewById<TextView>(R.id.tvRemarkEn).text = r.text_en
+
+            // Priority badge — show only when priority != 0
+            val tvPriority = row.findViewById<TextView>(R.id.tvRemarkPriority)
+            if (r.priority != 0) {
+                tvPriority.text = "P${r.priority}"
+                tvPriority.visibility = View.VISIBLE
+            } else {
+                tvPriority.visibility = View.GONE
+            }
 
             // Target status spinner on the card
             val sorted = sortedStatuses()
