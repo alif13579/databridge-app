@@ -42,14 +42,12 @@ import java.util.concurrent.TimeUnit
  *                    Step 3: Tab dropdown (from Sheets API)
  *                    Step 4: Column range + summary
  *   MANAGING       → mini-tabs: Overview | Columns | Sync
+ *
+ * Data models   → ConfigSheetModels.kt  (DriveFile, SheetConn, ColMapping, …)
+ * Drive/Sheets API → ConfigSheetDriveApi.kt  (fetchDriveSpreadsheets, fetchSheetTabs)
+ * Parse utilities  → ConfigSheetParseUtil.kt (parseColInput, colIndexToLetter, …)
  */
 class ConfigSheetFragment : Fragment() {
-
-    companion object {
-        private const val SCOPE_DRIVE  = "https://www.googleapis.com/auth/drive.readonly"
-        private const val SCOPE_SHEETS = "https://www.googleapis.com/auth/spreadsheets.readonly"
-        private const val OAUTH_SCOPE  = "oauth2:$SCOPE_DRIVE $SCOPE_SHEETS"
-    }
 
     private val db   = FirebaseDatabase.getInstance()
     private val auth = FirebaseAuth.getInstance()
@@ -64,8 +62,8 @@ class ConfigSheetFragment : Fragment() {
     private var googleSignInClient: GoogleSignInClient? = null
 
     // ── State machine ─────────────────────────────────────────────────
-    private enum class Screen { BRANCH_SELECT, CONNECTING, MANAGING }
-    private var screen       = Screen.BRANCH_SELECT
+    // (ConfigScreen / ConfigPrimaryAction enums → ConfigSheetModels.kt)
+    private var screen       = ConfigConfigScreen.BRANCH_SELECT
     private var activeBranch = ""
     private var connectStep  = 1   // 1=Account  2=Sheet  3=Tab  4=Columns
 
@@ -80,91 +78,6 @@ class ConfigSheetFragment : Fragment() {
     private var selectedSheet:    DriveFile?           = null
     private var availableTabs:    List<String>         = emptyList()
     private var selectedTab:      String               = ""
-
-    data class DriveFile(val id: String, val name: String) {
-        override fun toString() = name
-    }
-
-    data class BranchInfo(
-        val id: String = "",
-        val name: String = "",
-        val code: String = "",
-        val address: String = "",
-        val type: String = "",
-        val status: String = "",
-    )
-
-    // A single component of a composite primary key.
-    // type = "fixed" → `value` is literal text (e.g. "run_")
-    // type = "col"   → `value` is a sheet column letter whose row-value gets read dynamically (raw, unformatted)
-    // type = "date"  → `value` is a sheet column letter; the cell value is parsed (via
-    //                  parseSheetTimestamp — handles Excel-serial numbers and common date
-    //                  strings) and formatted as ddMMyy (e.g. "040726"), always 6 digits.
-    data class PkPart(
-        val type:   String = "col",   // "col" | "fixed" | "date"
-        val value:  String = "",
-        val header: String = "",      // sheet header at connect time — for drift detection
-    )
-
-    /** Maps a Firebase field to a sheet column — stores both letter AND header name for drift detection. */
-    data class ColMapping(
-        val col:    String = "",   // sheet column letter (e.g. "F")
-        val header: String = "",   // exact sheet header text at time of connect (e.g. "Status")
-    )
-
-    /**
-     * Maps a Firebase object field (e.g. "consignments") to two sheet columns.
-     * Both column letters AND header names are stored so drift can be detected for
-     * object fields exactly the same way as for scalar fields.
-     */
-    data class ObjectColMapping(
-        val keyCol:      String = "",  // col letter for the key column
-        val keyHeader:   String = "",  // header text at connect time
-        val valueCol:    String = "",  // col letter for the value column
-        val valueHeader: String = "",  // header text at connect time
-    ) {
-        /** Converts to the "col:X" / "fixed:X" spec strings used during sync. */
-        fun keySpec()   = if (keyCol.startsWith("fixed:"))   keyCol   else "col:$keyCol"
-        fun valueSpec() = if (valueCol.startsWith("fixed:")) valueCol else "col:$valueCol"
-    }
-
-    data class SheetConn(
-        val connectionId:   String  = "",   // Firebase push key
-        val nickname:       String  = "",   // user-defined label
-        val branchId:       String  = "",
-        val sheetId:        String  = "",
-        val sheetName:      String  = "",
-        val tabName:        String  = "",
-        val colStart:       Int     = 1,
-        val colEnd:         Int     = 10,
-        val startRow:       Int?    = null,
-        val endRow:         Int?    = null,
-        val autoSync:       Boolean = false,
-        val syncIntervalMin:Int     = 30,
-        val googleEmail:    String  = "",
-        val connectedBy:    String  = "",
-        val connectedAt:    Long    = 0L,
-        val columnMapping:  Map<String, ColMapping> = emptyMap(),
-        val objectColumnMapping: Map<String, ObjectColMapping> = emptyMap(),
-        val primaryKeyField: String = "",  // LEGACY — colLetter whose value = Firebase node key
-        val targetNode:     String  = "courier/consignments",
-        // NEW — composite key: prefix(fixed) + one or more columns, in order.
-        // e.g. [Fixed("run_"), Column("B"), Column("C")] → run_FDA009_20250703
-        // Falls back to `primaryKeyField` (single column) when empty, for backward compatibility.
-        val primaryKeyParts: List<PkPart> = emptyList(),
-    ) {
-        /** Resolves the effective composite key parts, migrating legacy single-column configs. */
-        fun effectivePkParts(): List<PkPart> = when {
-            primaryKeyParts.isNotEmpty() -> primaryKeyParts
-            primaryKeyField.isNotBlank() -> listOf(PkPart("col", primaryKeyField))
-            else -> emptyList()
-        }
-        val columns: List<String> get() = (colStart..colEnd).map { n ->
-            var num = n; var result = ""
-            while (num > 0) { val rem = (num - 1) % 26; result = ('A' + rem) + result; num = (num - 1) / 26 }
-            result
-        }
-    }
 
     // ── Views ─────────────────────────────────────────────────────────
     private var root: FrameLayout? = null
@@ -323,8 +236,8 @@ class ConfigSheetFragment : Fragment() {
     // Step 5 primary button can behave as Connect (new), Save (edited existing), or Exit Wizard
     // (existing connection reopened with zero changes). Decided centrally in
     // updateConnectButtonState() and read by the click handler.
-    private enum class PrimaryAction { NEW, SAVE, EXIT }
-    private var primaryAction = PrimaryAction.NEW
+    // (ConfigPrimaryAction enum → ConfigSheetModels.kt)
+    private var primaryAction = ConfigPrimaryAction.NEW
 
     // Step 5 — column mapping
     // Firebase field → column letter selected by user
@@ -545,25 +458,25 @@ class ConfigSheetFragment : Fragment() {
         btnBranchAction?.setOnClickListener {
             if (activeBranch.isEmpty()) return@setOnClickListener
             val conn = activeConn()
-            if (conn != null) { activeConnectionId = conn.connectionId; screen = Screen.MANAGING; render() }
-            else              { screen = Screen.CONNECTING; connectStep = 1; clearConnectForm(); render() }
+            if (conn != null) { activeConnectionId = conn.connectionId; screen = ConfigScreen.MANAGING; render() }
+            else              { screen = ConfigScreen.CONNECTING; connectStep = 1; clearConnectForm(); render() }
         }
 
         btnCancelConn?.setOnClickListener {
             if (isRangeEdit) {
                 isRangeEdit = false
-                screen = Screen.MANAGING
+                screen = ConfigScreen.MANAGING
             } else {
-                screen = Screen.BRANCH_SELECT
+                screen = ConfigScreen.BRANCH_SELECT
             }
             render()
         }
-        btnManBack?.setOnClickListener    { screen = Screen.BRANCH_SELECT; render() }
+        btnManBack?.setOnClickListener    { screen = ConfigScreen.BRANCH_SELECT; render() }
 
         btnNext?.setOnClickListener { advanceStep() }
         btnBack?.setOnClickListener { if (connectStep > 1) { connectStep--; renderConnectStep() } }
         btnConnect?.setOnClickListener {
-            if (primaryAction == PrimaryAction.EXIT) exitWizardNoChanges() else handleConnect()
+            if (primaryAction == ConfigPrimaryAction.EXIT) exitWizardNoChanges() else handleConnect()
         }
 
         btnPickAccount?.setOnClickListener { pickGoogleAccount() }
@@ -591,7 +504,7 @@ class ConfigSheetFragment : Fragment() {
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
 
-        btnManReconnect?.setOnClickListener { screen = Screen.CONNECTING; connectStep = 1; prefillConnectForm(); render() }
+        btnManReconnect?.setOnClickListener { screen = ConfigScreen.CONNECTING; connectStep = 1; prefillConnectForm(); render() }
         btnColChange?.setOnClickListener { openRangeEditor() }
         btnManDisconn?.setOnClickListener   { handleDisconnect() }
 
@@ -649,14 +562,14 @@ class ConfigSheetFragment : Fragment() {
     // ── Render ────────────────────────────────────────────────────────
     private fun render() {
         if (!isAdded) return
-        panelBranch?.visibility  = if (screen == Screen.BRANCH_SELECT) View.VISIBLE else View.GONE
-        panelConnect?.visibility = if (screen == Screen.CONNECTING)    View.VISIBLE else View.GONE
-        panelManage?.visibility  = if (screen == Screen.MANAGING)      View.VISIBLE else View.GONE
+        panelBranch?.visibility  = if (screen == ConfigScreen.BRANCH_SELECT) View.VISIBLE else View.GONE
+        panelConnect?.visibility = if (screen == ConfigScreen.CONNECTING)    View.VISIBLE else View.GONE
+        panelManage?.visibility  = if (screen == ConfigScreen.MANAGING)      View.VISIBLE else View.GONE
 
         when (screen) {
-            Screen.BRANCH_SELECT -> updateBranchSpinner()
-            Screen.CONNECTING    -> { tvConnBranchSub?.text = "Branch: ${branchLabel(activeBranch)}"; renderConnectStep() }
-            Screen.MANAGING      -> renderManagePanel()
+            ConfigScreen.BRANCH_SELECT -> updateBranchSpinner()
+            ConfigScreen.CONNECTING    -> { tvConnBranchSub?.text = "Branch: ${branchLabel(activeBranch)}"; renderConnectStep() }
+            ConfigScreen.MANAGING      -> renderManagePanel()
         }
     }
 
@@ -819,7 +732,7 @@ class ConfigSheetFragment : Fragment() {
                         activeConnectionId = ""
                         selectedNickname   = ""
                         clearConnectForm()
-                        screen      = Screen.CONNECTING
+                        screen      = ConfigScreen.CONNECTING
                         connectStep = 1
                         render()
                     }
@@ -943,7 +856,7 @@ class ConfigSheetFragment : Fragment() {
                         setOnClickListener {
                             activeBranch       = branchId
                             activeConnectionId = conn.connectionId
-                            screen = Screen.MANAGING
+                            screen = ConfigScreen.MANAGING
                             render()
                         }
                     }
@@ -1149,7 +1062,7 @@ class ConfigSheetFragment : Fragment() {
                     viewLifecycleOwner.lifecycleScope.launch {
                         try {
                             val token = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                try { com.google.android.gms.auth.GoogleAuthUtil.getToken(requireContext(), account.account!!, OAUTH_SCOPE) }
+                                try { com.google.android.gms.auth.GoogleAuthUtil.getToken(requireContext(), account.account!!, ConfigSheetDriveApi.OAUTH_SCOPE) }
                                 catch (_: Exception) { null }
                             }
                             if (token != null) {
@@ -1201,29 +1114,9 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** Parse "A", "a", "1", "AA" etc → 1-based column index */
-    private fun parseColInput(raw: String): Int? {
-        val s = raw.trim().uppercase()
-        if (s.isEmpty()) return null
-        // Numeric
-        s.toIntOrNull()?.let { return it }
-        // Letter(s): A=1, B=2 ... Z=26, AA=27 ...
-        var result = 0
-        for (ch in s) {
-            if (ch !in 'A'..'Z') return null
-            result = result * 26 + (ch - 'A' + 1)
-        }
-        return result
-    }
-
-    private fun colIndexToLetter(n: Int): String {
-        var num = n; var result = ""
-        while (num > 0) {
-            val rem = (num - 1) % 26
-            result = ('A' + rem) + result
-            num = (num - 1) / 26
-        }
-        return result
-    }
+    // parseColInput / colIndexToLetter → ConfigSheetParseUtil
+    private fun parseColInput(raw: String)  = ConfigSheetParseUtil.parseColInput(raw)
+    private fun colIndexToLetter(n: Int)    = ConfigSheetParseUtil.colIndexToLetter(n)
 
     private fun updateColPreview() {
         val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run {
@@ -1291,7 +1184,7 @@ class ConfigSheetFragment : Fragment() {
             tableLivePreview?.removeAllViews()
             val ctx = context ?: return
             val token = withContext(Dispatchers.IO) {
-                try { GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE) }
+                try { GoogleAuthUtil.getToken(ctx, acctObj, ConfigSheetDriveApi.OAUTH_SCOPE) }
                 catch (e: UserRecoverableAuthException) { null }
             } ?: run {
                 tvLivePreview?.text = "⚠ Token পাওয়া যায়নি"
@@ -1458,7 +1351,7 @@ class ConfigSheetFragment : Fragment() {
                 val acctObj = signInAccount.account ?: return@launch
                 val ctx     = context ?: return@launch
                 val token   = withContext(Dispatchers.IO) {
-                    try { GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE) }
+                    try { GoogleAuthUtil.getToken(ctx, acctObj, ConfigSheetDriveApi.OAUTH_SCOPE) }
                     catch (e: UserRecoverableAuthException) { null }
                 } ?: run {
                     tvColPreviewMgr?.text = "⚠ Token পাওয়া যায়নি"
@@ -1522,7 +1415,7 @@ class ConfigSheetFragment : Fragment() {
         try {
             // ── 1. Get token ─────────────────────────────────────────
             val token = withContext(Dispatchers.IO) {
-                try { GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE) }
+                try { GoogleAuthUtil.getToken(ctx, acctObj, ConfigSheetDriveApi.OAUTH_SCOPE) }
                 catch (e: UserRecoverableAuthException) { null }
             } ?: run { setBusy(false); toast("⚠ Token পাওয়া যায়নি"); return }
 
@@ -2071,58 +1964,9 @@ class ConfigSheetFragment : Fragment() {
      * Slash/dash formats like "7/1/2026" are intentionally NOT accepted since
      * day-vs-month order can't be reliably determined — better to skip than guess wrong.
      */
-    private fun parseSheetTimestamp(raw: String): Long? {
-        if (raw.isBlank()) return null
-        val trimmed = raw.trim()
-
-        // Numeric: epoch seconds/millis, or spreadsheet date-serial number
-        trimmed.toDoubleOrNull()?.let { num ->
-            val isPlainInteger = trimmed.matches(Regex("\\d+"))
-            return when {
-                isPlainInteger && trimmed.length == 13 -> num.toLong()               // epoch millis
-                isPlainInteger && trimmed.length == 10 -> (num * 1000.0).toLong()    // epoch seconds
-                num > 0 && num < 100000 -> {
-                    // Google Sheets / Excel date-serial: day 0 = 1899-12-30 (UTC).
-                    // Integer part = days, fractional part = time-of-day.
-                    ((num - 25569.0) * 86400000.0).toLong()
-                }
-                else -> null // unrecognized numeric shape — don't guess
-            }
-        }
-
-        val patterns = listOf(
-            "yyyy-MM-dd'T'HH:mm:ss",
-            "yyyy-MM-dd HH:mm:ss",
-            "yyyy-MM-dd",
-            "yyyy/MM/dd HH:mm:ss",
-            "yyyy/MM/dd",
-            "dd-MMM-yyyy",
-            "d-MMM-yyyy",
-            "dd-MMM-yy",
-            "d-MMM-yy",
-        )
-        for (pattern in patterns) {
-            try {
-                val sdf = java.text.SimpleDateFormat(pattern, java.util.Locale.ENGLISH)
-                sdf.isLenient = false
-                val date = sdf.parse(trimmed) ?: continue
-                return date.time
-            } catch (_: Exception) { /* try next pattern */ }
-        }
-        return null // unparseable — caller should skip this field
-    }
-
-    private fun normalizePhone(phone: String): String {
-        val digits = phone.filter { it.isDigit() }
-        return when {
-            digits.isBlank()                              -> ""
-            digits.startsWith("880") && digits.length == 13 -> digits
-            digits.startsWith("0")   && digits.length == 11 -> "88" + digits
-            // 10-digit local number missing leading 0 (e.g. 1885580909)
-            digits.length == 10                             -> "880" + digits
-            else                                             -> "88" + digits
-        }
-    }
+    // parseSheetTimestamp / normalizePhone → ConfigSheetParseUtil
+    private fun parseSheetTimestamp(raw: String) = ConfigSheetParseUtil.parseSheetTimestamp(raw)
+    private fun normalizePhone(phone: String)     = ConfigSheetParseUtil.normalizePhone(phone)
 
     private fun renderSyncTab(conn: SheetConn) {
         switchAutoSync?.setOnCheckedChangeListener(null)
@@ -2295,7 +2139,7 @@ class ConfigSheetFragment : Fragment() {
                         setBusy(true, "Header fetch করছে...")
                         try {
                             val token = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                try { com.google.android.gms.auth.GoogleAuthUtil.getToken(requireContext(), account.account!!, OAUTH_SCOPE) }
+                                try { com.google.android.gms.auth.GoogleAuthUtil.getToken(requireContext(), account.account!!, ConfigSheetDriveApi.OAUTH_SCOPE) }
                                 catch (ex: Exception) { null }
                             }
                             if (token != null) {
@@ -2470,7 +2314,7 @@ class ConfigSheetFragment : Fragment() {
         activeConnectionId = conn.connectionId
         // Expand this branch so newly added sheet card is visible
         expandedBranch = activeBranch
-        screen = if (isRangeEdit) Screen.MANAGING else Screen.BRANCH_SELECT
+        screen = if (isRangeEdit) ConfigScreen.MANAGING else ConfigScreen.BRANCH_SELECT
         isRangeEdit = false
         render()
 
@@ -4116,7 +3960,7 @@ class ConfigSheetFragment : Fragment() {
      *  leaks, and never writes to Firebase — the saved connection stays exactly as it was. */
     private fun exitWizardNoChanges() {
         isRangeEdit = false
-        screen = Screen.BRANCH_SELECT
+        screen = ConfigScreen.BRANCH_SELECT
         render()
     }
 
@@ -4132,19 +3976,19 @@ class ConfigSheetFragment : Fragment() {
 
         when {
             isReconnectUnchanged() -> {
-                primaryAction = PrimaryAction.EXIT
+                primaryAction = ConfigPrimaryAction.EXIT
                 btnConnect?.text = "Exit Wizard"
                 btnConnect?.isEnabled = true
                 btnConnect?.alpha = 1.0f
             }
             isEditingExistingConn() -> {
-                primaryAction = PrimaryAction.SAVE
+                primaryAction = ConfigPrimaryAction.SAVE
                 btnConnect?.text = "Save"
                 btnConnect?.isEnabled = ready
                 btnConnect?.alpha = if (ready) 1.0f else 0.45f
             }
             else -> {
-                primaryAction = PrimaryAction.NEW
+                primaryAction = ConfigPrimaryAction.NEW
                 btnConnect?.text = "Connect"
                 btnConnect?.isEnabled = ready
                 btnConnect?.alpha = if (ready) 1.0f else 0.45f
@@ -4250,7 +4094,7 @@ class ConfigSheetFragment : Fragment() {
             conn.endRow?.takeIf { it > 0 }?.let { etEndRow?.setText(it.toString()) }
         }
         isRangeEdit = true
-        screen = Screen.CONNECTING
+        screen = ConfigScreen.CONNECTING
         connectStep = 4
         render()
     }
@@ -4318,7 +4162,7 @@ class ConfigSheetFragment : Fragment() {
                 val ctx = context ?: return@launch
                 val token = withContext(Dispatchers.IO) {
                     try {
-                        GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE)
+                        GoogleAuthUtil.getToken(ctx, acctObj, ConfigSheetDriveApi.OAUTH_SCOPE)
                     } catch (e: UserRecoverableAuthException) {
                         // Launch consent screen
                         withContext(Dispatchers.Main) {
@@ -4338,31 +4182,9 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun fetchDriveSpreadsheets(accessToken: String): List<DriveFile> {
-        val url = "https://www.googleapis.com/drive/v3/files" +
-                "?q=" + java.net.URLEncoder.encode("mimeType='application/vnd.google-apps.spreadsheet' and trashed=false", "UTF-8") +
-                "&fields=" + java.net.URLEncoder.encode("files(id,name)", "UTF-8") +
-                "&pageSize=200" +
-                "&orderBy=" + java.net.URLEncoder.encode("modifiedTime desc", "UTF-8")
-        val req = Request.Builder()
-            .url(url)
-            .header("Authorization", "Bearer $accessToken")
-            .build()
-        httpClient.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) throw IOException("Drive API ${resp.code}")
-            val body = resp.body?.string() ?: return emptyList()
-            val obj = JSONObject(body)
-            val files = obj.optJSONArray("files") ?: return emptyList()
-            val out = mutableListOf<DriveFile>()
-            for (i in 0 until files.length()) {
-                val f = files.getJSONObject(i)
-                val id   = f.optString("id", "")
-                val name = f.optString("name", "")
-                if (id.isNotEmpty()) out.add(DriveFile(id, name))
-            }
-            return out
-        }
-    }
+    // fetchDriveSpreadsheets → ConfigSheetDriveApi
+    private fun fetchDriveSpreadsheets(accessToken: String) =
+        ConfigSheetDriveApi.fetchDriveSpreadsheets(accessToken, httpClient)
 
     private fun updateSheetPickerLabel() {
         tvSelectedSheet?.text = selectedSheet?.name ?: "— Sheet বেছে নিন —"
@@ -4628,7 +4450,7 @@ class ConfigSheetFragment : Fragment() {
                 pbTabLoad?.visibility = View.VISIBLE
                 val ctx = context ?: return@launch
                 val token = withContext(Dispatchers.IO) {
-                    try { GoogleAuthUtil.getToken(ctx, acctObj, OAUTH_SCOPE) }
+                    try { GoogleAuthUtil.getToken(ctx, acctObj, ConfigSheetDriveApi.OAUTH_SCOPE) }
                     catch (e: UserRecoverableAuthException) {
                         withContext(Dispatchers.Main) {
                             try { recoverableLauncher.launch(e.intent) } catch (_: Exception) {}
@@ -4647,28 +4469,9 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun fetchSheetTabs(accessToken: String, sheetId: String): List<String> {
-        val url = "https://sheets.googleapis.com/v4/spreadsheets/$sheetId" +
-                "?fields=" + java.net.URLEncoder.encode("sheets(properties(title))", "UTF-8")
-        val req = Request.Builder()
-            .url(url)
-            .header("Authorization", "Bearer $accessToken")
-            .build()
-        httpClient.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) throw IOException("Sheets API ${resp.code}")
-            val body = resp.body?.string() ?: return emptyList()
-            val obj = JSONObject(body)
-            val arr = obj.optJSONArray("sheets") ?: return emptyList()
-            val out = mutableListOf<String>()
-            for (i in 0 until arr.length()) {
-                val s = arr.optJSONObject(i) ?: continue
-                val props = s.optJSONObject("properties") ?: continue
-                val title = props.optString("title", "")
-                if (title.isNotEmpty()) out.add(title)
-            }
-            return out
-        }
-    }
+    // fetchSheetTabs → ConfigSheetDriveApi
+    private fun fetchSheetTabs(accessToken: String, sheetId: String) =
+        ConfigSheetDriveApi.fetchSheetTabs(accessToken, sheetId, httpClient)
 
     private fun updateTabSpinner() {
         val ctx = context ?: return
@@ -4719,7 +4522,7 @@ class ConfigSheetFragment : Fragment() {
         if (connections[branch].isNullOrEmpty()) connections.remove(branch)
         deleteFromFirebase(branch, connId)
         toast("🗑 Sheet disconnected")
-        screen = Screen.BRANCH_SELECT
+        screen = ConfigScreen.BRANCH_SELECT
         render()
     }
 
@@ -4834,7 +4637,7 @@ class ConfigSheetFragment : Fragment() {
             } finally {
                 if (isAdded) {
                     // Always show BRANCH_SELECT — user chooses which sheet to manage
-                    screen = Screen.BRANCH_SELECT
+                    screen = ConfigScreen.BRANCH_SELECT
                     render()
                     setBusy(false)
                 }
