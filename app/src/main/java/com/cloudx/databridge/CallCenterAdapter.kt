@@ -24,7 +24,6 @@ class CallCenterAdapter(
 ) : ListAdapter<CallCenterAdapter.Row, RecyclerView.ViewHolder>(RowDiff()) {
 
     var expandedItemId: String? = null
-        private set
     var statusLang: String = "bn"
 
     // consignmentId -> glow color (null/absent = no glow). Set by the fragment as the
