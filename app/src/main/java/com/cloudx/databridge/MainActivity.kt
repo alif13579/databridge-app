@@ -786,23 +786,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     }
 
     fun navigateToCallCenterWithParcel(parcelId: String) {
-        val fragment = CallCenterFragment().apply {
-            arguments = android.os.Bundle().apply { putString("expand_parcel_id", parcelId) }
-        }
-        loadFragment(fragment)
-        if (bottomNav.menu.findItem(R.id.nav_call_center) != null) {
-            bottomNav.selectedItemId = R.id.nav_call_center
-        }
+        loadFragment(ParcelDetailFragment.newInstance(parcelId, "cc"))
     }
 
     fun navigateToWorkerSpaceWithParcel(parcelId: String) {
-        val fragment = WorkerSpaceFragment().apply {
-            arguments = android.os.Bundle().apply { putString("expand_parcel_id", parcelId) }
-        }
-        loadFragment(fragment)
-        if (bottomNav.menu.findItem(R.id.nav_space) != null) {
-            bottomNav.selectedItemId = R.id.nav_space
-        }
+        loadFragment(ParcelDetailFragment.newInstance(parcelId, "worker"))
     }
 
     private fun confirmLogout() {
