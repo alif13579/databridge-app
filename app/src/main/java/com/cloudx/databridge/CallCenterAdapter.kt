@@ -65,7 +65,11 @@ class CallCenterAdapter(
             map.getOrPut(parcel.worker) { mutableListOf() }.add(parcel)
         }
         val rows = mutableListOf<Row>()
-        for ((worker, parcels) in map) {
+        for ((worker, rawParcels) in map) {
+            // Same-phone parcels stay adjacent, oldest-group-first, oldest-parcel-first
+            // within each group — applied per worker so each agent's own section is sorted
+            // independently of the others.
+            val parcels = sortByGroupAge(rawParcels)
             val group = WorkerGroup(worker, parcels.firstOrNull()?.branch ?: "", parcels)
             rows.add(Row.HeaderRow(group))
             parcels.forEach { parcel ->
@@ -223,6 +227,21 @@ class CallCenterAdapter(
     companion object {
         private const val VIEW_TYPE_HEADER = 0
         private const val VIEW_TYPE_CARD = 1
+
+        /**
+         * Same grouping/ordering rule as WorkerParcelAdapter.sortByGroupAge(), applied within
+         * a single worker's parcels: same-phone parcels stay adjacent, the group containing
+         * the oldest parcel leads, and within a group the oldest parcel comes first.
+         * Call this on each worker's parcel list BEFORE handing it to submitParcels(), since
+         * submitParcels() preserves whatever order it's given within each worker group.
+         */
+        fun sortByGroupAge(parcels: List<CallCenterParcelItem>): List<CallCenterParcelItem> {
+            fun effectiveAge(p: CallCenterParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
+            val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
+            return groups.values
+                .sortedBy { group -> group.minOf { p -> effectiveAge(p) } }
+                .flatMap { group -> group.sortedBy { p -> effectiveAge(p) } }
+        }
     }
 }
 
