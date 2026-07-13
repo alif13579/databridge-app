@@ -221,6 +221,26 @@ class WorkerParcelAdapter(
          *   4+ days (96h+)    -> red, bold
          * Returns (colorInt, isBold).
          */
+        /**
+         * Sorts parcels so that:
+         *  1. Same-phone groups stay adjacent (never split apart by the sort)
+         *  2. Groups are ordered by their OLDEST parcel's age — the group containing the
+         *     most-aged parcel comes first
+         *  3. Within a group, parcels are ordered oldest-first too
+         *
+         * Example: phone A has a 10-day-old parcel and a 1-day-old parcel; phone B has a
+         * single 5-day-old parcel. Result: [A-10day, A-1day, B-5day] — A's group leads
+         * because its oldest member (10 days) is older than B's (5 days), and within A the
+         * 10-day parcel still comes before the 1-day one.
+         */
+        fun sortByGroupAge(parcels: List<WorkerParcelItem>): List<WorkerParcelItem> {
+            fun effectiveAge(p: WorkerParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
+            val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
+            return groups.values
+                .sortedBy { group -> group.minOf { p -> effectiveAge(p) } }
+                .flatMap { group -> group.sortedBy { p -> effectiveAge(p) } }
+        }
+
         fun ageColorFor(createdAt: Long): Pair<Int, Boolean> {
             val grey   = android.graphics.Color.parseColor("#6B7280")
             val yellow = android.graphics.Color.parseColor("#F59E0B")
