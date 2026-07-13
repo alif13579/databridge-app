@@ -706,6 +706,8 @@ class CallCenterFragment : Fragment() {
                 // rather than showing an empty/undefined list.
                 if (selectedAccessModes.isEmpty()) selectedAccessModes.add("all")
                 updateModeDropdownLabel()
+                // Rebuilds chips too — their counts depend on this scope (see scopedParcels()).
+                setupFilterTabs()
                 applyFilters()
             }
             .setNegativeButton("Cancel", null)
@@ -776,20 +778,48 @@ class CallCenterFragment : Fragment() {
             .setPositiveButton("Apply") { _, _ ->
                 if (selectedBranchIds.size >= branches.size) selectedBranchIds.clear()
                 updateBranchDropdownLabel()
+                setupFilterTabs()
                 applyFilters()
             }
             .setNeutralButton("All") { _, _ ->
                 selectedBranchIds.clear()
                 updateBranchDropdownLabel()
+                setupFilterTabs()
                 applyFilters()
             }
             .show()
     }
 
+    /**
+     * allParcels narrowed by the three "scope" filters — access mode, branch, agent —
+     * but NOT by search or the status chip itself. This is the shared basis for:
+     * the status chip counts, the stat-summary numbers (Total/Confirmed/Pending/
+     * Rejected/Validation), and the starting point of applyFilters()'s visible list.
+     * Keeping one function means chip counts and the actual list can't drift apart.
+     */
+    private fun scopedParcels(): List<CallCenterParcelItem> {
+        var scoped = allParcels
+
+        // Access mode — Priority-only shows just agents who sent a verify request;
+        // All-only shows everyone in-branch regardless; both selected = everyone
+        // (priority-first ordering is applied later, in applyFilters()).
+        if ("priority" in selectedAccessModes && "all" !in selectedAccessModes) {
+            scoped = scoped.filter { it.validationRequest }
+        }
+        if (selectedBranchIds.isNotEmpty()) {
+            scoped = scoped.filter { it.branch in selectedBranchIds }
+        }
+        if (selectedAgentFilters.isNotEmpty()) {
+            scoped = scoped.filter { it.worker in selectedAgentFilters }
+        }
+        return scoped
+    }
+
     private fun setupFilterTabs() {
         layoutFilterTabs.removeAllViews()
-        val total        = allParcels.size
-        val statusCounts = allParcels.groupingBy { it.effectiveStatus }.eachCount()
+        val scoped       = scopedParcels()
+        val total        = scoped.size
+        val statusCounts = scoped.groupingBy { it.effectiveStatus }.eachCount()
 
         // Reset active filter if it no longer exists in data
         if (statusFilter != "all" && !statusCounts.containsKey(statusFilter)) {
@@ -1008,11 +1038,13 @@ class CallCenterFragment : Fragment() {
             .setPositiveButton("Apply") { _, _ ->
                 if (selectedAgentFilters.size >= ccAgentOptions.size) selectedAgentFilters.clear()
                 updateAgentDropdownLabel()
+                setupFilterTabs()
                 applyFilters()
             }
             .setNeutralButton("All") { _, _ ->
                 selectedAgentFilters.clear()
                 updateAgentDropdownLabel()
+                setupFilterTabs()
                 applyFilters()
             }
             .show()
@@ -1696,26 +1728,11 @@ class CallCenterFragment : Fragment() {
 
 
     private fun applyFilters() {
-        var filtered = allParcels
-
-        // Access mode — Priority-only shows just agents who sent a verify request;
-        // All-only shows everyone in-branch regardless, for random spot-verification;
-        // both selected shows everyone, priority (validation-requested) parcels first.
+        // Access mode / branch / agent — same scope the chips and stat summary use,
+        // factored into scopedParcels() so the two can never drift apart.
+        var filtered = scopedParcels()
         val modeHasPriority = "priority" in selectedAccessModes
         val modeHasAll = "all" in selectedAccessModes
-        if (modeHasPriority && !modeHasAll) {
-            filtered = filtered.filter { it.validationRequest }
-        }
-
-        // Branch filter — empty selectedBranchIds means all branches
-        if (selectedBranchIds.isNotEmpty()) {
-            filtered = filtered.filter { it.branch in selectedBranchIds }
-        }
-
-        // Agent (worker) filter — empty selectedAgentFilters means all agents
-        if (selectedAgentFilters.isNotEmpty()) {
-            filtered = filtered.filter { it.worker in selectedAgentFilters }
-        }
 
         // Search filter — phone, ID, customer name, or COD amount
         if (searchQuery.isNotBlank()) {
@@ -1750,12 +1767,15 @@ class CallCenterFragment : Fragment() {
             filtered = filtered.sortedByDescending { it.validationRequest }
         }
 
-        // Update stats
-        val total = allParcels.size
-        val confirmed = allParcels.count { it.effectiveStatus == "confirmed" }
-        val pending = allParcels.count { it.effectiveStatus == "pending" }
-        val rejected = allParcels.count { it.effectiveStatus == "rejected" }
-        val validationCount = allParcels.count { it.validationRequest }
+        // Update stats — same mode+branch+agent scope as the chips (not the raw,
+        // unfiltered allParcels), so these numbers stay consistent with what's
+        // actually visible below rather than always showing the global totals.
+        val scoped = scopedParcels()
+        val total = scoped.size
+        val confirmed = scoped.count { it.effectiveStatus == "confirmed" }
+        val pending = scoped.count { it.effectiveStatus == "pending" }
+        val rejected = scoped.count { it.effectiveStatus == "rejected" }
+        val validationCount = scoped.count { it.validationRequest }
 
         tvStatTotal.text = total.toString()
         tvStatConfirmed.text = confirmed.toString()
