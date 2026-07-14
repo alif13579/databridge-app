@@ -905,14 +905,7 @@ class CallCenterFragment : Fragment() {
 
     /** Discovers today's runs, scoped strictly to the CC agent's OWN assigned branches via
      *  courier/runs_by_branchId/{branchId} — never reads other branches' data or the full
-     *  historical courier/run_routes tree.
-     *
-     *  Two-phase approach:
-     *  1. One-time fetch of each branch index node to discover run-type keys
-     *     (e.g. "delivery_run", "return_run") — accepted one-time cost.
-     *  2. Per run-type: a server-side range query (orderByKey + startAt/endAt on run_{timestamp})
-     *     that live-listens to ONLY today's runs. Historical runs are never re-downloaded
-     *     on subsequent updates — only new/changed entries within today's window fire. */
+     *  historical courier/run_routes tree. */
     private fun attachRootRunTypesListener() {
         detachRootRunTypesListener()
         myBranchIds = RbacManager.current.branchIds
@@ -924,51 +917,17 @@ class CallCenterFragment : Fragment() {
         }
 
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
-        val branchIdsSnapshot = myBranchIds
-
-        // Today's range computed once — run keys are run_{epochMs}
-        val cal = java.util.Calendar.getInstance().apply {
-            set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
-            set(java.util.Calendar.SECOND, 0);      set(java.util.Calendar.MILLISECOND, 0)
-        }
-        val dayStart = cal.timeInMillis
-        val dayEnd   = dayStart + 24L * 60 * 60 * 1000 - 1
+        val branchSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
+        val branchIdsSnapshot = myBranchIds // stable copy for the closures below
 
         branchIdsSnapshot.forEach { branchId ->
-            val branchRef = db.reference.child("courier/runs_by_branchId/$branchId")
-
-            // Phase 1 — one-time fetch to discover run-type keys for this branch
-            branchRef.addListenerForSingleValueEvent(object : com.google.firebase.database.ValueEventListener {
+            val ref = db.reference.child("courier/runs_by_branchId/$branchId")
+            val listener = object : com.google.firebase.database.ValueEventListener {
                 override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                     if (!isAdded) return
-                    val runTypes = snapshot.children.mapNotNull { it.key }.distinct().sorted()
-                    ccDiscoveredBranchCount++
-                    ccExpectedRangeKeyCount += runTypes.size
-
-                    if (runTypes.isEmpty()) {
-                        // Branch has no runs — still counts toward convergence
-                        checkRangeConvergenceAndLoad()
-                        return
-                    }
-
-                    // Phase 2 — per run-type: live-listen to today's window only
-                    runTypes.forEach { runType ->
-                        val rangeKey = "$branchId/$runType"
-                        val query = branchRef.child(runType)
-                            .orderByKey()
-                            .startAt("run_$dayStart")
-                            .endAt("run_$dayEnd")
-
-                        val listener = object : com.google.firebase.database.ValueEventListener {
-                            override fun onDataChange(snap: com.google.firebase.database.DataSnapshot) {
-                                if (!isAdded) return
-                                ccBranchRangeSnapshots[rangeKey] = snap
-                                checkRangeConvergenceAndLoad()
-                            }
-                            override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
-                        }
-                        query.addValueEventListener(listener)
-                        ccActiveListeners.add(query to listener)
+                    branchSnapshots[branchId] = snapshot
+                    if (branchSnapshots.size >= branchIdsSnapshot.size) {
+                        onBranchIndexesLoaded(branchSnapshots.values.toList())
                     }
                 }
                 override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
@@ -977,7 +936,9 @@ class CallCenterFragment : Fragment() {
                     tvEmpty.visibility    = View.VISIBLE
                     tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
                 }
-            })
+            }
+            ref.addValueEventListener(listener)
+            ccActiveListeners.add(ref to listener)
         }
     }
 
@@ -1105,29 +1066,14 @@ class CallCenterFragment : Fragment() {
                 part.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
             }
 
-    /** Waits until ALL branch phase-1 fetches have completed AND every range query has
-     *  fired at least once before calling onBranchIndexesLoaded for the first time.
-     *  After initial load completes, any subsequent range query update calls through
-     *  immediately (e.g. new run added today triggers a live update). */
-    private fun checkRangeConvergenceAndLoad() {
-        if (!ccInitialLoadComplete) {
-            // Still in initial load — wait for all branches + range keys to respond
-            if (ccDiscoveredBranchCount < myBranchIds.size) return
-            if (ccBranchRangeSnapshots.size < ccExpectedRangeKeyCount) return
-            ccInitialLoadComplete = true
-        }
-        val allRunTypes = ccBranchRangeSnapshots.keys
-            .map { it.substringAfter("/") }.distinct().sorted()
-        onBranchIndexesLoaded(allRunTypes, ccBranchRangeSnapshots)
-    }
-
-    /** Called after all today-only range snapshots have converged, and again whenever
-     *  any range query fires a live update (new run added or status changed today). */
-    private fun onBranchIndexesLoaded(
-        runTypes: List<String>,
-        rangeSnapshots: Map<String, com.google.firebase.database.DataSnapshot>
-    ) {
+    /** Called once every assigned branch's index snapshot has arrived (and again whenever any
+     *  of them change — new run created, a run's representative status updated, etc). Derives
+     *  today's candidate runs and attaches a dedicated live listener per run node. */
+    private fun onBranchIndexesLoaded(branchSnapshots: List<com.google.firebase.database.DataSnapshot>) {
         if (!isAdded) return
+
+        val runTypes = branchSnapshots.flatMap { snap -> snap.children.mapNotNull { it.key } }
+            .distinct().sorted()
 
         ccRunTypeOptions = listOf(CcRunTypeOption(CC_RUN_TYPE_ALL, "All")) +
             runTypes.map { CcRunTypeOption(it, formatCcRunTypeLabel(it)) }
@@ -1144,15 +1090,28 @@ class CallCenterFragment : Fragment() {
             return
         }
 
-        // rangeSnapshots are already server-filtered to today — just collect run IDs directly.
-        // No client-side timestamp parsing or date comparison needed.
+        // Today's date range — same bounds as before, just applied earlier (at the small
+        // branch-index level) instead of after pulling the entire historical run_routes tree.
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        val dayStart = cal.timeInMillis
+        val dayEnd   = dayStart + 24 * 60 * 60 * 1000 - 1
+
+        // Dedupe (runType, runId) across branches — a multi-branch agent's run is written into
+        // EVERY one of their assigned branches' indexes, but it's a single real run node.
         val candidateKeys = mutableSetOf<Pair<String, String>>()
-        rangeSnapshots.forEach { (key, snap) ->
-            val runType = key.substringAfter("/")
-            if (runType !in typesToWatch) return@forEach
-            snap.children.forEach { runIdSnap ->
-                val runId = runIdSnap.key ?: return@forEach
-                candidateKeys.add(runType to runId)
+        branchSnapshots.forEach { branchSnap ->
+            branchSnap.children.forEach { runTypeSnap ->
+                val runType = runTypeSnap.key ?: return@forEach
+                if (runType !in typesToWatch) return@forEach
+                runTypeSnap.children.forEach { runIdSnap ->
+                    val runId = runIdSnap.key ?: return@forEach
+                    val ts = parseRunTimestamp(runId) ?: return@forEach
+                    if (ts in dayStart..dayEnd) candidateKeys.add(runType to runId)
+                }
             }
         }
 
@@ -1182,21 +1141,13 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    private val ccBranchRangeSnapshots  = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
-    private var ccExpectedRangeKeyCount = 0   // total branchId/runType pairs to expect
-    private var ccDiscoveredBranchCount = 0   // branches whose run-types have been resolved
-    private var ccInitialLoadComplete   = false
-    private val ccActiveListeners = mutableListOf<Pair<com.google.firebase.database.Query, com.google.firebase.database.ValueEventListener>>()
+    private val ccActiveListeners = mutableListOf<Pair<com.google.firebase.database.DatabaseReference, com.google.firebase.database.ValueEventListener>>()
 
     private fun detachRunsListener() {
-        ccActiveListeners.forEach { (q, l) -> q.removeEventListener(l) }
+        ccActiveListeners.forEach { (ref, l) -> ref.removeEventListener(l) }
         ccActiveListeners.clear()
         ccRunNodeSnapshots.clear()
         ccAttachedRunKeys.clear()
-        ccBranchRangeSnapshots.clear()
-        ccExpectedRangeKeyCount = 0
-        ccDiscoveredBranchCount = 0
-        ccInitialLoadComplete   = false
 
         ccRemarkNodeListeners.values.forEach { (ref, l) -> ref.removeEventListener(l) }
         ccRemarkNodeListeners.clear()
