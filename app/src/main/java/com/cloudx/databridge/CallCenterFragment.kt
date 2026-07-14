@@ -940,7 +940,24 @@ class CallCenterFragment : Fragment() {
 
     /** Discovers today's runs, scoped strictly to the CC agent's OWN assigned branches via
      *  courier/runs_by_branchId/{branchId} — never reads other branches' data or the full
-     *  historical courier/run_routes tree. */
+     *  historical courier/run_routes tree.
+     *
+     *  Two-phase approach:
+     *  1. One-time fetch of each branch index node to discover run-type keys
+     *     (e.g. "delivery_run", "return_run") — accepted one-time cost.
+     *  2. Per run-type: a server-side range query using today's ddMMyy STRING prefix
+     *     (run keys are run_{ddMMyy}_{systemId} — a date string, not an epoch timestamp).
+     *     orderByKey().startAt("run_{ddMMyy}_").endAt("run_{ddMMyy}_\uf8ff") — \uf8ff is the
+     *     highest Unicode char Firebase keys can contain, so this range matches every key
+     *     with that exact date prefix regardless of what follows (any systemId), and
+     *     nothing outside today. Live-listens, so status changes within today still fire.
+     *
+     *  NOTE (prior bug, now fixed): an earlier version built the range bounds from
+     *  Calendar.timeInMillis (epoch ms) — e.g. startAt("run_1752480000000") — which can
+     *  never match a ddMMyy string key like "run_140726_EMP001" (numeric prefixes diverge
+     *  immediately char-by-char), so the query always returned empty regardless of what
+     *  data existed. The fix is to build the SAME ddMMyy string format the write path uses.
+     */
     private fun attachRootRunTypesListener() {
         detachRootRunTypesListener()
         myBranchIds = RbacManager.current.branchIds
@@ -952,28 +969,65 @@ class CallCenterFragment : Fragment() {
         }
 
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
-        val branchSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
-        val branchIdsSnapshot = myBranchIds // stable copy for the closures below
+        val branchIdsSnapshot = myBranchIds
 
-        branchIdsSnapshot.forEach { branchId ->
-            val ref = db.reference.child("courier/runs_by_branchId/$branchId")
-            val listener = object : com.google.firebase.database.ValueEventListener {
-                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
-                    if (!isAdded) return
-                    branchSnapshots[branchId] = snapshot
-                    if (branchSnapshots.size >= branchIdsSnapshot.size) {
-                        onBranchIndexesLoaded(branchSnapshots.values.toList())
+        val todayDdMMyy = java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH)
+            .format(java.util.Date())
+
+        // Resolve the agent name->systemId map BEFORE running the range query, so the
+        // (agentSystemId-based) narrowing in onBranchIndexesLoaded can filter candidate
+        // run keys down before ever fetching a single run_routes node — not just at the
+        // final parcel-list display stage.
+        viewLifecycleOwner.lifecycleScope.launch {
+            val nameMap = ensureAgentNameMap() // systemId -> name, cached
+            if (!isAdded) return@launch
+            nameToSystemId = nameMap.entries.associate { (sysId, name) -> name to sysId }
+
+            branchIdsSnapshot.forEach { branchId ->
+                val branchRef = db.reference.child("courier/runs_by_branchId/$branchId")
+
+                // Phase 1 — one-time fetch to discover run-type keys for this branch
+                branchRef.addListenerForSingleValueEvent(object : com.google.firebase.database.ValueEventListener {
+                    override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                        if (!isAdded) return
+                        val runTypes = snapshot.children.mapNotNull { it.key }.distinct().sorted()
+                        if (runTypes.isEmpty()) {
+                            val allTypes = ccBranchRangeSnapshots.keys
+                                .map { it.substringAfter("/") }.distinct().sorted()
+                            onBranchIndexesLoaded(allTypes, ccBranchRangeSnapshots)
+                            return
+                        }
+
+                        // Phase 2 — per run-type: server-side range query on today's date-string prefix
+                        runTypes.forEach { runType ->
+                            val rangeKey = "$branchId/$runType"
+                            val query = branchRef.child(runType)
+                                .orderByKey()
+                                .startAt("run_${todayDdMMyy}_")
+                                .endAt("run_${todayDdMMyy}_\uf8ff")
+
+                            val listener = object : com.google.firebase.database.ValueEventListener {
+                                override fun onDataChange(snap: com.google.firebase.database.DataSnapshot) {
+                                    if (!isAdded) return
+                                    ccBranchRangeSnapshots[rangeKey] = snap
+                                    val allRunTypes = ccBranchRangeSnapshots.keys
+                                        .map { it.substringAfter("/") }.distinct().sorted()
+                                    onBranchIndexesLoaded(allRunTypes, ccBranchRangeSnapshots)
+                                }
+                                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
+                            }
+                            query.addValueEventListener(listener)
+                            ccActiveListeners.add(query to listener)
+                        }
                     }
-                }
-                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
-                    if (!isAdded) return
-                    pbProgress.visibility = View.GONE
-                    tvEmpty.visibility    = View.VISIBLE
-                    tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
-                }
+                    override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                        if (!isAdded) return
+                        pbProgress.visibility = View.GONE
+                        tvEmpty.visibility    = View.VISIBLE
+                        tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
+                    }
+                })
             }
-            ref.addValueEventListener(listener)
-            ccActiveListeners.add(ref to listener)
         }
     }
 
@@ -1083,15 +1137,19 @@ class CallCenterFragment : Fragment() {
                 if (working.size < ccAgentOptions.size) selectedAgentFilters.addAll(working)
                 updateAgentDropdownLabel()
                 setupFilterTabs()
-                applyFilters()
                 saveFilterPreferences()
+                // Agent filter now narrows candidate runs BEFORE they're fetched (see
+                // onBranchIndexesLoaded), not just the displayed list afterwards — so a
+                // changed filter needs a fresh loadData() to pick up newly-included agents'
+                // runs, not just applyFilters() re-narrowing what was already fetched.
+                loadData()
             }
             .setNeutralButton(if (selectedAgentFilters.isEmpty()) "All" else "Clear") { _, _ ->
                 selectedAgentFilters.clear()
                 updateAgentDropdownLabel()
                 setupFilterTabs()
-                applyFilters()
                 saveFilterPreferences()
+                loadData() // same reason as Apply above — clearing can newly include agents
             }
             .show()
     }
@@ -1103,14 +1161,17 @@ class CallCenterFragment : Fragment() {
                 part.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
             }
 
-    /** Called once every assigned branch's index snapshot has arrived (and again whenever any
-     *  of them change — new run created, a run's representative status updated, etc). Derives
-     *  today's candidate runs and attaches a dedicated live listener per run node. */
-    private fun onBranchIndexesLoaded(branchSnapshots: List<com.google.firebase.database.DataSnapshot>) {
+    /** Called once every assigned branch/run-type range query's snapshot has arrived (and again
+     *  whenever any of them change — new run created, a run's representative status updated,
+     *  etc). rangeSnapshots is already server-side scoped to TODAY's date-string prefix (see
+     *  attachRootRunTypesListener) — no client-side date parsing/filtering needed here anymore.
+     *  Narrows candidates by the active agent filter (via run_id's embedded systemId) BEFORE
+     *  fetching any run_routes node, then attaches a dedicated live listener per surviving run. */
+    private fun onBranchIndexesLoaded(
+        runTypes: List<String>,
+        rangeSnapshots: Map<String, com.google.firebase.database.DataSnapshot>
+    ) {
         if (!isAdded) return
-
-        val runTypes = branchSnapshots.flatMap { snap -> snap.children.mapNotNull { it.key } }
-            .distinct().sorted()
 
         ccRunTypeOptions = listOf(CcRunTypeOption(CC_RUN_TYPE_ALL, "All")) +
             runTypes.map { CcRunTypeOption(it, formatCcRunTypeLabel(it)) }
@@ -1127,28 +1188,29 @@ class CallCenterFragment : Fragment() {
             return
         }
 
-        // Today's date range — same bounds as before, just applied earlier (at the small
-        // branch-index level) instead of after pulling the entire historical run_routes tree.
-        val cal = java.util.Calendar.getInstance()
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        cal.set(java.util.Calendar.MINUTE, 0)
-        cal.set(java.util.Calendar.SECOND, 0)
-        cal.set(java.util.Calendar.MILLISECOND, 0)
-        val dayStart = cal.timeInMillis
-        val dayEnd   = dayStart + 24 * 60 * 60 * 1000 - 1
+        // Active agent filter, translated from display-names to systemIds (via nameToSystemId,
+        // resolved in attachRootRunTypesListener before these range queries were even issued).
+        // Empty selectedAgentFilters = no filter = every agent's runs are candidates.
+        val activeSystemIds: Set<String>? =
+            if (selectedAgentFilters.isEmpty()) null
+            else selectedAgentFilters.mapNotNull { nameToSystemId[it] }.toSet()
 
         // Dedupe (runType, runId) across branches — a multi-branch agent's run is written into
         // EVERY one of their assigned branches' indexes, but it's a single real run node.
+        // rangeSnapshots keys are "branchId/runType"; each snapshot's children are runId -> status,
+        // already scoped to today by the server-side range query (no timestamp check needed).
         val candidateKeys = mutableSetOf<Pair<String, String>>()
-        branchSnapshots.forEach { branchSnap ->
-            branchSnap.children.forEach { runTypeSnap ->
-                val runType = runTypeSnap.key ?: return@forEach
-                if (runType !in typesToWatch) return@forEach
-                runTypeSnap.children.forEach { runIdSnap ->
-                    val runId = runIdSnap.key ?: return@forEach
-                    val ts = parseRunTimestamp(runId) ?: return@forEach
-                    if (ts in dayStart..dayEnd) candidateKeys.add(runType to runId)
-                }
+        rangeSnapshots.forEach { (rangeKey, snap) ->
+            val runType = rangeKey.substringAfter("/")
+            if (runType !in typesToWatch) return@forEach
+            snap.children.forEach { runIdSnap ->
+                val runId = runIdSnap.key ?: return@forEach
+                val match = RUN_ID_PATTERN.matchEntire(runId.trim()) ?: return@forEach
+                val agentSystemId = match.groupValues[2]
+                // Narrow by agent filter here, at the run-id level — before fetching the run
+                // node at all — rather than only filtering the final parcel list afterwards.
+                if (activeSystemIds != null && agentSystemId !in activeSystemIds) return@forEach
+                candidateKeys.add(runType to runId)
             }
         }
 
@@ -1178,13 +1240,24 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    private val ccActiveListeners = mutableListOf<Pair<com.google.firebase.database.DatabaseReference, com.google.firebase.database.ValueEventListener>>()
+    private val ccActiveListeners = mutableListOf<Pair<com.google.firebase.database.Query, com.google.firebase.database.ValueEventListener>>()
+    /** Per (branchId/runType) range-query result snapshots — accumulated as each live query fires. */
+    private val ccBranchRangeSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
+    /** Reverse of systemIdToName, built once per attachRootRunTypesListener() call — lets
+     *  candidate run keys (run_{ddMMyy}_{systemId}) be matched against selectedAgentFilters
+     *  (which stores display names) before ever fetching a run_routes node. */
+    private var nameToSystemId: Map<String, String> = emptyMap()
 
     private fun detachRunsListener() {
         ccActiveListeners.forEach { (ref, l) -> ref.removeEventListener(l) }
         ccActiveListeners.clear()
         ccRunNodeSnapshots.clear()
         ccAttachedRunKeys.clear()
+        // Range-query results are additive across live-fires within one loadData() cycle
+        // (each branch/runType's listener only ever updates its own key) — but a NEW cycle
+        // (e.g. triggered by an agent-filter change) must start clean, or stale entries from
+        // before the filter changed would still be merged into the candidate set.
+        ccBranchRangeSnapshots.clear()
 
         ccRemarkNodeListeners.values.forEach { (ref, l) -> ref.removeEventListener(l) }
         ccRemarkNodeListeners.clear()
