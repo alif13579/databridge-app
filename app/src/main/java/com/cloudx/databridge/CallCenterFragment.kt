@@ -766,22 +766,28 @@ class CallCenterFragment : Fragment() {
         val ctx = context ?: return
         val branchArray = branches.toTypedArray()
         val names = branchArray.map { branchIdToName[it] ?: it }.toTypedArray()
-        val checked = BooleanArray(branchArray.size) { i ->
-            selectedBranchIds.isEmpty() || branchArray[i] in selectedBranchIds
-        }
+        // Working copy for this dialog session. Stored selectedBranchIds uses "empty
+        // = all" as its canonical resting state — but if we check boxes against that
+        // empty set directly, unchecking a box tries to remove an id that was never
+        // actually in the set, silently doing nothing. So: expand to the full set
+        // up front when starting from "all", then collapse back to empty at Apply
+        // time if everything is still selected.
+        val working = if (selectedBranchIds.isEmpty()) branchArray.toMutableSet()
+                      else selectedBranchIds.toMutableSet()
+        val checked = BooleanArray(branchArray.size) { i -> branchArray[i] in working }
         android.app.AlertDialog.Builder(ctx)
             .setTitle("Select Branches")
             .setMultiChoiceItems(names, checked) { _, which, isChecked ->
-                if (isChecked) selectedBranchIds.add(branchArray[which])
-                else selectedBranchIds.remove(branchArray[which])
+                if (isChecked) working.add(branchArray[which]) else working.remove(branchArray[which])
             }
             .setPositiveButton("Apply") { _, _ ->
-                if (selectedBranchIds.size >= branches.size) selectedBranchIds.clear()
+                selectedBranchIds.clear()
+                if (working.size < branches.size) selectedBranchIds.addAll(working)
                 updateBranchDropdownLabel()
                 setupFilterTabs()
                 applyFilters()
             }
-            .setNeutralButton("All") { _, _ ->
+            .setNeutralButton(if (selectedBranchIds.isEmpty()) "All" else "Clear") { _, _ ->
                 selectedBranchIds.clear()
                 updateBranchDropdownLabel()
                 setupFilterTabs()
@@ -1065,22 +1071,25 @@ class CallCenterFragment : Fragment() {
             return
         }
         val agentArray = ccAgentOptions.toTypedArray()
-        val checked = BooleanArray(agentArray.size) { i ->
-            selectedAgentFilters.isEmpty() || agentArray[i] in selectedAgentFilters
-        }
+        // Same fix as the branch dropdown: expand to the full set up front when
+        // starting from "all" (empty), so unchecking removes real membership
+        // instead of silently no-op'ing against an empty set.
+        val working = if (selectedAgentFilters.isEmpty()) agentArray.toMutableSet()
+                      else selectedAgentFilters.toMutableSet()
+        val checked = BooleanArray(agentArray.size) { i -> agentArray[i] in working }
         android.app.AlertDialog.Builder(ctx)
             .setTitle("Select Agents")
             .setMultiChoiceItems(agentArray, checked) { _, which, isChecked ->
-                if (isChecked) selectedAgentFilters.add(agentArray[which])
-                else selectedAgentFilters.remove(agentArray[which])
+                if (isChecked) working.add(agentArray[which]) else working.remove(agentArray[which])
             }
             .setPositiveButton("Apply") { _, _ ->
-                if (selectedAgentFilters.size >= ccAgentOptions.size) selectedAgentFilters.clear()
+                selectedAgentFilters.clear()
+                if (working.size < ccAgentOptions.size) selectedAgentFilters.addAll(working)
                 updateAgentDropdownLabel()
                 setupFilterTabs()
                 applyFilters()
             }
-            .setNeutralButton("All") { _, _ ->
+            .setNeutralButton(if (selectedAgentFilters.isEmpty()) "All" else "Clear") { _, _ ->
                 selectedAgentFilters.clear()
                 updateAgentDropdownLabel()
                 setupFilterTabs()
