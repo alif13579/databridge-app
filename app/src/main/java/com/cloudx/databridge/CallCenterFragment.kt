@@ -936,10 +936,12 @@ class CallCenterFragment : Fragment() {
                 override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                     if (!isAdded) return
                     val runTypes = snapshot.children.mapNotNull { it.key }.distinct().sorted()
+                    ccDiscoveredBranchCount++
+                    ccExpectedRangeKeyCount += runTypes.size
+
                     if (runTypes.isEmpty()) {
-                        val allTypes = ccBranchRangeSnapshots.keys
-                            .map { it.substringAfter("/") }.distinct().sorted()
-                        onBranchIndexesLoaded(allTypes, ccBranchRangeSnapshots)
+                        // Branch has no runs — still counts toward convergence
+                        checkRangeConvergenceAndLoad()
                         return
                     }
 
@@ -955,9 +957,7 @@ class CallCenterFragment : Fragment() {
                             override fun onDataChange(snap: com.google.firebase.database.DataSnapshot) {
                                 if (!isAdded) return
                                 ccBranchRangeSnapshots[rangeKey] = snap
-                                val allRunTypes = ccBranchRangeSnapshots.keys
-                                    .map { it.substringAfter("/") }.distinct().sorted()
-                                onBranchIndexesLoaded(allRunTypes, ccBranchRangeSnapshots)
+                                checkRangeConvergenceAndLoad()
                             }
                             override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
                         }
@@ -1096,9 +1096,24 @@ class CallCenterFragment : Fragment() {
                 part.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
             }
 
-    /** Called once every assigned branch's index snapshot has arrived (and again whenever any
-     *  of them change — new run created, a run's representative status updated, etc). Derives
-     *  today's candidate runs and attaches a dedicated live listener per run node. */
+    /** Waits until ALL branch phase-1 fetches have completed AND every range query has
+     *  fired at least once before calling onBranchIndexesLoaded for the first time.
+     *  After initial load completes, any subsequent range query update calls through
+     *  immediately (e.g. new run added today triggers a live update). */
+    private fun checkRangeConvergenceAndLoad() {
+        if (!ccInitialLoadComplete) {
+            // Still in initial load — wait for all branches + range keys to respond
+            if (ccDiscoveredBranchCount < myBranchIds.size) return
+            if (ccBranchRangeSnapshots.size < ccExpectedRangeKeyCount) return
+            ccInitialLoadComplete = true
+        }
+        val allRunTypes = ccBranchRangeSnapshots.keys
+            .map { it.substringAfter("/") }.distinct().sorted()
+        onBranchIndexesLoaded(allRunTypes, ccBranchRangeSnapshots)
+    }
+
+    /** Called after all today-only range snapshots have converged, and again whenever
+     *  any range query fires a live update (new run added or status changed today). */
     private fun onBranchIndexesLoaded(
         runTypes: List<String>,
         rangeSnapshots: Map<String, com.google.firebase.database.DataSnapshot>
@@ -1158,7 +1173,10 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    private val ccBranchRangeSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
+    private val ccBranchRangeSnapshots  = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
+    private var ccExpectedRangeKeyCount = 0   // total branchId/runType pairs to expect
+    private var ccDiscoveredBranchCount = 0   // branches whose run-types have been resolved
+    private var ccInitialLoadComplete   = false
     private val ccActiveListeners = mutableListOf<Pair<com.google.firebase.database.Query, com.google.firebase.database.ValueEventListener>>()
 
     private fun detachRunsListener() {
@@ -1167,6 +1185,9 @@ class CallCenterFragment : Fragment() {
         ccRunNodeSnapshots.clear()
         ccAttachedRunKeys.clear()
         ccBranchRangeSnapshots.clear()
+        ccExpectedRangeKeyCount = 0
+        ccDiscoveredBranchCount = 0
+        ccInitialLoadComplete   = false
 
         ccRemarkNodeListeners.values.forEach { (ref, l) -> ref.removeEventListener(l) }
         ccRemarkNodeListeners.clear()
