@@ -177,11 +177,43 @@ class CallCenterFragment : Fragment() {
         }
 
         initViews(view)
+        loadFilterPreferences()
         updateModeDropdownLabel()
         setupFilterTabs()
         setupAdapter()
         loadCcRemarkOptions()
         loadData()
+    }
+
+    // ── Filter preference persistence ──────────────────────────────────────
+    // selectedAccessModes/selectedBranchIds/selectedAgentFilters previously reset to
+    // hardcoded defaults (priority mode, no branch/agent filter) every time this fragment
+    // was recreated (navigating away and back, app restart). Persist the last-applied
+    // choice from each dropdown so it survives across sessions, same SharedPreferences
+    // file already used for auto-call settings.
+    private fun filterPrefs() =
+        requireContext().getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
+
+    private fun loadFilterPreferences() {
+        val prefs = filterPrefs()
+        // No saved value yet (first run) -> keep the "priority" default already set at
+        // declaration. Once the user has applied anything, always restore exactly that.
+        prefs.getStringSet("cc_filter_access_modes", null)?.let {
+            selectedAccessModes.clear()
+            selectedAccessModes.addAll(it)
+        }
+        selectedBranchIds.clear()
+        selectedBranchIds.addAll(prefs.getStringSet("cc_filter_branch_ids", emptySet()) ?: emptySet())
+        selectedAgentFilters.clear()
+        selectedAgentFilters.addAll(prefs.getStringSet("cc_filter_agent_names", emptySet()) ?: emptySet())
+    }
+
+    private fun saveFilterPreferences() {
+        filterPrefs().edit()
+            .putStringSet("cc_filter_access_modes", selectedAccessModes.toSet())
+            .putStringSet("cc_filter_branch_ids", selectedBranchIds.toSet())
+            .putStringSet("cc_filter_agent_names", selectedAgentFilters.toSet())
+            .apply()
     }
 
     private fun initViews(view: View) {
@@ -709,6 +741,7 @@ class CallCenterFragment : Fragment() {
                 // Rebuilds chips too — their counts depend on this scope (see scopedParcels()).
                 setupFilterTabs()
                 applyFilters()
+                saveFilterPreferences()
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -786,12 +819,14 @@ class CallCenterFragment : Fragment() {
                 updateBranchDropdownLabel()
                 setupFilterTabs()
                 applyFilters()
+                saveFilterPreferences()
             }
             .setNeutralButton(if (selectedBranchIds.isEmpty()) "All" else "Clear") { _, _ ->
                 selectedBranchIds.clear()
                 updateBranchDropdownLabel()
                 setupFilterTabs()
                 applyFilters()
+                saveFilterPreferences()
             }
             .show()
     }
@@ -1049,12 +1084,14 @@ class CallCenterFragment : Fragment() {
                 updateAgentDropdownLabel()
                 setupFilterTabs()
                 applyFilters()
+                saveFilterPreferences()
             }
             .setNeutralButton(if (selectedAgentFilters.isEmpty()) "All" else "Clear") { _, _ ->
                 selectedAgentFilters.clear()
                 updateAgentDropdownLabel()
                 setupFilterTabs()
                 applyFilters()
+                saveFilterPreferences()
             }
             .show()
     }
