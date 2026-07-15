@@ -67,13 +67,28 @@
                                 android:textColor="@color/theme_text_secondary"
                                 android:layout_marginTop="1dp" />
 
-                            <!-- Mode + Branch filter dropdowns -->
+                            <!-- Branch + Priority + Sort By filter dropdowns -->
                             <LinearLayout
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:orientation="horizontal"
                                 android:layout_marginTop="5dp"
                                 android:gravity="center_vertical">
+
+                                <TextView
+                                    android:id="@+id/tvCcaBranchDropdown"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="24dp"
+                                    android:text="All Branches ▾"
+                                    android:textSize="10sp"
+                                    android:gravity="center"
+                                    android:paddingStart="7dp"
+                                    android:paddingEnd="7dp"
+                                    android:background="@drawable/bg_filter_chip_inactive"
+                                    android:textColor="@color/theme_text_secondary"
+                                    android:layout_marginEnd="4dp"
+                                    android:clickable="true"
+                                    android:focusable="true" />
 
                                 <TextView
                                     android:id="@+id/tvCcaModeDropdown"
@@ -91,16 +106,16 @@
                                     android:focusable="true" />
 
                                 <TextView
-                                    android:id="@+id/tvCcaBranchDropdown"
+                                    android:id="@+id/tvCcaSortByDropdown"
                                     android:layout_width="wrap_content"
                                     android:layout_height="24dp"
-                                    android:text="All Branches ▾"
+                                    android:text="🔁 Attempt ▾"
                                     android:textSize="10sp"
                                     android:gravity="center"
                                     android:paddingStart="7dp"
                                     android:paddingEnd="7dp"
-                                    android:background="@drawable/bg_filter_chip_inactive"
-                                    android:textColor="@color/theme_text_secondary"
+                                    android:background="@drawable/bg_filter_chip_active"
+                                    android:textColor="@android:color/white"
                                     android:clickable="true"
                                     android:focusable="true" />
                             </LinearLayout>

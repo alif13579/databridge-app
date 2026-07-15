@@ -60,6 +60,8 @@ class CallCenterFragment : Fragment() {
     private lateinit var switchAutoCall: Switch
     private lateinit var btnAutoCallStartPause: android.widget.Button
     private lateinit var btnAutoCallGapMenu: TextView
+    private lateinit var tvSortByDropdown: TextView
+    private var sortMode: String = "attempt" // "attempt" (default) or "aging" — same options as Worker Fragment
 
     // Auto Call (sequential dialer) state
     private var autoCallGapSeconds = 8
@@ -179,6 +181,7 @@ class CallCenterFragment : Fragment() {
         initViews(view)
         loadFilterPreferences()
         updateModeDropdownLabel()
+        updateCcSortByLabel()
         setupFilterTabs()
         setupAdapter()
         loadCcRemarkOptions()
@@ -206,6 +209,7 @@ class CallCenterFragment : Fragment() {
         selectedBranchIds.addAll(prefs.getStringSet("cc_filter_branch_ids", emptySet()) ?: emptySet())
         selectedAgentFilters.clear()
         selectedAgentFilters.addAll(prefs.getStringSet("cc_filter_agent_names", emptySet()) ?: emptySet())
+        sortMode = prefs.getString("cc_sort_mode", "attempt") ?: "attempt"
     }
 
     private fun saveFilterPreferences() {
@@ -213,6 +217,7 @@ class CallCenterFragment : Fragment() {
             .putStringSet("cc_filter_access_modes", selectedAccessModes.toSet())
             .putStringSet("cc_filter_branch_ids", selectedBranchIds.toSet())
             .putStringSet("cc_filter_agent_names", selectedAgentFilters.toSet())
+            .putString("cc_sort_mode", sortMode)
             .apply()
     }
 
@@ -226,9 +231,11 @@ class CallCenterFragment : Fragment() {
         tvModeDropdown = view.findViewById(R.id.tvCcaModeDropdown)
         tvBranchDropdown = view.findViewById(R.id.tvCcaBranchDropdown)
         tvAgentDropdown = view.findViewById(R.id.tvCcaAgentDropdown)
+        tvSortByDropdown = view.findViewById(R.id.tvCcaSortByDropdown)
         tvModeDropdown.setOnClickListener { showModeDropdown() }
         tvBranchDropdown.setOnClickListener { showBranchDropdown() }
         tvAgentDropdown.setOnClickListener { showAgentDropdown() }
+        tvSortByDropdown.setOnClickListener { showCcSortByDropdown() }
         layoutFilterTabs = view.findViewById(R.id.layoutCcaFilterTabs)
         rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
@@ -565,6 +572,7 @@ class CallCenterFragment : Fragment() {
             },
             onLongPress = { item -> showActionHistoryDialog(item) }
         )
+        adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()
         rvParcelList.layoutManager = LinearLayoutManager(requireContext())
         rvParcelList.adapter = adapter
         // Item views recycle instead of being fully re-inflated on every refresh/filter.
@@ -720,6 +728,31 @@ class CallCenterFragment : Fragment() {
         tvModeDropdown.text = label
         tvModeDropdown.setBackgroundResource(R.drawable.bg_filter_chip_active)
         tvModeDropdown.setTextColor(ctx.getColor(android.R.color.white))
+    }
+
+    private fun updateCcSortByLabel() {
+        tvSortByDropdown.text = if (sortMode == "aging") "🕐 Aging ▾" else "🔁 Attempt ▾"
+    }
+
+    private fun showCcSortByDropdown() {
+        val ctx = context ?: return
+        val options = arrayOf("🔁 Attempt (most attempted first)", "🕐 Aging (oldest first)")
+        val keys = arrayOf("attempt", "aging")
+        val currentIndex = keys.indexOf(sortMode).coerceAtLeast(0)
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Sort by")
+            .setSingleChoiceItems(options, currentIndex) { dialog, which ->
+                sortMode = keys[which]
+                updateCcSortByLabel()
+                adapter.sortMode = sortMode
+                saveFilterPreferences()
+                // applyFilters() re-applies search/status filtering AND calls
+                // adapter.submitParcels() at the end — calling submitParcels() directly
+                // here would bypass whatever search query or status filter is active.
+                applyFilters()
+                dialog.dismiss()
+            }
+            .show()
     }
 
     private fun showModeDropdown() {
@@ -1161,6 +1194,17 @@ class CallCenterFragment : Fragment() {
                 part.replaceFirstChar { ch -> if (ch.isLowerCase()) ch.titlecase() else ch.toString() }
             }
 
+    /** Same defensive String/Long/Double fallback as WorkerSpaceFragment.readAttempt() —
+     *  courier/consignments/{id}/attempt has been written from more than one code path
+     *  historically, not always as the same Firebase value type. */
+    private fun readCcAttempt(snap: com.google.firebase.database.DataSnapshot): Int {
+        return snap.child("attempt").getValue(String::class.java)
+            ?.toDoubleOrNull()?.toInt()
+            ?: snap.child("attempt").getValue(Long::class.java)?.toInt()
+            ?: snap.child("attempt").getValue(Double::class.java)?.toInt()
+            ?: 0
+    }
+
     /** Called once every assigned branch/run-type range query's snapshot has arrived (and again
      *  whenever any of them change — new run created, a run's representative status updated,
      *  etc). rangeSnapshots is already server-side scoped to TODAY's date-string prefix (see
@@ -1379,6 +1423,7 @@ class CallCenterFragment : Fragment() {
                         val status  = snap.child("status").getValue(String::class.java) ?: runStatus
                         val createdAtVal = snap.child("createdAt").getValue(Long::class.java) ?: 0L
                         val updatedAtVal = snap.child("updatedAt").getValue(Long::class.java) ?: 0L
+                        val attemptVal = readCcAttempt(snap)
 
                         // Full remark history (not just the latest) — needed for the journey popup.
                         val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
@@ -1410,7 +1455,8 @@ class CallCenterFragment : Fragment() {
                                 worker            = nameMap[agentSystemId] ?: agentSystemId,
                                 branch            = hubName,
                                 createdAt         = createdAtVal,
-                                updatedAt         = updatedAtVal
+                                updatedAt         = updatedAtVal,
+                                attemptCount      = attemptVal
                             ),
                             remarksSnap,
                             agentSystemId

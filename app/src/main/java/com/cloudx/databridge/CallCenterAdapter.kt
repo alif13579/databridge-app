@@ -25,6 +25,9 @@ class CallCenterAdapter(
 
     var expandedItemId: String? = null
     var statusLang: String = "bn"
+    /** "attempt" (default, most-attempted first) or "aging" (oldest first) — same options as
+     *  Worker Fragment's Sort By dropdown. Read by submitParcels() each call. */
+    var sortMode: String = "attempt"
 
     // consignmentId -> glow color (null/absent = no glow). Set by the fragment as the
     // Auto Call sequence progresses (queued/calling/done) or a card is manually dialed.
@@ -66,10 +69,12 @@ class CallCenterAdapter(
         }
         val rows = mutableListOf<Row>()
         for ((worker, rawParcels) in map) {
-            // Same-phone parcels stay adjacent, oldest-group-first, oldest-parcel-first
-            // within each group — applied per worker so each agent's own section is sorted
-            // independently of the others.
-            val parcels = sortByGroupAge(rawParcels)
+            // Same-phone parcels stay adjacent, ordered per the active sort mode —
+            // applied per worker so each agent's own section is sorted independently.
+            val parcels = when (sortMode) {
+                "aging" -> sortByGroupAge(rawParcels)
+                else    -> sortByAttempt(rawParcels)
+            }
             val group = WorkerGroup(worker, parcels.firstOrNull()?.branch ?: "", parcels)
             rows.add(Row.HeaderRow(group))
             parcels.forEach { parcel ->
@@ -173,7 +178,7 @@ class CallCenterAdapter(
             tvMeta.text = "${item.id} · ${item.phone}"
             tvAddress.text = "📍 ${item.address}"
             tvCod.text = "৳${item.cod}"
-            tvAge.text = WorkerParcelAdapter.formatAgeCompact(item.createdAt)
+            tvAge.text = "${WorkerParcelAdapter.formatAgeCompact(item.createdAt)}  ·  A${item.attemptCount}"
             val (ageColor, ageBold) = WorkerParcelAdapter.ageColorFor(item.createdAt)
             tvAge.setTextColor(ageColor)
             tvAge.setTypeface(null, if (ageBold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
@@ -241,6 +246,24 @@ class CallCenterAdapter(
             return groups.values
                 .sortedBy { group -> group.minOf { p -> effectiveAge(p) } }
                 .flatMap { group -> group.sortedBy { p -> effectiveAge(p) } }
+        }
+
+        /**
+         * Same grouping guarantee as sortByGroupAge (same-phone parcels stay adjacent), but
+         * ordered by attempt count descending — the group containing the most-attempted
+         * parcel leads. Ties within/across groups fall back to oldest-first.
+         */
+        fun sortByAttempt(parcels: List<CallCenterParcelItem>): List<CallCenterParcelItem> {
+            fun effectiveAge(p: CallCenterParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
+            val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
+            return groups.values
+                .sortedWith(
+                    compareByDescending<List<CallCenterParcelItem>> { group -> group.maxOf { p -> p.attemptCount } }
+                        .thenBy { group -> group.minOf { p -> effectiveAge(p) } }
+                )
+                .flatMap { group ->
+                    group.sortedWith(compareByDescending<CallCenterParcelItem> { it.attemptCount }.thenBy { effectiveAge(it) })
+                }
         }
     }
 }
