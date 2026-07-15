@@ -1015,59 +1015,57 @@ class CallCenterFragment : Fragment() {
         val todayDdMMyy = java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH)
             .format(java.util.Date())
 
-        // Resolve the agent name->systemId map BEFORE running the range query, so the
-        // (agentSystemId-based) narrowing in onBranchIndexesLoaded can filter candidate
-        // run keys down before ever fetching a single run_routes node — not just at the
-        // final parcel-list display stage.
-        viewLifecycleOwner.lifecycleScope.launch {
-            ensureAgentNameMap() // systemId -> name, cached — warms systemIdToName for later display-name resolution
-            if (!isAdded) return@launch
+        // Agent name-map resolution and the range queries below are INDEPENDENT — the name
+        // map is only consulted later, inside onBranchIndexesLoaded()'s filtering step, not
+        // needed to issue the queries themselves. Firing them in parallel (rather than
+        // awaiting the name map first) shaves the full ensureAgentNameMap() round-trip off
+        // time-to-first-data, which matters most on a cold app start with many agents.
+        viewLifecycleOwner.lifecycleScope.launch { ensureAgentNameMap() }
 
-            branchIdsSnapshot.forEach { branchId ->
-                val branchRef = db.reference.child("courier/runs_by_branchId/$branchId")
+        branchIdsSnapshot.forEach { branchId ->
+            val branchRef = db.reference.child("courier/runs_by_branchId/$branchId")
 
-                // Phase 1 — one-time fetch to discover run-type keys for this branch
-                branchRef.addListenerForSingleValueEvent(object : com.google.firebase.database.ValueEventListener {
-                    override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
-                        if (!isAdded) return
-                        val runTypes = snapshot.children.mapNotNull { it.key }.distinct().sorted()
-                        if (runTypes.isEmpty()) {
-                            val allTypes = ccBranchRangeSnapshots.keys
-                                .map { it.substringAfter("/") }.distinct().sorted()
-                            onBranchIndexesLoaded(allTypes, ccBranchRangeSnapshots)
-                            return
-                        }
+            // Phase 1 — one-time fetch to discover run-type keys for this branch
+            branchRef.addListenerForSingleValueEvent(object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                    if (!isAdded) return
+                    val runTypes = snapshot.children.mapNotNull { it.key }.distinct().sorted()
+                    if (runTypes.isEmpty()) {
+                        val allTypes = ccBranchRangeSnapshots.keys
+                            .map { it.substringAfter("/") }.distinct().sorted()
+                        onBranchIndexesLoaded(allTypes, ccBranchRangeSnapshots)
+                        return
+                    }
 
-                        // Phase 2 — per run-type: server-side range query on today's date-string prefix
-                        runTypes.forEach { runType ->
-                            val rangeKey = "$branchId/$runType"
-                            val query = branchRef.child(runType)
-                                .orderByKey()
-                                .startAt("run_${todayDdMMyy}_")
-                                .endAt("run_${todayDdMMyy}_\uf8ff")
+                    // Phase 2 — per run-type: server-side range query on today's date-string prefix
+                    runTypes.forEach { runType ->
+                        val rangeKey = "$branchId/$runType"
+                        val query = branchRef.child(runType)
+                            .orderByKey()
+                            .startAt("run_${todayDdMMyy}_")
+                            .endAt("run_${todayDdMMyy}_\uf8ff")
 
-                            val listener = object : com.google.firebase.database.ValueEventListener {
-                                override fun onDataChange(snap: com.google.firebase.database.DataSnapshot) {
-                                    if (!isAdded) return
-                                    ccBranchRangeSnapshots[rangeKey] = snap
-                                    val allRunTypes = ccBranchRangeSnapshots.keys
-                                        .map { it.substringAfter("/") }.distinct().sorted()
-                                    onBranchIndexesLoaded(allRunTypes, ccBranchRangeSnapshots)
-                                }
-                                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
+                        val listener = object : com.google.firebase.database.ValueEventListener {
+                            override fun onDataChange(snap: com.google.firebase.database.DataSnapshot) {
+                                if (!isAdded) return
+                                ccBranchRangeSnapshots[rangeKey] = snap
+                                val allRunTypes = ccBranchRangeSnapshots.keys
+                                    .map { it.substringAfter("/") }.distinct().sorted()
+                                onBranchIndexesLoaded(allRunTypes, ccBranchRangeSnapshots)
                             }
-                            query.addValueEventListener(listener)
-                            ccActiveListeners.add(query to listener)
+                            override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
                         }
+                        query.addValueEventListener(listener)
+                        ccActiveListeners.add(query to listener)
                     }
-                    override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
-                        if (!isAdded) return
-                        pbProgress.visibility = View.GONE
-                        tvEmpty.visibility    = View.VISIBLE
-                        tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
-                    }
-                })
-            }
+                }
+                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                    if (!isAdded) return
+                    pbProgress.visibility = View.GONE
+                    tvEmpty.visibility    = View.VISIBLE
+                    tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
+                }
+            })
         }
     }
 
