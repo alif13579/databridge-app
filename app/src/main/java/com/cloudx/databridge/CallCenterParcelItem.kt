@@ -15,6 +15,9 @@ data class CallCenterParcelItem(
     val validationNote: String,
     val time: String,
     val worker: String,
+    /** employee_id / systemId — the same token embedded in run_ids. Unique per agent, unlike
+     *  `worker` (display name), which two different agents can share. */
+    val workerSystemId: String = "",
     val branch: String,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,

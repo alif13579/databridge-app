@@ -12,6 +12,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.text.Editable
 import android.text.TextWatcher
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -132,8 +133,15 @@ class CallCenterFragment : Fragment() {
     private var searchQuery: String = ""
 
     private lateinit var tvAgentDropdown: TextView
-    private val selectedAgentFilters: MutableSet<String> = mutableSetOf() // empty = all agents
-    private var ccAgentOptions: List<String> = emptyList() // known agent display-names
+    /** systemId (== employee_id, the same token embedded in run_ids) -> display name.
+     *  Filtering keys off systemId, never off name — two agents can share a display name,
+     *  but systemId/employee_id is always unique (per user's explicit correction). */
+    data class AgentOption(val systemId: String, val name: String) {
+        /** "Mehedi (FDA001)" — what's actually shown in the dropdown list and the chip label. */
+        val display: String get() = "$name ($systemId)"
+    }
+    private val selectedAgentFilters: MutableSet<String> = mutableSetOf() // systemIds; empty = all agents
+    private var ccAgentOptions: List<AgentOption> = emptyList() // known agents, systemId+name bound together
 
     private lateinit var tvCollapseArrow: TextView
     private lateinit var layoutCollapsibleSection: LinearLayout
@@ -884,7 +892,7 @@ class CallCenterFragment : Fragment() {
             scoped = scoped.filter { it.branch in selectedBranchIds }
         }
         if (selectedAgentFilters.isNotEmpty()) {
-            scoped = scoped.filter { it.worker in selectedAgentFilters }
+            scoped = scoped.filter { it.workerSystemId in selectedAgentFilters }
         }
         return scoped
     }
@@ -1012,9 +1020,8 @@ class CallCenterFragment : Fragment() {
         // run keys down before ever fetching a single run_routes node — not just at the
         // final parcel-list display stage.
         viewLifecycleOwner.lifecycleScope.launch {
-            val nameMap = ensureAgentNameMap() // systemId -> name, cached
+            ensureAgentNameMap() // systemId -> name, cached — warms systemIdToName for later display-name resolution
             if (!isAdded) return@launch
-            nameToSystemId = nameMap.entries.associate { (sysId, name) -> name to sysId }
 
             branchIdsSnapshot.forEach { branchId ->
                 val branchRef = db.reference.child("courier/runs_by_branchId/$branchId")
@@ -1112,31 +1119,33 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    /** Rebuilds the agent filter dropdown options from whichever workers currently have parcels. */
+    /** Rebuilds the agent filter dropdown options from whichever workers currently have parcels.
+     *  Keyed by systemId (unique per agent) so two agents sharing a display name each still get
+     *  their own dropdown entry, rather than collapsing into one via distinct()-on-name. */
     private fun bindCcAgentSpinner() {
         if (!::tvAgentDropdown.isInitialized) return
-        val agents = allParcels.map { it.worker }.filter { it.isNotBlank() }.distinct().sorted()
+        val agents = allParcels
+            .filter { it.workerSystemId.isNotBlank() }
+            .distinctBy { it.workerSystemId }
+            .map { AgentOption(it.workerSystemId, it.worker.ifBlank { it.workerSystemId }) }
+            .sortedBy { it.name }
         ccAgentOptions = agents
-        // Drop any previously-selected agent who no longer has any parcels.
-        selectedAgentFilters.retainAll(agents.toSet())
+        // Drop any previously-selected agent (by systemId) who no longer has any parcels.
+        val liveSystemIds = agents.map { it.systemId }.toSet()
+        selectedAgentFilters.retainAll(liveSystemIds)
         updateAgentDropdownLabel()
     }
 
     private fun updateAgentDropdownLabel() {
         val ctx = context ?: return
-        val selected = selectedAgentFilters.intersect(ccAgentOptions.toSet())
+        val optionsBySystemId = ccAgentOptions.associateBy { it.systemId }
+        val selected = selectedAgentFilters.mapNotNull { optionsBySystemId[it] }
         val isFiltered = selected.isNotEmpty() && selected.size < ccAgentOptions.size
         val label = when {
             !isFiltered -> "👥 All Agents ▾"
-            selected.size == 1 -> "${selected.first()} ▾"
-            selected.size == 2 -> {
-                val names = selected.toList()
-                "${names[0]} & ${names[1]} ▾"
-            }
-            else -> {
-                val names = selected.take(2).toList()
-                "${names[0]}, ${names[1]} & ${selected.size - 2} more ▾"
-            }
+            selected.size == 1 -> "${selected.first().name} ▾"
+            selected.size == 2 -> "${selected[0].name} & ${selected[1].name} ▾"
+            else -> "${selected[0].name}, ${selected[1].name} & ${selected.size - 2} more ▾"
         }
         tvAgentDropdown.text = label
         tvAgentDropdown.setBackgroundResource(
@@ -1153,18 +1162,62 @@ class CallCenterFragment : Fragment() {
             Toast.makeText(ctx, "এখনো কোনো agent-এর parcel নেই", Toast.LENGTH_SHORT).show()
             return
         }
-        val agentArray = ccAgentOptions.toTypedArray()
-        // Same fix as the branch dropdown: expand to the full set up front when
-        // starting from "all" (empty), so unchecking removes real membership
-        // instead of silently no-op'ing against an empty set.
-        val working = if (selectedAgentFilters.isEmpty()) agentArray.toMutableSet()
+
+        val dialogView = LayoutInflater.from(ctx).inflate(R.layout.dialog_agent_multiselect, null)
+        val etSearchAgent = dialogView.findViewById<EditText>(R.id.etAgentSearch)
+        val layoutCheckboxes = dialogView.findViewById<LinearLayout>(R.id.layoutAgentCheckboxes)
+        val tvNoResults = dialogView.findViewById<TextView>(R.id.tvAgentNoResults)
+
+        // Same fix as the branch dropdown: expand to the full set up front when starting
+        // from "all" (empty), so unchecking removes real membership instead of no-op'ing.
+        val working = if (selectedAgentFilters.isEmpty()) ccAgentOptions.map { it.systemId }.toMutableSet()
                       else selectedAgentFilters.toMutableSet()
-        val checked = BooleanArray(agentArray.size) { i -> agentArray[i] in working }
-        android.app.AlertDialog.Builder(ctx)
-            .setTitle("Select Agents")
-            .setMultiChoiceItems(agentArray, checked) { _, which, isChecked ->
-                if (isChecked) working.add(agentArray[which]) else working.remove(agentArray[which])
+
+        // One checkbox view per agent, built once — search just toggles visibility on the
+        // existing views (cheap; ccAgentOptions is at most a few dozen agents), so checked
+        // state never needs to be re-synced against a rebuilt list.
+        val checkboxes = ccAgentOptions.map { option ->
+            val cb = LayoutInflater.from(ctx).inflate(R.layout.item_agent_checkbox, layoutCheckboxes, false) as CheckBox
+            cb.text = option.display // "Mehedi (FDA001)"
+            cb.isChecked = option.systemId in working
+            layoutCheckboxes.addView(cb)
+            option to cb
+        }
+
+        lateinit var dialog: android.app.AlertDialog
+
+        fun updateNeutralButtonLabel() {
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.text =
+                if (working.size >= ccAgentOptions.size) "Clear" else "All"
+        }
+
+        checkboxes.forEach { (option, cb) ->
+            cb.setOnCheckedChangeListener { _, isChecked ->
+                if (isChecked) working.add(option.systemId) else working.remove(option.systemId)
+                if (::dialog.isInitialized) updateNeutralButtonLabel()
             }
+        }
+
+        etSearchAgent.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val q = s?.toString()?.trim()?.lowercase().orEmpty()
+                var anyVisible = false
+                checkboxes.forEach { (option, cb) ->
+                    val matches = q.isEmpty() ||
+                        option.name.lowercase().contains(q) ||
+                        option.systemId.lowercase().contains(q)
+                    cb.visibility = if (matches) View.VISIBLE else View.GONE
+                    if (matches) anyVisible = true
+                }
+                tvNoResults.visibility = if (anyVisible) View.GONE else View.VISIBLE
+            }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
+
+        dialog = android.app.AlertDialog.Builder(ctx)
+            .setTitle("Select Agents")
+            .setView(dialogView)
             .setPositiveButton("Apply") { _, _ ->
                 selectedAgentFilters.clear()
                 if (working.size < ccAgentOptions.size) selectedAgentFilters.addAll(working)
@@ -1177,14 +1230,25 @@ class CallCenterFragment : Fragment() {
                 // runs, not just applyFilters() re-narrowing what was already fetched.
                 loadData()
             }
-            .setNeutralButton(if (selectedAgentFilters.isEmpty()) "All" else "Clear") { _, _ ->
+            // Label is set dynamically (updateNeutralButtonLabel) based on live checkbox
+            // state, not just what was selected when the dialog opened — this is the fix
+            // for the button staying stuck on "All" after checking every box by hand.
+            // Both "All" and "Clear" presses reset to no-filter (empty selectedAgentFilters) —
+            // this app already treats "empty" as "every agent" everywhere else, and the
+            // dropdown re-opens with every checkbox checked when selectedAgentFilters is
+            // empty (see the `working` initialization above), so this is the correct end
+            // state whichever label was showing when the button was pressed.
+            .setNeutralButton("All") { _, _ ->
                 selectedAgentFilters.clear()
                 updateAgentDropdownLabel()
                 setupFilterTabs()
                 saveFilterPreferences()
-                loadData() // same reason as Apply above — clearing can newly include agents
+                loadData() // same reason as Apply above — selection change can newly include agents
             }
-            .show()
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener { updateNeutralButtonLabel() }
+        dialog.show()
     }
 
     private fun formatCcRunTypeLabel(runType: String): String =
@@ -1232,12 +1296,11 @@ class CallCenterFragment : Fragment() {
             return
         }
 
-        // Active agent filter, translated from display-names to systemIds (via nameToSystemId,
-        // resolved in attachRootRunTypesListener before these range queries were even issued).
+        // Active agent filter — selectedAgentFilters stores systemIds directly (not display
+        // names), so no translation is needed here anymore.
         // Empty selectedAgentFilters = no filter = every agent's runs are candidates.
         val activeSystemIds: Set<String>? =
-            if (selectedAgentFilters.isEmpty()) null
-            else selectedAgentFilters.mapNotNull { nameToSystemId[it] }.toSet()
+            if (selectedAgentFilters.isEmpty()) null else selectedAgentFilters.toSet()
 
         // Dedupe (runType, runId) across branches — a multi-branch agent's run is written into
         // EVERY one of their assigned branches' indexes, but it's a single real run node.
@@ -1287,10 +1350,6 @@ class CallCenterFragment : Fragment() {
     private val ccActiveListeners = mutableListOf<Pair<com.google.firebase.database.Query, com.google.firebase.database.ValueEventListener>>()
     /** Per (branchId/runType) range-query result snapshots — accumulated as each live query fires. */
     private val ccBranchRangeSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
-    /** Reverse of systemIdToName, built once per attachRootRunTypesListener() call — lets
-     *  candidate run keys (run_{ddMMyy}_{systemId}) be matched against selectedAgentFilters
-     *  (which stores display names) before ever fetching a run_routes node. */
-    private var nameToSystemId: Map<String, String> = emptyMap()
 
     private fun detachRunsListener() {
         ccActiveListeners.forEach { (ref, l) -> ref.removeEventListener(l) }
@@ -1453,6 +1512,7 @@ class CallCenterFragment : Fragment() {
                                 validationNote    = if (remarkStatus == "verify_req") remarkLabel else "",
                                 time              = "",
                                 worker            = nameMap[agentSystemId] ?: agentSystemId,
+                                workerSystemId    = agentSystemId,
                                 branch            = hubName,
                                 createdAt         = createdAtVal,
                                 updatedAt         = updatedAtVal,
