@@ -201,7 +201,7 @@ class ScannerFragment : Fragment() {
     // ── Camera ─────────────────────────────────────────────────────────
     private fun launchCamera() {
         try {
-            val intent = Intent(requireContext(), com.journeyapps.barcodescanner.CaptureActivity::class.java)
+            val intent = Intent(requireContext(), MlKitScannerActivity::class.java)
             scanLauncher.launch(intent)
         } catch (e: Exception) {
             Toast.makeText(requireContext(), "Camera error: ${e.message}", Toast.LENGTH_LONG).show()

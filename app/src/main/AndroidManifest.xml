@@ -64,13 +64,12 @@
             android:theme="@style/Theme.DataBridge"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- 📷 ZXing QR Scanner Activity (বার্কোড/কিউআর স্ক্যানের জন্য) -->
+        <!-- 📷 ML Kit scanner Activity (CameraX + Google Barhopper) -->
         <activity
-            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:name=".MlKitScannerActivity"
+            android:exported="false"
             android:screenOrientation="fullSensor"
-            android:stateNotNeeded="true"
-            android:theme="@style/zxing_CaptureTheme"
-            android:windowSoftInputMode="stateAlwaysHidden"
+            android:theme="@style/Theme.DataBridge"
             tools:replace="android:screenOrientation" />
 
         <!-- 📞 CallActivity: transparent activity for background/lockscreen auto-dial -->
