@@ -29,6 +29,7 @@ data class WorkerParcelItem(
     val ccRemarkAuthor: String = "",
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
+    val attemptCount: Int = 0,
     val history: List<HistoryEntry> = emptyList()
 )
 
@@ -93,6 +94,7 @@ class WorkerParcelAdapter(
         val inGroup = hasPrev || hasNext
 
         // Count the group size for the "X/N" badge
+        val attemptSuffix = "  ·  A${item.attemptCount}"
         if (inGroup) {
             var groupStart = position
             while (groupStart > 0 && getItem(groupStart - 1).phone.filter { it.isDigit() }.takeLast(10) == normalizedPhone) groupStart--
@@ -100,9 +102,9 @@ class WorkerParcelAdapter(
             while (groupEnd < currentList.size - 1 && getItem(groupEnd + 1).phone.filter { it.isDigit() }.takeLast(10) == normalizedPhone) groupEnd++
             val groupSize = groupEnd - groupStart + 1
             val groupPos  = position - groupStart + 1
-            holder.tvAge.text = "${formatAgeCompact(item.createdAt)}  $groupPos/$groupSize"
+            holder.tvAge.text = "${formatAgeCompact(item.createdAt)}  $groupPos/$groupSize$attemptSuffix"
         } else {
-            holder.tvAge.text = formatAgeCompact(item.createdAt)
+            holder.tvAge.text = "${formatAgeCompact(item.createdAt)}$attemptSuffix"
         }
         val (ageColor, ageBold) = ageColorFor(item.createdAt)
         holder.tvAge.setTextColor(ageColor)
@@ -239,6 +241,25 @@ class WorkerParcelAdapter(
             return groups.values
                 .sortedBy { group -> group.minOf { p -> effectiveAge(p) } }
                 .flatMap { group -> group.sortedBy { p -> effectiveAge(p) } }
+        }
+
+        /**
+         * Same grouping guarantee as sortByGroupAge (same-phone parcels stay adjacent),
+         * but ordered by attempt count descending — the group containing the
+         * most-attempted parcel comes first, since repeated failed attempts need the
+         * most urgent resolution. Ties within/across groups fall back to oldest-first.
+         */
+        fun sortByAttempt(parcels: List<WorkerParcelItem>): List<WorkerParcelItem> {
+            fun effectiveAge(p: WorkerParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
+            val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
+            return groups.values
+                .sortedWith(
+                    compareByDescending<List<WorkerParcelItem>> { group -> group.maxOf { p -> p.attemptCount } }
+                        .thenBy { group -> group.minOf { p -> effectiveAge(p) } }
+                )
+                .flatMap { group ->
+                    group.sortedWith(compareByDescending<WorkerParcelItem> { it.attemptCount }.thenBy { effectiveAge(it) })
+                }
         }
 
         fun ageColorFor(createdAt: Long): Pair<Int, Boolean> {

@@ -72,6 +72,8 @@ class WorkerSpaceFragment : Fragment() {
     private var systemId = ""
     private var userId = ""
     private var agentPhone = ""
+    private var sortMode: String = "attempt" // "attempt" (default, most-attempted first) or "aging" (oldest first)
+    private lateinit var tvSortByDropdown: TextView
 
     // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
     // repeated remarks by the same author (worker or CC agent) don't refetch. Cleared on
@@ -129,12 +131,17 @@ class WorkerSpaceFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        // Restore the last-used sort mode — otherwise it'd silently reset to the
+        // default every time this fragment is recreated (navigating away and back).
+        loadSortPref()
+
         // Notification tap-to-navigate: expand this parcel after data loads
         arguments?.getString("expand_parcel_id")?.takeIf { it.isNotBlank() }?.let {
             pendingExpandParcelId = it
         }
 
         initViews(view)
+        updateSortByLabel()
         setupSearch()
         setupScanButton()
         setupRunTypeSpinner()
@@ -152,6 +159,8 @@ class WorkerSpaceFragment : Fragment() {
     private fun initViews(view: View) {
         tvRoleLabel = view.findViewById(R.id.twRoleLabel)
         tvAgentInfo = view.findViewById(R.id.twAgentInfo)
+        tvSortByDropdown = view.findViewById(R.id.tvSortByDropdown)
+        tvSortByDropdown.setOnClickListener { showSortByDropdown() }
         tvTodayCod = view.findViewById(R.id.twTodayCod)
         tvStatTotalValue = view.findViewById(R.id.twStatTotalValue)
         tvStatConfirmedValue = view.findViewById(R.id.twStatConfirmedValue)
@@ -1042,7 +1051,10 @@ class WorkerSpaceFragment : Fragment() {
             try {
                 val parcels = loadParcelsForSelectedRunType(runSnap)
                 if (!isAdded || generation != loadGeneration) return@launch
-                allParcels = WorkerParcelAdapter.sortByGroupAge(parcels)
+                allParcels = when (sortMode) {
+                    "aging" -> WorkerParcelAdapter.sortByGroupAge(parcels)
+                    else    -> WorkerParcelAdapter.sortByAttempt(parcels)
+                }
                 setupFilterTabs()
                 applyFilters()
                 syncRemarkListeners(parcels.map { it.id }.toSet())
@@ -1230,6 +1242,7 @@ class WorkerSpaceFragment : Fragment() {
             val lastRemark = history.lastOrNull()?.remark ?: ""
             val createdAtVal = detailSnap.child("createdAt").getValue(Long::class.java) ?: 0L
             val updatedAtVal = detailSnap.child("updatedAt").getValue(Long::class.java) ?: 0L
+            val attemptVal = readAttempt(detailSnap)
             parcels.add(
                 WorkerParcelItem(
                     id = cId,
@@ -1245,6 +1258,7 @@ class WorkerSpaceFragment : Fragment() {
                     time = hub,
                     createdAt = createdAtVal,
                     updatedAt = updatedAtVal,
+                    attemptCount = attemptVal,
                     history = history
                 )
             )
@@ -1269,6 +1283,53 @@ class WorkerSpaceFragment : Fragment() {
             ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt()
             ?: snap.child("collectableAmount").getValue(Double::class.java)?.toInt()
             ?: 0
+    }
+
+    private fun readAttempt(snap: DataSnapshot): Int {
+        return snap.child("attempt").getValue(String::class.java)
+            ?.toDoubleOrNull()?.toInt()
+            ?: snap.child("attempt").getValue(Long::class.java)?.toInt()
+            ?: snap.child("attempt").getValue(Double::class.java)?.toInt()
+            ?: 0
+    }
+
+    private fun loadSortPref() {
+        val ctx = context ?: return
+        val prefs = ctx.getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
+        sortMode = prefs.getString("worker_sort_mode", "attempt") ?: "attempt"
+    }
+
+    private fun saveSortPref() {
+        val ctx = context ?: return
+        ctx.getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putString("worker_sort_mode", sortMode)
+            .apply()
+    }
+
+    private fun updateSortByLabel() {
+        tvSortByDropdown.text = if (sortMode == "aging") "🕐 Aging ▾" else "🔁 Attempt ▾"
+    }
+
+    private fun showSortByDropdown() {
+        val ctx = context ?: return
+        val options = arrayOf("🔁 Attempt (most attempted first)", "🕐 Aging (oldest first)")
+        val keys = arrayOf("attempt", "aging")
+        val currentIndex = keys.indexOf(sortMode).coerceAtLeast(0)
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Sort by")
+            .setSingleChoiceItems(options, currentIndex) { dialog, which ->
+                sortMode = keys[which]
+                updateSortByLabel()
+                saveSortPref()
+                allParcels = when (sortMode) {
+                    "aging" -> WorkerParcelAdapter.sortByGroupAge(allParcels)
+                    else    -> WorkerParcelAdapter.sortByAttempt(allParcels)
+                }
+                applyFilters()
+                dialog.dismiss()
+            }
+            .show()
     }
 
     private fun applyFilters() {
