@@ -1487,12 +1487,40 @@ class CallCenterFragment : Fragment() {
                             .get().await()
                         val latestEntry = remarksSnap.children.lastOrNull()
                         val remarkStatus = latestEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        val remarkText = latestEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
+                        // Card badge: only TODAY's latest entry — a remark/status from a previous
+                        // day isn't actionable for today's calling queue, so it shouldn't linger.
+                        // remarkLabel = the status-derived label (e.g. "Called - No Answer"), always
+                        // shown when today has an entry. noteText = the free-text note on that SAME
+                        // entry, if any — shown as an addition beneath the label, not a replacement.
+                        val todayCal = java.util.Calendar.getInstance()
+                        todayCal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                        todayCal.set(java.util.Calendar.MINUTE, 0)
+                        todayCal.set(java.util.Calendar.SECOND, 0)
+                        todayCal.set(java.util.Calendar.MILLISECOND, 0)
+                        val todayStart = todayCal.timeInMillis
+                        val latestTodayEntry = remarksSnap.children.lastOrNull {
+                            (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStart
+                        }
+                        val todayStatus = latestTodayEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
+                        val todayNote = latestTodayEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
+                        val statusLabel = if (todayStatus.isNotBlank()) {
+                            context?.let { WorkerParcelAdapter.getStatusConfig(it, todayStatus, "bn").label } ?: todayStatus
+                        } else ""
                         val remarkLabel = when {
-                            remarkText.isNotBlank() -> remarkText
+                            statusLabel.isNotBlank() && todayNote.isNotBlank() -> "$statusLabel\n$todayNote"
+                            statusLabel.isNotBlank() -> statusLabel
+                            todayNote.isNotBlank() -> todayNote
+                            else -> ""
+                        }
+
+                        val latestOverallNote = latestEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
+                        val latestOverallLabel = when {
+                            remarkStatus.isNotBlank() && latestOverallNote.isNotBlank() ->
+                                "${context?.let { WorkerParcelAdapter.getStatusConfig(it, remarkStatus, "bn").label } ?: remarkStatus}\n$latestOverallNote"
                             remarkStatus.isNotBlank() -> context?.let {
                                 WorkerParcelAdapter.getStatusConfig(it, remarkStatus, "bn").label
                             } ?: remarkStatus
+                            latestOverallNote.isNotBlank() -> latestOverallNote
                             else -> ""
                         }
 
@@ -1507,7 +1535,11 @@ class CallCenterFragment : Fragment() {
                                 remarks           = remarkLabel,
                                 remarkStatus      = remarkStatus,
                                 validationRequest = remarkStatus == "verify_req",
-                                validationNote    = if (remarkStatus == "verify_req") remarkLabel else "",
+                                // Uses date-independent latestOverallLabel, not the today-filtered
+                                // remarkLabel — a pending validation request stays actionable and
+                                // shouldn't lose its note just because it was raised on a prior day
+                                // and today happens to have no new entry.
+                                validationNote    = if (remarkStatus == "verify_req") latestOverallLabel else "",
                                 time              = "",
                                 worker            = nameMap[agentSystemId] ?: agentSystemId,
                                 workerSystemId    = agentSystemId,
@@ -1536,9 +1568,12 @@ class CallCenterFragment : Fragment() {
                     val rStatus = r.child("status").getValue(String::class.java)?.trim().orEmpty()
                     val rNote = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
                     if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                    val statusLabelHist = if (rStatus.isNotBlank())
+                        context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus else ""
                     val rLabel = when {
+                        statusLabelHist.isNotBlank() && rNote.isNotBlank() -> "$statusLabelHist\n$rNote"
+                        statusLabelHist.isNotBlank() -> statusLabelHist
                         rNote.isNotBlank()   -> rNote
-                        rStatus.isNotBlank() -> context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
                         else                 -> ""
                     }
                     val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
@@ -1616,9 +1651,12 @@ class CallCenterFragment : Fragment() {
                             val customer = parcel?.customer?.takeIf { it.isNotBlank() } ?: cId
                             val remarkText = latest?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
                             val remarkStatus = latest?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
+                            val statusLabelForNotif = if (remarkStatus.isNotBlank())
+                                WorkerParcelAdapter.getStatusConfig(ctx, remarkStatus, ccStatusLang).label else ""
                             val message = when {
+                                statusLabelForNotif.isNotBlank() && remarkText.isNotBlank() -> "$statusLabelForNotif — $remarkText"
+                                statusLabelForNotif.isNotBlank() -> statusLabelForNotif
                                 remarkText.isNotBlank() -> remarkText
-                                remarkStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, remarkStatus, ccStatusLang).label
                                 else -> "নতুন রিমার্ক এসেছে"
                             }
                             AppNotificationManager.add(
@@ -1634,12 +1672,29 @@ class CallCenterFragment : Fragment() {
                         }
                         ccLastSeenRemarkAt[cId] = latestCreatedAt
                         // ─────────────────────────────────────────────────────────
-                        val latestRemark = latest?.let {
+                        // Card badge: today-only, same rule as the initial fetch in
+                        // processRunsSnapshot() — without this date filter here too, the badge
+                        // would be correct on first load but get overwritten with a stale
+                        // (possibly yesterday's) value the next time this live listener fires
+                        // for ANY change to this consignment's remarks.
+                        val todayCalLive = java.util.Calendar.getInstance()
+                        todayCalLive.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                        todayCalLive.set(java.util.Calendar.MINUTE, 0)
+                        todayCalLive.set(java.util.Calendar.SECOND, 0)
+                        todayCalLive.set(java.util.Calendar.MILLISECOND, 0)
+                        val todayStartLive = todayCalLive.timeInMillis
+                        val latestTodayForBadge = sorted.firstOrNull {
+                            (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStartLive
+                        }
+                        val latestRemark = latestTodayForBadge?.let {
                             val status = it.child("status").getValue(String::class.java)?.trim().orEmpty()
-                            val remarkText = it.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                            val note = it.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                            val statusLabel = if (status.isNotBlank())
+                                WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label else ""
                             when {
-                                remarkText.isNotBlank() -> remarkText
-                                status.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label
+                                statusLabel.isNotBlank() && note.isNotBlank() -> "$statusLabel\n$note"
+                                statusLabel.isNotBlank() -> statusLabel
+                                note.isNotBlank() -> note
                                 else -> ""
                             }
                         }.orEmpty()
@@ -1660,9 +1715,12 @@ class CallCenterFragment : Fragment() {
                             val rStatus = r.child("status").getValue(String::class.java)?.trim().orEmpty()
                             val rNote = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
                             if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                            val statusLabelLiveHist = if (rStatus.isNotBlank())
+                                WorkerParcelAdapter.getStatusConfig(ctx, rStatus, ccStatusLang).label else ""
                             val rLabel = when {
+                                statusLabelLiveHist.isNotBlank() && rNote.isNotBlank() -> "$statusLabelLiveHist\n$rNote"
+                                statusLabelLiveHist.isNotBlank() -> statusLabelLiveHist
                                 rNote.isNotBlank()   -> rNote
-                                rStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, rStatus, ccStatusLang).label
                                 else                 -> ""
                             }
                             val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L

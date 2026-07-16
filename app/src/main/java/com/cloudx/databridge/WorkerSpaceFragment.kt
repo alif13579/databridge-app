@@ -900,7 +900,7 @@ class WorkerSpaceFragment : Fragment() {
                     viewLifecycleOwner.lifecycleScope.launch {
                         data class RawEntry(
                             val rStatus: String, val rLabel: String, val timeStr: String,
-                            val remarkedBy: String, val rUserId: String
+                            val remarkedBy: String, val rUserId: String, val createdAt: Long
                         )
 
                         // ── New CC-remark notification ────────────────────────────
@@ -943,17 +943,20 @@ class WorkerSpaceFragment : Fragment() {
                             val rStatus = readString(r, "status")
                             val rNote   = readString(r, "remarks")
                             if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                            val statusLabel = if (rStatus.isNotBlank())
+                                WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label else ""
                             val rLabel = when {
-                                rNote.isNotBlank()   -> rNote
-                                rStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label
-                                else                 -> ""
+                                statusLabel.isNotBlank() && rNote.isNotBlank() -> "$statusLabel\n$rNote"
+                                statusLabel.isNotBlank() -> statusLabel
+                                rNote.isNotBlank() -> rNote
+                                else -> ""
                             }
                             val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                             val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                                 .format(java.util.Date(createdAt))
                             val remarkedBy = readString(r, "remarked_by")
                             val rUserId = readString(r, "userId")
-                            RawEntry(rStatus, rLabel, timeStr, remarkedBy, rUserId)
+                            RawEntry(rStatus, rLabel, timeStr, remarkedBy, rUserId, createdAt)
                         }
                         // Resolve every distinct uid to a name+photo in parallel (direct
                         // users/{uid} access — no full-tree scan, no reverse-index needed).
@@ -977,7 +980,8 @@ class WorkerSpaceFragment : Fragment() {
                                 time = e.timeStr,
                                 author = author,
                                 authorRole = authorRole,
-                                authorPhotoUrl = resolvedPhoto.orEmpty()
+                                authorPhotoUrl = resolvedPhoto.orEmpty(),
+                                createdAt = e.createdAt
                             )
                         }.sortedBy { it.time }
 
@@ -985,7 +989,17 @@ class WorkerSpaceFragment : Fragment() {
                         val lastRemarkStatus = snapshot.children
                             .mapNotNull { r -> r.child("status").getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() } }
                             .lastOrNull() ?: ""
-                        val lastRemark = history.lastOrNull()?.remark ?: ""
+                        // Card badge shows only TODAY's remark text — a remark from yesterday
+                        // (or earlier) is no longer actionable for today's work, so it shouldn't
+                        // linger on the card. The full multi-day history (journey log) is
+                        // unaffected — this only narrows what feeds the card's `remarks` field.
+                        val todayCal = java.util.Calendar.getInstance()
+                        todayCal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+                        todayCal.set(java.util.Calendar.MINUTE, 0)
+                        todayCal.set(java.util.Calendar.SECOND, 0)
+                        todayCal.set(java.util.Calendar.MILLISECOND, 0)
+                        val todayStart = todayCal.timeInMillis
+                        val lastRemark = history.lastOrNull { it.createdAt >= todayStart }?.remark ?: ""
                         val idx = allParcels.indexOfFirst { it.id == cId }
                         if (idx != -1) {
                             val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status

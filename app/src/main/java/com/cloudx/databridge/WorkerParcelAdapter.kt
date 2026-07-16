@@ -39,7 +39,10 @@ data class HistoryEntry(
     val time: String,
     val author: String,
     val authorRole: String,
-    val authorPhotoUrl: String = ""
+    val authorPhotoUrl: String = "",
+    /** Raw epoch millis this entry was created — used to derive "is this from today"
+     *  for card-badge purposes, separate from `time` (a display-formatted string). */
+    val createdAt: Long = 0L
 )
 
 class WorkerParcelAdapter(
