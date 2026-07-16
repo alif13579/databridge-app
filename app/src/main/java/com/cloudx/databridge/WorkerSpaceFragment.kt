@@ -1026,10 +1026,14 @@ class WorkerSpaceFragment : Fragment() {
                         todayCal.set(java.util.Calendar.SECOND, 0)
                         todayCal.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStart = todayCal.timeInMillis
-                        // Card badge: only today's remark FROM CC — shows clean note text only
-                        // (noteOnly), never the status label (which the card's own status badge
-                        // already shows). remark (journey log) still includes the status label.
-                        val lastRemark = history.lastOrNull { it.createdAt >= todayStart && it.authorRole == "cc" }?.noteOnly ?: ""
+                        // Card badge: TODAY's TRUE latest entry (any author) — only surfaced on
+                        // the card when that latest entry is from CC ("cc"/support). If the
+                        // worker's own remark is the most recent thing today, they already know
+                        // what they wrote, so the box stays hidden instead of falling back to an
+                        // older CC remark that's no longer the current state. Mirrors the CC-side
+                        // card fix (there: hide if latest == support; here: show only if latest == cc).
+                        val latestTodayEntry = history.filter { it.createdAt >= todayStart }.maxByOrNull { it.createdAt }
+                        val lastRemark = if (latestTodayEntry?.authorRole == "cc") latestTodayEntry.noteOnly else ""
                         val idx = allParcels.indexOfFirst { it.id == cId }
                         if (idx != -1) {
                             val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status
@@ -1037,6 +1041,8 @@ class WorkerSpaceFragment : Fragment() {
                                 it[idx] = it[idx].copy(
                                     status  = effectiveStatus,
                                     remarks = lastRemark,
+                                    validationRequest = lastRemarkStatus == "verify_req",
+                                    validationNote = if (lastRemarkStatus == "verify_req") lastRemark else "",
                                     history = history
                                 )
                             }
@@ -1303,8 +1309,12 @@ class WorkerSpaceFragment : Fragment() {
             todayCalBulk.set(java.util.Calendar.SECOND, 0)
             todayCalBulk.set(java.util.Calendar.MILLISECOND, 0)
             val todayStartBulk = todayCalBulk.timeInMillis
-            // Card badge: today-only, clean note text only (no status label).
-            val lastRemark = history.lastOrNull { it.createdAt >= todayStartBulk && it.authorRole == "cc" }?.noteOnly ?: ""
+            // Card badge: TODAY's TRUE latest entry (any author) — only surfaced when that
+            // latest entry is from CC. Same reasoning as the live-listener path above: if the
+            // worker's own remark is the most recent thing today, it's already known to them
+            // and shouldn't be shown back; an older CC remark shouldn't linger once superseded.
+            val latestTodayEntryBulk = history.filter { it.createdAt >= todayStartBulk }.maxByOrNull { it.createdAt }
+            val lastRemark = if (latestTodayEntryBulk?.authorRole == "cc") latestTodayEntryBulk.noteOnly else ""
             val createdAtVal = detailSnap.child("createdAt").getValue(Long::class.java) ?: 0L
             val updatedAtVal = detailSnap.child("updatedAt").getValue(Long::class.java) ?: 0L
             val attemptVal = readAttempt(detailSnap)
