@@ -1219,9 +1219,12 @@ class WorkerSpaceFragment : Fragment() {
                 val rStatus = readString(r, "status")
                 val rNote   = readString(r, "remarks")
                 if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                val statusLabelBulk = if (rStatus.isNotBlank())
+                    context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus else ""
                 val rLabel = when {
+                    statusLabelBulk.isNotBlank() && rNote.isNotBlank() -> "$statusLabelBulk\n$rNote"
+                    statusLabelBulk.isNotBlank() -> statusLabelBulk
                     rNote.isNotBlank()   -> rNote
-                    rStatus.isNotBlank() -> context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus
                     else                 -> ""
                 }
                 val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
@@ -1244,13 +1247,22 @@ class WorkerSpaceFragment : Fragment() {
                     time = timeStr,
                     author = author,
                     authorRole = authorRole,
-                    authorPhotoUrl = resolvedPhoto.orEmpty()
+                    authorPhotoUrl = resolvedPhoto.orEmpty(),
+                    createdAt = createdAt
                 )
             }.sortedBy { it.time }
             val lastRemarkStatus = remarksSnap.children.lastOrNull()
                 ?.child("status")?.getValue(String::class.java) ?: ""
 
-            val lastRemark = history.lastOrNull()?.remark ?: ""
+            // Card badge: today-only, same rule as the live-listener path — a remark from a
+            // prior day isn't actionable for today's work, so it shouldn't linger on the card.
+            val todayCalBulk = java.util.Calendar.getInstance()
+            todayCalBulk.set(java.util.Calendar.HOUR_OF_DAY, 0)
+            todayCalBulk.set(java.util.Calendar.MINUTE, 0)
+            todayCalBulk.set(java.util.Calendar.SECOND, 0)
+            todayCalBulk.set(java.util.Calendar.MILLISECOND, 0)
+            val todayStartBulk = todayCalBulk.timeInMillis
+            val lastRemark = history.lastOrNull { it.createdAt >= todayStartBulk }?.remark ?: ""
             val createdAtVal = detailSnap.child("createdAt").getValue(Long::class.java) ?: 0L
             val updatedAtVal = detailSnap.child("updatedAt").getValue(Long::class.java) ?: 0L
             val attemptVal = readAttempt(detailSnap)
