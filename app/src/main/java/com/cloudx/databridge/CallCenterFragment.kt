@@ -785,6 +785,7 @@ class CallCenterFragment : Fragment() {
                 updateModeDropdownLabel()
                 // Rebuilds chips too — their counts depend on this scope (see scopedParcels()).
                 setupFilterTabs()
+                bindCcAgentSpinner()
                 applyFilters()
                 saveFilterPreferences()
             }
@@ -863,6 +864,7 @@ class CallCenterFragment : Fragment() {
                 if (working.size < branches.size) selectedBranchIds.addAll(working)
                 updateBranchDropdownLabel()
                 setupFilterTabs()
+                bindCcAgentSpinner()
                 applyFilters()
                 saveFilterPreferences()
             }
@@ -870,6 +872,7 @@ class CallCenterFragment : Fragment() {
                 selectedBranchIds.clear()
                 updateBranchDropdownLabel()
                 setupFilterTabs()
+                bindCcAgentSpinner()
                 applyFilters()
                 saveFilterPreferences()
             }
@@ -877,13 +880,13 @@ class CallCenterFragment : Fragment() {
     }
 
     /**
-     * allParcels narrowed by the three "scope" filters — access mode, branch, agent —
-     * but NOT by search or the status chip itself. This is the shared basis for:
-     * the status chip counts, the stat-summary numbers (Total/Confirmed/Pending/
-     * Rejected/Validation), and the starting point of applyFilters()'s visible list.
-     * Keeping one function means chip counts and the actual list can't drift apart.
+     * allParcels narrowed by access mode + branch ONLY (not agent, not search, not the
+     * status chip). This is the shared basis for both scopedParcels() below AND the
+     * agent dropdown's option list (bindCcAgentSpinner()) — the agent list must reflect
+     * "who's in scope given the current branch/mode filters" without itself depending on
+     * which agent is selected (that would be circular).
      */
-    private fun scopedParcels(): List<CallCenterParcelItem> {
+    private fun parcelsScopedByModeAndBranch(): List<CallCenterParcelItem> {
         var scoped = allParcels
 
         // Access mode — Priority-only shows just agents who sent a verify request;
@@ -898,11 +901,24 @@ class CallCenterFragment : Fragment() {
             val selectedNames = selectedBranchIds.map { branchIdToName[it] ?: it }.toSet()
             scoped = scoped.filter { it.branch in selectedNames }
         }
+        return scoped
+    }
+
+    /**
+     * allParcels narrowed by the three "scope" filters — access mode, branch, agent —
+     * but NOT by search or the status chip itself. This is the shared basis for:
+     * the status chip counts, the stat-summary numbers (Total/Confirmed/Pending/
+     * Rejected/Validation), and the starting point of applyFilters()'s visible list.
+     * Keeping one function means chip counts and the actual list can't drift apart.
+     */
+    private fun scopedParcels(): List<CallCenterParcelItem> {
+        var scoped = parcelsScopedByModeAndBranch()
         if (selectedAgentFilters.isNotEmpty()) {
             scoped = scoped.filter { it.workerSystemId in selectedAgentFilters }
         }
         return scoped
     }
+
 
     private fun setupFilterTabs() {
         layoutFilterTabs.removeAllViews()
@@ -1124,18 +1140,21 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    /** Rebuilds the agent filter dropdown options from whichever workers currently have parcels.
-     *  Keyed by systemId (unique per agent) so two agents sharing a display name each still get
+    /** Rebuilds the agent filter dropdown options from whichever workers currently have
+     *  in-scope parcels — scoped by the CURRENT branch + access-mode filters (via
+     *  parcelsScopedByModeAndBranch()), so the popup only ever lists agents relevant to
+     *  what's actually selected, and updates whenever those filters change. Keyed by
+     *  systemId (unique per agent) so two agents sharing a display name each still get
      *  their own dropdown entry, rather than collapsing into one via distinct()-on-name. */
     private fun bindCcAgentSpinner() {
         if (!::tvAgentDropdown.isInitialized) return
-        val agents = allParcels
+        val agents = parcelsScopedByModeAndBranch()
             .filter { it.workerSystemId.isNotBlank() }
             .distinctBy { it.workerSystemId }
             .map { AgentOption(it.workerSystemId, it.worker.ifBlank { it.workerSystemId }, systemIdToEmployeeId[it.workerSystemId].orEmpty()) }
             .sortedBy { it.name }
         ccAgentOptions = agents
-        // Drop any previously-selected agent (by systemId) who no longer has any parcels.
+        // Drop any previously-selected agent (by systemId) who's no longer in scope.
         val liveSystemIds = agents.map { it.systemId }.toSet()
         selectedAgentFilters.retainAll(liveSystemIds + NO_AGENT_SENTINEL)
         updateAgentDropdownLabel()
@@ -1675,6 +1694,21 @@ class CallCenterFragment : Fragment() {
                         }
                         val latest = sorted.firstOrNull()
 
+                        // TRUE latest remark overall — any author, any date. Mirrors
+                        // processRunsSnapshot()'s latestEntryOverall/remarkStatus. Drives
+                        // remarkStatus + validationRequest + validationNote below so a live
+                        // remark update (e.g. a fresh verify_req from a worker) is reflected
+                        // immediately, instead of only after the next full reload.
+                        val latestOverallStatus = latest?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
+                        val latestOverallRemarksText = latest?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
+                        val latestOverallNoteText = latest?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
+                        val latestOverallValidationNote = when {
+                            latestOverallRemarksText.isNotBlank() && latestOverallNoteText.isNotBlank() -> "$latestOverallRemarksText\nNote: $latestOverallNoteText"
+                            latestOverallRemarksText.isNotBlank() -> latestOverallRemarksText
+                            latestOverallNoteText.isNotBlank() -> latestOverallNoteText
+                            else -> ""
+                        }
+
                         // ── New-remark notification ───────────────────────────────
                         // Skip the very first fire (initial attach) by checking prevAt > 0.
                         val latestCreatedAt = latest?.child("createdAt")?.getValue(Long::class.java) ?: 0L
@@ -1794,6 +1828,9 @@ class CallCenterFragment : Fragment() {
                             allParcels = allParcels.toMutableList().also {
                                 it[idx] = it[idx].copy(
                                     remarks = latestRemark,
+                                    remarkStatus = latestOverallStatus,
+                                    validationRequest = latestOverallStatus == "verify_req",
+                                    validationNote = if (latestOverallStatus == "verify_req") latestOverallValidationNote else "",
                                     history = history
                                 )
                             }
