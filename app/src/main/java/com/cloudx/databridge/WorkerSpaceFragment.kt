@@ -969,10 +969,14 @@ class WorkerSpaceFragment : Fragment() {
                                 rRemarks.isNotBlank() -> rRemarks
                                 else -> ""
                             }
-                            // Card badge: status label on line 1, "Note: {note}" on line 2
+                            // Card badge: remarks text on line 1, "Note: {note}" on line 2
+                            // (statusLabel is intentionally NOT used here — it's already shown
+                            // by the card's own status badge; repeating it in the remarks box
+                            // would duplicate information. The badge should show what the CC
+                            // agent actually wrote, i.e. the Firebase `remarks` field.)
                             val rBadge = when {
-                                statusLabel.isNotBlank() && rNoteOnly.isNotBlank() -> "$statusLabel\nNote: $rNoteOnly"
-                                statusLabel.isNotBlank() -> statusLabel
+                                rRemarks.isNotBlank() && rNoteOnly.isNotBlank() -> "$rRemarks\nNote: $rNoteOnly"
+                                rRemarks.isNotBlank() -> rRemarks
                                 rNoteOnly.isNotBlank() -> rNoteOnly
                                 else -> ""
                             }
@@ -1260,10 +1264,13 @@ class WorkerSpaceFragment : Fragment() {
                     rRemarks.isNotBlank()   -> rRemarks
                     else                 -> ""
                 }
-                // Card badge: status label line 1, "Note: note" line 2
+                // Card badge: remarks text on line 1, "Note: {note}" on line 2
+                // (statusLabelBulk intentionally NOT used here — same reasoning as
+                // syncRemarkListeners: card has its own status badge; badge should show
+                // what the CC agent actually wrote, i.e. the Firebase `remarks` field.)
                 val rBadge = when {
-                    statusLabelBulk.isNotBlank() && rNoteOnly.isNotBlank() -> "$statusLabelBulk\nNote: $rNoteOnly"
-                    statusLabelBulk.isNotBlank() -> statusLabelBulk
+                    rRemarks.isNotBlank() && rNoteOnly.isNotBlank() -> "$rRemarks\nNote: $rNoteOnly"
+                    rRemarks.isNotBlank() -> rRemarks
                     rNoteOnly.isNotBlank() -> rNoteOnly
                     else -> ""
                 }
