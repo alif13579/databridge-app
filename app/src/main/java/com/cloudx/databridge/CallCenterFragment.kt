@@ -1182,17 +1182,20 @@ class CallCenterFragment : Fragment() {
             option to cb
         }
 
-        lateinit var dialog: android.app.AlertDialog
+        // Nullable instead of lateinit: Kotlin doesn't support ::variable.isInitialized
+        // for local variables (only class/top-level properties), which is what the
+        // checkbox listener below needs to guard against firing before the dialog exists.
+        var dialog: android.app.AlertDialog? = null
 
         fun updateNeutralButtonLabel() {
-            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.text =
+            dialog?.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.text =
                 if (working.size >= ccAgentOptions.size) "Clear" else "All"
         }
 
         checkboxes.forEach { (option, cb) ->
             cb.setOnCheckedChangeListener { _, isChecked ->
                 if (isChecked) working.add(option.systemId) else working.remove(option.systemId)
-                if (::dialog.isInitialized) updateNeutralButtonLabel()
+                if (dialog != null) updateNeutralButtonLabel()
             }
         }
 
@@ -1245,8 +1248,8 @@ class CallCenterFragment : Fragment() {
             }
             .setNegativeButton("Cancel", null)
             .create()
-        dialog.setOnShowListener { updateNeutralButtonLabel() }
-        dialog.show()
+        dialog?.setOnShowListener { updateNeutralButtonLabel() }
+        dialog?.show()
     }
 
     private fun formatCcRunTypeLabel(runType: String): String =

@@ -248,10 +248,7 @@ class WorkerSpaceFragment : Fragment() {
     private fun setupScanButton() {
         tvSearchScan.setOnClickListener {
             try {
-                val intent = Intent(
-                    requireContext(),
-                    com.journeyapps.barcodescanner.CaptureActivity::class.java
-                )
+                val intent = Intent(requireContext(), MlKitScannerActivity::class.java)
                 scanLauncher.launch(intent)
             } catch (e: Exception) {
                 android.widget.Toast.makeText(

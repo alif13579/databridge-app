@@ -25,8 +25,8 @@ android {
         applicationId = "com.cloudx.databridge"
         minSdk = 23
         targetSdk = 34
-        versionCode = 145
-        versionName = "5.21.2"
+        versionCode = 146
+        versionName = "5.21.3"
         multiDexEnabled = true                                         // ✅ Large app support
         vectorDrawables.useSupportLibrary = true       // ✅ Vector drawable on API 21+
     }
@@ -121,8 +121,11 @@ dependencies {
     // রিসাইক্লার ভিউ ম্যানেজ (RecyclerView)
     implementation("androidx.recyclerview:recyclerview:1.3.2")
 
-    // কিউআর স্ক্যানিং লাইব্রেরি
-    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    // ✅ Strong barcode/QR scanning: CameraX + Google ML Kit (Barhopper)
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
+    implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
 
     // ইমেজ লোডিং লাইব্রেরি
     implementation("io.coil-kt:coil:2.5.0")

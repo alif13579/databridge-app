@@ -16,7 +16,6 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
-import com.journeyapps.barcodescanner.CaptureActivity
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
@@ -58,7 +57,7 @@ class ConnectFragment : Fragment() {
     private fun setupListeners() {
         tvManualToggle.setOnClickListener { layoutQrSection.visibility = View.GONE; layoutManualSection.visibility = View.VISIBLE }
         tvQrToggle.setOnClickListener { layoutManualSection.visibility = View.GONE; layoutQrSection.visibility = View.VISIBLE; etExtIdInput.text.clear() }
-        btnScanQR.setOnClickListener { qrLauncher.launch(Intent(requireContext(), CaptureActivity::class.java)) }
+        btnScanQR.setOnClickListener { qrLauncher.launch(Intent(requireContext(), MlKitScannerActivity::class.java)) }
         btnConnectManual.setOnClickListener { val id = etExtIdInput.text.toString().trim(); if (id.isNotEmpty()) handleExtensionConnection(id) else Toast.makeText(requireContext(), "Enter ID", Toast.LENGTH_SHORT).show() }
         btnDisconnect.setOnClickListener { disconnectExtension() }
     }
