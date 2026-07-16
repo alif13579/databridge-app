@@ -1502,39 +1502,28 @@ class CallCenterFragment : Fragment() {
                         // Full remark history (not just the latest) — needed for the journey popup.
                         val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
                             .get().await()
-                        val latestEntry = remarksSnap.children.lastOrNull()
-                        val remarkStatus = latestEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        // Card badge: only today's remark FROM THE AGENT/WORKER (the CC agent
-                        // already knows what they themselves wrote — this is specifically the
-                        // cross-party handoff signal, mirroring Worker fragment's CC-only filter).
+                        // Card badge — single simple rule, no status-based exceptions:
+                        // parse this consignment's remarks_{timestamp} entries, keep only
+                        // TODAY's entries where remarked_by == "worker", and take the newest one.
                         val todayCal = java.util.Calendar.getInstance()
                         todayCal.set(java.util.Calendar.HOUR_OF_DAY, 0)
                         todayCal.set(java.util.Calendar.MINUTE, 0)
                         todayCal.set(java.util.Calendar.SECOND, 0)
                         todayCal.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStart = todayCal.timeInMillis
-                        val latestTodayEntry = remarksSnap.children.lastOrNull {
-                            (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStart &&
-                            it.child("remarked_by").getValue(String::class.java)?.trim() != "support"
-                        }
-                        val remarkLabelStatus = latestTodayEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        val remarkLabelNote = (latestTodayEntry?.child("note")?.getValue(String::class.java)?.trim()
-                            ?.takeIf { it.isNotBlank() }
-                            ?: latestTodayEntry?.child("remarks")?.getValue(String::class.java)?.trim()).orEmpty()
+                        val latestTodayWorkerEntry = remarksSnap.children
+                            .filter {
+                                (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStart &&
+                                it.child("remarked_by").getValue(String::class.java)?.trim() == "worker"
+                            }
+                            .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
+                        val remarkStatus = latestTodayWorkerEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
+                        // Card badge: show ONLY if this same latest entry's own "note" field
+                        // has content — no fallback to the "remarks" field.
+                        val remarkLabelNote = latestTodayWorkerEntry?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
                         // Card badge: only the note text, no status label (status is shown
                         // separately by the card's own status badge).
                         val remarkLabel = remarkLabelNote
-
-                        val latestOverallNote = latestEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
-                        val latestOverallLabel = when {
-                            remarkStatus.isNotBlank() && latestOverallNote.isNotBlank() ->
-                                "${context?.let { WorkerParcelAdapter.getStatusConfig(it, remarkStatus, "bn").label } ?: remarkStatus}\n$latestOverallNote"
-                            remarkStatus.isNotBlank() -> context?.let {
-                                WorkerParcelAdapter.getStatusConfig(it, remarkStatus, "bn").label
-                            } ?: remarkStatus
-                            latestOverallNote.isNotBlank() -> latestOverallNote
-                            else -> ""
-                        }
 
                         Triple(
                             CallCenterParcelItem(
@@ -1547,11 +1536,7 @@ class CallCenterFragment : Fragment() {
                                 remarks           = remarkLabel,
                                 remarkStatus      = remarkStatus,
                                 validationRequest = remarkStatus == "verify_req",
-                                // Uses date-independent latestOverallLabel, not the today-filtered
-                                // remarkLabel — a pending validation request stays actionable and
-                                // shouldn't lose its note just because it was raised on a prior day
-                                // and today happens to have no new entry.
-                                validationNote    = if (remarkStatus == "verify_req") latestOverallLabel else "",
+                                validationNote    = if (remarkStatus == "verify_req") remarkLabel else "",
                                 time              = "",
                                 worker            = nameMap[agentSystemId] ?: agentSystemId,
                                 workerSystemId    = agentSystemId,
@@ -1605,9 +1590,10 @@ class CallCenterFragment : Fragment() {
                         time = timeStr,
                         author = author,
                         authorRole = authorRole,
-                        authorPhotoUrl = resolvedPhoto.orEmpty()
+                        authorPhotoUrl = resolvedPhoto.orEmpty(),
+                        createdAt = createdAt
                     )
-                }.sortedBy { it.time }
+                }.sortedBy { it.createdAt }
                 item.copy(history = history)
             }
         }
@@ -1692,17 +1678,17 @@ class CallCenterFragment : Fragment() {
                         todayCalLive.set(java.util.Calendar.SECOND, 0)
                         todayCalLive.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStartLive = todayCalLive.timeInMillis
-                        // Card badge: only today's remark FROM THE AGENT/WORKER (mirrors the
-                        // author-filter in processRunsSnapshot() above and Worker fragment's
-                        // CC-only filter) — the CC agent already knows what they wrote.
-                        val latestTodayForBadge = sorted.firstOrNull {
-                            (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStartLive &&
-                            it.child("remarked_by").getValue(String::class.java)?.trim() != "support"
-                        }
-                        // Card badge: only the note text, no status label.
-                        val latestRemarkNote = (latestTodayForBadge?.child("note")?.getValue(String::class.java)?.trim()
-                            ?.takeIf { it.isNotBlank() }
-                            ?: latestTodayForBadge?.child("remarks")?.getValue(String::class.java)?.trim()).orEmpty()
+                        // Card badge — same simple rule as processRunsSnapshot(): today's
+                        // entries where remarked_by == "worker", newest one wins.
+                        val latestTodayForBadge = snapshot.children
+                            .filter {
+                                (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStartLive &&
+                                it.child("remarked_by").getValue(String::class.java)?.trim() == "worker"
+                            }
+                            .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
+                        // Card badge: show ONLY if this same latest entry's own "note" field
+                        // has content — no fallback to the "remarks" field.
+                        val latestRemarkNote = latestTodayForBadge?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
                         val latestRemark = latestRemarkNote
 
                         // Resolve every distinct author uid in this remark set in parallel
@@ -1747,9 +1733,10 @@ class CallCenterFragment : Fragment() {
                                 time = timeStr,
                                 author = author,
                                 authorRole = authorRole,
-                                authorPhotoUrl = resolvedPhoto.orEmpty()
+                                authorPhotoUrl = resolvedPhoto.orEmpty(),
+                                createdAt = createdAt
                             )
-                        }.sortedBy { it.time }
+                        }.sortedBy { it.createdAt }
 
                         val idx = allParcels.indexOfFirst { it.id == cId }
                         if (idx != -1) {
