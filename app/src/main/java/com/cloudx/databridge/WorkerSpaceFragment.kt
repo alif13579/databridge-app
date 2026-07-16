@@ -962,13 +962,10 @@ class WorkerSpaceFragment : Fragment() {
                             if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
                             val statusLabel = if (rStatus.isNotBlank())
                                 WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label else ""
-                            // Journey log: status label + remarks text (full combined view)
-                            val rLabel = when {
-                                statusLabel.isNotBlank() && rRemarks.isNotBlank() -> "$statusLabel\n$rRemarks"
-                                statusLabel.isNotBlank() -> statusLabel
-                                rRemarks.isNotBlank() -> rRemarks
-                                else -> ""
-                            }
+                            // Journey log: remarks text only — status is already shown
+                            // separately in the timeline entry's action/header field; combining
+                            // statusLabel here would duplicate it right below.
+                            val rLabel = if (rRemarks.isNotBlank()) rRemarks else ""
                             // Card badge: remarks text on line 1, "Note: {note}" on line 2
                             // (statusLabel is intentionally NOT used here — it's already shown
                             // by the card's own status badge; repeating it in the remarks box
@@ -1258,12 +1255,8 @@ class WorkerSpaceFragment : Fragment() {
                 if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
                 val statusLabelBulk = if (rStatus.isNotBlank())
                     context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus else ""
-                val rLabel = when {
-                    statusLabelBulk.isNotBlank() && rRemarks.isNotBlank() -> "$statusLabelBulk\n$rRemarks"
-                    statusLabelBulk.isNotBlank() -> statusLabelBulk
-                    rRemarks.isNotBlank()   -> rRemarks
-                    else                 -> ""
-                }
+                // Journey log: remarks text only — same reasoning as syncRemarkListeners.
+                val rLabel = if (rRemarks.isNotBlank()) rRemarks else ""
                 // Card badge: remarks text on line 1, "Note: {note}" on line 2
                 // (statusLabelBulk intentionally NOT used here — same reasoning as
                 // syncRemarkListeners: card has its own status badge; badge should show

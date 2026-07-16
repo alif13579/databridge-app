@@ -1582,12 +1582,9 @@ class CallCenterFragment : Fragment() {
                     if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
                     val statusLabelHist = if (rStatus.isNotBlank())
                         context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus else ""
-                    val rLabel = when {
-                        statusLabelHist.isNotBlank() && rNote.isNotBlank() -> "$statusLabelHist\n$rNote"
-                        statusLabelHist.isNotBlank() -> statusLabelHist
-                        rNote.isNotBlank()   -> rNote
-                        else                 -> ""
-                    }
+                    // Journey log: remarks text only — status is already shown
+                    // separately in the timeline entry's action field.
+                    val rLabel = if (rNote.isNotBlank()) rNote else ""
                     val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                     val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                         .format(java.util.Date(createdAt))
@@ -1728,12 +1725,8 @@ class CallCenterFragment : Fragment() {
                             if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
                             val statusLabelLiveHist = if (rStatus.isNotBlank())
                                 WorkerParcelAdapter.getStatusConfig(ctx, rStatus, ccStatusLang).label else ""
-                            val rLabel = when {
-                                statusLabelLiveHist.isNotBlank() && rNote.isNotBlank() -> "$statusLabelLiveHist\n$rNote"
-                                statusLabelLiveHist.isNotBlank() -> statusLabelLiveHist
-                                rNote.isNotBlank()   -> rNote
-                                else                 -> ""
-                            }
+                            // Journey log: remarks text only — same reasoning as the batch path above.
+                            val rLabel = if (rNote.isNotBlank()) rNote else ""
                             val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                             val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                                 .format(java.util.Date(createdAt))
