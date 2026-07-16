@@ -1016,7 +1016,11 @@ class WorkerSpaceFragment : Fragment() {
                         todayCal.set(java.util.Calendar.SECOND, 0)
                         todayCal.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStart = todayCal.timeInMillis
-                        val lastRemark = history.lastOrNull { it.createdAt >= todayStart }?.noteOnly ?: ""
+                        // Card badge: only today's remark FROM CC (the worker already knows
+                        // what they themselves wrote — this is specifically the cross-party
+                        // handoff signal). Uses the pre-built "$statusLabel\n$rNote" field so
+                        // the label and note render on their own lines instead of run together.
+                        val lastRemark = history.lastOrNull { it.createdAt >= todayStart && it.authorRole == "cc" }?.remark ?: ""
                         val idx = allParcels.indexOfFirst { it.id == cId }
                         if (idx != -1) {
                             val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status
@@ -1283,7 +1287,9 @@ class WorkerSpaceFragment : Fragment() {
             todayCalBulk.set(java.util.Calendar.SECOND, 0)
             todayCalBulk.set(java.util.Calendar.MILLISECOND, 0)
             val todayStartBulk = todayCalBulk.timeInMillis
-            val lastRemark = history.lastOrNull { it.createdAt >= todayStartBulk }?.noteOnly ?: ""
+            // Card badge: only today's remark FROM CC, same rule as the live-listener path —
+            // the worker already knows what they wrote, and label+note render as two lines.
+            val lastRemark = history.lastOrNull { it.createdAt >= todayStartBulk && it.authorRole == "cc" }?.remark ?: ""
             val createdAtVal = detailSnap.child("createdAt").getValue(Long::class.java) ?: 0L
             val updatedAtVal = detailSnap.child("updatedAt").getValue(Long::class.java) ?: 0L
             val attemptVal = readAttempt(detailSnap)
