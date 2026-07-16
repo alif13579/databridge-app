@@ -956,15 +956,26 @@ class WorkerSpaceFragment : Fragment() {
                         workerLastSeenRemarkAt[cId] = latestCreatedAt
                         // ─────────────────────────────────────────────────────────
                         val raw = snapshot.children.mapNotNull { r ->
-                            val rStatus = readString(r, "status")
-                            val rNote   = readString(r, "note").ifBlank { readString(r, "remarks") }
-                            if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                            val rStatus   = readString(r, "status")
+                            val rRemarks  = readString(r, "remarks")  // full remark text
+                            val rNoteOnly = readString(r, "note")     // note-only field
+                            if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
                             val statusLabel = if (rStatus.isNotBlank())
                                 WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label else ""
+                            // Journey log: status label + remarks text (full combined view)
                             val rLabel = when {
-                                statusLabel.isNotBlank() && rNote.isNotBlank() -> "$statusLabel\n$rNote"
+                                statusLabel.isNotBlank() && rRemarks.isNotBlank() -> "$statusLabel\n$rRemarks"
                                 statusLabel.isNotBlank() -> statusLabel
-                                rNote.isNotBlank() -> rNote
+                                rRemarks.isNotBlank() -> rRemarks
+                                else -> ""
+                            }
+                            // Card badge: remarks on line 1, "Note: {note}" on line 2
+                            // only if note is non-blank and different from remarks.
+                            val rBadge = when {
+                                rRemarks.isNotBlank() && rNoteOnly.isNotBlank() && rNoteOnly != rRemarks ->
+                                    "$rRemarks\nNote: $rNoteOnly"
+                                rRemarks.isNotBlank() -> rRemarks
+                                rNoteOnly.isNotBlank() -> rNoteOnly
                                 else -> ""
                             }
                             val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
@@ -972,7 +983,7 @@ class WorkerSpaceFragment : Fragment() {
                                 .format(java.util.Date(createdAt))
                             val remarkedBy = readString(r, "remarked_by")
                             val rUserId = readString(r, "userId")
-                            RawEntry(rStatus, rLabel, rNote, timeStr, remarkedBy, rUserId, createdAt)
+                            RawEntry(rStatus, rLabel, rBadge, timeStr, remarkedBy, rUserId, createdAt)
                         }
                         // Resolve every distinct uid to a name+photo in parallel (direct
                         // users/{uid} access — no full-tree scan, no reverse-index needed).
@@ -1239,16 +1250,25 @@ class WorkerSpaceFragment : Fragment() {
             }
 
             val history = remarksSnap.children.mapNotNull { r ->
-                val rStatus = readString(r, "status")
-                val rNote   = readString(r, "note").ifBlank { readString(r, "remarks") }
-                if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                val rStatus   = readString(r, "status")
+                val rRemarks  = readString(r, "remarks")
+                val rNoteOnly = readString(r, "note")
+                if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
                 val statusLabelBulk = if (rStatus.isNotBlank())
                     context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus else ""
                 val rLabel = when {
-                    statusLabelBulk.isNotBlank() && rNote.isNotBlank() -> "$statusLabelBulk\n$rNote"
+                    statusLabelBulk.isNotBlank() && rRemarks.isNotBlank() -> "$statusLabelBulk\n$rRemarks"
                     statusLabelBulk.isNotBlank() -> statusLabelBulk
-                    rNote.isNotBlank()   -> rNote
+                    rRemarks.isNotBlank()   -> rRemarks
                     else                 -> ""
+                }
+                // Card badge: remarks line 1, "Note: note" line 2 if different
+                val rBadge = when {
+                    rRemarks.isNotBlank() && rNoteOnly.isNotBlank() && rNoteOnly != rRemarks ->
+                        "$rRemarks\nNote: $rNoteOnly"
+                    rRemarks.isNotBlank() -> rRemarks
+                    rNoteOnly.isNotBlank() -> rNoteOnly
+                    else -> ""
                 }
                 val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                 val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
@@ -1272,7 +1292,7 @@ class WorkerSpaceFragment : Fragment() {
                     authorRole = authorRole,
                     authorPhotoUrl = resolvedPhoto.orEmpty(),
                     createdAt = createdAt,
-                    noteOnly = rNote
+                    noteOnly = rBadge
                 )
             }.sortedBy { it.time }
             val lastRemarkStatus = remarksSnap.children.lastOrNull()
