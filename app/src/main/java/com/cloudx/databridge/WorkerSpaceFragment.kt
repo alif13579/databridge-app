@@ -1016,7 +1016,7 @@ class WorkerSpaceFragment : Fragment() {
                                 authorRole = authorRole,
                                 authorPhotoUrl = resolvedPhoto.orEmpty(),
                                 createdAt = e.createdAt,
-                                noteOnly = e.rNote
+                                cardBadgeText = e.rNote
                             )
                         }.sortedBy { it.time }
 
@@ -1041,7 +1041,7 @@ class WorkerSpaceFragment : Fragment() {
                         // older CC remark that's no longer the current state. Mirrors the CC-side
                         // card fix (there: hide if latest == support; here: show only if latest == cc).
                         val latestTodayEntry = history.filter { it.createdAt >= todayStart }.maxByOrNull { it.createdAt }
-                        val lastRemark = if (latestTodayEntry?.authorRole == "cc") latestTodayEntry.noteOnly else ""
+                        val lastRemark = if (latestTodayEntry?.authorRole == "cc") latestTodayEntry.cardBadgeText else ""
                         val idx = allParcels.indexOfFirst { it.id == cId }
                         if (idx != -1) {
                             val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status
@@ -1309,7 +1309,7 @@ class WorkerSpaceFragment : Fragment() {
                     authorRole = authorRole,
                     authorPhotoUrl = resolvedPhoto.orEmpty(),
                     createdAt = createdAt,
-                    noteOnly = rBadge
+                    cardBadgeText = rBadge
                 )
             }.sortedBy { it.time }
             val lastRemarkStatus = remarksSnap.children.lastOrNull()
@@ -1328,7 +1328,7 @@ class WorkerSpaceFragment : Fragment() {
             // worker's own remark is the most recent thing today, it's already known to them
             // and shouldn't be shown back; an older CC remark shouldn't linger once superseded.
             val latestTodayEntryBulk = history.filter { it.createdAt >= todayStartBulk }.maxByOrNull { it.createdAt }
-            val lastRemark = if (latestTodayEntryBulk?.authorRole == "cc") latestTodayEntryBulk.noteOnly else ""
+            val lastRemark = if (latestTodayEntryBulk?.authorRole == "cc") latestTodayEntryBulk.cardBadgeText else ""
             val createdAtVal = detailSnap.child("createdAt").getValue(Long::class.java) ?: 0L
             val updatedAtVal = detailSnap.child("updatedAt").getValue(Long::class.java) ?: 0L
             val attemptVal = readAttempt(detailSnap)

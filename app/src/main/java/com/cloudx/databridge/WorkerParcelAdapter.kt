@@ -43,13 +43,14 @@ data class HistoryEntry(
     /** Raw epoch millis this entry was created — used to derive "is this from today"
      *  for card-badge purposes, separate from `time` (a display-formatted string). */
     val createdAt: Long = 0L,
-    /** The free-text note ALONE, with no status-label prefix — used to derive the card's
-     *  remarks badge, which sits right next to the card's own status badge (tvParcelStatusBadge
-     *  / tvStatusBadge). `remark` (above) combines status-label + note for the journey log,
-     *  where each entry stands alone with no separate status badge nearby — but repeating the
-     *  status label inside the card's remarks badge would just duplicate what the card's status
-     *  badge already shows. */
-    val noteOnly: String = ""
+    /** Exactly what the card's remarks badge should show for this entry: the raw `remarks`
+     *  field (human-readable, e.g. "Customer Doesn't receive the call") plus "\nNote: {note}"
+     *  appended if a note was also given. No status-label derivation here — the card's own
+     *  status badge (tvParcelStatusBadge / tvStatusBadge) already shows that separately, so
+     *  repeating it inside the remarks badge would duplicate it. `remark` (above) is different:
+     *  it combines status-label + note for the journey log, where each timeline entry stands
+     *  alone with no separate status badge nearby, so combining both there is correct. */
+    val cardBadgeText: String = ""
 )
 
 class WorkerParcelAdapter(
