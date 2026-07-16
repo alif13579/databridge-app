@@ -1504,11 +1504,11 @@ class CallCenterFragment : Fragment() {
                             .get().await()
                         val latestEntry = remarksSnap.children.lastOrNull()
                         val remarkStatus = latestEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        // Card badge: only TODAY's latest entry — a remark/status from a previous
-                        // day isn't actionable for today's calling queue, so it shouldn't linger.
-                        // remarkLabel = the status-derived label (e.g. "Called - No Answer"), always
-                        // shown when today has an entry. noteText = the free-text note on that SAME
-                        // entry, if any — shown as an addition beneath the label, not a replacement.
+                        // Card badge: only TODAY's note — a remark from a previous day isn't
+                        // actionable for today's calling queue, so it shouldn't linger. No
+                        // status-label here: the card's own status badge (elsewhere in the
+                        // layout) already shows the current status — repeating it inside the
+                        // remarks badge would just duplicate that.
                         val todayCal = java.util.Calendar.getInstance()
                         todayCal.set(java.util.Calendar.HOUR_OF_DAY, 0)
                         todayCal.set(java.util.Calendar.MINUTE, 0)
@@ -1518,17 +1518,7 @@ class CallCenterFragment : Fragment() {
                         val latestTodayEntry = remarksSnap.children.lastOrNull {
                             (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStart
                         }
-                        val todayStatus = latestTodayEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        val todayNote = latestTodayEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
-                        val statusLabel = if (todayStatus.isNotBlank()) {
-                            context?.let { WorkerParcelAdapter.getStatusConfig(it, todayStatus, "bn").label } ?: todayStatus
-                        } else ""
-                        val remarkLabel = when {
-                            statusLabel.isNotBlank() && todayNote.isNotBlank() -> "$statusLabel\n$todayNote"
-                            statusLabel.isNotBlank() -> statusLabel
-                            todayNote.isNotBlank() -> todayNote
-                            else -> ""
-                        }
+                        val remarkLabel = latestTodayEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
 
                         val latestOverallNote = latestEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
                         val latestOverallLabel = when {
@@ -1703,18 +1693,10 @@ class CallCenterFragment : Fragment() {
                         val latestTodayForBadge = sorted.firstOrNull {
                             (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStartLive
                         }
-                        val latestRemark = latestTodayForBadge?.let {
-                            val status = it.child("status").getValue(String::class.java)?.trim().orEmpty()
-                            val note = it.child("remarks").getValue(String::class.java)?.trim().orEmpty()
-                            val statusLabel = if (status.isNotBlank())
-                                WorkerParcelAdapter.getStatusConfig(ctx, status, ccStatusLang).label else ""
-                            when {
-                                statusLabel.isNotBlank() && note.isNotBlank() -> "$statusLabel\n$note"
-                                statusLabel.isNotBlank() -> statusLabel
-                                note.isNotBlank() -> note
-                                else -> ""
-                            }
-                        }.orEmpty()
+                        // No status-label here: the card's own status badge already shows the
+                        // current status — combining it into this remarks badge would just
+                        // duplicate that (same fix as processRunsSnapshot() above).
+                        val latestRemark = latestTodayForBadge?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
 
                         // Resolve every distinct author uid in this remark set in parallel
                         // (direct users/{uid} access), then rebuild the full journey history.

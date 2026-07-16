@@ -896,7 +896,7 @@ class WorkerSpaceFragment : Fragment() {
                     val ctx = context ?: return
                     viewLifecycleOwner.lifecycleScope.launch {
                         data class RawEntry(
-                            val rStatus: String, val rLabel: String, val timeStr: String,
+                            val rStatus: String, val rLabel: String, val rNote: String, val timeStr: String,
                             val remarkedBy: String, val rUserId: String, val createdAt: Long
                         )
 
@@ -953,7 +953,7 @@ class WorkerSpaceFragment : Fragment() {
                                 .format(java.util.Date(createdAt))
                             val remarkedBy = readString(r, "remarked_by")
                             val rUserId = readString(r, "userId")
-                            RawEntry(rStatus, rLabel, timeStr, remarkedBy, rUserId, createdAt)
+                            RawEntry(rStatus, rLabel, rNote, timeStr, remarkedBy, rUserId, createdAt)
                         }
                         // Resolve every distinct uid to a name+photo in parallel (direct
                         // users/{uid} access — no full-tree scan, no reverse-index needed).
@@ -978,7 +978,8 @@ class WorkerSpaceFragment : Fragment() {
                                 author = author,
                                 authorRole = authorRole,
                                 authorPhotoUrl = resolvedPhoto.orEmpty(),
-                                createdAt = e.createdAt
+                                createdAt = e.createdAt,
+                                noteOnly = e.rNote
                             )
                         }.sortedBy { it.time }
 
@@ -996,7 +997,7 @@ class WorkerSpaceFragment : Fragment() {
                         todayCal.set(java.util.Calendar.SECOND, 0)
                         todayCal.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStart = todayCal.timeInMillis
-                        val lastRemark = history.lastOrNull { it.createdAt >= todayStart }?.remark ?: ""
+                        val lastRemark = history.lastOrNull { it.createdAt >= todayStart }?.noteOnly ?: ""
                         val idx = allParcels.indexOfFirst { it.id == cId }
                         if (idx != -1) {
                             val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status
@@ -1248,7 +1249,8 @@ class WorkerSpaceFragment : Fragment() {
                     author = author,
                     authorRole = authorRole,
                     authorPhotoUrl = resolvedPhoto.orEmpty(),
-                    createdAt = createdAt
+                    createdAt = createdAt,
+                    noteOnly = rNote
                 )
             }.sortedBy { it.time }
             val lastRemarkStatus = remarksSnap.children.lastOrNull()
@@ -1262,7 +1264,7 @@ class WorkerSpaceFragment : Fragment() {
             todayCalBulk.set(java.util.Calendar.SECOND, 0)
             todayCalBulk.set(java.util.Calendar.MILLISECOND, 0)
             val todayStartBulk = todayCalBulk.timeInMillis
-            val lastRemark = history.lastOrNull { it.createdAt >= todayStartBulk }?.remark ?: ""
+            val lastRemark = history.lastOrNull { it.createdAt >= todayStartBulk }?.noteOnly ?: ""
             val createdAtVal = detailSnap.child("createdAt").getValue(Long::class.java) ?: 0L
             val updatedAtVal = detailSnap.child("updatedAt").getValue(Long::class.java) ?: 0L
             val attemptVal = readAttempt(detailSnap)

@@ -42,7 +42,14 @@ data class HistoryEntry(
     val authorPhotoUrl: String = "",
     /** Raw epoch millis this entry was created — used to derive "is this from today"
      *  for card-badge purposes, separate from `time` (a display-formatted string). */
-    val createdAt: Long = 0L
+    val createdAt: Long = 0L,
+    /** The free-text note ALONE, with no status-label prefix — used to derive the card's
+     *  remarks badge, which sits right next to the card's own status badge (tvParcelStatusBadge
+     *  / tvStatusBadge). `remark` (above) combines status-label + note for the journey log,
+     *  where each entry stands alone with no separate status badge nearby — but repeating the
+     *  status label inside the card's remarks badge would just duplicate what the card's status
+     *  badge already shows. */
+    val noteOnly: String = ""
 )
 
 class WorkerParcelAdapter(
