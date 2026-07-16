@@ -1521,25 +1521,30 @@ class CallCenterFragment : Fragment() {
                             else -> ""
                         }
 
-                        // Card badge (overview) — separate concern: today's remark FROM THE
-                        // WORKER only, newest one. Parse this consignment's remarks_{timestamp}
-                        // entries, keep only TODAY's entries where remarked_by == "worker".
+                        // Card badge (overview) — separate concern: TODAY's TRUE latest remark,
+                        // any author. Parse this consignment's remarks_{timestamp} entries,
+                        // keep only TODAY's entries, pick the newest one regardless of who
+                        // wrote it — then only surface it on the card if that newest entry
+                        // was NOT written by "support" (CC agent). If the CC agent's own
+                        // remark is the latest one, they already know what they said, so the
+                        // box stays hidden instead of falling back to an older (now-stale)
+                        // worker remark. Checking "!= support" (not "== worker") keeps this
+                        // future-proof for any other non-CC author role added later.
                         val todayCal = java.util.Calendar.getInstance()
                         todayCal.set(java.util.Calendar.HOUR_OF_DAY, 0)
                         todayCal.set(java.util.Calendar.MINUTE, 0)
                         todayCal.set(java.util.Calendar.SECOND, 0)
                         todayCal.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStart = todayCal.timeInMillis
-                        val latestTodayWorkerEntry = remarksSnap.children
-                            .filter {
-                                (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStart &&
-                                it.child("remarked_by").getValue(String::class.java)?.trim() == "worker"
-                            }
+                        val latestTodayEntry = remarksSnap.children
+                            .filter { (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStart }
                             .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
+                        val latestTodayEntryIsFromSupport =
+                            latestTodayEntry?.child("remarked_by")?.getValue(String::class.java)?.trim() == "support"
                         // Card badge: from this same latest entry — remarks + note if both
                         // present, remarks alone if only remarks, note alone if only note.
-                        val entryRemarksText = latestTodayWorkerEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
-                        val entryNoteText = latestTodayWorkerEntry?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
+                        val entryRemarksText = latestTodayEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
+                        val entryNoteText = latestTodayEntry?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
                         val remarkLabelNote = when {
                             entryRemarksText.isNotBlank() && entryNoteText.isNotBlank() -> "$entryRemarksText\nNote: $entryNoteText"
                             entryRemarksText.isNotBlank() -> entryRemarksText
@@ -1547,8 +1552,9 @@ class CallCenterFragment : Fragment() {
                             else -> ""
                         }
                         // Card badge: only the note text, no status label (status is shown
-                        // separately by the card's own status badge).
-                        val remarkLabel = remarkLabelNote
+                        // separately by the card's own status badge). Hidden entirely when
+                        // the latest entry today is the CC agent's own (see comment above).
+                        val remarkLabel = if (latestTodayEntryIsFromSupport) "" else remarkLabelNote
 
                         Triple(
                             CallCenterParcelItem(
