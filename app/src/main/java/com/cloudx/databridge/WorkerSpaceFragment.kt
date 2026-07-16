@@ -969,12 +969,10 @@ class WorkerSpaceFragment : Fragment() {
                                 rRemarks.isNotBlank() -> rRemarks
                                 else -> ""
                             }
-                            // Card badge: remarks on line 1, "Note: {note}" on line 2
-                            // only if note is non-blank and different from remarks.
+                            // Card badge: status label on line 1, "Note: {note}" on line 2
                             val rBadge = when {
-                                rRemarks.isNotBlank() && rNoteOnly.isNotBlank() && rNoteOnly != rRemarks ->
-                                    "$rRemarks\nNote: $rNoteOnly"
-                                rRemarks.isNotBlank() -> rRemarks
+                                statusLabel.isNotBlank() && rNoteOnly.isNotBlank() -> "$statusLabel\nNote: $rNoteOnly"
+                                statusLabel.isNotBlank() -> statusLabel
                                 rNoteOnly.isNotBlank() -> rNoteOnly
                                 else -> ""
                             }
@@ -1262,11 +1260,10 @@ class WorkerSpaceFragment : Fragment() {
                     rRemarks.isNotBlank()   -> rRemarks
                     else                 -> ""
                 }
-                // Card badge: remarks line 1, "Note: note" line 2 if different
+                // Card badge: status label line 1, "Note: note" line 2
                 val rBadge = when {
-                    rRemarks.isNotBlank() && rNoteOnly.isNotBlank() && rNoteOnly != rRemarks ->
-                        "$rRemarks\nNote: $rNoteOnly"
-                    rRemarks.isNotBlank() -> rRemarks
+                    statusLabelBulk.isNotBlank() && rNoteOnly.isNotBlank() -> "$statusLabelBulk\nNote: $rNoteOnly"
+                    statusLabelBulk.isNotBlank() -> statusLabelBulk
                     rNoteOnly.isNotBlank() -> rNoteOnly
                     else -> ""
                 }
