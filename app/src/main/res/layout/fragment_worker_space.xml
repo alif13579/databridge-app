@@ -66,6 +66,25 @@
                                 android:textSize="11sp"
                                 android:textColor="@color/theme_text_secondary"
                                 android:layout_marginTop="1dp" />
+
+                            <!-- Sort by chip — inline under agent info (same compact
+                                 pattern as CallCenter's filter chips) instead of its own
+                                 full-width row, so the header doesn't waste vertical space
+                                 on a near-empty row just for one small dropdown. -->
+                            <TextView
+                                android:id="@+id/tvSortByDropdown"
+                                android:layout_width="wrap_content"
+                                android:layout_height="24dp"
+                                android:text="🔁 Attempt ▾"
+                                android:textSize="10sp"
+                                android:gravity="center"
+                                android:paddingStart="7dp"
+                                android:paddingEnd="7dp"
+                                android:background="@drawable/bg_filter_chip_active"
+                                android:textColor="@android:color/white"
+                                android:layout_marginTop="5dp"
+                                android:clickable="true"
+                                android:focusable="true" />
                         </LinearLayout>
                     </LinearLayout>
 
@@ -102,136 +121,22 @@
                             android:paddingEnd="6dp"
                             android:spinnerMode="dropdown" />
                     </LinearLayout>
-                </LinearLayout>
 
-                <!-- Sort by dropdown -->
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="6dp"
-                    android:layout_marginBottom="6dp">
-
+                    <!-- Collapse arrow — toggles layoutStatsCollapsible below, same
+                         mechanism as CallCenterFragment's tvCcaCollapseArrow. -->
                     <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Sort by"
-                        android:textSize="10sp"
-                        android:textColor="@color/theme_text_secondary"
-                        android:layout_marginEnd="6dp" />
-
-                    <TextView
-                        android:id="@+id/tvSortByDropdown"
-                        android:layout_width="wrap_content"
+                        android:id="@+id/twCollapseArrow"
+                        android:layout_width="30dp"
                         android:layout_height="30dp"
-                        android:text="🔁 Attempt ▾"
-                        android:textSize="11sp"
+                        android:layout_marginStart="4dp"
+                        android:layout_gravity="top"
+                        android:text="▼"
+                        android:textSize="13sp"
                         android:gravity="center"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:background="@drawable/bg_filter_chip_active"
-                        android:textColor="@android:color/white"
+                        android:textColor="@color/theme_text_secondary"
                         android:clickable="true"
-                        android:focusable="true" />
-                </LinearLayout>
-
-                <!-- Stats grid: 3 columns -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:weightSum="3"
-                    android:gravity="center">
-
-                    <LinearLayout
-                        android:id="@+id/layoutStatTotal"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="6dp"
-                        android:background="@drawable/bg_stat_card"
-                        android:layout_marginEnd="5dp">
-
-                        <TextView
-                            android:id="@+id/twStatTotalValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="0"
-                            android:textSize="18sp"
-                            android:textColor="@color/theme_text_primary"
-                            android:textStyle="bold"
-                            android:fontFamily="sans-serif-medium" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Total"
-                            android:textSize="10sp"
-                            android:textColor="@color/theme_text_secondary"
-                            android:layout_marginTop="1dp" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:id="@+id/layoutStatConfirmed"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="6dp"
-                        android:background="@drawable/bg_stat_card"
-                        android:layout_marginEnd="5dp">
-
-                        <TextView
-                            android:id="@+id/twStatConfirmedValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="0"
-                            android:textSize="18sp"
-                            android:textColor="@color/theme_green"
-                            android:textStyle="bold"
-                            android:fontFamily="sans-serif-medium" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Confirmed"
-                            android:textSize="10sp"
-                            android:textColor="@color/theme_text_secondary"
-                            android:layout_marginTop="1dp" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:id="@+id/layoutStatPending"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="6dp"
-                        android:background="@drawable/bg_stat_card">
-
-                        <TextView
-                            android:id="@+id/twStatPendingValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="0"
-                            android:textSize="18sp"
-                            android:textColor="@color/theme_yellow"
-                            android:textStyle="bold"
-                            android:fontFamily="sans-serif-medium" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Pending"
-                            android:textSize="10sp"
-                            android:textColor="@color/theme_text_secondary"
-                            android:layout_marginTop="1dp" />
-                    </LinearLayout>
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackgroundBorderless" />
                 </LinearLayout>
 
                                 <!-- Search Bar -->
@@ -305,6 +210,117 @@
                     android:layout_marginTop="4dp"
                     android:paddingStart="2dp"
                     android:visibility="gone" />
+
+                <!-- Collapsible section: Stats grid — collapsed by default so the header
+                     doesn't eat screen space; twCollapseArrow above toggles this, same
+                     pattern as CallCenterFragment's layoutCcaCollapsibleSection. -->
+                <LinearLayout
+                    android:id="@+id/layoutStatsCollapsible"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="8dp"
+                    android:visibility="gone">
+
+                    <!-- Stats grid: 3 columns -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:weightSum="3"
+                        android:gravity="center">
+
+                        <LinearLayout
+                            android:id="@+id/layoutStatTotal"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center"
+                            android:padding="6dp"
+                            android:background="@drawable/bg_stat_card"
+                            android:layout_marginEnd="5dp">
+
+                            <TextView
+                                android:id="@+id/twStatTotalValue"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="18sp"
+                                android:textColor="@color/theme_text_primary"
+                                android:textStyle="bold"
+                                android:fontFamily="sans-serif-medium" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Total"
+                                android:textSize="10sp"
+                                android:textColor="@color/theme_text_secondary"
+                                android:layout_marginTop="1dp" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:id="@+id/layoutStatConfirmed"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center"
+                            android:padding="6dp"
+                            android:background="@drawable/bg_stat_card"
+                            android:layout_marginEnd="5dp">
+
+                            <TextView
+                                android:id="@+id/twStatConfirmedValue"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="18sp"
+                                android:textColor="@color/theme_green"
+                                android:textStyle="bold"
+                                android:fontFamily="sans-serif-medium" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Confirmed"
+                                android:textSize="10sp"
+                                android:textColor="@color/theme_text_secondary"
+                                android:layout_marginTop="1dp" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:id="@+id/layoutStatPending"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center"
+                            android:padding="6dp"
+                            android:background="@drawable/bg_stat_card">
+
+                            <TextView
+                                android:id="@+id/twStatPendingValue"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0"
+                                android:textSize="18sp"
+                                android:textColor="@color/theme_yellow"
+                                android:textStyle="bold"
+                                android:fontFamily="sans-serif-medium" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Pending"
+                                android:textSize="10sp"
+                                android:textColor="@color/theme_text_secondary"
+                                android:layout_marginTop="1dp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+                <!-- /layoutStatsCollapsible -->
             </LinearLayout>
 
             <!-- Filter Tabs -->

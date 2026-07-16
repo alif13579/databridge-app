@@ -58,6 +58,9 @@ class WorkerSpaceFragment : Fragment() {
     private lateinit var tvEmpty: TextView
     private lateinit var swipeRefresh: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
     private lateinit var tvRunClosedBanner: TextView
+    private lateinit var tvCollapseArrow: TextView
+    private lateinit var layoutStatsCollapsible: LinearLayout
+    private var isHeaderExpanded = false // starts collapsed to save screen space
 
     private lateinit var adapter: WorkerParcelAdapter
     private var workerStatusLang: String = "bn"
@@ -142,6 +145,7 @@ class WorkerSpaceFragment : Fragment() {
 
         initViews(view)
         updateSortByLabel()
+        setupCollapseToggle()
         setupSearch()
         setupScanButton()
         setupRunTypeSpinner()
@@ -184,12 +188,27 @@ class WorkerSpaceFragment : Fragment() {
             swipeRefresh.isRefreshing = false
         }
         tvRunClosedBanner = view.findViewById(R.id.twRunClosedBanner)
+        tvCollapseArrow = view.findViewById(R.id.twCollapseArrow)
+        layoutStatsCollapsible = view.findViewById(R.id.layoutStatsCollapsible)
 
         // Set user info
         val user = auth.currentUser
         val displayName = user?.displayName ?: "Agent"
         tvRoleLabel.text = "DELIVERY AGENT"
         tvAgentInfo.text = "$displayName · Active"
+    }
+
+    /** Toggles the Stats grid (Total/Confirmed/Pending) between hidden and visible —
+     *  collapsed by default so the header doesn't eat screen space; mirrors
+     *  CallCenterFragment's setupCollapseToggle(). */
+    private fun setupCollapseToggle() {
+        layoutStatsCollapsible.visibility = if (isHeaderExpanded) View.VISIBLE else View.GONE
+        tvCollapseArrow.text = if (isHeaderExpanded) "▲" else "▼"
+        tvCollapseArrow.setOnClickListener {
+            isHeaderExpanded = !isHeaderExpanded
+            layoutStatsCollapsible.visibility = if (isHeaderExpanded) View.VISIBLE else View.GONE
+            tvCollapseArrow.text = if (isHeaderExpanded) "▲" else "▼"
+        }
     }
 
     private fun setupSearch() {
