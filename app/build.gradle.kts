@@ -25,8 +25,8 @@ android {
         applicationId = "com.cloudx.databridge"
         minSdk = 23
         targetSdk = 34
-        versionCode = 146
-        versionName = "5.21.3"
+        versionCode = 147
+        versionName = "5.21.4"
         multiDexEnabled = true                                         // ✅ Large app support
         vectorDrawables.useSupportLibrary = true       // ✅ Vector drawable on API 21+
     }
