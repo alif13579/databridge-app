@@ -1518,9 +1518,16 @@ class CallCenterFragment : Fragment() {
                             }
                             .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
                         val remarkStatus = latestTodayWorkerEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        // Card badge: show ONLY if this same latest entry's own "note" field
-                        // has content — no fallback to the "remarks" field.
-                        val remarkLabelNote = latestTodayWorkerEntry?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
+                        // Card badge: from this same latest entry — remarks + note if both
+                        // present, remarks alone if only remarks, note alone if only note.
+                        val entryRemarksText = latestTodayWorkerEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
+                        val entryNoteText = latestTodayWorkerEntry?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
+                        val remarkLabelNote = when {
+                            entryRemarksText.isNotBlank() && entryNoteText.isNotBlank() -> "$entryRemarksText\nNote: $entryNoteText"
+                            entryRemarksText.isNotBlank() -> entryRemarksText
+                            entryNoteText.isNotBlank() -> entryNoteText
+                            else -> ""
+                        }
                         // Card badge: only the note text, no status label (status is shown
                         // separately by the card's own status badge).
                         val remarkLabel = remarkLabelNote
@@ -1686,9 +1693,16 @@ class CallCenterFragment : Fragment() {
                                 it.child("remarked_by").getValue(String::class.java)?.trim() == "worker"
                             }
                             .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
-                        // Card badge: show ONLY if this same latest entry's own "note" field
-                        // has content — no fallback to the "remarks" field.
-                        val latestRemarkNote = latestTodayForBadge?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
+                        // Card badge: from this same latest entry — remarks + note if both
+                        // present, remarks alone if only remarks, note alone if only note.
+                        val liveEntryRemarksText = latestTodayForBadge?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
+                        val liveEntryNoteText = latestTodayForBadge?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
+                        val latestRemarkNote = when {
+                            liveEntryRemarksText.isNotBlank() && liveEntryNoteText.isNotBlank() -> "$liveEntryRemarksText\nNote: $liveEntryNoteText"
+                            liveEntryRemarksText.isNotBlank() -> liveEntryRemarksText
+                            liveEntryNoteText.isNotBlank() -> liveEntryNoteText
+                            else -> ""
+                        }
                         val latestRemark = latestRemarkNote
 
                         // Resolve every distinct author uid in this remark set in parallel
