@@ -1977,9 +1977,12 @@ class CallCenterFragment : Fragment() {
             val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
             val timestamp = System.currentTimeMillis()
 
+            // remarks = status label only (clean, no note embedded)
+            // note    = free-text note separately
+            // This keeps the two pieces distinct so Worker card can show them on separate lines.
             val remarkData = mapOf(
                 "userId"        to userId,
-                "remarks"       to fullRemark,
+                "remarks"       to selectedRemarkText.ifBlank { noteText },
                 "note"          to noteText,
                 "status"        to selectedStatus,
                 "remarked_by"   to "support",
@@ -2004,7 +2007,7 @@ class CallCenterFragment : Fragment() {
                 if (it.id == item.id) it.copy(
                     validationRequest = false,
                     remarkStatus = selectedStatus,
-                    remarks = fullRemark
+                    remarks = selectedRemarkText.ifBlank { noteText }
                 ) else it
             }
             setupFilterTabs()
