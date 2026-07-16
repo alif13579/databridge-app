@@ -1716,14 +1716,16 @@ class CallCenterFragment : Fragment() {
                         todayCalLive.set(java.util.Calendar.SECOND, 0)
                         todayCalLive.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStartLive = todayCalLive.timeInMillis
-                        // Card badge — same simple rule as processRunsSnapshot(): today's
-                        // entries where remarked_by == "worker", newest one wins.
+                        // Card badge — same rule as processRunsSnapshot(): today's TRUE latest
+                        // entry (any author), then hidden if that latest entry is the CC
+                        // agent's own ("support") — see the comment on remarkLabel there for
+                        // the full rationale. "!= support" (not "== worker") keeps this
+                        // future-proof for any other non-CC author role added later.
                         val latestTodayForBadge = snapshot.children
-                            .filter {
-                                (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStartLive &&
-                                it.child("remarked_by").getValue(String::class.java)?.trim() == "worker"
-                            }
+                            .filter { (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStartLive }
                             .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
+                        val latestTodayForBadgeIsFromSupport =
+                            latestTodayForBadge?.child("remarked_by")?.getValue(String::class.java)?.trim() == "support"
                         // Card badge: from this same latest entry — remarks + note if both
                         // present, remarks alone if only remarks, note alone if only note.
                         val liveEntryRemarksText = latestTodayForBadge?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
@@ -1734,7 +1736,7 @@ class CallCenterFragment : Fragment() {
                             liveEntryNoteText.isNotBlank() -> liveEntryNoteText
                             else -> ""
                         }
-                        val latestRemark = latestRemarkNote
+                        val latestRemark = if (latestTodayForBadgeIsFromSupport) "" else latestRemarkNote
 
                         // Resolve every distinct author uid in this remark set in parallel
                         // (direct users/{uid} access), then rebuild the full journey history.
