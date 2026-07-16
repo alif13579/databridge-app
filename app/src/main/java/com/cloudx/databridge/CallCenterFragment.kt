@@ -1502,9 +1502,28 @@ class CallCenterFragment : Fragment() {
                         // Full remark history (not just the latest) — needed for the journey popup.
                         val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
                             .get().await()
-                        // Card badge — single simple rule, no status-based exceptions:
-                        // parse this consignment's remarks_{timestamp} entries, keep only
-                        // TODAY's entries where remarked_by == "worker", and take the newest one.
+
+                        // TRUE latest remark overall — any author, any date. This drives
+                        // remarkStatus/effectiveStatus (the card's status chip + filter/tab
+                        // matching) and validationRequest, mirroring Worker fragment's
+                        // lastRemarkStatus (also unfiltered by author/date). This must NOT be
+                        // narrowed to today/worker-only, or a status set yesterday (or by CC)
+                        // would incorrectly disappear.
+                        val latestEntryOverall = remarksSnap.children
+                            .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
+                        val remarkStatus = latestEntryOverall?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
+                        val overallRemarksText = latestEntryOverall?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
+                        val overallNoteText = latestEntryOverall?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
+                        val validationNoteText = when {
+                            overallRemarksText.isNotBlank() && overallNoteText.isNotBlank() -> "$overallRemarksText\nNote: $overallNoteText"
+                            overallRemarksText.isNotBlank() -> overallRemarksText
+                            overallNoteText.isNotBlank() -> overallNoteText
+                            else -> ""
+                        }
+
+                        // Card badge (overview) — separate concern: today's remark FROM THE
+                        // WORKER only, newest one. Parse this consignment's remarks_{timestamp}
+                        // entries, keep only TODAY's entries where remarked_by == "worker".
                         val todayCal = java.util.Calendar.getInstance()
                         todayCal.set(java.util.Calendar.HOUR_OF_DAY, 0)
                         todayCal.set(java.util.Calendar.MINUTE, 0)
@@ -1517,7 +1536,6 @@ class CallCenterFragment : Fragment() {
                                 it.child("remarked_by").getValue(String::class.java)?.trim() == "worker"
                             }
                             .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
-                        val remarkStatus = latestTodayWorkerEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
                         // Card badge: from this same latest entry — remarks + note if both
                         // present, remarks alone if only remarks, note alone if only note.
                         val entryRemarksText = latestTodayWorkerEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
@@ -1543,7 +1561,7 @@ class CallCenterFragment : Fragment() {
                                 remarks           = remarkLabel,
                                 remarkStatus      = remarkStatus,
                                 validationRequest = remarkStatus == "verify_req",
-                                validationNote    = if (remarkStatus == "verify_req") remarkLabel else "",
+                                validationNote    = if (remarkStatus == "verify_req") validationNoteText else "",
                                 time              = "",
                                 worker            = nameMap[agentSystemId] ?: agentSystemId,
                                 workerSystemId    = agentSystemId,
@@ -1570,13 +1588,20 @@ class CallCenterFragment : Fragment() {
             fetches.map { (item, remarksSnap, agentSystemId) ->
                 val history = remarksSnap.children.mapNotNull { r ->
                     val rStatus = r.child("status").getValue(String::class.java)?.trim().orEmpty()
-                    val rNote = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
-                    if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                    val rRemarksText = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                    val rNoteText = r.child("note").getValue(String::class.java)?.trim().orEmpty()
+                    if (rStatus.isBlank() && rRemarksText.isBlank() && rNoteText.isBlank()) return@mapNotNull null
                     val statusLabelHist = if (rStatus.isNotBlank())
                         context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus else ""
-                    // Journey log: remarks text only — status is already shown
-                    // separately in the timeline entry's action field.
-                    val rLabel = if (rNote.isNotBlank()) rNote else ""
+                    // Journey log: remarks + note combined — remarks+note if both present,
+                    // remarks alone if only remarks, note alone if only note. Status is
+                    // already shown separately in the timeline entry's action field.
+                    val rLabel = when {
+                        rRemarksText.isNotBlank() && rNoteText.isNotBlank() -> "$rRemarksText\nNote: $rNoteText"
+                        rRemarksText.isNotBlank() -> rRemarksText
+                        rNoteText.isNotBlank() -> rNoteText
+                        else -> ""
+                    }
                     val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                     val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                         .format(java.util.Date(createdAt))
@@ -1719,14 +1744,18 @@ class CallCenterFragment : Fragment() {
                         val fallbackWorker = allParcels.firstOrNull { it.id == cId }?.worker ?: "Agent"
                         val history = snapshot.children.mapNotNull { r ->
                             val rStatus = r.child("status").getValue(String::class.java)?.trim().orEmpty()
-                            val rNote = (r.child("note").getValue(String::class.java)?.trim()
-                                ?.takeIf { it.isNotBlank() }
-                                ?: r.child("remarks").getValue(String::class.java)?.trim()).orEmpty()
-                            if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
+                            val rRemarksText = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                            val rNoteText = r.child("note").getValue(String::class.java)?.trim().orEmpty()
+                            if (rStatus.isBlank() && rRemarksText.isBlank() && rNoteText.isBlank()) return@mapNotNull null
                             val statusLabelLiveHist = if (rStatus.isNotBlank())
                                 WorkerParcelAdapter.getStatusConfig(ctx, rStatus, ccStatusLang).label else ""
-                            // Journey log: remarks text only — same reasoning as the batch path above.
-                            val rLabel = if (rNote.isNotBlank()) rNote else ""
+                            // Journey log: remarks + note combined — same rule as the batch path above.
+                            val rLabel = when {
+                                rRemarksText.isNotBlank() && rNoteText.isNotBlank() -> "$rRemarksText\nNote: $rNoteText"
+                                rRemarksText.isNotBlank() -> rRemarksText
+                                rNoteText.isNotBlank() -> rNoteText
+                                else -> ""
+                            }
                             val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
                             val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                                 .format(java.util.Date(createdAt))
