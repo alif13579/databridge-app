@@ -26,7 +26,7 @@ import androidx.fragment.app.Fragment
 class ConfigFragment : Fragment() {
 
     // ── Tab ids ──────────────────────────────────────────────────────────────
-    private enum class Tab { REMARKS, LANGUAGE, STATUSES, SHEET, WHATSAPP }
+    private enum class Tab { REMARKS, LANGUAGE, STATUSES, SHEET, CONNECTORS, WHATSAPP }
     private var activeTab = Tab.REMARKS
 
     // ── Views ────────────────────────────────────────────────────────────────
@@ -34,12 +34,14 @@ class ConfigFragment : Fragment() {
     private lateinit var tabLanguage:   TextView
     private lateinit var tabStatuses:   TextView
     private lateinit var tabSheet:      TextView
+    private lateinit var tabConnectors: TextView
     private lateinit var tabWhatsApp:   TextView
 
     private lateinit var indRemarks:    View
     private lateinit var indLanguage:   View
     private lateinit var indStatuses:   View
     private lateinit var indSheet:      View
+    private lateinit var indConnectors: View
     private lateinit var indWhatsApp:   View
 
     private lateinit var contentFrame:  ViewGroup
@@ -56,12 +58,14 @@ class ConfigFragment : Fragment() {
         tabLanguage = view.findViewById(R.id.tabLanguage)
         tabStatuses = view.findViewById(R.id.tabStatuses)
         tabSheet    = view.findViewById(R.id.tabSheet)
+        tabConnectors = view.findViewById(R.id.tabConnectors)
         tabWhatsApp = view.findViewById(R.id.tabWhatsApp)
 
         indRemarks  = view.findViewById(R.id.indicatorRemarks)
         indLanguage = view.findViewById(R.id.indicatorLanguage)
         indStatuses = view.findViewById(R.id.indicatorStatuses)
         indSheet    = view.findViewById(R.id.indicatorSheet)
+        indConnectors = view.findViewById(R.id.indicatorConnectors)
         indWhatsApp = view.findViewById(R.id.indicatorWhatsApp)
 
         contentFrame = view.findViewById(R.id.configContentFrame)
@@ -82,6 +86,7 @@ class ConfigFragment : Fragment() {
         tabLanguage.setOnClickListener { switchTab(Tab.LANGUAGE) }
         tabStatuses.setOnClickListener { switchTab(Tab.STATUSES) }
         tabSheet   .setOnClickListener { switchTab(Tab.SHEET) }
+        tabConnectors.setOnClickListener { switchTab(Tab.CONNECTORS) }
         tabWhatsApp.setOnClickListener { switchTab(Tab.WHATSAPP) }
 
         switchTab(activeTab)
@@ -95,26 +100,29 @@ class ConfigFragment : Fragment() {
         val primary   = resources.getColor(R.color.theme_text_primary,   requireContext().theme)
         val secondary = resources.getColor(R.color.theme_text_secondary,  requireContext().theme)
 
-        tabRemarks .setTextColor(if (tab == Tab.REMARKS)   primary else secondary)
-        tabLanguage.setTextColor(if (tab == Tab.LANGUAGE)  primary else secondary)
-        tabStatuses.setTextColor(if (tab == Tab.STATUSES)  primary else secondary)
-        tabSheet   .setTextColor(if (tab == Tab.SHEET)     primary else secondary)
-        tabWhatsApp.setTextColor(if (tab == Tab.WHATSAPP)  primary else secondary)
+        tabRemarks .setTextColor(if (tab == Tab.REMARKS)     primary else secondary)
+        tabLanguage.setTextColor(if (tab == Tab.LANGUAGE)    primary else secondary)
+        tabStatuses.setTextColor(if (tab == Tab.STATUSES)    primary else secondary)
+        tabSheet   .setTextColor(if (tab == Tab.SHEET)       primary else secondary)
+        tabConnectors.setTextColor(if (tab == Tab.CONNECTORS) primary else secondary)
+        tabWhatsApp.setTextColor(if (tab == Tab.WHATSAPP)    primary else secondary)
 
         // Update indicators
-        indRemarks .visibility = if (tab == Tab.REMARKS)   View.VISIBLE else View.INVISIBLE
-        indLanguage.visibility = if (tab == Tab.LANGUAGE)  View.VISIBLE else View.INVISIBLE
-        indStatuses.visibility = if (tab == Tab.STATUSES)  View.VISIBLE else View.INVISIBLE
-        indSheet   .visibility = if (tab == Tab.SHEET)     View.VISIBLE else View.INVISIBLE
-        indWhatsApp.visibility = if (tab == Tab.WHATSAPP)  View.VISIBLE else View.INVISIBLE
+        indRemarks   .visibility = if (tab == Tab.REMARKS)     View.VISIBLE else View.INVISIBLE
+        indLanguage  .visibility = if (tab == Tab.LANGUAGE)    View.VISIBLE else View.INVISIBLE
+        indStatuses  .visibility = if (tab == Tab.STATUSES)    View.VISIBLE else View.INVISIBLE
+        indSheet     .visibility = if (tab == Tab.SHEET)       View.VISIBLE else View.INVISIBLE
+        indConnectors.visibility = if (tab == Tab.CONNECTORS)  View.VISIBLE else View.INVISIBLE
+        indWhatsApp  .visibility = if (tab == Tab.WHATSAPP)    View.VISIBLE else View.INVISIBLE
 
         // Load child fragment into contentFrame
         val fragment: Fragment = when (tab) {
-            Tab.REMARKS   -> ConfigRemarksFragment()
-            Tab.LANGUAGE  -> ConfigLanguageFragment()
-            Tab.STATUSES  -> ConfigStatusesFragment()
-            Tab.SHEET     -> ConfigSheetFragment()
-            Tab.WHATSAPP  -> ConfigWhatsAppFragment()
+            Tab.REMARKS     -> ConfigRemarksFragment()
+            Tab.LANGUAGE    -> ConfigLanguageFragment()
+            Tab.STATUSES    -> ConfigStatusesFragment()
+            Tab.SHEET       -> ConfigSheetFragment()
+            Tab.CONNECTORS  -> ConfigConnectorsFragment()
+            Tab.WHATSAPP    -> ConfigWhatsAppFragment()
         }
 
         childFragmentManager.beginTransaction()

@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- ── Branch-connector list ── -->
+        <LinearLayout
+            android:id="@+id/layoutConnectorBranchList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"/>
+
+        <TextView
+            android:id="@+id/tvConnectorsEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="No branches found. Add branches first."
+            android:textColor="@color/theme_text_secondary"
+            android:textSize="13sp"
+            android:gravity="center"
+            android:padding="24dp"
+            android:visibility="gone"/>
+
+        <Button
+            android:id="@+id/btnAddConnector"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="+ Add Connector"
+            android:textAllCaps="false"/>
+
+        <!-- ── Wizard (hidden until + Add Connector is tapped) ── -->
+        <LinearLayout
+            android:id="@+id/layoutConnectorWizard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvConnectorWizardTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Step 1 of 4 — Select Branch"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_text_primary"
+                android:paddingBottom="16dp"/>
+
+            <!-- Step 1: Branch selection -->
+            <LinearLayout
+                android:id="@+id/layoutConnectorStep1"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="visible">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Select the branch this connector will be linked to."
+                    android:textColor="@color/theme_text_secondary"
+                    android:textSize="13sp"
+                    android:paddingBottom="8dp"/>
+                <!-- TODO: populate branch spinner/list dynamically in ConfigConnectorsFragment -->
+                <Spinner
+                    android:id="@+id/spinnerConnectorBranch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <!-- Step 2: Authenticate (Google account / OAuth) -->
+            <LinearLayout
+                android:id="@+id/layoutConnectorStep2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Sign in with the Google account that has access to the target resource."
+                    android:textColor="@color/theme_text_secondary"
+                    android:textSize="13sp"
+                    android:paddingBottom="12dp"/>
+                <Button
+                    android:id="@+id/btnConnectorGoogleSignIn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Sign in with Google"
+                    android:textAllCaps="false"/>
+                <TextView
+                    android:id="@+id/tvConnectorSignedInAs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/theme_text_secondary"
+                    android:textSize="12sp"
+                    android:paddingTop="8dp"
+                    android:visibility="gone"/>
+            </LinearLayout>
+
+            <!-- Step 3: Configure target -->
+            <LinearLayout
+                android:id="@+id/layoutConnectorStep3"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Choose the spreadsheet or resource to connect."
+                    android:textColor="@color/theme_text_secondary"
+                    android:textSize="13sp"
+                    android:paddingBottom="8dp"/>
+                <!-- TODO: populate sheet/resource picker — mirrors ConfigSheetFragment Step 2 -->
+                <Spinner
+                    android:id="@+id/spinnerConnectorTarget"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+            </LinearLayout>
+
+            <!-- Step 4: Confirm -->
+            <LinearLayout
+                android:id="@+id/layoutConnectorStep4"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Review your connector settings and tap Save."
+                    android:textColor="@color/theme_text_secondary"
+                    android:textSize="13sp"
+                    android:paddingBottom="8dp"/>
+                <TextView
+                    android:id="@+id/tvConnectorSummary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/theme_text_primary"
+                    android:textSize="13sp"
+                    android:padding="12dp"
+                    android:background="@color/theme_bg_card"/>
+            </LinearLayout>
+
+            <!-- Wizard navigation row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="20dp"
+                android:gravity="end">
+                <Button
+                    android:id="@+id/btnConnectorCancel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:text="Cancel"
+                    android:textAllCaps="false"
+                    style="?attr/borderlessButtonStyle"/>
+                <Button
+                    android:id="@+id/btnConnectorBack"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:text="← Back"
+                    android:textAllCaps="false"
+                    android:visibility="gone"
+                    style="?attr/borderlessButtonStyle"/>
+                <Button
+                    android:id="@+id/btnConnectorNext"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Next →"
+                    android:textAllCaps="false"/>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>
