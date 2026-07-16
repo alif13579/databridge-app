@@ -957,7 +957,7 @@ class WorkerSpaceFragment : Fragment() {
                         // ─────────────────────────────────────────────────────────
                         val raw = snapshot.children.mapNotNull { r ->
                             val rStatus = readString(r, "status")
-                            val rNote   = readString(r, "remarks")
+                            val rNote   = readString(r, "note").ifBlank { readString(r, "remarks") }
                             if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
                             val statusLabel = if (rStatus.isNotBlank())
                                 WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label else ""
@@ -1016,11 +1016,10 @@ class WorkerSpaceFragment : Fragment() {
                         todayCal.set(java.util.Calendar.SECOND, 0)
                         todayCal.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStart = todayCal.timeInMillis
-                        // Card badge: only today's remark FROM CC (the worker already knows
-                        // what they themselves wrote — this is specifically the cross-party
-                        // handoff signal). Uses the pre-built "$statusLabel\n$rNote" field so
-                        // the label and note render on their own lines instead of run together.
-                        val lastRemark = history.lastOrNull { it.createdAt >= todayStart && it.authorRole == "cc" }?.remark ?: ""
+                        // Card badge: only today's remark FROM CC — shows clean note text only
+                        // (noteOnly), never the status label (which the card's own status badge
+                        // already shows). remark (journey log) still includes the status label.
+                        val lastRemark = history.lastOrNull { it.createdAt >= todayStart && it.authorRole == "cc" }?.noteOnly ?: ""
                         val idx = allParcels.indexOfFirst { it.id == cId }
                         if (idx != -1) {
                             val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status
@@ -1241,7 +1240,7 @@ class WorkerSpaceFragment : Fragment() {
 
             val history = remarksSnap.children.mapNotNull { r ->
                 val rStatus = readString(r, "status")
-                val rNote   = readString(r, "remarks")
+                val rNote   = readString(r, "note").ifBlank { readString(r, "remarks") }
                 if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
                 val statusLabelBulk = if (rStatus.isNotBlank())
                     context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus else ""
@@ -1287,9 +1286,8 @@ class WorkerSpaceFragment : Fragment() {
             todayCalBulk.set(java.util.Calendar.SECOND, 0)
             todayCalBulk.set(java.util.Calendar.MILLISECOND, 0)
             val todayStartBulk = todayCalBulk.timeInMillis
-            // Card badge: only today's remark FROM CC, same rule as the live-listener path —
-            // the worker already knows what they wrote, and label+note render as two lines.
-            val lastRemark = history.lastOrNull { it.createdAt >= todayStartBulk && it.authorRole == "cc" }?.remark ?: ""
+            // Card badge: today-only, clean note text only (no status label).
+            val lastRemark = history.lastOrNull { it.createdAt >= todayStartBulk && it.authorRole == "cc" }?.noteOnly ?: ""
             val createdAtVal = detailSnap.child("createdAt").getValue(Long::class.java) ?: 0L
             val updatedAtVal = detailSnap.child("updatedAt").getValue(Long::class.java) ?: 0L
             val attemptVal = readAttempt(detailSnap)

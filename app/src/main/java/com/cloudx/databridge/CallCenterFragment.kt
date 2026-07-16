@@ -1518,18 +1518,12 @@ class CallCenterFragment : Fragment() {
                             it.child("remarked_by").getValue(String::class.java)?.trim() != "support"
                         }
                         val remarkLabelStatus = latestTodayEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        val remarkLabelNote = latestTodayEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
-                        // Status label on its own line, note (if any) on the next — not run
-                        // together, so the two pieces of information stay distinguishable.
-                        val remarkLabel = when {
-                            remarkLabelStatus.isNotBlank() && remarkLabelNote.isNotBlank() ->
-                                "${context?.let { WorkerParcelAdapter.getStatusConfig(it, remarkLabelStatus, "bn").label } ?: remarkLabelStatus}\n$remarkLabelNote"
-                            remarkLabelStatus.isNotBlank() -> context?.let {
-                                WorkerParcelAdapter.getStatusConfig(it, remarkLabelStatus, "bn").label
-                            } ?: remarkLabelStatus
-                            remarkLabelNote.isNotBlank() -> remarkLabelNote
-                            else -> ""
-                        }
+                        val remarkLabelNote = (latestTodayEntry?.child("note")?.getValue(String::class.java)?.trim()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: latestTodayEntry?.child("remarks")?.getValue(String::class.java)?.trim()).orEmpty()
+                        // Card badge: only the note text, no status label (status is shown
+                        // separately by the card's own status badge).
+                        val remarkLabel = remarkLabelNote
 
                         val latestOverallNote = latestEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
                         val latestOverallLabel = when {
@@ -1708,16 +1702,11 @@ class CallCenterFragment : Fragment() {
                             (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStartLive &&
                             it.child("remarked_by").getValue(String::class.java)?.trim() != "support"
                         }
-                        // Status label on its own line, note (if any) on the next.
-                        val latestRemarkStatus = latestTodayForBadge?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        val latestRemarkNote = latestTodayForBadge?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
-                        val latestRemark = when {
-                            latestRemarkStatus.isNotBlank() && latestRemarkNote.isNotBlank() ->
-                                "${WorkerParcelAdapter.getStatusConfig(ctx, latestRemarkStatus, ccStatusLang).label}\n$latestRemarkNote"
-                            latestRemarkStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, latestRemarkStatus, ccStatusLang).label
-                            latestRemarkNote.isNotBlank() -> latestRemarkNote
-                            else -> ""
-                        }
+                        // Card badge: only the note text, no status label.
+                        val latestRemarkNote = (latestTodayForBadge?.child("note")?.getValue(String::class.java)?.trim()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: latestTodayForBadge?.child("remarks")?.getValue(String::class.java)?.trim()).orEmpty()
+                        val latestRemark = latestRemarkNote
 
                         // Resolve every distinct author uid in this remark set in parallel
                         // (direct users/{uid} access), then rebuild the full journey history.
@@ -1733,7 +1722,9 @@ class CallCenterFragment : Fragment() {
                         val fallbackWorker = allParcels.firstOrNull { it.id == cId }?.worker ?: "Agent"
                         val history = snapshot.children.mapNotNull { r ->
                             val rStatus = r.child("status").getValue(String::class.java)?.trim().orEmpty()
-                            val rNote = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                            val rNote = (r.child("note").getValue(String::class.java)?.trim()
+                                ?.takeIf { it.isNotBlank() }
+                                ?: r.child("remarks").getValue(String::class.java)?.trim()).orEmpty()
                             if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
                             val statusLabelLiveHist = if (rStatus.isNotBlank())
                                 WorkerParcelAdapter.getStatusConfig(ctx, rStatus, ccStatusLang).label else ""
