@@ -68,6 +68,7 @@ class CallCenterFragment : Fragment() {
     // Auto Call (sequential dialer) state
     private var autoCallGapSeconds = 8
     private var autoCallJob: Job? = null
+    private var searchJob: Job? = null  // ✅ Fix #8: Search debounce job
 
     // ── Auto Call filter preference ──────────────────────────────────
     // "status" = only cards whose status is in autoCallStatuses go into the queue.
@@ -156,6 +157,9 @@ class CallCenterFragment : Fragment() {
     private val RUN_ID_PATTERN = Regex("^run_(\\d{6})_(.+)$")
 
     override fun onDestroyView() {
+        // ✅ Fix #8: Cancel pending search debounce job
+        searchJob?.cancel()
+        searchJob = null
         super.onDestroyView()
         stopAutoCall()
         detachRunsListener()
@@ -1115,9 +1119,14 @@ class CallCenterFragment : Fragment() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                searchQuery = s?.toString()?.trim() ?: ""
-                tvSearchClear.visibility = if (searchQuery.isNotEmpty()) View.VISIBLE else View.GONE
-                applyFilters()
+                // ✅ Fix #8: 300ms debounce — prevents excessive filter calls on every keystroke
+                searchJob?.cancel()
+                searchJob = viewLifecycleOwner.lifecycleScope.launch {
+                    delay(300)
+                    searchQuery = s?.toString()?.trim() ?: ""
+                    tvSearchClear.visibility = if (searchQuery.isNotEmpty()) View.VISIBLE else View.GONE
+                    applyFilters()
+                }
             }
         })
         tvSearchClear.setOnClickListener { etSearch.text?.clear() }
