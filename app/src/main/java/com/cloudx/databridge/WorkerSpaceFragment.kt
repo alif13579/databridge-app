@@ -81,23 +81,7 @@ class WorkerSpaceFragment : Fragment() {
     // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
     // repeated remarks by the same author (worker or CC agent) don't refetch. Cleared on
     // pull-to-refresh alongside the other per-session caches.
-    private val uidNameCache = mutableMapOf<String, String>()
-    private val uidPhotoCache = mutableMapOf<String, String>()
-
-    /** Resolves [uid] to a display name via users/{uid}/profile/name — direct O(1) access,
-     *  cached in [uidNameCache] after the first lookup. Falls back to the raw uid if the
-     *  profile/name is missing or the fetch fails. */
-    private suspend fun resolveUserName(uid: String): String {
-        if (uid.isBlank()) return "Agent"
-        uidNameCache[uid]?.let { return it }
-        val snap = withContext(Dispatchers.IO) {
-            runCatching { db.reference.child("users/$uid/profile").get().await() }.getOrNull()
-        }
-        val name = snap?.child("name")?.getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() } ?: uid
-        uidNameCache[uid] = name
-        uidPhotoCache[uid] = snap?.child("photo_url")?.getValue(String::class.java)?.trim().orEmpty()
-        return name
-    }
+    // ✅ Using shared UserNameResolver (Fix #3) — eliminates duplicate code & caching
 
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseDatabase.getInstance()
@@ -181,7 +165,7 @@ class WorkerSpaceFragment : Fragment() {
         swipeRefresh = view.findViewById(R.id.swipeRefresh)
         swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
         swipeRefresh.setOnRefreshListener {
-            uidNameCache.clear()
+            UserNameResolver.clearCache()
             detachRunsListener()
             loadRemarkOptions()
             loadData()
@@ -996,12 +980,12 @@ class WorkerSpaceFragment : Fragment() {
                         // users/{uid} access — no full-tree scan, no reverse-index needed).
                         val distinctUids = raw.map { it.rUserId }.filter { it.isNotBlank() }.distinct()
                         coroutineScope {
-                            distinctUids.map { uid -> async(Dispatchers.IO) { resolveUserName(uid) } }.awaitAll()
+                            distinctUids.map { uid -> async(Dispatchers.IO) { UserNameResolver.resolveName(uid) } }.awaitAll()
                         }
                         val history = raw.map { e ->
                             val authorRole = if (e.remarkedBy == "support") "cc" else "agent"
-                            val resolvedName = if (e.rUserId.isNotBlank()) uidNameCache[e.rUserId] else null
-                            val resolvedPhoto = if (e.rUserId.isNotBlank()) uidPhotoCache[e.rUserId] else null
+                            val resolvedName = if (e.rUserId.isNotBlank()) UserNameResolver.resolveName(e.rUserId).takeIf { it != e.rUserId } else null
+                            val resolvedPhoto = if (e.rUserId.isNotBlank()) UserNameResolver.resolvePhotoUrl(e.rUserId) else null
                             val author = when {
                                 e.remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
                                 e.remarkedBy == "support" -> "CC"
@@ -1236,14 +1220,14 @@ class WorkerSpaceFragment : Fragment() {
         val fetches = itemFetches.awaitAll()
 
         // Pre-resolve every distinct remark author uid across ALL parcels in one parallel
-        // batch — direct users/{uid} access, cached in uidNameCache so the per-parcel loop
+        // batch — direct users/{uid} access, cached in UserNameResolver so the per-parcel loop
         // below never blocks on a network round-trip.
         val allUids = fetches.flatMap { it.remarksSnap.children }
             .mapNotNull { it.child("userId").getValue(String::class.java)?.trim() }
             .filter { it.isNotBlank() }
             .distinct()
         coroutineScope {
-            allUids.map { uid -> async(Dispatchers.IO) { resolveUserName(uid) } }.awaitAll()
+            allUids.map { uid -> async(Dispatchers.IO) { UserNameResolver.resolveName(uid) } }.awaitAll()
         }
 
         val parcels = mutableListOf<WorkerParcelItem>()
@@ -1292,8 +1276,8 @@ class WorkerSpaceFragment : Fragment() {
                     .format(java.util.Date(createdAt))
                 val remarkedBy = readString(r, "remarked_by")
                 val rUserId    = readString(r, "userId")
-                val resolvedName  = if (rUserId.isNotBlank()) uidNameCache[rUserId] else null
-                val resolvedPhoto = if (rUserId.isNotBlank()) uidPhotoCache[rUserId] else null
+                val resolvedName  = if (rUserId.isNotBlank()) UserNameResolver.resolveName(rUserId).takeIf { it != rUserId } else null
+                val resolvedPhoto = if (rUserId.isNotBlank()) UserNameResolver.resolvePhotoUrl(rUserId) else null
                 val authorRole = if (remarkedBy == "support") "cc" else "agent"
                 val author = when {
                     remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
