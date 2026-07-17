@@ -21,3 +21,5 @@ keystore.properties
 *.jks
 *.keystore
 app/databridge-release.p12
+# 🔐 Firebase config - sensitive credentials
+app/google-services.json
