@@ -27,23 +27,20 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 /**
- * Connectors tab — branch-wise list of configured connectors
- * (same branch-scoping pattern as ConfigSheetFragment/CallCenterFragment:
- * only the current user's RBAC-assigned branches are shown/manageable,
- * not every branch in the system).
+ * Connectors tab — branch-wise list of configured connectors, matching
+ * ConfigSheetFragment's exact pattern: tapping a branch card (scoped to
+ * RbacManager.current.branchIds — this user's assigned branches only,
+ * not every branch in the system) opens the connector wizard already
+ * scoped to that branch. There is no separate "pick a branch" step
+ * inside the wizard, and no generic "+ Add Connector" button.
  *
- * Each branch entry shows a card with its connector count and a "Manage"
- * button (still a stub — TODO once the per-connector management screen
- * is designed; this wizard only handles *creating* a connector).
- *
- * "+ Add Connector" wizard (currently: Sheet-type connectors only —
- * reuses the exact Google Sign-In + Drive/Sheets API plumbing already
- * proven in ConfigSheetFragment/ConfigSheetDriveApi, rather than a
- * second parallel implementation):
- *   Step 1 — Select branch (scoped to RbacManager.current.branchIds)
- *   Step 2 — Google Sign-In (Drive+Sheets readonly scopes)
- *   Step 3 — Pick spreadsheet, then pick a tab within it
- *   Step 4 — Confirm & save to config/connectors/{branchId}/{connectorId}
+ * Wizard (currently: Sheet-type connectors only — reuses the exact
+ * Google Sign-In + Drive/Sheets API plumbing already proven in
+ * ConfigSheetFragment/ConfigSheetDriveApi, rather than a second
+ * parallel implementation):
+ *   Step 1 — Google Sign-In (Drive+Sheets readonly scopes)
+ *   Step 2 — Pick spreadsheet, then pick a tab within it
+ *   Step 3 — Confirm & save to config/connectors/{branchId}/{connectorId}
  *
  * Column mapping / primary key / sync scheduling are intentionally NOT
  * part of this wizard — those belong to the (not yet built) per-connector
@@ -52,25 +49,23 @@ import java.util.concurrent.TimeUnit
  */
 class ConfigConnectorsFragment : Fragment() {
 
-    private lateinit var layoutBranchList: LinearLayout
-    private lateinit var btnAddConnector:  Button
-    private lateinit var layoutWizard:     LinearLayout
-    private lateinit var tvWizardTitle:    TextView
-    private lateinit var layoutStep1:      LinearLayout
-    private lateinit var layoutStep2:      LinearLayout
-    private lateinit var layoutStep3:      LinearLayout
-    private lateinit var layoutStep4:      LinearLayout
-    private lateinit var btnBack:          Button
-    private lateinit var btnNext:          Button
-    private lateinit var btnCancel:        Button
-    private lateinit var tvConnectorsEmpty: TextView
-    private lateinit var spinnerBranch:    Spinner
-    private lateinit var btnGoogleSignIn:  Button
-    private lateinit var tvSignedInAs:     TextView
-    private lateinit var spinnerTarget:    Spinner
-    private lateinit var pbTargetLoad:     ProgressBar
-    private lateinit var spinnerTab:       Spinner
-    private lateinit var tvSummary:        TextView
+    private lateinit var layoutBranchList:   LinearLayout
+    private lateinit var layoutWizard:       LinearLayout
+    private lateinit var tvWizardTitle:      TextView
+    private lateinit var tvWizardBranch:     TextView
+    private lateinit var layoutStep1:        LinearLayout
+    private lateinit var layoutStep2:        LinearLayout
+    private lateinit var layoutStep3:        LinearLayout
+    private lateinit var btnBack:            Button
+    private lateinit var btnNext:            Button
+    private lateinit var btnCancel:          Button
+    private lateinit var tvConnectorsEmpty:  TextView
+    private lateinit var btnGoogleSignIn:    Button
+    private lateinit var tvSignedInAs:       TextView
+    private lateinit var spinnerTarget:      Spinner
+    private lateinit var pbTargetLoad:       ProgressBar
+    private lateinit var spinnerTab:         Spinner
+    private lateinit var tvSummary:          TextView
 
     private val db   by lazy { FirebaseDatabase.getInstance() }
     private val auth by lazy { FirebaseAuth.getInstance() }
@@ -85,15 +80,17 @@ class ConfigConnectorsFragment : Fragment() {
     private var googleAccount: GoogleSignInAccount? = null
 
     private var currentStep = 1
-    private val TOTAL_STEPS = 4
+    private val TOTAL_STEPS = 3
 
     // RBAC-scoped branches for this user, cached id -> name (same convention as
     // CallCenterFragment's branchIdToName).
-    private var myBranchIds: List<String> = emptyList()
     private val branchIdToName = mutableMapOf<String, String>()
 
+    // Branch is picked by tapping its card in the list — not re-selected inside
+    // the wizard (matches ConfigSheetFragment's activeBranch pattern).
     private var selectedBranchId   = ""
     private var selectedBranchName = ""
+
     private var availableSheets: List<DriveFile> = emptyList()
     private var selectedSheet: DriveFile? = null
     private var availableTabs: List<String> = emptyList()
@@ -142,18 +139,16 @@ class ConfigConnectorsFragment : Fragment() {
         // ── Bind every view first — all of it, before any listener wiring below,
         //    to avoid a lateinit-accessed-before-assignment crash. ──
         layoutBranchList  = view.findViewById(R.id.layoutConnectorBranchList)
-        btnAddConnector   = view.findViewById(R.id.btnAddConnector)
         layoutWizard      = view.findViewById(R.id.layoutConnectorWizard)
         tvWizardTitle     = view.findViewById(R.id.tvConnectorWizardTitle)
+        tvWizardBranch    = view.findViewById(R.id.tvConnectorWizardBranch)
         layoutStep1       = view.findViewById(R.id.layoutConnectorStep1)
         layoutStep2       = view.findViewById(R.id.layoutConnectorStep2)
         layoutStep3       = view.findViewById(R.id.layoutConnectorStep3)
-        layoutStep4       = view.findViewById(R.id.layoutConnectorStep4)
         btnBack           = view.findViewById(R.id.btnConnectorBack)
         btnNext           = view.findViewById(R.id.btnConnectorNext)
         btnCancel         = view.findViewById(R.id.btnConnectorCancel)
         tvConnectorsEmpty = view.findViewById(R.id.tvConnectorsEmpty)
-        spinnerBranch     = view.findViewById(R.id.spinnerConnectorBranch)
         btnGoogleSignIn   = view.findViewById(R.id.btnConnectorGoogleSignIn)
         tvSignedInAs      = view.findViewById(R.id.tvConnectorSignedInAs)
         spinnerTarget     = view.findViewById(R.id.spinnerConnectorTarget)
@@ -161,21 +156,10 @@ class ConfigConnectorsFragment : Fragment() {
         spinnerTab        = view.findViewById(R.id.spinnerConnectorTab)
         tvSummary         = view.findViewById(R.id.tvConnectorSummary)
 
-        btnAddConnector.setOnClickListener { openWizard() }
         btnBack  .setOnClickListener { navigateWizard(-1) }
         btnNext  .setOnClickListener { navigateWizard(+1) }
         btnCancel.setOnClickListener { closeWizard() }
         btnGoogleSignIn.setOnClickListener { pickGoogleAccount() }
-
-        spinnerBranch.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
-                if (position in myBranchIds.indices) {
-                    selectedBranchId   = myBranchIds[position]
-                    selectedBranchName = branchIdToName[selectedBranchId] ?: selectedBranchId
-                }
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
-        }
 
         spinnerTarget.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
@@ -198,11 +182,12 @@ class ConfigConnectorsFragment : Fragment() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        loadMyBranches()
         loadBranchConnectors()
     }
 
     // ── Branch-connector list (scoped to THIS user's RBAC branches) ────────
+    // Tapping a card opens the wizard for that branch — same entry point as
+    // ConfigSheetFragment (no separate branch-selection step inside the wizard).
 
     private fun loadBranchConnectors() {
         layoutBranchList.removeAllViews()
@@ -228,9 +213,13 @@ class ConfigConnectorsFragment : Fragment() {
                         if (connectorCount > 0) "$connectorCount connector${if (connectorCount > 1) "s" else ""}"
                         else "No connectors"
 
+                    // Whole card opens the wizard, scoped to this branch — the
+                    // "Manage" button is reserved for an existing-connector
+                    // management screen (still a stub, separate future task).
+                    card.findViewById<View>(R.id.rootConnectorBranchCard)
+                        .setOnClickListener { openWizard(branchId, branchName) }
                     card.findViewById<Button>(R.id.btnManageConnector)
                         .setOnClickListener {
-                            // TODO: wire to per-branch connector management screen
                             toast("Manage: $branchName — coming soon")
                         }
 
@@ -252,38 +241,27 @@ class ConfigConnectorsFragment : Fragment() {
         return name
     }
 
-    // ── Wizard: Step 1 — branch picker (RBAC-scoped, same as the list above) ──
-
-    private fun loadMyBranches() {
-        myBranchIds = RbacManager.current.branchIds
-        if (myBranchIds.isEmpty()) return
-        viewLifecycleOwner.lifecycleScope.launch {
-            val names = myBranchIds.map { resolveBranchName(it) }
-            val ctx = context ?: return@launch
-            spinnerBranch.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, names)
-            selectedBranchId   = myBranchIds.first()
-            selectedBranchName = names.first()
-        }
-    }
-
     // ── Wizard navigation ────────────────────────────────────────────────
 
-    private fun openWizard() {
-        currentStep   = 1
+    private fun openWizard(branchId: String, branchName: String) {
+        selectedBranchId   = branchId
+        selectedBranchName = branchName
+        currentStep = 1
         selectedSheet = null
         selectedTab   = ""
         availableSheets = emptyList()
         availableTabs   = emptyList()
+
+        tvWizardBranch.text = "Branch: $branchName"
         layoutBranchList.isVisible = false
-        btnAddConnector .isVisible = false
         layoutWizard    .isVisible = true
+        updateSignInStep()
         renderStep()
     }
 
     private fun closeWizard() {
         layoutWizard    .isVisible = false
         layoutBranchList.isVisible = true
-        btnAddConnector .isVisible = true
         loadBranchConnectors()
     }
 
@@ -294,39 +272,35 @@ class ConfigConnectorsFragment : Fragment() {
             return
         }
         currentStep = (currentStep + direction).coerceIn(1, TOTAL_STEPS)
-        if (currentStep == 2) updateSignInStep()
-        if (currentStep == 4) updateSummary()
+        if (currentStep == 3) updateSummary()
         renderStep()
     }
 
     private fun renderStep() {
         tvWizardTitle.text = when (currentStep) {
-            1 -> "Step 1 of $TOTAL_STEPS — Select Branch"
-            2 -> "Step 2 of $TOTAL_STEPS — Authenticate"
-            3 -> "Step 3 of $TOTAL_STEPS — Configure"
-            4 -> "Step 4 of $TOTAL_STEPS — Confirm"
+            1 -> "Step 1 of $TOTAL_STEPS — Authenticate"
+            2 -> "Step 2 of $TOTAL_STEPS — Configure"
+            3 -> "Step 3 of $TOTAL_STEPS — Confirm"
             else -> ""
         }
         layoutStep1.isVisible = currentStep == 1
         layoutStep2.isVisible = currentStep == 2
         layoutStep3.isVisible = currentStep == 3
-        layoutStep4.isVisible = currentStep == 4
         btnBack.isVisible = currentStep > 1
         btnNext.text = if (currentStep == TOTAL_STEPS) "Save" else "Next →"
     }
 
     private fun validateCurrentStep(): Boolean = when (currentStep) {
-        1 -> if (selectedBranchId.isBlank()) { toast("একটা branch বেছে নিন"); false } else true
-        2 -> if (googleAccount == null) { toast("Google দিয়ে sign in করুন"); false } else true
-        3 -> when {
-            selectedSheet == null    -> { toast("একটা sheet বেছে নিন"); false }
-            selectedTab.isBlank()    -> { toast("একটা tab বেছে নিন"); false }
+        1 -> if (googleAccount == null) { toast("Google দিয়ে sign in করুন"); false } else true
+        2 -> when {
+            selectedSheet == null -> { toast("একটা sheet বেছে নিন"); false }
+            selectedTab.isBlank() -> { toast("একটা tab বেছে নিন"); false }
             else -> true
         }
         else -> true
     }
 
-    // ── Wizard: Step 2 — Google Sign-In (same scopes/flow as ConfigSheetFragment) ──
+    // ── Step 1: Google Sign-In (same scopes/flow as ConfigSheetFragment) ──
 
     private fun updateSignInStep() {
         val acc = googleAccount
@@ -368,7 +342,7 @@ class ConfigConnectorsFragment : Fragment() {
         }
     }
 
-    // ── Wizard: Step 3 — pick spreadsheet, then tab (ConfigSheetDriveApi) ──
+    // ── Step 2: pick spreadsheet, then tab (ConfigSheetDriveApi) ──
 
     private fun loadSheetsForAccount() {
         val account = googleAccount ?: return
@@ -426,7 +400,7 @@ class ConfigConnectorsFragment : Fragment() {
         }
     }
 
-    // ── Wizard: Step 4 — confirm + save ─────────────────────────────────
+    // ── Step 3: confirm + save ─────────────────────────────────
 
     private fun updateSummary() {
         tvSummary.text = buildString {

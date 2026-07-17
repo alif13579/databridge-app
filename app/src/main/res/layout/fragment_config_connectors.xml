@@ -10,7 +10,8 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- ── Branch-connector list ── -->
+        <!-- ── Branch-connector list — tap a branch card to add/manage its connector,
+             same pattern as ConfigSheetFragment (no separate "+ Add" button). ── -->
         <LinearLayout
             android:id="@+id/layoutConnectorBranchList"
             android:layout_width="match_parent"
@@ -28,15 +29,7 @@
             android:padding="24dp"
             android:visibility="gone"/>
 
-        <Button
-            android:id="@+id/btnAddConnector"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="+ Add Connector"
-            android:textAllCaps="false"/>
-
-        <!-- ── Wizard (hidden until + Add Connector is tapped) ── -->
+        <!-- ── Wizard (hidden until a branch card is tapped) ── -->
         <LinearLayout
             android:id="@+id/layoutConnectorWizard"
             android:layout_width="match_parent"
@@ -48,39 +41,29 @@
                 android:id="@+id/tvConnectorWizardTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Step 1 of 4 — Select Branch"
+                android:text="Step 1 of 3 — Authenticate"
                 android:textSize="15sp"
                 android:textStyle="bold"
-                android:textColor="@color/theme_text_primary"
+                android:textColor="@color/theme_text_primary"/>
+
+            <!-- Persistent branch context — the branch is picked by tapping its card,
+                 not re-selected inside the wizard (matches ConfigSheetFragment). -->
+            <TextView
+                android:id="@+id/tvConnectorWizardBranch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Branch: —"
+                android:textSize="12sp"
+                android:textColor="@color/theme_text_secondary"
                 android:paddingBottom="16dp"/>
 
-            <!-- Step 1: Branch selection -->
+            <!-- Step 1: Authenticate (Google account / OAuth) -->
             <LinearLayout
                 android:id="@+id/layoutConnectorStep1"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:visibility="visible">
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Select the branch this connector will be linked to."
-                    android:textColor="@color/theme_text_secondary"
-                    android:textSize="13sp"
-                    android:paddingBottom="8dp"/>
-                <Spinner
-                    android:id="@+id/spinnerConnectorBranch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"/>
-            </LinearLayout>
-
-            <!-- Step 2: Authenticate (Google account / OAuth) -->
-            <LinearLayout
-                android:id="@+id/layoutConnectorStep2"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -104,9 +87,9 @@
                     android:visibility="gone"/>
             </LinearLayout>
 
-            <!-- Step 3: Configure target -->
+            <!-- Step 2: Configure target -->
             <LinearLayout
-                android:id="@+id/layoutConnectorStep3"
+                android:id="@+id/layoutConnectorStep2"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
@@ -118,7 +101,7 @@
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="13sp"
                     android:paddingBottom="8dp"/>
-                <!-- Sheet picker — populated after Google sign-in (Step 2) -->
+                <!-- Sheet picker — populated after Google sign-in (Step 1) -->
                 <Spinner
                     android:id="@+id/spinnerConnectorTarget"
                     android:layout_width="match_parent"
@@ -145,9 +128,9 @@
                     android:layout_height="wrap_content"/>
             </LinearLayout>
 
-            <!-- Step 4: Confirm -->
+            <!-- Step 3: Confirm -->
             <LinearLayout
-                android:id="@+id/layoutConnectorStep4"
+                android:id="@+id/layoutConnectorStep3"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
