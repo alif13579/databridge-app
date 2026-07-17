@@ -140,6 +140,30 @@
                         android:orientation="vertical"
                         android:gravity="center_horizontal">
                         <TextView
+                            android:id="@+id/tabScannerSheet"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📷 Scanner"
+                            android:padding="12dp"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="?attr/colorOnSurface"
+                            android:clickable="true"
+                            android:focusable="true" />
+                        <View
+                            android:id="@+id/indicatorScannerSheet"
+                            android:layout_width="match_parent"
+                            android:layout_height="2.5dp"
+                            android:background="#E8380D"
+                            android:visibility="invisible" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal">
+                        <TextView
                             android:id="@+id/tabWhatsApp"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"

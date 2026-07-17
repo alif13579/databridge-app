@@ -11,22 +11,26 @@ import androidx.fragment.app.Fragment
  * ⚙️ Config Fragment
  * Access: admin / supervisor / staff  (permission key: nav_config)
  *
- * Four tabs:
+ * Five tabs:
  *   💬 Remarks  – status-wise remark management
  *   🌐 Language – Worker / CC fragment language settings
  *   🏷️ Statuses – custom status add / edit / delete
  *   📊 Sheet    – branch-wise Google Sheet connect, row/column config, mapping, sync
+ *   📷 Scanner  – branch-wise Scanner Sheet Connector (writes scanned values into a
+ *                 fixed match-column/write-column pair on a date-named tab; no periodic
+ *                 sync — see ConfigScannerSheetFragment / config/scanner_sheets/{branchId})
  *
  * Firebase layout:
  *   config/remarks/...
  *   config/sheets/{branch_id}/current/   ← active config + audit fields
  *   config/sheets/{branch_id}/history/   ← immutable audit log
  *   config/sheets/{branch_id}/data/      ← synced sheet rows (WorkerFragment reads this)
+ *   config/scanner_sheets/{branch_id}/{connectionId}/  ← Scanner Sheet Connector configs
  */
 class ConfigFragment : Fragment() {
 
     // ── Tab ids ──────────────────────────────────────────────────────────────
-    private enum class Tab { REMARKS, LANGUAGE, STATUSES, SHEET, WHATSAPP }
+    private enum class Tab { REMARKS, LANGUAGE, STATUSES, SHEET, SCANNER_SHEET, WHATSAPP }
     private var activeTab = Tab.REMARKS
 
     // ── Views ────────────────────────────────────────────────────────────────
@@ -34,12 +38,14 @@ class ConfigFragment : Fragment() {
     private lateinit var tabLanguage:   TextView
     private lateinit var tabStatuses:   TextView
     private lateinit var tabSheet:      TextView
+    private lateinit var tabScannerSheet: TextView
     private lateinit var tabWhatsApp:   TextView
 
     private lateinit var indRemarks:    View
     private lateinit var indLanguage:   View
     private lateinit var indStatuses:   View
     private lateinit var indSheet:      View
+    private lateinit var indScannerSheet: View
     private lateinit var indWhatsApp:   View
 
     private lateinit var contentFrame:  ViewGroup
@@ -56,12 +62,14 @@ class ConfigFragment : Fragment() {
         tabLanguage = view.findViewById(R.id.tabLanguage)
         tabStatuses = view.findViewById(R.id.tabStatuses)
         tabSheet    = view.findViewById(R.id.tabSheet)
+        tabScannerSheet = view.findViewById(R.id.tabScannerSheet)
         tabWhatsApp = view.findViewById(R.id.tabWhatsApp)
 
         indRemarks  = view.findViewById(R.id.indicatorRemarks)
         indLanguage = view.findViewById(R.id.indicatorLanguage)
         indStatuses = view.findViewById(R.id.indicatorStatuses)
         indSheet    = view.findViewById(R.id.indicatorSheet)
+        indScannerSheet = view.findViewById(R.id.indicatorScannerSheet)
         indWhatsApp = view.findViewById(R.id.indicatorWhatsApp)
 
         contentFrame = view.findViewById(R.id.configContentFrame)
@@ -82,6 +90,7 @@ class ConfigFragment : Fragment() {
         tabLanguage.setOnClickListener { switchTab(Tab.LANGUAGE) }
         tabStatuses.setOnClickListener { switchTab(Tab.STATUSES) }
         tabSheet   .setOnClickListener { switchTab(Tab.SHEET) }
+        tabScannerSheet.setOnClickListener { switchTab(Tab.SCANNER_SHEET) }
         tabWhatsApp.setOnClickListener { switchTab(Tab.WHATSAPP) }
 
         switchTab(activeTab)
@@ -99,6 +108,7 @@ class ConfigFragment : Fragment() {
         tabLanguage.setTextColor(if (tab == Tab.LANGUAGE)  primary else secondary)
         tabStatuses.setTextColor(if (tab == Tab.STATUSES)  primary else secondary)
         tabSheet   .setTextColor(if (tab == Tab.SHEET)     primary else secondary)
+        tabScannerSheet.setTextColor(if (tab == Tab.SCANNER_SHEET) primary else secondary)
         tabWhatsApp.setTextColor(if (tab == Tab.WHATSAPP)  primary else secondary)
 
         // Update indicators
@@ -106,6 +116,7 @@ class ConfigFragment : Fragment() {
         indLanguage.visibility = if (tab == Tab.LANGUAGE)  View.VISIBLE else View.INVISIBLE
         indStatuses.visibility = if (tab == Tab.STATUSES)  View.VISIBLE else View.INVISIBLE
         indSheet   .visibility = if (tab == Tab.SHEET)     View.VISIBLE else View.INVISIBLE
+        indScannerSheet.visibility = if (tab == Tab.SCANNER_SHEET) View.VISIBLE else View.INVISIBLE
         indWhatsApp.visibility = if (tab == Tab.WHATSAPP)  View.VISIBLE else View.INVISIBLE
 
         // Load child fragment into contentFrame
@@ -114,6 +125,7 @@ class ConfigFragment : Fragment() {
             Tab.LANGUAGE  -> ConfigLanguageFragment()
             Tab.STATUSES  -> ConfigStatusesFragment()
             Tab.SHEET     -> ConfigSheetFragment()
+            Tab.SCANNER_SHEET -> ConfigScannerSheetFragment()
             Tab.WHATSAPP  -> ConfigWhatsAppFragment()
         }
 
