@@ -184,12 +184,20 @@ class CallCenterAdapter(
             tvAge.setTypeface(null, if (ageBold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
             tvAge.textSize = if (ageBold) 11f else 10f
 
-            applyCallStateGlow(itemView, glowColor)
+            applyCallStateGlow(itemView, glowColor, cfg.color)
 
             val cfg = WorkerParcelAdapter.getStatusConfig(tvStatusBadge.context, item.effectiveStatus, statusLang)
             tvStatusBadge.text = cfg.label
             tvStatusBadge.setTextColor(cfg.color)
             tvStatusBadge.setBackgroundColor(cfg.bg)
+
+            // ✅ Fix #3: Status-colored card border for clear visual identification
+            val cardBorder = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 12f * itemView.context.resources.displayMetrics.density
+                setColor(androidx.core.content.ContextCompat.getColor(itemView.context, R.color.theme_bg_card))
+                setStroke((2f * itemView.context.resources.displayMetrics.density).toInt(), cfg.color)
+            }
+            itemView.background = cardBorder
 
             tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE
 
@@ -201,7 +209,11 @@ class CallCenterAdapter(
                 tvRemarks.text = "💬 ${item.remarks}"
                 tvRemarks.visibility = View.VISIBLE
                 tvRemarks.setTextColor(cfg.color)
-                tvRemarks.backgroundTintList = android.content.res.ColorStateList.valueOf(cfg.bg)
+                // ✅ Fix #1: Solid color background instead of tint — works with any drawable
+                tvRemarks.background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = 8f * tvRemarks.context.resources.displayMetrics.density
+                    setColor(cfg.bg)
+                }
             } else {
                 tvRemarks.visibility = View.GONE
             }
