@@ -1,5 +1,6 @@
 package com.cloudx.databridge
 
+import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 
@@ -22,6 +23,9 @@ import com.google.firebase.database.FirebaseDatabase
  * reason the original write failed.
  */
 object FirebaseErrorLogger {
+
+    private const val TAG = "FirebaseErrorLogger"
+
     fun log(
         screen: String,
         action: String,
@@ -37,8 +41,19 @@ object FirebaseErrorLogger {
             "errorMessage" to errorMessage
         )
         entry.putAll(extra)
-        // Best-effort: if even this fails (e.g. rule not added yet), there's nowhere further
-        // to report it, so we just let it fail silently rather than throwing/crashing.
+
+        // Best-effort: if even this fails (e.g. rule not added yet), log to Logcat as fallback
+        // ✅ Fix #5: Added failure listener + Logcat fallback so errors are never silently lost
         ref.setValue(entry)
+            .addOnFailureListener { e ->
+                Log.e(TAG, "❌ Failed to log error to Firebase: ${e.message}")
+                Log.e(TAG, "   Screen: $screen | Action: $action | Error: $errorMessage")
+                if (extra.isNotEmpty()) {
+                    Log.e(TAG, "   Extra: $extra")
+                }
+            }
+            .addOnSuccessListener {
+                Log.d(TAG, "✅ Error logged to Firebase: $screen/$action")
+            }
     }
 }
