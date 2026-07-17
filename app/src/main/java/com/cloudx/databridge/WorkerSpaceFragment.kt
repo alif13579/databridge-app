@@ -72,6 +72,7 @@ class WorkerSpaceFragment : Fragment() {
     private var runTypeOptions = listOf(RunTypeOption(RUN_TYPE_ALL, "All"))
     private var suppressRunTypeEvents = false
     private var loadGeneration = 0
+    private var searchJob: kotlinx.coroutines.Job? = null  // ✅ Fix #7: Search debounce job
     private var systemId = ""
     private var userId = ""
     private var agentPhone = ""
@@ -140,6 +141,9 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        // ✅ Fix #7: Cancel pending search debounce job
+        searchJob?.cancel()
+        searchJob = null
         detachRunsListener()
         super.onDestroyView()
     }
@@ -200,9 +204,14 @@ class WorkerSpaceFragment : Fragment() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                searchQuery = s?.toString()?.trim() ?: ""
-                tvSearchClear.visibility = if (searchQuery.isNotEmpty()) View.VISIBLE else View.GONE
-                applyFilters()
+                // ✅ Fix #7: 300ms debounce — prevents excessive filter calls on every keystroke
+                searchJob?.cancel()
+                searchJob = viewLifecycleOwner.lifecycleScope.launch {
+                    delay(300)
+                    searchQuery = s?.toString()?.trim() ?: ""
+                    tvSearchClear.visibility = if (searchQuery.isNotEmpty()) View.VISIBLE else View.GONE
+                    applyFilters()
+                }
             }
         })
 
@@ -1243,7 +1252,11 @@ class WorkerSpaceFragment : Fragment() {
             val hub = readString(detailSnap, "deliveryHub")
             val sourceStatus = readString(detailSnap, "status").ifBlank { "pending" }
             if (runRef.routeStatus.isNotBlank() && runRef.routeStatus != sourceStatus) {
-                statusBackfills["courier/run_routes/${runRef.runType}/${runRef.runId}/consignments/$cId"] = sourceStatus
+                statusBackfills[FirebasePaths.runRoutesConsignments(runRef.runType, runRef.runId) + "/$cId"] = sourceStatus
+                // ✅ Fix #7: Flush backfills in batches of 50 to prevent memory bloat
+                if (statusBackfills.size >= 50) {
+                    flushStatusBackfills()
+                }
             }
 
             val history = remarksSnap.children.mapNotNull { r ->
@@ -1337,13 +1350,20 @@ class WorkerSpaceFragment : Fragment() {
             )
         }
 
-        if (statusBackfills.isNotEmpty()) {
-            withContext(Dispatchers.IO) {
-                runCatching { db.reference.updateChildren(statusBackfills).await() }
-            }
-        }
+        // Flush any remaining backfills
+        flushStatusBackfills()
 
         parcels
+    }
+
+    /** ✅ Fix #7: Batch flush status backfills to Firebase */
+    private suspend fun flushStatusBackfills() {
+        if (statusBackfills.isEmpty()) return
+        val batch = statusBackfills.toMap()
+        statusBackfills.clear()
+        withContext(Dispatchers.IO) {
+            runCatching { db.reference.updateChildren(batch).await() }
+        }
     }
 
     private fun readString(snap: DataSnapshot, child: String): String {
