@@ -99,26 +99,7 @@ class CallCenterFragment : Fragment() {
     // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
     // repeated remark authors (workers or other CC agents) across a session don't refetch.
     // Cleared on pull-to-refresh alongside systemIdToName.
-    private val uidNameCache = mutableMapOf<String, String>()
-    private val uidPhotoCache = mutableMapOf<String, String>()
-
-    /** Resolves [uid] to a display name via users/{uid}/profile/name — direct O(1) access,
-     *  cached in [uidNameCache] after the first lookup. Falls back to the raw uid if the
-     *  profile/name is missing or the fetch fails. */
-    private suspend fun resolveUserName(uid: String): String {
-        if (uid.isBlank()) return "Agent"
-        uidNameCache[uid]?.let { return it }
-        val snap = withContext(Dispatchers.IO) {
-            runCatching {
-                com.google.firebase.database.FirebaseDatabase.getInstance()
-                    .reference.child("users/$uid/profile").get().await()
-            }.getOrNull()
-        }
-        val name = snap?.child("name")?.getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() } ?: uid
-        uidNameCache[uid] = name
-        uidPhotoCache[uid] = snap?.child("photo_url")?.getValue(String::class.java)?.trim().orEmpty()
-        return name
-    }
+    // ✅ Using shared UserNameResolver (Fix #4) — eliminates duplicate code & caching
 
     // systemId -> display name, fetched once per session via users_by_systemId reverse-index
     // + parallel per-uid name lookup (see ensureAgentNameMap()), reused for every subsequent
@@ -270,7 +251,7 @@ class CallCenterFragment : Fragment() {
         swipeRefresh.setOnRefreshListener {
             systemIdToName = emptyMap()
             systemIdToEmployeeId = emptyMap()
-            uidNameCache.clear()
+            UserNameResolver.clearCache()
             detachRunsListener()
             loadCcRemarkOptions()
             loadData()
@@ -618,7 +599,7 @@ class CallCenterFragment : Fragment() {
     /**
      * Long-press journey popup — shows a parcel's full remark history (courier/
      * remarks_by_consignment/{id}), built in processRunsSnapshot()/syncCcRemarkListeners()
-     * with each entry's author already resolved to a real name (see resolveUserName()).
+     * with each entry's author already resolved to a real name (see UserNameResolver).
      * Reuses the same bottom_sheet_action_history layout as WorkerSpaceFragment.
      */
     /** Formats the gap between updatedAt and createdAt as a human-readable age
@@ -1654,7 +1635,7 @@ class CallCenterFragment : Fragment() {
                 .mapNotNull { it.child("userId").getValue(String::class.java)?.trim() }
                 .filter { it.isNotBlank() }
                 .distinct()
-            allUids.map { uid -> async(Dispatchers.IO) { resolveUserName(uid) } }.awaitAll()
+            allUids.map { uid -> async(Dispatchers.IO) { UserNameResolver.resolveName(uid) } }.awaitAll()
 
             fetches.map { (item, remarksSnap, agentSystemId) ->
                 val history = remarksSnap.children.mapNotNull { r ->
@@ -1678,8 +1659,8 @@ class CallCenterFragment : Fragment() {
                         .format(java.util.Date(createdAt))
                     val remarkedBy = r.child("remarked_by").getValue(String::class.java)?.trim().orEmpty()
                     val rUserId = r.child("userId").getValue(String::class.java)?.trim().orEmpty()
-                    val resolvedName  = if (rUserId.isNotBlank()) uidNameCache[rUserId] else null
-                    val resolvedPhoto = if (rUserId.isNotBlank()) uidPhotoCache[rUserId] else null
+                    val resolvedName  = if (rUserId.isNotBlank()) UserNameResolver.resolveName(rUserId).takeIf { it != rUserId } else null
+                    val resolvedPhoto = if (rUserId.isNotBlank()) UserNameResolver.resolvePhotoUrl(rUserId) else null
                     val authorRole = if (remarkedBy == "support") "cc" else "agent"
                     val author = when {
                         remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
@@ -1824,7 +1805,7 @@ class CallCenterFragment : Fragment() {
                             .filter { it.isNotBlank() }
                             .distinct()
                         coroutineScope {
-                            distinctUids.map { uid -> async(Dispatchers.IO) { resolveUserName(uid) } }.awaitAll()
+                            distinctUids.map { uid -> async(Dispatchers.IO) { UserNameResolver.resolveName(uid) } }.awaitAll()
                         }
 
                         if (!isAdded) return@launch
@@ -1848,8 +1829,8 @@ class CallCenterFragment : Fragment() {
                                 .format(java.util.Date(createdAt))
                             val remarkedBy = r.child("remarked_by").getValue(String::class.java)?.trim().orEmpty()
                             val rUserId = r.child("userId").getValue(String::class.java)?.trim().orEmpty()
-                            val resolvedName  = if (rUserId.isNotBlank()) uidNameCache[rUserId] else null
-                            val resolvedPhoto = if (rUserId.isNotBlank()) uidPhotoCache[rUserId] else null
+                            val resolvedName  = if (rUserId.isNotBlank()) UserNameResolver.resolveName(rUserId).takeIf { it != rUserId } else null
+                            val resolvedPhoto = if (rUserId.isNotBlank()) UserNameResolver.resolvePhotoUrl(rUserId) else null
                             val authorRole = if (remarkedBy == "support") "cc" else "agent"
                             val author = when {
                                 remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
