@@ -784,8 +784,10 @@ class CallCenterFragment : Fragment() {
                 if (selectedAccessModes.isEmpty()) selectedAccessModes.add("all")
                 updateModeDropdownLabel()
                 // Rebuilds chips too — their counts depend on this scope (see scopedParcels()).
+                // NOT rebuildCcAgentRoster() here — access mode filters a selected agent's
+                // parcels, it doesn't change which agents are selectable (see that function's
+                // doc comment for why).
                 setupFilterTabs()
-                bindCcAgentSpinner()
                 applyFilters()
                 saveFilterPreferences()
             }
@@ -864,7 +866,7 @@ class CallCenterFragment : Fragment() {
                 if (working.size < branches.size) selectedBranchIds.addAll(working)
                 updateBranchDropdownLabel()
                 setupFilterTabs()
-                bindCcAgentSpinner()
+                rebuildCcAgentRoster()
                 applyFilters()
                 saveFilterPreferences()
             }
@@ -872,7 +874,7 @@ class CallCenterFragment : Fragment() {
                 selectedBranchIds.clear()
                 updateBranchDropdownLabel()
                 setupFilterTabs()
-                bindCcAgentSpinner()
+                rebuildCcAgentRoster()
                 applyFilters()
                 saveFilterPreferences()
             }
@@ -881,10 +883,10 @@ class CallCenterFragment : Fragment() {
 
     /**
      * allParcels narrowed by access mode + branch ONLY (not agent, not search, not the
-     * status chip). This is the shared basis for both scopedParcels() below AND the
-     * agent dropdown's option list (bindCcAgentSpinner()) — the agent list must reflect
-     * "who's in scope given the current branch/mode filters" without itself depending on
-     * which agent is selected (that would be circular).
+     * status chip). This is the shared basis for scopedParcels() below. NOT used by the
+     * agent dropdown (see rebuildCcAgentRoster()) — that roster is sourced from
+     * ccBranchRangeSnapshots instead, specifically to stay independent of which agents are
+     * currently fetched into allParcels.
      */
     private fun parcelsScopedByModeAndBranch(): List<CallCenterParcelItem> {
         var scoped = allParcels
@@ -1140,24 +1142,47 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    /** Rebuilds the agent filter dropdown options from whichever workers currently have
-     *  in-scope parcels — scoped by the CURRENT branch + access-mode filters (via
-     *  parcelsScopedByModeAndBranch()), so the popup only ever lists agents relevant to
-     *  what's actually selected, and updates whenever those filters change. Keyed by
-     *  systemId (unique per agent) so two agents sharing a display name each still get
-     *  their own dropdown entry, rather than collapsing into one via distinct()-on-name. */
-    private fun bindCcAgentSpinner() {
+    /** Rebuilds the agent filter dropdown roster from the run ID keys already present in
+     *  ccBranchRangeSnapshots — deliberately NOT from allParcels. allParcels only contains
+     *  agents currently in selectedAgentFilters (onBranchIndexesLoaded skips fetching a run
+     *  node entirely for a deselected agent — see candidateKeys), so deriving the roster from
+     *  it would mean every agent who gets unchecked + Applied vanishes from the dropdown
+     *  permanently, since their data is never fetched again. ccBranchRangeSnapshots costs
+     *  nothing extra to read here — the range query that discovers run IDs runs
+     *  unconditionally for every branch, regardless of the agent filter.
+     *
+     *  Depends on selectedBranchIds (client-side filter over already-fetched branches, via
+     *  each rangeKey's "branchId/runType" prefix) but deliberately NOT on selectedAccessModes:
+     *  whether an agent has a verify_req parcel can only be known once their run node is
+     *  actually fetched, which is exactly the fetch this function avoids triggering. The
+     *  roster answers "who has a run today in my selected branches" — access mode then filters
+     *  THAT selected agent's parcels (via scopedParcels()), not which agents are selectable. */
+    private fun rebuildCcAgentRoster() {
         if (!::tvAgentDropdown.isInitialized) return
-        val agents = parcelsScopedByModeAndBranch()
-            .filter { it.workerSystemId.isNotBlank() }
-            .distinctBy { it.workerSystemId }
-            .map { AgentOption(it.workerSystemId, it.worker.ifBlank { it.workerSystemId }, systemIdToEmployeeId[it.workerSystemId].orEmpty()) }
-            .sortedBy { it.name }
-        ccAgentOptions = agents
-        // Drop any previously-selected agent (by systemId) who's no longer in scope.
-        val liveSystemIds = agents.map { it.systemId }.toSet()
-        selectedAgentFilters.retainAll(liveSystemIds + NO_AGENT_SENTINEL)
-        updateAgentDropdownLabel()
+        val selectedBranches = selectedBranchIds.toSet()
+        val systemIds = mutableSetOf<String>()
+        ccBranchRangeSnapshots.forEach { (rangeKey, snap) ->
+            val branchId = rangeKey.substringBefore("/")
+            if (selectedBranches.isNotEmpty() && branchId !in selectedBranches) return@forEach
+            snap.children.forEach { runIdSnap ->
+                val runId = runIdSnap.key ?: return@forEach
+                val match = RUN_ID_PATTERN.matchEntire(runId.trim()) ?: return@forEach
+                systemIds.add(match.groupValues[2])
+            }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            val nameMap = ensureAgentNameMap()
+            if (!isAdded) return@launch
+            val agents = systemIds
+                .map { sysId -> AgentOption(sysId, nameMap[sysId] ?: sysId, systemIdToEmployeeId[sysId].orEmpty()) }
+                .sortedBy { it.name }
+            ccAgentOptions = agents
+            // Drop any previously-selected agent (by systemId) who no longer has a run today
+            // in the selected branches.
+            val liveSystemIds = agents.map { it.systemId }.toSet()
+            selectedAgentFilters.retainAll(liveSystemIds + NO_AGENT_SENTINEL)
+            updateAgentDropdownLabel()
+        }
     }
 
     private fun updateAgentDropdownLabel() {
@@ -1317,6 +1342,9 @@ class CallCenterFragment : Fragment() {
             ccSelectedRunType = CC_RUN_TYPE_ALL
         }
         bindCcRunTypeSpinner()
+        // Roster only needs the range-query snapshots (already fetched above, unconditionally
+        // for every branch) — not the run-type filter or the agent-filtered parcel fetch below.
+        rebuildCcAgentRoster()
 
         val typesToWatch = if (ccSelectedRunType == CC_RUN_TYPE_ALL) runTypes else listOf(ccSelectedRunType)
         if (typesToWatch.isEmpty()) {
@@ -1663,7 +1691,6 @@ class CallCenterFragment : Fragment() {
         branches = myBranchIds
         setupBranchDropdown()
         setupFilterTabs()
-        bindCcAgentSpinner()
         applyFilters()
         pbProgress.visibility = View.GONE
         syncCcRemarkListeners(allParcels.map { it.id }.toSet())
