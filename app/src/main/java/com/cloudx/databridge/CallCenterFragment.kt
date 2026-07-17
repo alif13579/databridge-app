@@ -1748,7 +1748,7 @@ class CallCenterFragment : Fragment() {
                         // Skip the very first fire (initial attach) by checking prevAt > 0.
                         val latestCreatedAt = latest?.child("createdAt")?.getValue(Long::class.java) ?: 0L
                         val prevAt = ccLastSeenRemarkAt[cId] ?: 0L
-                        if (latestCreatedAt > prevAt && prevAt > 0L) {
+                        if (latestCreatedAt > prevAt) {  // ✅ Fix #2: Allow first remark notification
                             val parcel = allParcels.firstOrNull { it.id == cId }
                             val customer = parcel?.customer?.takeIf { it.isNotBlank() } ?: cId
                             val remarkText = latest?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
@@ -1860,6 +1860,7 @@ class CallCenterFragment : Fragment() {
 
                         val idx = allParcels.indexOfFirst { it.id == cId }
                         if (idx != -1) {
+                            val oldStatus = allParcels[idx].effectiveStatus
                             allParcels = allParcels.toMutableList().also {
                                 it[idx] = it[idx].copy(
                                     remarks = latestRemark,
@@ -1868,6 +1869,11 @@ class CallCenterFragment : Fragment() {
                                     validationNote = if (latestOverallStatus == "verify_req") latestOverallValidationNote else "",
                                     history = history
                                 )
+                            }
+                            val newStatus = allParcels[idx].effectiveStatus
+                            // ✅ Fix #4: Rebuild chips if status changed — keeps filter counts accurate
+                            if (oldStatus != newStatus) {
+                                buildFilterChips()
                             }
                             applyFilters()
                         }
