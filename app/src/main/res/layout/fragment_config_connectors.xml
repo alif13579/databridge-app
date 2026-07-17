@@ -68,7 +68,6 @@
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="13sp"
                     android:paddingBottom="8dp"/>
-                <!-- TODO: populate branch spinner/list dynamically in ConfigConnectorsFragment -->
                 <Spinner
                     android:id="@+id/spinnerConnectorBranch"
                     android:layout_width="match_parent"
@@ -119,9 +118,29 @@
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="13sp"
                     android:paddingBottom="8dp"/>
-                <!-- TODO: populate sheet/resource picker — mirrors ConfigSheetFragment Step 2 -->
+                <!-- Sheet picker — populated after Google sign-in (Step 2) -->
                 <Spinner
                     android:id="@+id/spinnerConnectorTarget"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+                <ProgressBar
+                    android:id="@+id/pbConnectorTargetLoad"
+                    style="?android:attr/progressBarStyleSmall"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:layout_marginTop="8dp"
+                    android:visibility="gone"/>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Sheet tab"
+                    android:textColor="@color/theme_text_secondary"
+                    android:textSize="13sp"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="8dp"/>
+                <Spinner
+                    android:id="@+id/spinnerConnectorTab"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"/>
             </LinearLayout>
