@@ -19,6 +19,7 @@ data class CallCenterParcelItem(
      *  `worker` (display name), which two different agents can share. */
     val workerSystemId: String = "",
     val branch: String,
+    val branchIds: List<String> = emptyList(),
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
     val attemptCount: Int = 0,

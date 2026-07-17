@@ -165,6 +165,11 @@ class CallCenterFragment : Fragment() {
     // Cache of each attached run node's latest snapshot; the full parcel list is rebuilt from
     // this cache whenever any one run node changes (new consignment, status update, etc).
     private val ccRunNodeSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
+    // (runType/runId) -> branch IDs whose branch index currently points at that run.
+    // A multi-branch agent's single run can appear under more than one branch index; keeping
+    // the full set lets the branch filter match all valid branches instead of only the first
+    // resolvedBranchIds value stored on the run node.
+    private val ccRunKeyBranchIds = mutableMapOf<String, MutableSet<String>>()
 
     // Run ID shape: run_{ddmmyy}_{employeeId} — ddmmyy is always exactly 6 zero-padded digits.
     private val RUN_ID_PATTERN = Regex("^run_(\\d{6})_(.+)$")
@@ -898,10 +903,15 @@ class CallCenterFragment : Fragment() {
             scoped = scoped.filter { it.validationRequest }
         }
         if (selectedBranchIds.isNotEmpty()) {
-            // it.branch stores the resolved display name (hubName), not the raw branchId.
-            // selectedBranchIds stores IDs → map to names first before comparing.
-            val selectedNames = selectedBranchIds.map { branchIdToName[it] ?: it }.toSet()
-            scoped = scoped.filter { it.branch in selectedNames }
+            scoped = scoped.filter { parcel ->
+                if (parcel.branchIds.isNotEmpty()) {
+                    parcel.branchIds.any { it in selectedBranchIds }
+                } else {
+                    // Legacy fallback for parcels built before branchIds existed in-memory.
+                    val selectedNames = selectedBranchIds.map { branchIdToName[it] ?: it }.toSet()
+                    parcel.branch in selectedNames
+                }
+            }
         }
         return scoped
     }
@@ -1143,13 +1153,10 @@ class CallCenterFragment : Fragment() {
     }
 
     /** Rebuilds the agent filter dropdown roster from the run ID keys already present in
-     *  ccBranchRangeSnapshots — deliberately NOT from allParcels. allParcels only contains
-     *  agents currently in selectedAgentFilters (onBranchIndexesLoaded skips fetching a run
-     *  node entirely for a deselected agent — see candidateKeys), so deriving the roster from
-     *  it would mean every agent who gets unchecked + Applied vanishes from the dropdown
-     *  permanently, since their data is never fetched again. ccBranchRangeSnapshots costs
-     *  nothing extra to read here — the range query that discovers run IDs runs
-     *  unconditionally for every branch, regardless of the agent filter.
+     *  ccBranchRangeSnapshots — deliberately NOT from allParcels. The agent dropdown must
+     *  always contain every agent with a run in the selected branches, regardless of the
+     *  currently selected agent filter. ccBranchRangeSnapshots costs nothing extra to read
+     *  here — the range query that discovers run IDs runs unconditionally for every branch.
      *
      *  Depends on selectedBranchIds (client-side filter over already-fetched branches, via
      *  each rangeKey's "branchId/runType" prefix) but deliberately NOT on selectedAccessModes:
@@ -1294,7 +1301,10 @@ class CallCenterFragment : Fragment() {
             updateAgentDropdownLabel()
             setupFilterTabs()
             saveFilterPreferences()
-            loadData()
+            // Runs for every assigned branch are already live-cached. Agent selection is a
+            // presentation filter only; reloading here would discard the other agents' cache
+            // and make a later branch switch appear to have no data.
+            applyFilters()
             dialog?.dismiss()
         }
 
@@ -1328,8 +1338,9 @@ class CallCenterFragment : Fragment() {
      *  whenever any of them change — new run created, a run's representative status updated,
      *  etc). rangeSnapshots is already server-side scoped to TODAY's date-string prefix (see
      *  attachRootRunTypesListener) — no client-side date parsing/filtering needed here anymore.
-     *  Narrows candidates by the active agent filter (via run_id's embedded systemId) BEFORE
-     *  fetching any run_routes node, then attaches a dedicated live listener per surviving run. */
+     *  Attaches a dedicated live listener for every available run. Branch and agent choices
+     *  are applied afterward against the cached parcel list, so one branch's selection can
+     *  never prevent another branch's agent from being filtered later. */
     private fun onBranchIndexesLoaded(
         runTypes: List<String>,
         rangeSnapshots: Map<String, com.google.firebase.database.DataSnapshot>
@@ -1354,28 +1365,21 @@ class CallCenterFragment : Fragment() {
             return
         }
 
-        // Active agent filter — selectedAgentFilters stores systemIds directly (not display
-        // names), so no translation is needed here anymore.
-        // Empty selectedAgentFilters = no filter = every agent's runs are candidates.
-        val activeSystemIds: Set<String>? =
-            if (selectedAgentFilters.isEmpty()) null else selectedAgentFilters.toSet()
-
         // Dedupe (runType, runId) across branches — a multi-branch agent's run is written into
         // EVERY one of their assigned branches' indexes, but it's a single real run node.
         // rangeSnapshots keys are "branchId/runType"; each snapshot's children are runId -> status,
         // already scoped to today by the server-side range query (no timestamp check needed).
         val candidateKeys = mutableSetOf<Pair<String, String>>()
+        ccRunKeyBranchIds.clear()
         rangeSnapshots.forEach { (rangeKey, snap) ->
+            val branchId = rangeKey.substringBefore("/")
             val runType = rangeKey.substringAfter("/")
             if (runType !in typesToWatch) return@forEach
             snap.children.forEach { runIdSnap ->
                 val runId = runIdSnap.key ?: return@forEach
-                val match = RUN_ID_PATTERN.matchEntire(runId.trim()) ?: return@forEach
-                val agentSystemId = match.groupValues[2]
-                // Narrow by agent filter here, at the run-id level — before fetching the run
-                // node at all — rather than only filtering the final parcel list afterwards.
-                if (activeSystemIds != null && agentSystemId !in activeSystemIds) return@forEach
+                if (RUN_ID_PATTERN.matchEntire(runId.trim()) == null) return@forEach
                 candidateKeys.add(runType to runId)
+                ccRunKeyBranchIds.getOrPut("$runType/$runId") { mutableSetOf() }.add(branchId)
             }
         }
 
@@ -1413,6 +1417,7 @@ class CallCenterFragment : Fragment() {
         ccActiveListeners.forEach { (ref, l) -> ref.removeEventListener(l) }
         ccActiveListeners.clear()
         ccRunNodeSnapshots.clear()
+        ccRunKeyBranchIds.clear()
         ccAttachedRunKeys.clear()
         // Range-query results are additive across live-fires within one loadData() cycle
         // (each branch/runType's listener only ever updates its own key) — but a NEW cycle
@@ -1481,15 +1486,22 @@ class CallCenterFragment : Fragment() {
         // Collect consignment ids + statuses + which agent's run + which branch they came from.
         // agentSystemId and resolvedBranchIds are flat fields on the run node (written by
         // ConfigSheetFragment's sync) — reading them here costs nothing extra.
-        val consignmentInfo = mutableMapOf<String, Triple<String, String, String>>() // cId -> (agentSystemId, status, branch)
-        ccRunNodeSnapshots.values.forEach { runSnap ->
+        data class CcConsignmentInfo(
+            val agentSystemId: String,
+            val routeStatus: String,
+            val branchIds: List<String>
+        )
+        val consignmentInfo = mutableMapOf<String, CcConsignmentInfo>()
+        ccRunNodeSnapshots.forEach { (runKey, runSnap) ->
             val agentSystemId = runSnap.child("agentSystemId").getValue(String::class.java)?.trim().orEmpty()
-            val resolvedBranch = runSnap.child("resolvedBranchIds").children
-                .mapNotNull { it.getValue(String::class.java) }.firstOrNull().orEmpty()
+            val indexedBranchIds = ccRunKeyBranchIds[runKey].orEmpty()
+            val resolvedBranchIds = runSnap.child("resolvedBranchIds").children
+                .mapNotNull { it.getValue(String::class.java)?.trim()?.takeIf { id -> id.isNotBlank() } }
+            val scopedBranchIds = (indexedBranchIds + resolvedBranchIds).distinct()
             runSnap.child("consignments").children.forEach { c ->
                 val cId     = c.key ?: return@forEach
                 val cStatus = c.getValue(String::class.java) ?: "pending"
-                consignmentInfo[cId] = Triple(agentSystemId, cStatus, resolvedBranch)
+                consignmentInfo[cId] = CcConsignmentInfo(agentSystemId, cStatus, scopedBranchIds)
             }
         }
 
@@ -1507,7 +1519,9 @@ class CallCenterFragment : Fragment() {
         val parcels = coroutineScope {
             val fetches = consignmentInfo.entries.map { entry ->
                 val cId = entry.key
-                val (agentSystemId, runStatus, resolvedBranch) = entry.value
+                val info = entry.value
+                val agentSystemId = info.agentSystemId
+                val runStatus = info.routeStatus
                 async(Dispatchers.IO) {
                     try {
                         val snap = db.reference.child("courier/consignments/$cId").get().await()
@@ -1519,12 +1533,15 @@ class CallCenterFragment : Fragment() {
                         val cod     = snap.child("collectableAmount").getValue(String::class.java)
                             ?.toDoubleOrNull()?.toInt()
                             ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0
-                        // Prefer the run's locked-in branch (authoritative, set once at run
-                        // creation — see runs_by_branchId). Falls back to the parcel's own
-                        // deliveryHub only for pre-migration runs that predate resolvedBranchIds.
-                        val hub = resolvedBranch.ifBlank {
-                            snap.child("deliveryHub").getValue(String::class.java) ?: ""
+                        // Prefer the branch index/resolved branch scope. For a multi-branch run,
+                        // choose the currently selected branch for display while retaining all
+                        // IDs in branchIds so filtering can match every valid branch.
+                        val fallbackHub = snap.child("deliveryHub").getValue(String::class.java)?.trim().orEmpty()
+                        val scopedBranchIds = info.branchIds.ifEmpty {
+                            listOf(fallbackHub).filter { it.isNotBlank() }
                         }
+                        val hub = selectedBranchIds.firstOrNull { it in scopedBranchIds }
+                            ?: scopedBranchIds.firstOrNull().orEmpty()
                         // Resolve to a display name (not the raw id) — reuses/feeds the same
                         // branchIdToName cache the branch-filter dropdown uses, and self-heals
                         // (fetches + caches on demand) instead of depending on that dropdown's
@@ -1619,6 +1636,7 @@ class CallCenterFragment : Fragment() {
                                 worker            = nameMap[agentSystemId] ?: agentSystemId,
                                 workerSystemId    = agentSystemId,
                                 branch            = hubName,
+                                branchIds         = scopedBranchIds,
                                 createdAt         = createdAtVal,
                                 updatedAt         = updatedAtVal,
                                 attemptCount      = attemptVal
