@@ -33,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -73,6 +74,7 @@ class WorkerSpaceFragment : Fragment() {
     private var suppressRunTypeEvents = false
     private var loadGeneration = 0
     private var searchJob: kotlinx.coroutines.Job? = null  // ✅ Fix #7: Search debounce job
+    private var statusBackfills = mutableMapOf<String, Any?>()  // ✅ Fix #4: Class-level for flush access
     private var systemId = ""
     private var userId = ""
     private var agentPhone = ""
@@ -1240,7 +1242,7 @@ class WorkerSpaceFragment : Fragment() {
         }
 
         val parcels = mutableListOf<WorkerParcelItem>()
-        val statusBackfills = mutableMapOf<String, Any?>()
+        statusBackfills.clear()  // Reset for this load
         fetches.forEach { fetch ->
             val (cId, runRef, detailSnap, remarksSnap) = fetch
             if (!detailSnap.exists()) return@forEach
