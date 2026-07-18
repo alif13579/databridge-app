@@ -77,7 +77,7 @@ class WorkerSpaceFragment : Fragment() {
     private var systemId = ""
     private var userId = ""
     private var agentPhone = ""
-    private var sortMode: String = "attempt" // "attempt" | "aging" | "priority"
+    private var sortMode: String = "priority" // "priority" | "attempt" | "aging"
     private lateinit var tvSortByDropdown: TextView
 
     // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
@@ -1054,11 +1054,11 @@ class WorkerSpaceFragment : Fragment() {
                                     history = history
                                 )
                             }
-                            // Auto-activate Priority sort when a live remark brings in a status
-                            // that has a configured priority > 0 (e.g. Delivery_Request).
+                            // Auto-activate Priority sort when a live remark causes a
+                            // status whose configured priority > 0 to become effective.
                             // Only switches when the user hasn't already chosen priority mode.
-                            val newRemarkPriority = StatusMetaCache.entries[lastRemarkStatus]?.priority ?: 0
-                            if (newRemarkPriority > 0 && sortMode != "priority") {
+                            val newStatusPriority = StatusMetaCache.entries[effectiveStatus]?.priority ?: 0
+                            if (newStatusPriority > 0 && sortMode != "priority") {
                                 sortMode = "priority"
                                 saveSortPref()
                                 updateSortByLabel()
@@ -1420,7 +1420,7 @@ class WorkerSpaceFragment : Fragment() {
     private fun loadSortPref() {
         val ctx = context ?: return
         val prefs = ctx.getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
-        sortMode = prefs.getString("worker_sort_mode", "attempt") ?: "attempt"
+        sortMode = prefs.getString("worker_sort_mode", "priority") ?: "priority"
     }
 
     private fun saveSortPref() {
@@ -1442,11 +1442,11 @@ class WorkerSpaceFragment : Fragment() {
     private fun showSortByDropdown() {
         val ctx = context ?: return
         val options = arrayOf(
+            "⭐ Priority (highest status priority first)",
             "🔁 Attempt (most attempted first)",
-            "🕐 Aging (oldest first)",
-            "⭐ Priority (Delivery_Request → high attempt → oldest)"
+            "🕐 Aging (oldest first)"
         )
-        val keys = arrayOf("attempt", "aging", "priority")
+        val keys = arrayOf("priority", "attempt", "aging")
         val currentIndex = keys.indexOf(sortMode).coerceAtLeast(0)
         android.app.AlertDialog.Builder(ctx)
             .setTitle("Sort by")

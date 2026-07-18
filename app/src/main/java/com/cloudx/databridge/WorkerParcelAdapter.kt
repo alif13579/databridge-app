@@ -318,39 +318,36 @@ class WorkerParcelAdapter(
         }
 
         /**
-         * Priority sort — same phone-number grouping as the other sorts, with three-tier ranking:
+         * Priority sort — same phone-number grouping as the other sorts.
+         *
+         * Each parcel's rank is driven by its *effective status* (p.status — already
+         * resolved to today's remarkStatus when a remark exists, or the parcel's own
+         * courier/consignments status otherwise) looked up in StatusMetaCache.
+         * Higher configured priority → comes first. Priority 0 / unconfigured → last.
          *
          * GROUP ranking:
-         *   1. Highest remarkStatus priority in the group (from StatusMetaCache.entries[remarkStatus]?.priority).
-         *      "Delivery_Request" (and any other status with a configured priority > 0) comes first.
-         *      Groups with no configured priority on any parcel's remarkStatus get priority 0.
-         *   2. Tie-break: highest attemptCount in the group (descending).
+         *   1. Max effective-status priority among parcels in the group (descending).
+         *   2. Tie-break: max attemptCount in the group (descending).
          *   3. Final tie-break: oldest createdAt in the group (ascending).
          *
          * WITHIN each group:
-         *   - Parcels sorted by their own remarkStatus priority (descending) — highest priority first.
-         *   - Within same priority level: attempt-desc → age-asc.
-         *   - Parcels with no configured remarkStatus priority (priority == 0) come last.
+         *   - Effective-status priority descending.
+         *   - Same priority level: attempt-desc → age-asc.
          */
         fun sortByPriority(parcels: List<WorkerParcelItem>): List<WorkerParcelItem> {
             fun effectiveAge(p: WorkerParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
-            fun remarkPriority(p: WorkerParcelItem): Int =
-                StatusMetaCache.entries[p.remarkStatus]?.priority ?: 0
+            fun statusPriority(p: WorkerParcelItem): Int =
+                StatusMetaCache.entries[p.status]?.priority ?: 0
             val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
             return groups.values
                 .sortedWith(
-                    // Tier 1: group's highest remarkStatus priority descending
-                    compareByDescending<List<WorkerParcelItem>> { group ->
-                        group.maxOf { remarkPriority(it) }
-                    }
-                    // Tier 2: group's highest attempt count descending
-                    .thenByDescending { group -> group.maxOf { it.attemptCount } }
-                    // Tier 3: group's oldest parcel first
-                    .thenBy { group -> group.minOf { p -> effectiveAge(p) } }
+                    compareByDescending<List<WorkerParcelItem>> { group -> group.maxOf { statusPriority(it) } }
+                        .thenByDescending { group -> group.maxOf { it.attemptCount } }
+                        .thenBy { group -> group.minOf { p -> effectiveAge(p) } }
                 )
                 .flatMap { group ->
                     group.sortedWith(
-                        compareByDescending<WorkerParcelItem> { remarkPriority(it) }
+                        compareByDescending<WorkerParcelItem> { statusPriority(it) }
                             .thenByDescending { it.attemptCount }
                             .thenBy { effectiveAge(it) }
                     )
