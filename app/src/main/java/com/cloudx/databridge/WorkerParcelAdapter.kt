@@ -65,14 +65,14 @@ class WorkerParcelAdapter(
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val tvCustomer: TextView = view.findViewById(R.id.tvParcelCustomer)
-        val tvValidationBadge: TextView = view.findViewById(R.id.tvParcelValidationBadge)
+
         val tvMeta: TextView = view.findViewById(R.id.tvParcelMeta)
         val tvAddress: TextView = view.findViewById(R.id.tvParcelAddress)
         val tvCod: TextView = view.findViewById(R.id.tvParcelCod)
         val tvAge: TextView = view.findViewById(R.id.tvParcelAge)
         val tvStatusBadge: TextView = view.findViewById(R.id.tvParcelStatusBadge)
         val tvRemarks: TextView = view.findViewById(R.id.tvParcelRemarks)
-        val tvValidationNote: TextView = view.findViewById(R.id.tvParcelValidationNote)
+
         val tvCcRemarkBlock: View = view.findViewById(R.id.layoutCcRemarkBlock)
         val tvCcRemarkLabel: TextView = view.findViewById(R.id.tvCcRemarkLabel)
         val tvCcRemarkText: TextView = view.findViewById(R.id.tvCcRemarkText)
@@ -143,7 +143,7 @@ class WorkerParcelAdapter(
         holder.tvStatusBadge.setTextColor(cfg.color)
         holder.tvStatusBadge.setBackgroundColor(cfg.bg)
 
-        holder.tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE
+
 
         // Agent remarks — badge above shows the effective status; this line shows the
         // actual remark text/note written by whoever left it, so the agent can read exactly
@@ -200,13 +200,7 @@ class WorkerParcelAdapter(
             cardInnerLayout.background = cardBg
         }
 
-        // Validation note
-        if (item.validationNote.isNotBlank()) {
-            holder.tvValidationNote.text = "⚡ ${item.validationNote}"
-            holder.tvValidationNote.visibility = View.VISIBLE
-        } else {
-            holder.tvValidationNote.visibility = View.GONE
-        }
+
 
         // CC Remark block (highlighted)
         if (item.ccRemark.isNotBlank()) {
