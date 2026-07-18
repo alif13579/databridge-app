@@ -18,7 +18,6 @@ import androidx.recyclerview.widget.RecyclerView
 class CallCenterAdapter(
     private val onCall: (CallCenterParcelItem) -> Unit,
     private val onSetRemarks: (CallCenterParcelItem) -> Unit,
-    private val onValidate: (CallCenterParcelItem) -> Unit,
     private val onLongPress: (CallCenterParcelItem) -> Unit,
     private val onGroupClick: ((WorkerGroup) -> Unit)? = null
 ) : ListAdapter<CallCenterAdapter.Row, RecyclerView.ViewHolder>(RowDiff()) {
@@ -123,7 +122,6 @@ class CallCenterAdapter(
                 onToggleExpand = { toggleExpanded(row.parcel.id) },
                 onCall = onCall,
                 onSetRemarks = onSetRemarks,
-                onValidate = onValidate,
                 onLongPress = onLongPress
             )
         }
@@ -150,18 +148,16 @@ class CallCenterAdapter(
 
     class CardHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val tvCustomer: TextView = view.findViewById(R.id.tvAgtCustomer)
-        private val tvValidationBadge: TextView = view.findViewById(R.id.tvAgtValidationBadge)
+
         private val tvMeta: TextView = view.findViewById(R.id.tvAgtMeta)
         private val tvAddress: TextView = view.findViewById(R.id.tvAgtAddress)
         private val tvCod: TextView = view.findViewById(R.id.tvAgtCod)
         private val tvAge: TextView = view.findViewById(R.id.tvAgtAge)
         private val tvStatusBadge: TextView = view.findViewById(R.id.tvAgtStatusBadge)
         private val tvRemarks: TextView = view.findViewById(R.id.tvAgtRemarks)
-        private val tvValidationNote: TextView = view.findViewById(R.id.tvAgtValidationNote)
         private val layoutActions: LinearLayout = view.findViewById(R.id.layoutAgtActions)
         private val btnCall: TextView = view.findViewById(R.id.btnAgtCall)
         private val btnSetRemarks: TextView = view.findViewById(R.id.btnAgtSetRemarks)
-        private val btnValidate: TextView = view.findViewById(R.id.btnAgtValidate)
 
         fun bind(
             item: CallCenterParcelItem,
@@ -171,7 +167,6 @@ class CallCenterAdapter(
             onToggleExpand: () -> Unit,
             onCall: (CallCenterParcelItem) -> Unit,
             onSetRemarks: (CallCenterParcelItem) -> Unit,
-            onValidate: (CallCenterParcelItem) -> Unit,
             onLongPress: (CallCenterParcelItem) -> Unit
         ) {
             tvCustomer.text = item.customer
@@ -184,43 +179,55 @@ class CallCenterAdapter(
             tvAge.setTypeface(null, if (ageBold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
             tvAge.textSize = if (ageBold) 11f else 10f
 
-            applyCallStateGlow(itemView, glowColor)
-
+            // ✅ Get status config FIRST — needed for card border, badge, and glow
             val cfg = WorkerParcelAdapter.getStatusConfig(tvStatusBadge.context, item.effectiveStatus, statusLang)
             tvStatusBadge.text = cfg.label
             tvStatusBadge.setTextColor(cfg.color)
             tvStatusBadge.setBackgroundColor(cfg.bg)
 
-            tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE
+            // Remark's own status color (if the remark has a specific status recorded).
+            // Computed here — before the card border/glow block below and the remark
+            // tint further down — since both of those need it.
+            val remarkColor: Int? = if (item.remarks.isNotBlank() && item.remarkStatus.isNotBlank()) {
+                StatusMetaCache.entries[item.remarkStatus]?.color
+            } else null
+
+            // Card border/glow — when a remark is present use its color for the border so
+            // the card draws attention (same behaviour as WorkerParcelAdapter). Active-call
+            // glowColor always wins over the remark color (handled inside applyCallStateGlow).
+            val borderColor = remarkColor ?: cfg.color
+            applyCallStateGlow(itemView, glowColor, if (item.remarks.isNotBlank()) borderColor else null)
 
             // Badge shows the effective status; this line shows the actual remark text
-            // written by whoever set it, so the agent can read exactly what was said
-            // (not just the status label). Colored to match the same status for quick
-            // visual scanning — a red remark jumps out as much as the red badge does.
+            // written by whoever set it, so the agent can read exactly what was said.
+            // When a remark exists, tint the remark box background with the status color
+            // at ~15% alpha (same as Worker card) and color the text fully — so the remark
+            // visually pops without being hard to read.
             if (item.remarks.isNotBlank()) {
                 tvRemarks.text = "💬 ${item.remarks}"
                 tvRemarks.visibility = View.VISIBLE
-                tvRemarks.setTextColor(cfg.color)
-                tvRemarks.backgroundTintList = android.content.res.ColorStateList.valueOf(cfg.bg)
+                val tintColor = remarkColor ?: cfg.color
+                val tintedBg = android.graphics.Color.argb(
+                    38, // ~15% alpha
+                    android.graphics.Color.red(tintColor),
+                    android.graphics.Color.green(tintColor),
+                    android.graphics.Color.blue(tintColor)
+                )
+                tvRemarks.background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = 8f * tvRemarks.context.resources.displayMetrics.density
+                    setColor(tintedBg)
+                }
+                tvRemarks.setTextColor(tintColor)
             } else {
                 tvRemarks.visibility = View.GONE
             }
 
-            if (item.validationNote.isNotBlank()) {
-                tvValidationNote.text = "⚡ Worker: ${item.validationNote}"
-                tvValidationNote.visibility = View.VISIBLE
-            } else {
-                tvValidationNote.visibility = View.GONE
-            }
-
             layoutActions.visibility = if (isExpanded) View.VISIBLE else View.GONE
-            btnValidate.visibility = if (isExpanded && item.validationRequest) View.VISIBLE else View.GONE
 
             itemView.setOnClickListener { onToggleExpand() }
             itemView.setOnLongClickListener { onLongPress(item); true }
             btnCall.setOnClickListener { onCall(item) }
             btnSetRemarks.setOnClickListener { onSetRemarks(item) }
-            btnValidate.setOnClickListener { onValidate(item) }
         }
     }
 
@@ -279,7 +286,7 @@ class CallCenterAdapter(
  * API 28+ where View.outlineSpotShadowColor/outlineAmbientShadowColor are available —
  * older devices still clearly show the colored border, just without the soft shadow blur.
  */
-fun applyCallStateGlow(view: View, glowColor: Int?) {
+fun applyCallStateGlow(view: View, glowColor: Int?, statusColor: Int? = null) {
     val density = view.resources.displayMetrics.density
     val cornerRadiusPx = 14f * density
     val fillColor = androidx.core.content.ContextCompat.getColor(view.context, R.color.theme_bg_card)
@@ -289,7 +296,8 @@ fun applyCallStateGlow(view: View, glowColor: Int?) {
             shape = android.graphics.drawable.GradientDrawable.RECTANGLE
             cornerRadius = cornerRadiusPx
             setColor(fillColor)
-            setStroke((1 * density).toInt(), androidx.core.content.ContextCompat.getColor(view.context, R.color.theme_border))
+            val borderColor = statusColor ?: androidx.core.content.ContextCompat.getColor(view.context, R.color.theme_border)
+            setStroke((2f * density).toInt(), borderColor)
         }
         view.background = normal
         view.elevation = 0f
@@ -304,7 +312,7 @@ fun applyCallStateGlow(view: View, glowColor: Int?) {
         shape = android.graphics.drawable.GradientDrawable.RECTANGLE
         cornerRadius = cornerRadiusPx
         setColor(fillColor)
-        setStroke((2.5f * density).toInt(), glowColor)
+        setStroke((3f * density).toInt(), glowColor)
     }
     view.background = glow
 

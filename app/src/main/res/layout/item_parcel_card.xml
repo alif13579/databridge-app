@@ -70,21 +70,7 @@
                     android:textStyle="bold"
                     android:includeFontPadding="false" />
 
-                <TextView
-                    android:id="@+id/tvParcelValidationBadge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="⚡ Validation Requested"
-                    android:textSize="10sp"
-                    android:textColor="@color/theme_purple"
-                    android:background="@drawable/bg_validation_badge"
-                    android:paddingStart="8dp"
-                    android:paddingEnd="8dp"
-                    android:paddingTop="3dp"
-                    android:paddingBottom="3dp"
-                    android:layout_marginStart="6dp"
-                    android:includeFontPadding="false"
-                    android:visibility="gone" />
+
             </LinearLayout>
 
             <TextView
@@ -151,29 +137,14 @@
         android:text="💬 Customer want to receive today"
         android:textSize="11sp"
         android:textColor="@color/theme_text_secondary"
-        android:background="@color/theme_bg_inner"
+        android:background="@drawable/bg_remark_chip"
         android:padding="6dp"
         android:paddingStart="8dp"
         android:layout_marginTop="6dp"
-        android:maxLines="2"
-        android:ellipsize="end"
         android:includeFontPadding="false"
         android:visibility="gone" />
 
-    <!-- Validation Note -->
-    <TextView
-        android:id="@+id/tvParcelValidationNote"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="⚡ Address খুঁজে পাচ্ছি না"
-        android:textSize="11sp"
-        android:textColor="@color/theme_purple"
-        android:background="@color/theme_bg_validation"
-        android:padding="6dp"
-        android:paddingStart="8dp"
-        android:layout_marginTop="4dp"
-        android:includeFontPadding="false"
-        android:visibility="gone" />
+
 
     <!-- CC Remark Block (highlighted) -->
     <LinearLayout

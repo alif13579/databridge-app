@@ -58,6 +58,14 @@ class DataBridgeService : Service() {
     private var activeContainerPath: String? = null
     private var currentActiveExtensionId: String? = null
 
+    // Auto-discovery: extensions linked purely via Google sign-in (no QR/manual connect).
+    // Mirrors UnifiedHistoryFetcher's discovery, but drives the SAME live processing
+    // (auto-dial, notifications, Room insert) the QR-connected session gets — not just
+    // history display.
+    private var extensionsDiscoveryListener: ValueEventListener? = null
+    private var extensionsDiscoveryPath: String? = null
+    private val discoveredExtensionListeners = mutableMapOf<String, ChildEventListener>()
+
     // ✅ SINGLE Companion Object (All constants + helpers here)
     companion object {
         private const val TAG = "DataBridgeService"
@@ -90,10 +98,14 @@ class DataBridgeService : Service() {
 
         auth.addAuthStateListener { firebaseAuth ->
             stateManager.updateAuth(firebaseAuth.currentUser?.uid)
-            firebaseAuth.currentUser?.let { user -> startContainerListener(user.uid) }
+            firebaseAuth.currentUser?.let { user ->
+                startContainerListener(user.uid)
+                startExtensionDiscovery(user.uid)
+            }
                 ?: run {
                     stopContainerListener()
                     stopSessionListeners()
+                    stopExtensionDiscovery()
                 }
         }
 
@@ -101,6 +113,12 @@ class DataBridgeService : Service() {
         serviceScope.launch {
             appPrefs.currentExtensionIdFlow.collectLatest { extId ->
                 currentActiveExtensionId = extId
+                // If this extId was already being handled by extension-discovery
+                // (Google-linked, no QR needed), drop that lighter-weight listener now —
+                // the QR/manual-connect path below gets its own listener with full
+                // presence/grace-period handling, and running both would double-process
+                // every incoming record (double auto-dial, double notification, etc).
+                extId?.let { if (discoveredExtensionListeners.containsKey(it)) stopDiscoveredSession(it) }
                 startSessionListener(extId)
                 stateManager.updateConnection(extId, extId != null)
             }
@@ -265,6 +283,79 @@ class DataBridgeService : Service() {
         activeContainerPath = null
     }
 
+    // ✅ Discovers extensions linked via Google sign-in only (users/{uid}/connections/
+    // extensions/{extId}/status == "connected", written by the extension's
+    // linkExtensionToUid()) and starts a live records listener for each — same shape as
+    // ConnectFragment/UserRepository already use for QR-connected extensions, so an
+    // extension the app never scanned a QR for still gets real-time processing here.
+    private fun startExtensionDiscovery(uid: String) {
+        stopExtensionDiscovery()
+        extensionsDiscoveryPath = "users/$uid/${UserRepository.PATH_EXTENSIONS}"
+        val ref = database.getReference(extensionsDiscoveryPath!!)
+        extensionsDiscoveryListener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) {
+                val connectedIds = snapshot.children.mapNotNull { child ->
+                    val id = child.key ?: return@mapNotNull null
+                    if (child.child("status").getValue(String::class.java) == "connected") id else null
+                }.toSet()
+
+                // Skip the currently QR/manual-connected extension — it already has its
+                // own listener (startSessionListener) with full presence/grace-period
+                // handling; adding a second one here would double-process every record.
+                connectedIds.forEach { extId ->
+                    if (extId != currentActiveExtensionId && !discoveredExtensionListeners.containsKey(extId)) {
+                        listenToDiscoveredSession(extId)
+                    }
+                }
+                discoveredExtensionListeners.keys.filter { it !in connectedIds }.forEach { extId ->
+                    stopDiscoveredSession(extId)
+                }
+            }
+            override fun onCancelled(error: DatabaseError) {
+                Log.w(TAG, "⚠️ Extension discovery cancelled: ${error.message}")
+            }
+        }
+        ref.addValueEventListener(extensionsDiscoveryListener!!)
+        Log.d(TAG, "👂 Extension discovery started for uid=$uid")
+    }
+
+    private fun listenToDiscoveredSession(extId: String) {
+        // Only process records received after this listener started — same policy as
+        // startSessionListener, so re-discovery doesn't replay/re-notify the whole backlog.
+        val listenerStartTime = System.currentTimeMillis()
+        val recordsRef = database.getReference("sessions/$extId/records")
+            .orderByChild("received_at")
+            .startAt(listenerStartTime.toDouble())
+        val listener = object : ChildEventListener {
+            override fun onChildAdded(snapshot: DataSnapshot, prev: String?) = handleData(snapshot, "session", extId)
+            override fun onChildChanged(snapshot: DataSnapshot, prev: String?) {}
+            override fun onChildRemoved(snapshot: DataSnapshot) {}
+            override fun onChildMoved(snapshot: DataSnapshot, prev: String?) {}
+            override fun onCancelled(error: DatabaseError) {
+                Log.w(TAG, "🔴 Discovered session cancelled for $extId: ${error.message}")
+            }
+        }
+        recordsRef.addChildEventListener(listener)
+        discoveredExtensionListeners[extId] = listener
+        Log.d(TAG, "👂 Auto-discovered session listener: sessions/$extId")
+    }
+
+    private fun stopDiscoveredSession(extId: String) {
+        discoveredExtensionListeners[extId]?.let { listener ->
+            database.getReference("sessions/$extId/records").removeEventListener(listener)
+        }
+        discoveredExtensionListeners.remove(extId)
+    }
+
+    private fun stopExtensionDiscovery() {
+        extensionsDiscoveryListener?.let { listener ->
+            extensionsDiscoveryPath?.let { path -> database.getReference(path).removeEventListener(listener) }
+        }
+        extensionsDiscoveryListener = null
+        extensionsDiscoveryPath = null
+        discoveredExtensionListeners.keys.toList().forEach { stopDiscoveredSession(it) }
+    }
+
     private fun stopSessionListeners() {
         sessionListener?.let { listener ->
             currentActiveExtensionId?.let { extId ->
@@ -285,11 +376,17 @@ class DataBridgeService : Service() {
         stopContainerListener()
         stopSessionListeners()
         stopPresenceListener()
+        stopExtensionDiscovery()
     }
 
 
     // ─── 🔹 Data Handler (Preserved + Metadata Update) ───
-    private fun handleData(snapshot: DataSnapshot, source: String) {
+    // sourceExtId: which extension's session this record came from. Defaults to
+    // currentActiveExtensionId (the QR/manual-connected one) to preserve existing
+    // behavior at that call site; listenToDiscoveredSession() passes its own extId
+    // explicitly so auto-discovered records are attributed to the RIGHT extension
+    // instead of always being tagged with the QR-connected one (or null).
+    private fun handleData(snapshot: DataSnapshot, source: String, sourceExtId: String? = null) {
         val data = snapshot.value as? Map<*, *> ?: return
         val text = data["text"] as? String ?: return
 
@@ -302,7 +399,7 @@ class DataBridgeService : Service() {
             actions = ActionsJson.fromRecordData(data),
             source = source,
             container_id = if (source == "container") "container_${auth.currentUser?.uid}" else null,
-            extension_id = if (source == "session") currentActiveExtensionId else null
+            extension_id = if (source == "session") (sourceExtId ?: currentActiveExtensionId) else null
         )
 
         serviceScope.launch {

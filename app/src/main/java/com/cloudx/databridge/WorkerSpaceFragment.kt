@@ -33,6 +33,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -72,6 +73,7 @@ class WorkerSpaceFragment : Fragment() {
     private var runTypeOptions = listOf(RunTypeOption(RUN_TYPE_ALL, "All"))
     private var suppressRunTypeEvents = false
     private var loadGeneration = 0
+    private var searchJob: kotlinx.coroutines.Job? = null  // ✅ Fix #7: Search debounce job
     private var systemId = ""
     private var userId = ""
     private var agentPhone = ""
@@ -81,23 +83,7 @@ class WorkerSpaceFragment : Fragment() {
     // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
     // repeated remarks by the same author (worker or CC agent) don't refetch. Cleared on
     // pull-to-refresh alongside the other per-session caches.
-    private val uidNameCache = mutableMapOf<String, String>()
-    private val uidPhotoCache = mutableMapOf<String, String>()
-
-    /** Resolves [uid] to a display name via users/{uid}/profile/name — direct O(1) access,
-     *  cached in [uidNameCache] after the first lookup. Falls back to the raw uid if the
-     *  profile/name is missing or the fetch fails. */
-    private suspend fun resolveUserName(uid: String): String {
-        if (uid.isBlank()) return "Agent"
-        uidNameCache[uid]?.let { return it }
-        val snap = withContext(Dispatchers.IO) {
-            runCatching { db.reference.child("users/$uid/profile").get().await() }.getOrNull()
-        }
-        val name = snap?.child("name")?.getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() } ?: uid
-        uidNameCache[uid] = name
-        uidPhotoCache[uid] = snap?.child("photo_url")?.getValue(String::class.java)?.trim().orEmpty()
-        return name
-    }
+    // ✅ Using shared UserNameResolver (Fix #3) — eliminates duplicate code & caching
 
     private val auth = FirebaseAuth.getInstance()
     private val db = FirebaseDatabase.getInstance()
@@ -156,6 +142,9 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        // ✅ Fix #7: Cancel pending search debounce job
+        searchJob?.cancel()
+        searchJob = null
         detachRunsListener()
         super.onDestroyView()
     }
@@ -181,7 +170,7 @@ class WorkerSpaceFragment : Fragment() {
         swipeRefresh = view.findViewById(R.id.swipeRefresh)
         swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
         swipeRefresh.setOnRefreshListener {
-            uidNameCache.clear()
+            UserNameResolver.clearCache()
             detachRunsListener()
             loadRemarkOptions()
             loadData()
@@ -216,9 +205,14 @@ class WorkerSpaceFragment : Fragment() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                searchQuery = s?.toString()?.trim() ?: ""
-                tvSearchClear.visibility = if (searchQuery.isNotEmpty()) View.VISIBLE else View.GONE
-                applyFilters()
+                // ✅ Fix #7: 300ms debounce — prevents excessive filter calls on every keystroke
+                searchJob?.cancel()
+                searchJob = viewLifecycleOwner.lifecycleScope.launch {
+                    delay(300)
+                    searchQuery = s?.toString()?.trim() ?: ""
+                    tvSearchClear.visibility = if (searchQuery.isNotEmpty()) View.VISIBLE else View.GONE
+                    applyFilters()
+                }
             }
         })
 
@@ -636,7 +630,7 @@ class WorkerSpaceFragment : Fragment() {
                         it.copy(
                             remarkStatus = statusKey,
                             remarks = selectedLabel,
-                            validationRequest = (statusKey == "verify_req"),
+                            validationRequest = isVerifyRequestStatus(statusKey),
                             history = newHistory
                         )
                     } else it
@@ -996,12 +990,12 @@ class WorkerSpaceFragment : Fragment() {
                         // users/{uid} access — no full-tree scan, no reverse-index needed).
                         val distinctUids = raw.map { it.rUserId }.filter { it.isNotBlank() }.distinct()
                         coroutineScope {
-                            distinctUids.map { uid -> async(Dispatchers.IO) { resolveUserName(uid) } }.awaitAll()
+                            distinctUids.map { uid -> async(Dispatchers.IO) { UserNameResolver.resolveName(uid) } }.awaitAll()
                         }
                         val history = raw.map { e ->
                             val authorRole = if (e.remarkedBy == "support") "cc" else "agent"
-                            val resolvedName = if (e.rUserId.isNotBlank()) uidNameCache[e.rUserId] else null
-                            val resolvedPhoto = if (e.rUserId.isNotBlank()) uidPhotoCache[e.rUserId] else null
+                            val resolvedName = if (e.rUserId.isNotBlank()) UserNameResolver.resolveName(e.rUserId).takeIf { it != e.rUserId } else null
+                            val resolvedPhoto = if (e.rUserId.isNotBlank()) UserNameResolver.resolvePhotoUrl(e.rUserId) else null
                             val author = when {
                                 e.remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
                                 e.remarkedBy == "support" -> "CC"
@@ -1021,9 +1015,6 @@ class WorkerSpaceFragment : Fragment() {
                         }.sortedBy { it.time }
 
                         if (!isAdded) return@launch
-                        val lastRemarkStatus = snapshot.children
-                            .mapNotNull { r -> r.child("status").getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() } }
-                            .lastOrNull() ?: ""
                         // Card badge shows only TODAY's remark text — a remark from yesterday
                         // (or earlier) is no longer actionable for today's work, so it shouldn't
                         // linger on the card. The full multi-day history (journey log) is
@@ -1034,6 +1025,14 @@ class WorkerSpaceFragment : Fragment() {
                         todayCal.set(java.util.Calendar.SECOND, 0)
                         todayCal.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStart = todayCal.timeInMillis
+                        // TRUE latest entry for TODAY only (any author) — drives
+                        // effectiveStatus/validationRequest below, same reasoning as the
+                        // bulk-load path: a remark from a previous day must not keep
+                        // overriding today's status once no one has left a newer one since.
+                        val latestTodayRawEntry = snapshot.children
+                            .filter { (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStart }
+                            .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
+                        val lastRemarkStatus = latestTodayRawEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
                         // Card badge: TODAY's TRUE latest entry (any author) — only surfaced on
                         // the card when that latest entry is from CC ("cc"/support). If the
                         // worker's own remark is the most recent thing today, they already know
@@ -1049,8 +1048,8 @@ class WorkerSpaceFragment : Fragment() {
                                 it[idx] = it[idx].copy(
                                     status  = effectiveStatus,
                                     remarks = lastRemark,
-                                    validationRequest = lastRemarkStatus == "verify_req",
-                                    validationNote = if (lastRemarkStatus == "verify_req") lastRemark else "",
+                                    validationRequest = isVerifyRequestStatus(lastRemarkStatus),
+                                    validationNote = if (isVerifyRequestStatus(lastRemarkStatus)) lastRemark else "",
                                     history = history
                                 )
                             }
@@ -1236,14 +1235,14 @@ class WorkerSpaceFragment : Fragment() {
         val fetches = itemFetches.awaitAll()
 
         // Pre-resolve every distinct remark author uid across ALL parcels in one parallel
-        // batch — direct users/{uid} access, cached in uidNameCache so the per-parcel loop
+        // batch — direct users/{uid} access, cached in UserNameResolver so the per-parcel loop
         // below never blocks on a network round-trip.
         val allUids = fetches.flatMap { it.remarksSnap.children }
             .mapNotNull { it.child("userId").getValue(String::class.java)?.trim() }
             .filter { it.isNotBlank() }
             .distinct()
         coroutineScope {
-            allUids.map { uid -> async(Dispatchers.IO) { resolveUserName(uid) } }.awaitAll()
+            allUids.map { uid -> async(Dispatchers.IO) { UserNameResolver.resolveName(uid) } }.awaitAll()
         }
 
         val parcels = mutableListOf<WorkerParcelItem>()
@@ -1259,7 +1258,11 @@ class WorkerSpaceFragment : Fragment() {
             val hub = readString(detailSnap, "deliveryHub")
             val sourceStatus = readString(detailSnap, "status").ifBlank { "pending" }
             if (runRef.routeStatus.isNotBlank() && runRef.routeStatus != sourceStatus) {
-                statusBackfills["courier/run_routes/${runRef.runType}/${runRef.runId}/consignments/$cId"] = sourceStatus
+                statusBackfills[FirebasePaths.runRoutesConsignments(runRef.runType, runRef.runId) + "/$cId"] = sourceStatus
+                // ✅ Fix #7: Flush backfills in batches of 50 to prevent memory bloat
+                if (statusBackfills.size >= 50) {
+                    flushStatusBackfills(statusBackfills)
+                }
             }
 
             val history = remarksSnap.children.mapNotNull { r ->
@@ -1292,8 +1295,8 @@ class WorkerSpaceFragment : Fragment() {
                     .format(java.util.Date(createdAt))
                 val remarkedBy = readString(r, "remarked_by")
                 val rUserId    = readString(r, "userId")
-                val resolvedName  = if (rUserId.isNotBlank()) uidNameCache[rUserId] else null
-                val resolvedPhoto = if (rUserId.isNotBlank()) uidPhotoCache[rUserId] else null
+                val resolvedName  = if (rUserId.isNotBlank()) UserNameResolver.resolveName(rUserId).takeIf { it != rUserId } else null
+                val resolvedPhoto = if (rUserId.isNotBlank()) UserNameResolver.resolvePhotoUrl(rUserId) else null
                 val authorRole = if (remarkedBy == "support") "cc" else "agent"
                 val author = when {
                     remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
@@ -1312,8 +1315,6 @@ class WorkerSpaceFragment : Fragment() {
                     cardBadgeText = rBadge
                 )
             }.sortedBy { it.time }
-            val lastRemarkStatus = remarksSnap.children.lastOrNull()
-                ?.child("status")?.getValue(String::class.java) ?: ""
 
             // Card badge: today-only, same rule as the live-listener path — a remark from a
             // prior day isn't actionable for today's work, so it shouldn't linger on the card.
@@ -1323,6 +1324,14 @@ class WorkerSpaceFragment : Fragment() {
             todayCalBulk.set(java.util.Calendar.SECOND, 0)
             todayCalBulk.set(java.util.Calendar.MILLISECOND, 0)
             val todayStartBulk = todayCalBulk.timeInMillis
+            // TRUE latest entry for TODAY only (any author) — drives remarkStatus/
+            // effectiveStatus/validationRequest below. A remark from a previous day must not
+            // keep overriding today's status once no one has left a newer one since — each
+            // day is effectively a fresh attempt (new run_id).
+            val latestTodayRawEntry = remarksSnap.children
+                .filter { (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStartBulk }
+                .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
+            val lastRemarkStatus = latestTodayRawEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
             // Card badge: TODAY's TRUE latest entry (any author) — only surfaced when that
             // latest entry is from CC. Same reasoning as the live-listener path above: if the
             // worker's own remark is the most recent thing today, it's already known to them
@@ -1342,8 +1351,8 @@ class WorkerSpaceFragment : Fragment() {
                     status = sourceStatus,
                     remarks = lastRemark,
                     remarkStatus = lastRemarkStatus,
-                    validationRequest = lastRemarkStatus == "verify_req",
-                    validationNote = if (lastRemarkStatus == "verify_req") lastRemark else "",
+                    validationRequest = isVerifyRequestStatus(lastRemarkStatus),
+                    validationNote = if (isVerifyRequestStatus(lastRemarkStatus)) lastRemark else "",
                     time = hub,
                     createdAt = createdAtVal,
                     updatedAt = updatedAtVal,
@@ -1353,13 +1362,23 @@ class WorkerSpaceFragment : Fragment() {
             )
         }
 
-        if (statusBackfills.isNotEmpty()) {
-            withContext(Dispatchers.IO) {
-                runCatching { db.reference.updateChildren(statusBackfills).await() }
-            }
-        }
+        // Flush any remaining backfills
+        flushStatusBackfills(statusBackfills)
 
         parcels
+    }
+
+    /** ✅ Fix #7: Batch flush status backfills to Firebase. Takes the map as a parameter
+     *  (rather than a class-level field) so overlapping triggerReload() calls — which aren't
+     *  cancelled before a newer one starts, only discarded-by-result-check afterward — each
+     *  operate on their own independent map instead of racing on shared mutable state. */
+    private suspend fun flushStatusBackfills(statusBackfills: MutableMap<String, Any?>) {
+        if (statusBackfills.isEmpty()) return
+        val batch = statusBackfills.toMap()
+        statusBackfills.clear()
+        withContext(Dispatchers.IO) {
+            runCatching { db.reference.updateChildren(batch).await() }
+        }
     }
 
     private fun readString(snap: DataSnapshot, child: String): String {
@@ -1478,7 +1497,7 @@ class WorkerSpaceFragment : Fragment() {
     private fun updateCounts() {
         val total = allParcels.size
         val confirmed = allParcels.count { it.status == "confirmed" }
-        val pending = allParcels.count { it.status == "pending" || it.status == "verify_req" || it.status == "delivery_req" }
+        val pending = allParcels.count { it.status == "pending" || isVerifyRequestStatus(it.status) || it.status == "delivery_req" }
         val totalCod = allParcels.filter { it.status == "confirmed" }.sumOf { it.cod }
 
         tvStatTotalValue.text = total.toString()

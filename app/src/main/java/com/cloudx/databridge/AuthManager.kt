@@ -39,6 +39,20 @@ object AuthManager {
             val extId = appPrefs.getCurrentExtensionId()
             if (!extId.isNullOrEmpty()) {
                 try { userRepo.removeExtensionConnection(extId) } catch (_: Exception) {}
+                // Reset the session's meta back to guest — without this, sessions/$extId/meta
+                // keeps this (now logged-out) uid and type="permanent" forever. The extension
+                // resolves its active container from that meta, so it would keep silently
+                // writing new history/scans into this account's container even after the app
+                // has logged out of it, with no way for the user to notice.
+                try {
+                    FirebaseDatabase.getInstance().getReference("sessions/$extId/meta").updateChildren(
+                        mapOf(
+                            "user_id"    to "",
+                            "type"       to "temporary",
+                            "updated_at" to System.currentTimeMillis()
+                        )
+                    ).await()
+                } catch (_: Exception) {}
             }
         }
         auth.signOut()

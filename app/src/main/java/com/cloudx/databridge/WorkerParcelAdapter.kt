@@ -65,14 +65,14 @@ class WorkerParcelAdapter(
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val tvCustomer: TextView = view.findViewById(R.id.tvParcelCustomer)
-        val tvValidationBadge: TextView = view.findViewById(R.id.tvParcelValidationBadge)
+
         val tvMeta: TextView = view.findViewById(R.id.tvParcelMeta)
         val tvAddress: TextView = view.findViewById(R.id.tvParcelAddress)
         val tvCod: TextView = view.findViewById(R.id.tvParcelCod)
         val tvAge: TextView = view.findViewById(R.id.tvParcelAge)
         val tvStatusBadge: TextView = view.findViewById(R.id.tvParcelStatusBadge)
         val tvRemarks: TextView = view.findViewById(R.id.tvParcelRemarks)
-        val tvValidationNote: TextView = view.findViewById(R.id.tvParcelValidationNote)
+
         val tvCcRemarkBlock: View = view.findViewById(R.id.layoutCcRemarkBlock)
         val tvCcRemarkLabel: TextView = view.findViewById(R.id.tvCcRemarkLabel)
         val tvCcRemarkText: TextView = view.findViewById(R.id.tvCcRemarkText)
@@ -143,25 +143,69 @@ class WorkerParcelAdapter(
         holder.tvStatusBadge.setTextColor(cfg.color)
         holder.tvStatusBadge.setBackgroundColor(cfg.bg)
 
-        holder.tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE
+
 
         // Agent remarks — badge above shows the effective status; this line shows the
         // actual remark text/note written by whoever left it, so the agent can read exactly
         // what was said (not just the status label). Shown whenever a remark note exists.
+        // When a remarkStatus color is available, tint both the remarks background and the
+        // card border so the card visually pops and draws the worker's attention.
+        val remarkColor: Int? = if (item.remarks.isNotBlank() && item.remarkStatus.isNotBlank()) {
+            StatusMetaCache.entries[item.remarkStatus]?.color
+        } else null
+
         if (item.remarks.isNotBlank()) {
-            holder.tvRemarks.text = "\uD83D\uDCAC ${item.remarks}"
+            val parts = item.remarks.split("\n", limit = 2)
+            holder.tvRemarks.text = if (parts.size == 2) {
+                "💬 ${parts[0]}\n     ${parts[1]}"
+            } else {
+                "💬 ${item.remarks}"
+            }
             holder.tvRemarks.visibility = View.VISIBLE
+            // Remark background: tinted with status color at ~15% alpha so text stays readable
+            if (remarkColor != null) {
+                val tintedBg = android.graphics.Color.argb(
+                    38, // ~15% alpha
+                    android.graphics.Color.red(remarkColor),
+                    android.graphics.Color.green(remarkColor),
+                    android.graphics.Color.blue(remarkColor)
+                )
+                holder.tvRemarks.setBackgroundColor(tintedBg)
+                holder.tvRemarks.setTextColor(remarkColor)
+            } else {
+                holder.tvRemarks.setBackgroundResource(android.R.color.transparent)
+                val fallbackBg = ctx.getColor(R.color.theme_bg_inner)
+                holder.tvRemarks.setBackgroundColor(fallbackBg)
+                holder.tvRemarks.setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            }
         } else {
             holder.tvRemarks.visibility = View.GONE
         }
 
-        // Validation note
-        if (item.validationNote.isNotBlank()) {
-            holder.tvValidationNote.text = "⚡ ${item.validationNote}"
-            holder.tvValidationNote.visibility = View.VISIBLE
-        } else {
-            holder.tvValidationNote.visibility = View.GONE
+        // Card border: colored when there's a remark, default otherwise
+        // FrameLayout children: 0=viewGroupStripe, 1=tvParcelAge, 2=card LinearLayout
+        val cardInnerLayout = (holder.itemView as? android.view.ViewGroup)?.getChildAt(2)
+        if (cardInnerLayout != null) {
+            val cardBg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 14f * ctx.resources.displayMetrics.density
+                setColor(ctx.getColor(R.color.theme_bg_card))
+                if (remarkColor != null) {
+                    setStroke(
+                        (2 * ctx.resources.displayMetrics.density).toInt(),
+                        remarkColor
+                    )
+                } else {
+                    setStroke(
+                        (1 * ctx.resources.displayMetrics.density).toInt(),
+                        ctx.getColor(R.color.theme_border)
+                    )
+                }
+            }
+            cardInnerLayout.background = cardBg
         }
+
+
 
         // CC Remark block (highlighted)
         if (item.ccRemark.isNotBlank()) {
