@@ -134,8 +134,15 @@ class NotificationListBottomSheet : BottomSheetDialogFragment() {
                 isClickable = true
                 isFocusable = true
                 setOnClickListener {
-                    onParcelClick?.invoke(item.parcelId, item.scope)
+                    // Dismiss first so the BottomSheet's fragment transaction completes
+                    // before MainActivity tries to load ParcelDetailFragment.
+                    // Invoking onParcelClick while the sheet is still attached causes a
+                    // concurrent fragment-manager transaction crash (state loss / IAE).
+                    val pid   = item.parcelId
+                    val scope = item.scope
                     dismissAllowingStateLoss()
+                    // Post the navigation so it runs after the dismiss transaction commits.
+                    view?.post { onParcelClick?.invoke(pid, scope) }
                 }
             }
         }

@@ -751,9 +751,12 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         supportFragmentManager.beginTransaction()
             .replace(R.id.container, fragment)
             .addToBackStack(null)
-            .commit()
-        supportFragmentManager.executePendingTransactions()
-        layoutFragmentLoading?.visibility = View.GONE
+            .commitAllowingStateLoss()
+        // Do NOT call executePendingTransactions() here — it can throw
+        // IllegalStateException when a BottomSheet dismiss is already in-flight
+        // (the fragment manager is mid-transaction). The loading overlay is
+        // hidden once the container's next layout pass completes instead.
+        layoutFragmentLoading?.post { layoutFragmentLoading?.visibility = View.GONE }
     }
 
     fun navigateToHistory() {
