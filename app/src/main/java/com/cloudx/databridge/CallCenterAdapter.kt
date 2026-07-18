@@ -292,7 +292,7 @@ class CallCenterAdapter(
  * API 28+ where View.outlineSpotShadowColor/outlineAmbientShadowColor are available —
  * older devices still clearly show the colored border, just without the soft shadow blur.
  */
-fun applyCallStateGlow(view: View, glowColor: Int?) {
+fun applyCallStateGlow(view: View, glowColor: Int?, statusColor: Int? = null) {
     val density = view.resources.displayMetrics.density
     val cornerRadiusPx = 14f * density
     val fillColor = androidx.core.content.ContextCompat.getColor(view.context, R.color.theme_bg_card)
@@ -302,7 +302,8 @@ fun applyCallStateGlow(view: View, glowColor: Int?) {
             shape = android.graphics.drawable.GradientDrawable.RECTANGLE
             cornerRadius = cornerRadiusPx
             setColor(fillColor)
-            setStroke((1 * density).toInt(), androidx.core.content.ContextCompat.getColor(view.context, R.color.theme_border))
+            val borderColor = statusColor ?: androidx.core.content.ContextCompat.getColor(view.context, R.color.theme_border)
+            setStroke((2f * density).toInt(), borderColor)
         }
         view.background = normal
         view.elevation = 0f
@@ -317,7 +318,7 @@ fun applyCallStateGlow(view: View, glowColor: Int?) {
         shape = android.graphics.drawable.GradientDrawable.RECTANGLE
         cornerRadius = cornerRadiusPx
         setColor(fillColor)
-        setStroke((2.5f * density).toInt(), glowColor)
+        setStroke((3f * density).toInt(), glowColor)
     }
     view.background = glow
 
