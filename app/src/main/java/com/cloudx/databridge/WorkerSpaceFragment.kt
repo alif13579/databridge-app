@@ -1048,10 +1048,25 @@ class WorkerSpaceFragment : Fragment() {
                                 it[idx] = it[idx].copy(
                                     status  = effectiveStatus,
                                     remarks = lastRemark,
+                                    remarkStatus = lastRemarkStatus,
                                     validationRequest = isVerifyRequestStatus(lastRemarkStatus),
                                     validationNote = if (isVerifyRequestStatus(lastRemarkStatus)) lastRemark else "",
                                     history = history
                                 )
+                            }
+                            // Auto-activate Priority sort when a live remark brings in a status
+                            // that has a configured priority > 0 (e.g. Delivery_Request).
+                            // Only switches when the user hasn't already chosen priority mode.
+                            val newRemarkPriority = StatusMetaCache.entries[lastRemarkStatus]?.priority ?: 0
+                            if (newRemarkPriority > 0 && sortMode != "priority") {
+                                sortMode = "priority"
+                                saveSortPref()
+                                updateSortByLabel()
+                            }
+                            // Re-sort whenever priority mode is active so the updated
+                            // remarkStatus priority is immediately reflected in card order.
+                            if (sortMode == "priority") {
+                                allParcels = WorkerParcelAdapter.sortByPriority(allParcels)
                             }
                             setupFilterTabs()
                             applyFilters()

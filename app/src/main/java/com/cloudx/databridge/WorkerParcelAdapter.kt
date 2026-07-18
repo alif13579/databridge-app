@@ -318,35 +318,42 @@ class WorkerParcelAdapter(
         }
 
         /**
-         * Priority sort — same phone-number grouping as the other sorts, but group
-         * ranking follows three tiers:
-         *   1. Groups that contain at least one "Delivery_Request" parcel come first.
-         *   2. Within the same tier, the group with the highest attempt count wins.
-         *   3. Ties fall back to oldest createdAt (ascending) — most aged group first.
+         * Priority sort — same phone-number grouping as the other sorts, with three-tier ranking:
          *
-         * Inside each group, "Delivery_Request" parcels are pinned to the top, then
-         * the rest are ordered attempt-desc → age-asc.
+         * GROUP ranking:
+         *   1. Highest remarkStatus priority in the group (from StatusMetaCache.entries[remarkStatus]?.priority).
+         *      "Delivery_Request" (and any other status with a configured priority > 0) comes first.
+         *      Groups with no configured priority on any parcel's remarkStatus get priority 0.
+         *   2. Tie-break: highest attemptCount in the group (descending).
+         *   3. Final tie-break: oldest createdAt in the group (ascending).
+         *
+         * WITHIN each group:
+         *   - Parcels sorted by their own remarkStatus priority (descending) — highest priority first.
+         *   - Within same priority level: attempt-desc → age-asc.
+         *   - Parcels with no configured remarkStatus priority (priority == 0) come last.
          */
         fun sortByPriority(parcels: List<WorkerParcelItem>): List<WorkerParcelItem> {
             fun effectiveAge(p: WorkerParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
+            fun remarkPriority(p: WorkerParcelItem): Int =
+                StatusMetaCache.entries[p.remarkStatus]?.priority ?: 0
             val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
             return groups.values
                 .sortedWith(
-                    // Tier 1: group has a Delivery_Request parcel → comes first (false < true, so negate)
+                    // Tier 1: group's highest remarkStatus priority descending
                     compareByDescending<List<WorkerParcelItem>> { group ->
-                        group.any { it.status == "Delivery_Request" }
+                        group.maxOf { remarkPriority(it) }
                     }
-                    // Tier 2: highest attempt count in the group descending
+                    // Tier 2: group's highest attempt count descending
                     .thenByDescending { group -> group.maxOf { it.attemptCount } }
-                    // Tier 3: oldest parcel in the group first
+                    // Tier 3: group's oldest parcel first
                     .thenBy { group -> group.minOf { p -> effectiveAge(p) } }
                 )
                 .flatMap { group ->
-                    val deliveryReq = group.filter { it.status == "Delivery_Request" }
-                        .sortedWith(compareByDescending<WorkerParcelItem> { it.attemptCount }.thenBy { effectiveAge(it) })
-                    val rest = group.filter { it.status != "Delivery_Request" }
-                        .sortedWith(compareByDescending<WorkerParcelItem> { it.attemptCount }.thenBy { effectiveAge(it) })
-                    deliveryReq + rest
+                    group.sortedWith(
+                        compareByDescending<WorkerParcelItem> { remarkPriority(it) }
+                            .thenByDescending { it.attemptCount }
+                            .thenBy { effectiveAge(it) }
+                    )
                 }
         }
 
