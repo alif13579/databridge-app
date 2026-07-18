@@ -148,11 +148,56 @@ class WorkerParcelAdapter(
         // Agent remarks — badge above shows the effective status; this line shows the
         // actual remark text/note written by whoever left it, so the agent can read exactly
         // what was said (not just the status label). Shown whenever a remark note exists.
+        // When a remarkStatus color is available, tint both the remarks background and the
+        // card border so the card visually pops and draws the worker's attention.
+        val remarkColor: Int? = if (item.remarks.isNotBlank() && item.remarkStatus.isNotBlank()) {
+            StatusMetaCache.entries[item.remarkStatus]?.color
+        } else null
+
         if (item.remarks.isNotBlank()) {
             holder.tvRemarks.text = "\uD83D\uDCAC ${item.remarks}"
             holder.tvRemarks.visibility = View.VISIBLE
+            // Remark background: tinted with status color at ~15% alpha so text stays readable
+            if (remarkColor != null) {
+                val tintedBg = android.graphics.Color.argb(
+                    38, // ~15% alpha
+                    android.graphics.Color.red(remarkColor),
+                    android.graphics.Color.green(remarkColor),
+                    android.graphics.Color.blue(remarkColor)
+                )
+                holder.tvRemarks.setBackgroundColor(tintedBg)
+                holder.tvRemarks.setTextColor(remarkColor)
+            } else {
+                holder.tvRemarks.setBackgroundResource(android.R.color.transparent)
+                val fallbackBg = ctx.getColor(R.color.theme_bg_inner)
+                holder.tvRemarks.setBackgroundColor(fallbackBg)
+                holder.tvRemarks.setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            }
         } else {
             holder.tvRemarks.visibility = View.GONE
+        }
+
+        // Card border: colored when there's a remark, default otherwise
+        // FrameLayout children: 0=viewGroupStripe, 1=tvParcelAge, 2=card LinearLayout
+        val cardInnerLayout = (holder.itemView as? android.view.ViewGroup)?.getChildAt(2)
+        if (cardInnerLayout != null) {
+            val cardBg = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 14f * ctx.resources.displayMetrics.density
+                setColor(ctx.getColor(R.color.theme_bg_card))
+                if (remarkColor != null) {
+                    setStroke(
+                        (2 * ctx.resources.displayMetrics.density).toInt(),
+                        remarkColor
+                    )
+                } else {
+                    setStroke(
+                        (1 * ctx.resources.displayMetrics.density).toInt(),
+                        ctx.getColor(R.color.theme_border)
+                    )
+                }
+            }
+            cardInnerLayout.background = cardBg
         }
 
         // Validation note
