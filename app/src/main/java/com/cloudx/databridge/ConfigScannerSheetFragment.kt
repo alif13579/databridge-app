@@ -109,6 +109,9 @@ class ConfigScannerSheetFragment : Fragment() {
     private var googleSignInClient: GoogleSignInClient? = null
     private var googleAccount: GoogleSignInAccount? = null
     private var cachedAccessToken: String? = null
+    /** Set if GoogleSignInClient construction failed in onCreate() — surfaced to the user
+     *  when they tap "Sign in with Google" instead of the button silently doing nothing. */
+    private var initError: String? = null
 
     private var availableSheets: List<DriveFile> = emptyList()
     private var selectedSheet: DriveFile? = null
@@ -161,6 +164,7 @@ class ConfigScannerSheetFragment : Fragment() {
             }
         } catch (e: Exception) {
             android.util.Log.e("ConfigScannerSheet", "Google Sign-In init failed", e)
+            initError = e.message ?: e.javaClass.simpleName
         }
     }
 
@@ -491,8 +495,22 @@ class ConfigScannerSheetFragment : Fragment() {
 
     // ── Step 1: Google account ──────────────────────────────────────────────
     private fun pickGoogleAccount() {
-        val client = googleSignInClient ?: return
-        signInLauncher.launch(client.signInIntent)
+        val client = googleSignInClient
+        if (client == null) {
+            showScErr("Google Sign-In শুরু করা যায়নি" + (initError?.let { ": $it" } ?: ""))
+            return
+        }
+        // Sign out first — otherwise Google Sign-In silently reuses whatever account is
+        // already cached (GoogleSignIn.getLastSignedInAccount()) and skips the chooser UI
+        // entirely, which is exactly the "no popup appears" symptom. Matches
+        // ConfigSheetFragment's pickGoogleAccount() pattern.
+        client.signOut().addOnCompleteListener {
+            try {
+                if (isAdded) signInLauncher.launch(client.signInIntent)
+            } catch (e: Exception) {
+                if (isAdded) showScErr("Sign-In launch failed: ${e.message}")
+            }
+        }
     }
 
     private fun handleSignInResult(data: Intent?) {
@@ -500,10 +518,17 @@ class ConfigScannerSheetFragment : Fragment() {
             val task = GoogleSignIn.getSignedInAccountFromIntent(data)
             val account = task.getResult(ApiException::class.java)
             googleAccount = account
+            // Reset downstream — a newly-picked account's sheet list shouldn't inherit the
+            // previous account's selection.
+            availableSheets = emptyList()
+            selectedSheet = null
             updateAccountStepUi()
+            updateSheetLabel()
             loadSheetsForAccount()
         } catch (e: ApiException) {
-            showScErr("Sign-in failed: ${e.statusCode}")
+            showScErr("Sign-in failed (code ${e.statusCode})")
+        } catch (e: Exception) {
+            showScErr("Sign-in error: ${e.message}")
         }
     }
 
@@ -572,18 +597,228 @@ class ConfigScannerSheetFragment : Fragment() {
         if (googleAccount == null) { showScErr("প্রথমে Google account select করুন"); return }
         val ctx = context ?: return
         if (availableSheets.isEmpty()) {
-            Toast.makeText(ctx, "Loading sheets...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, "Sheet লোড হচ্ছে, একটু অপেক্ষা করুন", Toast.LENGTH_SHORT).show()
             loadSheetsForAccount()
             return
         }
-        val names = availableSheets.map { it.name }.toTypedArray()
-        android.app.AlertDialog.Builder(ctx)
-            .setTitle("Select Sheet")
-            .setItems(names) { _, which ->
-                selectedSheet = availableSheets[which]
-                updateSheetLabel()
+
+        val dp = ctx.resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+
+        // ── Root container ────────────────────────────────────────────
+        val root = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(android.graphics.Color.WHITE)
+        }
+
+        // ── Drag handle ───────────────────────────────────────────────
+        val handle = View(ctx).apply {
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(ctx.getColor(R.color.theme_border))
+                cornerRadius = 4.dp().toFloat()
             }
-            .show()
+            layoutParams = LinearLayout.LayoutParams(48.dp(), 4.dp()).apply {
+                gravity = android.view.Gravity.CENTER_HORIZONTAL
+                topMargin = 10.dp()
+                bottomMargin = 10.dp()
+            }
+        }
+        val handleWrapper = LinearLayout(ctx).apply {
+            gravity = android.view.Gravity.CENTER_HORIZONTAL
+            addView(handle)
+        }
+        root.addView(handleWrapper)
+
+        // ── Header ────────────────────────────────────────────────────
+        val headerRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(20.dp(), 4.dp(), 12.dp(), 12.dp())
+        }
+        val tvTitle = TextView(ctx).apply {
+            text = "Google Sheet বেছে নিন"
+            textSize = 16f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(ctx.getColor(R.color.theme_text_primary))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val tvCount = TextView(ctx).apply {
+            text = "${availableSheets.size} sheets"
+            textSize = 12f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            setPadding(0, 0, 8.dp(), 0)
+        }
+        headerRow.addView(tvTitle)
+        headerRow.addView(tvCount)
+        root.addView(headerRow)
+
+        // ── Search bar ────────────────────────────────────────────────
+        val searchWrapper = FrameLayout(ctx).apply {
+            setPadding(16.dp(), 0, 16.dp(), 12.dp())
+        }
+        val searchRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(ctx.getColor(R.color.theme_bg_inner))
+                setStroke(2, ctx.getColor(R.color.theme_border))
+                cornerRadius = 12.dp().toFloat()
+            }
+            setPadding(14.dp(), 0, 14.dp(), 0)
+        }
+        val tvSearchIcon = TextView(ctx).apply {
+            text = "🔍"
+            textSize = 14f
+            setPadding(0, 0, 8.dp(), 0)
+        }
+        val etSearch = EditText(ctx).apply {
+            hint = "Sheet এর নাম লিখুন..."
+            setSingleLine(true)
+            background = null
+            textSize = 14f
+            setTextColor(ctx.getColor(R.color.theme_text_primary))
+            setHintTextColor(ctx.getColor(R.color.theme_text_muted))
+            layoutParams = LinearLayout.LayoutParams(0, 48.dp(), 1f)
+        }
+        val tvClear = TextView(ctx).apply {
+            text = "✕"
+            textSize = 14f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            setPadding(8.dp(), 0, 0, 0)
+            visibility = View.GONE
+            isClickable = true
+            isFocusable = true
+        }
+        searchRow.addView(tvSearchIcon)
+        searchRow.addView(etSearch)
+        searchRow.addView(tvClear)
+        searchWrapper.addView(searchRow)
+        root.addView(searchWrapper)
+
+        // ── Divider ───────────────────────────────────────────────────
+        root.addView(View(ctx).apply {
+            setBackgroundColor(ctx.getColor(R.color.theme_bg_inner))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
+        })
+
+        // ── Sheet list ────────────────────────────────────────────────
+        var filteredSheets = availableSheets.toMutableList()
+
+        val scrollView = ScrollView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+        }
+        val listContainer = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16.dp(), 10.dp(), 16.dp(), 24.dp())
+        }
+        scrollView.addView(listContainer)
+        root.addView(scrollView)
+
+        val tvEmpty = TextView(ctx).apply {
+            text = "🔍 কোনো sheet পাওয়া যায়নি"
+            textSize = 13f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 32.dp(), 0, 0)
+            visibility = View.GONE
+        }
+        listContainer.addView(tvEmpty)
+
+        fun buildSheetItem(sheet: DriveFile, isSelected: Boolean): LinearLayout {
+            return LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                background = if (isSelected)
+                    resources.getDrawable(R.drawable.bg_sheet_item_selected, null)
+                else
+                    resources.getDrawable(R.drawable.bg_sheet_item_normal, null)
+                setPadding(14.dp(), 14.dp(), 14.dp(), 14.dp())
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.bottomMargin = 8.dp()
+                layoutParams = lp
+                isClickable = true
+                isFocusable = true
+
+                val tvIcon = TextView(ctx).apply {
+                    text = "📊"
+                    textSize = 18f
+                    setPadding(0, 0, 12.dp(), 0)
+                }
+                val tvName = TextView(ctx).apply {
+                    text = sheet.name
+                    textSize = 13f
+                    setTypeface(null, if (isSelected) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+                    setTextColor(if (isSelected) android.graphics.Color.parseColor("#E8380D") else ctx.getColor(R.color.theme_text_primary))
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val tvCheck = TextView(ctx).apply {
+                    text = "✓"
+                    textSize = 16f
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(android.graphics.Color.parseColor("#E8380D"))
+                    visibility = if (isSelected) View.VISIBLE else View.GONE
+                }
+                addView(tvIcon); addView(tvName); addView(tvCheck)
+            }
+        }
+
+        fun rebuildList(dialog: android.app.Dialog) {
+            while (listContainer.childCount > 1) listContainer.removeViewAt(1)
+            if (filteredSheets.isEmpty()) {
+                tvEmpty.visibility = View.VISIBLE
+                return
+            }
+            tvEmpty.visibility = View.GONE
+            filteredSheets.forEach { sheet ->
+                val isSelected = selectedSheet?.id == sheet.id
+                val item = buildSheetItem(sheet, isSelected)
+                item.setOnClickListener {
+                    selectedSheet = sheet
+                    updateSheetLabel()
+                    dialog.dismiss()
+                }
+                listContainer.addView(item)
+            }
+        }
+
+        // ── Dialog ────────────────────────────────────────────────────
+        val dialog = android.app.Dialog(ctx, com.google.android.material.R.style.Theme_MaterialComponents_Dialog)
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        dialog.setContentView(root)
+        dialog.window?.apply {
+            setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, (ctx.resources.displayMetrics.heightPixels * 0.85).toInt())
+            setGravity(android.view.Gravity.BOTTOM)
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+            decorView.background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(android.graphics.Color.WHITE)
+                cornerRadii = floatArrayOf(24.dp().toFloat(), 24.dp().toFloat(), 24.dp().toFloat(), 24.dp().toFloat(), 0f, 0f, 0f, 0f)
+            }
+            attributes?.windowAnimations = android.R.style.Animation_InputMethod
+        }
+
+        rebuildList(dialog)
+
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val query = s?.toString()?.trim()?.lowercase() ?: ""
+                tvClear.visibility = if (query.isEmpty()) View.GONE else View.VISIBLE
+                filteredSheets = if (query.isEmpty()) availableSheets.toMutableList()
+                else availableSheets.filter { it.name.lowercase().contains(query) }.toMutableList()
+                rebuildList(dialog)
+            }
+        })
+
+        tvClear.setOnClickListener {
+            etSearch.setText("")
+            etSearch.requestFocus()
+        }
+
+        dialog.show()
+        etSearch.requestFocus()
     }
 
     private fun updateSheetLabel() {
