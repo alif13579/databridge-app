@@ -84,6 +84,13 @@ class CallCenterFragment : Fragment() {
     // Per-consignment last-seen remark timestamp — used to detect genuinely new remarks
     // (vs. initial listener fire on attach) and trigger in-app notifications.
     private val ccLastSeenRemarkAt = mutableMapOf<String, Long>()
+    // Which consignments' remark listener has fired at least once. Needed because
+    // ccLastSeenRemarkAt's default of 0L is ambiguous — it can mean either "this listener
+    // has never fired before" (skip notifying, this is just the initial snapshot) or
+    // "it fired before and there were genuinely zero remarks then" (DO notify once a real
+    // first remark arrives afterward). Tracking attachment separately from the timestamp
+    // lets both cases be told apart correctly.
+    private val ccRemarkListenerAttached = mutableSetOf<String>()
 
     // Parcel ID to expand after data loads (set when navigating from a notification tap).
     private var pendingExpandParcelId: String? = null
@@ -1745,10 +1752,12 @@ class CallCenterFragment : Fragment() {
                         }
 
                         // ── New-remark notification ───────────────────────────────
-                        // Skip the very first fire (initial attach) by checking prevAt > 0.
+                        // Skip the very first fire (initial attach) — that's just the
+                        // existing snapshot, not a new event, no matter its timestamp.
                         val latestCreatedAt = latest?.child("createdAt")?.getValue(Long::class.java) ?: 0L
                         val prevAt = ccLastSeenRemarkAt[cId] ?: 0L
-                        if (latestCreatedAt > prevAt) {  // ✅ Fix #2: Allow first remark notification
+                        val hadAttachedBefore = cId in ccRemarkListenerAttached
+                        if (hadAttachedBefore && latestCreatedAt > prevAt) {
                             val parcel = allParcels.firstOrNull { it.id == cId }
                             val customer = parcel?.customer?.takeIf { it.isNotBlank() } ?: cId
                             val remarkText = latest?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
@@ -1772,6 +1781,7 @@ class CallCenterFragment : Fragment() {
                                 )
                             )
                         }
+                        ccRemarkListenerAttached.add(cId)
                         ccLastSeenRemarkAt[cId] = latestCreatedAt
                         // ─────────────────────────────────────────────────────────
                         // Card badge: today-only, same rule as the initial fetch in

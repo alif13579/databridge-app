@@ -74,7 +74,6 @@ class WorkerSpaceFragment : Fragment() {
     private var suppressRunTypeEvents = false
     private var loadGeneration = 0
     private var searchJob: kotlinx.coroutines.Job? = null  // ✅ Fix #7: Search debounce job
-    private var statusBackfills = mutableMapOf<String, Any?>()  // ✅ Fix #4: Class-level for flush access
     private var systemId = ""
     private var userId = ""
     private var agentPhone = ""
@@ -1242,7 +1241,7 @@ class WorkerSpaceFragment : Fragment() {
         }
 
         val parcels = mutableListOf<WorkerParcelItem>()
-        statusBackfills.clear()  // Reset for this load
+        val statusBackfills = mutableMapOf<String, Any?>()
         fetches.forEach { fetch ->
             val (cId, runRef, detailSnap, remarksSnap) = fetch
             if (!detailSnap.exists()) return@forEach
@@ -1257,7 +1256,7 @@ class WorkerSpaceFragment : Fragment() {
                 statusBackfills[FirebasePaths.runRoutesConsignments(runRef.runType, runRef.runId) + "/$cId"] = sourceStatus
                 // ✅ Fix #7: Flush backfills in batches of 50 to prevent memory bloat
                 if (statusBackfills.size >= 50) {
-                    flushStatusBackfills()
+                    flushStatusBackfills(statusBackfills)
                 }
             }
 
@@ -1353,13 +1352,16 @@ class WorkerSpaceFragment : Fragment() {
         }
 
         // Flush any remaining backfills
-        flushStatusBackfills()
+        flushStatusBackfills(statusBackfills)
 
         parcels
     }
 
-    /** ✅ Fix #7: Batch flush status backfills to Firebase */
-    private suspend fun flushStatusBackfills() {
+    /** ✅ Fix #7: Batch flush status backfills to Firebase. Takes the map as a parameter
+     *  (rather than a class-level field) so overlapping triggerReload() calls — which aren't
+     *  cancelled before a newer one starts, only discarded-by-result-check afterward — each
+     *  operate on their own independent map instead of racing on shared mutable state. */
+    private suspend fun flushStatusBackfills(statusBackfills: MutableMap<String, Any?>) {
         if (statusBackfills.isEmpty()) return
         val batch = statusBackfills.toMap()
         statusBackfills.clear()
