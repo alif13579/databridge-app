@@ -60,20 +60,7 @@
                     android:textSize="13sp"
                     android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/tvAgtValidationBadge"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="⚡ Validation Requested"
-                    android:textSize="10sp"
-                    android:textColor="@color/theme_purple"
-                    android:background="@drawable/bg_validation_badge"
-                    android:paddingStart="8dp"
-                    android:paddingEnd="8dp"
-                    android:paddingTop="3dp"
-                    android:paddingBottom="3dp"
-                    android:layout_marginStart="6dp"
-                    android:visibility="gone" />
+
             </LinearLayout>
 
             <TextView

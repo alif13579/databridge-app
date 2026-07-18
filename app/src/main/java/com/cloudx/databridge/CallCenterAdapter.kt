@@ -148,7 +148,7 @@ class CallCenterAdapter(
 
     class CardHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val tvCustomer: TextView = view.findViewById(R.id.tvAgtCustomer)
-        private val tvValidationBadge: TextView = view.findViewById(R.id.tvAgtValidationBadge)
+
         private val tvMeta: TextView = view.findViewById(R.id.tvAgtMeta)
         private val tvAddress: TextView = view.findViewById(R.id.tvAgtAddress)
         private val tvCod: TextView = view.findViewById(R.id.tvAgtCod)
@@ -191,7 +191,7 @@ class CallCenterAdapter(
             val borderColor = remarkColor ?: cfg.color
             applyCallStateGlow(itemView, glowColor, if (item.remarks.isNotBlank()) borderColor else null)
 
-            tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE
+
 
             // Badge shows the effective status; this line shows the actual remark text
             // written by whoever set it, so the agent can read exactly what was said.
