@@ -1873,7 +1873,7 @@ class CallCenterFragment : Fragment() {
                             val newStatus = allParcels[idx].effectiveStatus
                             // ✅ Fix #4: Rebuild chips if status changed — keeps filter counts accurate
                             if (oldStatus != newStatus) {
-                                buildFilterChips()
+                                setupFilterTabs()
                             }
                             applyFilters()
                         }
