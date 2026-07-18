@@ -155,7 +155,12 @@ class WorkerParcelAdapter(
         } else null
 
         if (item.remarks.isNotBlank()) {
-            holder.tvRemarks.text = "\uD83D\uDCAC ${item.remarks}"
+            val parts = item.remarks.split("\n", limit = 2)
+            holder.tvRemarks.text = if (parts.size == 2) {
+                "💬 ${parts[0]}\n     ${parts[1]}"
+            } else {
+                "💬 ${item.remarks}"
+            }
             holder.tvRemarks.visibility = View.VISIBLE
             // Remark background: tinted with status color at ~15% alpha so text stays readable
             if (remarkColor != null) {
