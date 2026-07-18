@@ -190,25 +190,38 @@ class CallCenterAdapter(
             tvStatusBadge.setTextColor(cfg.color)
             tvStatusBadge.setBackgroundColor(cfg.bg)
 
-            // Status-colored card border/glow — applyCallStateGlow() handles both the normal
-            // (statusColor as border) and active-call (glowColor) cases.
-            applyCallStateGlow(itemView, glowColor, cfg.color)
+            // Card border/glow — when a remark is present use its color for the border so
+            // the card draws attention (same behaviour as WorkerParcelAdapter). Active-call
+            // glowColor always wins over the remark color (handled inside applyCallStateGlow).
+            val borderColor = remarkColor ?: cfg.color
+            applyCallStateGlow(itemView, glowColor, if (item.remarks.isNotBlank()) borderColor else null)
 
             tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE
 
             // Badge shows the effective status; this line shows the actual remark text
-            // written by whoever set it, so the agent can read exactly what was said
-            // (not just the status label). Colored to match the same status for quick
-            // visual scanning — a red remark jumps out as much as the red badge does.
+            // written by whoever set it, so the agent can read exactly what was said.
+            // When a remark exists, tint the remark box background with the status color
+            // at ~15% alpha (same as Worker card) and color the text fully — so the remark
+            // visually pops without being hard to read.
+            val remarkColor: Int? = if (item.remarks.isNotBlank() && item.remarkStatus.isNotBlank()) {
+                StatusMetaCache.entries[item.remarkStatus]?.color
+            } else null
+
             if (item.remarks.isNotBlank()) {
                 tvRemarks.text = "💬 ${item.remarks}"
                 tvRemarks.visibility = View.VISIBLE
-                tvRemarks.setTextColor(cfg.color)
-                // ✅ Fix #1: Solid color background instead of tint — works with any drawable
+                val tintColor = remarkColor ?: cfg.color
+                val tintedBg = android.graphics.Color.argb(
+                    38, // ~15% alpha
+                    android.graphics.Color.red(tintColor),
+                    android.graphics.Color.green(tintColor),
+                    android.graphics.Color.blue(tintColor)
+                )
                 tvRemarks.background = android.graphics.drawable.GradientDrawable().apply {
                     cornerRadius = 8f * tvRemarks.context.resources.displayMetrics.density
-                    setColor(cfg.bg)
+                    setColor(tintedBg)
                 }
+                tvRemarks.setTextColor(tintColor)
             } else {
                 tvRemarks.visibility = View.GONE
             }
