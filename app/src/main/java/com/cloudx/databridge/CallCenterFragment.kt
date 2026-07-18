@@ -569,16 +569,6 @@ class CallCenterFragment : Fragment() {
                 pushCallStates()
             },
             onSetRemarks = { item -> showRemarksDialog(item) },
-            onValidate = { item ->
-                allParcels = allParcels.map {
-                    if (it.id == item.id) it.copy(
-                        validationRequest = false,
-                        status = "confirmed",
-                        remarks = "Validated by call center"
-                    ) else it
-                }
-                applyFilters()
-            },
             onLongPress = { item -> showActionHistoryDialog(item) }
         )
         adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()

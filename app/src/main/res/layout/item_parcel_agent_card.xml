@@ -128,6 +128,7 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Remark box (CC expected remark from worker) -->
     <TextView
         android:id="@+id/tvAgtRemarks"
         android:layout_width="match_parent"
@@ -141,21 +142,10 @@
         android:layout_marginTop="6dp"
         android:maxLines="2"
         android:ellipsize="end"
+        android:includeFontPadding="false"
         android:visibility="gone" />
 
-    <TextView
-        android:id="@+id/tvAgtValidationNote"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="⚡ Worker: Address খুঁজে পাচ্ছি না"
-        android:textSize="11sp"
-        android:textColor="@color/theme_purple"
-        android:background="@color/theme_bg_validation"
-        android:padding="6dp"
-        android:paddingStart="8dp"
-        android:layout_marginTop="4dp"
-        android:visibility="gone" />
-
+    <!-- Action Buttons: Call + Remarks, full width equal split -->
     <LinearLayout
         android:id="@+id/layoutAgtActions"
         android:layout_width="match_parent"
@@ -168,48 +158,31 @@
 
         <TextView
             android:id="@+id/btnAgtCall"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
             android:text="📞 Call"
             android:textSize="12sp"
             android:textStyle="bold"
             android:textColor="@color/theme_text_inverse"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:background="@drawable/btn_call_green" />
+            android:gravity="center"
+            android:background="@drawable/btn_call_green"
+            android:layout_marginEnd="4dp"
+            android:includeFontPadding="false" />
 
         <TextView
             android:id="@+id/btnAgtSetRemarks"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="36dp"
+            android:layout_weight="1"
             android:text="✏️ Set Remarks"
             android:textSize="12sp"
             android:textStyle="bold"
             android:textColor="@color/theme_text_inverse"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/btn_action_cyan" />
+            android:gravity="center"
+            android:background="@drawable/btn_action_cyan"
+            android:includeFontPadding="false" />
 
-        <TextView
-            android:id="@+id/btnAgtValidate"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="⚡ Validate"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:textColor="@color/theme_text_inverse"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingTop="8dp"
-            android:paddingBottom="8dp"
-            android:background="@drawable/bg_action_button_purple"
-            android:layout_marginStart="8dp"
-            android:visibility="gone" />
     </LinearLayout>
 
     </LinearLayout>

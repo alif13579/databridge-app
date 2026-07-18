@@ -18,7 +18,6 @@ import androidx.recyclerview.widget.RecyclerView
 class CallCenterAdapter(
     private val onCall: (CallCenterParcelItem) -> Unit,
     private val onSetRemarks: (CallCenterParcelItem) -> Unit,
-    private val onValidate: (CallCenterParcelItem) -> Unit,
     private val onLongPress: (CallCenterParcelItem) -> Unit,
     private val onGroupClick: ((WorkerGroup) -> Unit)? = null
 ) : ListAdapter<CallCenterAdapter.Row, RecyclerView.ViewHolder>(RowDiff()) {
@@ -123,7 +122,6 @@ class CallCenterAdapter(
                 onToggleExpand = { toggleExpanded(row.parcel.id) },
                 onCall = onCall,
                 onSetRemarks = onSetRemarks,
-                onValidate = onValidate,
                 onLongPress = onLongPress
             )
         }
@@ -157,11 +155,9 @@ class CallCenterAdapter(
         private val tvAge: TextView = view.findViewById(R.id.tvAgtAge)
         private val tvStatusBadge: TextView = view.findViewById(R.id.tvAgtStatusBadge)
         private val tvRemarks: TextView = view.findViewById(R.id.tvAgtRemarks)
-        private val tvValidationNote: TextView = view.findViewById(R.id.tvAgtValidationNote)
         private val layoutActions: LinearLayout = view.findViewById(R.id.layoutAgtActions)
         private val btnCall: TextView = view.findViewById(R.id.btnAgtCall)
         private val btnSetRemarks: TextView = view.findViewById(R.id.btnAgtSetRemarks)
-        private val btnValidate: TextView = view.findViewById(R.id.btnAgtValidate)
 
         fun bind(
             item: CallCenterParcelItem,
@@ -171,7 +167,6 @@ class CallCenterAdapter(
             onToggleExpand: () -> Unit,
             onCall: (CallCenterParcelItem) -> Unit,
             onSetRemarks: (CallCenterParcelItem) -> Unit,
-            onValidate: (CallCenterParcelItem) -> Unit,
             onLongPress: (CallCenterParcelItem) -> Unit
         ) {
             tvCustomer.text = item.customer
@@ -226,21 +221,12 @@ class CallCenterAdapter(
                 tvRemarks.visibility = View.GONE
             }
 
-            if (item.validationNote.isNotBlank()) {
-                tvValidationNote.text = "⚡ Worker: ${item.validationNote}"
-                tvValidationNote.visibility = View.VISIBLE
-            } else {
-                tvValidationNote.visibility = View.GONE
-            }
-
             layoutActions.visibility = if (isExpanded) View.VISIBLE else View.GONE
-            btnValidate.visibility = if (isExpanded && item.validationRequest) View.VISIBLE else View.GONE
 
             itemView.setOnClickListener { onToggleExpand() }
             itemView.setOnLongClickListener { onLongPress(item); true }
             btnCall.setOnClickListener { onCall(item) }
             btnSetRemarks.setOnClickListener { onSetRemarks(item) }
-            btnValidate.setOnClickListener { onValidate(item) }
         }
     }
 
