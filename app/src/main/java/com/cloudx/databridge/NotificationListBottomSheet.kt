@@ -1,6 +1,8 @@
 package com.cloudx.databridge
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -141,8 +143,11 @@ class NotificationListBottomSheet : BottomSheetDialogFragment() {
                     val pid   = item.parcelId
                     val scope = item.scope
                     dismissAllowingStateLoss()
-                    // Post the navigation so it runs after the dismiss transaction commits.
-                    view?.post { onParcelClick?.invoke(pid, scope) }
+                    // Post the navigation onto the main looper so it runs after the
+                    // dismiss transaction commits. Using Handler(mainLooper) instead of
+                    // view?.post because the view may already be null by the time the
+                    // BottomSheet detaches, which would silently drop the navigation.
+                    Handler(Looper.getMainLooper()).post { onParcelClick?.invoke(pid, scope) }
                 }
             }
         }
