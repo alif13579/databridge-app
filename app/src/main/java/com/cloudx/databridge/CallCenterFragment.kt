@@ -1619,8 +1619,8 @@ class CallCenterFragment : Fragment() {
                                 status            = status,
                                 remarks           = remarkLabel,
                                 remarkStatus      = remarkStatus,
-                                validationRequest = remarkStatus == "verify_req",
-                                validationNote    = if (remarkStatus == "verify_req") validationNoteText else "",
+                                validationRequest = isVerifyRequestStatus(remarkStatus),
+                                validationNote    = if (isVerifyRequestStatus(remarkStatus)) validationNoteText else "",
                                 time              = "",
                                 worker            = nameMap[agentSystemId] ?: agentSystemId,
                                 workerSystemId    = agentSystemId,
@@ -1858,8 +1858,8 @@ class CallCenterFragment : Fragment() {
                                 it[idx] = it[idx].copy(
                                     remarks = latestRemark,
                                     remarkStatus = liveRemarkStatus,
-                                    validationRequest = liveRemarkStatus == "verify_req",
-                                    validationNote = if (liveRemarkStatus == "verify_req") latestRemarkNote else "",
+                                    validationRequest = isVerifyRequestStatus(liveRemarkStatus),
+                                    validationNote = if (isVerifyRequestStatus(liveRemarkStatus)) latestRemarkNote else "",
                                     history = history
                                 )
                             }

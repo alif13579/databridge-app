@@ -80,6 +80,27 @@ object StatusMetaCache {
         entries[statusKey]?.updatesParcelStatus ?: true
 }
 
+/**
+ * Whether [status] (a remark's own status key, e.g. from remarkStatus/lastRemarkStatus)
+ * represents a verify/validation request.
+ *
+ * Confirmed via a live courier/remarks_by_consignment export that the actual value written
+ * by the app (sourced from the admin-configured config/remarks_worker node key) is
+ * "VERIFY_REQUEST" (uppercase, full word) — NOT the "verify_req" (lowercase, abbreviated)
+ * literal every validationRequest/Priority-Queue check in CallCenterFragment and
+ * WorkerSpaceFragment was comparing against with case-sensitive `==`. That mismatch meant
+ * validationRequest could never become true from real data: Priority Queue mode showed
+ * nothing, and the validation badge/notification never fired.
+ *
+ * Case-insensitive, and also accepts "verify_req" so any differently-configured or
+ * historical data still matches — this is the single source of truth for the check,
+ * used everywhere instead of a hardcoded string literal.
+ */
+fun isVerifyRequestStatus(status: String): Boolean {
+    val s = status.trim()
+    return s.equals("VERIFY_REQUEST", ignoreCase = true) || s.equals("verify_req", ignoreCase = true)
+}
+
 /** Parses a "{remarkLang}_{statusLang}" language value (e.g. "bn_en") into its two parts. */
 fun parseLangPair(value: String): Pair<String, String> {
     val parts = value.split("_")

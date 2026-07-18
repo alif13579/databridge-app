@@ -630,7 +630,7 @@ class WorkerSpaceFragment : Fragment() {
                         it.copy(
                             remarkStatus = statusKey,
                             remarks = selectedLabel,
-                            validationRequest = (statusKey == "verify_req"),
+                            validationRequest = isVerifyRequestStatus(statusKey),
                             history = newHistory
                         )
                     } else it
@@ -1048,8 +1048,8 @@ class WorkerSpaceFragment : Fragment() {
                                 it[idx] = it[idx].copy(
                                     status  = effectiveStatus,
                                     remarks = lastRemark,
-                                    validationRequest = lastRemarkStatus == "verify_req",
-                                    validationNote = if (lastRemarkStatus == "verify_req") lastRemark else "",
+                                    validationRequest = isVerifyRequestStatus(lastRemarkStatus),
+                                    validationNote = if (isVerifyRequestStatus(lastRemarkStatus)) lastRemark else "",
                                     history = history
                                 )
                             }
@@ -1351,8 +1351,8 @@ class WorkerSpaceFragment : Fragment() {
                     status = sourceStatus,
                     remarks = lastRemark,
                     remarkStatus = lastRemarkStatus,
-                    validationRequest = lastRemarkStatus == "verify_req",
-                    validationNote = if (lastRemarkStatus == "verify_req") lastRemark else "",
+                    validationRequest = isVerifyRequestStatus(lastRemarkStatus),
+                    validationNote = if (isVerifyRequestStatus(lastRemarkStatus)) lastRemark else "",
                     time = hub,
                     createdAt = createdAtVal,
                     updatedAt = updatedAtVal,
@@ -1497,7 +1497,7 @@ class WorkerSpaceFragment : Fragment() {
     private fun updateCounts() {
         val total = allParcels.size
         val confirmed = allParcels.count { it.status == "confirmed" }
-        val pending = allParcels.count { it.status == "pending" || it.status == "verify_req" || it.status == "delivery_req" }
+        val pending = allParcels.count { it.status == "pending" || isVerifyRequestStatus(it.status) || it.status == "delivery_req" }
         val totalCod = allParcels.filter { it.status == "confirmed" }.sumOf { it.cod }
 
         tvStatTotalValue.text = total.toString()
