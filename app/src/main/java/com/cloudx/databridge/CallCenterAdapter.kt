@@ -184,8 +184,7 @@ class CallCenterAdapter(
             tvAge.setTypeface(null, if (ageBold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
             tvAge.textSize = if (ageBold) 11f else 10f
 
-            applyCallStateGlow(itemView, glowColor, cfg.color)
-
+            // ✅ Get status config FIRST — needed for card border, badge, and glow
             val cfg = WorkerParcelAdapter.getStatusConfig(tvStatusBadge.context, item.effectiveStatus, statusLang)
             tvStatusBadge.text = cfg.label
             tvStatusBadge.setTextColor(cfg.color)
@@ -198,6 +197,8 @@ class CallCenterAdapter(
                 setStroke((2f * itemView.context.resources.displayMetrics.density).toInt(), cfg.color)
             }
             itemView.background = cardBorder
+
+            applyCallStateGlow(itemView, glowColor, cfg.color)
 
             tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE
 
