@@ -1015,9 +1015,6 @@ class WorkerSpaceFragment : Fragment() {
                         }.sortedBy { it.time }
 
                         if (!isAdded) return@launch
-                        val lastRemarkStatus = snapshot.children
-                            .mapNotNull { r -> r.child("status").getValue(String::class.java)?.trim()?.takeIf { it.isNotBlank() } }
-                            .lastOrNull() ?: ""
                         // Card badge shows only TODAY's remark text — a remark from yesterday
                         // (or earlier) is no longer actionable for today's work, so it shouldn't
                         // linger on the card. The full multi-day history (journey log) is
@@ -1028,6 +1025,14 @@ class WorkerSpaceFragment : Fragment() {
                         todayCal.set(java.util.Calendar.SECOND, 0)
                         todayCal.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStart = todayCal.timeInMillis
+                        // TRUE latest entry for TODAY only (any author) — drives
+                        // effectiveStatus/validationRequest below, same reasoning as the
+                        // bulk-load path: a remark from a previous day must not keep
+                        // overriding today's status once no one has left a newer one since.
+                        val latestTodayRawEntry = snapshot.children
+                            .filter { (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStart }
+                            .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
+                        val lastRemarkStatus = latestTodayRawEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
                         // Card badge: TODAY's TRUE latest entry (any author) — only surfaced on
                         // the card when that latest entry is from CC ("cc"/support). If the
                         // worker's own remark is the most recent thing today, they already know
@@ -1310,8 +1315,6 @@ class WorkerSpaceFragment : Fragment() {
                     cardBadgeText = rBadge
                 )
             }.sortedBy { it.time }
-            val lastRemarkStatus = remarksSnap.children.lastOrNull()
-                ?.child("status")?.getValue(String::class.java) ?: ""
 
             // Card badge: today-only, same rule as the live-listener path — a remark from a
             // prior day isn't actionable for today's work, so it shouldn't linger on the card.
@@ -1321,6 +1324,14 @@ class WorkerSpaceFragment : Fragment() {
             todayCalBulk.set(java.util.Calendar.SECOND, 0)
             todayCalBulk.set(java.util.Calendar.MILLISECOND, 0)
             val todayStartBulk = todayCalBulk.timeInMillis
+            // TRUE latest entry for TODAY only (any author) — drives remarkStatus/
+            // effectiveStatus/validationRequest below. A remark from a previous day must not
+            // keep overriding today's status once no one has left a newer one since — each
+            // day is effectively a fresh attempt (new run_id).
+            val latestTodayRawEntry = remarksSnap.children
+                .filter { (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStartBulk }
+                .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
+            val lastRemarkStatus = latestTodayRawEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
             // Card badge: TODAY's TRUE latest entry (any author) — only surfaced when that
             // latest entry is from CC. Same reasoning as the live-listener path above: if the
             // worker's own remark is the most recent thing today, it's already known to them

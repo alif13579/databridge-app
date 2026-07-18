@@ -1564,33 +1564,16 @@ class CallCenterFragment : Fragment() {
                         val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
                             .get().await()
 
-                        // TRUE latest remark overall — any author, any date. This drives
-                        // remarkStatus/effectiveStatus (the card's status chip + filter/tab
-                        // matching) and validationRequest, mirroring Worker fragment's
-                        // lastRemarkStatus (also unfiltered by author/date). This must NOT be
-                        // narrowed to today/worker-only, or a status set yesterday (or by CC)
-                        // would incorrectly disappear.
-                        val latestEntryOverall = remarksSnap.children
-                            .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
-                        val remarkStatus = latestEntryOverall?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        val overallRemarksText = latestEntryOverall?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
-                        val overallNoteText = latestEntryOverall?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
-                        val validationNoteText = when {
-                            overallRemarksText.isNotBlank() && overallNoteText.isNotBlank() -> "$overallRemarksText\nNote: $overallNoteText"
-                            overallRemarksText.isNotBlank() -> overallRemarksText
-                            overallNoteText.isNotBlank() -> overallNoteText
-                            else -> ""
-                        }
-
-                        // Card badge (overview) — separate concern: TODAY's TRUE latest remark,
-                        // any author. Parse this consignment's remarks_{timestamp} entries,
-                        // keep only TODAY's entries, pick the newest one regardless of who
-                        // wrote it — then only surface it on the card if that newest entry
-                        // was NOT written by "support" (CC agent). If the CC agent's own
-                        // remark is the latest one, they already know what they said, so the
-                        // box stays hidden instead of falling back to an older (now-stale)
-                        // worker remark. Checking "!= support" (not "== worker") keeps this
-                        // future-proof for any other non-CC author role added later.
+                        // Card badge (overview) — TODAY's TRUE latest remark, any author.
+                        // Parse this consignment's remarks_{timestamp} entries, keep only
+                        // TODAY's entries, pick the newest one regardless of who wrote it.
+                        //
+                        // This same today-scoped entry ALSO drives remarkStatus/
+                        // effectiveStatus/validationRequest below — a remark from a previous
+                        // day must not keep overriding today's status/validation just because
+                        // no one has left a newer remark since. Each day is effectively a
+                        // fresh attempt (new run_id), so a stale prior-day remark shouldn't
+                        // silently linger into today's state.
                         val todayCal = java.util.Calendar.getInstance()
                         todayCal.set(java.util.Calendar.HOUR_OF_DAY, 0)
                         todayCal.set(java.util.Calendar.MINUTE, 0)
@@ -1600,10 +1583,18 @@ class CallCenterFragment : Fragment() {
                         val latestTodayEntry = remarksSnap.children
                             .filter { (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStart }
                             .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
+                        val remarkStatus = latestTodayEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
+                        // Only surface the CARD BADGE TEXT if that newest-today entry wasn't
+                        // written by "support" (CC agent) — if the CC agent's own remark is
+                        // the latest one, they already know what they said, so the badge text
+                        // stays hidden instead of echoing it back. This "!= support" check is
+                        // ONLY for the badge TEXT, not for remarkStatus/validationRequest above
+                        // — a verify_req status should still count regardless of who set it.
                         val latestTodayEntryIsFromSupport =
                             latestTodayEntry?.child("remarked_by")?.getValue(String::class.java)?.trim() == "support"
-                        // Card badge: from this same latest entry — remarks + note if both
-                        // present, remarks alone if only remarks, note alone if only note.
+                        // Card badge + validation note: from this same latest entry —
+                        // remarks + note if both present, remarks alone if only remarks, note
+                        // alone if only note.
                         val entryRemarksText = latestTodayEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
                         val entryNoteText = latestTodayEntry?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
                         val remarkLabelNote = when {
@@ -1612,6 +1603,7 @@ class CallCenterFragment : Fragment() {
                             entryNoteText.isNotBlank() -> entryNoteText
                             else -> ""
                         }
+                        val validationNoteText = remarkLabelNote
                         // Card badge: only the note text, no status label (status is shown
                         // separately by the card's own status badge). Hidden entirely when
                         // the latest entry today is the CC agent's own (see comment above).
@@ -1736,20 +1728,6 @@ class CallCenterFragment : Fragment() {
                         }
                         val latest = sorted.firstOrNull()
 
-                        // TRUE latest remark overall — any author, any date. Mirrors
-                        // processRunsSnapshot()'s latestEntryOverall/remarkStatus. Drives
-                        // remarkStatus + validationRequest + validationNote below so a live
-                        // remark update (e.g. a fresh verify_req from a worker) is reflected
-                        // immediately, instead of only after the next full reload.
-                        val latestOverallStatus = latest?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        val latestOverallRemarksText = latest?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
-                        val latestOverallNoteText = latest?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
-                        val latestOverallValidationNote = when {
-                            latestOverallRemarksText.isNotBlank() && latestOverallNoteText.isNotBlank() -> "$latestOverallRemarksText\nNote: $latestOverallNoteText"
-                            latestOverallRemarksText.isNotBlank() -> latestOverallRemarksText
-                            latestOverallNoteText.isNotBlank() -> latestOverallNoteText
-                            else -> ""
-                        }
 
                         // ── New-remark notification ───────────────────────────────
                         // Skip the very first fire (initial attach) — that's just the
@@ -1795,14 +1773,19 @@ class CallCenterFragment : Fragment() {
                         todayCalLive.set(java.util.Calendar.SECOND, 0)
                         todayCalLive.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStartLive = todayCalLive.timeInMillis
-                        // Card badge — same rule as processRunsSnapshot(): today's TRUE latest
-                        // entry (any author), then hidden if that latest entry is the CC
-                        // agent's own ("support") — see the comment on remarkLabel there for
-                        // the full rationale. "!= support" (not "== worker") keeps this
-                        // future-proof for any other non-CC author role added later.
+                        // Today's TRUE latest entry (any author) — drives BOTH the card badge
+                        // text below AND remarkStatus/effectiveStatus/validationRequest at the
+                        // .copy() call further down. A remark from a previous day must not
+                        // keep overriding today's status once no one has left a newer one
+                        // since — each day is effectively a fresh attempt (new run_id).
                         val latestTodayForBadge = snapshot.children
                             .filter { (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStartLive }
                             .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
+                        val liveRemarkStatus = latestTodayForBadge?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
+                        // Card badge TEXT only (not remarkStatus above) is hidden if that
+                        // latest-today entry is the CC agent's own ("support") — see the
+                        // comment on remarkLabel in processRunsSnapshot() for the full
+                        // rationale. "!= support" (not "== worker") keeps this future-proof.
                         val latestTodayForBadgeIsFromSupport =
                             latestTodayForBadge?.child("remarked_by")?.getValue(String::class.java)?.trim() == "support"
                         // Card badge: from this same latest entry — remarks + note if both
@@ -1874,9 +1857,9 @@ class CallCenterFragment : Fragment() {
                             allParcels = allParcels.toMutableList().also {
                                 it[idx] = it[idx].copy(
                                     remarks = latestRemark,
-                                    remarkStatus = latestOverallStatus,
-                                    validationRequest = latestOverallStatus == "verify_req",
-                                    validationNote = if (latestOverallStatus == "verify_req") latestOverallValidationNote else "",
+                                    remarkStatus = liveRemarkStatus,
+                                    validationRequest = liveRemarkStatus == "verify_req",
+                                    validationNote = if (liveRemarkStatus == "verify_req") latestRemarkNote else "",
                                     history = history
                                 )
                             }
