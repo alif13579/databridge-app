@@ -317,6 +317,39 @@ class WorkerParcelAdapter(
                 }
         }
 
+        /**
+         * Priority sort — same phone-number grouping as the other sorts, but group
+         * ranking follows three tiers:
+         *   1. Groups that contain at least one "Delivery_Request" parcel come first.
+         *   2. Within the same tier, the group with the highest attempt count wins.
+         *   3. Ties fall back to oldest createdAt (ascending) — most aged group first.
+         *
+         * Inside each group, "Delivery_Request" parcels are pinned to the top, then
+         * the rest are ordered attempt-desc → age-asc.
+         */
+        fun sortByPriority(parcels: List<WorkerParcelItem>): List<WorkerParcelItem> {
+            fun effectiveAge(p: WorkerParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
+            val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
+            return groups.values
+                .sortedWith(
+                    // Tier 1: group has a Delivery_Request parcel → comes first (false < true, so negate)
+                    compareByDescending<List<WorkerParcelItem>> { group ->
+                        group.any { it.status == "Delivery_Request" }
+                    }
+                    // Tier 2: highest attempt count in the group descending
+                    .thenByDescending { group -> group.maxOf { it.attemptCount } }
+                    // Tier 3: oldest parcel in the group first
+                    .thenBy { group -> group.minOf { p -> effectiveAge(p) } }
+                )
+                .flatMap { group ->
+                    val deliveryReq = group.filter { it.status == "Delivery_Request" }
+                        .sortedWith(compareByDescending<WorkerParcelItem> { it.attemptCount }.thenBy { effectiveAge(it) })
+                    val rest = group.filter { it.status != "Delivery_Request" }
+                        .sortedWith(compareByDescending<WorkerParcelItem> { it.attemptCount }.thenBy { effectiveAge(it) })
+                    deliveryReq + rest
+                }
+        }
+
         fun ageColorFor(createdAt: Long): Pair<Int, Boolean> {
             val grey   = android.graphics.Color.parseColor("#6B7280")
             val yellow = android.graphics.Color.parseColor("#F59E0B")

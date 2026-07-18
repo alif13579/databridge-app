@@ -77,7 +77,7 @@ class WorkerSpaceFragment : Fragment() {
     private var systemId = ""
     private var userId = ""
     private var agentPhone = ""
-    private var sortMode: String = "attempt" // "attempt" (default, most-attempted first) or "aging" (oldest first)
+    private var sortMode: String = "attempt" // "attempt" | "aging" | "priority"
     private lateinit var tvSortByDropdown: TextView
 
     // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
@@ -1109,8 +1109,9 @@ class WorkerSpaceFragment : Fragment() {
                 val parcels = loadParcelsForSelectedRunType(runSnap)
                 if (!isAdded || generation != loadGeneration) return@launch
                 allParcels = when (sortMode) {
-                    "aging" -> WorkerParcelAdapter.sortByGroupAge(parcels)
-                    else    -> WorkerParcelAdapter.sortByAttempt(parcels)
+                    "aging"    -> WorkerParcelAdapter.sortByGroupAge(parcels)
+                    "priority" -> WorkerParcelAdapter.sortByPriority(parcels)
+                    else       -> WorkerParcelAdapter.sortByAttempt(parcels)
                 }
                 setupFilterTabs()
                 applyFilters()
@@ -1416,13 +1417,21 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     private fun updateSortByLabel() {
-        tvSortByDropdown.text = if (sortMode == "aging") "🕐 Aging ▾" else "🔁 Attempt ▾"
+        tvSortByDropdown.text = when (sortMode) {
+            "aging"    -> "🕐 Aging ▾"
+            "priority" -> "⭐ Priority ▾"
+            else       -> "🔁 Attempt ▾"
+        }
     }
 
     private fun showSortByDropdown() {
         val ctx = context ?: return
-        val options = arrayOf("🔁 Attempt (most attempted first)", "🕐 Aging (oldest first)")
-        val keys = arrayOf("attempt", "aging")
+        val options = arrayOf(
+            "🔁 Attempt (most attempted first)",
+            "🕐 Aging (oldest first)",
+            "⭐ Priority (Delivery_Request → high attempt → oldest)"
+        )
+        val keys = arrayOf("attempt", "aging", "priority")
         val currentIndex = keys.indexOf(sortMode).coerceAtLeast(0)
         android.app.AlertDialog.Builder(ctx)
             .setTitle("Sort by")
@@ -1431,8 +1440,9 @@ class WorkerSpaceFragment : Fragment() {
                 updateSortByLabel()
                 saveSortPref()
                 allParcels = when (sortMode) {
-                    "aging" -> WorkerParcelAdapter.sortByGroupAge(allParcels)
-                    else    -> WorkerParcelAdapter.sortByAttempt(allParcels)
+                    "aging"    -> WorkerParcelAdapter.sortByGroupAge(allParcels)
+                    "priority" -> WorkerParcelAdapter.sortByPriority(allParcels)
+                    else       -> WorkerParcelAdapter.sortByAttempt(allParcels)
                 }
                 applyFilters()
                 dialog.dismiss()
