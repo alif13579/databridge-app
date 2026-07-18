@@ -190,14 +190,8 @@ class CallCenterAdapter(
             tvStatusBadge.setTextColor(cfg.color)
             tvStatusBadge.setBackgroundColor(cfg.bg)
 
-            // ✅ Fix #3: Status-colored card border for clear visual identification
-            val cardBorder = android.graphics.drawable.GradientDrawable().apply {
-                cornerRadius = 12f * itemView.context.resources.displayMetrics.density
-                setColor(androidx.core.content.ContextCompat.getColor(itemView.context, R.color.theme_bg_card))
-                setStroke((2f * itemView.context.resources.displayMetrics.density).toInt(), cfg.color)
-            }
-            itemView.background = cardBorder
-
+            // Status-colored card border/glow — applyCallStateGlow() handles both the normal
+            // (statusColor as border) and active-call (glowColor) cases.
             applyCallStateGlow(itemView, glowColor, cfg.color)
 
             tvValidationBadge.visibility = if (item.validationRequest) View.VISIBLE else View.GONE

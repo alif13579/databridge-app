@@ -13,8 +13,8 @@ import kotlinx.coroutines.withContext
  */
 object UserNameResolver {
 
-    private val nameCache = mutableMapOf<String, String>()
-    private val photoCache = mutableMapOf<String, String>()
+    private val nameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val photoCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val db = FirebaseDatabase.getInstance()
 
     /**
