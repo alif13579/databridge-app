@@ -185,23 +185,24 @@ class CallCenterAdapter(
             tvStatusBadge.setTextColor(cfg.color)
             tvStatusBadge.setBackgroundColor(cfg.bg)
 
+            // Remark's own status color (if the remark has a specific status recorded).
+            // Computed here — before the card border/glow block below and the remark
+            // tint further down — since both of those need it.
+            val remarkColor: Int? = if (item.remarks.isNotBlank() && item.remarkStatus.isNotBlank()) {
+                StatusMetaCache.entries[item.remarkStatus]?.color
+            } else null
+
             // Card border/glow — when a remark is present use its color for the border so
             // the card draws attention (same behaviour as WorkerParcelAdapter). Active-call
             // glowColor always wins over the remark color (handled inside applyCallStateGlow).
             val borderColor = remarkColor ?: cfg.color
             applyCallStateGlow(itemView, glowColor, if (item.remarks.isNotBlank()) borderColor else null)
 
-
-
             // Badge shows the effective status; this line shows the actual remark text
             // written by whoever set it, so the agent can read exactly what was said.
             // When a remark exists, tint the remark box background with the status color
             // at ~15% alpha (same as Worker card) and color the text fully — so the remark
             // visually pops without being hard to read.
-            val remarkColor: Int? = if (item.remarks.isNotBlank() && item.remarkStatus.isNotBlank()) {
-                StatusMetaCache.entries[item.remarkStatus]?.color
-            } else null
-
             if (item.remarks.isNotBlank()) {
                 tvRemarks.text = "💬 ${item.remarks}"
                 tvRemarks.visibility = View.VISIBLE
