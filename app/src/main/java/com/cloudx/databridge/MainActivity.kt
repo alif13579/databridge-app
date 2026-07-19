@@ -727,7 +727,8 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                             val type = firebaseDb.reference.child("sessions/$extId/meta/type").get().await().getValue(String::class.java)
                             val uid  = firebaseDb.reference.child("sessions/$extId/meta/user_id").get().await().getValue(String::class.java)
                             if (type == "permanent" && !uid.isNullOrEmpty()) {
-                                FirebaseContainerManager.verifyAndMigrate(extId, uid)
+                                val repo = CallRepository(CallDatabase.getDatabase(this@MainActivity).callDao())
+                                FirebaseContainerManager.verifyAndMigrate(extId, uid, repo)
                             } else {
                                 firebaseDb.reference.child("sessions/$extId").removeValue().await()
                             }

@@ -586,11 +586,12 @@ class DataBridgeService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         (application as? DataBridgeApplication)?.setDataBridgeService(null)
-        serviceScope.launch {
-            if (stateManager.isMigrationPending()) {
-                DisconnectHandler.handleDisconnect(stateManager, repository)
-            }
-        }
+        // Migration (Firebase merge + Room DB update) now happens exclusively via
+        // FirebaseContainerManager.verifyAndMigrate(), called from ConnectFragment /
+        // MainActivity's disconnect flow. This used to ALSO race a second system here
+        // (DisconnectHandler + MigrationEngine) that read the same sessions/{extId}/records
+        // at nearly the same moment — whichever one lost the race silently skipped its
+        // Room DB update. Removed to eliminate the race entirely.
         stopListeners()
         serviceScope.cancel()
         Log.d(TAG, "🔹 DataBridgeService destroyed")
