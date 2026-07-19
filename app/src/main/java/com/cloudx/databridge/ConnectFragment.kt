@@ -111,7 +111,10 @@ class ConnectFragment : Fragment() {
                 db.reference.child("sessions/$extId/meta/status").setValue("disconnected").await()
                 val type = db.reference.child("sessions/$extId/meta/type").get().await().getValue(String::class.java)
                 val uid  = db.reference.child("sessions/$extId/meta/user_id").get().await().getValue(String::class.java)
-                if (type == "permanent" && !uid.isNullOrEmpty()) FirebaseContainerManager.verifyAndMigrate(extId, uid)
+                if (type == "permanent" && !uid.isNullOrEmpty()) {
+                    val repo = CallRepository(CallDatabase.getDatabase(requireContext()).callDao())
+                    FirebaseContainerManager.verifyAndMigrate(extId, uid, repo)
+                }
                 else db.reference.child("sessions/$extId").removeValue().await()
             } catch (_: Exception) {
                 try { db.reference.child("sessions/$extId").removeValue().await() } catch (_: Exception) {}
