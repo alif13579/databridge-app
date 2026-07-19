@@ -67,9 +67,29 @@ object AppNotificationManager {
 
     private fun playSound(context: Context) {
         try {
-            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            val ringtone = RingtoneManager.getRingtone(context.applicationContext, uri)
-            ringtone?.play()
+            val appCtx = context.applicationContext
+
+            // If the notification stream is muted (silent mode / volume 0), Ringtone.play()
+            // will silently no-op anyway — but on some OEM skins it can also throw. Check
+            // first so we skip cleanly instead of relying on the catch block.
+            val audioManager = appCtx.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+            val notifVolume = audioManager?.getStreamVolume(android.media.AudioManager.STREAM_NOTIFICATION) ?: 1
+            if (notifVolume <= 0) return
+
+            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION) ?: return
+            val ringtone = RingtoneManager.getRingtone(appCtx, uri) ?: return
+
+            // Explicit AudioAttributes — without this, some OEM ROMs (notably some
+            // Android 8-11 skins) play the ringtone at the wrong/muted stream and it
+            // comes out silent even though .play() returns normally.
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                ringtone.audioAttributes = android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            }
+
+            ringtone.play()
         } catch (_: Exception) { /* ignore — sound is best-effort */ }
     }
 }
