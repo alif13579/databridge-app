@@ -1723,10 +1723,15 @@ class CallCenterFragment : Fragment() {
                         // ── New-remark notification ───────────────────────────────
                         // Skip the very first fire (initial attach) — that's just the
                         // existing snapshot, not a new event, no matter its timestamp.
+                        // Also skip remarks authored by CC itself — a CC agent should
+                        // only be notified about remarks the WORKER wrote, not their own
+                        // (previously this fired for every remark regardless of author,
+                        // causing CC to self-notify on its own submissions).
                         val latestCreatedAt = latest?.child("createdAt")?.getValue(Long::class.java) ?: 0L
                         val prevAt = ccLastSeenRemarkAt[cId] ?: 0L
                         val hadAttachedBefore = cId in ccRemarkListenerAttached
-                        if (hadAttachedBefore && latestCreatedAt > prevAt) {
+                        val remarkedBy = latest?.child("remarked_by")?.getValue(String::class.java)?.trim().orEmpty()
+                        if (hadAttachedBefore && latestCreatedAt > prevAt && remarkedBy != "support") {
                             val parcel = allParcels.firstOrNull { it.id == cId }
                             val customer = parcel?.customer?.takeIf { it.isNotBlank() } ?: cId
                             val remarkText = latest?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
