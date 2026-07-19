@@ -20,6 +20,9 @@ data class CallCenterParcelItem(
     val workerSystemId: String = "",
     val branch: String,
     val branchIds: List<String> = emptyList(),
+    /** createdAt of the specific remark entry shown in `remarks` above — used to render
+     *  "Xh Ym ago" under the remark text. 0 when `remarks` is blank (nothing shown). */
+    val remarksAt: Long = 0L,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
     val attemptCount: Int = 0,

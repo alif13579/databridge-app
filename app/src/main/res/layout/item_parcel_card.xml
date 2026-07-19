@@ -103,17 +103,6 @@
             android:layout_marginStart="10dp">
 
             <TextView
-                android:id="@+id/tvParcelCod"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="৳850"
-                android:textSize="14sp"
-                android:textColor="@color/theme_accent"
-                android:textStyle="bold"
-                android:layout_marginTop="2dp"
-                android:includeFontPadding="false" />
-
-            <TextView
                 android:id="@+id/tvParcelStatusBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -124,25 +113,44 @@
                 android:paddingEnd="10dp"
                 android:paddingTop="3dp"
                 android:paddingBottom="3dp"
-                android:layout_marginTop="4dp"
                 android:includeFontPadding="false" />
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Agent Remarks -->
-    <TextView
-        android:id="@+id/tvParcelRemarks"
+    <!-- Agent Remarks — chat-bubble style: text on top, elapsed time bottom-right,
+         like a message timestamp -->
+    <LinearLayout
+        android:id="@+id/layoutParcelRemarksBox"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="💬 Customer want to receive today"
-        android:textSize="11sp"
-        android:textColor="@color/theme_text_secondary"
+        android:orientation="vertical"
         android:background="@drawable/bg_remark_chip"
         android:padding="6dp"
         android:paddingStart="8dp"
         android:layout_marginTop="6dp"
-        android:includeFontPadding="false"
-        android:visibility="gone" />
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvParcelRemarks"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="💬 Customer want to receive today"
+            android:textSize="11sp"
+            android:textColor="@color/theme_text_secondary"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/tvParcelRemarksTime"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:text="🕐 2h 15m ago"
+            android:textSize="9sp"
+            android:textColor="@color/theme_text_muted"
+            android:layout_marginTop="3dp"
+            android:includeFontPadding="false"
+            android:visibility="gone" />
+    </LinearLayout>
 
 
 
@@ -178,6 +186,20 @@
             android:layout_marginTop="1dp"
             android:includeFontPadding="false" />
     </LinearLayout>
+
+    <!-- Amount — bottom-right corner, always visible, far from the fixed age/attempt
+         badge (top-right) so it never gets covered by it -->
+    <TextView
+        android:id="@+id/tvParcelCod"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:text="৳850"
+        android:textSize="15sp"
+        android:textColor="@color/theme_accent"
+        android:textStyle="bold"
+        android:layout_marginTop="8dp"
+        android:includeFontPadding="false" />
 
     <!-- Action Buttons -->
     <LinearLayout

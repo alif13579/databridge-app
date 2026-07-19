@@ -1051,6 +1051,7 @@ class WorkerSpaceFragment : Fragment() {
                                     remarkStatus = lastRemarkStatus,
                                     validationRequest = isVerifyRequestStatus(lastRemarkStatus),
                                     validationNote = if (isVerifyRequestStatus(lastRemarkStatus)) lastRemark else "",
+                                    remarksAt = latestTodayEntry?.createdAt ?: 0L,
                                     history = history
                                 )
                             }
@@ -1370,6 +1371,7 @@ class WorkerSpaceFragment : Fragment() {
                     validationRequest = isVerifyRequestStatus(lastRemarkStatus),
                     validationNote = if (isVerifyRequestStatus(lastRemarkStatus)) lastRemark else "",
                     time = hub,
+                    remarksAt = latestTodayEntryBulk?.createdAt ?: 0L,
                     createdAt = createdAtVal,
                     updatedAt = updatedAtVal,
                     attemptCount = attemptVal,

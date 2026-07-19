@@ -154,7 +154,9 @@ class CallCenterAdapter(
         private val tvCod: TextView = view.findViewById(R.id.tvAgtCod)
         private val tvAge: TextView = view.findViewById(R.id.tvAgtAge)
         private val tvStatusBadge: TextView = view.findViewById(R.id.tvAgtStatusBadge)
+        private val remarksBox: View = view.findViewById(R.id.layoutAgtRemarksBox)
         private val tvRemarks: TextView = view.findViewById(R.id.tvAgtRemarks)
+        private val tvRemarksTime: TextView = view.findViewById(R.id.tvAgtRemarksTime)
         private val layoutActions: LinearLayout = view.findViewById(R.id.layoutAgtActions)
         private val btnCall: TextView = view.findViewById(R.id.btnAgtCall)
         private val btnSetRemarks: TextView = view.findViewById(R.id.btnAgtSetRemarks)
@@ -205,7 +207,7 @@ class CallCenterAdapter(
             // visually pops without being hard to read.
             if (item.remarks.isNotBlank()) {
                 tvRemarks.text = "💬 ${item.remarks}"
-                tvRemarks.visibility = View.VISIBLE
+                remarksBox.visibility = View.VISIBLE
                 val tintColor = remarkColor ?: cfg.color
                 val tintedBg = android.graphics.Color.argb(
                     38, // ~15% alpha
@@ -213,13 +215,23 @@ class CallCenterAdapter(
                     android.graphics.Color.green(tintColor),
                     android.graphics.Color.blue(tintColor)
                 )
-                tvRemarks.background = android.graphics.drawable.GradientDrawable().apply {
+                remarksBox.background = android.graphics.drawable.GradientDrawable().apply {
                     cornerRadius = 8f * tvRemarks.context.resources.displayMetrics.density
                     setColor(tintedBg)
                 }
                 tvRemarks.setTextColor(tintColor)
+                // Elapsed time since this specific remark was left — lets the CC agent see at
+                // a glance how long a worker's remark has been pending. Only meaningful when
+                // we actually have a timestamp for it; older/legacy data may not carry remarksAt.
+                val elapsed = WorkerParcelAdapter.formatElapsedHM(item.remarksAt)
+                if (elapsed.isNotEmpty()) {
+                    tvRemarksTime.text = "🕐 $elapsed"
+                    tvRemarksTime.visibility = View.VISIBLE
+                } else {
+                    tvRemarksTime.visibility = View.GONE
+                }
             } else {
-                tvRemarks.visibility = View.GONE
+                remarksBox.visibility = View.GONE
             }
 
             layoutActions.visibility = if (isExpanded) View.VISIBLE else View.GONE

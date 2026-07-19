@@ -27,6 +27,9 @@ data class WorkerParcelItem(
     val ccRemark: String = "",
     val ccRemarkTime: String = "",
     val ccRemarkAuthor: String = "",
+    /** createdAt of the specific remark entry shown in `remarks` above — used to render
+     *  "Xh Ym ago" under the remark text. 0 when `remarks` is blank (nothing shown). */
+    val remarksAt: Long = 0L,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
     val attemptCount: Int = 0,
@@ -71,7 +74,9 @@ class WorkerParcelAdapter(
         val tvCod: TextView = view.findViewById(R.id.tvParcelCod)
         val tvAge: TextView = view.findViewById(R.id.tvParcelAge)
         val tvStatusBadge: TextView = view.findViewById(R.id.tvParcelStatusBadge)
+        val remarksBox: View = view.findViewById(R.id.layoutParcelRemarksBox)
         val tvRemarks: TextView = view.findViewById(R.id.tvParcelRemarks)
+        val tvRemarksTime: TextView = view.findViewById(R.id.tvParcelRemarksTime)
 
         val tvCcRemarkBlock: View = view.findViewById(R.id.layoutCcRemarkBlock)
         val tvCcRemarkLabel: TextView = view.findViewById(R.id.tvCcRemarkLabel)
@@ -161,7 +166,7 @@ class WorkerParcelAdapter(
             } else {
                 "💬 ${item.remarks}"
             }
-            holder.tvRemarks.visibility = View.VISIBLE
+            holder.remarksBox.visibility = View.VISIBLE
             // Remark background: tinted with status color at ~15% alpha so text stays readable
             if (remarkColor != null) {
                 val tintedBg = android.graphics.Color.argb(
@@ -170,16 +175,26 @@ class WorkerParcelAdapter(
                     android.graphics.Color.green(remarkColor),
                     android.graphics.Color.blue(remarkColor)
                 )
-                holder.tvRemarks.setBackgroundColor(tintedBg)
+                holder.remarksBox.setBackgroundColor(tintedBg)
                 holder.tvRemarks.setTextColor(remarkColor)
             } else {
-                holder.tvRemarks.setBackgroundResource(android.R.color.transparent)
+                holder.remarksBox.setBackgroundResource(android.R.color.transparent)
                 val fallbackBg = ctx.getColor(R.color.theme_bg_inner)
-                holder.tvRemarks.setBackgroundColor(fallbackBg)
+                holder.remarksBox.setBackgroundColor(fallbackBg)
                 holder.tvRemarks.setTextColor(ctx.getColor(R.color.theme_text_secondary))
             }
+            // Elapsed time since this specific remark was left — lets the worker see at a
+            // glance how long a CC remark has been sitting (only meaningful when we actually
+            // have a timestamp for it; older/legacy data may not carry remarksAt).
+            val elapsed = formatElapsedHM(item.remarksAt)
+            if (elapsed.isNotEmpty()) {
+                holder.tvRemarksTime.text = "🕐 $elapsed"
+                holder.tvRemarksTime.visibility = View.VISIBLE
+            } else {
+                holder.tvRemarksTime.visibility = View.GONE
+            }
         } else {
-            holder.tvRemarks.visibility = View.GONE
+            holder.remarksBox.visibility = View.GONE
         }
 
         // Card border: colored when there's a remark, default otherwise
@@ -267,6 +282,27 @@ class WorkerParcelAdapter(
                 minutes < 60  -> "${minutes}m"
                 hours   < 24  -> "${hours}h"
                 else          -> "${days.coerceAtLeast(1)}D"
+            }
+        }
+
+        /**
+         * Full "how long ago" format for the remarks box timestamp — deliberately fuller
+         * than formatAgeCompact (which is terse on purpose for the tiny corner badge).
+         * Here there's room to show both units so a CC agent/worker can tell at a glance
+         * how long a remark has been sitting, e.g. "2h 15m ago", "45m ago", "1d 3h ago".
+         * Returns "" when createdAt is missing so callers can hide the time view entirely.
+         */
+        fun formatElapsedHM(createdAt: Long): String {
+            if (createdAt <= 0L) return ""
+            val diffMs = (System.currentTimeMillis() - createdAt).coerceAtLeast(0L)
+            val totalMinutes = diffMs / (60 * 1000)
+            val days = totalMinutes / (24 * 60)
+            val hours = (totalMinutes % (24 * 60)) / 60
+            val minutes = totalMinutes % 60
+            return when {
+                days > 0  -> "${days}d ${hours}h ago"
+                hours > 0 -> "${hours}h ${minutes}m ago"
+                else      -> "${minutes}m ago"
             }
         }
 

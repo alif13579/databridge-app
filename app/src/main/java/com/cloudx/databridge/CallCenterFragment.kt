@@ -1616,6 +1616,7 @@ class CallCenterFragment : Fragment() {
                                 workerSystemId    = agentSystemId,
                                 branch            = hubName,
                                 branchIds         = scopedBranchIds,
+                                remarksAt         = latestTodayEntry?.child("createdAt")?.getValue(Long::class.java) ?: 0L,
                                 createdAt         = createdAtVal,
                                 updatedAt         = updatedAtVal,
                                 attemptCount      = attemptVal
@@ -1850,6 +1851,7 @@ class CallCenterFragment : Fragment() {
                                     remarkStatus = liveRemarkStatus,
                                     validationRequest = isVerifyRequestStatus(liveRemarkStatus),
                                     validationNote = if (isVerifyRequestStatus(liveRemarkStatus)) latestRemarkNote else "",
+                                    remarksAt = latestTodayForBadge?.child("createdAt")?.getValue(Long::class.java) ?: 0L,
                                     history = history
                                 )
                             }
