@@ -111,7 +111,7 @@ class ParcelDetailFragment : Fragment() {
         db.reference.child("courier/consignments/$parcelId")
             .addListenerForSingleValueEvent(object : ValueEventListener {
                 override fun onDataChange(snap: DataSnapshot) {
-                    if (!isAdded) return
+                    if (!isAdded || view == null) return
                     progressBar.visibility = View.GONE
 
                     val ctx          = context ?: return
@@ -152,7 +152,13 @@ class ParcelDetailFragment : Fragment() {
     private fun attachRemarkListener() {
         remarkListener = object : ValueEventListener {
             override fun onDataChange(snap: DataSnapshot) {
-                if (!isAdded) return
+                // isAdded can still be true for a brief window after the fragment's
+                // view has been destroyed (e.g. rapid back-navigation or a second
+                // notification tap while this fragment is mid-transition). Accessing
+                // viewLifecycleOwner in that window throws IllegalStateException, so
+                // guard on `view != null` — the real signal that the view is alive —
+                // instead of `isAdded` alone.
+                if (!isAdded || view == null) return
                 viewLifecycleOwner.lifecycleScope.launch {
                     renderTimeline(snap)
                 }
@@ -229,7 +235,7 @@ class ParcelDetailFragment : Fragment() {
             .sortedBy { it.createdAt }   // oldest first → timeline reads top-to-bottom
 
         withContext(Dispatchers.Main) {
-            if (!isAdded) return@withContext
+            if (!isAdded || view == null) return@withContext
             layoutTimeline.removeAllViews()
 
             if (entries.isEmpty()) {
