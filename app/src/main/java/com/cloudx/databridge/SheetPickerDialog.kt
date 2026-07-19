@@ -19,10 +19,10 @@ import android.widget.TextView
 
 /**
  * Searchable BottomSheetDialog for picking a Google Drive spreadsheet from a list.
- * Shared by ConfigSheetFragment and ConfigScannerSheetFragment — both need identical UI
+ * Shared by ConfigSheetFragment and ConfigConnectorsFragment — both need identical UI
  * (drag handle, search bar with live filtering, selected-state styling) but have different
  * downstream logic once a sheet is picked (ConfigSheetFragment also loads tabs for sync
- * mapping; ConfigScannerSheetFragment just records the selection), so this takes a plain
+ * mapping; ConfigConnectorsFragment just records the selection), so this takes a plain
  * onSelect callback rather than knowing about either fragment's own state.
  */
 object SheetPickerDialog {

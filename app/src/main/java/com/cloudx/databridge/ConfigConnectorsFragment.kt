@@ -27,7 +27,7 @@ import kotlinx.coroutines.tasks.await
 import okhttp3.OkHttpClient
 
 /**
- * 📷 Scanner Sheet Connector — Config tab
+ * 🔗 Connectors — Config tab (Scanner Sheet Connector)
  *
  * A simpler, standalone sibling to ConfigSheetFragment's Sheet connector: same 4-step
  * connect wizard (Account → Sheet → Tab → Columns), exactly copied per explicit instruction,
@@ -43,7 +43,7 @@ import okhttp3.OkHttpClient
  * fetchSheetTabs) — but with WRITE-capable OAuth scopes (OAUTH_SCOPE_WRITE), since this
  * connector needs to write scanned values into cells, not just read for sync.
  */
-class ConfigScannerSheetFragment : Fragment() {
+class ConfigConnectorsFragment : Fragment() {
 
     // ── Panels ───────────────────────────────────────────────────────────────
     private var panelBranchSelect: View? = null
@@ -163,7 +163,7 @@ class ConfigScannerSheetFragment : Fragment() {
                 googleAccount = last
             }
         } catch (e: Exception) {
-            android.util.Log.e("ConfigScannerSheet", "Google Sign-In init failed", e)
+            android.util.Log.e("ConfigConnectors", "Google Sign-In init failed", e)
             initError = e.message ?: e.javaClass.simpleName
         }
     }

@@ -18,7 +18,7 @@ import androidx.fragment.app.Fragment
  *   📊 Sheet    – branch-wise Google Sheet connect, row/column config, mapping, sync
  *   📷 Scanner  – branch-wise Scanner Sheet Connector (writes scanned values into a
  *                 fixed match-column/write-column pair on a date-named tab; no periodic
- *                 sync — see ConfigScannerSheetFragment / config/scanner_sheets/{branchId})
+ *                 sync — see ConfigConnectorsFragment / config/scanner_sheets/{branchId})
  *
  * Firebase layout:
  *   config/remarks/...
@@ -125,7 +125,7 @@ class ConfigFragment : Fragment() {
             Tab.LANGUAGE  -> ConfigLanguageFragment()
             Tab.STATUSES  -> ConfigStatusesFragment()
             Tab.SHEET     -> ConfigSheetFragment()
-            Tab.SCANNER_SHEET -> ConfigScannerSheetFragment()
+            Tab.SCANNER_SHEET -> ConfigConnectorsFragment()
             Tab.WHATSAPP  -> ConfigWhatsAppFragment()
         }
 
