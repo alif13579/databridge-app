@@ -130,53 +130,67 @@ class ParcelDetailFragment : Fragment() {
             .addListenerForSingleValueEvent(object : ValueEventListener {
                 override fun onDataChange(snap: DataSnapshot) {
                     if (!isAdded || view == null) return
-                    progressBar.visibility = View.GONE
+                    // Defensive: this crash has resisted several targeted fixes already
+                    // (isAdded/view races, transaction timing). Until the real cause is
+                    // caught red-handed via a logged stack trace, don't let ANY exception
+                    // here take down the whole app — log it and fail gracefully instead.
+                    try {
+                        progressBar.visibility = View.GONE
 
-                    val ctx          = context ?: return
-                    val lang         = if (scope == "worker") "bn" else "bn"
-                    val customer     = snap.child("recipientName").getValue(String::class.java) ?: "—"
-                    val phone        = snap.child("recipientPhone").getValue(String::class.java) ?: "—"
-                    val address      = snap.child("recipientAddress").getValue(String::class.java) ?: "—"
-                    val hub          = snap.child("deliveryHub").getValue(String::class.java) ?: "—"
-                    val cod          = snap.child("collectableAmount").getValue(Long::class.java) ?: 0L
-                    val status       = snap.child("status").getValue(String::class.java) ?: "pending"
-                    val createdAt    = snap.child("createdAt").getValue(Long::class.java) ?: 0L
-                    val updatedAt    = snap.child("updatedAt").getValue(Long::class.java) ?: 0L
+                        val ctx          = context ?: return
+                        val lang         = if (scope == "worker") "bn" else "bn"
+                        val customer     = snap.child("recipientName").getValue(String::class.java) ?: "—"
+                        val phone        = snap.child("recipientPhone").getValue(String::class.java) ?: "—"
+                        val address      = snap.child("recipientAddress").getValue(String::class.java) ?: "—"
+                        val hub          = snap.child("deliveryHub").getValue(String::class.java) ?: "—"
+                        val cod          = snap.child("collectableAmount").getValue(Long::class.java) ?: 0L
+                        val status       = snap.child("status").getValue(String::class.java) ?: "pending"
+                        val createdAt    = snap.child("createdAt").getValue(Long::class.java) ?: 0L
+                        val updatedAt    = snap.child("updatedAt").getValue(Long::class.java) ?: 0L
 
-                    val cfg = WorkerParcelAdapter.getStatusConfig(ctx, status, lang)
-                    tvStatus.text = cfg.label
-                    tvStatus.setTextColor(cfg.color)
-                    tvStatus.setBackgroundColor(cfg.bg)
+                        val cfg = WorkerParcelAdapter.getStatusConfig(ctx, status, lang)
+                        tvStatus.text = cfg.label
+                        tvStatus.setTextColor(cfg.color)
+                        tvStatus.setBackgroundColor(cfg.bg)
 
-                    tvCod.text      = "৳$cod"
-                    tvCustomer.text = customer
-                    tvMeta.text     = "$parcelId · $phone"
-                    tvAddress.text  = "📍 $address"
-                    tvHub.text      = "🏢 $hub"
+                        tvCod.text      = "৳$cod"
+                        tvCustomer.text = customer
+                        tvMeta.text     = "$parcelId · $phone"
+                        tvAddress.text  = "📍 $address"
+                        tvHub.text      = "🏢 $hub"
 
-                    currentPhone     = phone.takeIf { it != "—" } ?: ""
-                    currentCreatedAt = createdAt
-                    currentUpdatedAt = updatedAt
+                        currentPhone     = phone.takeIf { it != "—" } ?: ""
+                        currentCreatedAt = createdAt
+                        currentUpdatedAt = updatedAt
 
-                    // Overview card — same fields shown in the long-press Journey Log dialog.
-                    tvOverviewStatus.text = cfg.label
-                    tvOverviewStatus.setTextColor(cfg.color)
-                    val fullFmt = SimpleDateFormat("dd-MM-yy hh:mm:ss a", Locale.getDefault())
-                    tvOverviewCreatedAt.text = if (createdAt > 0) fullFmt.format(Date(createdAt)) else "—"
-                    tvOverviewUpdatedAt.text = if (updatedAt > 0) fullFmt.format(Date(updatedAt)) else "—"
-                    tvOverviewAge.text = formatAge(createdAt, updatedAt)
-                    val (ageColor, _) = WorkerParcelAdapter.ageColorFor(createdAt)
-                    tvOverviewAge.setTextColor(ageColor)
+                        // Overview card — same fields shown in the long-press Journey Log dialog.
+                        tvOverviewStatus.text = cfg.label
+                        tvOverviewStatus.setTextColor(cfg.color)
+                        val fullFmt = SimpleDateFormat("dd-MM-yy hh:mm:ss a", Locale.getDefault())
+                        tvOverviewCreatedAt.text = if (createdAt > 0) fullFmt.format(Date(createdAt)) else "—"
+                        tvOverviewUpdatedAt.text = if (updatedAt > 0) fullFmt.format(Date(updatedAt)) else "—"
+                        tvOverviewAge.text = formatAge(createdAt, updatedAt)
+                        val (ageColor, _) = WorkerParcelAdapter.ageColorFor(createdAt)
+                        tvOverviewAge.setTextColor(ageColor)
 
-                    val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-                    val createdStr = if (createdAt > 0) sdf.format(Date(createdAt)) else "—"
-                    val updatedStr = if (updatedAt > 0 && updatedAt != createdAt) "  ·  Updated ${sdf.format(Date(updatedAt))}" else ""
-                    tvDates.text = "Created: $createdStr$updatedStr"
-
+                        val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
+                        val createdStr = if (createdAt > 0) sdf.format(Date(createdAt)) else "—"
+                        val updatedStr = if (updatedAt > 0 && updatedAt != createdAt) "  ·  Updated ${sdf.format(Date(updatedAt))}" else ""
+                        tvDates.text = "Created: $createdStr$updatedStr"
+                    } catch (e: Exception) {
+                        FirebaseErrorLogger.log(
+                            screen = "ParcelDetailFragment",
+                            action = "loadParcelInfo.onDataChange",
+                            errorMessage = e.stackTraceToString(),
+                            extra = mapOf("parcelId" to parcelId, "scope" to scope)
+                        )
+                    }
                     // Attach the remarks listener only now that currentCreatedAt is set,
                     // so the synthetic "CREATED" entry in renderTimeline() is guaranteed
                     // to be available on the very first render (avoids a race where the
-                    // remarks listener could fire before this callback finishes).
+                    // remarks listener could fire before this callback finishes). Attached
+                    // even if the try block above failed, so the timeline can still work
+                    // independently of the overview card.
                     attachRemarkListener()
                 }
                 override fun onCancelled(e: DatabaseError) {
@@ -207,7 +221,17 @@ class ParcelDetailFragment : Fragment() {
                 // instead of `isAdded` alone.
                 if (!isAdded || view == null) return
                 viewLifecycleOwner.lifecycleScope.launch {
-                    renderTimeline(snap)
+                    try {
+                        renderTimeline(snap)
+                    } catch (e: Exception) {
+                        FirebaseErrorLogger.log(
+                            screen = "ParcelDetailFragment",
+                            action = "renderTimeline",
+                            errorMessage = e.stackTraceToString(),
+                            extra = mapOf("parcelId" to parcelId, "scope" to scope)
+                        )
+                        if (isAdded && view != null) progressBar.visibility = View.GONE
+                    }
                 }
             }
             override fun onCancelled(e: DatabaseError) {}
