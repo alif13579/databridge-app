@@ -73,34 +73,35 @@
                 android:textStyle="bold"
                 android:layout_marginTop="2dp" />
 
-            <TextView
-                android:id="@+id/tvAgtAddress"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="📍 House 12, Mograpara Bazar"
-                android:textSize="11sp"
-                android:textColor="@color/theme_text_secondary"
-                android:layout_marginTop="2dp" />
-        </LinearLayout>
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="2dp">
 
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="end"
-            android:layout_marginStart="10dp">
+                <TextView
+                    android:id="@+id/tvAgtAddress"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📍 House 12, Mograpara Bazar"
+                    android:textSize="11sp"
+                    android:textColor="@color/theme_text_secondary" />
 
-            <TextView
-                android:id="@+id/tvAgtStatusBadge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="✓ Confirmed"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:paddingTop="3dp"
-                android:paddingBottom="3dp" />
+                <TextView
+                    android:id="@+id/tvAgtStatusBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="✓ Confirmed"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:layout_marginStart="8dp" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 

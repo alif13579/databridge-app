@@ -167,7 +167,10 @@ class WorkerParcelAdapter(
                 "💬 ${item.remarks}"
             }
             holder.remarksBox.visibility = View.VISIBLE
-            // Remark background: tinted with status color at ~15% alpha so text stays readable
+            // Remark background: tinted with status color at ~15% alpha so text stays readable.
+            // Always a rounded GradientDrawable (not setBackgroundColor, which draws a flat
+            // square and wipes out the 8dp corner radius bg_remark_chip.xml intends).
+            val density = ctx.resources.displayMetrics.density
             if (remarkColor != null) {
                 val tintedBg = android.graphics.Color.argb(
                     38, // ~15% alpha
@@ -175,12 +178,16 @@ class WorkerParcelAdapter(
                     android.graphics.Color.green(remarkColor),
                     android.graphics.Color.blue(remarkColor)
                 )
-                holder.remarksBox.setBackgroundColor(tintedBg)
+                holder.remarksBox.background = GradientDrawable().apply {
+                    cornerRadius = 8f * density
+                    setColor(tintedBg)
+                }
                 holder.tvRemarks.setTextColor(remarkColor)
             } else {
-                holder.remarksBox.setBackgroundResource(android.R.color.transparent)
-                val fallbackBg = ctx.getColor(R.color.theme_bg_inner)
-                holder.remarksBox.setBackgroundColor(fallbackBg)
+                holder.remarksBox.background = GradientDrawable().apply {
+                    cornerRadius = 8f * density
+                    setColor(ctx.getColor(R.color.theme_bg_inner))
+                }
                 holder.tvRemarks.setTextColor(ctx.getColor(R.color.theme_text_secondary))
             }
             // Elapsed time since this specific remark was left — lets the worker see at a
