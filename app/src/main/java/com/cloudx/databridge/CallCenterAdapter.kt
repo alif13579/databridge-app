@@ -19,7 +19,10 @@ class CallCenterAdapter(
     private val onCall: (CallCenterParcelItem) -> Unit,
     private val onSetRemarks: (CallCenterParcelItem) -> Unit,
     private val onLongPress: (CallCenterParcelItem) -> Unit,
-    private val onGroupClick: ((WorkerGroup) -> Unit)? = null
+    private val onGroupClick: ((WorkerGroup) -> Unit)? = null,
+    /** Fired when a card transitions collapsed -> expanded — see WorkerParcelAdapter's
+     *  matching parameter / EngagedStateManager's doc comment. */
+    private val onExpand: (CallCenterParcelItem) -> Unit = {}
 ) : ListAdapter<CallCenterAdapter.Row, RecyclerView.ViewHolder>(RowDiff()) {
 
     var expandedItemId: String? = null
@@ -91,10 +94,14 @@ class CallCenterAdapter(
     fun isCardRow(position: Int): Boolean = currentList.getOrNull(position) is Row.CardRow
 
     private fun toggleExpanded(id: String) {
+        val wasCollapsed = expandedItemId != id
         expandedItemId = if (expandedItemId == id) null else id
         // Rebuild rows with updated isExpanded flags from the currently shown list.
         val parcels = currentList.filterIsInstance<Row.CardRow>().map { it.parcel }
         submitParcels(parcels)
+        if (wasCollapsed) {
+            parcels.firstOrNull { it.id == id }?.let { onExpand(it) }
+        }
     }
 
     override fun getItemViewType(position: Int): Int = when (getItem(position)) {
@@ -157,6 +164,7 @@ class CallCenterAdapter(
         private val remarksBox: View = view.findViewById(R.id.layoutAgtRemarksBox)
         private val tvRemarks: TextView = view.findViewById(R.id.tvAgtRemarks)
         private val tvRemarksTime: TextView = view.findViewById(R.id.tvAgtRemarksTime)
+        private val engagedRing: EngagedRingView = view.findViewById(R.id.viewEngagedRing)
         private val layoutActions: LinearLayout = view.findViewById(R.id.layoutAgtActions)
         private val btnCall: TextView = view.findViewById(R.id.btnAgtCall)
         private val btnSetRemarks: TextView = view.findViewById(R.id.btnAgtSetRemarks)
@@ -232,6 +240,14 @@ class CallCenterAdapter(
                 }
             } else {
                 remarksBox.visibility = View.GONE
+            }
+
+            // Engaged ring — spins while someone (either side) has this parcel's card expanded
+            // and that engagement hasn't gone stale (see EngagedStateManager).
+            if (EngagedStateManager.isFresh(item.engagedAt)) {
+                engagedRing.start()
+            } else {
+                engagedRing.stop()
             }
 
             layoutActions.visibility = if (isExpanded) View.VISIBLE else View.GONE

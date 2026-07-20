@@ -196,4 +196,13 @@
     </LinearLayout>
 
     </LinearLayout>
+
+    <!-- Rotating gradient ring — shown when someone has this parcel's card expanded
+         (see EngagedStateManager). Must be the LAST child so it draws on top of everything
+         else, including the age badge. -->
+    <com.cloudx.databridge.EngagedRingView
+        android:id="@+id/viewEngagedRing"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
 </FrameLayout>

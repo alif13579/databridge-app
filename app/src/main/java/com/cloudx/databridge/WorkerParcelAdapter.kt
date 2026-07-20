@@ -32,6 +32,10 @@ data class WorkerParcelItem(
     val remarksAt: Long = 0L,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
+    /** courier/remarks_by_consignment/{id}/engaged_at's timestamp — 0 if nobody has this
+     *  parcel's card open right now (or that engagement has gone stale). See
+     *  EngagedStateManager for the write/clear/staleness logic this is populated from. */
+    val engagedAt: Long = 0L,
     val attemptCount: Int = 0,
     val history: List<HistoryEntry> = emptyList()
 )
@@ -59,7 +63,11 @@ data class HistoryEntry(
 class WorkerParcelAdapter(
     private val onCall: (WorkerParcelItem) -> Unit,
     private val onSetRemarks: (WorkerParcelItem) -> Unit,
-    private val onLongPress: (WorkerParcelItem) -> Unit
+    private val onLongPress: (WorkerParcelItem) -> Unit,
+    /** Fired when a card transitions collapsed -> expanded (not on collapse — see
+     *  EngagedStateManager's doc comment for why). Fragment supplies current-user info since
+     *  the adapter itself has no access to who's logged in. */
+    private val onExpand: (WorkerParcelItem) -> Unit = {}
 ) : ListAdapter<WorkerParcelItem, WorkerParcelAdapter.Holder>(Diff()) {
 
     var expandedItemId: String? = null
@@ -77,6 +85,7 @@ class WorkerParcelAdapter(
         val remarksBox: View = view.findViewById(R.id.layoutParcelRemarksBox)
         val tvRemarks: TextView = view.findViewById(R.id.tvParcelRemarks)
         val tvRemarksTime: TextView = view.findViewById(R.id.tvParcelRemarksTime)
+        val engagedRing: EngagedRingView = view.findViewById(R.id.viewEngagedRing)
 
         val tvCcRemarkBlock: View = view.findViewById(R.id.layoutCcRemarkBlock)
         val tvCcRemarkLabel: TextView = view.findViewById(R.id.tvCcRemarkLabel)
@@ -197,6 +206,14 @@ class WorkerParcelAdapter(
             holder.remarksBox.visibility = View.GONE
         }
 
+        // Engaged ring — spins while someone (either side) has this parcel's card expanded
+        // and that engagement hasn't gone stale (see EngagedStateManager).
+        if (EngagedStateManager.isFresh(item.engagedAt)) {
+            holder.engagedRing.start()
+        } else {
+            holder.engagedRing.stop()
+        }
+
         // Card border: colored when there's a remark, default otherwise
         // FrameLayout children: 0=viewGroupStripe, 1=tvParcelAge, 2=card LinearLayout
         val cardInnerLayout = (holder.itemView as? android.view.ViewGroup)?.getChildAt(2)
@@ -250,6 +267,7 @@ class WorkerParcelAdapter(
                 expandedItemId = item.id
                 previousExpandedPosition = position
                 notifyItemChanged(position)
+                onExpand(item)
                 // Collapse previously expanded item (if any)
                 if (previousId != null && previousPos != null && previousPos != position) {
                     notifyItemChanged(previousPos)

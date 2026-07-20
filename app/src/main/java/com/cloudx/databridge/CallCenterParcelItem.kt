@@ -25,6 +25,10 @@ data class CallCenterParcelItem(
     val remarksAt: Long = 0L,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
+    /** courier/remarks_by_consignment/{id}/engaged_at's timestamp — 0 if nobody has this
+     *  parcel's card open right now (or that engagement has gone stale). See
+     *  EngagedStateManager for the write/clear/staleness logic this is populated from. */
+    val engagedAt: Long = 0L,
     val attemptCount: Int = 0,
     val history: List<HistoryEntry> = emptyList()
 ) {

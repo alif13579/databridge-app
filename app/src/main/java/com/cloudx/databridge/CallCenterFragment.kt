@@ -569,7 +569,16 @@ class CallCenterFragment : Fragment() {
                 pushCallStates()
             },
             onSetRemarks = { item -> showRemarksDialog(item) },
-            onLongPress = { item -> showActionHistoryDialog(item) }
+            onLongPress = { item -> showActionHistoryDialog(item) },
+            onExpand = { item ->
+                val user = FirebaseAuth.getInstance().currentUser
+                EngagedStateManager.markEngaged(
+                    consignmentId = item.id,
+                    agentUid = user?.uid.orEmpty(),
+                    agentName = user?.displayName.orEmpty().ifBlank { "CC Agent" },
+                    agentRole = "cc"
+                )
+            }
         )
         adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()
         rvParcelList.layoutManager = LinearLayoutManager(requireContext())
@@ -1619,6 +1628,7 @@ class CallCenterFragment : Fragment() {
                                 remarksAt         = latestTodayEntry?.child("createdAt")?.getValue(Long::class.java) ?: 0L,
                                 createdAt         = createdAtVal,
                                 updatedAt         = updatedAtVal,
+                                engagedAt         = remarksSnap.child("engaged_at/timestamp").getValue(Long::class.java) ?: 0L,
                                 attemptCount      = attemptVal
                             ),
                             remarksSnap,
@@ -1852,6 +1862,7 @@ class CallCenterFragment : Fragment() {
                                     validationRequest = isVerifyRequestStatus(liveRemarkStatus),
                                     validationNote = if (isVerifyRequestStatus(liveRemarkStatus)) latestRemarkNote else "",
                                     remarksAt = latestTodayForBadge?.child("createdAt")?.getValue(Long::class.java) ?: 0L,
+                                    engagedAt = snapshot.child("engaged_at/timestamp").getValue(Long::class.java) ?: 0L,
                                     history = history
                                 )
                             }
@@ -2092,6 +2103,7 @@ class CallCenterFragment : Fragment() {
                     )
                     Toast.makeText(requireContext(), "⚠ Remark save হয়নি: ${e.message}", Toast.LENGTH_LONG).show()
                 }
+            EngagedStateManager.clearEngaged(item.id)
 
             // Parcel status (courier/consignments/{id}/status) is a SEPARATE concept from
             // remark status and is NEVER written/changed from here — only the remark's own
