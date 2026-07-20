@@ -33,6 +33,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -42,6 +43,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class CallCenterFragment : Fragment() {
 
@@ -69,6 +71,13 @@ class CallCenterFragment : Fragment() {
     private var autoCallGapSeconds = 8
     private var autoCallJob: Job? = null
     private var searchJob: Job? = null  // ✅ Fix #8: Search debounce job
+
+    // Waits for the agent to actually return to this screen (call ended/dismissed)
+    // before dialing the next number, instead of guessing with a fixed delay.
+    // Permission-free: relies on onPause→onResume, not real telephony call state.
+    private var resumeSignal: CompletableDeferred<Unit>? = null
+    private var hasPausedSincePendingDial = false
+    private val AUTO_CALL_RETURN_TIMEOUT_MS = 5 * 60 * 1000L // safety net if the signal never arrives
 
     // ── Auto Call filter preference ──────────────────────────────────
     // "status" = only cards whose status is in autoCallStatuses go into the queue.
@@ -162,6 +171,23 @@ class CallCenterFragment : Fragment() {
 
     // Run ID shape: run_{ddmmyy}_{employeeId} — ddmmyy is always exactly 6 zero-padded digits.
     private val RUN_ID_PATTERN = Regex("^run_(\\d{6})_(.+)$")
+
+    override fun onPause() {
+        super.onPause()
+        // Only meaningful while an auto-call is pending a return signal (see startAutoCall).
+        if (resumeSignal != null) hasPausedSincePendingDial = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Require an intervening onPause so this doesn't fire from the same resumed
+        // state the dial happened in (e.g. an OEM call overlay that never backgrounds us).
+        if (resumeSignal != null && hasPausedSincePendingDial) {
+            resumeSignal?.complete(Unit)
+            resumeSignal = null
+            hasPausedSincePendingDial = false
+        }
+    }
 
     override fun onDestroyView() {
         // ✅ Fix #8: Cancel pending search debounce job
@@ -520,7 +546,17 @@ class CallCenterFragment : Fragment() {
 
                 AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
                 autoCallIndex++
-                delay(autoCallGapSeconds * 1000L)
+
+                // Wait until the agent actually comes back to this screen (call ended or
+                // dismissed) rather than assuming it wraps up within autoCallGapSeconds —
+                // a real call very often runs longer than that fixed window.
+                hasPausedSincePendingDial = false
+                val deferred = CompletableDeferred<Unit>()
+                resumeSignal = deferred
+                withTimeoutOrNull(AUTO_CALL_RETURN_TIMEOUT_MS) { deferred.await() }
+                resumeSignal = null
+
+                delay(autoCallGapSeconds * 1000L) // short breather once back, before the next dial
             }
             // Finished the whole queue — mark the last item done too.
             if (isAdded) {
@@ -547,6 +583,8 @@ class CallCenterFragment : Fragment() {
     private fun pauseAutoCall() {
         autoCallJob?.cancel()
         autoCallJob = null
+        resumeSignal = null
+        hasPausedSincePendingDial = false
         settleGlowStatesOnHalt()
         btnAutoCallStartPause.text = "▶ Start"
     }
@@ -554,6 +592,8 @@ class CallCenterFragment : Fragment() {
     private fun stopAutoCall() {
         autoCallJob?.cancel()
         autoCallJob = null
+        resumeSignal = null
+        hasPausedSincePendingDial = false
         settleGlowStatesOnHalt()
         autoCallQueue = emptyList()
         autoCallQueueIds = emptyList()
