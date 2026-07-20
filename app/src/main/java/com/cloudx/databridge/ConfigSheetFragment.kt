@@ -49,226 +49,231 @@ import java.util.concurrent.TimeUnit
  */
 class ConfigSheetFragment : Fragment() {
 
-    private val db   = FirebaseDatabase.getInstance()
-    private val auth = FirebaseAuth.getInstance()
+    internal val db   = FirebaseDatabase.getInstance()
+    internal val auth = FirebaseAuth.getInstance()
 
-    private val httpClient: OkHttpClient by lazy {
+    internal val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .build()
     }
 
-    private var googleSignInClient: GoogleSignInClient? = null
+    internal var googleSignInClient: GoogleSignInClient? = null
 
     // ── State machine ─────────────────────────────────────────────────
     // (ConfigScreen / ConfigPrimaryAction enums → ConfigSheetModels.kt)
-    private var screen       = ConfigScreen.BRANCH_SELECT
-    private var activeBranch = ""
-    private var connectStep  = 1   // 1=Account  2=Sheet  3=Tab  4=Columns
+    internal var screen       = ConfigScreen.BRANCH_SELECT
+    internal var activeBranch = ""
+    internal var connectStep  = 1   // 1=Account  2=Sheet  3=Tab  4=Columns
 
-    private var branches:    List<String>                  = emptyList()
-    private var branchInfos: Map<String, BranchInfo>       = emptyMap()
-    private var connections: MutableMap<String, MutableList<SheetConn>> = mutableMapOf()
-    private var activeConnectionId = ""   // connectionId of the conn being managed
+    internal var branches:    List<String>                  = emptyList()
+    internal var branchInfos: Map<String, BranchInfo>       = emptyMap()
+    internal var connections: MutableMap<String, MutableList<SheetConn>> = mutableMapOf()
+    internal var activeConnectionId = ""   // connectionId of the conn being managed
 
     // ── Connect flow state (mirrors JSX) ──────────────────────────────
-    private var googleAccount:    GoogleSignInAccount? = null
-    private var availableSheets:  List<DriveFile>      = emptyList()
-    private var selectedSheet:    DriveFile?           = null
-    private var availableTabs:    List<String>         = emptyList()
-    private var selectedTab:      String               = ""
+    internal var googleAccount:    GoogleSignInAccount? = null
+    internal var availableSheets:  List<DriveFile>      = emptyList()
+    internal var selectedSheet:    DriveFile?           = null
+    internal var availableTabs:    List<String>         = emptyList()
+    internal var selectedTab:      String               = ""
 
     // ── Views ─────────────────────────────────────────────────────────
-    private var root: FrameLayout? = null
+    internal var root: FrameLayout? = null
 
     /* Branch select panel */
-    private var panelBranch:     View? = null
-    private var tvBranchLabel:   TextView? = null
-    private var spinnerBranch:   Spinner? = null
-    private var tvSingleBranch:  TextView? = null
-    private var tvBranchEmpty:   TextView? = null
-    private var layoutBranchTabs:     View? = null
-    private var tabBranchConnected:   TextView? = null
-    private var tabBranchUnconnected: TextView? = null
-    private var activeBranchTab = "connected" // "connected" | "unconnected"
-    private var expandedBranch: String? = null  // accordion: which branch is expanded
-    private var cardBranchInfo:  LinearLayout? = null
-    private var tvBranchInfoName: TextView? = null
-    private var tvBranchInfoCode: TextView? = null
-    private var tvBranchInfoAddress: TextView? = null
-    private var tvBranchInfoType: TextView? = null
-    private var tvBranchInfoStatus: TextView? = null
-    private var cardConnInfo:    LinearLayout? = null
-    private var tvConnInfoSheet: TextView? = null
-    private var tvConnInfoTab:   TextView? = null
-    private var tvConnInfoCols:  TextView? = null
-    private var btnBranchAction: Button? = null
-    private var sheetBusyOverlay: View? = null
-    private var tvSheetBusy: TextView? = null
+    internal var panelBranch:     View? = null
+    internal var tvBranchLabel:   TextView? = null
+    internal var spinnerBranch:   Spinner? = null
+    internal var tvSingleBranch:  TextView? = null
+    internal var tvBranchEmpty:   TextView? = null
+    internal var layoutBranchTabs:     View? = null
+    internal var tabBranchConnected:   TextView? = null
+    internal var tabBranchUnconnected: TextView? = null
+    internal var activeBranchTab = "connected" // "connected" | "unconnected"
+    internal var expandedBranch: String? = null  // accordion: which branch is expanded
+    internal var cardBranchInfo:  LinearLayout? = null
+    internal var tvBranchInfoName: TextView? = null
+    internal var tvBranchInfoCode: TextView? = null
+    internal var tvBranchInfoAddress: TextView? = null
+    internal var tvBranchInfoType: TextView? = null
+    internal var tvBranchInfoStatus: TextView? = null
+    internal var cardConnInfo:    LinearLayout? = null
+    internal var tvConnInfoSheet: TextView? = null
+    internal var tvConnInfoTab:   TextView? = null
+    internal var tvConnInfoCols:  TextView? = null
+    internal var btnBranchAction: Button? = null
+    internal var sheetBusyOverlay: View? = null
+    internal var tvSheetBusy: TextView? = null
     // Branch sections
-    private var sectionConnected:          LinearLayout? = null
-    private var containerConnectedBranches: LinearLayout? = null
-    private var sectionUnconnected:        LinearLayout? = null
+    internal var sectionConnected:          LinearLayout? = null
+    internal var containerConnectedBranches: LinearLayout? = null
+    internal var sectionUnconnected:        LinearLayout? = null
 
     /* ConnectFlow */
-    private var panelConnect:        View? = null
-    private var tvConnBranchSub:     TextView? = null
-    private var step1Dot:  TextView? = null; private var step2Dot:  TextView? = null
-    private var step3Dot:  TextView? = null; private var step4Dot:  TextView? = null; private var step5Dot: TextView? = null
-    private var step1Line: View? = null; private var step2Line: View? = null; private var step3Line: View? = null; private var step4Line: View? = null
-    private var step1Lbl:  TextView? = null; private var step2Lbl:  TextView? = null
-    private var step3Lbl:  TextView? = null; private var step4Lbl:  TextView? = null; private var step5Lbl: TextView? = null
-    private var stepView1: View? = null; private var stepView2: View? = null
-    private var stepView3: View? = null; private var stepView4: View? = null; private var stepView5: View? = null
-    private var containerMapping: android.widget.LinearLayout? = null
-    private var tvNodeBreadcrumb: TextView? = null
-    private var containerNodeDropdowns: android.widget.LinearLayout? = null
-    private var layoutCreateNewNode: View? = null
-    private var etNewNodeName: EditText? = null
-    private var btnConfirmNewNode: Button? = null
-    private var btnCancelNewNode: Button? = null
-    private var btnResetNodePicker: TextView? = null
+    internal var panelConnect:        View? = null
+    internal var tvConnBranchSub:     TextView? = null
+    internal var step1Dot:  TextView? = null; private var step2Dot:  TextView? = null
+    internal var step3Dot:  TextView? = null; private var step4Dot:  TextView? = null; private var step5Dot: TextView? = null
+    internal var step1Line: View? = null; private var step2Line: View? = null; private var step3Line: View? = null; private var step4Line: View? = null
+    internal var step1Lbl:  TextView? = null; private var step2Lbl:  TextView? = null
+    internal var step3Lbl:  TextView? = null; private var step4Lbl:  TextView? = null; private var step5Lbl: TextView? = null
+    internal var stepView1: View? = null; private var stepView2: View? = null
+    internal var stepView3: View? = null; private var stepView4: View? = null; private var stepView5: View? = null
+    internal var containerMapping: android.widget.LinearLayout? = null
+    internal var tvNodeBreadcrumb: TextView? = null
+    internal var containerNodeDropdowns: android.widget.LinearLayout? = null
+    internal var layoutCreateNewNode: View? = null
+    internal var etNewNodeName: EditText? = null
+    internal var btnConfirmNewNode: Button? = null
+    internal var btnCancelNewNode: Button? = null
+    internal var btnResetNodePicker: TextView? = null
 
     // Path segments chosen so far, e.g. ["run_routes", "delivery_run"]
-    private var nodePickerPath = mutableListOf<String>()
+    internal var nodePickerPath = mutableListOf<String>()
     // Beyond this many children, a level is treated as a dynamic-key collection (e.g. run IDs)
     // rather than a meaningful category list — offer the tree preview instead of a dropdown.
-    private val MAX_DRILLABLE_CHILDREN = 15
+    internal val MAX_DRILLABLE_CHILDREN = 15
     // Hidden marker child written under a "+ Create New" node so the otherwise-empty node
     // physically persists in courier/ (Firebase drops childless nodes) and shows up on the
     // next shallow fetch. Filtered out of every wizard listing/preview so it's never shown
     // as a selectable child, an example record, or a mappable field.
-    private val NODE_META_KEY = "__meta__"
+    internal val NODE_META_KEY = "__meta__"
     // Deepest dropdown row currently rendered — advanced only via the "+ Next level?" button,
     // so a new dropdown never appears automatically after a selection/confirm.
-    private var nodePickerRevealedDepth = 0
+    internal var nodePickerRevealedDepth = 0
     // True once the user has explicitly confirmed a target node (via the tree-preview "Yes"
     // button, the true-leaf auto-commit, "+ Create New", or the manual Fetch Fields button).
     // Primary Key / Fields sections stay hidden until this is true.
-    private var nodeMappingConfirmed = false
+    internal var nodeMappingConfirmed = false
     // Cache of fetched children per path (path joined with "/" -> list of child keys)
-    private val nodeChildrenCache = mutableMapOf<String, List<String>>()
+    internal val nodeChildrenCache = mutableMapOf<String, List<String>>()
     // Registry of node paths "created" via the wizard's "+ Create New" box but not yet
     // holding real synced data — so they still show up in the picker dropdown next time
     // instead of vanishing (Firebase treats an empty node as non-existent). Stored OUTSIDE
     // courier/ entirely (config/known_nodes) so it never pollutes the actual data tree that
     // CallCenterFragment/WorkerSpaceFragment iterate as real consignment/run records.
     // null = not yet loaded this session; loaded once and cached.
-    private var knownNodePaths: MutableList<String>? = null
-    private var courierChildNodes: List<String> = emptyList()
-    private var etTargetNode:     EditText? = null
-    private var btnFetchFields:   android.widget.Button? = null
-    private var pbFetchFields:    ProgressBar? = null
-    private var tvFetchStatus:    TextView? = null
-    private var btnAddMappingField: TextView? = null
-    private var spinnerPrimaryKey: Spinner? = null  // LEGACY — no longer bound, kept to avoid touching unrelated code
-    private var containerPkBuilder: android.widget.LinearLayout? = null
-    private var btnAddPkPart: TextView? = null
-    private var tvPkPreview: TextView? = null
+    internal var knownNodePaths: MutableList<String>? = null
+    internal var courierChildNodes: List<String> = emptyList()
+    // Moved here from mid-file (was declared just above fetchChildKeysAt) as part of the
+    // ConfigSheetNodePicker.kt module split — extension functions can't hold their own
+    // backing-field state, so these two stay on the fragment like the rest of node-picker state.
+    internal var nodePreviewData: Map<String, String> = emptyMap()
+    internal var nodePreviewExpanded = true
+    internal var etTargetNode:     EditText? = null
+    internal var btnFetchFields:   android.widget.Button? = null
+    internal var pbFetchFields:    ProgressBar? = null
+    internal var tvFetchStatus:    TextView? = null
+    internal var btnAddMappingField: TextView? = null
+    internal var spinnerPrimaryKey: Spinner? = null  // LEGACY — no longer bound, kept to avoid touching unrelated code
+    internal var containerPkBuilder: android.widget.LinearLayout? = null
+    internal var btnAddPkPart: TextView? = null
+    internal var tvPkPreview: TextView? = null
 
     // Step 1 - Account picker
-    private var cardSelectedAccount:   View? = null
-    private var tvSelectedAccountName: TextView? = null
-    private var tvSelectedAccountEmail:TextView? = null
-    private var btnPickAccount:        View? = null
-    private var tvPickAccountLabel:    TextView? = null
+    internal var cardSelectedAccount:   View? = null
+    internal var tvSelectedAccountName: TextView? = null
+    internal var tvSelectedAccountEmail:TextView? = null
+    internal var btnPickAccount:        View? = null
+    internal var tvPickAccountLabel:    TextView? = null
 
     // Step 2 - Sheet picker (searchable dialog)
-    private var tvSelectedSheet: TextView? = null
-    private var pbSheetLoad:     ProgressBar? = null
+    internal var tvSelectedSheet: TextView? = null
+    internal var pbSheetLoad:     ProgressBar? = null
 
     // Step 3 - Tab spinner
-    private var spinnerTab: Spinner? = null
-    private var pbTabLoad:  ProgressBar? = null
+    internal var spinnerTab: Spinner? = null
+    internal var pbTabLoad:  ProgressBar? = null
 
     // Step 4 - column range + live preview + summary
-    private var etColStart:      EditText? = null
-    private var etColEnd:        EditText? = null
-    private var btnDefineRow:    TextView? = null
-    private var layoutRowRange:  View? = null
-    private var etStartRow:      EditText? = null
-    private var etEndRow:        EditText? = null
-    private var isRowRangeVisible = false
-    private var tvColPreview:    TextView? = null
-    private var tvLivePreview:   TextView? = null
-    private var scrollLivePreview: HorizontalScrollView? = null
-    private var tableLivePreview: TableLayout? = null
-    private var pbPreviewLoad:   ProgressBar? = null
-    private var pbColPreviewMgr: ProgressBar? = null
-    private var tvSummary:       TextView? = null
+    internal var etColStart:      EditText? = null
+    internal var etColEnd:        EditText? = null
+    internal var btnDefineRow:    TextView? = null
+    internal var layoutRowRange:  View? = null
+    internal var etStartRow:      EditText? = null
+    internal var etEndRow:        EditText? = null
+    internal var isRowRangeVisible = false
+    internal var tvColPreview:    TextView? = null
+    internal var tvLivePreview:   TextView? = null
+    internal var scrollLivePreview: HorizontalScrollView? = null
+    internal var tableLivePreview: TableLayout? = null
+    internal var pbPreviewLoad:   ProgressBar? = null
+    internal var pbColPreviewMgr: ProgressBar? = null
+    internal var tvSummary:       TextView? = null
 
     // Nav buttons
-    private var btnBack:    Button? = null
-    private var btnNext:    Button? = null
-    private var btnConnect: Button? = null
-    private var btnCancelConn: View? = null
-    private var etNickname:    EditText? = null
-    private var tvConnError: TextView? = null
+    internal var btnBack:    Button? = null
+    internal var btnNext:    Button? = null
+    internal var btnConnect: Button? = null
+    internal var btnCancelConn: View? = null
+    internal var etNickname:    EditText? = null
+    internal var tvConnError: TextView? = null
 
     /* ManagePanel */
-    private var panelManage:     View? = null
-    private var tvManageBranch:  TextView? = null
-    private var spinnerManageBranch: Spinner? = null
-    private var tabOverview:     TextView? = null; private var tabColumns: TextView? = null; private var tabSync: TextView? = null
-    private var indOverview:     View? = null;     private var indColumns: View? = null;     private var indSync: View? = null
-    private var cardOverview:    View? = null
-    private var cardColumns:     View? = null
-    private var cardSync:        View? = null
-    private var tvOvSheet:       TextView? = null; private var tvOvTab: TextView? = null; private var tvOvCols: TextView? = null
-    private var tvColPreviewMgr:     TextView? = null
-    private var scrollColPreviewMgr: android.widget.HorizontalScrollView? = null
-    private var tableColPreviewMgr:  android.widget.TableLayout? = null
-    private var btnColChange:    Button? = null
-    private var btnManReconnect: Button? = null;   private var btnManDisconn: Button? = null
-    private var btnManBack:      View? = null
-    private var btnSyncNow:      Button? = null
-    private var switchAutoSync:  android.widget.Switch? = null
-    private var btnSyncGear:     android.widget.ImageView? = null
-    private var tvSyncIntervalLabel: TextView? = null
-    private var tvLastSynced:    TextView? = null
+    internal var panelManage:     View? = null
+    internal var tvManageBranch:  TextView? = null
+    internal var spinnerManageBranch: Spinner? = null
+    internal var tabOverview:     TextView? = null; private var tabColumns: TextView? = null; private var tabSync: TextView? = null
+    internal var indOverview:     View? = null;     private var indColumns: View? = null;     private var indSync: View? = null
+    internal var cardOverview:    View? = null
+    internal var cardColumns:     View? = null
+    internal var cardSync:        View? = null
+    internal var tvOvSheet:       TextView? = null; private var tvOvTab: TextView? = null; private var tvOvCols: TextView? = null
+    internal var tvColPreviewMgr:     TextView? = null
+    internal var scrollColPreviewMgr: android.widget.HorizontalScrollView? = null
+    internal var tableColPreviewMgr:  android.widget.TableLayout? = null
+    internal var btnColChange:    Button? = null
+    internal var btnManReconnect: Button? = null;   private var btnManDisconn: Button? = null
+    internal var btnManBack:      View? = null
+    internal var btnSyncNow:      Button? = null
+    internal var switchAutoSync:  android.widget.Switch? = null
+    internal var btnSyncGear:     android.widget.ImageView? = null
+    internal var tvSyncIntervalLabel: TextView? = null
+    internal var tvLastSynced:    TextView? = null
 
-    private var activeManageTab = "overview"
-    private var previewJob: kotlinx.coroutines.Job? = null
-    private var isRangeEdit = false   // true = opened from Manage → Positioning, not full reconnect
-    private var selectedNickname = ""   // nickname entered in step 3
+    internal var activeManageTab = "overview"
+    internal var previewJob: kotlinx.coroutines.Job? = null
+    internal var isRangeEdit = false   // true = opened from Manage → Positioning, not full reconnect
+    internal var selectedNickname = ""   // nickname entered in step 3
 
     // Step 5 primary button can behave as Connect (new), Save (edited existing), or Exit Wizard
     // (existing connection reopened with zero changes). Decided centrally in
     // updateConnectButtonState() and read by the click handler.
     // (ConfigPrimaryAction enum → ConfigSheetModels.kt)
-    private var primaryAction = ConfigPrimaryAction.NEW
+    internal var primaryAction = ConfigPrimaryAction.NEW
 
     // Step 5 — column mapping
     // Firebase field → column letter selected by user
-    private val pendingMapping = mutableMapOf<String, ColMapping>()
+    internal val pendingMapping = mutableMapOf<String, ColMapping>()
     // Object-type fields: fieldName → Pair(keySpec, valueSpec)
     // spec format: "col:A" (dynamic, column letter) or "fixed:someText" (constant value)
-    private val pendingObjectMapping = mutableMapOf<String, ObjectColMapping>()
+    internal val pendingObjectMapping = mutableMapOf<String, ObjectColMapping>()
     // Track which custom fields are "object" type (vs default "key"/flat type)
-    private val objectTypeFields = mutableSetOf<String>()
-    private var targetNode = "courier/consignments"
-    private var primaryKeyField = ""  // LEGACY — colLetter selected as node key
+    internal val objectTypeFields = mutableSetOf<String>()
+    internal var targetNode = "courier/consignments"
+    internal var primaryKeyField = ""  // LEGACY — colLetter selected as node key
     // NEW — composite primary key builder state (prefix + column parts, in order)
-    private val pendingPkParts = mutableListOf<PkPart>()
+    internal val pendingPkParts = mutableListOf<PkPart>()
     // Custom fields added manually via "+ Add Field" — fieldName to label
-    private val customMappingFields = mutableListOf<Pair<String, String>>()
+    internal val customMappingFields = mutableListOf<Pair<String, String>>()
     // Headers fetched from sheet (letter → header text)
-    private var sheetHeaders: Map<String, String> = emptyMap()
+    internal var sheetHeaders: Map<String, String> = emptyMap()
     // Once true, we stop auto-adjusting Col End from detected headers — either the user typed
     // in it themselves, or it was restored from an already-saved connection.
-    private var colEndUserModified = false
-    private var isAutoAdjustingColEnd = false
+    internal var colEndUserModified = false
+    internal var isAutoAdjustingColEnd = false
     // First actual data row from the sheet (colLetter -> cell text), used to preview
     // primary key / field mapping with real values instead of placeholders.
-    private var sampleSheetRow: Map<String, String> = emptyMap()
+    internal var sampleSheetRow: Map<String, String> = emptyMap()
 
     // All Firebase fields for orders/
     // Dynamic keys fetched from Firebase node — replaces hardcoded mappingFields
-    private val fetchedNodeKeys = mutableListOf<String>()  // keys from Firebase first record
+    internal val fetchedNodeKeys = mutableListOf<String>()  // keys from Firebase first record
 
     // Activity-result launcher for Google Sign-In
-    private val signInLauncher = registerForActivityResult(
+    internal val signInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result: androidx.activity.result.ActivityResult ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -279,7 +284,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     // Recovery launcher (in case getToken throws UserRecoverableAuthException)
-    private val recoverableLauncher = registerForActivityResult(
+    internal val recoverableLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -318,7 +323,7 @@ class ConfigSheetFragment : Fragment() {
      * remembers, in its OWN SharedPreferences file, the email it last connected with, and
      * only trusts the shared cache when it matches.
      */
-    private val PREFS_FILE_NAME = "sheets_google_account"
+    internal val PREFS_FILE_NAME = "sheets_google_account"
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -336,7 +341,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun bindViews(view: View) {
+    internal fun bindViews(view: View) {
         root            = view.findViewById(R.id.sheetRoot)
 
         // Branch select
@@ -452,7 +457,7 @@ class ConfigSheetFragment : Fragment() {
         tvLastSynced         = view.findViewById(R.id.tvLastSynced)
     }
 
-    private fun attachListeners() {
+    internal fun attachListeners() {
         spinnerBranch?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                 if (pos == 0) {
@@ -574,7 +579,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     // ── Render ────────────────────────────────────────────────────────
-    private fun render() {
+    internal fun render() {
         if (!isAdded) return
         panelBranch?.visibility  = if (screen == ConfigScreen.BRANCH_SELECT) View.VISIBLE else View.GONE
         panelConnect?.visibility = if (screen == ConfigScreen.CONNECTING)    View.VISIBLE else View.GONE
@@ -588,7 +593,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     // ── Branch select ─────────────────────────────────────────────────
-    private fun updateBranchSpinner() {
+    internal fun updateBranchSpinner() {
         val ctx = context ?: return
 
         if (branches.isEmpty()) {
@@ -631,7 +636,7 @@ class ConfigSheetFragment : Fragment() {
         renderBranchSections(ctx, connectedBranches, unconnectedBranches)
     }
 
-    private fun updateBranchTabStyles() {
+    internal fun updateBranchTabStyles() {
         val activeColor   = android.graphics.Color.parseColor("#E8380D")
         val inactiveColor = context!!.getColor(R.color.theme_text_secondary)
         tabBranchConnected?.setTextColor(
@@ -642,7 +647,7 @@ class ConfigSheetFragment : Fragment() {
         )
     }
 
-    private fun renderBranchSections(
+    internal fun renderBranchSections(
         ctx: android.content.Context,
         connectedBranches: List<String>,
         unconnectedBranches: List<String>
@@ -930,7 +935,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun updateBranchActionCard() {
+    internal fun updateBranchActionCard() {
         val conn = connections[activeBranch]?.firstOrNull()
         if (activeBranch.isEmpty()) {
             btnBranchAction?.visibility = View.GONE
@@ -954,14 +959,14 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun branchLabel(branchId: String): String {
+    internal fun branchLabel(branchId: String): String {
         val info = branchInfos[branchId]
         val name = info?.name?.takeIf { it.isNotBlank() } ?: branchId
         val code = info?.code.orEmpty()
         return if (code.isBlank()) name else "$name ($code)"
     }
 
-    private fun updateSelectedBranchInfo() {
+    internal fun updateSelectedBranchInfo() {
         val info = branchInfos[activeBranch] ?: BranchInfo(id = activeBranch, name = activeBranch)
         cardBranchInfo?.visibility = View.VISIBLE
         tvBranchInfoName?.text = branchLabel(activeBranch)
@@ -973,7 +978,7 @@ class ConfigSheetFragment : Fragment() {
 
 
     // ── ConnectFlow steps ─────────────────────────────────────────────
-    private fun renderConnectStep() {
+    internal fun renderConnectStep() {
         // Step views
         stepView1?.visibility = if (connectStep == 1) View.VISIBLE else View.GONE
         stepView2?.visibility = if (connectStep == 2) View.VISIBLE else View.GONE
@@ -1115,7 +1120,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private val colWatcher = object : android.text.TextWatcher {
+    internal val colWatcher = object : android.text.TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         override fun afterTextChanged(s: android.text.Editable?) {
@@ -1129,10 +1134,10 @@ class ConfigSheetFragment : Fragment() {
 
     /** Parse "A", "a", "1", "AA" etc → 1-based column index */
     // parseColInput / colIndexToLetter → ConfigSheetParseUtil
-    private fun parseColInput(raw: String)  = ConfigSheetParseUtil.parseColInput(raw)
-    private fun colIndexToLetter(n: Int)    = ConfigSheetParseUtil.colIndexToLetter(n)
+    internal fun parseColInput(raw: String)  = ConfigSheetParseUtil.parseColInput(raw)
+    internal fun colIndexToLetter(n: Int)    = ConfigSheetParseUtil.colIndexToLetter(n)
 
-    private fun updateColPreview() {
+    internal fun updateColPreview() {
         val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run {
             tvColPreview?.text = "⚠ শুরু column দিন (A বা 1)"
             return
@@ -1151,7 +1156,7 @@ class ConfigSheetFragment : Fragment() {
         tvColPreview?.text = "Columns: $startLetter ($s) – $endLetter ($e)  ·  মোট $count টি"
     }
 
-    private fun updateSummary() {
+    internal fun updateSummary() {
         val sheetName = selectedSheet?.name ?: ""
         val sheetId   = selectedSheet?.id ?: ""
         val tab       = selectedTab
@@ -1163,7 +1168,7 @@ class ConfigSheetFragment : Fragment() {
         tvSummary?.text = "✅ Summary\n\nAccount: $email\nSheet: $sheetName\nSheet ID: ${if (sheetId.length > 24) sheetId.take(24) + "…" else sheetId}\nTab: $tab\nColumns: $startLetter–$endLetter (${(e - s + 1).coerceAtLeast(1)}টি)\nBranch: ${branchLabel(activeBranch)}"
     }
 
-    private fun scheduleLivePreview() {
+    internal fun scheduleLivePreview() {
         previewJob?.cancel()
         val account = googleAccount ?: run {
             tvLivePreview?.text = "Live preview দেখতে Google account sign in দরকার। Range save করা যাবে।"
@@ -1183,7 +1188,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private suspend fun fetchAndShowLivePreview(
+    internal suspend fun fetchAndShowLivePreview(
         account: GoogleSignInAccount,
         sheetId: String,
         tab: String,
@@ -1303,7 +1308,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun renderLivePreviewTable(
+    internal fun renderLivePreviewTable(
         rows: List<List<String>>,
         colStart: Int,
         colEnd: Int,
@@ -1335,7 +1340,7 @@ class ConfigSheetFragment : Fragment() {
         }
         targetScroll?.visibility = View.VISIBLE
     }
-    private fun fetchManageColPreview() {
+    internal fun fetchManageColPreview() {
         val conn = activeConn() ?: return
         val signInAccount = GoogleSignIn.getLastSignedInAccount(requireContext()) ?: run {
             tvColPreviewMgr?.text = "⚠ Google account দিয়ে reconnect করুন"
@@ -1407,7 +1412,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private suspend fun syncSheetToFirebase(conn: SheetConn) {
+    internal suspend fun syncSheetToFirebase(conn: SheetConn) {
         val ctx = context ?: return
         val account = googleAccount ?: run { toast("Google account নেই"); return }
         val acctObj = account.account ?: return
@@ -1979,10 +1984,10 @@ class ConfigSheetFragment : Fragment() {
      * day-vs-month order can't be reliably determined — better to skip than guess wrong.
      */
     // parseSheetTimestamp / normalizePhone → ConfigSheetParseUtil
-    private fun parseSheetTimestamp(raw: String) = ConfigSheetParseUtil.parseSheetTimestamp(raw)
-    private fun normalizePhone(phone: String)     = ConfigSheetParseUtil.normalizePhone(phone)
+    internal fun parseSheetTimestamp(raw: String) = ConfigSheetParseUtil.parseSheetTimestamp(raw)
+    internal fun normalizePhone(phone: String)     = ConfigSheetParseUtil.normalizePhone(phone)
 
-    private fun renderSyncTab(conn: SheetConn) {
+    internal fun renderSyncTab(conn: SheetConn) {
         switchAutoSync?.setOnCheckedChangeListener(null)
         switchAutoSync?.isChecked = conn.autoSync
         switchAutoSync?.setOnCheckedChangeListener { _, isChecked ->
@@ -1997,7 +2002,7 @@ class ConfigSheetFragment : Fragment() {
         tvLastSynced?.text = "Last sync: কখনো না"
     }
 
-    private fun updateSyncGearState(enabled: Boolean) {
+    internal fun updateSyncGearState(enabled: Boolean) {
         btnSyncGear?.alpha = if (enabled) 1f else 0.4f
         btnSyncGear?.isEnabled = enabled
         tvSyncIntervalLabel?.setTextColor(
@@ -2005,7 +2010,7 @@ class ConfigSheetFragment : Fragment() {
         )
     }
 
-    private fun openIntervalPickerDialog(conn: SheetConn) {
+    internal fun openIntervalPickerDialog(conn: SheetConn) {
         val options = arrayOf("15 মিনিট", "30 মিনিট", "60 মিনিট", "120 মিনিট", "Custom...")
         val values  = intArrayOf(15, 30, 60, 120, -1)
         val current = values.indexOfFirst { it == conn.syncIntervalMin }.let {
@@ -2031,7 +2036,7 @@ class ConfigSheetFragment : Fragment() {
             .show()
     }
 
-    private fun showCustomIntervalInput(conn: SheetConn) {
+    internal fun showCustomIntervalInput(conn: SheetConn) {
         val ctx = context ?: return
         val input = android.widget.EditText(ctx).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
@@ -2060,7 +2065,7 @@ class ConfigSheetFragment : Fragment() {
             .show()
     }
 
-    private fun saveSyncSettings(conn: SheetConn) {
+    internal fun saveSyncSettings(conn: SheetConn) {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val path = "config/sheets/${conn.branchId}/current"
@@ -2075,7 +2080,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** Renders column letter header row in the Manage → Columns tab table */
-    private fun renderManageColTable(colStart: Int, colEnd: Int) {
+    internal fun renderManageColTable(colStart: Int, colEnd: Int) {
         val table = tableColPreviewMgr ?: return
         table.removeAllViews()
         val colCount = (colEnd - colStart + 1).coerceAtLeast(1)
@@ -2086,7 +2091,7 @@ class ConfigSheetFragment : Fragment() {
         scrollColPreviewMgr?.visibility = View.VISIBLE
     }
 
-    private fun tableRow(
+    internal fun tableRow(
         cells: List<String>,
         bgColor: String,
         textColor: String,
@@ -2100,7 +2105,7 @@ class ConfigSheetFragment : Fragment() {
         return row
     }
 
-    private fun tableCell(
+    internal fun tableCell(
         value: String,
         bgColor: String,
         textColor: String,
@@ -2125,7 +2130,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun advanceStep() {
+    internal fun advanceStep() {
         tvConnError?.visibility = View.GONE
         when (connectStep) {
             1 -> {
@@ -2198,12 +2203,12 @@ class ConfigSheetFragment : Fragment() {
         renderConnectStep()
     }
 
-    private fun showErr(msg: String) {
+    internal fun showErr(msg: String) {
         tvConnError?.text = "⚠ $msg"
         tvConnError?.visibility = View.VISIBLE
     }
 
-    private fun handleConnect() {
+    internal fun handleConnect() {
         if (!nodeMappingConfirmed) { showErr("আগে উপরে node পিক করে confirm করুন"); return }
         if (pendingPkParts.isEmpty()) { showErr("Primary key এ কমপক্ষে একটা part (prefix/column) যোগ করুন — required"); return }
         if (pendingPkParts.any { (it.type == "col" || it.type == "date") && it.value.isBlank() }) { showErr("Primary key এর Column/Date part-এ কলাম select করুন"); return }
@@ -2254,7 +2259,7 @@ class ConfigSheetFragment : Fragment() {
     /** Final review before committing — shows target node, primary key format, and every
      *  mapped field with real sample data, so a mistaken mapping is caught before it triggers
      *  a potentially large sync against live Firebase data. */
-    private fun showReviewDialog(conn: SheetConn, isNew: Boolean) {
+    internal fun showReviewDialog(conn: SheetConn, isNew: Boolean) {
         val ctx = context ?: return
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
@@ -2321,7 +2326,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** Actually persists the connection after the user has reviewed and confirmed it. */
-    private fun commitConnection(conn: SheetConn, isNew: Boolean) {
+    internal fun commitConnection(conn: SheetConn, isNew: Boolean) {
         val connList = connections.getOrPut(activeBranch) { mutableListOf() }
         val idx = connList.indexOfFirst { it.connectionId == conn.connectionId }
         if (idx >= 0) connList[idx] = conn else connList.add(conn)
@@ -2347,7 +2352,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun autoDetectMapping() {
+    internal fun autoDetectMapping() {
         val editing = isEditingExistingConn()
         // For a NEW connection, recompute cleanly (original behaviour). For an EXISTING connection
         // being reconnected/edited, NEVER wipe the saved mapping — only fill unmapped gaps, so the
@@ -2374,766 +2379,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private var nodePreviewData: Map<String, String> = emptyMap()
-    private var nodePreviewExpanded = true
-
-    /**
-     * Fetches the immediate child keys under "courier/{relativePath}" (shallow — just key
-     * names, not full data). Cached per-path for the fragment's lifetime.
-     */
-    private suspend fun fetchChildKeysAt(relativePath: String): List<String> {
-        nodeChildrenCache[relativePath]?.let { return it }
-        return try {
-            val idToken = withContext(Dispatchers.IO) {
-                try { auth.currentUser?.getIdToken(false)?.await()?.token } catch (_: Exception) { null }
-            }
-            val rootUrl = db.reference.root.toString().trimEnd('/')
-            val authParam = idToken?.let { "&auth=$it" } ?: ""
-            val fullPath = if (relativePath.isBlank()) "courier" else "courier/$relativePath"
-            val url = "$rootUrl/$fullPath.json?shallow=true$authParam"
-            val body = withContext(Dispatchers.IO) {
-                val req = Request.Builder().url(url).build()
-                httpClient.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) null else resp.body?.string()
-                }
-            }
-            val liveKeys = if (body.isNullOrBlank() || body == "null") {
-                emptyList()
-            } else {
-                val obj = org.json.JSONObject(body)
-                obj.keys().asSequence().filter { it != NODE_META_KEY }.toList()
-            }
-            // Merge in any "known" (created-but-still-empty) direct children of this path
-            // from the registry, so a node created via "+ Create New" doesn't disappear
-            // from the dropdown just because it has no real data yet.
-            val knownChildrenHere = loadKnownNodePaths().mapNotNull { known ->
-                when {
-                    relativePath.isBlank() && !known.contains("/") -> known
-                    known.startsWith("$relativePath/") &&
-                        !known.removePrefix("$relativePath/").contains("/") ->
-                        known.removePrefix("$relativePath/")
-                    else -> null
-                }
-            }
-            val keys = (liveKeys + knownChildrenHere).distinct().sorted()
-            nodeChildrenCache[relativePath] = keys
-            keys
-        } catch (e: Exception) {
-            Log.e("ConfigSheet", "❌ fetchChildKeysAt($relativePath) failed: ${e.message}", e)
-            emptyList()
-        }
-    }
-
-    /** Loads the config/known_nodes registry once per session (cached in [knownNodePaths]) —
-     *  the list of "courier/..." suffixes created via "+ Create New" in the wizard, whether or
-     *  not they hold real data yet. */
-    private suspend fun loadKnownNodePaths(): List<String> {
-        knownNodePaths?.let { return it }
-        val loaded = try {
-            val snap = withContext(Dispatchers.IO) {
-                db.reference.child("config/known_nodes").get().await()
-            }
-            snap.children.mapNotNull { it.getValue(String::class.java) }.toMutableList()
-        } catch (e: Exception) {
-            mutableListOf()
-        }
-        knownNodePaths = loaded
-        return loaded
-    }
-
-    /** Registers [relativePath] (e.g. "run_routes" or "run_routes/delivery_run") in the
-     *  config/known_nodes registry — called when the user confirms a brand-new node via
-     *  "+ Create New" so it survives being empty and still shows up in the dropdown on the
-     *  next render/session, without writing any placeholder into courier/ itself. Invalidates
-     *  the parent path's cached child list so the new node appears immediately. */
-    private suspend fun registerKnownNode(relativePath: String) {
-        if (relativePath.isBlank()) return
-        val current = loadKnownNodePaths()
-        if (relativePath in current) return // already known — nothing to do
-        val sanitizedKey = relativePath.replace(Regex("[./#$\\[\\]]"), "_")
-        // '/' is deliberately in that char class — without sanitizing it, Firebase's child()
-        // would interpret a key containing '/' as a NESTED path (e.g. "run_routes/delivery_run"
-        // would create config/known_nodes/run_routes/delivery_run as a tree, not a flat key),
-        // breaking loadKnownNodePaths()'s assumption that each registry entry is a leaf String.
-        try {
-            withContext(Dispatchers.IO) {
-                db.reference.child("config/known_nodes/$sanitizedKey").setValue(relativePath).await()
-            }
-        } catch (e: Exception) {
-            Log.e("ConfigSheet", "❌ registerKnownNode($relativePath) failed: ${e.message}", e)
-        }
-        knownNodePaths?.add(relativePath)
-        val parentPath = relativePath.substringBeforeLast("/", "")
-        nodeChildrenCache.remove(parentPath)
-        // courierChildNodes is a separately-cached snapshot of the root listing (used directly
-        // by renderNodePicker()'s depth-0 dropdown) — refresh it too so a newly created
-        // top-level node (or any node, cheaply, since this just re-reads the now-invalidated
-        // or already-correct cache) is visible immediately if the user unlocks and re-opens
-        // the picker in the same session.
-        courierChildNodes = fetchChildKeysAt("")
-    }
-
-    /** Kicks off the hierarchical node picker by loading courier/'s top-level children. */
-    private fun fetchCourierChildNodes() {
-        viewLifecycleOwner.lifecycleScope.launch {
-            courierChildNodes = fetchChildKeysAt("")
-            if (isAdded) initNodePicker()
-        }
-    }
-
-    /** Sets up the picker: restores existing targetNode path if any, else starts fresh. */
-    private fun initNodePicker() {
-        val existingSuffix = etTargetNode?.text?.toString()?.trim()?.trim('/') ?: ""
-        nodePickerPath = if (existingSuffix.isNotBlank()) {
-            existingSuffix.split("/").filter { it.isNotBlank() }.toMutableList()
-        } else {
-            mutableListOf()
-        }
-        // If editing an already-saved target node, keep its whole path visible (no need to
-        // re-click "+ Next level?" for levels that were already picked before), and treat it
-        // as already confirmed since its fields were presumably mapped previously.
-        nodePickerRevealedDepth = (nodePickerPath.size - 1).coerceAtLeast(0)
-        nodeMappingConfirmed = nodePickerPath.isNotEmpty()
-        btnResetNodePicker?.setOnClickListener {
-            nodePickerPath.clear()
-            nodePickerRevealedDepth = 0
-            nodeMappingConfirmed = false
-            layoutCreateNewNode?.visibility = View.GONE
-            renderNodePicker()
-        }
-        renderNodePicker()
-    }
-
-    private fun updateBreadcrumb() {
-        val ctx = context ?: return
-        if (nodePickerPath.isEmpty()) {
-            tvNodeBreadcrumb?.text = "courier/ —"
-            return
-        }
-        tvNodeBreadcrumb?.text = "courier/" + nodePickerPath.joinToString("/")
-    }
-
-    /** Commits the currently built path as the target node and triggers field auto-detect. */
-    private fun commitNodePath() {
-        val suffix = nodePickerPath.joinToString("/")
-        etTargetNode?.setText(suffix)
-        val fullNode = "courier/$suffix"
-        targetNode = fullNode
-        updateBreadcrumb()
-        fetchNodeKeys(fullNode)
-    }
-
-    /**
-     * Renders one dropdown per revealed depth level of nodePickerPath. A new depth's dropdown
-     * only appears after the user taps "+ Next level?" below the deepest one — it never shows
-     * automatically just because a selection (or confirm) happened. Once the deepest selection
-     * has children, a single tree-preview + confirm box is shown at the bottom (not repeated
-     * per depth) so the user can lock in that node as the mapping target using its first child
-     * as an example record, or keep drilling instead.
-     */
-    private fun renderNodePicker() {
-        val ctx = context ?: return
-        val container = containerNodeDropdowns ?: return
-        container.removeAllViews()
-        layoutCreateNewNode?.visibility = View.GONE
-        updateBreadcrumb()
-
-        if (nodeMappingConfirmed) {
-            renderLockedNodeSummary(container, ctx)
-            return
-        }
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            var depth = 0
-            var currentOptions = courierChildNodes
-
-            while (depth <= nodePickerRevealedDepth) {
-                val selectedAtDepth = nodePickerPath.getOrNull(depth)
-                addNodeDropdownRow(container, ctx, depth, currentOptions, selectedAtDepth)
-
-                if (selectedAtDepth == null) break // nothing chosen yet at this depth — stop here
-
-                // Fetch this selection's children to decide whether a deeper level exists.
-                val childPath = nodePickerPath.subList(0, depth + 1).joinToString("/")
-                val children = fetchChildKeysAt(childPath)
-                if (!isAdded) return@launch
-
-                currentOptions = children
-
-                if (depth == nodePickerRevealedDepth) {
-                    // Deepest revealed row — show the action row below it. Selecting a node
-                    // NEVER auto-locks (even a childless/leaf node): the user decides via the
-                    // "+ Next level?" / "🔒 Lock this path" buttons here.
-                    addNodeActionRow(container, ctx, depth, children.size)
-                    break
-                }
-                depth++
-            }
-
-            // Informational example-data preview for the current deepest selection (read-only —
-            // locking is done explicitly via the action row's Lock button, not from here).
-            if (nodePickerPath.isNotEmpty()) {
-                addTreePreviewSection(container, ctx, nodePickerPath.size - 1, nodePickerPath.joinToString("/"))
-            }
-        }
-    }
-
-    /** Shown once the node is confirmed — replaces the dropdowns with a read-only summary
-     *  and an explicit Unlock button, so the user can't accidentally change the node while
-     *  still seeing an editable-looking dropdown. */
-    private fun renderLockedNodeSummary(container: android.widget.LinearLayout, ctx: android.content.Context) {
-        val dp = resources.displayMetrics.density
-        fun Int.dp() = (this * dp).toInt()
-
-        val box = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(12.dp(), 10.dp(), 12.dp(), 10.dp())
-            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(
-                android.graphics.Color.parseColor("#F0FDF4")
-            )
-        }
-        box.addView(TextView(ctx).apply {
-            text = "🔒 courier/" + nodePickerPath.joinToString("/")
-            textSize = 12f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(android.graphics.Color.parseColor("#16A34A"))
-            layoutParams = android.widget.LinearLayout.LayoutParams(0,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        })
-        box.addView(TextView(ctx).apply {
-            text = "🔓 Unlock"
-            textSize = 12f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(android.graphics.Color.parseColor("#EF4444"))
-            isClickable = true
-            isFocusable = true
-            setPadding(10.dp(), 4.dp(), 4.dp(), 4.dp())
-            setOnClickListener { unlockNodePicker() }
-        })
-        container.addView(box)
-    }
-
-    /** Unlocks the node picker so the user can pick a different node. Warns first if there are
-     *  already-mapped fields, since changing the node may make those column mappings irrelevant
-     *  (they aren't auto-cleared — just flagged as a risk before the user proceeds). */
-    private fun unlockNodePicker() {
-        val hasExistingMapping = pendingMapping.isNotEmpty() || pendingObjectMapping.isNotEmpty() || pendingPkParts.isNotEmpty()
-        if (!hasExistingMapping) {
-            nodeMappingConfirmed = false
-            renderNodePicker()
-            renderMappingStep()
-            return
-        }
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Node পরিবর্তন করবেন?")
-            .setMessage("Primary key ও field mapping ইতিমধ্যে সেট করা আছে। Node পরিবর্তন করলে এই mapping গুলো নতুন node এর জন্য সঠিক নাও হতে পারে। আপনাকে সেগুলো আবার review করতে হবে।\n\nContinue করবেন?")
-            .setPositiveButton("হ্যাঁ, Node পরিবর্তন করবো") { _, _ ->
-                nodeMappingConfirmed = false
-                renderNodePicker()
-                renderMappingStep()
-            }
-            .setNegativeButton("না, থাকুক", null)
-            .show()
-    }
-
-    /** Builds and adds a single dropdown row for one depth level. */
-    private fun addNodeDropdownRow(
-        container: android.widget.LinearLayout,
-        ctx: android.content.Context,
-        depth: Int,
-        options: List<String>,
-        selectedKey: String?
-    ) {
-        val dp = resources.displayMetrics.density
-        fun Int.dp() = (this * dp).toInt()
-
-        val row = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 8.dp() }
-        }
-
-        if (depth > 0) {
-            val connector = TextView(ctx).apply {
-                text = "└─"
-                textSize = 12f
-                setTextColor(android.graphics.Color.parseColor("#E8380D"))
-                layoutParams = android.widget.LinearLayout.LayoutParams(
-                    (depth * 12).dp(), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-            }
-            row.addView(connector)
-        }
-
-        val spinner = Spinner(ctx).apply {
-            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
-            layoutParams = android.widget.LinearLayout.LayoutParams(0,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { height = 44.dp() }
-        }
-        val labels = listOf("— select করুন —") + options + listOf("+ Create New")
-        spinner.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, labels)
-        val selIdx = selectedKey?.let { options.indexOf(it) + 1 } ?: 0
-        spinner.setSelection(selIdx.coerceAtLeast(0))
-
-        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                if (pos == 0) return // placeholder
-                if (pos == labels.size - 1) {
-                    // "+ Create New" chosen at this depth
-                    showCreateNewNodeInput(depth)
-                    return
-                }
-                val chosen = options[pos - 1]
-                if (nodePickerPath.getOrNull(depth) == chosen) return // no-op re-select
-                // Truncate path to this depth, then set the new choice
-                nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
-                nodePickerPath.add(chosen)
-                nodePickerRevealedDepth = depth
-                nodeMappingConfirmed = false
-                renderNodePicker()
-            }
-            override fun onNothingSelected(p: AdapterView<*>?) {}
-        }
-
-        row.addView(spinner)
-
-        // ✕ button for ALL depths (depth 0 resets entire path)
-        val btnCancel = TextView(ctx).apply {
-            text = "✕"
-            textSize = 15f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(android.graphics.Color.parseColor("#EF4444"))
-            setPadding(10.dp(), 6.dp(), 4.dp(), 6.dp())
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            setOnClickListener { cancelNodeAtDepth(depth) }
-        }
-        row.addView(btnCancel)
-
-        container.addView(row)
-    }
-
-    /** ✕ pressed on the dropdown at [depth] — removes this dropdown and everything deeper
-     *  than it entirely, reverting to the parent depth's "+ Next level?" button (as if that
-     *  level had never been drilled into). Depth 0 clears the whole path back to the start. */
-    private fun cancelNodeAtDepth(depth: Int) {
-        if (depth == 0) {
-            nodePickerPath.clear()
-            nodePickerRevealedDepth = 0
-        } else {
-            nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
-            nodePickerRevealedDepth = depth - 1
-        }
-        nodeMappingConfirmed = false
-        renderNodePicker()
-    }
-
-    /** Action row rendered below the deepest selected dropdown. Offers two explicit choices:
-     *  "+ Next level?" (reveal a child dropdown to drill deeper or Create New a child) and
-     *  "🔒 Lock this path" (commit the current path as the mapping target). Selecting a node
-     *  alone never locks — locking is always the user's explicit action here. */
-    private fun addNodeActionRow(
-        container: android.widget.LinearLayout,
-        ctx: android.content.Context,
-        depth: Int,
-        childCount: Int
-    ) {
-        val dp = resources.displayMetrics.density
-        fun Int.dp() = (this * dp).toInt()
-
-        val row = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(4.dp(), 2.dp(), 4.dp(), 10.dp())
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-
-        if (childCount > MAX_DRILLABLE_CHILDREN) {
-            // Likely a dynamic-key collection (e.g. hundreds/thousands of run IDs) — dumping
-            // all of them into a dropdown isn't useful, so hide "+ Next level?" and let the
-            // user lock this path using the example preview below.
-            row.addView(TextView(ctx).apply {
-                text = "⚠ $childCount টা dynamic ID — dropdown এ নয়, নিচের preview অনুযায়ী Lock করুন"
-                textSize = 11f
-                setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
-                layoutParams = android.widget.LinearLayout.LayoutParams(0,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            })
-        } else {
-            // Always shown — even for a childless node — so the user can drill in and
-            // Create New a child under it (courier/run_routes → courier/run_routes/delivery_run).
-            row.addView(TextView(ctx).apply {
-                text = "+ Next level?"
-                textSize = 12f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(android.graphics.Color.parseColor("#2563EB"))
-                setPadding(4.dp(), 6.dp(), 4.dp(), 6.dp())
-                isClickable = true
-                isFocusable = true
-                layoutParams = android.widget.LinearLayout.LayoutParams(0,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                setOnClickListener {
-                    nodePickerRevealedDepth = depth + 1
-                    renderNodePicker()
-                }
-            })
-        }
-
-        row.addView(android.widget.Button(ctx).apply {
-            text = "🔒 Lock this path"
-            textSize = 11f
-            setTypeface(null, android.graphics.Typeface.BOLD)
-            setTextColor(android.graphics.Color.WHITE)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(
-                android.graphics.Color.parseColor("#16A34A")
-            )
-            setPadding(16.dp(), 4.dp(), 16.dp(), 4.dp())
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            setOnClickListener { lockNodePath(depth) }
-        })
-
-        container.addView(row)
-    }
-
-    /** Locks the path up to [depth] as the target node and runs the normal commit + auto-map
-     *  flow. This is the ONLY place a selection becomes the committed mapping target. */
-    private fun lockNodePath(depth: Int) {
-        nodePickerPath = nodePickerPath.subList(0, depth + 1).toMutableList()
-        nodeMappingConfirmed = true
-        commitNodePath()
-        renderNodePicker()
-        renderMappingStep()
-    }
-
-    /**
-     * Fetches the first example child under "courier/$pathSoFar" and renders it as a nested
-     * tree, with a confirm button that locks in [pathSoFar] as the target node (using this
-     * example record's fields for auto-mapping) — without forcing the user to keep drilling
-     * into a dropdown of raw dynamic keys (e.g. individual run IDs).
-     */
-    private fun addTreePreviewSection(
-        container: android.widget.LinearLayout,
-        ctx: android.content.Context,
-        depth: Int,
-        pathSoFar: String
-    ) {
-        val dp = resources.displayMetrics.density
-        fun Int.dp() = (this * dp).toInt()
-
-        val box = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(12.dp(), 10.dp(), 12.dp(), 10.dp())
-            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 10.dp() }
-        }
-        box.addView(TextView(ctx).apply {
-            text = "⏳ Example data লোড হচ্ছে…"
-            textSize = 12f
-            setTextColor(android.graphics.Color.parseColor("#6B7280"))
-        })
-        container.addView(box)
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            val snap = try {
-                withContext(Dispatchers.IO) {
-                    // Fetch 2 so a leading hidden meta marker can be skipped while still leaving
-                    // a real example record (only one meta marker can ever precede real records).
-                    db.reference.child("courier/$pathSoFar").limitToFirst(2).get().await()
-                }
-            } catch (e: Exception) {
-                Log.e("ConfigSheet", "❌ tree preview fetch failed for $pathSoFar: ${e.message}", e)
-                null
-            }
-            if (!isAdded) return@launch
-            box.removeAllViews()
-
-            val firstChild = snap?.children?.firstOrNull { it.key != NODE_META_KEY }
-            if (snap == null || !snap.exists() || firstChild == null) {
-                box.addView(TextView(ctx).apply {
-                    text = "⚠ এখানে এখনো কোনো example data নেই (খালি node) — child তৈরি করতে \"+ Next level?\" ব্যবহার করুন"
-                    textSize = 12f
-                    setTextColor(android.graphics.Color.parseColor("#F59E0B"))
-                })
-                return@launch
-            }
-            val treeText = buildFirebaseTreeString(firstChild, 0).ifBlank { "(no fields)" }
-
-            box.addView(TextView(ctx).apply {
-                text = "📄 Example (${firstChild.key}):"
-                textSize = 12f
-                setTypeface(null, android.graphics.Typeface.BOLD)
-                setTextColor(android.graphics.Color.parseColor("#374151"))
-            })
-            box.addView(TextView(ctx).apply {
-                text = treeText
-                textSize = 11f
-                typeface = android.graphics.Typeface.MONOSPACE
-                setTextColor(android.graphics.Color.parseColor("#111827"))
-                setPadding(0, 6.dp(), 0, 6.dp())
-            })
-            box.addView(TextView(ctx).apply {
-                text = "☝️ এই node এর ডেটা এমন দেখতে। এটাকে target হিসেবে নিতে উপরের \"🔒 Lock this path\" চাপুন।"
-                textSize = 11f
-                setTextColor(android.graphics.Color.parseColor("#6B7280"))
-                setPadding(0, 6.dp(), 0, 0)
-            })
-        }
-    }
-
-    /** Recursively renders a DataSnapshot as an indented tree string (nested objects included).
-     *  Only ONE example nested child is recursed into at any level (e.g. one run under
-     *  delivery_run, not three) — showing multiple siblings just repeats the same shape and
-     *  makes the preview needlessly long. A node's own flat (scalar) fields are shown in full
-     *  UNLESS there are many of them (> 15), which means this node itself is a bulk key-value
-     *  collection (e.g. consignments/{id}: "status") rather than one record's own named fields —
-     *  those get capped to 3, since every entry has the identical shape anyway. The threshold is
-     *  set well above any single record's realistic field count (a consignment or run typically
-     *  has well under 15 fields, and that count can vary a bit between records) so an individual
-     *  record's fields are never truncated — only a true repeated-entries collection is. */
-    private fun buildFirebaseTreeString(
-        snap: com.google.firebase.database.DataSnapshot,
-        indent: Int
-    ): String {
-        val pad = "  ".repeat(indent)
-        val sb = StringBuilder()
-        val allChildren = snap.children.toList().filter { it.key != NODE_META_KEY }
-        val flatChildren   = allChildren.filter { !it.hasChildren() }
-        val nestedChildren = allChildren.filter { it.hasChildren() }
-
-        val flatToShow = if (flatChildren.size > 15) flatChildren.take(3) else flatChildren
-        flatToShow.forEach { child ->
-            val key = child.key ?: return@forEach
-            val v = child.value?.toString()?.take(40) ?: ""
-            sb.append("$pad├─ $key: $v\n")
-        }
-        nestedChildren.take(1).forEach { child ->
-            val key = child.key ?: return@forEach
-            sb.append("$pad├─ $key:\n")
-            sb.append(buildFirebaseTreeString(child, indent + 1))
-        }
-        return sb.toString()
-    }
-
-    /** Shows the inline "create new node" input, wired to insert at the given depth. On confirm
-     *  the node is physically created under courier/ (with a hidden meta marker so an empty node
-     *  persists and re-appears on the next fetch) and revealed as the deepest selection — the
-     *  user is NOT auto-locked, so they can either drill deeper (Create New a child) or Lock. */
-    private fun showCreateNewNodeInput(depth: Int) {
-        layoutCreateNewNode?.visibility = View.VISIBLE
-        etNewNodeName?.setText("")
-        etNewNodeName?.requestFocus()
-
-        btnConfirmNewNode?.setOnClickListener {
-            val name = etNewNodeName?.text?.toString()?.trim()?.trim('/') ?: ""
-            if (name.isBlank()) {
-                toast("⚠ Node name দিন")
-                return@setOnClickListener
-            }
-            // Firebase keys can't contain  . # $ [ ] /  — reject so this stays exactly one level.
-            if (name.contains(Regex("[./#$\\[\\]]"))) {
-                toast("⚠ Node name এ  . # \$ [ ] /  ব্যবহার করা যাবে না")
-                return@setOnClickListener
-            }
-            nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
-            nodePickerPath.add(name)
-            layoutCreateNewNode?.visibility = View.GONE
-            val newPath = nodePickerPath.joinToString("/")
-            val parentPath = nodePickerPath.subList(0, depth).joinToString("/")
-
-            viewLifecycleOwner.lifecycleScope.launch {
-                // Physically create courier/{newPath} (live) with a hidden meta marker so the
-                // otherwise-empty node persists and shows up on the next shallow fetch. Keep the
-                // known_nodes registry entry too as a fallback for the dropdown merge.
-                createNodePhysically(newPath)
-                registerKnownNode(newPath)
-                if (!isAdded) return@launch
-                // Invalidate the parent's cached child list so the new node appears immediately.
-                nodeChildrenCache.remove(parentPath)
-                if (parentPath.isBlank()) courierChildNodes = fetchChildKeysAt("")
-                // Do NOT auto-lock. Reveal the new node as the deepest selection so the user can
-                // drill deeper (Create New a child) or explicitly Lock it as the target.
-                nodePickerRevealedDepth = depth
-                nodeMappingConfirmed = false
-                renderNodePicker()
-                toast("✅ courier/$newPath তৈরি হয়েছে")
-            }
-        }
-        btnCancelNewNode?.setOnClickListener {
-            layoutCreateNewNode?.visibility = View.GONE
-        }
-    }
-
-    /** Physically creates courier/[relativePath] in Firebase by writing a hidden meta marker
-     *  child, so an otherwise-empty node persists (Firebase drops childless nodes) and appears
-     *  in the next shallow child listing. The marker key ([NODE_META_KEY]) is filtered out of
-     *  every wizard listing/preview, so it's never shown as a child, example record, or field. */
-    private suspend fun createNodePhysically(relativePath: String) {
-        if (relativePath.isBlank()) return
-        try {
-            withContext(Dispatchers.IO) {
-                db.reference.child("courier/$relativePath/$NODE_META_KEY")
-                    .setValue(mapOf("created_at" to System.currentTimeMillis()))
-                    .await()
-            }
-        } catch (e: Exception) {
-            Log.e("ConfigSheet", "❌ createNodePhysically($relativePath) failed: ${e.message}", e)
-        }
-    }
-
-    /** Re-renders the picker after creating a brand-new node, without a failed child-fetch. */
-    private fun renderNodePickerKeepingNewNode(depth: Int, newName: String) {
-        val ctx = context ?: return
-        val container = containerNodeDropdowns ?: return
-        container.removeAllViews()
-        updateBreadcrumb()
-
-        // Render existing depths normally, then the final row shows the new node as selected
-        // with no further drill-down (since it doesn't exist in Firebase yet).
-        var options = courierChildNodes
-        for (d in 0 until depth) {
-            addNodeDropdownRow(container, ctx, d, options, nodePickerPath.getOrNull(d))
-            val childPath = nodePickerPath.subList(0, d + 1).joinToString("/")
-            options = nodeChildrenCache[childPath] ?: emptyList()
-        }
-        addNodeDropdownRow(container, ctx, depth, options, newName)
-    }
-
-    private fun fetchNodeKeys(node: String) {
-        pbFetchFields?.visibility = View.VISIBLE
-        tvFetchStatus?.text = "Fetching..."
-        btnFetchFields?.isEnabled = false
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                val snap = withContext(Dispatchers.IO) {
-                    // Fetch 2 so a leading hidden meta marker can be skipped and still leave a
-                    // real example record (only one meta marker can ever precede real records).
-                    db.reference.child(node).limitToFirst(2).get().await()
-                }
-                if (!isAdded) return@launch
-                pbFetchFields?.visibility = View.GONE
-                btnFetchFields?.isEnabled = true
-
-                // Pick the first real child, skipping the hidden meta marker of a freshly
-                // "+ Create New"-ed node. If nothing but the marker exists, treat as empty.
-                val exampleChild = if (snap.hasChildren())
-                    snap.children.firstOrNull { it.key != NODE_META_KEY }
-                else snap
-
-                if (!snap.exists() || exampleChild == null) {
-                    tvFetchStatus?.text = "⚠ Data নেই — manually field add করুন"
-                    tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
-                    nodePreviewData = emptyMap()
-                    // When reconnecting an existing connection, keep the saved mapping visible even
-                    // if the node currently has no data — otherwise the preview would blank out.
-                    if (!isEditingExistingConn()) {
-                        fetchedNodeKeys.clear()
-                        customMappingFields.clear()
-                        objectTypeFields.clear()
-                        pendingObjectMapping.clear()
-                    }
-                    renderMappingStep()
-                    return@launch
-                }
-
-                val firstChild = exampleChild
-                val keys = firstChild.children.mapNotNull { it.key }.filter { it != NODE_META_KEY }.toList()
-
-                // Store preview values
-                nodePreviewData = firstChild.children.mapNotNull { child ->
-                    val k = child.key ?: return@mapNotNull null
-                    if (k == NODE_META_KEY) return@mapNotNull null
-                    val v = child.value?.toString()?.take(40) ?: ""
-                    k to v
-                }.toMap()
-
-                if (keys.isEmpty()) {
-                    tvFetchStatus?.text = "⚠ Keys পাওয়া যায়নি — manually add করুন"
-                    tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
-                    return@launch
-                }
-
-                // Snapshot saved mappings so a reconnect "Fetch Fields" never destroys the user's
-                // saved object config — fresh auto-detection runs first, then saved values are
-                // layered back on top (saved always wins). Flat mapping survives automatically
-                // because it's never cleared here and autoDetectMapping() is non-destructive.
-                val editingExisting = isEditingExistingConn()
-                val savedObjMapping    = if (editingExisting) HashMap(pendingObjectMapping) else null
-                val savedObjTypeFields = if (editingExisting) HashSet(objectTypeFields) else null
-
-                fetchedNodeKeys.clear()
-                fetchedNodeKeys.addAll(keys)
-                customMappingFields.clear()
-                pendingObjectMapping.clear()
-
-                // Auto-detect object-type fields (children that are themselves objects/maps)
-                objectTypeFields.clear()
-                firstChild.children.forEach { child ->
-                    val k = child.key ?: return@forEach
-                    if (child.hasChildren()) {
-                        // Check if it's an object (map) not just a nested single value
-                        val firstGrandChild = child.children.firstOrNull()
-                        if (firstGrandChild != null) {
-                            objectTypeFields.add(k)
-                            // Auto fuzzy match key + value columns
-                            val keyHeader = sheetHeaders.entries.firstOrNull { (_, h) ->
-                                val hl = h.lowercase()
-                                listOf("id", "con", "consignment", "key", "code").any { hl.contains(it) }
-                            }
-                            val valHeader = sheetHeaders.entries.firstOrNull { (_, h) ->
-                                val hl = h.lowercase()
-                                listOf("status", "state", "value").any { hl.contains(it) }
-                            }
-                            if (keyHeader != null && valHeader != null) {
-                                pendingObjectMapping[k] = ObjectColMapping(
-                                    keyCol      = keyHeader.key,
-                                    keyHeader   = keyHeader.value,
-                                    valueCol    = valHeader.key,
-                                    valueHeader = valHeader.value,
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Restore saved object mapping on top of fresh auto-detection (reconnect only).
-                savedObjTypeFields?.let { objectTypeFields.addAll(it) }
-                savedObjMapping?.let { pendingObjectMapping.putAll(it) }
-
-                autoDetectMapping()
-                nodePreviewExpanded = true
-                renderMappingStep()
-
-                tvFetchStatus?.text = "✅ ${keys.size} fields found"
-                tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#16A34A"))
-
-            } catch (e: Exception) {
-                if (!isAdded) return@launch
-                pbFetchFields?.visibility = View.GONE
-                btnFetchFields?.isEnabled = true
-                tvFetchStatus?.text = "⚠ Fetch failed: ${e.message?.take(40)}"
-                tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#EF4444"))
-            }
-        }
-    }
-
-    private fun showAddFieldDialog(editField: String? = null) {
+    internal fun showAddFieldDialog(editField: String? = null) {
         val ctx = context ?: return
         val dp = resources.displayMetrics.density
         fun Int.dp() = (this * dp).toInt()
@@ -3391,7 +2637,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** Renders a summary card for an "object" type field — tap to edit via unified dialog */
-    private fun renderObjectFieldRow(
+    internal fun renderObjectFieldRow(
         ctx: android.content.Context,
         container: android.widget.LinearLayout,
         field: String,
@@ -3483,7 +2729,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** Renders the composite primary-key builder: an ordered list of Prefix/Column parts. */
-    private fun renderPkBuilder() {
+    internal fun renderPkBuilder() {
         val ctx = context ?: return
         val container = containerPkBuilder ?: return
         container.removeAllViews()
@@ -3610,7 +2856,7 @@ class ConfigSheetFragment : Fragment() {
         updatePkPreview()
     }
 
-    private fun updatePkPreview() {
+    internal fun updatePkPreview() {
         if (pendingPkParts.isEmpty()) {
             tvPkPreview?.text = "⚠ কমপক্ষে একটা part যোগ করুন"
             tvPkPreview?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
@@ -3636,7 +2882,7 @@ class ConfigSheetFragment : Fragment() {
         updateConnectButtonState()   // keep Exit/Save button in sync with pk edits
     }
 
-    private fun renderMappingStep() {
+    internal fun renderMappingStep() {
         val ctx = context ?: return
         val container = containerMapping ?: return
         container.removeAllViews()
@@ -3888,10 +3134,10 @@ class ConfigSheetFragment : Fragment() {
 
     /** Strict lookup of the connection being edited — no firstOrNull fallback (unlike activeConn),
      *  so a brand-new "+ New Sheet" flow (activeConnectionId == "") is never mistaken for an edit. */
-    private fun editingConn(): SheetConn? =
+    internal fun editingConn(): SheetConn? =
         connections[activeBranch]?.find { it.connectionId == activeConnectionId }
 
-    private fun isEditingExistingConn(): Boolean = editingConn() != null
+    internal fun isEditingExistingConn(): Boolean = editingConn() != null
 
     // ── Dirty detection (Exit Wizard vs Save) ──────────────────────────────────────────────
     // Signatures are LETTER-INSENSITIVE: they key on header text, not column letters, so the
@@ -3900,22 +3146,22 @@ class ConfigSheetFragment : Fragment() {
     // nickname/target-node/primary-key change all DO change the signature. The comparison mirrors
     // exactly what handleConnect() would persist. Safety rule: if anything can't be resolved we
     // return "dirty", so we never show "Exit Wizard" while a real change is pending.
-    private fun sigCol(cm: ColMapping): String =
+    internal fun sigCol(cm: ColMapping): String =
         if (cm.header.isNotBlank()) "h:${cm.header.trim().lowercase()}" else "c:${cm.col}"
 
-    private fun sigObj(o: ObjectColMapping): String {
+    internal fun sigObj(o: ObjectColMapping): String {
         fun p(header: String, col: String) =
             if (header.isNotBlank()) "h:${header.trim().lowercase()}" else "c:$col"
         return "${p(o.keyHeader, o.keyCol)}~${p(o.valueHeader, o.valueCol)}"
     }
 
-    private fun sigPk(part: PkPart): String = when (part.type) {
+    internal fun sigPk(part: PkPart): String = when (part.type) {
         "fixed" -> "fixed:${part.value.trim()}"
         else    -> "${part.type}:" +
             if (part.header.isNotBlank()) "h:${part.header.trim().lowercase()}" else "v:${part.value}"
     }
 
-    private fun buildEditSignature(
+    internal fun buildEditSignature(
         sheetId: String, tabName: String, colStart: Int, colEnd: Int,
         startRow: Int?, endRow: Int?, nickname: String, targetNode: String,
         colMap: Map<String, ColMapping>, objMap: Map<String, ObjectColMapping>,
@@ -3939,7 +3185,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** Signature of the saved connection exactly as it lives in memory/Firebase. */
-    private fun savedSignatureOf(conn: SheetConn): String = buildEditSignature(
+    internal fun savedSignatureOf(conn: SheetConn): String = buildEditSignature(
         conn.sheetId, conn.tabName, conn.colStart, conn.colEnd,
         conn.startRow, conn.endRow, conn.nickname, conn.targetNode,
         conn.columnMapping, conn.objectColumnMapping, conn.effectivePkParts()
@@ -3947,7 +3193,7 @@ class ConfigSheetFragment : Fragment() {
 
     /** Signature of the in-progress wizard state, from the SAME sources handleConnect() reads.
      *  Returns null when the state can't be fully resolved → caller treats that as dirty. */
-    private fun currentSignatureOrNull(): String? {
+    internal fun currentSignatureOrNull(): String? {
         val sheet = selectedSheet ?: return null
         if (selectedTab.isBlank()) return null
         val cs = parseColInput(etColStart?.text?.toString() ?: "") ?: return null
@@ -3963,7 +3209,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     /** True only when reconnecting an EXISTING connection and nothing a Save would write changed. */
-    private fun isReconnectUnchanged(): Boolean {
+    internal fun isReconnectUnchanged(): Boolean {
         if (isRangeEdit) return false            // range-edit keeps its own Cancel/Save
         val conn = editingConn() ?: return false // new connection → never "unchanged"
         val current = currentSignatureOrNull() ?: return false
@@ -3972,7 +3218,7 @@ class ConfigSheetFragment : Fragment() {
 
     /** Leaves the reconnect wizard WITHOUT saving. Mirrors the ✕ cancel path so no partial state
      *  leaks, and never writes to Firebase — the saved connection stays exactly as it was. */
-    private fun exitWizardNoChanges() {
+    internal fun exitWizardNoChanges() {
         isRangeEdit = false
         screen = ConfigScreen.BRANCH_SELECT
         render()
@@ -3982,7 +3228,7 @@ class ConfigSheetFragment : Fragment() {
      *  changed & ready), or Connect (new & ready). Enable/alpha mirror handleConnect()'s checks so
      *  the button reflects readiness before it's tapped. Called from every place that can change
      *  the wizard state (mapping render, pk edits, step navigation). */
-    private fun updateConnectButtonState() {
+    internal fun updateConnectButtonState() {
         val hasValidPk = pendingPkParts.isNotEmpty() &&
             pendingPkParts.none { (it.type == "col" || it.type == "date") && it.value.isBlank() }
         val hasAtLeastOneField = pendingMapping.isNotEmpty() || pendingObjectMapping.isNotEmpty()
@@ -4010,7 +3256,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun clearConnectForm() {
+    internal fun clearConnectForm() {
         availableSheets = emptyList(); selectedSheet = null
         availableTabs   = emptyList(); selectedTab   = ""
         etColStart?.setText("1"); etColEnd?.setText("10")
@@ -4038,7 +3284,7 @@ class ConfigSheetFragment : Fragment() {
         if (googleAccount != null) loadSheetsForAccount()
     }
 
-    private fun prefillConnectForm() {
+    internal fun prefillConnectForm() {
         val conn = activeConn() ?: return
         // Reset transient node/field state so stale keys from a PREVIOUS connect/reconnect in the
         // same session can't survive into this one and cause duplicate rows (see allFields dedup).
@@ -4086,7 +3332,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun openRangeEditor() {
+    internal fun openRangeEditor() {
         val conn = activeConn() ?: return
         activeConnectionId = conn.connectionId
 
@@ -4114,7 +3360,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     // ── Account picker (JSX showPicker equivalent) ────────────────────
-    private fun pickGoogleAccount() {
+    internal fun pickGoogleAccount() {
         val client = googleSignInClient ?: run {
             toast("Google Sign-In initialize হয়নি")
             return
@@ -4129,7 +3375,7 @@ class ConfigSheetFragment : Fragment() {
         )
     }
 
-    private fun handleSignInResult(data: Intent?) {
+    internal fun handleSignInResult(data: Intent?) {
         val acc = GoogleSignInHelper.parseSignInResult(data) { msg -> showErr(msg) } ?: return
         googleAccount = acc
         // Remember THIS feature's connected email — see PREFS_FILE_NAME doc comment.
@@ -4141,7 +3387,7 @@ class ConfigSheetFragment : Fragment() {
         loadSheetsForAccount()
     }
 
-    private fun updateAccountStep() {
+    internal fun updateAccountStep() {
         val acc = googleAccount
         if (acc == null) {
             cardSelectedAccount?.visibility = View.GONE
@@ -4159,7 +3405,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     // ── Drive API: list user's spreadsheets ──────────────────────────
-    private fun loadSheetsForAccount() {
+    internal fun loadSheetsForAccount() {
         val account = googleAccount ?: return
         viewLifecycleOwner.lifecycleScope.launch {
             try {
@@ -4184,17 +3430,17 @@ class ConfigSheetFragment : Fragment() {
     }
 
     // fetchDriveSpreadsheets → ConfigSheetDriveApi
-    private fun fetchDriveSpreadsheets(accessToken: String) =
+    internal fun fetchDriveSpreadsheets(accessToken: String) =
         ConfigSheetDriveApi.fetchDriveSpreadsheets(accessToken, httpClient)
 
-    private fun updateSheetPickerLabel() {
+    internal fun updateSheetPickerLabel() {
         tvSelectedSheet?.text = selectedSheet?.name ?: "— Sheet বেছে নিন —"
         tvSelectedSheet?.setTextColor(
             android.graphics.Color.parseColor(if (selectedSheet != null) "#111827" else "#6B7280")
         )
     }
 
-    private fun openSheetPickerDialog() {
+    internal fun openSheetPickerDialog() {
         val ctx = context ?: return
         if (availableSheets.isEmpty()) {
             toast("Sheet লোড হচ্ছে, একটু অপেক্ষা করুন")
@@ -4213,7 +3459,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun loadTabsForSheet() {
+    internal fun loadTabsForSheet() {
         val account = googleAccount ?: return
         val acctObj = account.account ?: return
         val sheet   = selectedSheet ?: return
@@ -4242,10 +3488,10 @@ class ConfigSheetFragment : Fragment() {
     }
 
     // fetchSheetTabs → ConfigSheetDriveApi
-    private fun fetchSheetTabs(accessToken: String, sheetId: String) =
+    internal fun fetchSheetTabs(accessToken: String, sheetId: String) =
         ConfigSheetDriveApi.fetchSheetTabs(accessToken, sheetId, httpClient)
 
-    private fun updateTabSpinner() {
+    internal fun updateTabSpinner() {
         val ctx = context ?: return
         val opts = listOf("— Tab বেছে নিন —") + availableTabs
         spinnerTab?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
@@ -4254,7 +3500,7 @@ class ConfigSheetFragment : Fragment() {
     }
 
     // ── ManagePanel ───────────────────────────────────────────────────
-    private fun renderManagePanel() {
+    internal fun renderManagePanel() {
         val conn = activeConn() ?: return
         val connNickname = conn.nickname.ifBlank { conn.sheetName }
         tvManageBranch?.text = "${branchLabel(activeBranch)}  ·  $connNickname"
@@ -4273,7 +3519,7 @@ class ConfigSheetFragment : Fragment() {
         if (activeManageTab == "columns") fetchManageColPreview()
     }
 
-    private fun renderManageTabs() {
+    internal fun renderManageTabs() {
         val red  = android.graphics.Color.parseColor("#E8380D")
         val grey = context!!.getColor(R.color.theme_text_secondary)
         tabOverview?.setTextColor(if (activeManageTab == "overview") red else grey)
@@ -4287,7 +3533,7 @@ class ConfigSheetFragment : Fragment() {
         cardSync?.visibility     = if (activeManageTab == "sync")     View.VISIBLE else View.GONE
     }
 
-    private fun handleDisconnect() {
+    internal fun handleDisconnect() {
         val branch = activeBranch
         val connId = activeConnectionId
         connections[branch]?.removeAll { it.connectionId == connId }
@@ -4299,17 +3545,17 @@ class ConfigSheetFragment : Fragment() {
     }
 
     // ── Firebase ──────────────────────────────────────────────────────
-    private fun activeConn(): SheetConn? =
+    internal fun activeConn(): SheetConn? =
         connections[activeBranch]?.find { it.connectionId == activeConnectionId }
             ?: connections[activeBranch]?.firstOrNull()
 
-    private fun updateActiveConn(updated: SheetConn) {
+    internal fun updateActiveConn(updated: SheetConn) {
         val list = connections.getOrPut(updated.branchId) { mutableListOf() }
         val idx = list.indexOfFirst { it.connectionId == updated.connectionId }
         if (idx >= 0) list[idx] = updated else list.add(updated)
     }
 
-    private fun loadFromFirebase() {
+    internal fun loadFromFirebase() {
         val owner = viewLifecycleOwnerLiveData.value ?: return
         owner.lifecycleScope.launch {
             setBusy(true, "Loading...")
@@ -4417,7 +3663,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun readBranchIds(snap: com.google.firebase.database.DataSnapshot): List<String> {
+    internal fun readBranchIds(snap: com.google.firebase.database.DataSnapshot): List<String> {
         if (!snap.exists()) return emptyList()
         return when (val raw = snap.value) {
             is String -> listOf(raw.trim()).filter { it.isNotBlank() }
@@ -4436,7 +3682,7 @@ class ConfigSheetFragment : Fragment() {
         }.distinct()
     }
 
-    private suspend fun saveToFirebase(conn: SheetConn): Boolean {
+    internal suspend fun saveToFirebase(conn: SheetConn): Boolean {
         return try {
             val data = mapOf(
                 "nickname"        to conn.nickname,
@@ -4485,7 +3731,7 @@ class ConfigSheetFragment : Fragment() {
         }
     }
 
-    private fun deleteFromFirebase(branchId: String, connectionId: String) {
+    internal fun deleteFromFirebase(branchId: String, connectionId: String) {
         val owner = viewLifecycleOwnerLiveData.value ?: return
         owner.lifecycleScope.launch {
             try {
@@ -4501,12 +3747,12 @@ class ConfigSheetFragment : Fragment() {
     }
 
     // ── Helper ────────────────────────────────────────────────────────
-    private fun toast(msg: String) {
+    internal fun toast(msg: String) {
         try { Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show() }
         catch (_: Exception) {}
     }
 
-    private fun setBusy(show: Boolean, text: String = "Loading...") {
+    internal fun setBusy(show: Boolean, text: String = "Loading...") {
         tvSheetBusy?.text = text
         sheetBusyOverlay?.visibility = if (show) View.VISIBLE else View.GONE
     }
