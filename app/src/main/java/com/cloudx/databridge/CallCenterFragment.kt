@@ -2169,6 +2169,20 @@ class CallCenterFragment : Fragment() {
         btnCancel.setOnClickListener { dialog.dismiss() }
 
         dialog.setContentView(view)
+        // Same fix as WorkerSpaceFragment.showWorkerRemarksDialog(): cap the sheet's
+        // height so the ScrollView (weight=1) has a bounded parent to size against.
+        // Without this, a long remark-options list + the note field could push
+        // Cancel/Save off-screen with no way to scroll down to them.
+        dialog.behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+        dialog.behavior.skipCollapsed = true
+        val rootSheet = view.findViewById<View>(R.id.rootCcRemarkSheet)
+        rootSheet.post {
+            val maxHeight = (resources.displayMetrics.heightPixels * 0.9).toInt()
+            if (rootSheet.height > maxHeight || rootSheet.layoutParams.height != maxHeight) {
+                rootSheet.layoutParams = rootSheet.layoutParams.apply { height = maxHeight }
+                rootSheet.requestLayout()
+            }
+        }
         dialog.show()
     }
 

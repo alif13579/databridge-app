@@ -623,6 +623,21 @@ class WorkerSpaceFragment : Fragment() {
         }
 
         dialog.setContentView(view)
+        // Cap the sheet's height so the ScrollView (weight=1 inside the root
+        // LinearLayout) has a bounded parent to size against — without this,
+        // BottomSheetDialog measures wrap_content and a long, config-driven
+        // remark-options list can push Cancel/Submit off-screen with no way
+        // to scroll down to them.
+        dialog.behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+        dialog.behavior.skipCollapsed = true
+        val rootSheet = view.findViewById<View>(R.id.rootWorkerRemarkSheet)
+        rootSheet.post {
+            val maxHeight = (resources.displayMetrics.heightPixels * 0.9).toInt()
+            if (rootSheet.height > maxHeight || rootSheet.layoutParams.height != maxHeight) {
+                rootSheet.layoutParams = rootSheet.layoutParams.apply { height = maxHeight }
+                rootSheet.requestLayout()
+            }
+        }
         dialog.show()
     }
 
