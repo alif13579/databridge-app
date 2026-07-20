@@ -184,6 +184,13 @@ class ParcelDetailFragment : Fragment() {
                             errorMessage = e.stackTraceToString(),
                             extra = mapOf("parcelId" to parcelId, "scope" to scope)
                         )
+                        if (isAdded && view != null) {
+                            android.widget.Toast.makeText(
+                                requireContext(),
+                                "⚠️ Overview load failed: ${e.javaClass.simpleName}: ${e.message}",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
                     // Attach the remarks listener only now that currentCreatedAt is set,
                     // so the synthetic "CREATED" entry in renderTimeline() is guaranteed
@@ -230,7 +237,14 @@ class ParcelDetailFragment : Fragment() {
                             errorMessage = e.stackTraceToString(),
                             extra = mapOf("parcelId" to parcelId, "scope" to scope)
                         )
-                        if (isAdded && view != null) progressBar.visibility = View.GONE
+                        if (isAdded && view != null) {
+                            progressBar.visibility = View.GONE
+                            android.widget.Toast.makeText(
+                                requireContext(),
+                                "⚠️ Timeline load failed: ${e.javaClass.simpleName}: ${e.message}",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
                 }
             }
