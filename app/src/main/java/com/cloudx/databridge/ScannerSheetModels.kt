@@ -9,7 +9,7 @@ package com.cloudx.databridge
  * "which sheet, which tab pattern, which column has the agent's employee_id, which column
  * gets the scanned value".
  *
- * Stored at `config/scanner_sheets/{branchId}/{connectionId}`.
+ * Stored at `config/connectors/{branchId}/{connectionId}`.
  */
 data class ScannerSheetConn(
     val connectionId: String = "",   // Firebase push key

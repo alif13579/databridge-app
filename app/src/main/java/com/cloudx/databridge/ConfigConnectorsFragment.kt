@@ -37,7 +37,7 @@ import okhttp3.OkHttpClient
  *
  * Branch-wise, multiple connections per branch allowed (same UX pattern as ConfigSheetFragment's
  * connected-branches list) — see ScannerSheetModels.kt / ScannerSheetRepository.kt for the data
- * model and Firebase persistence (config/scanner_sheets/{branchId}/{connectionId}).
+ * model and Firebase persistence (config/connectors/{branchId}/{connectionId}).
  *
  * Google Sheets/Drive API calls reuse ConfigSheetDriveApi.kt's functions (fetchDriveSpreadsheets,
  * fetchSheetTabs) — but with WRITE-capable OAuth scopes (OAUTH_SCOPE_WRITE), since this

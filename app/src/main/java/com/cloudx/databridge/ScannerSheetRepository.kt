@@ -13,11 +13,11 @@ import java.util.Locale
  * Persistence + write-time logic for the Scanner Sheet Connector.
  *
  * Firebase layout:
- *   config/scanner_sheets/{branchId}/current/{connectionId}   ← active configs (a branch can
- *                                                                 have multiple, same UX as
- *                                                                 ConfigSheetFragment's SheetConn)
- *   config/scanner_sheets/{branchId}/history/{pushId}         ← immutable audit log, one
- *                                                                 entry per create/update/delete
+ *   config/connectors/{branchId}/current/{connectionId}   ← active configs (a branch can
+ *                                                             have multiple, same UX as
+ *                                                             ConfigSheetFragment's SheetConn)
+ *   config/connectors/{branchId}/history/{pushId}         ← immutable audit log, one
+ *                                                             entry per create/update/delete
  */
 object ScannerSheetRepository {
 
@@ -27,7 +27,7 @@ object ScannerSheetRepository {
     // ── Firebase CRUD ──────────────────────────────────────────────────────
 
     suspend fun loadConnections(branchId: String): List<ScannerSheetConn> = withContext(Dispatchers.IO) {
-        val snap = db.reference.child("config/scanner_sheets/$branchId/current").get().await()
+        val snap = db.reference.child("config/connectors/$branchId/current").get().await()
         snap.children.mapNotNull { child ->
             val id = child.key ?: return@mapNotNull null
             ScannerSheetConn(
@@ -55,7 +55,7 @@ object ScannerSheetRepository {
         actingName: String,
         isNew: Boolean
     ): String = withContext(Dispatchers.IO) {
-        val branchRef = db.reference.child("config/scanner_sheets/${conn.branchId}")
+        val branchRef = db.reference.child("config/connectors/${conn.branchId}")
         val connectionId = conn.connectionId.ifBlank {
             branchRef.child("current").push().key ?: System.currentTimeMillis().toString()
         }
@@ -88,7 +88,7 @@ object ScannerSheetRepository {
 
     suspend fun deleteConnection(branchId: String, connectionId: String, actingUid: String, actingName: String) =
         withContext(Dispatchers.IO) {
-            val branchRef = db.reference.child("config/scanner_sheets/$branchId")
+            val branchRef = db.reference.child("config/connectors/$branchId")
             branchRef.child("current").child(connectionId).removeValue().await()
             branchRef.child("history").push().setValue(
                 mapOf(
