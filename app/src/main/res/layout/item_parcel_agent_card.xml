@@ -90,18 +90,30 @@
                     android:textColor="@color/theme_text_secondary" />
 
                 <TextView
-                    android:id="@+id/tvAgtStatusBadge"
+                    android:id="@+id/tvAgtCod"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="✓ Confirmed"
-                    android:textSize="10sp"
+                    android:text="৳850"
+                    android:textSize="13sp"
+                    android:textColor="@color/theme_accent"
                     android:textStyle="bold"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:paddingTop="3dp"
-                    android:paddingBottom="3dp"
-                    android:layout_marginStart="8dp" />
+                    android:layout_marginStart="8dp"
+                    android:includeFontPadding="false" />
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvAgtStatusBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:text="✓ Confirmed"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:layout_marginTop="4dp" />
         </LinearLayout>
     </LinearLayout>
 
@@ -141,20 +153,6 @@
             android:includeFontPadding="false"
             android:visibility="gone" />
     </LinearLayout>
-
-    <!-- Amount — bottom-right corner, always visible, far from the fixed age/attempt
-         badge (top-right) so it never gets covered by it -->
-    <TextView
-        android:id="@+id/tvAgtCod"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end"
-        android:text="৳850"
-        android:textSize="15sp"
-        android:textColor="@color/theme_accent"
-        android:textStyle="bold"
-        android:layout_marginTop="8dp"
-        android:includeFontPadding="false" />
 
     <!-- Action Buttons: Call + Remarks, full width equal split -->
     <LinearLayout
