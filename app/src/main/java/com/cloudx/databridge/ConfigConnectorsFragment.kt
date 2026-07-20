@@ -10,13 +10,10 @@ import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import com.google.android.gms.auth.GoogleAuthUtil
-import com.google.android.gms.auth.UserRecoverableAuthException
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
@@ -152,21 +149,17 @@ class ConfigConnectorsFragment : Fragment() {
             googleSignInClient = GoogleSignIn.getClient(requireActivity(), gso)
 
             // Restore last signed-in account ONLY if its email matches what THIS feature
-            // (Connectors) was last connected with — see PREFS_KEY_EMAIL doc comment below
-            // for why we can't just trust GoogleSignIn.getLastSignedInAccount() alone.
-            val last = GoogleSignIn.getLastSignedInAccount(requireContext())
-            val savedEmail = accountPrefs().getString(PREFS_KEY_EMAIL, null)
-            if (last != null &&
-                savedEmail != null &&
-                last.email.equals(savedEmail, ignoreCase = true) &&
-                GoogleSignIn.hasPermissions(
-                    last,
+            // (Connectors) was last connected with — see PREFS_FILE_NAME doc comment
+            // below for why we can't just trust GoogleSignIn.getLastSignedInAccount()
+            // alone. Logic lives in GoogleSignInHelper (shared with ConfigSheetFragment).
+            googleAccount = GoogleSignInHelper.restoreOwnAccountIfMatching(
+                context = requireContext(),
+                prefsFileName = PREFS_FILE_NAME,
+                requiredScopes = listOf(
                     Scope(ConfigSheetDriveApi.SCOPE_DRIVE_FILE),
                     Scope(ConfigSheetDriveApi.SCOPE_SHEETS_WRITE)
                 )
-            ) {
-                googleAccount = last
-            }
+            )
         } catch (e: Exception) {
             android.util.Log.e("ConfigConnectors", "Google Sign-In init failed", e)
             initError = e.message ?: e.javaClass.simpleName
@@ -185,7 +178,7 @@ class ConfigConnectorsFragment : Fragment() {
      * only gets re-derived from the shared cache the next time that fragment is created
      * (i.e. next time the user opens that tab).
      *
-     * Fix: each feature remembers, in its OWN SharedPreferences key, the email of the
+     * Fix: each feature remembers, in its OWN SharedPreferences file, the email of the
      * account IT last connected with. On create, we only trust the device-wide cached
      * account if its email matches our own saved one. A "Switch account" in the other
      * tab still has to call signOut() to force Google's account chooser to appear (no
@@ -194,10 +187,7 @@ class ConfigConnectorsFragment : Fragment() {
      * since it won't match our saved email either way, we correctly show "not connected"
      * only when the user actually switched THIS feature's account, not someone else's.
      */
-    private fun accountPrefs() =
-        requireContext().getSharedPreferences("connectors_google_account", android.content.Context.MODE_PRIVATE)
-
-    private val PREFS_KEY_EMAIL = "connected_email"
+    private val PREFS_FILE_NAME = "connectors_google_account"
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -533,41 +523,31 @@ class ConfigConnectorsFragment : Fragment() {
         }
         // Sign out first — otherwise Google Sign-In silently reuses whatever account is
         // already cached (GoogleSignIn.getLastSignedInAccount()) and skips the chooser UI
-        // entirely, which is exactly the "no popup appears" symptom. Matches
-        // ConfigSheetFragment's pickGoogleAccount() pattern.
-        client.signOut().addOnCompleteListener {
-            try {
-                if (isAdded) signInLauncher.launch(client.signInIntent)
-            } catch (e: Exception) {
-                if (isAdded) showScErr("Sign-In launch failed: ${e.message}")
-            }
-        }
+        // entirely, which is exactly the "no popup appears" symptom. Shared logic lives
+        // in GoogleSignInHelper (used identically by ConfigSheetFragment).
+        GoogleSignInHelper.pickAccount(
+            fragment = this,
+            client = client,
+            signInLauncher = signInLauncher,
+            onLaunchFailed = { msg -> showScErr("Sign-In launch failed: $msg") }
+        )
     }
 
     private fun handleSignInResult(data: Intent?) {
-        try {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-            val account = task.getResult(ApiException::class.java)
-            googleAccount = account
-            // Remember THIS feature's connected email so onCreate() can tell (next time
-            // this fragment is created) whether the device-wide cached account is still
-            // ours, or belongs to a switch made from the Sheets tab. See accountPrefs()
-            // doc comment above for the full reasoning.
-            account.email?.let { email ->
-                accountPrefs().edit().putString(PREFS_KEY_EMAIL, email).apply()
-            }
-            // Reset downstream — a newly-picked account's sheet list shouldn't inherit the
-            // previous account's selection.
-            availableSheets = emptyList()
-            selectedSheet = null
-            updateAccountStepUi()
-            updateSheetLabel()
-            loadSheetsForAccount()
-        } catch (e: ApiException) {
-            showScErr("Sign-in failed (code ${e.statusCode})")
-        } catch (e: Exception) {
-            showScErr("Sign-in error: ${e.message}")
-        }
+        val account = GoogleSignInHelper.parseSignInResult(data) { msg -> showScErr(msg) } ?: return
+        googleAccount = account
+        // Remember THIS feature's connected email so onCreate() can tell (next time
+        // this fragment is created) whether the device-wide cached account is still
+        // ours, or belongs to a switch made from the Sheets tab. See PREFS_FILE_NAME
+        // doc comment above for the full reasoning.
+        GoogleSignInHelper.rememberConnectedEmail(requireContext(), PREFS_FILE_NAME, account.email)
+        // Reset downstream — a newly-picked account's sheet list shouldn't inherit the
+        // previous account's selection.
+        availableSheets = emptyList()
+        selectedSheet = null
+        updateAccountStepUi()
+        updateSheetLabel()
+        loadSheetsForAccount()
     }
 
     private fun updateAccountStepUi() {
@@ -591,25 +571,19 @@ class ConfigConnectorsFragment : Fragment() {
      *  recoverableLauncher's result comes back (loadSheetsForAccount() re-runs on success). */
     private suspend fun fetchAccessToken(): String? {
         val acct = googleAccount ?: return null
-        return withContext(Dispatchers.IO) {
-            try {
-                val token = GoogleAuthUtil.getToken(
-                    requireContext(), acct.account!!, ConfigSheetDriveApi.OAUTH_SCOPE_WRITE
-                )
-                cachedAccessToken = token
-                token
-            } catch (e: UserRecoverableAuthException) {
-                withContext(Dispatchers.Main) {
-                    if (isAdded) recoverableLauncher.launch(e.intent)
-                }
-                null
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    if (isAdded) showScErr("Token fetch failed: ${e.message}")
-                }
-                null
-            }
-        }
+        val token = GoogleSignInHelper.fetchAccessToken(
+            context = requireContext(),
+            fragment = this,
+            account = acct,
+            scope = ConfigSheetDriveApi.OAUTH_SCOPE_WRITE,
+            recoverableLauncher = recoverableLauncher,
+            onError = { msg -> showScErr(msg) }
+        )
+        // Only overwrite the cache on success — matches the original behavior, where
+        // cachedAccessToken was assigned inside the try block only (a failed/recoverable
+        // fetch left whatever token was cached from before untouched).
+        if (token != null) cachedAccessToken = token
+        return token
     }
 
     // ── Step 2: Sheet picker ────────────────────────────────────────────────
