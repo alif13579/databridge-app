@@ -1080,6 +1080,18 @@ class CallCenterFragment : Fragment() {
     private fun attachRootRunTypesListener() {
         detachRootRunTypesListener()
         myBranchIds = RbacManager.current.branchIds
+        // Drop any previously-selected branch filter id that's no longer part of this
+        // agent's current assignment (e.g. admin changed their branches since the filter
+        // was last saved) — same self-healing pattern rebuildCcAgentRoster() already
+        // applies to selectedAgentFilters. Without this, a stale id that matches nothing
+        // in the current parcel set silently filters the list down to zero results — and
+        // if myBranchIds is now down to 1, the branch dropdown hides itself entirely
+        // (branches.size <= 1 in setupBranchDropdown()), leaving no in-app way to notice
+        // or fix it. retainAll() on an empty myBranchIds just clears the filter too, which
+        // is fine since the "no branch assigned" empty-state below returns right after.
+        if (selectedBranchIds.retainAll(myBranchIds.toSet())) {
+            saveFilterPreferences()
+        }
         if (myBranchIds.isEmpty()) {
             pbProgress.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
