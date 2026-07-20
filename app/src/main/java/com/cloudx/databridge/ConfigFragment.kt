@@ -12,20 +12,20 @@ import androidx.fragment.app.Fragment
  * Access: admin / supervisor / staff  (permission key: nav_config)
  *
  * Five tabs:
- *   💬 Remarks  – status-wise remark management
- *   🌐 Language – Worker / CC fragment language settings
- *   🏷️ Statuses – custom status add / edit / delete
- *   📊 Sheet    – branch-wise Google Sheet connect, row/column config, mapping, sync
- *   📷 Scanner  – branch-wise Scanner Sheet Connector (writes scanned values into a
- *                 fixed match-column/write-column pair on a date-named tab; no periodic
- *                 sync — see ConfigConnectorsFragment / config/scanner_sheets/{branchId})
+ *   💬 Remarks    – status-wise remark management
+ *   🌐 Language   – Worker / CC fragment language settings
+ *   🏷️ Statuses   – custom status add / edit / delete
+ *   📊 Sheet      – branch-wise Google Sheet connect, row/column config, mapping, sync
+ *   🔗 Connectors – branch-wise Scanner Sheet Connector (writes scanned values into a
+ *                   fixed match-column/write-column pair on a date-named tab; no periodic
+ *                   sync — see ConfigConnectorsFragment / config/connectors/{branchId})
  *
  * Firebase layout:
  *   config/remarks/...
  *   config/sheets/{branch_id}/current/   ← active config + audit fields
  *   config/sheets/{branch_id}/history/   ← immutable audit log
  *   config/sheets/{branch_id}/data/      ← synced sheet rows (WorkerFragment reads this)
- *   config/scanner_sheets/{branch_id}/{connectionId}/  ← Scanner Sheet Connector configs
+ *   config/connectors/{branch_id}/{connectionId}/  ← Scanner Sheet Connector configs
  */
 class ConfigFragment : Fragment() {
 

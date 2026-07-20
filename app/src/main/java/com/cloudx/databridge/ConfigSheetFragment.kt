@@ -297,14 +297,28 @@ class ConfigSheetFragment : Fragment() {
                 .build()
             googleSignInClient = GoogleSignIn.getClient(requireActivity(), gso)
 
-            // Restore last signed-in account if scopes still granted
-            GoogleSignIn.getLastSignedInAccount(requireContext())?.let { acc ->
-                if (GoogleSignIn.hasPermissions(acc, Scope(ConfigSheetDriveApi.SCOPE_DRIVE), Scope(ConfigSheetDriveApi.SCOPE_SHEETS))) {
-                    googleAccount = acc
-                }
-            }
+            // Restore last signed-in account ONLY if its email matches what THIS feature
+            // (Sheets) was last connected with — see PREFS_FILE_NAME doc comment below for
+            // why we can't just trust GoogleSignIn.getLastSignedInAccount() alone (it's a
+            // device-wide cache shared with ConfigConnectorsFragment's Connectors tab).
+            // Logic lives in GoogleSignInHelper (shared with ConfigConnectorsFragment).
+            googleAccount = GoogleSignInHelper.restoreOwnAccountIfMatching(
+                context = requireContext(),
+                prefsFileName = PREFS_FILE_NAME,
+                requiredScopes = listOf(Scope(ConfigSheetDriveApi.SCOPE_DRIVE), Scope(ConfigSheetDriveApi.SCOPE_SHEETS))
+            )
         } catch (_: Exception) { /* defensive: never crash on init */ }
     }
+
+    /**
+     * Per-feature Google-account isolation — mirrors ConfigConnectorsFragment's identical
+     * guard. GoogleSignIn.getLastSignedInAccount() / GoogleSignInClient.signOut() are both
+     * DEVICE-WIDE, shared with the Connectors tab's own GoogleSignInClient. Without this,
+     * switching accounts in one tab would silently affect the other. Each feature now
+     * remembers, in its OWN SharedPreferences file, the email it last connected with, and
+     * only trusts the shared cache when it matches.
+     */
+    private val PREFS_FILE_NAME = "sheets_google_account"
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -4105,31 +4119,26 @@ class ConfigSheetFragment : Fragment() {
             toast("Google Sign-In initialize হয়নি")
             return
         }
-        // Sign out first → forces the account chooser to show every time
-        client.signOut().addOnCompleteListener {
-            try {
-                signInLauncher.launch(client.signInIntent)
-            } catch (e: Exception) {
-                toast("Sign-In launch failed: ${e.message}")
-            }
-        }
+        // Sign out first → forces the account chooser to show every time. Shared logic
+        // lives in GoogleSignInHelper (used identically by ConfigConnectorsFragment).
+        GoogleSignInHelper.pickAccount(
+            fragment = this,
+            client = client,
+            signInLauncher = signInLauncher,
+            onLaunchFailed = { msg -> toast("Sign-In launch failed: $msg") }
+        )
     }
 
     private fun handleSignInResult(data: Intent?) {
-        try {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(data)
-            val acc = task.getResult(ApiException::class.java)
-            googleAccount = acc
-            // Reset downstream
-            availableSheets = emptyList(); selectedSheet = null
-            availableTabs   = emptyList(); selectedTab   = ""
-            updateAccountStep()
-            loadSheetsForAccount()
-        } catch (e: ApiException) {
-            showErr("Sign-in failed (code ${e.statusCode})")
-        } catch (e: Exception) {
-            showErr("Sign-in error: ${e.message}")
-        }
+        val acc = GoogleSignInHelper.parseSignInResult(data) { msg -> showErr(msg) } ?: return
+        googleAccount = acc
+        // Remember THIS feature's connected email — see PREFS_FILE_NAME doc comment.
+        GoogleSignInHelper.rememberConnectedEmail(requireContext(), PREFS_FILE_NAME, acc.email)
+        // Reset downstream
+        availableSheets = emptyList(); selectedSheet = null
+        availableTabs   = emptyList(); selectedTab   = ""
+        updateAccountStep()
+        loadSheetsForAccount()
     }
 
     private fun updateAccountStep() {
@@ -4152,25 +4161,17 @@ class ConfigSheetFragment : Fragment() {
     // ── Drive API: list user's spreadsheets ──────────────────────────
     private fun loadSheetsForAccount() {
         val account = googleAccount ?: return
-        val acctObj = account.account ?: run {
-            showErr("Account info নেই")
-            return
-        }
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 pbSheetLoad?.visibility = View.VISIBLE
-                val ctx = context ?: return@launch
-                val token = withContext(Dispatchers.IO) {
-                    try {
-                        GoogleAuthUtil.getToken(ctx, acctObj, ConfigSheetDriveApi.OAUTH_SCOPE)
-                    } catch (e: UserRecoverableAuthException) {
-                        // Launch consent screen
-                        withContext(Dispatchers.Main) {
-                            try { recoverableLauncher.launch(e.intent) } catch (_: Exception) {}
-                        }
-                        null
-                    }
-                } ?: return@launch
+                val token = GoogleSignInHelper.fetchAccessToken(
+                    context = requireContext(),
+                    fragment = this@ConfigSheetFragment,
+                    account = account,
+                    scope = ConfigSheetDriveApi.OAUTH_SCOPE,
+                    recoverableLauncher = recoverableLauncher,
+                    onError = { msg -> showErr(msg) }
+                ) ?: return@launch
                 val sheets = withContext(Dispatchers.IO) { fetchDriveSpreadsheets(token) }
                 availableSheets = sheets
                 if (connectStep == 2 || stepView2?.visibility == View.VISIBLE) updateSheetPickerLabel()

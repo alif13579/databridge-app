@@ -572,99 +572,58 @@ class WorkerSpaceFragment : Fragment() {
             }?.findViewById<TextView>(R.id.twRemarkOptText)?.text?.toString() ?: ""
 
             if (statusKey.isNotBlank() && selectedLabel.isNotBlank()) {
-                val timestamp = System.currentTimeMillis()
 
-                // Resolve which option was picked (for its optional WhatsApp template)
-                val selectedOption = options.firstOrNull { it.label == selectedLabel && it.statusKey == statusKey }
-                val templateId = selectedOption?.templateId.orEmpty()
-                var sentViaRemarkTemplate = false
-                if (templateId.isNotBlank() && WhatsAppSender.isEnabled(requireContext())) {
-                    val template = whatsappTemplatesCache[templateId]
-                    if (template != null && template.body.isNotBlank()) {
-                        val filledMessage = WhatsAppHelper.fillTemplate(
-                            body = template.body,
-                            name = item.customer,
-                            phone = item.phone,
-                            address = item.address,
-                            cod = item.cod.toString(),
-                            consignmentId = item.id,
-                            hub = ""
-                        )
-                        WhatsAppHelper.send(requireContext(), item.phone, filledMessage)
-                        sentViaRemarkTemplate = true
-                    }
+                // Find other parcels in the current list with the same phone number.
+                val normalizedPhone = item.phone.filter { it.isDigit() }.takeLast(10)
+                val samePhoneParcels = allParcels.filter { p ->
+                    p.id != item.id &&
+                    p.phone.filter { it.isDigit() }.takeLast(10) == normalizedPhone
                 }
 
-                // Write remark and status as SEPARATE Firebase operations (not one atomic
-                // multi-path update) so the remark always gets saved even if the status/
-                // consignments write gets rejected by a role-restricted rule.
-                val remarkData = mapOf(
-                    "agentSystemId" to systemId,
-                    "userId"        to userId,
-                    "remarks"       to selectedLabel,
-                    "status"        to statusKey,
-                    "remarked_by"   to "worker",
-                    "createdAt"     to timestamp,
-                    "runId"         to "run_${
-                        java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH)
-                            .format(java.util.Date())
-                    }_${systemId}"
+                if (samePhoneParcels.isNotEmpty()) {
+                    // Ask the worker whether to apply the same remark to all parcels
+                    // of this customer. Dismiss the remarks sheet first so both dialogs
+                    // don't stack awkwardly on top of each other.
+                    dialog.dismiss()
+                    val total = samePhoneParcels.size + 1
+                    android.app.AlertDialog.Builder(requireContext())
+                        .setTitle("একই Customer — $total টি Parcel")
+                        .setMessage(
+                            "\"${item.customer}\" (${item.phone}) এর মোট $total টি parcel আছে।\n\n" +
+                            "সবগুলোতে একই remark দিতে চান?\n\n" +
+                            "• Yes — $total টি parcel এ \"$selectedLabel\" save হবে\n" +
+                            "• No — শুধু ${item.id} তে save হবে"
+                        )
+                        .setPositiveButton("Yes, সবগুলোতে") { _, _ ->
+                            saveRemarkForItems(
+                                items = listOf(item) + samePhoneParcels,
+                                statusKey = statusKey,
+                                selectedLabel = selectedLabel,
+                                selectedOption = options.firstOrNull { it.label == selectedLabel && it.statusKey == statusKey },
+                                triggerItem = item
+                            )
+                        }
+                        .setNegativeButton("No, শুধু এটায়") { _, _ ->
+                            saveRemarkForItems(
+                                items = listOf(item),
+                                statusKey = statusKey,
+                                selectedLabel = selectedLabel,
+                                selectedOption = options.firstOrNull { it.label == selectedLabel && it.statusKey == statusKey },
+                                triggerItem = item
+                            )
+                        }
+                        .show()
+                    return@setOnClickListener
+                }
+
+                // No siblings — save directly for the single parcel.
+                saveRemarkForItems(
+                    items = listOf(item),
+                    statusKey = statusKey,
+                    selectedLabel = selectedLabel,
+                    selectedOption = options.firstOrNull { it.label == selectedLabel && it.statusKey == statusKey },
+                    triggerItem = item
                 )
-                db.reference.child("courier/remarks_by_consignment/${item.id}/remarks_$timestamp")
-                    .setValue(remarkData)
-                    .addOnFailureListener { e ->
-                        FirebaseErrorLogger.log(
-                            screen = "WorkerSpaceFragment", action = "remark_write",
-                            errorMessage = e.message ?: "unknown",
-                            extra = mapOf("consignmentId" to item.id, "userId" to userId)
-                        )
-                        android.widget.Toast.makeText(
-                            requireContext(), "⚠ Remark save হয়নি: ${e.message}", android.widget.Toast.LENGTH_LONG
-                        ).show()
-                    }
-                EngagedStateManager.clearEngaged(item.id)
-
-                // Parcel status (courier/consignments/{id}/status) is a SEPARATE concept from
-                // remark status and is NEVER written/changed from here — only the remark's own
-                // "status" field (already saved as part of remarkData above) represents this.
-
-                // Local update
-                val updatedParcels = allParcels.map {
-                    if (it.id == item.id) {
-                        val newHistory = it.history + HistoryEntry(
-                            action = statusKey.uppercase().replace("_", " "),
-                            remark = selectedLabel,
-                            time = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date()),
-                            author = auth.currentUser?.displayName ?: "Agent",
-                            authorRole = "agent"
-                        )
-                        it.copy(
-                            remarkStatus = statusKey,
-                            remarks = selectedLabel,
-                            validationRequest = isVerifyRequestStatus(statusKey),
-                            history = newHistory
-                        )
-                    } else it
-                }
-                allParcels = updatedParcels
-                applyFilters()
-
-                // Global fallback template (Settings → Automatic WhatsApp Sender) — only fires
-                // if this specific remark had NO linked template above, so a customer never
-                // gets two WhatsApp messages for one remark.
-                if (!sentViaRemarkTemplate) {
-                    WhatsAppSender.sendIfEnabled(
-                        this@WorkerSpaceFragment,
-                        item.phone,
-                        mapOf(
-                            "customer_name"  to item.customer,
-                            "parcel_value"   to item.cod.toString(),
-                            "address"        to item.address,
-                            "consignment_id" to item.id,
-                            "agent_phone"    to agentPhone
-                        )
-                    )
-                }
             }
             dialog.dismiss()
         }
@@ -674,7 +633,136 @@ class WorkerSpaceFragment : Fragment() {
         }
 
         dialog.setContentView(view)
+        // Cap the sheet's height so the ScrollView (weight=1 inside the root
+        // LinearLayout) has a bounded parent to size against — without this,
+        // BottomSheetDialog measures wrap_content and a long, config-driven
+        // remark-options list can push Cancel/Submit off-screen with no way
+        // to scroll down to them.
+        dialog.behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+        dialog.behavior.skipCollapsed = true
+        val rootSheet = view.findViewById<View>(R.id.rootWorkerRemarkSheet)
+        rootSheet.post {
+            val maxHeight = (resources.displayMetrics.heightPixels * 0.9).toInt()
+            if (rootSheet.height > maxHeight || rootSheet.layoutParams.height != maxHeight) {
+                rootSheet.layoutParams = rootSheet.layoutParams.apply { height = maxHeight }
+                rootSheet.requestLayout()
+            }
+        }
         dialog.show()
+    }
+
+    /**
+     * Saves [selectedLabel] + [statusKey] as a remark for every parcel in [items].
+     * [triggerItem] is the one the worker actually tapped — its WhatsApp template fires
+     * (if configured). A single WhatsApp message per customer is always enough; siblings
+     * share the same phone number so we don't spam the customer multiple times.
+     */
+    private fun saveRemarkForItems(
+        items: List<WorkerParcelItem>,
+        statusKey: String,
+        selectedLabel: String,
+        selectedOption: WorkerRemarkOption?,
+        triggerItem: WorkerParcelItem
+    ) {
+        val timestamp = System.currentTimeMillis()
+        val runId = "run_${
+            java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH).format(java.util.Date())
+        }_${systemId}"
+        val nowStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+
+        // WhatsApp — only for the parcel the worker actually tapped (triggerItem).
+        val templateId = selectedOption?.templateId.orEmpty()
+        var sentViaRemarkTemplate = false
+        if (templateId.isNotBlank() && WhatsAppSender.isEnabled(requireContext())) {
+            val template = whatsappTemplatesCache[templateId]
+            if (template != null && template.body.isNotBlank()) {
+                val filledMessage = WhatsAppHelper.fillTemplate(
+                    body = template.body,
+                    name = triggerItem.customer,
+                    phone = triggerItem.phone,
+                    address = triggerItem.address,
+                    cod = triggerItem.cod.toString(),
+                    consignmentId = triggerItem.id,
+                    hub = ""
+                )
+                WhatsAppHelper.send(requireContext(), triggerItem.phone, filledMessage)
+                sentViaRemarkTemplate = true
+            }
+        }
+
+        // Firebase + local update for every parcel in the list.
+        items.forEach { p ->
+            // Use a unique timestamp per parcel so keys don't collide in Firebase.
+            val ts = timestamp + items.indexOf(p)
+            val remarkData = mapOf(
+                "agentSystemId" to systemId,
+                "userId"        to userId,
+                "remarks"       to selectedLabel,
+                "status"        to statusKey,
+                "remarked_by"   to "worker",
+                "createdAt"     to ts,
+                "runId"         to runId
+            )
+            db.reference.child("courier/remarks_by_consignment/${p.id}/remarks_$ts")
+                .setValue(remarkData)
+                .addOnFailureListener { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "WorkerSpaceFragment", action = "remark_write",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("consignmentId" to p.id, "userId" to userId)
+                    )
+                    android.widget.Toast.makeText(
+                        requireContext(), "⚠ ${p.id} — Remark save হয়নি: ${e.message}",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            EngagedStateManager.clearEngaged(p.id)
+        }
+
+        // Local state update for all affected parcels.
+        val updatedIds = items.map { it.id }.toSet()
+        allParcels = allParcels.map { p ->
+            if (p.id !in updatedIds) return@map p
+            val newHistory = p.history + HistoryEntry(
+                action = statusKey.uppercase().replace("_", " "),
+                remark = selectedLabel,
+                time = nowStr,
+                author = auth.currentUser?.displayName ?: "Agent",
+                authorRole = "agent"
+            )
+            p.copy(
+                remarkStatus = statusKey,
+                remarks = selectedLabel,
+                validationRequest = isVerifyRequestStatus(statusKey),
+                history = newHistory
+            )
+        }
+        if (sortMode == "priority") {
+            allParcels = WorkerParcelAdapter.sortByPriority(allParcels)
+        }
+        applyFilters()
+
+        val savedCount = items.size
+        android.widget.Toast.makeText(
+            requireContext(),
+            if (savedCount > 1) "✓ $savedCount টি parcel এ remark save হয়েছে" else "✓ Remark saved",
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+
+        // Global fallback WhatsApp template — only if no remark-specific template fired.
+        if (!sentViaRemarkTemplate) {
+            WhatsAppSender.sendIfEnabled(
+                this@WorkerSpaceFragment,
+                triggerItem.phone,
+                mapOf(
+                    "customer_name"  to triggerItem.customer,
+                    "parcel_value"   to triggerItem.cod.toString(),
+                    "address"        to triggerItem.address,
+                    "consignment_id" to triggerItem.id,
+                    "agent_phone"    to agentPhone
+                )
+            )
+        }
     }
 
     /** Formats the gap between updatedAt and createdAt as a human-readable age
@@ -759,12 +847,15 @@ class WorkerSpaceFragment : Fragment() {
             historyEntries.addAll(item.history)
         }
 
-        if (historyEntries.isEmpty()) {
+        // Annotate consecutive entries with worker↔CC handoff response times.
+        val entriesWithGaps = WorkerParcelAdapter.withResponseGaps(historyEntries)
+
+        if (entriesWithGaps.isEmpty()) {
             val emptyView = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_timeline_empty, layoutTimeline, false)
             layoutTimeline.addView(emptyView)
         } else {
-            for ((index, entry) in historyEntries.withIndex()) {
+            for ((index, entry) in entriesWithGaps.withIndex()) {
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
                 val statusCfg = WorkerParcelAdapter.getStatusConfig(
                     requireContext(),
@@ -778,6 +869,7 @@ class WorkerSpaceFragment : Fragment() {
                 val tvStatus = timelineView.findViewById<TextView>(R.id.twTimelineStatus)
                 val tvRemark = timelineView.findViewById<TextView>(R.id.twTimelineRemark)
                 val tvMeta = timelineView.findViewById<TextView>(R.id.twTimelineMeta)
+                val tvGap = timelineView.findViewById<TextView>(R.id.twTimelineGap)
 
                 if (entry.authorPhotoUrl.isNotBlank()) {
                     ivAvatar.load(entry.authorPhotoUrl) {
@@ -790,7 +882,7 @@ class WorkerSpaceFragment : Fragment() {
                     ivAvatar.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
                 }
 
-                tvLine.visibility = if (index < historyEntries.size - 1) View.VISIBLE else View.GONE
+                tvLine.visibility = if (index < entriesWithGaps.size - 1) View.VISIBLE else View.GONE
 
                 tvAuthor.text = entry.author
 
@@ -802,6 +894,16 @@ class WorkerSpaceFragment : Fragment() {
                 tvRemark.visibility = if (entry.remark.isNotBlank()) View.VISIBLE else View.GONE
 
                 tvMeta.text = entry.time
+
+                // Response-time chip — only shown on the entry that starts a new
+                // worker↔CC handoff block (see WorkerParcelAdapter.withResponseGaps).
+                val gapMin = entry.responseGapMinutes
+                if (gapMin != null) {
+                    tvGap.text = "⏱ ${gapMin}m response"
+                    tvGap.visibility = View.VISIBLE
+                } else {
+                    tvGap.visibility = View.GONE
+                }
 
                 layoutTimeline.addView(timelineView)
             }

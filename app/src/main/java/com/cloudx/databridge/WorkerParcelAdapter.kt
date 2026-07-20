@@ -57,7 +57,14 @@ data class HistoryEntry(
      *  repeating it inside the remarks badge would duplicate it. `remark` (above) is different:
      *  it combines status-label + note for the journey log, where each timeline entry stands
      *  alone with no separate status badge nearby, so combining both there is correct. */
-    val cardBadgeText: String = ""
+    val cardBadgeText: String = "",
+    /** Minutes elapsed since the LAST entry in the previous same-author block (worker or
+     *  CC) — i.e. the actual handoff response time. Null when this entry doesn't start a
+     *  new author block (consecutive same-author entries carry no gap), or when it's the
+     *  very first entry (nothing to compare against). Computed once via
+     *  [WorkerParcelAdapter.withResponseGaps] rather than stored — this is UI-derived, not
+     *  raw data. */
+    val responseGapMinutes: Long? = null
 )
 
 class WorkerParcelAdapter(
@@ -176,7 +183,10 @@ class WorkerParcelAdapter(
                 "💬 ${item.remarks}"
             }
             holder.remarksBox.visibility = View.VISIBLE
-            // Remark background: tinted with status color at ~15% alpha so text stays readable
+            // Remark background: tinted with status color at ~15% alpha so text stays readable.
+            // Always a rounded GradientDrawable (not setBackgroundColor, which draws a flat
+            // square and wipes out the 8dp corner radius bg_remark_chip.xml intends).
+            val density = ctx.resources.displayMetrics.density
             if (remarkColor != null) {
                 val tintedBg = android.graphics.Color.argb(
                     38, // ~15% alpha
@@ -184,12 +194,16 @@ class WorkerParcelAdapter(
                     android.graphics.Color.green(remarkColor),
                     android.graphics.Color.blue(remarkColor)
                 )
-                holder.remarksBox.setBackgroundColor(tintedBg)
+                holder.remarksBox.background = GradientDrawable().apply {
+                    cornerRadius = 8f * density
+                    setColor(tintedBg)
+                }
                 holder.tvRemarks.setTextColor(remarkColor)
             } else {
-                holder.remarksBox.setBackgroundResource(android.R.color.transparent)
-                val fallbackBg = ctx.getColor(R.color.theme_bg_inner)
-                holder.remarksBox.setBackgroundColor(fallbackBg)
+                holder.remarksBox.background = GradientDrawable().apply {
+                    cornerRadius = 8f * density
+                    setColor(ctx.getColor(R.color.theme_bg_inner))
+                }
                 holder.tvRemarks.setTextColor(ctx.getColor(R.color.theme_text_secondary))
             }
             // Elapsed time since this specific remark was left — lets the worker see at a
@@ -406,6 +420,38 @@ class WorkerParcelAdapter(
                             .thenBy { effectiveAge(it) }
                     )
                 }
+        }
+
+        /**
+         * Annotates each entry in [entries] (already sorted oldest→newest) with
+         * [HistoryEntry.responseGapMinutes] — the minutes elapsed since the LAST entry of
+         * the previous different-author block.
+         *
+         * Example: Worker writes at 10:10 and 10:11 (same author, no gap shown), then CC
+         * writes at 10:15 → gap = 10:15 − 10:11 = 4 minutes (last-of-previous-block, not
+         * first-of-previous-block). CC's own follow-up at 10:20 carries no gap since it's
+         * the same author as the entry right before it.
+         *
+         * "system" entries (CREATED / ASSIGNED synthetic rows) never start or end a
+         * response-time block — they're skipped when tracking the "last real block" so a
+         * worker's very first remark isn't measured against parcel creation, which isn't a
+         * real handoff. They also never receive a gap themselves.
+         */
+        fun withResponseGaps(entries: List<HistoryEntry>): List<HistoryEntry> {
+            var lastBlockRole: String? = null
+            var lastBlockEntryAt: Long = 0L
+            return entries.map { entry ->
+                if (entry.authorRole == "system" || entry.createdAt <= 0L) {
+                    return@map entry
+                }
+                val gap = if (lastBlockRole != null && entry.authorRole != lastBlockRole && lastBlockEntryAt > 0L) {
+                    val diffMs = (entry.createdAt - lastBlockEntryAt).coerceAtLeast(0L)
+                    diffMs / (60 * 1000)
+                } else null
+                lastBlockRole = entry.authorRole
+                lastBlockEntryAt = entry.createdAt
+                if (gap != null) entry.copy(responseGapMinutes = gap) else entry
+            }
         }
 
         fun ageColorFor(createdAt: Long): Pair<Int, Boolean> {

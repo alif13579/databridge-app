@@ -33,6 +33,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -42,6 +43,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 class CallCenterFragment : Fragment() {
 
@@ -69,6 +71,13 @@ class CallCenterFragment : Fragment() {
     private var autoCallGapSeconds = 8
     private var autoCallJob: Job? = null
     private var searchJob: Job? = null  // ✅ Fix #8: Search debounce job
+
+    // Waits for the agent to actually return to this screen (call ended/dismissed)
+    // before dialing the next number, instead of guessing with a fixed delay.
+    // Permission-free: relies on onPause→onResume, not real telephony call state.
+    private var resumeSignal: CompletableDeferred<Unit>? = null
+    private var hasPausedSincePendingDial = false
+    private val AUTO_CALL_RETURN_TIMEOUT_MS = 5 * 60 * 1000L // safety net if the signal never arrives
 
     // ── Auto Call filter preference ──────────────────────────────────
     // "status" = only cards whose status is in autoCallStatuses go into the queue.
@@ -162,6 +171,23 @@ class CallCenterFragment : Fragment() {
 
     // Run ID shape: run_{ddmmyy}_{employeeId} — ddmmyy is always exactly 6 zero-padded digits.
     private val RUN_ID_PATTERN = Regex("^run_(\\d{6})_(.+)$")
+
+    override fun onPause() {
+        super.onPause()
+        // Only meaningful while an auto-call is pending a return signal (see startAutoCall).
+        if (resumeSignal != null) hasPausedSincePendingDial = true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Require an intervening onPause so this doesn't fire from the same resumed
+        // state the dial happened in (e.g. an OEM call overlay that never backgrounds us).
+        if (resumeSignal != null && hasPausedSincePendingDial) {
+            resumeSignal?.complete(Unit)
+            resumeSignal = null
+            hasPausedSincePendingDial = false
+        }
+    }
 
     override fun onDestroyView() {
         // ✅ Fix #8: Cancel pending search debounce job
@@ -520,7 +546,17 @@ class CallCenterFragment : Fragment() {
 
                 AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
                 autoCallIndex++
-                delay(autoCallGapSeconds * 1000L)
+
+                // Wait until the agent actually comes back to this screen (call ended or
+                // dismissed) rather than assuming it wraps up within autoCallGapSeconds —
+                // a real call very often runs longer than that fixed window.
+                hasPausedSincePendingDial = false
+                val deferred = CompletableDeferred<Unit>()
+                resumeSignal = deferred
+                withTimeoutOrNull(AUTO_CALL_RETURN_TIMEOUT_MS) { deferred.await() }
+                resumeSignal = null
+
+                delay(autoCallGapSeconds * 1000L) // short breather once back, before the next dial
             }
             // Finished the whole queue — mark the last item done too.
             if (isAdded) {
@@ -547,6 +583,8 @@ class CallCenterFragment : Fragment() {
     private fun pauseAutoCall() {
         autoCallJob?.cancel()
         autoCallJob = null
+        resumeSignal = null
+        hasPausedSincePendingDial = false
         settleGlowStatesOnHalt()
         btnAutoCallStartPause.text = "▶ Start"
     }
@@ -554,6 +592,8 @@ class CallCenterFragment : Fragment() {
     private fun stopAutoCall() {
         autoCallJob?.cancel()
         autoCallJob = null
+        resumeSignal = null
+        hasPausedSincePendingDial = false
         settleGlowStatesOnHalt()
         autoCallQueue = emptyList()
         autoCallQueueIds = emptyList()
@@ -670,12 +710,15 @@ class CallCenterFragment : Fragment() {
         }
         historyEntries.addAll(item.history)
 
-        if (historyEntries.isEmpty()) {
+        // Annotate consecutive entries with worker↔CC handoff response times.
+        val entriesWithGaps = WorkerParcelAdapter.withResponseGaps(historyEntries)
+
+        if (entriesWithGaps.isEmpty()) {
             val emptyView = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_timeline_empty, layoutTimeline, false)
             layoutTimeline.addView(emptyView)
         } else {
-            for ((index, entry) in historyEntries.withIndex()) {
+            for ((index, entry) in entriesWithGaps.withIndex()) {
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
                 val statusCfg = WorkerParcelAdapter.getStatusConfig(
                     requireContext(),
@@ -689,6 +732,7 @@ class CallCenterFragment : Fragment() {
                 val tvStatus = timelineView.findViewById<TextView>(R.id.twTimelineStatus)
                 val tvRemark = timelineView.findViewById<TextView>(R.id.twTimelineRemark)
                 val tvMeta = timelineView.findViewById<TextView>(R.id.twTimelineMeta)
+                val tvGap = timelineView.findViewById<TextView>(R.id.twTimelineGap)
 
                 if (entry.authorPhotoUrl.isNotBlank()) {
                     ivAvatar.load(entry.authorPhotoUrl) {
@@ -701,7 +745,7 @@ class CallCenterFragment : Fragment() {
                     ivAvatar.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
                 }
 
-                tvLine.visibility = if (index < historyEntries.size - 1) View.VISIBLE else View.GONE
+                tvLine.visibility = if (index < entriesWithGaps.size - 1) View.VISIBLE else View.GONE
 
                 tvAuthor.text = entry.author
 
@@ -713,6 +757,14 @@ class CallCenterFragment : Fragment() {
                 tvRemark.visibility = if (entry.remark.isNotBlank()) View.VISIBLE else View.GONE
 
                 tvMeta.text = entry.time
+
+                val gapMin = entry.responseGapMinutes
+                if (gapMin != null) {
+                    tvGap.text = "⏱ ${gapMin}m response"
+                    tvGap.visibility = View.VISIBLE
+                } else {
+                    tvGap.visibility = View.GONE
+                }
 
                 layoutTimeline.addView(timelineView)
             }
@@ -1733,10 +1785,15 @@ class CallCenterFragment : Fragment() {
                         // ── New-remark notification ───────────────────────────────
                         // Skip the very first fire (initial attach) — that's just the
                         // existing snapshot, not a new event, no matter its timestamp.
+                        // Also skip remarks authored by CC itself — a CC agent should
+                        // only be notified about remarks the WORKER wrote, not their own
+                        // (previously this fired for every remark regardless of author,
+                        // causing CC to self-notify on its own submissions).
                         val latestCreatedAt = latest?.child("createdAt")?.getValue(Long::class.java) ?: 0L
                         val prevAt = ccLastSeenRemarkAt[cId] ?: 0L
                         val hadAttachedBefore = cId in ccRemarkListenerAttached
-                        if (hadAttachedBefore && latestCreatedAt > prevAt) {
+                        val remarkedBy = latest?.child("remarked_by")?.getValue(String::class.java)?.trim().orEmpty()
+                        if (hadAttachedBefore && latestCreatedAt > prevAt && remarkedBy != "support") {
                             val parcel = allParcels.firstOrNull { it.id == cId }
                             val customer = parcel?.customer?.takeIf { it.isNotBlank() } ?: cId
                             val remarkText = latest?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
@@ -2124,6 +2181,20 @@ class CallCenterFragment : Fragment() {
         btnCancel.setOnClickListener { dialog.dismiss() }
 
         dialog.setContentView(view)
+        // Same fix as WorkerSpaceFragment.showWorkerRemarksDialog(): cap the sheet's
+        // height so the ScrollView (weight=1) has a bounded parent to size against.
+        // Without this, a long remark-options list + the note field could push
+        // Cancel/Save off-screen with no way to scroll down to them.
+        dialog.behavior.state = com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED
+        dialog.behavior.skipCollapsed = true
+        val rootSheet = view.findViewById<View>(R.id.rootCcRemarkSheet)
+        rootSheet.post {
+            val maxHeight = (resources.displayMetrics.heightPixels * 0.9).toInt()
+            if (rootSheet.height > maxHeight || rootSheet.layoutParams.height != maxHeight) {
+                rootSheet.layoutParams = rootSheet.layoutParams.apply { height = maxHeight }
+                rootSheet.requestLayout()
+            }
+        }
         dialog.show()
     }
 

@@ -122,17 +122,36 @@
                     android:includeFontPadding="false"
                     android:layout_marginBottom="6dp" />
 
-                <!-- ID + Phone -->
-                <TextView
-                    android:id="@+id/tvPdMeta"
+                <!-- ID + Phone (tap phone to call) -->
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="CON001 · 01711223344"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:textColor="@color/theme_accent"
-                    android:includeFontPadding="false"
-                    android:layout_marginBottom="5dp" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="5dp">
+
+                    <TextView
+                        android:id="@+id/tvPdMeta"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="CON001 · 01711223344"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/theme_accent"
+                        android:includeFontPadding="false" />
+
+                    <TextView
+                        android:id="@+id/btnPdCall"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:text="📞"
+                        android:textSize="15sp"
+                        android:gravity="center"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackgroundBorderless" />
+                </LinearLayout>
 
                 <!-- Address -->
                 <TextView
@@ -165,6 +184,112 @@
                     android:textSize="11sp"
                     android:textColor="@color/theme_text_muted"
                     android:includeFontPadding="false" />
+            </LinearLayout>
+
+            <!-- ── Overview card (status / created / updated / age) ── -->
+            <LinearLayout
+                android:id="@+id/layoutPdOverview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@color/theme_bg_inner"
+                android:padding="12dp"
+                android:layout_marginBottom="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Parcel Status"
+                        android:textSize="11sp"
+                        android:textColor="@color/theme_text_secondary"
+                        android:includeFontPadding="false" />
+                    <TextView
+                        android:id="@+id/tvPdOverviewStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Pending"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:includeFontPadding="false" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Created"
+                        android:textSize="11sp"
+                        android:textColor="@color/theme_text_secondary"
+                        android:includeFontPadding="false" />
+                    <TextView
+                        android:id="@+id/tvPdOverviewCreatedAt"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="—"
+                        android:textSize="12sp"
+                        android:textColor="@color/theme_text_primary"
+                        android:includeFontPadding="false" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="8dp">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Last Updated"
+                        android:textSize="11sp"
+                        android:textColor="@color/theme_text_secondary"
+                        android:includeFontPadding="false" />
+                    <TextView
+                        android:id="@+id/tvPdOverviewUpdatedAt"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="—"
+                        android:textSize="12sp"
+                        android:textColor="@color/theme_text_primary"
+                        android:includeFontPadding="false" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Age"
+                        android:textSize="11sp"
+                        android:textColor="@color/theme_text_secondary"
+                        android:includeFontPadding="false" />
+                    <TextView
+                        android:id="@+id/tvPdOverviewAge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="—"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:includeFontPadding="false" />
+                </LinearLayout>
             </LinearLayout>
 
             <!-- ── Journey Log section ────────────────────────────── -->

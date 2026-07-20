@@ -62,6 +62,16 @@ class ParcelDetailFragment : Fragment() {
     private lateinit var tvEmpty:        TextView
     private lateinit var layoutTimeline: LinearLayout
     private lateinit var progressBar:    ProgressBar
+    private lateinit var tvOverviewStatus:    TextView
+    private lateinit var tvOverviewCreatedAt: TextView
+    private lateinit var tvOverviewUpdatedAt: TextView
+    private lateinit var tvOverviewAge:       TextView
+
+    // Fetched from courier/consignments/{id} — cached so tap-to-call and the
+    // Overview age counter both have the values without re-reading Firebase.
+    private var currentPhone: String = ""
+    private var currentCreatedAt: Long = 0L
+    private var currentUpdatedAt: Long = 0L
 
     // Live remark listener
     private var remarkListener: ValueEventListener? = null
@@ -89,14 +99,22 @@ class ParcelDetailFragment : Fragment() {
         tvEmpty        = view.findViewById(R.id.tvPdRemarksEmpty)
         layoutTimeline = view.findViewById(R.id.layoutPdTimeline)
         progressBar    = view.findViewById(R.id.pdProgressBar)
+        tvOverviewStatus    = view.findViewById(R.id.tvPdOverviewStatus)
+        tvOverviewCreatedAt = view.findViewById(R.id.tvPdOverviewCreatedAt)
+        tvOverviewUpdatedAt = view.findViewById(R.id.tvPdOverviewUpdatedAt)
+        tvOverviewAge       = view.findViewById(R.id.tvPdOverviewAge)
 
         tvParcelId.text = parcelId
         view.findViewById<View>(R.id.btnPdBack).setOnClickListener {
             requireActivity().onBackPressedDispatcher.onBackPressed()
         }
+        view.findViewById<View>(R.id.btnPdCall).setOnClickListener {
+            if (currentPhone.isNotBlank()) {
+                AutoDialHelper.dial(this, currentPhone)
+            }
+        }
 
         loadParcelInfo()
-        attachRemarkListener()
     }
 
     override fun onDestroyView() {
@@ -111,7 +129,7 @@ class ParcelDetailFragment : Fragment() {
         db.reference.child("courier/consignments/$parcelId")
             .addListenerForSingleValueEvent(object : ValueEventListener {
                 override fun onDataChange(snap: DataSnapshot) {
-                    if (!isAdded) return
+                    if (!isAdded || view == null) return
                     progressBar.visibility = View.GONE
 
                     val ctx          = context ?: return
@@ -136,13 +154,38 @@ class ParcelDetailFragment : Fragment() {
                     tvAddress.text  = "📍 $address"
                     tvHub.text      = "🏢 $hub"
 
+                    currentPhone     = phone.takeIf { it != "—" } ?: ""
+                    currentCreatedAt = createdAt
+                    currentUpdatedAt = updatedAt
+
+                    // Overview card — same fields shown in the long-press Journey Log dialog.
+                    tvOverviewStatus.text = cfg.label
+                    tvOverviewStatus.setTextColor(cfg.color)
+                    val fullFmt = SimpleDateFormat("dd-MM-yy hh:mm:ss a", Locale.getDefault())
+                    tvOverviewCreatedAt.text = if (createdAt > 0) fullFmt.format(Date(createdAt)) else "—"
+                    tvOverviewUpdatedAt.text = if (updatedAt > 0) fullFmt.format(Date(updatedAt)) else "—"
+                    tvOverviewAge.text = formatAge(createdAt, updatedAt)
+                    val (ageColor, _) = WorkerParcelAdapter.ageColorFor(createdAt)
+                    tvOverviewAge.setTextColor(ageColor)
+
                     val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
                     val createdStr = if (createdAt > 0) sdf.format(Date(createdAt)) else "—"
                     val updatedStr = if (updatedAt > 0 && updatedAt != createdAt) "  ·  Updated ${sdf.format(Date(updatedAt))}" else ""
                     tvDates.text = "Created: $createdStr$updatedStr"
+
+                    // Attach the remarks listener only now that currentCreatedAt is set,
+                    // so the synthetic "CREATED" entry in renderTimeline() is guaranteed
+                    // to be available on the very first render (avoids a race where the
+                    // remarks listener could fire before this callback finishes).
+                    attachRemarkListener()
                 }
                 override fun onCancelled(e: DatabaseError) {
+                    if (!isAdded || view == null) return
                     progressBar.visibility = View.GONE
+                    // Parcel info failed to load, but the remarks timeline can still
+                    // work independently — attach it anyway (CREATED entry just won't
+                    // show since currentCreatedAt stays 0).
+                    attachRemarkListener()
                 }
             })
     }
@@ -150,9 +193,19 @@ class ParcelDetailFragment : Fragment() {
     // ── Remarks timeline (live) ──────────────────────────────────────────────────
 
     private fun attachRemarkListener() {
+        // Defensive: loadParcelInfo() uses addListenerForSingleValueEvent so this
+        // normally fires exactly once, but guard against a double-attach anyway
+        // (e.g. a future retry path) by detaching any existing listener first.
+        remarkListener?.let { remarkRef.removeEventListener(it) }
         remarkListener = object : ValueEventListener {
             override fun onDataChange(snap: DataSnapshot) {
-                if (!isAdded) return
+                // isAdded can still be true for a brief window after the fragment's
+                // view has been destroyed (e.g. rapid back-navigation or a second
+                // notification tap while this fragment is mid-transition). Accessing
+                // viewLifecycleOwner in that window throws IllegalStateException, so
+                // guard on `view != null` — the real signal that the view is alive —
+                // instead of `isAdded` alone.
+                if (!isAdded || view == null) return
                 viewLifecycleOwner.lifecycleScope.launch {
                     renderTimeline(snap)
                 }
@@ -228,11 +281,47 @@ class ParcelDetailFragment : Fragment() {
             }
             .sortedBy { it.createdAt }   // oldest first → timeline reads top-to-bottom
 
+        // Always lead with the parcel's actual creation — matches the long-press
+        // Journey Log dialog, which never shows an empty timeline for a parcel
+        // that has no remarks yet (it still has a "CREATED" starting point).
+        val allEntries = if (currentCreatedAt > 0) {
+            listOf(
+                Entry(
+                    status = "",
+                    remark = "Parcel তৈরি হয়েছে",
+                    timeStr = sdf.format(Date(currentCreatedAt)),
+                    author = "System",
+                    role = "system",
+                    photoUrl = "",
+                    createdAt = currentCreatedAt
+                )
+            ) + entries
+        } else entries
+
+        // Reuse WorkerParcelAdapter.withResponseGaps() (same logic as the long-press
+        // Journey Log dialog) instead of duplicating the handoff-gap calculation here.
+        // It operates on HistoryEntry, so map Entry → HistoryEntry → back, keeping this
+        // fragment's own Entry model unchanged everywhere else in this function.
+        // Indexed (not keyed by createdAt) since two entries could share a timestamp.
+        val gapByIndex: Map<Int, Long> = WorkerParcelAdapter.withResponseGaps(
+            allEntries.map { e ->
+                HistoryEntry(
+                    action = e.status,
+                    remark = e.remark,
+                    time = e.timeStr,
+                    author = e.author,
+                    authorRole = e.role,
+                    authorPhotoUrl = e.photoUrl,
+                    createdAt = e.createdAt
+                )
+            }
+        ).withIndex().mapNotNull { (i, h) -> h.responseGapMinutes?.let { i to it } }.toMap()
+
         withContext(Dispatchers.Main) {
-            if (!isAdded) return@withContext
+            if (!isAdded || view == null) return@withContext
             layoutTimeline.removeAllViews()
 
-            if (entries.isEmpty()) {
+            if (allEntries.isEmpty()) {
                 tvEmpty.visibility = View.VISIBLE
                 tvRemarksCount.text = "0 entries"
                 return@withContext
@@ -242,7 +331,7 @@ class ParcelDetailFragment : Fragment() {
             tvRemarksCount.text = "${entries.size} ${if (entries.size == 1) "entry" else "entries"}"
 
             val inflater = LayoutInflater.from(ctx)
-            entries.forEachIndexed { index, entry ->
+            allEntries.forEachIndexed { index, entry ->
                 val row = inflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
 
                 // Avatar
@@ -260,7 +349,7 @@ class ParcelDetailFragment : Fragment() {
 
                 // Connector line (hide on last entry)
                 row.findViewById<View>(R.id.viewTimelineLine).visibility =
-                    if (index < entries.size - 1) View.VISIBLE else View.GONE
+                    if (index < allEntries.size - 1) View.VISIBLE else View.GONE
 
                 // Author name
                 row.findViewById<TextView>(R.id.twTimelineAuthor).text =
@@ -291,8 +380,36 @@ class ParcelDetailFragment : Fragment() {
                 // Timestamp
                 row.findViewById<TextView>(R.id.twTimelineMeta).text = entry.timeStr
 
+                // Response-time chip — only shown on the entry that starts a new
+                // worker↔CC handoff block (see WorkerParcelAdapter.withResponseGaps).
+                val tvGap = row.findViewById<TextView>(R.id.twTimelineGap)
+                val gapMin = gapByIndex[index]
+                if (gapMin != null) {
+                    tvGap.text = "⏱ ${gapMin}m response"
+                    tvGap.visibility = View.VISIBLE
+                } else {
+                    tvGap.visibility = View.GONE
+                }
+
                 layoutTimeline.addView(row)
             }
+        }
+    }
+
+    // ── Age formatting (matches WorkerSpaceFragment's long-press dialog) ─────────
+
+    private fun formatAge(createdAt: Long, updatedAt: Long): String {
+        if (createdAt <= 0L) return "—"
+        val end = if (updatedAt > 0L) updatedAt else System.currentTimeMillis()
+        val diffMs = (end - createdAt).coerceAtLeast(0L)
+        val days = diffMs / (24 * 60 * 60 * 1000)
+        val hours = diffMs / (60 * 60 * 1000)
+        val minutes = diffMs / (60 * 1000)
+        return when {
+            days >= 1  -> "$days ${if (days == 1L) "Day" else "Days"}"
+            hours >= 1 -> "$hours ${if (hours == 1L) "Hour" else "Hours"}"
+            minutes >= 1 -> "$minutes ${if (minutes == 1L) "Minute" else "Minutes"}"
+            else -> "Just now"
         }
     }
 }
