@@ -85,15 +85,34 @@
             android:includeFontPadding="false"
             android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/twTimelineMeta"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="10-07-26 09:00:00 AM"
-            android:textSize="10sp"
-            android:textColor="@color/theme_text_secondary"
-            android:layout_marginTop="3dp"
-            android:includeFontPadding="false" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="3dp">
+
+            <TextView
+                android:id="@+id/twTimelineMeta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="10-07-26 09:00:00 AM"
+                android:textSize="10sp"
+                android:textColor="@color/theme_text_secondary"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:id="@+id/twTimelineGap"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="⏱ 4m response"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:textColor="#F59E0B"
+                android:includeFontPadding="false"
+                android:layout_marginStart="8dp"
+                android:visibility="gone" />
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>

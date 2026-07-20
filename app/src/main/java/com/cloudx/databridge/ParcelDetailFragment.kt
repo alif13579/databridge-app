@@ -298,6 +298,25 @@ class ParcelDetailFragment : Fragment() {
             ) + entries
         } else entries
 
+        // Reuse WorkerParcelAdapter.withResponseGaps() (same logic as the long-press
+        // Journey Log dialog) instead of duplicating the handoff-gap calculation here.
+        // It operates on HistoryEntry, so map Entry → HistoryEntry → back, keeping this
+        // fragment's own Entry model unchanged everywhere else in this function.
+        // Indexed (not keyed by createdAt) since two entries could share a timestamp.
+        val gapByIndex: Map<Int, Long> = WorkerParcelAdapter.withResponseGaps(
+            allEntries.map { e ->
+                HistoryEntry(
+                    action = e.status,
+                    remark = e.remark,
+                    time = e.timeStr,
+                    author = e.author,
+                    authorRole = e.role,
+                    authorPhotoUrl = e.photoUrl,
+                    createdAt = e.createdAt
+                )
+            }
+        ).withIndex().mapNotNull { (i, h) -> h.responseGapMinutes?.let { i to it } }.toMap()
+
         withContext(Dispatchers.Main) {
             if (!isAdded || view == null) return@withContext
             layoutTimeline.removeAllViews()
@@ -360,6 +379,17 @@ class ParcelDetailFragment : Fragment() {
 
                 // Timestamp
                 row.findViewById<TextView>(R.id.twTimelineMeta).text = entry.timeStr
+
+                // Response-time chip — only shown on the entry that starts a new
+                // worker↔CC handoff block (see WorkerParcelAdapter.withResponseGaps).
+                val tvGap = row.findViewById<TextView>(R.id.twTimelineGap)
+                val gapMin = gapByIndex[index]
+                if (gapMin != null) {
+                    tvGap.text = "⏱ ${gapMin}m response"
+                    tvGap.visibility = View.VISIBLE
+                } else {
+                    tvGap.visibility = View.GONE
+                }
 
                 layoutTimeline.addView(row)
             }

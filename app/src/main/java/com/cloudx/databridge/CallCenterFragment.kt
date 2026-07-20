@@ -701,12 +701,15 @@ class CallCenterFragment : Fragment() {
         }
         historyEntries.addAll(item.history)
 
-        if (historyEntries.isEmpty()) {
+        // Annotate consecutive entries with worker↔CC handoff response times.
+        val entriesWithGaps = WorkerParcelAdapter.withResponseGaps(historyEntries)
+
+        if (entriesWithGaps.isEmpty()) {
             val emptyView = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_timeline_empty, layoutTimeline, false)
             layoutTimeline.addView(emptyView)
         } else {
-            for ((index, entry) in historyEntries.withIndex()) {
+            for ((index, entry) in entriesWithGaps.withIndex()) {
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
                 val statusCfg = WorkerParcelAdapter.getStatusConfig(
                     requireContext(),
@@ -720,6 +723,7 @@ class CallCenterFragment : Fragment() {
                 val tvStatus = timelineView.findViewById<TextView>(R.id.twTimelineStatus)
                 val tvRemark = timelineView.findViewById<TextView>(R.id.twTimelineRemark)
                 val tvMeta = timelineView.findViewById<TextView>(R.id.twTimelineMeta)
+                val tvGap = timelineView.findViewById<TextView>(R.id.twTimelineGap)
 
                 if (entry.authorPhotoUrl.isNotBlank()) {
                     ivAvatar.load(entry.authorPhotoUrl) {
@@ -732,7 +736,7 @@ class CallCenterFragment : Fragment() {
                     ivAvatar.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
                 }
 
-                tvLine.visibility = if (index < historyEntries.size - 1) View.VISIBLE else View.GONE
+                tvLine.visibility = if (index < entriesWithGaps.size - 1) View.VISIBLE else View.GONE
 
                 tvAuthor.text = entry.author
 
@@ -744,6 +748,14 @@ class CallCenterFragment : Fragment() {
                 tvRemark.visibility = if (entry.remark.isNotBlank()) View.VISIBLE else View.GONE
 
                 tvMeta.text = entry.time
+
+                val gapMin = entry.responseGapMinutes
+                if (gapMin != null) {
+                    tvGap.text = "⏱ ${gapMin}m response"
+                    tvGap.visibility = View.VISIBLE
+                } else {
+                    tvGap.visibility = View.GONE
+                }
 
                 layoutTimeline.addView(timelineView)
             }
