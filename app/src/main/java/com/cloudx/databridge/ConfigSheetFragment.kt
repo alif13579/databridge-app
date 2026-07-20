@@ -297,14 +297,34 @@ class ConfigSheetFragment : Fragment() {
                 .build()
             googleSignInClient = GoogleSignIn.getClient(requireActivity(), gso)
 
-            // Restore last signed-in account if scopes still granted
+            // Restore last signed-in account ONLY if its email matches what THIS feature
+            // (Sheets) was last connected with — see accountPrefs() doc comment below for
+            // why we can't just trust GoogleSignIn.getLastSignedInAccount() alone (it's a
+            // device-wide cache shared with ConfigConnectorsFragment's Connectors tab).
+            val savedEmail = accountPrefs().getString(PREFS_KEY_EMAIL, null)
             GoogleSignIn.getLastSignedInAccount(requireContext())?.let { acc ->
-                if (GoogleSignIn.hasPermissions(acc, Scope(ConfigSheetDriveApi.SCOPE_DRIVE), Scope(ConfigSheetDriveApi.SCOPE_SHEETS))) {
+                if (savedEmail != null &&
+                    acc.email.equals(savedEmail, ignoreCase = true) &&
+                    GoogleSignIn.hasPermissions(acc, Scope(ConfigSheetDriveApi.SCOPE_DRIVE), Scope(ConfigSheetDriveApi.SCOPE_SHEETS))
+                ) {
                     googleAccount = acc
                 }
             }
         } catch (_: Exception) { /* defensive: never crash on init */ }
     }
+
+    /**
+     * Per-feature Google-account isolation — mirrors ConfigConnectorsFragment's identical
+     * guard. GoogleSignIn.getLastSignedInAccount() / GoogleSignInClient.signOut() are both
+     * DEVICE-WIDE, shared with the Connectors tab's own GoogleSignInClient. Without this,
+     * switching accounts in one tab would silently affect the other. Each feature now
+     * remembers, in its OWN SharedPreferences key, the email it last connected with, and
+     * only trusts the shared cache when it matches.
+     */
+    private fun accountPrefs() =
+        requireContext().getSharedPreferences("sheets_google_account", android.content.Context.MODE_PRIVATE)
+
+    private val PREFS_KEY_EMAIL = "connected_email"
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -4120,6 +4140,10 @@ class ConfigSheetFragment : Fragment() {
             val task = GoogleSignIn.getSignedInAccountFromIntent(data)
             val acc = task.getResult(ApiException::class.java)
             googleAccount = acc
+            // Remember THIS feature's connected email — see accountPrefs() doc comment.
+            acc.email?.let { email ->
+                accountPrefs().edit().putString(PREFS_KEY_EMAIL, email).apply()
+            }
             // Reset downstream
             availableSheets = emptyList(); selectedSheet = null
             availableTabs   = emptyList(); selectedTab   = ""

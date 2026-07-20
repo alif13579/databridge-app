@@ -151,10 +151,15 @@ class ConfigConnectorsFragment : Fragment() {
                 .build()
             googleSignInClient = GoogleSignIn.getClient(requireActivity(), gso)
 
-            // Restore last signed-in account if the write scopes are still granted — avoids
-            // forcing a fresh sign-in every time this fragment opens.
+            // Restore last signed-in account ONLY if its email matches what THIS feature
+            // (Connectors) was last connected with — see PREFS_KEY_EMAIL doc comment below
+            // for why we can't just trust GoogleSignIn.getLastSignedInAccount() alone.
             val last = GoogleSignIn.getLastSignedInAccount(requireContext())
-            if (last != null && GoogleSignIn.hasPermissions(
+            val savedEmail = accountPrefs().getString(PREFS_KEY_EMAIL, null)
+            if (last != null &&
+                savedEmail != null &&
+                last.email.equals(savedEmail, ignoreCase = true) &&
+                GoogleSignIn.hasPermissions(
                     last,
                     Scope(ConfigSheetDriveApi.SCOPE_DRIVE_FILE),
                     Scope(ConfigSheetDriveApi.SCOPE_SHEETS_WRITE)
@@ -167,6 +172,32 @@ class ConfigConnectorsFragment : Fragment() {
             initError = e.message ?: e.javaClass.simpleName
         }
     }
+
+    /**
+     * Per-feature Google-account isolation.
+     *
+     * GoogleSignIn.getLastSignedInAccount() and GoogleSignInClient.signOut() are both
+     * DEVICE-WIDE — Google Play Services caches one signed-in account across the whole
+     * app, not per-fragment. ConfigSheetFragment (Sheets tab) and this fragment
+     * (Connectors tab) each build their own GoogleSignInClient, but without this guard
+     * they'd silently share that one cached account: switching accounts in one tab would
+     * make the other tab appear logged out too, since its own in-memory `googleAccount`
+     * only gets re-derived from the shared cache the next time that fragment is created
+     * (i.e. next time the user opens that tab).
+     *
+     * Fix: each feature remembers, in its OWN SharedPreferences key, the email of the
+     * account IT last connected with. On create, we only trust the device-wide cached
+     * account if its email matches our own saved one. A "Switch account" in the other
+     * tab still has to call signOut() to force Google's account chooser to appear (no
+     * way around that with this API) — but that no longer matters to us: next time this
+     * fragment is created, the cache might be empty or hold a different account, but
+     * since it won't match our saved email either way, we correctly show "not connected"
+     * only when the user actually switched THIS feature's account, not someone else's.
+     */
+    private fun accountPrefs() =
+        requireContext().getSharedPreferences("connectors_google_account", android.content.Context.MODE_PRIVATE)
+
+    private val PREFS_KEY_EMAIL = "connected_email"
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -518,6 +549,13 @@ class ConfigConnectorsFragment : Fragment() {
             val task = GoogleSignIn.getSignedInAccountFromIntent(data)
             val account = task.getResult(ApiException::class.java)
             googleAccount = account
+            // Remember THIS feature's connected email so onCreate() can tell (next time
+            // this fragment is created) whether the device-wide cached account is still
+            // ours, or belongs to a switch made from the Sheets tab. See accountPrefs()
+            // doc comment above for the full reasoning.
+            account.email?.let { email ->
+                accountPrefs().edit().putString(PREFS_KEY_EMAIL, email).apply()
+            }
             // Reset downstream — a newly-picked account's sheet list shouldn't inherit the
             // previous account's selection.
             availableSheets = emptyList()
