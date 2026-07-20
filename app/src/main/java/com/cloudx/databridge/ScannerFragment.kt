@@ -25,9 +25,10 @@ class ScannerFragment : Fragment() {
     private var currentTab = ScanTab.NEW_SCAN
     private var isBatchMode = false
 
-    // Date range filter for "All Scans" tab (millis, null = no bound)
-    private var filterFromDate: Long? = null
-    private var filterToDate: Long? = null
+    // Date range filter for "All Scans" tab (millis). Defaults to today;
+    // user can widen it via the date-range picker, or tap Clear for all-time.
+    private var filterFromDate: Long? = todayStartMillis()
+    private var filterToDate: Long? = todayEndMillis()
 
     // UI
     private lateinit var rv: RecyclerView
@@ -121,6 +122,8 @@ class ScannerFragment : Fragment() {
         btnManual = view.findViewById(R.id.btnManual)
         chipNewScan = view.findViewById(R.id.chipNewScan)
         chipAllScans = view.findViewById(R.id.chipAllScans)
+
+        updateDateFilterLabel() // reflect the today-by-default filter immediately
     }
 
     private fun setupListeners() {
@@ -540,6 +543,20 @@ class ScannerFragment : Fragment() {
     }
 
     // ── Date range filter ─────────────────────────────────────────────
+    private fun todayStartMillis(): Long {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0); cal.set(java.util.Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
+    private fun todayEndMillis(): Long {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 23); cal.set(java.util.Calendar.MINUTE, 59)
+        cal.set(java.util.Calendar.SECOND, 59); cal.set(java.util.Calendar.MILLISECOND, 999)
+        return cal.timeInMillis
+    }
+
     private fun showDateRangePickerDialog() {
         val builder = com.google.android.material.datepicker.MaterialDatePicker.Builder.dateRangePicker()
             .setTitleText("Date range বেছে নিন")
