@@ -21,6 +21,8 @@ class ScannerFragment : Fragment() {
 
     private val localItems = mutableListOf<ScanItem>()
     private val uploadedItems = mutableListOf<ScanItem>()
+    private var scansListener: com.google.firebase.database.ValueEventListener? = null
+    private var scansListenerRef: com.google.firebase.database.DatabaseReference? = null
 
     private var currentTab = ScanTab.NEW_SCAN
     private var isBatchMode = false
@@ -95,6 +97,13 @@ class ScannerFragment : Fragment() {
         if (currentTab == ScanTab.ALL_SCANS) {
             loadUploadedItems()
         }
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        scansListenerRef?.let { ref -> scansListener?.let { ref.removeEventListener(it) } }
+        scansListener = null
+        scansListenerRef = null
     }
 
     private fun initViews(view: View) {
@@ -362,12 +371,12 @@ class ScannerFragment : Fragment() {
 
     private fun loadUploadedItems() {
         val user = auth.currentUser ?: return
-        uploadedItems.clear()
+        if (scansListener != null) return // already live — Firebase pushes changes as they happen
 
-        db.reference.child(RunRoutePaths.userScans(user.uid))
-            .get()
-            .addOnSuccessListener { snapshot ->
-                uploadedItems.clear()
+        val ref = db.reference.child(RunRoutePaths.userScans(user.uid))
+        val listener = object : com.google.firebase.database.ValueEventListener {
+            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                if (!isAdded) return
                 val tempList = mutableListOf<ScanItem>()
                 snapshot.children.forEach { child ->
                     val scanText = child.child("scan_text").getValue(String::class.java) ?: ""
@@ -388,14 +397,22 @@ class ScannerFragment : Fragment() {
                         )
                     }
                 }
+                uploadedItems.clear()
                 uploadedItems.addAll(tempList.sortedByDescending { it.scanAt })
                 if (currentTab == ScanTab.ALL_SCANS) {
                     render()
                 }
             }
-            .addOnFailureListener { e ->
-                Toast.makeText(requireContext(), "Load failed: ${e.message}", Toast.LENGTH_SHORT).show()
+
+            override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                if (isAdded) {
+                    Toast.makeText(requireContext(), "Load failed: ${error.message}", Toast.LENGTH_SHORT).show()
+                }
             }
+        }
+        ref.addValueEventListener(listener)
+        scansListener = listener
+        scansListenerRef = ref
     }
 
     private fun updateItemInFirebase(item: ScanItem, newCode: String) {
