@@ -111,6 +111,10 @@ class ScannerAdapter(
                 holder.tvIcon.text = if (item.manual) "✏️" else "📷"
                 holder.tvCode.text = item.code
                 holder.tvMeta.text = "${TIME_FMT.format(Date(item.scanAt))} • ${if (item.manual) "Manual" else "Scanned"}"
+                holder.tvStatus.text = item.status.replaceFirstChar { it.uppercase() }
+                val (statusText, statusBg) = statusBadgeColors(holder.itemView.context, item.status)
+                holder.tvStatus.setTextColor(statusText)
+                (holder.tvStatus.background as? android.graphics.drawable.GradientDrawable)?.setColor(statusBg)
                 holder.btnMenu.setOnClickListener { anchor ->
                     val popup = android.widget.PopupMenu(anchor.context, anchor)
                     popup.menu.add(0, 1, 0, "Edit")
@@ -135,10 +139,27 @@ class ScannerAdapter(
         val tvIcon: TextView = view.findViewById(R.id.tvScanIcon)
         val tvCode: TextView = view.findViewById(R.id.tvScanCode)
         val tvMeta: TextView = view.findViewById(R.id.tvScanMeta)
+        val tvStatus: TextView = view.findViewById(R.id.tvScanStatus)
         val btnMenu: View = view.findViewById(R.id.btnScanMenu)
     }
 
     class DateDividerHolder(view: View) : RecyclerView.ViewHolder(view) {
         val tvDate: TextView = view.findViewById(R.id.tvDate)
+    }
+}
+
+/**
+ * (text color, background color) for a scan's upload status. Deliberately separate
+ * from WorkerParcelAdapter.getStatusConfig/StatusMetaCache — that system is the
+ * remote-configured courier delivery-status vocabulary (courier/consignments),
+ * a different concept from this scan-upload status (RunRoutePaths.scanItem).
+ * "pending" is the only value written today; the fallback keeps any future value
+ * visible in neutral gray instead of silently blank.
+ */
+private fun statusBadgeColors(context: android.content.Context, status: String): Pair<Int, Int> {
+    return when (status.lowercase()) {
+        "pending" -> androidx.core.content.ContextCompat.getColor(context, R.color.theme_yellow) to
+                     androidx.core.content.ContextCompat.getColor(context, R.color.theme_bg_yellow)
+        else -> android.graphics.Color.parseColor("#6B7280") to android.graphics.Color.parseColor("#F3F4F6")
     }
 }
