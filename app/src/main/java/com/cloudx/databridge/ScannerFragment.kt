@@ -373,6 +373,7 @@ class ScannerFragment : Fragment() {
                     val scanText = child.child("scan_text").getValue(String::class.java) ?: ""
                     val scanAt = child.child("scan_at").getValue(Long::class.java) ?: 0L
                     val manual = child.child("manual").getValue(Boolean::class.java) ?: false
+                    val status = child.child("status").getValue(String::class.java) ?: "pending"
                     if (scanText.isNotBlank()) {
                         tempList.add(
                             ScanItem(
@@ -381,7 +382,8 @@ class ScannerFragment : Fragment() {
                                 scanAt = scanAt,
                                 manual = manual,
                                 uploaded = true,
-                                firebaseKey = child.key ?: ""
+                                firebaseKey = child.key ?: "",
+                                status = status
                             )
                         )
                     }
