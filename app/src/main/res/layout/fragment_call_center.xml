@@ -524,8 +524,7 @@
                     android:scrollbarStyle="outsideOverlay"
                     android:scrollbarSize="10dp"
                     android:scrollbarThumbVertical="@drawable/bg_scrollbar_thumb"
-                    android:scrollbarTrackVertical="@drawable/bg_scrollbar_track"
-                    android:fadeScrollbars="false" />
+                    android:scrollbarTrackVertical="@drawable/bg_scrollbar_track" />
             </FrameLayout>
 
             </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
