@@ -6,12 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 // ── Data models ──────────────────────────────────────────────────────────────
@@ -116,190 +111,27 @@ class DashboardViewModel : ViewModel() {
     fun refresh() { load(_dateRange.value ?: todayRange()) }
 
     // ── Core load ─────────────────────────────────────────────────────────────
+    //
+    // ⚠️ Data-loading logic intentionally removed for now (huge/unscoped Firebase reads —
+    // see conversation notes). Issues found before removal, to revisit when redesigning:
+    //   1. loadBranchView() queried courier/run_routes/delivery_run directly, filtered
+    //      ONLY by date — no branch scoping at all. Pulled ALL branches company-wide,
+    //      and (worse than a perf issue) meant branch_manager/branch_incharge roles
+    //      would see every branch's data, not just their own.
+    //   2. Agent display names were resolved via one separate indexed Firebase query
+    //      PER unique agent (N+1), instead of a single bulk users_by_systemId fetch
+    //      (the pattern already used elsewhere — see UserNameResolver/ensureAgentNameMap).
+    //   3. loadWorkerView() fetched EVERY run the worker has ever had (unbounded by
+    //      date at the fetch level) and only filtered by date AFTER fetching each one
+    //      in full — wasteful and grows worse the longer a worker has been active.
+    //
+    // Structure kept as-is (DateRange/DashboardStats/AgentStat/DashboardState, and the
+    // state/dateRange/setDateRange/refresh public API) so the Fragment keeps compiling
+    // unchanged, and a properly-scoped version can be dropped back into load() later.
 
     private fun load(range: DateRange) {
-        _state.value = DashboardState.Loading
         viewModelScope.launch {
-            try {
-                val roleId = RbacManager.current.roleId
-                val uid    = auth.currentUser?.uid
-
-                when {
-                    isAdminOrBranch(roleId) -> loadBranchView(range, roleId)
-                    isWorker(roleId)        -> loadWorkerView(range, uid)
-                    isCallCenter(roleId)    -> loadBranchView(range, roleId) // CC sees same counts
-                    else                    -> loadBranchView(range, roleId)
-                }
-            } catch (e: Exception) {
-                _state.value = DashboardState.Error(e.message ?: "Unknown error")
-            }
+            _state.value = DashboardState.Error("Dashboard is temporarily disabled while the data-loading approach is redesigned.")
         }
     }
-
-    // ── Branch / Admin view ───────────────────────────────────────────────────
-
-    private suspend fun loadBranchView(range: DateRange, roleId: String) {
-        val snap = withContext(Dispatchers.IO) {
-            db.reference
-                .child("courier/run_routes/delivery_run")
-                .orderByChild("createdAt")
-                .startAt(range.startTs.toDouble())
-                .endAt(range.endTs.toDouble())
-                .get().await()
-        }
-
-        var delivered = 0; var onHold = 0; var returned = 0; var pending = 0
-        var openRuns = 0;  var closedRuns = 0
-        val agentMap = mutableMapOf<String, MutableList<Pair<String, String>>>()
-        // agentMap[agentId] → list of (runId, consignmentStatus)
-
-        snap.children.forEach { runSnap ->
-            val runId     = runSnap.key ?: return@forEach
-            val runStatus = runSnap.child("status").getValue(String::class.java) ?: "unknown"
-            val agentId   = runSnap.child("agentId").getValue(String::class.java) ?: "unknown"
-
-            if (runStatus == "open")   openRuns++   else closedRuns++
-
-            runSnap.child("consignments").children.forEach { conSnap ->
-                val status = conSnap.getValue(String::class.java) ?: return@forEach
-                bucketStatus(status).also { bucket ->
-                    when (bucket) {
-                        "delivered" -> delivered++
-                        "onHold"    -> onHold++
-                        "returned"  -> returned++
-                        else        -> pending++
-                    }
-                    agentMap.getOrPut(agentId) { mutableListOf() }
-                        .add(runId to status)
-                }
-            }
-        }
-
-        // Build agent stats (fetch names in parallel)
-        val agentStats = agentMap.entries
-            .map { (agentId, pairs) ->
-                viewModelScope.async(Dispatchers.IO) {
-                    val nameSnap = runCatching {
-                        db.reference.child("users").orderByChild("profile/company_info/system_id")
-                            .equalTo(agentId).limitToFirst(1).get().await()
-                    }.getOrNull()
-                    val displayName = nameSnap?.children?.firstOrNull()
-                        ?.child("profile/name")?.getValue(String::class.java)
-                        ?.takeIf { it.isNotBlank() } ?: agentId
-
-                    val runId = pairs.firstOrNull()?.first ?: ""
-                    val runStatus = snap.child(runId).child("status")
-                        .getValue(String::class.java) ?: "unknown"
-
-                    var d = 0; var h = 0; var r = 0; var p = 0
-                    pairs.forEach { (_, s) ->
-                        when (bucketStatus(s)) {
-                            "delivered" -> d++
-                            "onHold"    -> h++
-                            "returned"  -> r++
-                            else        -> p++
-                        }
-                    }
-                    AgentStat(agentId, displayName, runId, runStatus, d, h, r, p)
-                }
-            }.awaitAll()
-            .sortedByDescending { it.deliveryRate }
-
-        _state.value = DashboardState.Success(
-            stats  = DashboardStats(
-                totalParcels = delivered + onHold + returned + pending,
-                delivered    = delivered,
-                onHold       = onHold,
-                returned     = returned,
-                pending      = pending,
-                openRuns     = openRuns,
-                closedRuns   = closedRuns,
-            ),
-            agents = agentStats,
-            role   = roleId,
-        )
-    }
-
-    // ── Worker view ───────────────────────────────────────────────────────────
-
-    private suspend fun loadWorkerView(range: DateRange, uid: String?) {
-        if (uid == null) { _state.value = DashboardState.Error("Not logged in"); return }
-
-        val systemId = withContext(Dispatchers.IO) {
-            db.reference.child("users/$uid/profile/company_info/system_id")
-                .get().await().getValue(String::class.java)?.trim()
-        } ?: run {
-            _state.value = DashboardState.Error("System ID not found")
-            return
-        }
-
-        val myRunsSnap = withContext(Dispatchers.IO) {
-            db.reference.child("courier/runs_by_agentSystemId/$systemId").get().await()
-        }
-
-        var delivered = 0; var onHold = 0; var returned = 0; var pending = 0
-        var openRuns = 0;  var closedRuns = 0
-
-        val runsToFetch = myRunsSnap.children.mapNotNull { it.key }
-
-        val runSnaps = runsToFetch.map { runId ->
-            viewModelScope.async(Dispatchers.IO) {
-                runCatching {
-                    db.reference.child("courier/run_routes/delivery_run/$runId").get().await()
-                }.getOrNull()
-            }
-        }.awaitAll()
-
-        runSnaps.filterNotNull().forEach { runSnap ->
-            val runCreatedAt = runSnap.child("createdAt").getValue(Long::class.java) ?: 0L
-            if (runCreatedAt !in range.startTs..range.endTs) return@forEach
-
-            val runStatus = runSnap.child("status").getValue(String::class.java) ?: "unknown"
-            if (runStatus == "open") openRuns++ else closedRuns++
-
-            runSnap.child("consignments").children.forEach { conSnap ->
-                val status = conSnap.getValue(String::class.java) ?: return@forEach
-                when (bucketStatus(status)) {
-                    "delivered" -> delivered++
-                    "onHold"    -> onHold++
-                    "returned"  -> returned++
-                    else        -> pending++
-                }
-            }
-        }
-
-        _state.value = DashboardState.Success(
-            stats = DashboardStats(
-                totalParcels = delivered + onHold + returned + pending,
-                delivered    = delivered,
-                onHold       = onHold,
-                returned     = returned,
-                pending      = pending,
-                openRuns     = openRuns,
-                closedRuns   = closedRuns,
-            ),
-            agents = emptyList(), // Workers don't see agent breakdown
-            role   = "worker",
-        )
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
-
-    private fun bucketStatus(status: String): String = when (status.trim().lowercase()) {
-        "delivered"                               -> "delivered"
-        "on hold"                                 -> "onHold"
-        "return", "return requested",
-        "paid return", "drto",
-        "exchange", "partial delivery"            -> "returned"
-        else                                      -> "pending"
-    }
-
-    private fun isAdminOrBranch(role: String) =
-        role in listOf("admin", "branch_manager", "branch_incharge", "manager")
-
-    private fun isWorker(role: String) =
-        role in listOf("worker", "delivery", "delivery_agent")
-
-    private fun isCallCenter(role: String) =
-        role in listOf("call_center", "cc", "callcenter")
 }
