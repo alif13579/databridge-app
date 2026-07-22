@@ -21,7 +21,6 @@ open class PagePlaceholderFragment(
     }
 }
 
-class DashboardFragment : PagePlaceholderFragment("Dashboard")
 class MyTasksFragment : PagePlaceholderFragment("My Tasks")
 class ReportsFragment : PagePlaceholderFragment("Reports")
 class SupportFragment : PagePlaceholderFragment("Support")
