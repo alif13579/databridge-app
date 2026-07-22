@@ -2377,6 +2377,15 @@ class CallCenterFragment : Fragment() {
             adapter.collapseExpanded()
         }
         tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+
+        // Split-assignment conflicts: same customer, parcels assigned to different agents.
+        // Computed against allParcels (not filtered) so a conflict still shows even if one
+        // of the conflicting siblings is filtered out of the current view/tab.
+        adapter.conflictedPhones = allParcels
+            .groupBy { it.phone.normalizedPhone() }
+            .filterValues { group -> group.mapNotNull { it.workerSystemId.ifBlank { null } }.distinct().size > 1 }
+            .keys
+
         adapter.submitParcels(filtered)
 
         // Scroll to the expanded parcel (post so RecyclerView has measured the new items)
