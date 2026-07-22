@@ -25,8 +25,8 @@ android {
         applicationId = "com.cloudx.databridge"
         minSdk = 23
         targetSdk = 34
-        versionCode = 165
-        versionName = "5.22.12"
+        versionCode = 166
+        versionName = "5.22.13"
         multiDexEnabled = true                                         // ✅ Large app support
         vectorDrawables.useSupportLibrary = true       // ✅ Vector drawable on API 21+
     }
@@ -110,6 +110,11 @@ dependencies {
     // লাইফ সাইকেল ম্যানেজ লাইব্রেরি
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
+
+    // ✅ Fragment.viewModels() delegate — DashboardFragment's `by viewModels()`.
+    // Separate artifact from the base Fragment class (which comes transitively via
+    // appcompat/activity-ktx) — this KTX-specific delegate needs its own dependency.
+    implementation("androidx.fragment:fragment-ktx:1.8.9")
 
     // ✅ লাইফসাইকেল লাইব্রেরি ব্যাকগ্রাউন্ড ট্র্যাকিং করার জন্য (ProcessLifecycleOwner)
     implementation("androidx.lifecycle:lifecycle-process:2.8.2")

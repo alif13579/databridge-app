@@ -31,7 +31,7 @@ internal fun ConfigSheetFragment.loadSheetsForAccount() {
             pbSheetLoad?.visibility = View.VISIBLE
             val token = GoogleSignInHelper.fetchAccessToken(
                 context = requireContext(),
-                fragment = this@ConfigSheetFragment,
+                fragment = this@loadSheetsForAccount,
                 account = account,
                 scope = ConfigSheetDriveApi.OAUTH_SCOPE,
                 recoverableLauncher = recoverableLauncher,
@@ -86,7 +86,7 @@ internal fun ConfigSheetFragment.loadTabsForSheet() {
             pbTabLoad?.visibility = View.VISIBLE
             val token = GoogleSignInHelper.fetchAccessToken(
                 context = requireContext(),
-                fragment = this@ConfigSheetFragment,
+                fragment = this@loadTabsForSheet,
                 account = account,
                 scope = ConfigSheetDriveApi.OAUTH_SCOPE,
                 recoverableLauncher = recoverableLauncher,
