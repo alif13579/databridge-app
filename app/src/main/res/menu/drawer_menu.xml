@@ -11,6 +11,11 @@
             android:icon="@android:drawable/ic_menu_my_calendar"
             android:title="My Tasks" />
         <item
+            android:id="@+id/nav_approvals"
+            android:icon="@android:drawable/ic_menu_agenda"
+            android:title="Approvals"
+            android:visible="false" />
+        <item
             android:id="@+id/nav_space"
             android:icon="@android:drawable/ic_menu_compass"
             android:title="Space"

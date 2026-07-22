@@ -244,6 +244,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             when (menuItem.itemId) {
                 R.id.nav_dashboard -> loadFragment(DashboardFragment())
                 R.id.nav_my_tasks  -> loadFragment(MyTasksFragment())
+                R.id.nav_approvals -> loadFragment(ApprovalsFragment())
                 R.id.nav_space     -> loadFragment(WorkerSpaceFragment())
                 R.id.nav_call_center -> loadFragment(CallCenterFragment())
                 R.id.nav_scanner   -> loadFragment(ScannerFragment())
@@ -440,6 +441,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         listOf(
             R.id.nav_dashboard to "nav_dashboard",
             R.id.nav_my_tasks  to "nav_my_tasks",
+            R.id.nav_approvals to "nav_approvals",
             R.id.nav_reports   to "nav_reports",
             R.id.nav_settings  to "nav_settings",
             R.id.nav_support   to "nav_support"

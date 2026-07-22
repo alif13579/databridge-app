@@ -24,3 +24,4 @@ open class PagePlaceholderFragment(
 class MyTasksFragment : PagePlaceholderFragment("My Tasks")
 class ReportsFragment : PagePlaceholderFragment("Reports")
 class SupportFragment : PagePlaceholderFragment("Support")
+class ApprovalsFragment : PagePlaceholderFragment("Approvals")
