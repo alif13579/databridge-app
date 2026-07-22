@@ -129,9 +129,31 @@ class DashboardViewModel : ViewModel() {
     // state/dateRange/setDateRange/refresh public API) so the Fragment keeps compiling
     // unchanged, and a properly-scoped version can be dropped back into load() later.
 
+    // ⚠️ TEMPORARY: real loading logic replaced with hardcoded demo data below, purely so
+    // the UI design (metric cards, status bar, legend, agent rows) can be reviewed without
+    // any Firebase reads. Swap this back out for real (properly branch-scoped) loading once
+    // the redesign is settled — see the notes above for what to avoid reintroducing.
     private fun load(range: DateRange) {
         viewModelScope.launch {
-            _state.value = DashboardState.Error("Dashboard is temporarily disabled while the data-loading approach is redesigned.")
+            _state.value = DashboardState.Success(
+                stats = DashboardStats(
+                    totalParcels = 248,
+                    delivered    = 172,
+                    onHold       = 31,
+                    returned     = 18,
+                    pending      = 27,
+                    openRuns     = 9,
+                    closedRuns   = 23,
+                ),
+                agents = listOf(
+                    AgentStat("D001", "Rafiqul Islam", "run_230726_D001", "closed", delivered = 34, onHold = 2, returned = 1, pending = 0),
+                    AgentStat("D002", "Shariful Alam",  "run_230726_D002", "open",   delivered = 28, onHold = 4, returned = 2, pending = 6),
+                    AgentStat("D003", "Kamal Hossain",  "run_230726_D003", "closed", delivered = 22, onHold = 5, returned = 3, pending = 3),
+                    AgentStat("D004", "Nazmul Haque",   "run_230726_D004", "open",   delivered = 15, onHold = 6, returned = 4, pending = 8),
+                    AgentStat("D005", "Abdul Karim",    "run_230726_D005", "closed", delivered = 9,  onHold = 3, returned = 5, pending = 4),
+                ),
+                role = "admin",
+            )
         }
     }
 }
