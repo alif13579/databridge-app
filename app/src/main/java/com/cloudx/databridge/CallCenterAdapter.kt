@@ -25,7 +25,10 @@ class CallCenterAdapter(
     private val onGroupClick: ((WorkerGroup) -> Unit)? = null,
     /** Fired when a card transitions collapsed -> expanded — see WorkerParcelAdapter's
      *  matching parameter / EngagedStateManager's doc comment. */
-    private val onExpand: (CallCenterParcelItem) -> Unit = {}
+    private val onExpand: (CallCenterParcelItem) -> Unit = {},
+    /** Fired when a card transitions expanded -> collapsed, including when switching
+     *  straight to a different card (the previously-expanded one collapses too). */
+    private val onCollapse: (CallCenterParcelItem) -> Unit = {}
 ) : ListAdapter<CallCenterAdapter.Row, RecyclerView.ViewHolder>(RowDiff()) {
 
     var expandedItemId: String? = null
@@ -98,6 +101,7 @@ class CallCenterAdapter(
     fun isCardRow(position: Int): Boolean = currentList.getOrNull(position) is Row.CardRow
 
     private fun toggleExpanded(id: String) {
+        val previousId = expandedItemId
         val wasCollapsed = expandedItemId != id
         expandedItemId = if (expandedItemId == id) null else id
         // Rebuild rows with updated isExpanded flags from the currently shown list.
@@ -105,6 +109,12 @@ class CallCenterAdapter(
         submitParcels(parcels)
         if (wasCollapsed) {
             parcels.firstOrNull { it.id == id }?.let { onExpand(it) }
+            // Switching straight to a different card also collapses whatever was open.
+            if (previousId != null && previousId != id) {
+                parcels.firstOrNull { it.id == previousId }?.let { onCollapse(it) }
+            }
+        } else {
+            parcels.firstOrNull { it.id == id }?.let { onCollapse(it) }
         }
     }
 
