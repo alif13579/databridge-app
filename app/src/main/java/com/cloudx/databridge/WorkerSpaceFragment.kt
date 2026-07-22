@@ -360,7 +360,8 @@ class WorkerSpaceFragment : Fragment() {
                     agentName = user?.displayName.orEmpty().ifBlank { "Worker" },
                     agentRole = "worker"
                 )
-            }
+            },
+            onCollapse = { item -> EngagedStateManager.clearEngaged(item.id) }
         )
 
         rvParcelList.layoutManager = LinearLayoutManager(requireContext())
