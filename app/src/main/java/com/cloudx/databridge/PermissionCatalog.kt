@@ -7,6 +7,7 @@ object PermissionCatalog {
     val all: List<Perm> = listOf(
         Perm("nav_dashboard",      "Dashboard",       "View dashboard"),
         Perm("nav_my_tasks",       "My Tasks",        "See assigned tasks"),
+        Perm("nav_approvals",      "Approvals",       "View and manage approvals"),
         Perm("nav_reports",        "Reports",         "View reports"),
         Perm("nav_settings",       "Settings",        "Access app settings"),
         Perm("nav_support",        "Support",         "View support/help"),
