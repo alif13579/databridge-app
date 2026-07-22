@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fill color is overridden per-item in ScannerAdapter (mutated via GradientDrawable
+     .setColor so the rounded corners survive) — the color here is just the default. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/theme_bg_yellow" />
+    <corners android:radius="20dp" />
+</shape>

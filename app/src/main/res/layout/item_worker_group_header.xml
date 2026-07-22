@@ -13,13 +13,26 @@
     android:focusable="true"
     android:background="?attr/selectableItemBackground">
 
-    <TextView
-        android:id="@+id/tvGroupWorkerIcon"
+    <FrameLayout
         android:layout_width="28dp"
-        android:layout_height="28dp"
-        android:text="👤"
-        android:textSize="14sp"
-        android:gravity="center" />
+        android:layout_height="28dp">
+
+        <TextView
+            android:id="@+id/tvGroupWorkerIcon"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:text="👤"
+            android:textSize="14sp"
+            android:gravity="center" />
+
+        <ImageView
+            android:id="@+id/ivGroupWorkerAvatar"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:scaleType="centerCrop"
+            android:visibility="gone"
+            android:contentDescription="Worker profile photo" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"

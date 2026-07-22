@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:layout_marginBottom="4dp">
+
+    <View
+        android:id="@+id/viewDot"
+        android:layout_width="7dp"
+        android:layout_height="7dp"
+        android:background="#22C55E" />
+
+    <TextView
+        android:id="@+id/tvLegendLabel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="Label"
+        android:textSize="10sp"
+        android:textColor="#64748b"
+        android:layout_marginStart="6dp" />
+
+    <TextView
+        android:id="@+id/tvLegendValue"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="0"
+        android:textSize="10sp"
+        android:textColor="#F1F5F9"
+        android:fontFamily="monospace"
+        android:textStyle="bold"
+        android:layout_marginEnd="4dp" />
+
+    <TextView
+        android:id="@+id/tvLegendPct"
+        android:layout_width="30dp"
+        android:layout_height="wrap_content"
+        android:text="(0%)"
+        android:textSize="9sp"
+        android:textColor="#334155"
+        android:gravity="end" />
+
+</LinearLayout>
