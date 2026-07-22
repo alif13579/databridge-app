@@ -15,13 +15,15 @@ import com.google.firebase.database.FirebaseDatabase
  *   agentName : String
  *   agentRole : "worker" | "cc"
  *
- * Lifecycle (per explicit product decision):
- *   START : card is expanded (collapsing does NOT clear it — the agent may still be on the
- *           call after collapsing the card to scroll/look at something else)
- *   CLEAR : that parcel's remarks are submitted (either side)
+ * Lifecycle (per explicit product decision — revised, collapse now clears too):
+ *   START : card is expanded
+ *   CLEAR : card is collapsed (including switching straight to a different card), OR
+ *           that parcel's remarks are submitted (either side) — whichever happens first.
+ *           Submitting remarks collapses the card in practice, but both paths clear
+ *           independently so neither depends on the other actually firing.
  *   SAFETY NET : a 5-minute staleness window, checked at DISPLAY time (isFresh()) — covers
- *           the case where an agent expands a card, then the app crashes or they abandon the
- *           call without ever submitting remarks, which would otherwise leave the ring
+ *           the case where an agent expands a card, then the app crashes or is killed
+ *           before either clear path runs, which would otherwise leave the ring
  *           spinning forever with no way to clear it except a manual Firebase edit.
  */
 object EngagedStateManager {
