@@ -520,7 +520,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:clipToPadding="false"
-                    android:scrollbars="vertical" />
+                    android:scrollbars="vertical"
+                    android:scrollbarStyle="outsideOverlay"
+                    android:scrollbarSize="10dp"
+                    android:scrollbarThumbVertical="@drawable/bg_scrollbar_thumb"
+                    android:scrollbarTrackVertical="@drawable/bg_scrollbar_track"
+                    android:fadeScrollbars="false" />
             </FrameLayout>
 
             </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
