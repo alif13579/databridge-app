@@ -622,7 +622,8 @@ class CallCenterFragment : Fragment() {
                     agentName = user?.displayName.orEmpty().ifBlank { "CC Agent" },
                     agentRole = "cc"
                 )
-            }
+            },
+            onCollapse = { item -> EngagedStateManager.clearEngaged(item.id) }
         )
         adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()
         rvParcelList.layoutManager = LinearLayoutManager(requireContext())
