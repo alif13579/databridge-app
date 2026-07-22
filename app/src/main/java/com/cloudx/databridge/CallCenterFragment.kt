@@ -649,6 +649,8 @@ class CallCenterFragment : Fragment() {
             )
         ).attachToRecyclerView(rvParcelList)
         rvParcelList.setItemViewCacheSize(8)
+
+        view?.findViewById<DraggableScrollbarView>(R.id.viewCcaScrollbar)?.attachTo(rvParcelList)
     }
 
     /**
