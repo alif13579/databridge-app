@@ -32,6 +32,11 @@ class CallCenterAdapter(
 ) : ListAdapter<CallCenterAdapter.Row, RecyclerView.ViewHolder>(RowDiff()) {
 
     var expandedItemId: String? = null
+    /** Normalized (last-10-digit) phone numbers whose parcels are split across more than
+     *  one agent — set by the fragment before submitParcels(). See CardRow.isConflicted. */
+    var conflictedPhones: Set<String> = emptySet()
+
+    private fun String.normalizedPhone(): String = filter { it.isDigit() }.takeLast(10)
     var statusLang: String = "bn"
     /** "attempt" (default, most-attempted first) or "aging" (oldest first) — same options as
      *  Worker Fragment's Sort By dropdown. Read by submitParcels() each call. */
@@ -65,7 +70,7 @@ class CallCenterAdapter(
             override val stableKey get() = "header:${group.workerName}"
         }
 
-        data class CardRow(val parcel: CallCenterParcelItem, val isExpanded: Boolean) : Row() {
+        data class CardRow(val parcel: CallCenterParcelItem, val isExpanded: Boolean, val isConflicted: Boolean) : Row() {
             override val stableKey get() = "card:${parcel.id}"
         }
     }
@@ -87,7 +92,11 @@ class CallCenterAdapter(
             val group = WorkerGroup(worker, parcels.firstOrNull()?.branch ?: "", parcels, parcels.firstOrNull()?.workerPhotoUrl ?: "")
             rows.add(Row.HeaderRow(group))
             parcels.forEach { parcel ->
-                rows.add(Row.CardRow(parcel, isExpanded = parcel.id == expandedItemId))
+                rows.add(Row.CardRow(
+                    parcel,
+                    isExpanded = parcel.id == expandedItemId,
+                    isConflicted = parcel.phone.normalizedPhone() in conflictedPhones
+                ))
             }
         }
         submitList(rows)
@@ -138,6 +147,7 @@ class CallCenterAdapter(
             is Row.CardRow -> (holder as CardHolder).bind(
                 row.parcel,
                 row.isExpanded,
+                row.isConflicted,
                 statusLang = statusLang,
                 glowColor = callStates[row.parcel.id],
                 onToggleExpand = { toggleExpanded(row.parcel.id) },
@@ -191,6 +201,7 @@ class CallCenterAdapter(
         private val tvAddress: TextView = view.findViewById(R.id.tvAgtAddress)
         private val tvCod: TextView = view.findViewById(R.id.tvAgtCod)
         private val tvAge: TextView = view.findViewById(R.id.tvAgtAge)
+        private val tvSplitWarning: TextView = view.findViewById(R.id.tvAgtSplitWarning)
         private val tvStatusBadge: TextView = view.findViewById(R.id.tvAgtStatusBadge)
         private val remarksBox: View = view.findViewById(R.id.layoutAgtRemarksBox)
         private val tvRemarks: TextView = view.findViewById(R.id.tvAgtRemarks)
@@ -203,6 +214,7 @@ class CallCenterAdapter(
         fun bind(
             item: CallCenterParcelItem,
             isExpanded: Boolean,
+            isConflicted: Boolean,
             statusLang: String,
             glowColor: Int?,
             onToggleExpand: () -> Unit,
@@ -214,6 +226,7 @@ class CallCenterAdapter(
             tvMeta.text = "${item.id} · ${item.phone}"
             tvAddress.text = "📍 ${item.address}"
             tvCod.text = "৳${item.cod}"
+            tvSplitWarning.visibility = if (isConflicted) View.VISIBLE else View.GONE
             tvAge.text = "${WorkerParcelAdapter.formatAgeCompact(item.createdAt)}  ·  A${item.attemptCount}"
             val (ageColor, ageBold) = WorkerParcelAdapter.ageColorFor(item.createdAt)
             tvAge.setTextColor(ageColor)
