@@ -2285,7 +2285,14 @@ class CallCenterFragment : Fragment() {
             // Don't collapse — set expansion to the notification target before submit
             adapter.expandedItemId = targetId
             pendingExpandParcelId = null
-        } else {
+        } else if (adapter.expandedItemId != null && filtered.none { it.id == adapter.expandedItemId }) {
+            // Whatever was expanded fell out of the current filter/tab — nothing to show it
+            // against, so collapse it. Otherwise leave adapter.expandedItemId alone: this
+            // used to unconditionally collapseExpanded() on every refresh, which meant a
+            // normal tap-to-expand got wiped out almost immediately by the very
+            // EngagedStateManager.markEngaged() write that same tap triggers (see onExpand
+            // in setupAdapter()) echoing back through this fragment's live parcels listener —
+            // the Call/Remarks buttons would flash open then snap shut.
             adapter.collapseExpanded()
         }
         tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
