@@ -71,10 +71,13 @@ class WorkerParcelAdapter(
     private val onCall: (WorkerParcelItem) -> Unit,
     private val onSetRemarks: (WorkerParcelItem) -> Unit,
     private val onLongPress: (WorkerParcelItem) -> Unit,
-    /** Fired when a card transitions collapsed -> expanded (not on collapse — see
-     *  EngagedStateManager's doc comment for why). Fragment supplies current-user info since
-     *  the adapter itself has no access to who's logged in. */
-    private val onExpand: (WorkerParcelItem) -> Unit = {}
+    /** Fired when a card transitions collapsed -> expanded — see EngagedStateManager's
+     *  doc comment. Fragment supplies current-user info since the adapter itself has no
+     *  access to who's logged in. */
+    private val onExpand: (WorkerParcelItem) -> Unit = {},
+    /** Fired when a card transitions expanded -> collapsed, including when switching
+     *  straight to a different card (the previously-expanded one collapses too). */
+    private val onCollapse: (WorkerParcelItem) -> Unit = {}
 ) : ListAdapter<WorkerParcelItem, WorkerParcelAdapter.Holder>(Diff()) {
 
     var expandedItemId: String? = null
@@ -276,6 +279,7 @@ class WorkerParcelAdapter(
                 expandedItemId = null
                 previousExpandedPosition = null
                 notifyItemChanged(position)
+                onCollapse(item)
             } else {
                 // Expand new, collapse previous
                 expandedItemId = item.id
@@ -285,6 +289,7 @@ class WorkerParcelAdapter(
                 // Collapse previously expanded item (if any)
                 if (previousId != null && previousPos != null && previousPos != position) {
                     notifyItemChanged(previousPos)
+                    currentList.getOrNull(previousPos)?.let { onCollapse(it) }
                 }
             }
         }
