@@ -198,6 +198,20 @@ class ConfigSheetFragment : Fragment() {
     internal var tvColPreview:    TextView? = null
     internal var tvLivePreview:   TextView? = null
     internal var scrollLivePreview: HorizontalScrollView? = null
+    // Moved here from mid-file (was declared just above updateColPreview) as part of the
+    // ConfigSheetWizardSteps.kt module split — extension functions can't hold their own
+    // backing-field state, so this stays on the fragment like the rest of wizard state.
+    internal val colWatcher = object : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        override fun afterTextChanged(s: android.text.Editable?) {
+            if (connectStep == 4) {
+                updateColPreview()
+                updateSummary()
+                scheduleLivePreview()
+            }
+        }
+    }
     internal var tableLivePreview: TableLayout? = null
     internal var pbPreviewLoad:   ProgressBar? = null
     internal var pbColPreviewMgr: ProgressBar? = null
@@ -734,18 +748,6 @@ class ConfigSheetFragment : Fragment() {
                 } else {
                     renderMappingStep()
                 }
-            }
-        }
-    }
-
-    internal val colWatcher = object : android.text.TextWatcher {
-        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-        override fun afterTextChanged(s: android.text.Editable?) {
-            if (connectStep == 4) {
-                updateColPreview()
-                updateSummary()
-                scheduleLivePreview()
             }
         }
     }
