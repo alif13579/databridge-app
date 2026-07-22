@@ -394,21 +394,29 @@ class WorkerSpaceFragment : Fragment() {
     private fun loadRemarkOptions() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                StatusMetaCache.refresh()
-
-                val langValue = withContext(Dispatchers.IO) {
-                    db.reference.child("config/language/workerLang").get().await()
-                        .getValue(String::class.java)
-                }?.trim().orEmpty().ifBlank { "bn_bn" }
-                val (remarkLang, statusLang) = parseLangPair(langValue)
+                // These 4 reads are fully independent of each other (none depends on another's
+                // result) but were previously awaited one-at-a-time, adding up their individual
+                // round-trip times. Firing them together and awaiting all at once cuts total
+                // wait time down to roughly the SLOWEST single read instead of the sum of all 4.
+                val (langValue, remarksSnap, templatesSnap) = coroutineScope {
+                    val statusMetaDeferred = async(Dispatchers.IO) { StatusMetaCache.refresh() }
+                    val langDeferred = async(Dispatchers.IO) {
+                        db.reference.child("config/language/workerLang").get().await()
+                            .getValue(String::class.java)
+                    }
+                    val remarksDeferred = async(Dispatchers.IO) {
+                        db.reference.child("config/remarks_worker").get().await()
+                    }
+                    val templatesDeferred = async(Dispatchers.IO) {
+                        db.reference.child("config/whatsappTemplates").get().await()
+                    }
+                    statusMetaDeferred.await()
+                    Triple(langDeferred.await(), remarksDeferred.await(), templatesDeferred.await())
+                }
+                val langValueResolved = langValue?.trim().orEmpty().ifBlank { "bn_bn" }
+                val (remarkLang, statusLang) = parseLangPair(langValueResolved)
                 workerStatusLang = statusLang
 
-                val remarksSnap = withContext(Dispatchers.IO) {
-                    db.reference.child("config/remarks_worker").get().await()
-                }
-                val templatesSnap = withContext(Dispatchers.IO) {
-                    db.reference.child("config/whatsappTemplates").get().await()
-                }
                 val loadedTemplates = mutableMapOf<String, ConfigState.WhatsAppTemplate>()
                 templatesSnap.children.forEach { t ->
                     val tid  = t.key ?: return@forEach
@@ -1359,10 +1367,15 @@ class WorkerSpaceFragment : Fragment() {
         data class ItemFetch(val cId: String, val runRef: ConsignmentRunRef, val detailSnap: DataSnapshot, val remarksSnap: DataSnapshot)
         val itemFetches = consignmentRefs.map { (cId, runRef) ->
             async(Dispatchers.IO) {
-                val detailSnap = db.reference.child("courier/consignments/$cId").get().await()
-                val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
-                    .get().await()
-                ItemFetch(cId, runRef, detailSnap, remarksSnap)
+                // Fire both independent reads together instead of sequentially — remarksSnap
+                // only needs cId (known up-front), not any field from detailSnap.
+                val detailDeferred = async(Dispatchers.IO) {
+                    db.reference.child("courier/consignments/$cId").get().await()
+                }
+                val remarksDeferred = async(Dispatchers.IO) {
+                    db.reference.child("courier/remarks_by_consignment/$cId").get().await()
+                }
+                ItemFetch(cId, runRef, detailDeferred.await(), remarksDeferred.await())
             }
         }
         val fetches = itemFetches.awaitAll()

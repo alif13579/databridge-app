@@ -1597,7 +1597,18 @@ class CallCenterFragment : Fragment() {
                 val runStatus = info.routeStatus
                 async(Dispatchers.IO) {
                     try {
-                        val snap = db.reference.child("courier/consignments/$cId").get().await()
+                        // Fire both independent reads together — remarksSnap only needs cId
+                        // (known up-front), not any field from the consignment-detail snap, so
+                        // there's no reason to wait for snap (plus all the hub-name resolution
+                        // work below) before starting it. This overlaps its round-trip time
+                        // with snap's instead of adding the two sequentially.
+                        val snapDeferred = async(Dispatchers.IO) {
+                            db.reference.child("courier/consignments/$cId").get().await()
+                        }
+                        val remarksSnapDeferred = async(Dispatchers.IO) {
+                            db.reference.child("courier/remarks_by_consignment/$cId").get().await()
+                        }
+                        val snap = snapDeferred.await()
                         if (!snap.exists()) return@async null
 
                         val name    = snap.child("recipientName").getValue(String::class.java) ?: ""
@@ -1637,8 +1648,7 @@ class CallCenterFragment : Fragment() {
                         val attemptVal = readCcAttempt(snap)
 
                         // Full remark history (not just the latest) — needed for the journey popup.
-                        val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
-                            .get().await()
+                        val remarksSnap = remarksSnapDeferred.await()
 
                         // Card badge (overview) — TODAY's TRUE latest remark, any author.
                         // Parse this consignment's remarks_{timestamp} entries, keep only
@@ -1973,24 +1983,32 @@ class CallCenterFragment : Fragment() {
     private fun loadCcRemarkOptions() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                StatusMetaCache.refresh()
-
-                val langValue = withContext(Dispatchers.IO) {
-                    com.google.firebase.database.FirebaseDatabase.getInstance().reference
-                        .child("config/language/ccLang").get().await()
-                        .getValue(String::class.java)
-                }?.trim().orEmpty().ifBlank { "bn_en" }
-                val (remarkLang, statusLang) = parseLangPair(langValue)
+                // Same fix as WorkerSpaceFragment.loadRemarkOptions(): these 4 reads are fully
+                // independent of each other but were previously awaited one-at-a-time. Firing
+                // them together cuts total wait time down to roughly the SLOWEST single read
+                // instead of the sum of all 4.
+                val (langValue, remarksSnap, templatesSnap) = coroutineScope {
+                    val statusMetaDeferred = async(Dispatchers.IO) { StatusMetaCache.refresh() }
+                    val langDeferred = async(Dispatchers.IO) {
+                        com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                            .child("config/language/ccLang").get().await()
+                            .getValue(String::class.java)
+                    }
+                    val remarksDeferred = async(Dispatchers.IO) {
+                        com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                            .child("config/remarks_call_center").get().await()
+                    }
+                    val templatesDeferred = async(Dispatchers.IO) {
+                        com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                            .child("config/whatsappTemplates").get().await()
+                    }
+                    statusMetaDeferred.await()
+                    Triple(langDeferred.await(), remarksDeferred.await(), templatesDeferred.await())
+                }
+                val langValueResolved = langValue?.trim().orEmpty().ifBlank { "bn_en" }
+                val (remarkLang, statusLang) = parseLangPair(langValueResolved)
                 ccStatusLang = statusLang
 
-                val remarksSnap = withContext(Dispatchers.IO) {
-                    com.google.firebase.database.FirebaseDatabase.getInstance().reference
-                        .child("config/remarks_call_center").get().await()
-                }
-                val templatesSnap = withContext(Dispatchers.IO) {
-                    com.google.firebase.database.FirebaseDatabase.getInstance().reference
-                        .child("config/whatsappTemplates").get().await()
-                }
                 val loadedTemplates = mutableMapOf<String, ConfigState.WhatsAppTemplate>()
                 templatesSnap.children.forEach { t ->
                     val tid  = t.key ?: return@forEach

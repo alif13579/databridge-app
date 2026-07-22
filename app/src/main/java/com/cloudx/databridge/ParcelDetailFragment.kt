@@ -143,7 +143,7 @@ class ParcelDetailFragment : Fragment() {
                         val phone        = snap.child("recipientPhone").getValue(String::class.java) ?: "—"
                         val address      = snap.child("recipientAddress").getValue(String::class.java) ?: "—"
                         val hub          = snap.child("deliveryHub").getValue(String::class.java) ?: "—"
-                        val cod          = snap.child("collectableAmount").getValue(Long::class.java) ?: 0L
+                        val cod          = readCod(snap)
                         val status       = snap.child("status").getValue(String::class.java) ?: "pending"
                         val createdAt    = snap.child("createdAt").getValue(Long::class.java) ?: 0L
                         val updatedAt    = snap.child("updatedAt").getValue(Long::class.java) ?: 0L
@@ -435,6 +435,18 @@ class ParcelDetailFragment : Fragment() {
     }
 
     // ── Age formatting (matches WorkerSpaceFragment's long-press dialog) ─────────
+
+    // ── Collectable amount — Firebase has stored this as String, Long, or Double
+    // depending on which code path wrote it, so a single-type read can throw
+    // DatabaseException ("Failed to convert value to Long"). Same fallback chain as
+    // WorkerSpaceFragment.readCod().
+    private fun readCod(snap: DataSnapshot): Int {
+        return snap.child("collectableAmount").getValue(String::class.java)
+            ?.toDoubleOrNull()?.toInt()
+            ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt()
+            ?: snap.child("collectableAmount").getValue(Double::class.java)?.toInt()
+            ?: 0
+    }
 
     private fun formatAge(createdAt: Long, updatedAt: Long): String {
         if (createdAt <= 0L) return "—"
