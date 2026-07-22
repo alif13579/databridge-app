@@ -18,6 +18,10 @@ data class CallCenterParcelItem(
     /** employee_id / systemId — the same token embedded in run_ids. Unique per agent, unlike
      *  `worker` (display name), which two different agents can share. */
     val workerSystemId: String = "",
+    /** users/{uid}/profile/photo_url for this worker — resolved via the same
+     *  users_by_systemId -> uid lookup ensureAgentNameMap() already does for the name.
+     *  Blank when the worker has no photo set or the lookup hasn't resolved it yet. */
+    val workerPhotoUrl: String = "",
     val branch: String,
     val branchIds: List<String> = emptyList(),
     /** createdAt of the specific remark entry shown in `remarks` above — used to render

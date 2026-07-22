@@ -124,6 +124,9 @@ class CallCenterFragment : Fragment() {
     private var systemIdToName: Map<String, String> = emptyMap()
     // systemId -> HR-assigned employee_id (users/{uid}/profile/company_info/employee_id)
     private var systemIdToEmployeeId: Map<String, String> = emptyMap()
+    // systemId -> users/{uid}/profile/photo_url, resolved alongside name/employee_id in
+    // ensureAgentNameMap()'s same parallel per-uid fetch. Cleared on pull-to-refresh.
+    private var systemIdToPhotoUrl: Map<String, String> = emptyMap()
 
     private lateinit var adapter: CallCenterAdapter
 
@@ -288,6 +291,7 @@ class CallCenterFragment : Fragment() {
         swipeRefresh.setOnRefreshListener {
             systemIdToName = emptyMap()
             systemIdToEmployeeId = emptyMap()
+            systemIdToPhotoUrl = emptyMap()
             UserNameResolver.clearCache()
             detachRunsListener()
             loadCcRemarkOptions()
@@ -1510,7 +1514,7 @@ class CallCenterFragment : Fragment() {
                 if (!sysId.isNullOrBlank() && !uid.isNullOrBlank()) sysIdToUid[sysId] = uid
             }
             // Step 2: uid → name + employee_id in parallel (2 reads per uid, all concurrent).
-            data class AgentData(val sysId: String, val name: String?, val empId: String?)
+            data class AgentData(val sysId: String, val name: String?, val empId: String?, val photoUrl: String?)
             val results = coroutineScope {
                 sysIdToUid.map { (sysId, uid) ->
                     async(Dispatchers.IO) {
@@ -1522,14 +1526,20 @@ class CallCenterFragment : Fragment() {
                             db.reference.child("users/$uid/profile/company_info/employee_id").get().await()
                                 .getValue(String::class.java)?.trim()
                         }.getOrNull()
-                        AgentData(sysId, name, empId)
+                        val photoUrl = runCatching {
+                            db.reference.child("users/$uid/profile/photo_url").get().await()
+                                .getValue(String::class.java)?.trim()
+                        }.getOrNull()
+                        AgentData(sysId, name, empId, photoUrl)
                     }
                 }.awaitAll()
             }
             val nameMap  = results.filter { !it.name.isNullOrBlank()  }.associate { it.sysId to it.name!! }
             val empIdMap = results.filter { !it.empId.isNullOrBlank() }.associate { it.sysId to it.empId!! }
+            val photoMap = results.filter { !it.photoUrl.isNullOrBlank() }.associate { it.sysId to it.photoUrl!! }
             systemIdToName       = nameMap
             systemIdToEmployeeId = empIdMap
+            systemIdToPhotoUrl   = photoMap
             nameMap
         } catch (e: Exception) {
             emptyMap()
@@ -1687,6 +1697,7 @@ class CallCenterFragment : Fragment() {
                                 time              = "",
                                 worker            = nameMap[agentSystemId] ?: agentSystemId,
                                 workerSystemId    = agentSystemId,
+                                workerPhotoUrl    = systemIdToPhotoUrl[agentSystemId] ?: "",
                                 branch            = hubName,
                                 branchIds         = scopedBranchIds,
                                 remarksAt         = latestTodayEntry?.child("createdAt")?.getValue(Long::class.java) ?: 0L,
