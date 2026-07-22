@@ -605,6 +605,18 @@ class CallCenterFragment : Fragment() {
         btnAutoCallStartPause.text = "▶ Start"
     }
 
+    /** Last-10-digit normalization so phone numbers with/without a country-code prefix
+     *  still match — same rule showRemarksDialog() uses for its sibling-parcel lookup. */
+    private fun String.normalizedPhone(): String = filter { it.isDigit() }.takeLast(10)
+
+    /** Every parcel (including [item] itself) sharing item's phone number. Used to fan the
+     *  engaged-glow out to the whole group, so a colleague sees ALL of this customer's
+     *  parcels as "someone's on it" — not just the one card that was actually tapped. */
+    private fun samePhoneGroup(item: CallCenterParcelItem): List<CallCenterParcelItem> {
+        val normalized = item.phone.normalizedPhone()
+        return allParcels.filter { it.phone.normalizedPhone() == normalized }
+    }
+
     private fun setupAdapter() {
         adapter = CallCenterAdapter(
             onCall = { item ->
@@ -616,14 +628,18 @@ class CallCenterFragment : Fragment() {
             onLongPress = { item -> showActionHistoryDialog(item) },
             onExpand = { item ->
                 val user = FirebaseAuth.getInstance().currentUser
-                EngagedStateManager.markEngaged(
-                    consignmentId = item.id,
-                    agentUid = user?.uid.orEmpty(),
-                    agentName = user?.displayName.orEmpty().ifBlank { "CC Agent" },
-                    agentRole = "cc"
-                )
+                samePhoneGroup(item).forEach { p ->
+                    EngagedStateManager.markEngaged(
+                        consignmentId = p.id,
+                        agentUid = user?.uid.orEmpty(),
+                        agentName = user?.displayName.orEmpty().ifBlank { "CC Agent" },
+                        agentRole = "cc"
+                    )
+                }
             },
-            onCollapse = { item -> EngagedStateManager.clearEngaged(item.id) }
+            onCollapse = { item ->
+                samePhoneGroup(item).forEach { p -> EngagedStateManager.clearEngaged(p.id) }
+            }
         )
         adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()
         rvParcelList.layoutManager = LinearLayoutManager(requireContext())
