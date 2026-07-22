@@ -153,9 +153,6 @@ class CallCenterFragment : Fragment() {
     private var statusFilter = "all"
     private val selectedBranchIds = mutableSetOf<String>()
     private val branchIdToName = java.util.concurrent.ConcurrentHashMap<String, String>()
-    // In-flight fetch tracker for branchIdToName — see resolveBranchName() below for why
-    // this exists (prevents duplicate concurrent fetches of the same not-yet-cached branch).
-    private val branchNameFetchesInFlight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<String>>()
     private var branches = listOf<String>()
     // "priority" = only verify_req parcels (agents who sent a request, called first).
     // "all" = every branch-scoped parcel regardless of request, for random spot-verification.
@@ -652,8 +649,6 @@ class CallCenterFragment : Fragment() {
             )
         ).attachToRecyclerView(rvParcelList)
         rvParcelList.setItemViewCacheSize(8)
-
-        view?.findViewById<DraggableScrollbarView>(R.id.viewCcaScrollbar)?.attachTo(rvParcelList)
     }
 
     /**
@@ -1505,37 +1500,6 @@ class CallCenterFragment : Fragment() {
      * users_by_systemId reverse-index for O(1) targeted lookups instead of scanning
      * the full users/ tree, then resolves names for those uids in parallel.
      */
-
-    /**
-     * Resolves [hub] to its display name via [branchIdToName], fetching branches/{hub}/name
-     * on a cache miss. Concurrent calls for the SAME not-yet-cached hub (very likely here —
-     * reprocessAllCachedRuns() fires this per-consignment, and many consignments in the same
-     * run typically share a branch) are de-duplicated through [branchNameFetchesInFlight]:
-     * the first caller starts the fetch and registers its Deferred; every other concurrent
-     * caller for that hub finds the in-flight Deferred and awaits the SAME result instead of
-     * firing its own redundant network read for a name that's already on the way.
-     */
-    private suspend fun resolveBranchName(hub: String, db: com.google.firebase.database.FirebaseDatabase): String {
-        branchIdToName[hub]?.let { return it }
-        val deferred = branchNameFetchesInFlight.computeIfAbsent(hub) {
-            viewLifecycleOwner.lifecycleScope.async(Dispatchers.IO) {
-                val resolved = runCatching {
-                    db.reference.child("branches/$hub/name").get().await()
-                        .getValue(String::class.java)
-                }.getOrNull()?.takeIf { it.isNotBlank() } ?: hub
-                branchIdToName[hub] = resolved
-                resolved
-            }
-        }
-        return try {
-            deferred.await()
-        } finally {
-            // Only this hub's own entry, and only once resolution finished either way —
-            // otherwise a failed fetch would permanently block all future retries for this hub.
-            branchNameFetchesInFlight.remove(hub, deferred)
-        }
-    }
-
     private suspend fun ensureAgentNameMap(): Map<String, String> {
         if (systemIdToName.isNotEmpty()) return systemIdToName
         return try {
@@ -1550,20 +1514,23 @@ class CallCenterFragment : Fragment() {
                 val uid   = child.child("uid").getValue(String::class.java)?.trim()
                 if (!sysId.isNullOrBlank() && !uid.isNullOrBlank()) sysIdToUid[sysId] = uid
             }
-            // Step 2: uid → whole profile node in parallel (1 read per uid instead of 3 —
-            // name/employee_id/photo_url are all direct children of the same profile node,
-            // so one fetch of the parent gets all three from a single snapshot).
+            // Step 2: uid → name + employee_id in parallel (2 reads per uid, all concurrent).
             data class AgentData(val sysId: String, val name: String?, val empId: String?, val photoUrl: String?)
             val results = coroutineScope {
                 sysIdToUid.map { (sysId, uid) ->
                     async(Dispatchers.IO) {
-                        val profileSnap = runCatching {
-                            db.reference.child("users/$uid/profile").get().await()
+                        val name = runCatching {
+                            db.reference.child("users/$uid/profile/name").get().await()
+                                .getValue(String::class.java)?.trim()
                         }.getOrNull()
-                        val name     = profileSnap?.child("name")?.getValue(String::class.java)?.trim()
-                        val empId    = profileSnap?.child("company_info")?.child("employee_id")
-                            ?.getValue(String::class.java)?.trim()
-                        val photoUrl = profileSnap?.child("photo_url")?.getValue(String::class.java)?.trim()
+                        val empId = runCatching {
+                            db.reference.child("users/$uid/profile/company_info/employee_id").get().await()
+                                .getValue(String::class.java)?.trim()
+                        }.getOrNull()
+                        val photoUrl = runCatching {
+                            db.reference.child("users/$uid/profile/photo_url").get().await()
+                                .getValue(String::class.java)?.trim()
+                        }.getOrNull()
                         AgentData(sysId, name, empId, photoUrl)
                     }
                 }.awaitAll()
@@ -1628,18 +1595,7 @@ class CallCenterFragment : Fragment() {
                 val runStatus = info.routeStatus
                 async(Dispatchers.IO) {
                     try {
-                        // Fire both independent reads together — remarksSnap only needs cId
-                        // (known up-front), not any field from the consignment-detail snap, so
-                        // there's no reason to wait for snap (plus all the hub-name resolution
-                        // work below) before starting it. This overlaps its round-trip time
-                        // with snap's instead of adding the two sequentially.
-                        val snapDeferred = async(Dispatchers.IO) {
-                            db.reference.child("courier/consignments/$cId").get().await()
-                        }
-                        val remarksSnapDeferred = async(Dispatchers.IO) {
-                            db.reference.child("courier/remarks_by_consignment/$cId").get().await()
-                        }
-                        val snap = snapDeferred.await()
+                        val snap = db.reference.child("courier/consignments/$cId").get().await()
                         if (!snap.exists()) return@async null
 
                         val name    = snap.child("recipientName").getValue(String::class.java) ?: ""
@@ -1660,17 +1616,27 @@ class CallCenterFragment : Fragment() {
                         // Resolve to a display name (not the raw id) — reuses/feeds the same
                         // branchIdToName cache the branch-filter dropdown uses, and self-heals
                         // (fetches + caches on demand) instead of depending on that dropdown's
-                        // own async population having already finished. resolveBranchName()
-                        // de-duplicates concurrent lookups of the same not-yet-cached branch —
-                        // see its own doc comment for why that matters here specifically.
-                        val hubName = if (hub.isBlank()) hub else resolveBranchName(hub, db)
+                        // own async population having already finished.
+                        val hubName = when {
+                            hub.isBlank() -> hub
+                            branchIdToName.containsKey(hub) -> branchIdToName[hub] ?: hub
+                            else -> {
+                                val resolved = runCatching {
+                                    db.reference.child("branches/$hub/name").get().await()
+                                        .getValue(String::class.java)
+                                }.getOrNull()?.takeIf { it.isNotBlank() } ?: hub
+                                branchIdToName[hub] = resolved
+                                resolved
+                            }
+                        }
                         val status  = snap.child("status").getValue(String::class.java) ?: runStatus
                         val createdAtVal = snap.child("createdAt").getValue(Long::class.java) ?: 0L
                         val updatedAtVal = snap.child("updatedAt").getValue(Long::class.java) ?: 0L
                         val attemptVal = readCcAttempt(snap)
 
                         // Full remark history (not just the latest) — needed for the journey popup.
-                        val remarksSnap = remarksSnapDeferred.await()
+                        val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
+                            .get().await()
 
                         // Card badge (overview) — TODAY's TRUE latest remark, any author.
                         // Parse this consignment's remarks_{timestamp} entries, keep only
@@ -2005,32 +1971,24 @@ class CallCenterFragment : Fragment() {
     private fun loadCcRemarkOptions() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                // Same fix as WorkerSpaceFragment.loadRemarkOptions(): these 4 reads are fully
-                // independent of each other but were previously awaited one-at-a-time. Firing
-                // them together cuts total wait time down to roughly the SLOWEST single read
-                // instead of the sum of all 4.
-                val (langValue, remarksSnap, templatesSnap) = coroutineScope {
-                    val statusMetaDeferred = async(Dispatchers.IO) { StatusMetaCache.refresh() }
-                    val langDeferred = async(Dispatchers.IO) {
-                        com.google.firebase.database.FirebaseDatabase.getInstance().reference
-                            .child("config/language/ccLang").get().await()
-                            .getValue(String::class.java)
-                    }
-                    val remarksDeferred = async(Dispatchers.IO) {
-                        com.google.firebase.database.FirebaseDatabase.getInstance().reference
-                            .child("config/remarks_call_center").get().await()
-                    }
-                    val templatesDeferred = async(Dispatchers.IO) {
-                        com.google.firebase.database.FirebaseDatabase.getInstance().reference
-                            .child("config/whatsappTemplates").get().await()
-                    }
-                    statusMetaDeferred.await()
-                    Triple(langDeferred.await(), remarksDeferred.await(), templatesDeferred.await())
-                }
-                val langValueResolved = langValue?.trim().orEmpty().ifBlank { "bn_en" }
-                val (remarkLang, statusLang) = parseLangPair(langValueResolved)
+                StatusMetaCache.refresh()
+
+                val langValue = withContext(Dispatchers.IO) {
+                    com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                        .child("config/language/ccLang").get().await()
+                        .getValue(String::class.java)
+                }?.trim().orEmpty().ifBlank { "bn_en" }
+                val (remarkLang, statusLang) = parseLangPair(langValue)
                 ccStatusLang = statusLang
 
+                val remarksSnap = withContext(Dispatchers.IO) {
+                    com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                        .child("config/remarks_call_center").get().await()
+                }
+                val templatesSnap = withContext(Dispatchers.IO) {
+                    com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                        .child("config/whatsappTemplates").get().await()
+                }
                 val loadedTemplates = mutableMapOf<String, ConfigState.WhatsAppTemplate>()
                 templatesSnap.children.forEach { t ->
                     val tid  = t.key ?: return@forEach
@@ -2092,7 +2050,7 @@ class CallCenterFragment : Fragment() {
         val btnCancel    = view.findViewById<TextView>(R.id.btnRemarksCancel)
         val btnSave      = view.findViewById<TextView>(R.id.btnRemarksSave)
 
-        // tvTitle hidden — parcel details not shown in remarks dialog
+        tvTitle.text = "${item.customer} · ${item.id} · ${item.phone}"
 
         // ── CC Remark options with auto-status (loaded from config/remarks) ─────
         val options = ccRemarkOptions
@@ -2174,73 +2132,61 @@ class CallCenterFragment : Fragment() {
             val noteText = etRemarks.text?.toString()?.trim() ?: ""
             if (selectedStatus.isBlank() && noteText.isBlank()) return@setOnClickListener
 
-            // If a remark option was picked: "label — note" (or just label if no note).
-            // If NO option was picked but there's a note: the note itself IS the remark,
-            // and no target status is applied (status stays blank — this is a note-only entry).
-            val fullRemark = when {
-                selectedStatus.isNotBlank() && noteText.isNotBlank() -> "$selectedRemarkText — $noteText"
-                selectedStatus.isNotBlank()                          -> selectedRemarkText
-                else                                                 -> noteText
+            // Find other parcels in the current list with the same phone number — same
+            // normalization + confirm-dialog pattern as
+            // WorkerSpaceFragment.showWorkerRemarksDialog().
+            val normalizedPhone = item.phone.filter { it.isDigit() }.takeLast(10)
+            val samePhoneParcels = allParcels.filter { p ->
+                p.id != item.id &&
+                p.phone.filter { it.isDigit() }.takeLast(10) == normalizedPhone
             }
 
-            if (selectedTemplateId.isNotBlank() && WhatsAppSender.isEnabled(requireContext())) {
-                val template = whatsappTemplatesCache[selectedTemplateId]
-                if (template != null && template.body.isNotBlank()) {
-                    val filledMessage = WhatsAppHelper.fillTemplate(
-                        body = template.body,
-                        name = item.customer,
-                        phone = item.phone,
-                        address = item.address,
-                        cod = item.cod.toString(),
-                        consignmentId = item.id,
-                        hub = ""
+            if (samePhoneParcels.isNotEmpty()) {
+                // Ask the agent whether to apply the same remark to all parcels of this
+                // customer. Dismiss the remarks sheet first so both dialogs don't stack.
+                dialog.dismiss()
+                val total = samePhoneParcels.size + 1
+                android.app.AlertDialog.Builder(requireContext())
+                    .setTitle("একই Customer — $total টি Parcel")
+                    .setMessage(
+                        "\"${item.customer}\" (${item.phone}) এর মোট $total টি parcel আছে।\n\n" +
+                        "সবগুলোতে একই remark দিতে চান?\n\n" +
+                        "• Yes — $total টি parcel এ save হবে\n" +
+                        "• No — শুধু ${item.id} তে save হবে"
                     )
-                    WhatsAppHelper.send(requireContext(), item.phone, filledMessage)
-                }
+                    .setPositiveButton("Yes, সবগুলোতে") { _, _ ->
+                        saveCcRemarkForItems(
+                            items = listOf(item) + samePhoneParcels,
+                            selectedStatus = selectedStatus,
+                            selectedRemarkText = selectedRemarkText,
+                            noteText = noteText,
+                            selectedTemplateId = selectedTemplateId,
+                            triggerItem = item
+                        )
+                    }
+                    .setNegativeButton("No, শুধু এটায়") { _, _ ->
+                        saveCcRemarkForItems(
+                            items = listOf(item),
+                            selectedStatus = selectedStatus,
+                            selectedRemarkText = selectedRemarkText,
+                            noteText = noteText,
+                            selectedTemplateId = selectedTemplateId,
+                            triggerItem = item
+                        )
+                    }
+                    .show()
+                return@setOnClickListener
             }
 
-            // Write to Firebase — remark and status are written as SEPARATE operations
-            // (not one atomic multi-path update) so the remark always gets saved even if
-            // the status/consignments write gets rejected by a role-restricted rule.
-            val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
-            val timestamp = System.currentTimeMillis()
-
-            // remarks = status label only (clean, no note embedded)
-            // note    = free-text note separately
-            // This keeps the two pieces distinct so Worker card can show them on separate lines.
-            val remarkData = mapOf(
-                "userId"        to userId,
-                "remarks"       to selectedRemarkText.ifBlank { noteText },
-                "note"          to noteText,
-                "status"        to selectedStatus,
-                "remarked_by"   to "support",
-                "createdAt"     to timestamp
+            // No siblings — save directly for the single parcel.
+            saveCcRemarkForItems(
+                items = listOf(item),
+                selectedStatus = selectedStatus,
+                selectedRemarkText = selectedRemarkText,
+                noteText = noteText,
+                selectedTemplateId = selectedTemplateId,
+                triggerItem = item
             )
-            db.reference.child("courier/remarks_by_consignment/${item.id}/remarks_$timestamp")
-                .setValue(remarkData)
-                .addOnFailureListener { e ->
-                    FirebaseErrorLogger.log(
-                        screen = "CallCenterFragment", action = "remark_write",
-                        errorMessage = e.message ?: "unknown",
-                        extra = mapOf("consignmentId" to item.id, "userId" to userId)
-                    )
-                    Toast.makeText(requireContext(), "⚠ Remark save হয়নি: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            EngagedStateManager.clearEngaged(item.id)
-
-            // Parcel status (courier/consignments/{id}/status) is a SEPARATE concept from
-            // remark status and is NEVER written/changed from here — only the remark's own
-            // "status" field above (already saved as part of remarkData) represents this.
-
-            allParcels = allParcels.map {
-                if (it.id == item.id) it.copy(
-                    validationRequest = false,
-                    remarkStatus = selectedStatus,
-                    remarks = selectedRemarkText.ifBlank { noteText }
-                ) else it
-            }
-            setupFilterTabs()
-            applyFilters()
             dialog.dismiss()
         }
 
@@ -2262,6 +2208,82 @@ class CallCenterFragment : Fragment() {
             }
         }
         dialog.show()
+    }
+
+    /**
+     * Saves the same remark for every parcel in [items] — same fan-out pattern as
+     * WorkerSpaceFragment.saveRemarkForItems(). [triggerItem] is the one the agent
+     * actually tapped; its WhatsApp template fires (if configured) — siblings share
+     * the same phone number so we don't send the customer duplicate messages.
+     */
+    private fun saveCcRemarkForItems(
+        items: List<CallCenterParcelItem>,
+        selectedStatus: String,
+        selectedRemarkText: String,
+        noteText: String,
+        selectedTemplateId: String,
+        triggerItem: CallCenterParcelItem
+    ) {
+        if (selectedTemplateId.isNotBlank() && WhatsAppSender.isEnabled(requireContext())) {
+            val template = whatsappTemplatesCache[selectedTemplateId]
+            if (template != null && template.body.isNotBlank()) {
+                val filledMessage = WhatsAppHelper.fillTemplate(
+                    body = template.body,
+                    name = triggerItem.customer,
+                    phone = triggerItem.phone,
+                    address = triggerItem.address,
+                    cod = triggerItem.cod.toString(),
+                    consignmentId = triggerItem.id,
+                    hub = ""
+                )
+                WhatsAppHelper.send(requireContext(), triggerItem.phone, filledMessage)
+            }
+        }
+
+        // Write to Firebase — remark and status are written as SEPARATE operations
+        // (not one atomic multi-path update) so the remark always gets saved even if
+        // the status/consignments write gets rejected by a role-restricted rule.
+        val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
+        val timestamp = System.currentTimeMillis()
+
+        items.forEach { target ->
+            // remarks = status label only (clean, no note embedded)
+            // note    = free-text note separately
+            // This keeps the two pieces distinct so Worker card can show them on separate lines.
+            val remarkData = mapOf(
+                "userId"      to userId,
+                "remarks"     to selectedRemarkText.ifBlank { noteText },
+                "note"        to noteText,
+                "status"      to selectedStatus,
+                "remarked_by" to "support",
+                "createdAt"   to timestamp
+            )
+            db.reference.child("courier/remarks_by_consignment/${target.id}/remarks_$timestamp")
+                .setValue(remarkData)
+                .addOnFailureListener { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "CallCenterFragment", action = "remark_write",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("consignmentId" to target.id, "userId" to userId)
+                    )
+                    Toast.makeText(requireContext(), "⚠ Remark save হয়নি (${target.id}): ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            EngagedStateManager.clearEngaged(target.id)
+        }
+
+        // Parcel status (courier/consignments/{id}/status) is a SEPARATE concept from
+        // remark status and is NEVER written/changed from here — only the remark's own
+        // "status" field above (already saved per-item as part of remarkData) represents this.
+        val targetIds = items.map { it.id }.toSet()
+        allParcels = allParcels.map {
+            if (it.id in targetIds) it.copy(
+                validationRequest = false,
+                remarkStatus = selectedStatus,
+                remarks = selectedRemarkText.ifBlank { noteText }
+            ) else it
+        }
+        setupFilterTabs()
+        applyFilters()
     }
 
 
