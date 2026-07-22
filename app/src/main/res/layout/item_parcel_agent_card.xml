@@ -24,6 +24,28 @@
         android:includeFontPadding="false"
         android:elevation="2dp" />
 
+    <!-- Split-assignment warning — same customer's parcels are with different agents.
+         Opposite corner from the age badge so they never overlap. -->
+    <TextView
+        android:id="@+id/tvAgtSplitWarning"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginTop="8dp"
+        android:layout_marginStart="8dp"
+        android:text="⚠ Multiple Agents"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:textColor="@android:color/white"
+        android:background="@drawable/bg_split_warning_badge"
+        android:paddingStart="7dp"
+        android:paddingEnd="7dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:includeFontPadding="false"
+        android:elevation="2dp"
+        android:visibility="gone" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
