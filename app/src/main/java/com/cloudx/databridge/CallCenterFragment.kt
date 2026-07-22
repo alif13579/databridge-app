@@ -153,6 +153,9 @@ class CallCenterFragment : Fragment() {
     private var statusFilter = "all"
     private val selectedBranchIds = mutableSetOf<String>()
     private val branchIdToName = java.util.concurrent.ConcurrentHashMap<String, String>()
+    // In-flight fetch tracker for branchIdToName — see resolveBranchName() below for why
+    // this exists (prevents duplicate concurrent fetches of the same not-yet-cached branch).
+    private val branchNameFetchesInFlight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<String>>()
     private var branches = listOf<String>()
     // "priority" = only verify_req parcels (agents who sent a request, called first).
     // "all" = every branch-scoped parcel regardless of request, for random spot-verification.
@@ -1500,6 +1503,37 @@ class CallCenterFragment : Fragment() {
      * users_by_systemId reverse-index for O(1) targeted lookups instead of scanning
      * the full users/ tree, then resolves names for those uids in parallel.
      */
+
+    /**
+     * Resolves [hub] to its display name via [branchIdToName], fetching branches/{hub}/name
+     * on a cache miss. Concurrent calls for the SAME not-yet-cached hub (very likely here —
+     * reprocessAllCachedRuns() fires this per-consignment, and many consignments in the same
+     * run typically share a branch) are de-duplicated through [branchNameFetchesInFlight]:
+     * the first caller starts the fetch and registers its Deferred; every other concurrent
+     * caller for that hub finds the in-flight Deferred and awaits the SAME result instead of
+     * firing its own redundant network read for a name that's already on the way.
+     */
+    private suspend fun resolveBranchName(hub: String, db: com.google.firebase.database.FirebaseDatabase): String {
+        branchIdToName[hub]?.let { return it }
+        val deferred = branchNameFetchesInFlight.computeIfAbsent(hub) {
+            viewLifecycleOwner.lifecycleScope.async(Dispatchers.IO) {
+                val resolved = runCatching {
+                    db.reference.child("branches/$hub/name").get().await()
+                        .getValue(String::class.java)
+                }.getOrNull()?.takeIf { it.isNotBlank() } ?: hub
+                branchIdToName[hub] = resolved
+                resolved
+            }
+        }
+        return try {
+            deferred.await()
+        } finally {
+            // Only this hub's own entry, and only once resolution finished either way —
+            // otherwise a failed fetch would permanently block all future retries for this hub.
+            branchNameFetchesInFlight.remove(hub, deferred)
+        }
+    }
+
     private suspend fun ensureAgentNameMap(): Map<String, String> {
         if (systemIdToName.isNotEmpty()) return systemIdToName
         return try {
@@ -1514,23 +1548,20 @@ class CallCenterFragment : Fragment() {
                 val uid   = child.child("uid").getValue(String::class.java)?.trim()
                 if (!sysId.isNullOrBlank() && !uid.isNullOrBlank()) sysIdToUid[sysId] = uid
             }
-            // Step 2: uid → name + employee_id in parallel (2 reads per uid, all concurrent).
+            // Step 2: uid → whole profile node in parallel (1 read per uid instead of 3 —
+            // name/employee_id/photo_url are all direct children of the same profile node,
+            // so one fetch of the parent gets all three from a single snapshot).
             data class AgentData(val sysId: String, val name: String?, val empId: String?, val photoUrl: String?)
             val results = coroutineScope {
                 sysIdToUid.map { (sysId, uid) ->
                     async(Dispatchers.IO) {
-                        val name = runCatching {
-                            db.reference.child("users/$uid/profile/name").get().await()
-                                .getValue(String::class.java)?.trim()
+                        val profileSnap = runCatching {
+                            db.reference.child("users/$uid/profile").get().await()
                         }.getOrNull()
-                        val empId = runCatching {
-                            db.reference.child("users/$uid/profile/company_info/employee_id").get().await()
-                                .getValue(String::class.java)?.trim()
-                        }.getOrNull()
-                        val photoUrl = runCatching {
-                            db.reference.child("users/$uid/profile/photo_url").get().await()
-                                .getValue(String::class.java)?.trim()
-                        }.getOrNull()
+                        val name     = profileSnap?.child("name")?.getValue(String::class.java)?.trim()
+                        val empId    = profileSnap?.child("company_info")?.child("employee_id")
+                            ?.getValue(String::class.java)?.trim()
+                        val photoUrl = profileSnap?.child("photo_url")?.getValue(String::class.java)?.trim()
                         AgentData(sysId, name, empId, photoUrl)
                     }
                 }.awaitAll()
@@ -1627,19 +1658,10 @@ class CallCenterFragment : Fragment() {
                         // Resolve to a display name (not the raw id) — reuses/feeds the same
                         // branchIdToName cache the branch-filter dropdown uses, and self-heals
                         // (fetches + caches on demand) instead of depending on that dropdown's
-                        // own async population having already finished.
-                        val hubName = when {
-                            hub.isBlank() -> hub
-                            branchIdToName.containsKey(hub) -> branchIdToName[hub] ?: hub
-                            else -> {
-                                val resolved = runCatching {
-                                    db.reference.child("branches/$hub/name").get().await()
-                                        .getValue(String::class.java)
-                                }.getOrNull()?.takeIf { it.isNotBlank() } ?: hub
-                                branchIdToName[hub] = resolved
-                                resolved
-                            }
-                        }
+                        // own async population having already finished. resolveBranchName()
+                        // de-duplicates concurrent lookups of the same not-yet-cached branch —
+                        // see its own doc comment for why that matters here specifically.
+                        val hubName = if (hub.isBlank()) hub else resolveBranchName(hub, db)
                         val status  = snap.child("status").getValue(String::class.java) ?: runStatus
                         val createdAtVal = snap.child("createdAt").getValue(Long::class.java) ?: 0L
                         val updatedAtVal = snap.child("updatedAt").getValue(Long::class.java) ?: 0L
