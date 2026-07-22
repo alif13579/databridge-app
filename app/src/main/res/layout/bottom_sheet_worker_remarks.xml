@@ -44,11 +44,12 @@
                 android:id="@+id/twWorkerRemarkSub"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="DB-2202 · Fatema Begum · 01712345678"
+                android:text=""
                 android:textSize="12sp"
                 android:textColor="@color/theme_text_secondary"
-                android:layout_marginBottom="16dp"
-                android:includeFontPadding="false" />
+                android:layout_marginBottom="0dp"
+                android:includeFontPadding="false"
+                android:visibility="gone" />
 
             <LinearLayout
                 android:id="@+id/layoutWorkerRemarkOptions"

@@ -567,7 +567,7 @@ class WorkerSpaceFragment : Fragment() {
         }
 
         tvTitle.text = "Set Remarks"
-        tvSub.text = "${item.id} · ${item.customer} · ${item.phone}"
+        // tvSub hidden — parcel details not shown in remarks dialog
         tvStatusPreview.text = "Select an option"
         tvStatusPreview.tag = ""
 

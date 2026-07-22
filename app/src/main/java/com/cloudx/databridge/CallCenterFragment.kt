@@ -2092,7 +2092,7 @@ class CallCenterFragment : Fragment() {
         val btnCancel    = view.findViewById<TextView>(R.id.btnRemarksCancel)
         val btnSave      = view.findViewById<TextView>(R.id.btnRemarksSave)
 
-        tvTitle.text = "${item.customer} · ${item.id} · ${item.phone}"
+        // tvTitle hidden — parcel details not shown in remarks dialog
 
         // ── CC Remark options with auto-status (loaded from config/remarks) ─────
         val options = ccRemarkOptions
