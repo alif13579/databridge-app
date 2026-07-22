@@ -6,6 +6,8 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 /**
  * ConfigSheetFragment's Branch Select screen — the entry screen (BRANCH_SELECT state)

@@ -10,7 +10,9 @@ import android.widget.Gravity
 import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.Request

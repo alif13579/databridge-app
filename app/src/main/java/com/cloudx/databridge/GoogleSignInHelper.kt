@@ -105,7 +105,9 @@ object GoogleSignInHelper {
             } catch (e: UserRecoverableAuthException) {
                 withContext(Dispatchers.Main) {
                     if (fragment.isAdded) {
-                        try { recoverableLauncher.launch(e.intent) } catch (_: Exception) { /* best-effort recovery prompt */ }
+                        try {
+                            e.intent?.let { recoverableLauncher.launch(it) }
+                        } catch (_: Exception) { /* best-effort recovery prompt */ }
                     }
                 }
                 null
