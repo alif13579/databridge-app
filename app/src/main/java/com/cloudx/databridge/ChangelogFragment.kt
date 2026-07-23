@@ -7,51 +7,51 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.lifecycleScope
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.FirebaseDatabase
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 /**
  * 📋 "What's New" — version-wise changelog, opened by tapping the app-version text in
  * Settings.
  *
- * Firebase: config/changelog/{versionCode}/
- *   versionName : String   — e.g. "5.22.14", shown as the section header
- *   releasedAt  : Long     — epoch millis, shown as a short date under the header
- *   entries/{pushId}/
- *     type  : String  — "fix" | "feature" | "improvement" (anything else falls back to a
- *             neutral bullet — see typeIcon() below, so a typo'd type never hides an entry)
- *     text  : String  — the user-facing line itself, written by whoever ships the change
- *     order : Long    — ascending sort key within the same version (ties broken by push key)
- *
- * Config-driven like every other feature in this app: new entries can be added straight
- * in Firebase console for any shipped version without an app rebuild. versionCode keys are
- * read back as Int and sorted descending (newest first) purely by that key — this fragment
- * does not care whether the keys are contiguous, so skipping a build's changelog entirely
- * is fine.
+ * HARDCODED — no Firebase read at all. The list in [HARDCODED_CHANGELOG] below is the
+ * single source of truth; add a new [ChangelogVersion] entry there (newest at the top)
+ * whenever a build ships. Kept in-app rather than config-driven so this can never show
+ * stale/wrong data from a missed Firebase write, and works with zero network dependency.
  */
 class ChangelogFragment : Fragment() {
 
-    private val db = FirebaseDatabase.getInstance()
-
     private lateinit var layoutContent: LinearLayout
     private lateinit var tvEmpty: TextView
-    private lateinit var progressBar: android.widget.ProgressBar
 
     data class ChangelogEntry(
-        val type: String,
-        val text: String,
-        val order: Long
+        val type: String,   // "fix" | "feature" | "improvement" — anything else falls back
+        val text: String    // to a neutral bullet, see typeIcon() below
     )
 
     data class ChangelogVersion(
-        val versionCode: Int,
-        val versionName: String,
-        val releasedAt: Long,
+        val versionName: String,   // e.g. "5.22.14" — shown as the section header
+        val releasedDate: String,  // e.g. "23 Jul 2026" — plain display string, not parsed
         val entries: List<ChangelogEntry>
     )
+
+    companion object {
+        /** Newest version first. Add a new entry here per release — nothing else to update. */
+        private val HARDCODED_CHANGELOG = listOf(
+            ChangelogVersion(
+                versionName = "5.22.14",
+                releasedDate = "23 Jul 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "\"What's New\" changelog screen — tap the version number in Settings to see it"),
+                    ChangelogEntry("feature", "Call Center: split-assignment warning badge when the same phone number's parcels are spread across multiple agents"),
+                    ChangelogEntry("feature", "Applying a remark now offers to apply it to that customer's other parcels too (with a confirm step)"),
+                    ChangelogEntry("feature", "Engaged/on-call glow now fans out to a customer's other parcels, not just the one being called"),
+                    ChangelogEntry("improvement", "Worker and Call Center screens load faster — several Firebase reads that ran one-after-another now run in parallel"),
+                    ChangelogEntry("improvement", "Call Center: fewer duplicate Firebase reads when the same branch shows up for multiple agents"),
+                    ChangelogEntry("fix", "Status badge position corrected on both Worker and Call Center parcel cards"),
+                    ChangelogEntry("fix", "Parcel detail screen: failures now show a clear on-screen message instead of a silently blank screen"),
+                )
+            ),
+        )
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -61,62 +61,18 @@ class ChangelogFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         layoutContent = view.findViewById(R.id.layoutChangelogContent)
         tvEmpty       = view.findViewById(R.id.tvChangelogEmpty)
-        progressBar   = view.findViewById(R.id.pbChangelogLoad)
+        view.findViewById<View>(R.id.pbChangelogLoad)?.visibility = View.GONE
 
         view.findViewById<View>(R.id.btnChangelogBack).setOnClickListener {
             requireActivity().onBackPressedDispatcher.onBackPressed()
         }
 
-        loadChangelog()
-    }
-
-    private fun loadChangelog() {
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                progressBar.visibility = View.VISIBLE
-                val snap = db.reference.child("config/changelog").get().await()
-                if (!isAdded || view == null) return@launch
-                progressBar.visibility = View.GONE
-
-                val versions = snap.children
-                    .mapNotNull { versionSnap -> parseVersion(versionSnap) }
-                    .sortedByDescending { it.versionCode }
-
-                if (versions.isEmpty()) {
-                    tvEmpty.visibility = View.VISIBLE
-                    return@launch
-                }
-                tvEmpty.visibility = View.GONE
-                renderVersions(versions)
-            } catch (e: Exception) {
-                if (!isAdded || view == null) return@launch
-                progressBar.visibility = View.GONE
-                tvEmpty.text = "⚠ Changelog load failed: ${e.message ?: "unknown"}"
-                tvEmpty.visibility = View.VISIBLE
-            }
+        if (HARDCODED_CHANGELOG.isEmpty()) {
+            tvEmpty.visibility = View.VISIBLE
+        } else {
+            tvEmpty.visibility = View.GONE
+            renderVersions(HARDCODED_CHANGELOG)
         }
-    }
-
-    /** Returns null (skipping this version node entirely) only when the key itself isn't a
-     *  valid version code — a malformed individual entry inside an otherwise-valid version
-     *  is simply dropped from that version's list rather than discarding the whole version. */
-    private fun parseVersion(versionSnap: DataSnapshot): ChangelogVersion? {
-        val versionCode = versionSnap.key?.toIntOrNull() ?: return null
-        val versionName = versionSnap.child("versionName").getValue(String::class.java)
-            ?.trim().orEmpty().ifBlank { versionCode.toString() }
-        val releasedAt = versionSnap.child("releasedAt").getValue(Long::class.java) ?: 0L
-
-        val entries = versionSnap.child("entries").children
-            .mapNotNull { entrySnap ->
-                val text = entrySnap.child("text").getValue(String::class.java)?.trim()
-                if (text.isNullOrBlank()) return@mapNotNull null
-                val type = entrySnap.child("type").getValue(String::class.java)?.trim().orEmpty()
-                val order = entrySnap.child("order").getValue(Long::class.java) ?: 0L
-                ChangelogEntry(type, text, order)
-            }
-            .sortedBy { it.order }
-
-        return ChangelogVersion(versionCode, versionName, releasedAt, entries)
     }
 
     private fun typeIcon(type: String): String = when (type.lowercase()) {
@@ -124,12 +80,6 @@ class ChangelogFragment : Fragment() {
         "feature"     -> "✨"
         "improvement" -> "⚡"
         else          -> "•"
-    }
-
-    private fun formatReleaseDate(releasedAt: Long): String {
-        if (releasedAt <= 0L) return ""
-        return java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault())
-            .format(java.util.Date(releasedAt))
     }
 
     private fun renderVersions(versions: List<ChangelogVersion>) {
@@ -161,10 +111,9 @@ class ChangelogFragment : Fragment() {
                     0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
                 )
             })
-            val dateText = formatReleaseDate(version.releasedAt)
-            if (dateText.isNotBlank()) {
+            if (version.releasedDate.isNotBlank()) {
                 headerRow.addView(TextView(ctx).apply {
-                    text = dateText
+                    text = version.releasedDate
                     textSize = 11f
                     setTextColor(android.graphics.Color.parseColor("#64748B"))
                 })
