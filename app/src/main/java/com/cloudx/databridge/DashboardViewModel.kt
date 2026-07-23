@@ -6,7 +6,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.util.Calendar
 
 // ── Data models ──────────────────────────────────────────────────────────────
@@ -47,6 +51,8 @@ sealed class DashboardState {
 
 data class DateRange(val startTs: Long, val endTs: Long, val label: String)
 
+data class BranchOption(val id: String, val name: String)
+
 // ── ViewModel ────────────────────────────────────────────────────────────────
 
 class DashboardViewModel : ViewModel() {
@@ -59,6 +65,45 @@ class DashboardViewModel : ViewModel() {
 
     private val _dateRange = MutableLiveData(todayRange())
     val dateRange: LiveData<DateRange> = _dateRange
+
+    // Branches the CURRENT user has access to (RbacManager.current.branchIds — their own
+    // assignment, never company-wide) with names resolved for display. Empty
+    // selectedBranchIds means "all of my branches", same convention as CallCenterFragment.
+    private val _availableBranches = MutableLiveData<List<BranchOption>>(emptyList())
+    val availableBranches: LiveData<List<BranchOption>> = _availableBranches
+
+    private val _selectedBranchIds = MutableLiveData<Set<String>>(emptySet())
+    val selectedBranchIds: LiveData<Set<String>> = _selectedBranchIds
+
+    init {
+        loadAvailableBranches()
+    }
+
+    /** Resolves display names for the current user's OWN branch assignment only — a small,
+     *  bounded fetch (at most however many branches this one user has), not a company-wide
+     *  query. Mirrors CallCenterFragment.setupBranchDropdown()'s per-id name lookup. */
+    private fun loadAvailableBranches() {
+        val ids = RbacManager.current.branchIds
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val options = ids.map { id ->
+                async(Dispatchers.IO) {
+                    val name = runCatching {
+                        db.reference.child("branches/$id/name").get().await()
+                            .getValue(String::class.java)
+                    }.getOrNull()?.takeIf { it.isNotBlank() } ?: id
+                    BranchOption(id, name)
+                }
+            }.awaitAll().sortedBy { it.name }
+            _availableBranches.value = options
+        }
+    }
+
+    /** Empty set = no filter = all of the user's own branches. */
+    fun setSelectedBranchIds(ids: Set<String>) {
+        _selectedBranchIds.value = ids
+        load(_dateRange.value ?: todayRange())
+    }
 
     // ── Date helpers ─────────────────────────────────────────────────────────
 

@@ -117,6 +117,24 @@
 
                         </LinearLayout>
                     </HorizontalScrollView>
+
+                    <!-- Branch filter (only shown when the user has access to more than
+                         one branch — see DashboardFragment.observeState()) -->
+                    <TextView
+                        android:id="@+id/tvBranchDropdown"
+                        android:layout_width="wrap_content"
+                        android:layout_height="30dp"
+                        android:layout_marginTop="8dp"
+                        android:text="All Branches ▾"
+                        android:textSize="11sp"
+                        android:gravity="center"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:background="@drawable/bg_filter_chip_inactive"
+                        android:textColor="@color/theme_text_secondary"
+                        android:visibility="gone"
+                        android:clickable="true"
+                        android:focusable="true" />
                 </LinearLayout>
 
                 <!-- ── Section: Overview ── -->

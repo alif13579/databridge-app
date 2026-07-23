@@ -27,6 +27,7 @@ class DashboardFragment : Fragment() {
     private lateinit var tvError:       TextView
     private lateinit var tvDateLabel:   TextView
     private lateinit var tvDateSub:     TextView
+    private lateinit var tvBranchDropdown: TextView
     private lateinit var layoutStatusBar:  LinearLayout
     private lateinit var layoutAgentRows:  LinearLayout
     private lateinit var cardAgents:       View
@@ -61,6 +62,10 @@ class DashboardFragment : Fragment() {
     private lateinit var chipLast7:     Chip
     private lateinit var chipThisMonth: Chip
     private lateinit var chipCustom:    Chip
+
+    // ── Branch filter state (mirrors what the ViewModel's LiveData last reported) ──
+    private var availableBranches: List<BranchOption> = emptyList()
+    private var selectedBranchIds: Set<String> = emptySet()
 
     // ── Colors ─────────────────────────────────────────────────────────────────
     private val colorGreen  = Color.parseColor("#10B981")
@@ -99,6 +104,8 @@ class DashboardFragment : Fragment() {
         tvError         = root.findViewById(R.id.tvError)
         tvDateLabel     = root.findViewById(R.id.tvDateLabel)
         tvDateSub       = root.findViewById(R.id.tvDateSubLabel)
+        tvBranchDropdown = root.findViewById(R.id.tvBranchDropdown)
+        tvBranchDropdown.setOnClickListener { showBranchDropdown() }
         layoutStatusBar = root.findViewById(R.id.layoutStatusBar)
         layoutAgentRows = root.findViewById(R.id.layoutAgentRows)
         cardAgents      = root.findViewById(R.id.cardAgents)
@@ -224,6 +231,73 @@ class DashboardFragment : Fragment() {
             tvDateLabel.text = range.label
             tvDateSub.text   = formatDateRange(range)
         }
+        vm.availableBranches.observe(viewLifecycleOwner) { branches ->
+            availableBranches = branches
+            tvBranchDropdown.isVisible = branches.size > 1
+            updateBranchDropdownLabel()
+        }
+        vm.selectedBranchIds.observe(viewLifecycleOwner) { ids ->
+            selectedBranchIds = ids
+            updateBranchDropdownLabel()
+        }
+    }
+
+    // ── Branch filter dropdown ─────────────────────────────────────────────────
+    // Mirrors CallCenterFragment's branch dropdown: multi-select, "empty selection
+    // = all of my branches" convention, names resolved by the ViewModel and scoped
+    // to RbacManager.current.branchIds (never company-wide).
+
+    private fun updateBranchDropdownLabel() {
+        val selected = selectedBranchIds.intersect(availableBranches.map { it.id }.toSet())
+        val isFiltered = selected.isNotEmpty() && selected.size < availableBranches.size
+        val nameOf = { id: String -> availableBranches.firstOrNull { it.id == id }?.name ?: id }
+        val label = when {
+            !isFiltered -> "All Branches ▾"
+            selected.size == 1 -> "${nameOf(selected.first())} ▾"
+            selected.size == 2 -> {
+                val names = selected.map(nameOf)
+                "${names[0]} & ${names[1]} ▾"
+            }
+            else -> {
+                val names = selected.take(2).map(nameOf)
+                "${names[0]}, ${names[1]} & ${selected.size - 2} more ▾"
+            }
+        }
+        tvBranchDropdown.text = label
+        val ctx = context ?: return
+        tvBranchDropdown.setBackgroundResource(
+            if (isFiltered) R.drawable.bg_filter_chip_active_purple else R.drawable.bg_filter_chip_inactive
+        )
+        tvBranchDropdown.setTextColor(
+            ctx.getColor(if (isFiltered) android.R.color.white else R.color.theme_text_secondary)
+        )
+    }
+
+    private fun showBranchDropdown() {
+        val ctx = context ?: return
+        if (availableBranches.isEmpty()) return
+        val branchArray = availableBranches.map { it.id }.toTypedArray()
+        val names = availableBranches.map { it.name }.toTypedArray()
+        // "Empty selection = all" resting state — expand to the full set up front so
+        // unchecking a box has something real to remove, then collapse back to empty
+        // at Apply time if everything ended up still selected.
+        val working = if (selectedBranchIds.isEmpty()) branchArray.toMutableSet()
+                      else selectedBranchIds.toMutableSet()
+        val checked = BooleanArray(branchArray.size) { i -> branchArray[i] in working }
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Select Branches")
+            .setMultiChoiceItems(names, checked) { _, which, isChecked ->
+                if (isChecked) working.add(branchArray[which]) else working.remove(branchArray[which])
+            }
+            .setPositiveButton("Apply") { _, _ ->
+                val finalSelection = if (working.size < branchArray.size) working else emptySet()
+                vm.setSelectedBranchIds(finalSelection)
+            }
+            .setNeutralButton(if (selectedBranchIds.isEmpty()) "All" else "Clear") { _, _ ->
+                vm.setSelectedBranchIds(emptySet())
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // ── State renderers ────────────────────────────────────────────────────────
