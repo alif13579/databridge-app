@@ -6,9 +6,49 @@
     android:orientation="vertical"
     android:background="@color/theme_bg_card">
 
-    <!-- Scrollable content: everything except the action buttons. Many remark
-         options (config-driven, can grow arbitrarily) plus the note field
-         previously pushed Cancel/Save off-screen with no way to reach them. -->
+    <!-- ── FIXED HEADER (never scrolls) ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:paddingBottom="12dp">
+
+        <!-- Drag handle -->
+        <View
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center"
+            android:background="@color/theme_border"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="✏️ Set Remarks"
+            android:textSize="16sp"
+            android:textColor="@color/theme_text_primary"
+            android:textStyle="bold"
+            android:layout_marginBottom="2dp" />
+
+        <!-- Parcel details — fixed, never scrolls -->
+        <TextView
+            android:id="@+id/tvRemarksTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="12sp"
+            android:textColor="@color/theme_text_secondary" />
+
+    </LinearLayout>
+
+    <!-- Thin divider between fixed header and scrollable content -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/theme_border" />
+
+    <!-- ── SCROLLABLE CONTENT (only remarks scroll) ── -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -20,37 +60,10 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="20dp"
+            android:paddingTop="14dp"
             android:paddingBottom="8dp">
 
-            <!-- Drag handle -->
-            <View
-                android:layout_width="36dp"
-                android:layout_height="4dp"
-                android:layout_gravity="center"
-                android:background="@color/theme_border"
-                android:layout_marginBottom="16dp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="✏️ Set Remarks"
-                android:textSize="16sp"
-                android:textColor="@color/theme_text_primary"
-                android:textStyle="bold"
-                android:layout_marginBottom="2dp" />
-
-            <!-- Subtitle: customer info -->
-            <TextView
-                android:id="@+id/tvRemarksTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=""
-                android:textSize="12sp"
-                android:textColor="@color/theme_text_secondary"
-                android:layout_marginBottom="16dp"
-                android:visibility="gone" />
-
-            <!-- ✅ Remark options (like Worker's) — inflated programmatically -->
+            <!-- Remark options — inflated programmatically -->
             <LinearLayout
                 android:id="@+id/layoutCcRemarkOptions"
                 android:layout_width="match_parent"
@@ -58,7 +71,7 @@
                 android:orientation="vertical"
                 android:layout_marginBottom="14dp" />
 
-            <!-- Auto Status preview row -->
+            <!-- Auto Status preview -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -87,9 +100,10 @@
                     android:textColor="@color/theme_text_muted"
                     android:textStyle="bold"
                     android:layout_marginStart="8dp" />
+
             </LinearLayout>
 
-            <!-- Note field (keep as is) -->
+            <!-- Note field -->
             <EditText
                 android:id="@+id/etRemarksText"
                 android:layout_width="match_parent"
@@ -102,10 +116,11 @@
                 android:hint="Additional note (optional)..."
                 android:gravity="start"
                 android:inputType="textMultiLine" />
+
         </LinearLayout>
     </ScrollView>
 
-    <!-- Fixed action row — always visible, never scrolls off. -->
+    <!-- ── FIXED ACTION ROW (never scrolls) ── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -144,6 +159,7 @@
             android:padding="12dp"
             android:layout_marginStart="10dp"
             android:background="@drawable/btn_action_cyan" />
+
     </LinearLayout>
 
 </LinearLayout>

@@ -6,9 +6,52 @@
     android:orientation="vertical"
     android:background="@color/theme_bg_card">
 
-    <!-- Scrollable content: everything except the action buttons. Many remark
-         options (config-driven, can grow arbitrarily) previously pushed
-         Cancel/Submit off-screen with no way to reach them. -->
+    <!-- ── FIXED HEADER (never scrolls) ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:paddingBottom="12dp">
+
+        <!-- Drag handle -->
+        <View
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center"
+            android:background="@color/theme_border"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/twWorkerRemarkTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Set Remarks"
+            android:textSize="16sp"
+            android:textColor="@color/theme_text_primary"
+            android:textStyle="bold"
+            android:layout_marginBottom="2dp"
+            android:includeFontPadding="false" />
+
+        <!-- Parcel details — fixed, never scrolls -->
+        <TextView
+            android:id="@+id/twWorkerRemarkSub"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="12sp"
+            android:textColor="@color/theme_text_secondary"
+            android:includeFontPadding="false" />
+
+    </LinearLayout>
+
+    <!-- Thin divider between fixed header and scrollable content -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/theme_border" />
+
+    <!-- ── SCROLLABLE CONTENT (only remarks scroll) ── -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -20,37 +63,10 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="20dp"
+            android:paddingTop="14dp"
             android:paddingBottom="8dp">
 
-            <View
-                android:layout_width="36dp"
-                android:layout_height="4dp"
-                android:layout_gravity="center"
-                android:background="@color/theme_border"
-                android:layout_marginBottom="16dp" />
-
-            <TextView
-                android:id="@+id/twWorkerRemarkTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Set Remarks"
-                android:textSize="16sp"
-                android:textColor="@color/theme_text_primary"
-                android:textStyle="bold"
-                android:layout_marginBottom="2dp"
-                android:includeFontPadding="false" />
-
-            <TextView
-                android:id="@+id/twWorkerRemarkSub"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=""
-                android:textSize="12sp"
-                android:textColor="@color/theme_text_secondary"
-                android:layout_marginBottom="0dp"
-                android:includeFontPadding="false"
-                android:visibility="gone" />
-
+            <!-- Remark options — inflated programmatically -->
             <LinearLayout
                 android:id="@+id/layoutWorkerRemarkOptions"
                 android:layout_width="match_parent"
@@ -59,7 +75,7 @@
                 android:gravity="center"
                 android:layout_marginBottom="14dp" />
 
-            <!-- Status Preview - simplified, no letterSpacing -->
+            <!-- Auto Status preview -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -89,12 +105,15 @@
                     android:textColor="@color/theme_text_muted"
                     android:textStyle="bold"
                     android:layout_gravity="end"
+                    android:layout_marginStart="8dp"
                     android:includeFontPadding="false" />
+
             </LinearLayout>
+
         </LinearLayout>
     </ScrollView>
 
-    <!-- Fixed action row — always visible, never scrolls off. -->
+    <!-- ── FIXED ACTION ROW (never scrolls) ── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -135,6 +154,7 @@
             android:layout_marginStart="10dp"
             android:background="@drawable/btn_action_cyan"
             android:includeFontPadding="false" />
+
     </LinearLayout>
 
 </LinearLayout>
