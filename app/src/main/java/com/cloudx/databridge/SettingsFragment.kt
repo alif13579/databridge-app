@@ -97,6 +97,9 @@ class SettingsFragment : Fragment() {
         } catch (_: Exception) {
             "DataBridge"
         }
+        tvAppVersion.setOnClickListener {
+            (activity as? MainActivity)?.navigateToChangelog()
+        }
         repository           = CallRepository(CallDatabase.getDatabase(requireContext()).callDao())
     }
 

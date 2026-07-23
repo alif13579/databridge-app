@@ -430,7 +430,7 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- App Version -->
+        <!-- App Version — tap to see What's New (changelog) -->
         <TextView
             android:id="@+id/tvAppVersion"
             android:layout_width="wrap_content"
@@ -440,7 +440,11 @@
             android:textSize="12sp"
             android:layout_gravity="center_horizontal"
             android:layout_marginTop="16dp"
-            android:layout_marginBottom="24dp" />
+            android:layout_marginBottom="24dp"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless" />
 
     </LinearLayout>
 </ScrollView>

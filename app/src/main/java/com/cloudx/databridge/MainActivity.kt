@@ -799,6 +799,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         loadFragment(ParcelDetailFragment.newInstance(parcelId, "worker"))
     }
 
+    fun navigateToChangelog() {
+        loadFragment(ChangelogFragment())
+    }
+
     private fun confirmLogout() {
         AlertDialog.Builder(this)
             .setTitle("Logout?")
