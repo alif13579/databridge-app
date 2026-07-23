@@ -84,6 +84,10 @@ class DashboardFragment : Fragment() {
         setupChips()
         setupSwipeRefresh()
         observeState()
+        // Without this, _state stays at its MutableLiveData default (Loading) until the user
+        // manually taps a date-range chip — the fragment would otherwise show the loading
+        // spinner indefinitely on first open.
+        vm.setDateRange(DashboardViewModel.todayRange())
     }
 
     // ── View binding ───────────────────────────────────────────────────────────
