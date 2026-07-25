@@ -522,8 +522,7 @@ class WorkerSpaceFragment : Fragment() {
                 val noteText = etNote.text.toString().trim()
                 if (noteText.isBlank()) return@setOnClickListener
                 val timestamp = System.currentTimeMillis()
-                val todayDateKey = todayDateKeyDdMmYy()
-                val indexDateKey = remarksIndexDateKeyYyyyMmDd()
+                val todayDateKey = todayDateKeyYyyyMmDd()
                 val remarkData = mapOf(
                     "agentSystemId" to systemId,
                     "userId"        to userId,
@@ -540,9 +539,8 @@ class WorkerSpaceFragment : Fragment() {
                 // ✅ Secondary per-user index — see saveRemarkForItems() for the full
                 // rationale. status is "" here (no configured remark options to pick a
                 // status from), so final_status is written as "" too, same as the
-                // primary remark above. indexDateKey is yyyyMMdd (not runId's ddMMyy) so
-                // this key sorts chronologically.
-                db.reference.child("remarks_by_userId/$userId/push_${indexDateKey}_${item.id}")
+                // primary remark above.
+                db.reference.child("remarks_by_userId/$userId/push_${todayDateKey}_${item.id}")
                     .setValue(
                         mapOf(
                             "final_status" to "",
@@ -704,9 +702,8 @@ class WorkerSpaceFragment : Fragment() {
         triggerItem: WorkerParcelItem
     ) {
         val timestamp = System.currentTimeMillis()
-        val todayDateKey = todayDateKeyDdMmYy()
+        val todayDateKey = todayDateKeyYyyyMmDd()
         val runId = "run_${todayDateKey}_${systemId}"
-        val indexDateKey = remarksIndexDateKeyYyyyMmDd()
         val nowStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date())
 
         // WhatsApp — only for the parcel the worker actually tapped (triggerItem).
@@ -760,8 +757,7 @@ class WorkerSpaceFragment : Fragment() {
             // write for that combo wins. Lets a "my day" / date-range report for this worker
             // be built from a single bounded read of remarks_by_userId/{userId} instead of
             // scanning every consignment's remark history and filtering by userId + date.
-            // indexDateKey is yyyyMMdd (not runId's ddMMyy) so this key sorts chronologically.
-            db.reference.child("remarks_by_userId/$userId/push_${indexDateKey}_${p.id}")
+            db.reference.child("remarks_by_userId/$userId/push_${todayDateKey}_${p.id}")
                 .setValue(
                     mapOf(
                         "final_status" to statusKey,
@@ -824,17 +820,11 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
-    /** Today's date as ddMMyy (e.g. "250726") — same format already used for run IDs in
-     *  this file, so date-keyed Firebase paths stay consistent. Used by both remark-save
-     *  sites (the configured-options flow and the no-config-options note fallback). */
-    private fun todayDateKeyDdMmYy(): String =
-        java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH).format(java.util.Date())
-
     /** Today's date as yyyyMMdd (e.g. "20260725") — year-first so plain string/key ordering
-     *  sorts chronologically, unlike ddMMyy. Used only for the remarks_by_userId secondary
-     *  index key; kept separate from todayDateKeyDdMmYy() because that one feeds runId, which
-     *  stays in the 6-digit ddmmyy shape elsewhere in the codebase. */
-    private fun remarksIndexDateKeyYyyyMmDd(): String =
+     *  sorts chronologically. Used for runId construction and the remarks_by_userId secondary
+     *  index key — both now share this one format. Used by both remark-save sites (the
+     *  configured-options flow and the no-config-options note fallback). */
+    private fun todayDateKeyYyyyMmDd(): String =
         java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date())
 
     /** Formats the gap between updatedAt and createdAt as a human-readable age
@@ -1385,16 +1375,16 @@ class WorkerSpaceFragment : Fragment() {
         else "🔒 আজকের ${formatRunTypeLabel(selectedRunType)} বন্ধ হয়ে গেছে"
     }
 
-    /** Deterministic today's run ID: run_{ddMMyy}_{systemId} — same formula used everywhere a run ID is needed. */
+    /** Deterministic today's run ID: run_{yyyyMMdd}_{systemId} — same formula used everywhere a run ID is needed. */
     private fun computeTodayRunId(): String {
         val today = java.util.Calendar.getInstance()
-        val ddMMyy = String.format(
-            "%02d%02d%02d",
-            today.get(java.util.Calendar.DAY_OF_MONTH),
+        val yyyyMMdd = String.format(
+            "%04d%02d%02d",
+            today.get(java.util.Calendar.YEAR),
             today.get(java.util.Calendar.MONTH) + 1,
-            today.get(java.util.Calendar.YEAR) % 100
+            today.get(java.util.Calendar.DAY_OF_MONTH)
         )
-        return "run_${ddMMyy}_${systemId}"
+        return "run_${yyyyMMdd}_${systemId}"
     }
 
     private suspend fun loadParcelsForSelectedRunType(runSnap: DataSnapshot): List<WorkerParcelItem> = coroutineScope {
@@ -1754,8 +1744,9 @@ class WorkerSpaceFragment : Fragment() {
     companion object {
         private const val RUN_TYPE_ALL = "all"
         private val RUN_TYPE_ORDER = listOf("delivery_run", "pickup_run", "return_run")
-        // Run ID shape: run_{ddmmyy}_{employeeId} — ddmmyy is always exactly 6 zero-padded digits.
-        private val RUN_ID_PATTERN = Regex("^run_(\\d{6})_(.+)$")
+        // Run ID shape: run_{yyyyMMdd}_{employeeId} — yyyyMMdd is always exactly 8 zero-padded
+        // digits (4-digit year first, so plain string ordering sorts chronologically).
+        private val RUN_ID_PATTERN = Regex("^run_(\\d{8})_(.+)$")
 
         private fun runTypeSortIndex(runType: String): Int {
             val index = RUN_TYPE_ORDER.indexOf(runType)
@@ -1773,22 +1764,22 @@ class WorkerSpaceFragment : Fragment() {
         }
 
         /**
-         * Extracts the date portion from a run ID of the form "run_{ddMMyy}_{systemId}"
-         * (ddmmyy is always exactly 6 zero-padded digits: day, month, 2-digit year — employeeId
-         * comes after and may itself contain underscores). Returns local midnight (00:00:00)
-         * millis for that date, or null if the ID doesn't match the expected shape.
+         * Extracts the date portion from a run ID of the form "run_{yyyyMMdd}_{systemId}"
+         * (yyyyMMdd is always exactly 8 zero-padded digits: 4-digit year, month, day —
+         * employeeId comes after and may itself contain underscores). Returns local midnight
+         * (00:00:00) millis for that date, or null if the ID doesn't match the expected shape.
          */
         private fun parseRunTimestamp(runId: String): Long? {
             val match = RUN_ID_PATTERN.matchEntire(runId.trim()) ?: return null
-            val ddmmyy = match.groupValues[1]
-            val day   = ddmmyy.substring(0, 2).toIntOrNull() ?: return null
-            val month = ddmmyy.substring(2, 4).toIntOrNull() ?: return null
-            val year  = ddmmyy.substring(4, 6).toIntOrNull() ?: return null
+            val yyyymmdd = match.groupValues[1]
+            val year  = yyyymmdd.substring(0, 4).toIntOrNull() ?: return null
+            val month = yyyymmdd.substring(4, 6).toIntOrNull() ?: return null
+            val day   = yyyymmdd.substring(6, 8).toIntOrNull() ?: return null
             if (month !in 1..12 || day !in 1..31) return null
             return try {
                 java.util.Calendar.getInstance().apply {
                     clear()
-                    set(2000 + year, month - 1, day, 0, 0, 0)
+                    set(year, month - 1, day, 0, 0, 0)
                 }.timeInMillis
             } catch (e: Exception) { null }
         }
