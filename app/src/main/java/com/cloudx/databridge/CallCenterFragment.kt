@@ -172,8 +172,9 @@ class CallCenterFragment : Fragment() {
     // resolvedBranchIds value stored on the run node.
     private val ccRunKeyBranchIds = mutableMapOf<String, MutableSet<String>>()
 
-    // Run ID shape: run_{ddmmyy}_{employeeId} — ddmmyy is always exactly 6 zero-padded digits.
-    private val RUN_ID_PATTERN = Regex("^run_(\\d{6})_(.+)$")
+    // Run ID shape: run_{yyyyMMdd}_{employeeId} — yyyyMMdd is always exactly 8 zero-padded
+    // digits (4-digit year first, so plain string ordering sorts chronologically).
+    private val RUN_ID_PATTERN = Regex("^run_(\\d{8})_(.+)$")
 
     override fun onPause() {
         super.onPause()
@@ -1085,18 +1086,19 @@ class CallCenterFragment : Fragment() {
      *  Two-phase approach:
      *  1. One-time fetch of each branch index node to discover run-type keys
      *     (e.g. "delivery_run", "return_run") — accepted one-time cost.
-     *  2. Per run-type: a server-side range query using today's ddMMyy STRING prefix
-     *     (run keys are run_{ddMMyy}_{systemId} — a date string, not an epoch timestamp).
-     *     orderByKey().startAt("run_{ddMMyy}_").endAt("run_{ddMMyy}_\uf8ff") — \uf8ff is the
-     *     highest Unicode char Firebase keys can contain, so this range matches every key
+     *  2. Per run-type: a server-side range query using today's yyyyMMdd STRING prefix
+     *     (run keys are run_{yyyyMMdd}_{systemId} — a date string, not an epoch timestamp).
+     *     orderByKey().startAt("run_{yyyyMMdd}_").endAt("run_{yyyyMMdd}_\uf8ff") — \uf8ff is
+     *     the highest Unicode char Firebase keys can contain, so this range matches every key
      *     with that exact date prefix regardless of what follows (any systemId), and
      *     nothing outside today. Live-listens, so status changes within today still fire.
      *
      *  NOTE (prior bug, now fixed): an earlier version built the range bounds from
      *  Calendar.timeInMillis (epoch ms) — e.g. startAt("run_1752480000000") — which can
-     *  never match a ddMMyy string key like "run_140726_EMP001" (numeric prefixes diverge
+     *  never match a date-string key like "run_20260714_EMP001" (numeric prefixes diverge
      *  immediately char-by-char), so the query always returned empty regardless of what
-     *  data existed. The fix is to build the SAME ddMMyy string format the write path uses.
+     *  data existed. The fix is to build the SAME date-string format the write path uses
+     *  (originally ddMMyy, now yyyyMMdd so the format also sorts chronologically).
      */
     private fun attachRootRunTypesListener() {
         detachRootRunTypesListener()
@@ -1123,7 +1125,7 @@ class CallCenterFragment : Fragment() {
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
         val branchIdsSnapshot = myBranchIds
 
-        val todayDdMMyy = java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH)
+        val todayDateKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH)
             .format(java.util.Date())
 
         // Agent name-map resolution and the range queries below are INDEPENDENT — the name
@@ -1153,8 +1155,8 @@ class CallCenterFragment : Fragment() {
                         val rangeKey = "$branchId/$runType"
                         val query = branchRef.child(runType)
                             .orderByKey()
-                            .startAt("run_${todayDdMMyy}_")
-                            .endAt("run_${todayDdMMyy}_\uf8ff")
+                            .startAt("run_${todayDateKey}_")
+                            .endAt("run_${todayDateKey}_\uf8ff")
 
                         val listener = object : com.google.firebase.database.ValueEventListener {
                             override fun onDataChange(snap: com.google.firebase.database.DataSnapshot) {
@@ -2262,9 +2264,8 @@ class CallCenterFragment : Fragment() {
         val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
         val timestamp = System.currentTimeMillis()
         // Same-day key for the per-user secondary index below — computed once per batch,
-        // not per item, since it's identical for every target in this save. yyyyMMdd (not
-        // the ddMMyy used for runId elsewhere) so the key sorts chronologically.
-        val indexDateKey = remarksIndexDateKeyYyyyMmDd()
+        // not per item, since it's identical for every target in this save.
+        val indexDateKey = todayDateKeyYyyyMmDd()
 
         items.forEach { target ->
             // remarks = status label only (clean, no note embedded)
@@ -2419,35 +2420,29 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    /** Today's date as ddMMyy (e.g. "250726") — same format used for run IDs elsewhere in
-     *  this file, so date-keyed Firebase paths stay consistent across the codebase. */
-    private fun todayDateKeyDdMmYy(): String =
-        java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH).format(java.util.Date())
-
     /** Today's date as yyyyMMdd (e.g. "20260725") — year-first so plain string/key ordering
-     *  sorts chronologically, unlike ddMMyy. Used only for the remarks_by_userId secondary
-     *  index key; kept separate from todayDateKeyDdMmYy() because that one feeds runId, which
-     *  parseRunTimestamp() below still expects in the 6-digit ddmmyy shape. */
-    private fun remarksIndexDateKeyYyyyMmDd(): String =
+     *  sorts chronologically. Used for runId construction and the remarks_by_userId secondary
+     *  index key — both now share this one format, so one helper covers both. */
+    private fun todayDateKeyYyyyMmDd(): String =
         java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date())
 
     /**
-     * Extracts the date portion from a run ID of the form "run_{ddmmyy}_{employeeId}"
-     * (ddmmyy is always exactly 6 zero-padded digits: day, month, 2-digit year — employeeId
+     * Extracts the date portion from a run ID of the form "run_{yyyyMMdd}_{employeeId}"
+     * (yyyyMMdd is always exactly 8 zero-padded digits: 4-digit year, month, day — employeeId
      * comes after and may itself contain underscores). Returns local midnight (00:00:00)
      * millis for that date, or null if the ID doesn't match the expected shape.
      */
     private fun parseRunTimestamp(runId: String): Long? {
         val match = RUN_ID_PATTERN.matchEntire(runId.trim()) ?: return null
-        val ddmmyy = match.groupValues[1]
-        val day   = ddmmyy.substring(0, 2).toIntOrNull() ?: return null
-        val month = ddmmyy.substring(2, 4).toIntOrNull() ?: return null
-        val year  = ddmmyy.substring(4, 6).toIntOrNull() ?: return null
+        val yyyymmdd = match.groupValues[1]
+        val year  = yyyymmdd.substring(0, 4).toIntOrNull() ?: return null
+        val month = yyyymmdd.substring(4, 6).toIntOrNull() ?: return null
+        val day   = yyyymmdd.substring(6, 8).toIntOrNull() ?: return null
         if (month !in 1..12 || day !in 1..31) return null
         return try {
             java.util.Calendar.getInstance().apply {
                 clear()
-                set(2000 + year, month - 1, day, 0, 0, 0)
+                set(year, month - 1, day, 0, 0, 0)
             }.timeInMillis
         } catch (e: Exception) { null }
     }
