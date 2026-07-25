@@ -523,6 +523,7 @@ class WorkerSpaceFragment : Fragment() {
                 if (noteText.isBlank()) return@setOnClickListener
                 val timestamp = System.currentTimeMillis()
                 val todayDateKey = todayDateKeyDdMmYy()
+                val indexDateKey = remarksIndexDateKeyYyyyMmDd()
                 val remarkData = mapOf(
                     "agentSystemId" to systemId,
                     "userId"        to userId,
@@ -539,8 +540,9 @@ class WorkerSpaceFragment : Fragment() {
                 // ✅ Secondary per-user index — see saveRemarkForItems() for the full
                 // rationale. status is "" here (no configured remark options to pick a
                 // status from), so final_status is written as "" too, same as the
-                // primary remark above.
-                db.reference.child("remarks_by_userId/$userId/push_${todayDateKey}_${item.id}")
+                // primary remark above. indexDateKey is yyyyMMdd (not runId's ddMMyy) so
+                // this key sorts chronologically.
+                db.reference.child("remarks_by_userId/$userId/push_${indexDateKey}_${item.id}")
                     .setValue(
                         mapOf(
                             "final_status" to "",
@@ -704,6 +706,7 @@ class WorkerSpaceFragment : Fragment() {
         val timestamp = System.currentTimeMillis()
         val todayDateKey = todayDateKeyDdMmYy()
         val runId = "run_${todayDateKey}_${systemId}"
+        val indexDateKey = remarksIndexDateKeyYyyyMmDd()
         val nowStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date())
 
         // WhatsApp — only for the parcel the worker actually tapped (triggerItem).
@@ -757,7 +760,8 @@ class WorkerSpaceFragment : Fragment() {
             // write for that combo wins. Lets a "my day" / date-range report for this worker
             // be built from a single bounded read of remarks_by_userId/{userId} instead of
             // scanning every consignment's remark history and filtering by userId + date.
-            db.reference.child("remarks_by_userId/$userId/push_${todayDateKey}_${p.id}")
+            // indexDateKey is yyyyMMdd (not runId's ddMMyy) so this key sorts chronologically.
+            db.reference.child("remarks_by_userId/$userId/push_${indexDateKey}_${p.id}")
                 .setValue(
                     mapOf(
                         "final_status" to statusKey,
@@ -825,6 +829,13 @@ class WorkerSpaceFragment : Fragment() {
      *  sites (the configured-options flow and the no-config-options note fallback). */
     private fun todayDateKeyDdMmYy(): String =
         java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH).format(java.util.Date())
+
+    /** Today's date as yyyyMMdd (e.g. "20260725") — year-first so plain string/key ordering
+     *  sorts chronologically, unlike ddMMyy. Used only for the remarks_by_userId secondary
+     *  index key; kept separate from todayDateKeyDdMmYy() because that one feeds runId, which
+     *  stays in the 6-digit ddmmyy shape elsewhere in the codebase. */
+    private fun remarksIndexDateKeyYyyyMmDd(): String =
+        java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date())
 
     /** Formats the gap between updatedAt and createdAt as a human-readable age
      *  (e.g. "2 Days", "1 Day", "5 Hours", "Just now"). */
