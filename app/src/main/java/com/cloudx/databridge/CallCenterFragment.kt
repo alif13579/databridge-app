@@ -2262,8 +2262,9 @@ class CallCenterFragment : Fragment() {
         val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
         val timestamp = System.currentTimeMillis()
         // Same-day key for the per-user secondary index below — computed once per batch,
-        // not per item, since it's identical for every target in this save.
-        val todayDateKey = todayDateKeyDdMmYy()
+        // not per item, since it's identical for every target in this save. yyyyMMdd (not
+        // the ddMMyy used for runId elsewhere) so the key sorts chronologically.
+        val indexDateKey = remarksIndexDateKeyYyyyMmDd()
 
         items.forEach { target ->
             // remarks = status label only (clean, no note embedded)
@@ -2292,7 +2293,7 @@ class CallCenterFragment : Fragment() {
             // write for that combo wins. Lets a "my day" / date-range report for this agent
             // be built from a single bounded read of remarks_by_userId/{userId} instead of
             // scanning every consignment's remark history and filtering by userId + date.
-            db.reference.child("remarks_by_userId/$userId/push_${todayDateKey}_${target.id}")
+            db.reference.child("remarks_by_userId/$userId/push_${indexDateKey}_${target.id}")
                 .setValue(
                     mapOf(
                         "final_status" to selectedStatus,
@@ -2422,6 +2423,13 @@ class CallCenterFragment : Fragment() {
      *  this file, so date-keyed Firebase paths stay consistent across the codebase. */
     private fun todayDateKeyDdMmYy(): String =
         java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH).format(java.util.Date())
+
+    /** Today's date as yyyyMMdd (e.g. "20260725") — year-first so plain string/key ordering
+     *  sorts chronologically, unlike ddMMyy. Used only for the remarks_by_userId secondary
+     *  index key; kept separate from todayDateKeyDdMmYy() because that one feeds runId, which
+     *  parseRunTimestamp() below still expects in the 6-digit ddmmyy shape. */
+    private fun remarksIndexDateKeyYyyyMmDd(): String =
+        java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date())
 
     /**
      * Extracts the date portion from a run ID of the form "run_{ddmmyy}_{employeeId}"
