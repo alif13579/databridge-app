@@ -2261,6 +2261,9 @@ class CallCenterFragment : Fragment() {
         // the status/consignments write gets rejected by a role-restricted rule.
         val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
         val timestamp = System.currentTimeMillis()
+        // Same-day key for the per-user secondary index below — computed once per batch,
+        // not per item, since it's identical for every target in this save.
+        val todayDateKey = todayDateKeyDdMmYy()
 
         items.forEach { target ->
             // remarks = status label only (clean, no note embedded)
@@ -2284,6 +2287,26 @@ class CallCenterFragment : Fragment() {
                     )
                     Toast.makeText(requireContext(), "⚠ Remark save হয়নি (${target.id}): ${e.message}", Toast.LENGTH_LONG).show()
                 }
+
+            // ✅ Secondary per-user index — one entry per (user, day, consignment), last
+            // write for that combo wins. Lets a "my day" / date-range report for this agent
+            // be built from a single bounded read of remarks_by_userId/{userId} instead of
+            // scanning every consignment's remark history and filtering by userId + date.
+            db.reference.child("remarks_by_userId/$userId/push_${todayDateKey}_${target.id}")
+                .setValue(
+                    mapOf(
+                        "final_status" to selectedStatus,
+                        "remarks_id"   to selectedRemarkText.ifBlank { noteText }
+                    )
+                )
+                .addOnFailureListener { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "CallCenterFragment", action = "remarks_by_userId_write",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("consignmentId" to target.id, "userId" to userId)
+                    )
+                }
+
             EngagedStateManager.clearEngaged(target.id)
         }
 
@@ -2394,6 +2417,11 @@ class CallCenterFragment : Fragment() {
             if (idx >= 0) rvParcelList.post { rvParcelList.smoothScrollToPosition(idx) }
         }
     }
+
+    /** Today's date as ddMMyy (e.g. "250726") — same format used for run IDs elsewhere in
+     *  this file, so date-keyed Firebase paths stay consistent across the codebase. */
+    private fun todayDateKeyDdMmYy(): String =
+        java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH).format(java.util.Date())
 
     /**
      * Extracts the date portion from a run ID of the form "run_{ddmmyy}_{employeeId}"

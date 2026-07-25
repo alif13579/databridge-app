@@ -522,6 +522,7 @@ class WorkerSpaceFragment : Fragment() {
                 val noteText = etNote.text.toString().trim()
                 if (noteText.isBlank()) return@setOnClickListener
                 val timestamp = System.currentTimeMillis()
+                val todayDateKey = todayDateKeyDdMmYy()
                 val remarkData = mapOf(
                     "agentSystemId" to systemId,
                     "userId"        to userId,
@@ -530,12 +531,23 @@ class WorkerSpaceFragment : Fragment() {
                     "status"        to "",
                     "remarked_by"   to "worker",
                     "createdAt"     to timestamp,
-                    "runId"         to "run_${
-                        java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH).format(java.util.Date())
-                    }_${systemId}"
+                    "runId"         to "run_${todayDateKey}_${systemId}"
                 )
                 db.reference.child("courier/remarks_by_consignment/${item.id}/remarks_$timestamp")
                     .setValue(remarkData)
+
+                // ✅ Secondary per-user index — see saveRemarkForItems() for the full
+                // rationale. status is "" here (no configured remark options to pick a
+                // status from), so final_status is written as "" too, same as the
+                // primary remark above.
+                db.reference.child("remarks_by_userId/$userId/push_${todayDateKey}_${item.id}")
+                    .setValue(
+                        mapOf(
+                            "final_status" to "",
+                            "remarks_id"   to noteText
+                        )
+                    )
+
                 EngagedStateManager.clearEngaged(item.id)
                 android.widget.Toast.makeText(requireContext(), "✓ Note saved", android.widget.Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
@@ -690,9 +702,8 @@ class WorkerSpaceFragment : Fragment() {
         triggerItem: WorkerParcelItem
     ) {
         val timestamp = System.currentTimeMillis()
-        val runId = "run_${
-            java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH).format(java.util.Date())
-        }_${systemId}"
+        val todayDateKey = todayDateKeyDdMmYy()
+        val runId = "run_${todayDateKey}_${systemId}"
         val nowStr = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date())
 
         // WhatsApp — only for the parcel the worker actually tapped (triggerItem).
@@ -740,6 +751,25 @@ class WorkerSpaceFragment : Fragment() {
                         requireContext(), "⚠ ${p.id} — Remark save হয়নি: ${e.message}",
                         android.widget.Toast.LENGTH_LONG
                     ).show()
+                }
+
+            // ✅ Secondary per-user index — one entry per (user, day, consignment), last
+            // write for that combo wins. Lets a "my day" / date-range report for this worker
+            // be built from a single bounded read of remarks_by_userId/{userId} instead of
+            // scanning every consignment's remark history and filtering by userId + date.
+            db.reference.child("remarks_by_userId/$userId/push_${todayDateKey}_${p.id}")
+                .setValue(
+                    mapOf(
+                        "final_status" to statusKey,
+                        "remarks_id"   to selectedLabel
+                    )
+                )
+                .addOnFailureListener { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "WorkerSpaceFragment", action = "remarks_by_userId_write",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("consignmentId" to p.id, "userId" to userId)
+                    )
                 }
             EngagedStateManager.clearEngaged(p.id)
         }
@@ -789,6 +819,12 @@ class WorkerSpaceFragment : Fragment() {
             )
         }
     }
+
+    /** Today's date as ddMMyy (e.g. "250726") — same format already used for run IDs in
+     *  this file, so date-keyed Firebase paths stay consistent. Used by both remark-save
+     *  sites (the configured-options flow and the no-config-options note fallback). */
+    private fun todayDateKeyDdMmYy(): String =
+        java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH).format(java.util.Date())
 
     /** Formats the gap between updatedAt and createdAt as a human-readable age
      *  (e.g. "2 Days", "1 Day", "5 Hours", "Just now"). */
