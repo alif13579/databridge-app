@@ -183,6 +183,22 @@
 
                 </LinearLayout>
 
+                <!-- ── Section: Earnings ── -->
+                <TextView
+                    android:id="@+id/tvSectionEarnings"
+                    style="@style/DashboardSectionLabel"
+                    android:text="Earnings" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="16dp">
+
+                    <include android:id="@+id/cardEarnings" layout="@layout/item_metric_card" />
+
+                </LinearLayout>
+
                 <!-- ── Section: Distribution ── -->
                 <TextView
                     android:id="@+id/tvSectionDist"
