@@ -168,7 +168,7 @@ class DashboardViewModel : ViewModel() {
 
     // ── Core load ─────────────────────────────────────────────────────────────
     //
-    // Sourced from remarks_by_userId/{uid}/push_{yyyyMMdd}_{consignmentId} — the secondary
+    // Sourced from courier/remarks_by_userId/{uid}/push_{yyyyMMdd}_{consignmentId} — the secondary
     // per-user index WorkerSpaceFragment/CallCenterFragment write alongside every
     // courier/remarks_by_consignment entry. This sidesteps the three problems the old
     // (removed) loadBranchView()/loadWorkerView() had:
@@ -179,7 +179,7 @@ class DashboardViewModel : ViewModel() {
     //   3. Bounded reads: orderByKey().startAt/endAt on the yyyyMMdd-prefixed key restricts
     //      each per-agent read to the selected date range, not "every run ever".
     //
-    // ⚠️ Known limitations of remarks_by_userId as a data source (flagging, not guessing):
+    // ⚠️ Known limitations of courier/remarks_by_userId as a data source (flagging, not guessing):
     //   - An entry only exists once an agent saves a remark on a consignment — there's no
     //     "assigned but not yet actioned" entry. So DashboardStats.pending / AgentStat.pending
     //     are always 0 here, and "totalParcels" means "actioned in range", not "assigned".
@@ -208,7 +208,7 @@ class DashboardViewModel : ViewModel() {
                 // keys as labels rather than an empty breakdown.
                 val statusMetaDeferred = async(Dispatchers.IO) { StatusMetaCache.refresh() }
 
-                // "worker" = exactly the single bounded self-read remarks_by_userId was
+                // "worker" = exactly the single bounded self-read courier/remarks_by_userId was
                 // designed for (DashboardFragment already hides the agent table for this
                 // role). Any other role gets the branch-scoped breakdown across workers.
                 val results = if (roleId == "worker") {
@@ -267,7 +267,7 @@ class DashboardViewModel : ViewModel() {
     }
 
     /** One agent's delivered/onHold/returned counts for [startKey]..[endKey] (both yyyyMMdd,
-     *  inclusive) from a single bounded read of remarks_by_userId/{uid}, plus a raw
+     *  inclusive) from a single bounded read of courier/remarks_by_userId/{uid}, plus a raw
      *  final_status -> count tally from that same read (see AgentLoadResult). pending is
      *  always 0 and runId/runStatus are always blank — see the limitations note above load(). */
     private suspend fun loadAgentStat(
@@ -275,7 +275,7 @@ class DashboardViewModel : ViewModel() {
     ): AgentLoadResult {
         val snap = withContext(Dispatchers.IO) {
             runCatching {
-                db.reference.child("remarks_by_userId/$uid")
+                db.reference.child("courier/remarks_by_userId/$uid")
                     .orderByKey()
                     .startAt("push_$startKey")
                     .endAt("push_$endKey~") // '~' sorts after any consignmentId suffix that day
@@ -355,7 +355,7 @@ class DashboardViewModel : ViewModel() {
     private fun dateKey(ts: Long): String =
         java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date(ts))
 
-    /** Buckets a remarks_by_userId final_status into delivered/on_hold/returned. Status keys
+    /** Buckets a courier/remarks_by_userId final_status into delivered/on_hold/returned. Status keys
      *  are admin-configurable (config/statusMeta), so this matches by keyword rather than a
      *  fixed key list — same approach the DataBridge Chrome extension's reconciliation
      *  highlighter uses for the Hermes status badges (HOLD/RETURN/DRTO/PARTIAL/EXCHANGE).

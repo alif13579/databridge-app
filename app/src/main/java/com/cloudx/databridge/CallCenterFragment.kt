@@ -2292,9 +2292,9 @@ class CallCenterFragment : Fragment() {
 
             // ✅ Secondary per-user index — one entry per (user, day, consignment), last
             // write for that combo wins. Lets a "my day" / date-range report for this agent
-            // be built from a single bounded read of remarks_by_userId/{userId} instead of
+            // be built from a single bounded read of courier/remarks_by_userId/{userId} instead of
             // scanning every consignment's remark history and filtering by userId + date.
-            db.reference.child("remarks_by_userId/$userId/push_${indexDateKey}_${target.id}")
+            db.reference.child("courier/remarks_by_userId/$userId/push_${indexDateKey}_${target.id}")
                 .setValue(
                     mapOf(
                         "final_status" to selectedStatus,
@@ -2313,7 +2313,7 @@ class CallCenterFragment : Fragment() {
             // userId rather than a literal array, so concurrent remarks from different agents
             // on the same consignment/day never race-overwrite each other, and repeat touches
             // by the same user dedupe to one entry instead of piling up.
-            db.reference.child("users_by_consignment/${target.id}/$indexDateKey/$userId")
+            db.reference.child("courier/users_by_consignment/${target.id}/$indexDateKey/$userId")
                 .setValue(true)
                 .addOnFailureListener { e ->
                     FirebaseErrorLogger.log(
@@ -2435,7 +2435,7 @@ class CallCenterFragment : Fragment() {
     }
 
     /** Today's date as yyyyMMdd (e.g. "20260725") — year-first so plain string/key ordering
-     *  sorts chronologically. Used for runId construction and the remarks_by_userId secondary
+     *  sorts chronologically. Used for runId construction and the courier/remarks_by_userId secondary
      *  index key — both now share this one format, so one helper covers both. */
     private fun todayDateKeyYyyyMmDd(): String =
         java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date())

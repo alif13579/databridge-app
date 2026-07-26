@@ -540,7 +540,7 @@ class WorkerSpaceFragment : Fragment() {
                 // rationale. status is "" here (no configured remark options to pick a
                 // status from), so final_status is written as "" too, same as the
                 // primary remark above.
-                db.reference.child("remarks_by_userId/$userId/push_${todayDateKey}_${item.id}")
+                db.reference.child("courier/remarks_by_userId/$userId/push_${todayDateKey}_${item.id}")
                     .setValue(
                         mapOf(
                             "final_status" to "",
@@ -551,7 +551,7 @@ class WorkerSpaceFragment : Fragment() {
                 // ✅ Reverse index — see saveRemarkForItems() for the full rationale
                 // (userId-keyed, not a literal array, so concurrent writes/repeat touches
                 // never race or duplicate).
-                db.reference.child("users_by_consignment/${item.id}/$todayDateKey/$userId")
+                db.reference.child("courier/users_by_consignment/${item.id}/$todayDateKey/$userId")
                     .setValue(true)
 
                 EngagedStateManager.clearEngaged(item.id)
@@ -761,9 +761,9 @@ class WorkerSpaceFragment : Fragment() {
 
             // ✅ Secondary per-user index — one entry per (user, day, consignment), last
             // write for that combo wins. Lets a "my day" / date-range report for this worker
-            // be built from a single bounded read of remarks_by_userId/{userId} instead of
+            // be built from a single bounded read of courier/remarks_by_userId/{userId} instead of
             // scanning every consignment's remark history and filtering by userId + date.
-            db.reference.child("remarks_by_userId/$userId/push_${todayDateKey}_${p.id}")
+            db.reference.child("courier/remarks_by_userId/$userId/push_${todayDateKey}_${p.id}")
                 .setValue(
                     mapOf(
                         "final_status" to statusKey,
@@ -782,7 +782,7 @@ class WorkerSpaceFragment : Fragment() {
             // userId rather than a literal array, so concurrent remarks from different workers
             // on the same consignment/day never race-overwrite each other, and repeat touches
             // by the same user dedupe to one entry instead of piling up.
-            db.reference.child("users_by_consignment/${p.id}/$todayDateKey/$userId")
+            db.reference.child("courier/users_by_consignment/${p.id}/$todayDateKey/$userId")
                 .setValue(true)
                 .addOnFailureListener { e ->
                     FirebaseErrorLogger.log(
@@ -841,7 +841,7 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     /** Today's date as yyyyMMdd (e.g. "20260725") — year-first so plain string/key ordering
-     *  sorts chronologically. Used for runId construction and the remarks_by_userId secondary
+     *  sorts chronologically. Used for runId construction and the courier/remarks_by_userId secondary
      *  index key — both now share this one format. Used by both remark-save sites (the
      *  configured-options flow and the no-config-options note fallback). */
     private fun todayDateKeyYyyyMmDd(): String =

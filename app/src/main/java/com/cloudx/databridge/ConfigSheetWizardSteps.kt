@@ -932,11 +932,11 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                                 changedFields["status"].toString()
                         }
                     }
-                    // Propagate into remarks_by_userId/{userId}/push_{day}_{conId}/final_status for
+                    // Propagate into courier/remarks_by_userId/{userId}/push_{day}_{conId}/final_status for
                     // every (day, userId) that has ever left a remark on this consignment. This is
                     // what makes final_status the source of truth: courier/consignments/status is
                     // where it actually comes from, and it may keep changing after the remark that
-                    // originally created the entry. users_by_consignment (written alongside every
+                    // originally created the entry. courier/users_by_consignment (written alongside every
                     // remark save in CallCenterFragment / WorkerSpaceFragment) is the reverse index
                     // that tells us who to propagate to — one small per-consignment read, never a
                     // company-wide scan, and it only runs for rows whose status actually changed
@@ -944,14 +944,14 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                     if (basePath == "courier/consignments" && "status" in changedFields) {
                         val newStatus = changedFields["status"].toString()
                         val touchedUsersSnap = withContext(Dispatchers.IO) {
-                            try { db.reference.child("users_by_consignment/$conId").get().await() }
+                            try { db.reference.child("courier/users_by_consignment/$conId").get().await() }
                             catch (e: Exception) { null }
                         }
                         touchedUsersSnap?.children?.forEach { dayNode ->
                             val dayKey = dayNode.key ?: return@forEach
                             dayNode.children.forEach { userNode ->
                                 val touchedUserId = userNode.key ?: return@forEach
-                                multiUpdate["remarks_by_userId/$touchedUserId/push_${dayKey}_$conId/final_status"] =
+                                multiUpdate["courier/remarks_by_userId/$touchedUserId/push_${dayKey}_$conId/final_status"] =
                                     newStatus
                             }
                         }
