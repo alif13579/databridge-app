@@ -18,7 +18,6 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -77,8 +76,9 @@ class ParcelDetailFragment : Fragment() {
     private var remarkListener: ValueEventListener? = null
     private val remarkRef get() = db.reference.child("courier/remarks_by_consignment/$parcelId")
 
-    // Cache: uid → display name (resolved lazily from Firebase)
+    // Cache: uid → display name (resolved lazily from Firebase via UserNameResolver)
     private val uidNameCache = mutableMapOf<String, String>()
+    private val uidPhotoCache = mutableMapOf<String, String>()
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -269,9 +269,12 @@ class ParcelDetailFragment : Fragment() {
         val sdf = SimpleDateFormat("dd-MM-yy  hh:mm a", Locale.getDefault())
         val lang = "bn"
 
-        // Resolve display names for any uids we see
+        // Resolve display names + photos for any uids we see — same shared resolver
+        // WorkerSpaceFragment/CallCenterFragment's Journey Log dialogs use, instead of
+        // this fragment's own ad-hoc users/{uid}/name lookup (wrong path — the real one
+        // is users/{uid}/profile/name, which is what UserNameResolver reads).
         val uidsToResolve = snap.children
-            .mapNotNull { it.child("user_id").getValue(String::class.java)?.trim() }
+            .mapNotNull { it.child("userId").getValue(String::class.java)?.trim() }
             .filter { it.isNotBlank() && !uidNameCache.containsKey(it) }
             .distinct()
 
@@ -279,9 +282,8 @@ class ParcelDetailFragment : Fragment() {
             withContext(Dispatchers.IO) {
                 uidsToResolve.forEach { uid ->
                     runCatching {
-                        val nameSnap = db.reference.child("users/$uid/name").get().await()
-                        val name = nameSnap.getValue(String::class.java)?.trim() ?: ""
-                        if (name.isNotBlank()) uidNameCache[uid] = name
+                        uidNameCache[uid] = UserNameResolver.resolveName(uid)
+                        uidPhotoCache[uid] = UserNameResolver.resolvePhotoUrl(uid)
                     }
                 }
             }
@@ -290,15 +292,25 @@ class ParcelDetailFragment : Fragment() {
         val entries = snap.children
             .mapNotNull { r ->
                 val rStatus    = r.child("status").getValue(String::class.java)?.trim().orEmpty()
-                val rNote      = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
-                if (rStatus.isBlank() && rNote.isBlank()) return@mapNotNull null
-                val createdAt  = r.child("createdAt").getValue(Long::class.java) ?: 0L
+                val rRemarks   = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
+                val rNoteOnly  = r.child("note").getValue(String::class.java)?.trim().orEmpty()
+                if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
+                // Firebase has stored createdAt as Long everywhere we write it, but a
+                // single-type read can still throw DatabaseException if any entry was
+                // ever written differently — same defensive fallback chain as readCod().
+                val createdAt  = r.child("createdAt").getValue(Long::class.java)
+                    ?: r.child("createdAt").getValue(Double::class.java)?.toLong()
+                    ?: r.child("createdAt").getValue(String::class.java)?.toLongOrNull()
+                    ?: 0L
                 val timeStr    = if (createdAt > 0) sdf.format(Date(createdAt)) else "—"
                 val remarkedBy = r.child("remarked_by").getValue(String::class.java)?.trim().orEmpty()
-                val uid        = r.child("user_id").getValue(String::class.java)?.trim().orEmpty()
-                val photoUrl   = r.child("user_photo").getValue(String::class.java)?.trim().orEmpty()
+                val uid        = r.child("userId").getValue(String::class.java)?.trim().orEmpty()
+                val photoUrl   = uidPhotoCache[uid].orEmpty()
 
-                val resolvedName = uidNameCache[uid]
+                // Only treat it as a resolved name if UserNameResolver actually found a
+                // profile — it falls back to returning the raw uid when it can't, and a
+                // raw uid string isn't a name we want to show in place of "You"/"Delivery Agent".
+                val resolvedName = uidNameCache[uid]?.takeIf { it.isNotBlank() && it != uid }
                 val isCurrentUser = uid.isNotBlank() && uid == auth.currentUser?.uid
                 val author = when {
                     isCurrentUser         -> "You"
@@ -308,11 +320,15 @@ class ParcelDetailFragment : Fragment() {
                 }
                 val role = if (remarkedBy == "support") "cc" else "agent"
 
-                // Prefer actual remark text; fall back to status label
+                // Remarks + note combined — same rule as the long-press Journey Log
+                // dialogs' rLabel (WorkerSpaceFragment/CallCenterFragment), falling back
+                // to the status label only when there's no remark text at all.
                 val display = when {
-                    rNote.isNotBlank()   -> rNote
-                    rStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, rStatus, lang).label
-                    else                 -> ""
+                    rRemarks.isNotBlank() && rNoteOnly.isNotBlank() -> "$rRemarks\nNote: $rNoteOnly"
+                    rRemarks.isNotBlank() -> rRemarks
+                    rNoteOnly.isNotBlank() -> rNoteOnly
+                    rStatus.isNotBlank()  -> WorkerParcelAdapter.getStatusConfig(ctx, rStatus, lang).label
+                    else                  -> ""
                 }
 
                 Entry(rStatus, display, timeStr, author, role, photoUrl, createdAt)
