@@ -671,7 +671,7 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
         // If ANY part fails to resolve (a "date" part that won't parse, OR a "col" part whose
         // cell is blank — e.g. agentSystemId missing) the whole key comes back blank so the
         // existing conId.isBlank() check skips the row — a malformed/incomplete key must never
-        // be produced (e.g. "run_040726_" with the agent segment silently missing).
+        // be produced (e.g. "run_20260726_" with the agent segment silently missing).
         fun buildPrimaryKey(row: List<String>): String {
             var partFailed = false
             val key = pkParts.joinToString("") { part ->
@@ -691,7 +691,7 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                             partFailed = true
                             ""
                         } else {
-                            java.text.SimpleDateFormat("ddMMyy", java.util.Locale.ENGLISH)
+                            java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH)
                                 .format(java.util.Date(millis))
                         }
                     }

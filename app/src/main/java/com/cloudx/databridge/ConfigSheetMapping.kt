@@ -510,7 +510,7 @@ internal fun ConfigSheetFragment.updatePkPreview() {
         updateConnectButtonState()   // keep Exit/Save button in sync with pk edits
         return
     }
-    val todayDdMmYy = java.text.SimpleDateFormat("ddMMyy", java.util.Locale.US).format(java.util.Date())
+    val todayYyyyMmDd = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
     val preview = pendingPkParts.joinToString("") { part ->
         when (part.type) {
             "fixed" -> part.value
@@ -519,7 +519,7 @@ internal fun ConfigSheetFragment.updatePkPreview() {
                 else sampleSheetRow[part.value]?.takeIf { it.isNotBlank() }
                     ?: "{${sheetHeaders[part.value] ?: part.value}}"
             }
-            "date"  -> todayDdMmYy
+            "date"  -> todayYyyyMmDd
             else    -> ""
         }
     }

@@ -34,7 +34,8 @@ data class BranchInfo(
  * type = "fixed" → `value` is literal text (e.g. "run_")
  * type = "col"   → `value` is a sheet column letter whose row-value is read dynamically
  * type = "date"  → `value` is a sheet column letter; the cell value is parsed and
- *                  formatted as ddMMyy (e.g. "040726"), always 6 digits.
+ *                  formatted as yyyyMMdd (e.g. "20260726"), always 8 digits — chosen so
+ *                  the resulting key also sorts chronologically as a plain string.
  */
 data class PkPart(
     val type:   String = "col",  // "col" | "fixed" | "date"
