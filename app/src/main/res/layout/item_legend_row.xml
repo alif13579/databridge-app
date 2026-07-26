@@ -11,7 +11,7 @@
         android:id="@+id/viewDot"
         android:layout_width="7dp"
         android:layout_height="7dp"
-        android:background="#22C55E" />
+        android:background="@color/accent_green" />
 
     <TextView
         android:id="@+id/tvLegendLabel"
@@ -20,7 +20,7 @@
         android:layout_weight="1"
         android:text="Label"
         android:textSize="10sp"
-        android:textColor="#64748b"
+        android:textColor="@color/theme_text_secondary"
         android:layout_marginStart="6dp" />
 
     <TextView
@@ -29,7 +29,7 @@
         android:layout_height="wrap_content"
         android:text="0"
         android:textSize="10sp"
-        android:textColor="#F1F5F9"
+        android:textColor="@color/theme_text_primary"
         android:fontFamily="monospace"
         android:textStyle="bold"
         android:layout_marginEnd="4dp" />
@@ -40,7 +40,7 @@
         android:layout_height="wrap_content"
         android:text="(0%)"
         android:textSize="9sp"
-        android:textColor="#334155"
+        android:textColor="@color/theme_text_dim"
         android:gravity="end" />
 
 </LinearLayout>
