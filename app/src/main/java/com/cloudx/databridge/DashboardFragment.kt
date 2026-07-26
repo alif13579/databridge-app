@@ -225,6 +225,20 @@ class DashboardFragment : Fragment() {
             selectedBranchIds = ids
             updateBranchDropdownLabel()
         }
+        // Refresh-with-existing-data path: keep the current Success view up, just show
+        // swipeRefresh's own spinner instead of the full-screen Loading view (see load()).
+        vm.isRefreshing.observe(viewLifecycleOwner) { refreshing ->
+            swipeRefresh.isRefreshing = refreshing
+        }
+        // A refresh that failed while old data was still on screen — surface it without
+        // wiping that data via showError().
+        vm.refreshError.observe(viewLifecycleOwner) { message ->
+            if (message == null) return@observe
+            com.google.android.material.snackbar.Snackbar
+                .make(swipeRefresh, "⚠ $message", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+                .show()
+            vm.clearRefreshError()
+        }
     }
 
     // ── Branch filter dropdown ─────────────────────────────────────────────────

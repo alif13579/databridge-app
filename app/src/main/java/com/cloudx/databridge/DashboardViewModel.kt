@@ -74,6 +74,22 @@ class DashboardViewModel : ViewModel() {
     private val _state = MutableLiveData<DashboardState>(DashboardState.Loading)
     val state: LiveData<DashboardState> = _state
 
+    // True only while a load() is in flight AND we already have Success data on screen —
+    // lets the Fragment keep showing that data and just spin swipeRefresh's own indicator,
+    // instead of the full-screen Loading view (see load()).
+    private val _isRefreshing = MutableLiveData(false)
+    val isRefreshing: LiveData<Boolean> = _isRefreshing
+
+    // Set when a refresh (i.e. hasExistingData == true in load()) fails — the Fragment
+    // shows this as a Snackbar/Toast and calls clearRefreshError(), rather than the old
+    // Success data being replaced by the full-screen error view.
+    private val _refreshError = MutableLiveData<String?>(null)
+    val refreshError: LiveData<String?> = _refreshError
+
+    fun clearRefreshError() { _refreshError.value = null }
+
+    private var loadJob: kotlinx.coroutines.Job? = null
+
     private val _dateRange = MutableLiveData(todayRange())
     val dateRange: LiveData<DateRange> = _dateRange
 
@@ -195,10 +211,22 @@ class DashboardViewModel : ViewModel() {
     private data class AgentLoadResult(val stat: AgentStat, val rawStatusCounts: Map<String, Int>)
 
     private fun load(range: DateRange) {
-        viewModelScope.launch {
-            _state.value = DashboardState.Loading
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            // If we already have data on screen, this is a refresh (pull-to-refresh, a chip
+            // tap, or a branch-filter change) — keep that data visible and just flip the
+            // swipeRefresh spinner, instead of blanking the whole screen to the Loading view.
+            // Only a true first load (nothing shown yet) goes through DashboardState.Loading.
+            val hasExistingData = _state.value is DashboardState.Success
+            if (hasExistingData) {
+                _isRefreshing.value = true
+            } else {
+                _state.value = DashboardState.Loading
+            }
+
             val uid = auth.currentUser?.uid
             if (uid.isNullOrBlank()) {
+                _isRefreshing.value = false
                 _state.value = DashboardState.Error("লগইন করা নেই")
                 return@launch
             }
@@ -259,6 +287,9 @@ class DashboardViewModel : ViewModel() {
                         .thenByDescending { it.count }
                 )
 
+                // Always goes through Success, refresh or not — this is what makes a refresh
+                // actually show the latest fetch's numbers once it lands, on top of the old
+                // data staying visible while it was in flight.
                 _state.value = DashboardState.Success(
                     stats     = stats,
                     agents    = agentStats.sortedByDescending { it.delivered },
@@ -266,7 +297,15 @@ class DashboardViewModel : ViewModel() {
                     breakdown = breakdown,
                 )
             } catch (e: Exception) {
-                _state.value = DashboardState.Error(e.message ?: "Dashboard load ব্যর্থ হয়েছে")
+                if (hasExistingData) {
+                    // Keep the old Success data on screen — surface the failure as a one-off
+                    // event instead of replacing a working dashboard with the full error view.
+                    _refreshError.value = e.message ?: "Dashboard reload ব্যর্থ হয়েছে"
+                } else {
+                    _state.value = DashboardState.Error(e.message ?: "Dashboard load ব্যর্থ হয়েছে")
+                }
+            } finally {
+                _isRefreshing.value = false
             }
         }
     }
