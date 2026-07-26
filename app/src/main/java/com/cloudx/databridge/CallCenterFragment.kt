@@ -2309,6 +2309,20 @@ class CallCenterFragment : Fragment() {
                     )
                 }
 
+            // ✅ Reverse index — which users touched this consignment on which day. Keyed by
+            // userId rather than a literal array, so concurrent remarks from different agents
+            // on the same consignment/day never race-overwrite each other, and repeat touches
+            // by the same user dedupe to one entry instead of piling up.
+            db.reference.child("users_by_consignment/${target.id}/$indexDateKey/$userId")
+                .setValue(true)
+                .addOnFailureListener { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "CallCenterFragment", action = "users_by_consignment_write",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("consignmentId" to target.id, "userId" to userId)
+                    )
+                }
+
             EngagedStateManager.clearEngaged(target.id)
         }
 
