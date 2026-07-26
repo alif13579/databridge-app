@@ -181,8 +181,13 @@ class DashboardViewModel : ViewModel() {
     //
     // ⚠️ Known limitations of remarks_by_userId as a data source (flagging, not guessing):
     //   - An entry only exists once an agent saves a remark on a consignment — there's no
-    //     "assigned but not yet actioned" entry. So DashboardStats.pending / AgentStat.pending
-    //     are always 0 here, and "totalParcels" means "actioned in range", not "assigned".
+    //     "assigned but not yet actioned" entry, so "totalParcels" means "actioned in range",
+    //     not "assigned". DashboardStats.pending / AgentStat.pending do NOT mean that though —
+    //     they're derived (entryCount - delivered - onHold - returned in loadAgentStat), i.e.
+    //     "actioned in range but not a final delivery outcome" (verify_request, a blank-status
+    //     note, or any other status bucketForStatus doesn't recognize). This is what makes
+    //     total (delivered+onHold+returned+pending) always equal entryCount — every entry
+    //     found in the date range counts toward the total, whatever its status is.
     //   - It carries no run reference, so AgentStat.runId/runStatus and
     //     DashboardStats.openRuns/closedRuns can't come from it — left blank/0 for now.
     /** loadAgentStat's return: the existing bucketed AgentStat, plus a raw final_status ->
@@ -269,7 +274,8 @@ class DashboardViewModel : ViewModel() {
     /** One agent's delivered/onHold/returned counts for [startKey]..[endKey] (both yyyyMMdd,
      *  inclusive) from a single bounded read of remarks_by_userId/{uid}, plus a raw
      *  final_status -> count tally from that same read (see AgentLoadResult). pending is
-     *  always 0 and runId/runStatus are always blank — see the limitations note above load(). */
+     *  derived (entryCount - delivered - onHold - returned), and runId/runStatus are always
+     *  blank — see the limitations note above load(). */
     private suspend fun loadAgentStat(
         uid: String, name: String, startKey: String, endKey: String
     ): AgentLoadResult {
@@ -286,25 +292,28 @@ class DashboardViewModel : ViewModel() {
         var delivered = 0
         var onHold = 0
         var returned = 0
+        var entryCount = 0
         val rawCounts = mutableMapOf<String, Int>()
         snap?.children?.forEach { entry ->
+            entryCount++
             val statusKey = entry.child("final_status").getValue(String::class.java).orEmpty()
             when (bucketForStatus(statusKey)) {
                 "delivered" -> delivered++
                 "on_hold"   -> onHold++
                 "returned"  -> returned++
-                else        -> {} // verify_request / blank / unrecognized — not counted
+                else        -> {} // verify_request / blank / unrecognized — not a final
+                                   // delivery outcome, so left out of these 3 fixed KPI
+                                   // buckets. Still counted in `pending` below and in the
+                                   // dynamic breakdown, so it's never invisible to the totals.
             }
-            // Same exclusions as bucketForStatus: verify_request isn't a final delivery
-            // outcome (config/statusMeta/{key}/updatesParcelStatus=false), so it's left out
-            // of the breakdown too, not just the delivered/onHold/returned buckets. Blank is
-            // grouped under an explicit label rather than silently dropped.
+            // Dynamic breakdown: EVERY entry counts under its own raw status value, with no
+            // exclusions — this intentionally differs from the delivered/on_hold/returned
+            // bucketing above, which only cares about final delivery outcomes. Every unique
+            // status found in range (verify_request included) gets its own count+percentage
+            // slice; blank status groups under an explicit label rather than being dropped.
             val trimmed = statusKey.trim()
-            if (trimmed.isNotBlank() && !isVerifyRequestStatus(trimmed)) {
-                rawCounts[trimmed] = (rawCounts[trimmed] ?: 0) + 1
-            } else if (trimmed.isBlank()) {
-                rawCounts["(no status)"] = (rawCounts["(no status)"] ?: 0) + 1
-            }
+            val breakdownKey = trimmed.ifBlank { "(no status)" }
+            rawCounts[breakdownKey] = (rawCounts[breakdownKey] ?: 0) + 1
         }
 
         val stat = AgentStat(
@@ -315,7 +324,13 @@ class DashboardViewModel : ViewModel() {
             delivered = delivered,
             onHold    = onHold,
             returned  = returned,
-            pending   = 0,
+            // Derived, not hardcoded: whatever this agent actioned in range that ISN'T one
+            // of the three final-outcome buckets above (verify_request, a blank-status note,
+            // or any other unrecognized status). This guarantees `total`
+            // (delivered+onHold+returned+pending) always equals entryCount — i.e. "every
+            // entry found in the date range counts toward the total", full stop, regardless
+            // of what its status is.
+            pending   = entryCount - delivered - onHold - returned,
         )
         return AgentLoadResult(stat, rawCounts)
     }
