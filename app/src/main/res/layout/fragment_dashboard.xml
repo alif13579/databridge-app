@@ -212,35 +212,12 @@
                             android:clipToOutline="true"
                             android:layout_marginBottom="14dp" />
 
-                        <!-- Legend grid (2 columns) -->
+                        <!-- Legend list (dynamic — one row per distinct status found in range) -->
                         <LinearLayout
+                            android:id="@+id/layoutStatusLegend"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:orientation="horizontal">
-
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical">
-
-                                <include android:id="@+id/legendDelivered" layout="@layout/item_legend_row" />
-                                <include android:id="@+id/legendOnHold"    layout="@layout/item_legend_row" />
-
-                            </LinearLayout>
-
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:orientation="vertical">
-
-                                <include android:id="@+id/legendReturned" layout="@layout/item_legend_row" />
-                                <include android:id="@+id/legendPending"  layout="@layout/item_legend_row" />
-
-                            </LinearLayout>
-
-                        </LinearLayout>
+                            android:orientation="vertical" />
 
                     </LinearLayout>
 

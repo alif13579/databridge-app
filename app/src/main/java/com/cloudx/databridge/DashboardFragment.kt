@@ -49,12 +49,8 @@ class DashboardFragment : Fragment() {
     private lateinit var cardOpenRuns:  MetricCardViews
     private lateinit var cardClosedRuns:MetricCardViews
 
-    // Legend rows
-    private data class LegendViews(val dot: View, val label: TextView, val value: TextView, val pct: TextView)
-    private lateinit var legendDelivered: LegendViews
-    private lateinit var legendOnHold:    LegendViews
-    private lateinit var legendReturned:  LegendViews
-    private lateinit var legendPending:   LegendViews
+    // Legend rows — built dynamically in buildStatusBreakdown(), one per status found
+    private lateinit var layoutStatusLegend: LinearLayout
 
     // Chips
     private lateinit var chipToday:     Chip
@@ -127,18 +123,7 @@ class DashboardFragment : Fragment() {
         cardOpenRuns   = metricCard(R.id.cardOpenRuns)
         cardClosedRuns = metricCard(R.id.cardClosedRuns)
 
-        fun legendRow(id: Int) = root.findViewById<View>(id).let {
-            LegendViews(
-                dot   = it.findViewById(R.id.viewDot),
-                label = it.findViewById(R.id.tvLegendLabel),
-                value = it.findViewById(R.id.tvLegendValue),
-                pct   = it.findViewById(R.id.tvLegendPct),
-            )
-        }
-        legendDelivered = legendRow(R.id.legendDelivered)
-        legendOnHold    = legendRow(R.id.legendOnHold)
-        legendReturned  = legendRow(R.id.legendReturned)
-        legendPending   = legendRow(R.id.legendPending)
+        layoutStatusLegend = root.findViewById(R.id.layoutStatusLegend)
 
         chipToday     = root.findViewById(R.id.chipToday)
         chipYesterday = root.findViewById(R.id.chipYesterday)
@@ -344,7 +329,7 @@ class DashboardFragment : Fragment() {
         cardClosedRuns.value.text = s.closedRuns.toString()
 
         // ── Status breakdown bar ──
-        buildStatusBar(s)
+        buildStatusBreakdown(state.breakdown)
 
         // ── Agent list (admin/branch only) ──
         val showAgents = state.agents.isNotEmpty() && state.role !in listOf("worker", "delivery")
@@ -355,42 +340,29 @@ class DashboardFragment : Fragment() {
 
     // ── Status breakdown bar ───────────────────────────────────────────────────
 
-    private fun buildStatusBar(s: DashboardStats) {
-        val total = s.totalParcels.coerceAtLeast(1).toFloat()
+    private fun buildStatusBreakdown(breakdown: List<StatusBreakdownItem>) {
         layoutStatusBar.removeAllViews()
+        layoutStatusLegend.removeAllViews()
 
-        data class Segment(val count: Int, val color: Int)
+        val total = breakdown.sumOf { it.count }.coerceAtLeast(1).toFloat()
 
-        val segments = listOf(
-            Segment(s.delivered, colorGreen),
-            Segment(s.onHold,    colorAmber),
-            Segment(s.returned,  colorRed),
-            Segment(s.pending,   colorMuted),
-        )
-
-        segments.filter { it.count > 0 }.forEach { seg ->
+        breakdown.filter { it.count > 0 }.forEach { item ->
             val v = View(requireContext()).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.MATCH_PARENT,
-                    seg.count / total
+                    item.count / total
                 ).apply { setMargins(1, 0, 1, 0) }
-                setBackgroundColor(seg.color)
+                setBackgroundColor(item.color)
             }
             layoutStatusBar.addView(v)
-        }
 
-        // Legend
-        fun bindLegend(legend: LegendViews, label: String, count: Int, color: Int) {
-            legend.dot.setBackgroundColor(color)
-            legend.label.text  = label
-            legend.value.text  = count.toString()
-            val pct = if (total > 0) ((count / total) * 100).toInt() else 0
-            legend.pct.text    = "($pct%)"
+            val row = layoutInflater.inflate(R.layout.item_legend_row, layoutStatusLegend, false)
+            row.findViewById<View>(R.id.viewDot).setBackgroundColor(item.color)
+            row.findViewById<TextView>(R.id.tvLegendLabel).text = item.label
+            row.findViewById<TextView>(R.id.tvLegendValue).text = item.count.toString()
+            row.findViewById<TextView>(R.id.tvLegendPct).text   = "(${item.percent}%)"
+            layoutStatusLegend.addView(row)
         }
-        bindLegend(legendDelivered, "Delivered", s.delivered, colorGreen)
-        bindLegend(legendOnHold,    "On Hold",   s.onHold,    colorAmber)
-        bindLegend(legendReturned,  "Returned",  s.returned,  colorRed)
-        bindLegend(legendPending,   "Pending",   s.pending,   colorMuted)
     }
 
     // ── Agent rows ─────────────────────────────────────────────────────────────

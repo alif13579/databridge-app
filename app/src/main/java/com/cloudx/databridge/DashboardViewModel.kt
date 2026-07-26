@@ -41,12 +41,21 @@ data class AgentStat(
     val deliveryRate get() = if (total > 0) (delivered * 100) / total else 0
 }
 
+data class StatusBreakdownItem(
+    val key:     String,
+    val label:   String,
+    val color:   Int,
+    val count:   Int,
+    val percent: Int,
+)
+
 sealed class DashboardState {
     object Loading : DashboardState()
     data class Success(
-        val stats:  DashboardStats,
-        val agents: List<AgentStat>,
-        val role:   String,
+        val stats:     DashboardStats,
+        val agents:    List<AgentStat>,
+        val role:      String,
+        val breakdown: List<StatusBreakdownItem>,
     ) : DashboardState()
     data class Error(val message: String) : DashboardState()
 }
@@ -176,6 +185,10 @@ class DashboardViewModel : ViewModel() {
     //     are always 0 here, and "totalParcels" means "actioned in range", not "assigned".
     //   - It carries no run reference, so AgentStat.runId/runStatus and
     //     DashboardStats.openRuns/closedRuns can't come from it — left blank/0 for now.
+    /** loadAgentStat's return: the existing bucketed AgentStat, plus a raw final_status ->
+     *  count tally from the same read, for the dynamic per-status breakdown in load(). */
+    private data class AgentLoadResult(val stat: AgentStat, val rawStatusCounts: Map<String, Int>)
+
     private fun load(range: DateRange) {
         viewModelScope.launch {
             _state.value = DashboardState.Loading
@@ -189,16 +202,25 @@ class DashboardViewModel : ViewModel() {
                 val startKey = dateKey(range.startTs)
                 val endKey = dateKey(range.endTs)
 
+                // Runs alongside the per-agent reads below rather than blocking ahead of them —
+                // same pattern WorkerSpaceFragment/CallCenterFragment already use. Keeps whatever
+                // was cached before on failure, so a transient miss here degrades to raw status
+                // keys as labels rather than an empty breakdown.
+                val statusMetaDeferred = async(Dispatchers.IO) { StatusMetaCache.refresh() }
+
                 // "worker" = exactly the single bounded self-read remarks_by_userId was
                 // designed for (DashboardFragment already hides the agent table for this
                 // role). Any other role gets the branch-scoped breakdown across workers.
-                val agentStats = if (roleId == "worker") {
+                val results = if (roleId == "worker") {
                     listOf(loadAgentStat(uid, UserNameResolver.resolveName(uid), startKey, endKey))
                 } else {
                     val selected = _selectedBranchIds.value ?: emptySet()
                     val available = _availableBranches.value?.map { it.id }?.toSet() ?: emptySet()
                     loadWorkerAgentStats(selected.ifEmpty { available }, roleId, startKey, endKey)
                 }
+                statusMetaDeferred.await()
+
+                val agentStats = results.map { it.stat }
 
                 val stats = DashboardStats(
                     totalParcels = agentStats.sumOf { it.total },
@@ -210,10 +232,33 @@ class DashboardViewModel : ViewModel() {
                     closedRuns   = 0,
                 )
 
+                // Merge every agent's raw final_status tally into one dashboard-level count
+                // per distinct status actually seen in range, then resolve each against
+                // StatusMetaCache for its admin-configured label/color/priority.
+                val mergedRawCounts = mutableMapOf<String, Int>()
+                results.forEach { r ->
+                    r.rawStatusCounts.forEach { (k, v) -> mergedRawCounts[k] = (mergedRawCounts[k] ?: 0) + v }
+                }
+                val totalForPercent = mergedRawCounts.values.sum().coerceAtLeast(1)
+                val breakdown = mergedRawCounts.entries.map { (key, count) ->
+                    val meta = StatusMetaCache.entries[key]
+                    StatusBreakdownItem(
+                        key     = key,
+                        label   = meta?.en?.takeIf { it.isNotBlank() } ?: key,
+                        color   = meta?.color ?: android.graphics.Color.GRAY,
+                        count   = count,
+                        percent = (count * 100) / totalForPercent,
+                    )
+                }.sortedWith(
+                    compareByDescending<StatusBreakdownItem> { StatusMetaCache.entries[it.key]?.priority ?: 0 }
+                        .thenByDescending { it.count }
+                )
+
                 _state.value = DashboardState.Success(
-                    stats  = stats,
-                    agents = agentStats.sortedByDescending { it.delivered },
-                    role   = roleId,
+                    stats     = stats,
+                    agents    = agentStats.sortedByDescending { it.delivered },
+                    role      = roleId,
+                    breakdown = breakdown,
                 )
             } catch (e: Exception) {
                 _state.value = DashboardState.Error(e.message ?: "Dashboard load ব্যর্থ হয়েছে")
@@ -222,11 +267,12 @@ class DashboardViewModel : ViewModel() {
     }
 
     /** One agent's delivered/onHold/returned counts for [startKey]..[endKey] (both yyyyMMdd,
-     *  inclusive) from a single bounded read of remarks_by_userId/{uid}. pending is always 0
-     *  and runId/runStatus are always blank — see the limitations note above load(). */
+     *  inclusive) from a single bounded read of remarks_by_userId/{uid}, plus a raw
+     *  final_status -> count tally from that same read (see AgentLoadResult). pending is
+     *  always 0 and runId/runStatus are always blank — see the limitations note above load(). */
     private suspend fun loadAgentStat(
         uid: String, name: String, startKey: String, endKey: String
-    ): AgentStat {
+    ): AgentLoadResult {
         val snap = withContext(Dispatchers.IO) {
             runCatching {
                 db.reference.child("remarks_by_userId/$uid")
@@ -240,6 +286,7 @@ class DashboardViewModel : ViewModel() {
         var delivered = 0
         var onHold = 0
         var returned = 0
+        val rawCounts = mutableMapOf<String, Int>()
         snap?.children?.forEach { entry ->
             val statusKey = entry.child("final_status").getValue(String::class.java).orEmpty()
             when (bucketForStatus(statusKey)) {
@@ -248,9 +295,19 @@ class DashboardViewModel : ViewModel() {
                 "returned"  -> returned++
                 else        -> {} // verify_request / blank / unrecognized — not counted
             }
+            // Same exclusions as bucketForStatus: verify_request isn't a final delivery
+            // outcome (config/statusMeta/{key}/updatesParcelStatus=false), so it's left out
+            // of the breakdown too, not just the delivered/onHold/returned buckets. Blank is
+            // grouped under an explicit label rather than silently dropped.
+            val trimmed = statusKey.trim()
+            if (trimmed.isNotBlank() && !isVerifyRequestStatus(trimmed)) {
+                rawCounts[trimmed] = (rawCounts[trimmed] ?: 0) + 1
+            } else if (trimmed.isBlank()) {
+                rawCounts["(no status)"] = (rawCounts["(no status)"] ?: 0) + 1
+            }
         }
 
-        return AgentStat(
+        val stat = AgentStat(
             agentId   = uid,
             agentName = name,
             runId     = "",
@@ -260,6 +317,7 @@ class DashboardViewModel : ViewModel() {
             returned  = returned,
             pending   = 0,
         )
+        return AgentLoadResult(stat, rawCounts)
     }
 
     /** Workers (role_id == "worker") whose branch_ids intersect [branchFilter], each read via
@@ -267,7 +325,7 @@ class DashboardViewModel : ViewModel() {
      *  rather than risk a company-wide read (the exact bug loadBranchView() had). */
     private suspend fun loadWorkerAgentStats(
         branchFilter: Set<String>, viewerRoleId: String, startKey: String, endKey: String
-    ): List<AgentStat> {
+    ): List<AgentLoadResult> {
         if (branchFilter.isEmpty() && viewerRoleId != "admin") return emptyList()
 
         val usersSnap = withContext(Dispatchers.IO) {
@@ -289,7 +347,7 @@ class DashboardViewModel : ViewModel() {
             candidates.map { (candidateUid, name) ->
                 async { loadAgentStat(candidateUid, name, startKey, endKey) }
             }.awaitAll()
-        }.filter { it.total > 0 } // hide workers with nothing actioned in this range
+        }.filter { it.stat.total > 0 } // hide workers with nothing actioned in this range
     }
 
     /** [ts] (epoch ms) as yyyyMMdd — must match the write side's date-key format exactly
