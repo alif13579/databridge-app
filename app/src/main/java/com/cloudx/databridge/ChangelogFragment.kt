@@ -37,6 +37,14 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.16",
+                releasedDate = "26 Jul 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Groundwork for a personal \"my day\" report — every remark you save (Call Center or Worker) now also records a per-day entry against your own account"),
+                    ChangelogEntry("improvement", "That entry's status now keeps itself correct afterward — if a parcel's status changes later (e.g. courier confirms delivery after your remark), your recorded summary for it updates automatically instead of staying frozen at what you first entered"),
+                )
+            ),
+            ChangelogVersion(
                 versionName = "5.22.14",
                 releasedDate = "23 Jul 2026",
                 entries = listOf(
