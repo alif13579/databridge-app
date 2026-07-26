@@ -9,8 +9,10 @@ import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 // ── Data models ──────────────────────────────────────────────────────────────
@@ -157,48 +159,157 @@ class DashboardViewModel : ViewModel() {
 
     // ── Core load ─────────────────────────────────────────────────────────────
     //
-    // ⚠️ Data-loading logic intentionally removed for now (huge/unscoped Firebase reads —
-    // see conversation notes). Issues found before removal, to revisit when redesigning:
-    //   1. loadBranchView() queried courier/run_routes/delivery_run directly, filtered
-    //      ONLY by date — no branch scoping at all. Pulled ALL branches company-wide,
-    //      and (worse than a perf issue) meant branch_manager/branch_incharge roles
-    //      would see every branch's data, not just their own.
-    //   2. Agent display names were resolved via one separate indexed Firebase query
-    //      PER unique agent (N+1), instead of a single bulk users_by_systemId fetch
-    //      (the pattern already used elsewhere — see UserNameResolver/ensureAgentNameMap).
-    //   3. loadWorkerView() fetched EVERY run the worker has ever had (unbounded by
-    //      date at the fetch level) and only filtered by date AFTER fetching each one
-    //      in full — wasteful and grows worse the longer a worker has been active.
+    // Sourced from remarks_by_userId/{uid}/push_{yyyyMMdd}_{consignmentId} — the secondary
+    // per-user index WorkerSpaceFragment/CallCenterFragment write alongside every
+    // courier/remarks_by_consignment entry. This sidesteps the three problems the old
+    // (removed) loadBranchView()/loadWorkerView() had:
+    //   1. Branch scoping: candidate agents are filtered by branch_ids BEFORE any per-agent
+    //      read (loadWorkerAgentStats), instead of pulling every branch first.
+    //   2. Agent names: resolved from the same users/ read used to find the candidates,
+    //      not a separate indexed query per agent.
+    //   3. Bounded reads: orderByKey().startAt/endAt on the yyyyMMdd-prefixed key restricts
+    //      each per-agent read to the selected date range, not "every run ever".
     //
-    // Structure kept as-is (DateRange/DashboardStats/AgentStat/DashboardState, and the
-    // state/dateRange/setDateRange/refresh public API) so the Fragment keeps compiling
-    // unchanged, and a properly-scoped version can be dropped back into load() later.
-
-    // ⚠️ TEMPORARY: real loading logic replaced with hardcoded demo data below, purely so
-    // the UI design (metric cards, status bar, legend, agent rows) can be reviewed without
-    // any Firebase reads. Swap this back out for real (properly branch-scoped) loading once
-    // the redesign is settled — see the notes above for what to avoid reintroducing.
+    // ⚠️ Known limitations of remarks_by_userId as a data source (flagging, not guessing):
+    //   - An entry only exists once an agent saves a remark on a consignment — there's no
+    //     "assigned but not yet actioned" entry. So DashboardStats.pending / AgentStat.pending
+    //     are always 0 here, and "totalParcels" means "actioned in range", not "assigned".
+    //   - It carries no run reference, so AgentStat.runId/runStatus and
+    //     DashboardStats.openRuns/closedRuns can't come from it — left blank/0 for now.
     private fun load(range: DateRange) {
         viewModelScope.launch {
-            _state.value = DashboardState.Success(
-                stats = DashboardStats(
-                    totalParcels = 248,
-                    delivered    = 172,
-                    onHold       = 31,
-                    returned     = 18,
-                    pending      = 27,
-                    openRuns     = 9,
-                    closedRuns   = 23,
-                ),
-                agents = listOf(
-                    AgentStat("D001", "Rafiqul Islam", "run_230726_D001", "closed", delivered = 34, onHold = 2, returned = 1, pending = 0),
-                    AgentStat("D002", "Shariful Alam",  "run_230726_D002", "open",   delivered = 28, onHold = 4, returned = 2, pending = 6),
-                    AgentStat("D003", "Kamal Hossain",  "run_230726_D003", "closed", delivered = 22, onHold = 5, returned = 3, pending = 3),
-                    AgentStat("D004", "Nazmul Haque",   "run_230726_D004", "open",   delivered = 15, onHold = 6, returned = 4, pending = 8),
-                    AgentStat("D005", "Abdul Karim",    "run_230726_D005", "closed", delivered = 9,  onHold = 3, returned = 5, pending = 4),
-                ),
-                role = "admin",
-            )
+            _state.value = DashboardState.Loading
+            val uid = auth.currentUser?.uid
+            if (uid.isNullOrBlank()) {
+                _state.value = DashboardState.Error("লগইন করা নেই")
+                return@launch
+            }
+            try {
+                val roleId = RbacManager.current.roleId.ifBlank { "worker" }
+                val startKey = dateKey(range.startTs)
+                val endKey = dateKey(range.endTs)
+
+                // "worker" = exactly the single bounded self-read remarks_by_userId was
+                // designed for (DashboardFragment already hides the agent table for this
+                // role). Any other role gets the branch-scoped breakdown across workers.
+                val agentStats = if (roleId == "worker") {
+                    listOf(loadAgentStat(uid, UserNameResolver.resolveName(uid), startKey, endKey))
+                } else {
+                    val selected = _selectedBranchIds.value ?: emptySet()
+                    val available = _availableBranches.value?.map { it.id }?.toSet() ?: emptySet()
+                    loadWorkerAgentStats(selected.ifEmpty { available }, roleId, startKey, endKey)
+                }
+
+                val stats = DashboardStats(
+                    totalParcels = agentStats.sumOf { it.total },
+                    delivered    = agentStats.sumOf { it.delivered },
+                    onHold       = agentStats.sumOf { it.onHold },
+                    returned     = agentStats.sumOf { it.returned },
+                    pending      = agentStats.sumOf { it.pending },
+                    openRuns     = 0,
+                    closedRuns   = 0,
+                )
+
+                _state.value = DashboardState.Success(
+                    stats  = stats,
+                    agents = agentStats.sortedByDescending { it.delivered },
+                    role   = roleId,
+                )
+            } catch (e: Exception) {
+                _state.value = DashboardState.Error(e.message ?: "Dashboard load ব্যর্থ হয়েছে")
+            }
+        }
+    }
+
+    /** One agent's delivered/onHold/returned counts for [startKey]..[endKey] (both yyyyMMdd,
+     *  inclusive) from a single bounded read of remarks_by_userId/{uid}. pending is always 0
+     *  and runId/runStatus are always blank — see the limitations note above load(). */
+    private suspend fun loadAgentStat(
+        uid: String, name: String, startKey: String, endKey: String
+    ): AgentStat {
+        val snap = withContext(Dispatchers.IO) {
+            runCatching {
+                db.reference.child("remarks_by_userId/$uid")
+                    .orderByKey()
+                    .startAt("push_$startKey")
+                    .endAt("push_$endKey~") // '~' sorts after any consignmentId suffix that day
+                    .get().await()
+            }.getOrNull()
+        }
+
+        var delivered = 0
+        var onHold = 0
+        var returned = 0
+        snap?.children?.forEach { entry ->
+            val statusKey = entry.child("final_status").getValue(String::class.java).orEmpty()
+            when (bucketForStatus(statusKey)) {
+                "delivered" -> delivered++
+                "on_hold"   -> onHold++
+                "returned"  -> returned++
+                else        -> {} // verify_request / blank / unrecognized — not counted
+            }
+        }
+
+        return AgentStat(
+            agentId   = uid,
+            agentName = name,
+            runId     = "",
+            runStatus = "",
+            delivered = delivered,
+            onHold    = onHold,
+            returned  = returned,
+            pending   = 0,
+        )
+    }
+
+    /** Workers (role_id == "worker") whose branch_ids intersect [branchFilter], each read via
+     *  loadAgentStat in parallel. Empty branchFilter + non-admin viewer -> returns nothing
+     *  rather than risk a company-wide read (the exact bug loadBranchView() had). */
+    private suspend fun loadWorkerAgentStats(
+        branchFilter: Set<String>, viewerRoleId: String, startKey: String, endKey: String
+    ): List<AgentStat> {
+        if (branchFilter.isEmpty() && viewerRoleId != "admin") return emptyList()
+
+        val usersSnap = withContext(Dispatchers.IO) {
+            runCatching { db.reference.child("users").get().await() }.getOrNull()
+        } ?: return emptyList()
+
+        val candidates = usersSnap.children.mapNotNull { child ->
+            val candidateUid = child.key ?: return@mapNotNull null
+            val info = child.child("profile/company_info")
+            if (info.child("role_id").getValue(String::class.java) != "worker") return@mapNotNull null
+            val branchIds = info.child("branch_ids").children.mapNotNull { it.getValue(String::class.java) }
+            if (branchFilter.isNotEmpty() && branchIds.none { it in branchFilter }) return@mapNotNull null
+            val name = child.child("profile/name").getValue(String::class.java)
+                ?.trim()?.takeIf { it.isNotBlank() } ?: candidateUid
+            candidateUid to name
+        }
+
+        return coroutineScope {
+            candidates.map { (candidateUid, name) ->
+                async { loadAgentStat(candidateUid, name, startKey, endKey) }
+            }.awaitAll()
+        }.filter { it.total > 0 } // hide workers with nothing actioned in this range
+    }
+
+    /** [ts] (epoch ms) as yyyyMMdd — must match the write side's date-key format exactly
+     *  (WorkerSpaceFragment.remarksIndexDateKeyYyyyMmDd / CallCenterFragment's twin). */
+    private fun dateKey(ts: Long): String =
+        java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date(ts))
+
+    /** Buckets a remarks_by_userId final_status into delivered/on_hold/returned. Status keys
+     *  are admin-configurable (config/statusMeta), so this matches by keyword rather than a
+     *  fixed key list — same approach the DataBridge Chrome extension's reconciliation
+     *  highlighter uses for the Hermes status badges (HOLD/RETURN/DRTO/PARTIAL/EXCHANGE).
+     *  verify_request and anything unrecognized return null (uncounted, see load()'s note). */
+    private fun bucketForStatus(rawKey: String): String? {
+        val k = rawKey.trim()
+        if (k.isBlank() || isVerifyRequestStatus(k)) return null
+        return when {
+            k.contains("deliver", ignoreCase = true) -> "delivered"
+            k.contains("hold", ignoreCase = true) -> "on_hold"
+            Regex("return|drto|partial|exchange", RegexOption.IGNORE_CASE).containsMatchIn(k) -> "returned"
+            else -> null
         }
     }
 }
