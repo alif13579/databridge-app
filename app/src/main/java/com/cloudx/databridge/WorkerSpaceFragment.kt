@@ -548,6 +548,12 @@ class WorkerSpaceFragment : Fragment() {
                         )
                     )
 
+                // ✅ Reverse index — see saveRemarkForItems() for the full rationale
+                // (userId-keyed, not a literal array, so concurrent writes/repeat touches
+                // never race or duplicate).
+                db.reference.child("users_by_consignment/${item.id}/$todayDateKey/$userId")
+                    .setValue(true)
+
                 EngagedStateManager.clearEngaged(item.id)
                 android.widget.Toast.makeText(requireContext(), "✓ Note saved", android.widget.Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
@@ -767,6 +773,20 @@ class WorkerSpaceFragment : Fragment() {
                 .addOnFailureListener { e ->
                     FirebaseErrorLogger.log(
                         screen = "WorkerSpaceFragment", action = "remarks_by_userId_write",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("consignmentId" to p.id, "userId" to userId)
+                    )
+                }
+
+            // ✅ Reverse index — which users touched this consignment on which day. Keyed by
+            // userId rather than a literal array, so concurrent remarks from different workers
+            // on the same consignment/day never race-overwrite each other, and repeat touches
+            // by the same user dedupe to one entry instead of piling up.
+            db.reference.child("users_by_consignment/${p.id}/$todayDateKey/$userId")
+                .setValue(true)
+                .addOnFailureListener { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "WorkerSpaceFragment", action = "users_by_consignment_write",
                         errorMessage = e.message ?: "unknown",
                         extra = mapOf("consignmentId" to p.id, "userId" to userId)
                     )
