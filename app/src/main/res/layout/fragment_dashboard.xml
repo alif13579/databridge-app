@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0F1E">
+    android:background="@color/theme_bg_dashboard">
 
     <!-- Pull-to-refresh -->
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -36,7 +36,7 @@
                         android:layout_height="wrap_content"
                         android:text="Today"
                         android:textSize="18sp"
-                        android:textColor="#F1F5F9"
+                        android:textColor="@color/theme_text_primary"
                         android:textStyle="bold"
                         android:layout_marginBottom="2dp" />
 
@@ -45,7 +45,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="11sp"
-                        android:textColor="#64748b" />
+                        android:textColor="@color/theme_text_secondary" />
 
                     <!-- Date range chips -->
                     <HorizontalScrollView
@@ -193,7 +193,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
-                    app:cardBackgroundColor="#16213e"
+                    app:cardBackgroundColor="@color/theme_bg_card"
                     app:cardCornerRadius="10dp"
                     app:cardElevation="0dp">
 
@@ -236,7 +236,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
                     android:visibility="gone"
-                    app:cardBackgroundColor="#16213e"
+                    app:cardBackgroundColor="@color/theme_bg_card"
                     app:cardCornerRadius="10dp"
                     app:cardElevation="0dp">
 
@@ -251,7 +251,7 @@
                             android:layout_height="wrap_content"
                             android:orientation="horizontal"
                             android:padding="12dp"
-                            android:background="#0f3460">
+                            android:background="@color/theme_bg_dashboard_inner">
 
                             <TextView
                                 android:layout_width="0dp"
@@ -259,7 +259,7 @@
                                 android:layout_weight="1"
                                 android:text="AGENT"
                                 android:textSize="9sp"
-                                android:textColor="#64748b"
+                                android:textColor="@color/theme_text_secondary"
                                 android:textAllCaps="true"
                                 android:letterSpacing="0.08" />
 
@@ -268,7 +268,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="✓  ↩  ⏸  RATE"
                                 android:textSize="9sp"
-                                android:textColor="#64748b"
+                                android:textColor="@color/theme_text_secondary"
                                 android:textAllCaps="true"
                                 android:letterSpacing="0.08" />
 
@@ -305,13 +305,13 @@
         <ProgressBar
             android:layout_width="36dp"
             android:layout_height="36dp"
-            android:indeterminateTint="#00d4ff" />
+            android:indeterminateTint="@color/theme_accent" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Loading dashboard…"
-            android:textColor="#64748b"
+            android:textColor="@color/theme_text_secondary"
             android:textSize="12sp"
             android:layout_marginTop="10dp" />
 
@@ -332,7 +332,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Something went wrong"
-            android:textColor="#EF4444"
+            android:textColor="@color/theme_red"
             android:textSize="13sp"
             android:gravity="center" />
 
@@ -343,8 +343,8 @@
             android:layout_height="wrap_content"
             android:text="Retry"
             android:layout_marginTop="16dp"
-            android:textColor="#00d4ff"
-            app:strokeColor="#00d4ff" />
+            android:textColor="@color/theme_accent"
+            app:strokeColor="@color/theme_accent" />
 
     </LinearLayout>
 
