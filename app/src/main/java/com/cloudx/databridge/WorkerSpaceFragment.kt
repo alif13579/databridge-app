@@ -1745,10 +1745,8 @@ class WorkerSpaceFragment : Fragment() {
         private const val RUN_TYPE_ALL = "all"
         private val RUN_TYPE_ORDER = listOf("delivery_run", "pickup_run", "return_run")
         // Run ID shape: run_{yyyyMMdd}_{employeeId} — yyyyMMdd is always exactly 8 zero-padded
-        // digits (4-digit year first, so plain string ordering sorts chronologically). Also
-        // still accepts the legacy 6-digit run_{ddMMyy}_{employeeId} shape used before this
-        // switch, so older run IDs already in Firebase keep parsing correctly.
-        private val RUN_ID_PATTERN = Regex("^run_(\\d{6}|\\d{8})_(.+)$")
+        // digits (4-digit year first, so plain string ordering sorts chronologically).
+        private val RUN_ID_PATTERN = Regex("^run_(\\d{8})_(.+)$")
 
         private fun runTypeSortIndex(runType: String): Int {
             val index = RUN_TYPE_ORDER.indexOf(runType)
@@ -1766,30 +1764,17 @@ class WorkerSpaceFragment : Fragment() {
         }
 
         /**
-         * Extracts the date portion from a run ID. Current shape is "run_{yyyyMMdd}_{systemId}"
-         * (8 zero-padded digits: 4-digit year, month, day); also accepts the legacy 6-digit
-         * "run_{ddMMyy}_{systemId}" shape (day, month, 2-digit year) from before the switch to
-         * yyyyMMdd, so old run IDs already in Firebase keep resolving correctly. employeeId
-         * comes after and may itself contain underscores. Returns local midnight (00:00:00)
-         * millis for that date, or null if the ID doesn't match either expected shape.
+         * Extracts the date portion from a run ID of the form "run_{yyyyMMdd}_{systemId}"
+         * (yyyyMMdd is always exactly 8 zero-padded digits: 4-digit year, month, day —
+         * employeeId comes after and may itself contain underscores). Returns local midnight
+         * (00:00:00) millis for that date, or null if the ID doesn't match the expected shape.
          */
         private fun parseRunTimestamp(runId: String): Long? {
             val match = RUN_ID_PATTERN.matchEntire(runId.trim()) ?: return null
-            val dateStr = match.groupValues[1]
-            val year: Int
-            val month: Int
-            val day: Int
-            if (dateStr.length == 8) {
-                // yyyyMMdd — current format
-                year  = dateStr.substring(0, 4).toIntOrNull() ?: return null
-                month = dateStr.substring(4, 6).toIntOrNull() ?: return null
-                day   = dateStr.substring(6, 8).toIntOrNull() ?: return null
-            } else {
-                // ddMMyy — legacy format, still present on older run IDs
-                day   = dateStr.substring(0, 2).toIntOrNull() ?: return null
-                month = dateStr.substring(2, 4).toIntOrNull() ?: return null
-                year  = 2000 + (dateStr.substring(4, 6).toIntOrNull() ?: return null)
-            }
+            val yyyymmdd = match.groupValues[1]
+            val year  = yyyymmdd.substring(0, 4).toIntOrNull() ?: return null
+            val month = yyyymmdd.substring(4, 6).toIntOrNull() ?: return null
+            val day   = yyyymmdd.substring(6, 8).toIntOrNull() ?: return null
             if (month !in 1..12 || day !in 1..31) return null
             return try {
                 java.util.Calendar.getInstance().apply {
