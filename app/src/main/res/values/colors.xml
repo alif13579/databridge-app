@@ -101,8 +101,15 @@
     <color name="connect_error">#dc2626</color>
     <color name="connect_on_error">#ffffff</color>
     <!-- Dashboard chip colors -->
-    <color name="chip_unselected_bg">#1A2236</color>
-    <color name="chip_selected_bg">#00d4ff</color>
+    <color name="chip_unselected_bg">#e2e8f0</color>
+    <color name="chip_selected_bg">#0099b8</color>
     <color name="chip_unselected_text">#64748b</color>
     <color name="chip_selected_text">#000000</color>
+
+    <!-- Dashboard (light theme compatibility) -->
+    <color name="theme_blue">#2563EB</color>
+    <color name="theme_bg_dashboard">#f0f4f8</color>
+    <color name="theme_bg_dashboard_inner">#f1f5f9</color>
+    <color name="theme_text_dim">#94a3b8</color>
+    <color name="theme_divider_dashboard">#e2e8f0</color>
 </resources>
