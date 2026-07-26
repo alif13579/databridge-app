@@ -1098,7 +1098,8 @@ class CallCenterFragment : Fragment() {
      *  never match a date-string key like "run_20260714_EMP001" (numeric prefixes diverge
      *  immediately char-by-char), so the query always returned empty regardless of what
      *  data existed. The fix is to build the SAME date-string format the write path uses
-     *  (originally ddMMyy, now yyyyMMdd so the format also sorts chronologically).
+     *  (the exact yyyyMMdd date-string format the write path uses — chosen so it also
+     *  sorts chronologically as a plain string, which a 6-digit day-first format doesn't).
      */
     private fun attachRootRunTypesListener() {
         detachRootRunTypesListener()

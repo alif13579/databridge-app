@@ -21,7 +21,7 @@ data class ScannerSheetConn(
      * Tab-name pattern — currently always "Day {dd}" (day-of-month, zero-padded, no leading
      * zero stripped — e.g. "Day 16", "Day 03"), resolved at scan-time from the current date.
      * Stored as a pattern string (not just a flag) so a different pattern could be supported
-     * later (e.g. "{ddMMyy}") without another schema migration.
+     * later (e.g. "{yyyyMMdd}") without another schema migration.
      */
     val tabPattern:     String = "Day {dd}",
     /** Column letter to search for a matching employee_id (e.g. "T" for column 20). */

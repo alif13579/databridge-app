@@ -530,9 +530,9 @@ class EmployeeFragment : Fragment() {
     }
 
     /** Scans all users' system_id, returns (max numeric + 1) as string. Falls back to "1". */
-    /** Generates System ID: U + DDMMYY + 4-digit random, e.g. U0407262653 */
+    /** Generates System ID: U + yyyyMMdd + 4-digit random, e.g. U202607262653 */
     private fun generateSystemId(): String {
-        val sdf = java.text.SimpleDateFormat("ddMMyy", java.util.Locale.US)
+        val sdf = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US)
         val datePart = sdf.format(java.util.Date())
         val randomPart = (0..9999).random().toString().padStart(4, '0')
         return "U$datePart$randomPart"
