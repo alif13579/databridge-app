@@ -63,13 +63,14 @@ class DashboardFragment : Fragment() {
     private var availableBranches: List<BranchOption> = emptyList()
     private var selectedBranchIds: Set<String> = emptySet()
 
-    // ── Colors ─────────────────────────────────────────────────────────────────
-    private val colorGreen  = Color.parseColor("#10B981")
-    private val colorAmber  = Color.parseColor("#F59E0B")
-    private val colorRed    = Color.parseColor("#EF4444")
-    private val colorBlue   = Color.parseColor("#3B82F6")
-    private val colorMuted  = Color.parseColor("#64748B")
-    private val colorAccent = Color.parseColor("#00d4ff")
+    // ── Colors (theme-aware — resolved via requireContext() so they follow the
+    // active day/night theme; must not be read before the fragment has a context) ──
+    private val colorGreen:  Int get() = ContextCompat.getColor(requireContext(), R.color.theme_green)
+    private val colorAmber:  Int get() = ContextCompat.getColor(requireContext(), R.color.theme_yellow)
+    private val colorRed:    Int get() = ContextCompat.getColor(requireContext(), R.color.theme_red)
+    private val colorBlue:   Int get() = ContextCompat.getColor(requireContext(), R.color.theme_blue)
+    private val colorMuted:  Int get() = ContextCompat.getColor(requireContext(), R.color.theme_text_secondary)
+    private val colorAccent: Int get() = ContextCompat.getColor(requireContext(), R.color.theme_accent)
 
     // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -198,7 +199,7 @@ class DashboardFragment : Fragment() {
 
     private fun setupSwipeRefresh() {
         swipeRefresh.setColorSchemeColors(colorAccent, colorGreen)
-        swipeRefresh.setProgressBackgroundColorSchemeColor(Color.parseColor("#16213e"))
+        swipeRefresh.setProgressBackgroundColorSchemeColor(ContextCompat.getColor(requireContext(), R.color.theme_bg_card))
         swipeRefresh.setOnRefreshListener { vm.refresh() }
     }
 
