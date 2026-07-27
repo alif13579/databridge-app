@@ -159,7 +159,8 @@ class BranchDetailFragment : Fragment() {
         chipContainer.addView(chipAll)
 
         availableRoles.forEach { rid ->
-            val label = roleMap[rid].takeUnless { it.isNullOrBlank() } ?: rid
+            val label = roleMap[rid].takeUnless { it.isNullOrBlank() }
+                ?: EmployeeFragment.ROLE_LABELS[rid].takeUnless { it.isNullOrBlank() } ?: rid
             val chip = createChip(rid, label, countByRole[rid] ?: 0)
             chipContainer.addView(chip)
         }
@@ -278,7 +279,8 @@ class BranchDetailFragment : Fragment() {
                 val desig    = child.child("profile/company_info/designation").getValue(String::class.java).orEmpty()
                 val status   = child.child("profile/company_info/status").getValue(String::class.java).orEmpty()
                 val photoUrl = child.child("profile/photo_url").getValue(String::class.java).orEmpty()
-                val roleName = roleMap[roleId].takeUnless { it.isNullOrBlank() } ?: roleId
+                val roleName = roleMap[roleId].takeUnless { it.isNullOrBlank() }
+                    ?: EmployeeFragment.ROLE_LABELS[roleId].takeUnless { it.isNullOrBlank() } ?: roleId
                 EmployeeFragment.UserEntry(
                     uid         = uid,
                     employeeId  = empId,
