@@ -434,7 +434,11 @@ class EmployeeFragment : Fragment() {
                                 ?: ""
                     val roleId      = child.child("profile/company_info/role_id").getValue(String::class.java).orEmpty()
                     val status      = child.child("profile/company_info/status").getValue(String::class.java).orEmpty()
-                    val configuredRoleName = roleMap[roleId].orEmpty().trim()
+                    // Admin-configured roles/ table takes priority; ROLE_LABELS covers the
+                    // built-in system roles (like "guest" — what every re-created profile
+                    // starts as after a delete+re-login, with no roles/guest entry expected)
+                    // so those don't show as a false "undefined" warning.
+                    val configuredRoleName = roleMap[roleId].orEmpty().trim().ifBlank { ROLE_LABELS[roleId].orEmpty() }
                     val roleWarning = when {
                         roleId.isBlank() -> "missing_role"
                         configuredRoleName.isBlank() -> "missing_role_name"
