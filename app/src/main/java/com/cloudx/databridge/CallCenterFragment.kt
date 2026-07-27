@@ -496,6 +496,17 @@ class CallCenterFragment : Fragment() {
             switchAutoCall.isChecked = false
             return
         }
+        if (!CallStateWatcher.hasPermission(ctx)) {
+            // Not blocking — Auto Call still works via the screen-focus fallback — but an
+            // install from before READ_PHONE_STATE existed (or a user who declined it during
+            // onboarding) won't get the reliable "wait for the real call to end" behavior
+            // until they grant it, so nudge once per Auto Call start.
+            Toast.makeText(
+                ctx,
+                "টিপ: Settings-এ Phone permission দিলে Auto Call আরও নির্ভরযোগ্যভাবে কাজ করবে।",
+                Toast.LENGTH_LONG
+            ).show()
+        }
 
         // Fresh queue only when not resuming a paused run (queue empty or we've reached the end).
         if (autoCallQueue.isEmpty() || autoCallIndex >= autoCallQueue.size) {
@@ -552,14 +563,28 @@ class CallCenterFragment : Fragment() {
                 AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
                 autoCallIndex++
 
-                // Wait until the agent actually comes back to this screen (call ended or
-                // dismissed) rather than assuming it wraps up within autoCallGapSeconds —
-                // a real call very often runs longer than that fixed window.
-                hasPausedSincePendingDial = false
-                val deferred = CompletableDeferred<Unit>()
-                resumeSignal = deferred
-                withTimeoutOrNull(AUTO_CALL_RETURN_TIMEOUT_MS) { deferred.await() }
-                resumeSignal = null
+                // Wait for the call to actually END, not just for the agent's focus to
+                // return to this screen — the two are NOT the same thing. Android often lets
+                // the app regain foreground while a call is still active in the background
+                // (agent switches back mid-call to check something), and the old
+                // onPause()/onResume()-only signal below would misread that as "call over"
+                // and dial the next number while the current one was still going.
+                //
+                // Reliable path: real telephony call-state (OFFHOOK -> IDLE) via
+                // CallStateWatcher, which needs READ_PHONE_STATE.
+                val realCallEndDetected = CallStateWatcher.awaitCallEnd(ctx, AUTO_CALL_RETURN_TIMEOUT_MS)
+
+                if (!realCallEndDetected) {
+                    // No READ_PHONE_STATE (declined during onboarding, or an existing
+                    // install that hasn't been through the updated flow yet), or the
+                    // watcher genuinely timed out — fall back to the old screen-focus
+                    // heuristic so Auto Call still works, just less reliably.
+                    hasPausedSincePendingDial = false
+                    val deferred = CompletableDeferred<Unit>()
+                    resumeSignal = deferred
+                    withTimeoutOrNull(AUTO_CALL_RETURN_TIMEOUT_MS) { deferred.await() }
+                    resumeSignal = null
+                }
 
                 delay(autoCallGapSeconds * 1000L) // short breather once back, before the next dial
             }

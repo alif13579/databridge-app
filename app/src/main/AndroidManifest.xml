@@ -22,6 +22,10 @@
     <!-- 📞 Alerts & Dialer -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- ✅ Auto Call (CallCenterFragment) uses this to detect real call-end via
+         TelephonyManager (CallStateWatcher.kt), instead of relying on the app merely
+         regaining foreground focus, which can happen while a call is still active. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-feature
         android:name="android.hardware.telephony"
         android:required="false" />
