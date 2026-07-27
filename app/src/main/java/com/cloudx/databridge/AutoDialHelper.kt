@@ -5,10 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
-import android.telecom.TelecomManager
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 
@@ -17,9 +14,12 @@ import androidx.fragment.app.Fragment
  *
  * Reads the "auto_dial" toggle from SharedPreferences and decides:
  *   OFF  → opens dialpad (ACTION_DIAL, no permission needed)
- *   ON   → direct call (ACTION_CALL):
- *            · Single SIM, or multi-SIM with a user-configured default → calls immediately
- *            · Multi-SIM with NO default configured → shows SIM-chooser dialog first
+ *   ON   → direct call (ACTION_CALL) — a bare intent, no PhoneAccountHandle specified, so on a
+ *          dual-SIM device Android itself silently applies the user's configured default
+ *          (Settings → SIM cards → Calls) if there is one, or shows its own native "select SIM"
+ *          dialog if not. Deliberately not a custom in-app chooser: matches CallActivity.kt's
+ *          approach for the background/synced-number auto-dial path, and a system-level prompt
+ *          reads as more trustworthy than an app-drawn one when it does need to ask.
  *
  * Used by: WorkerSpaceFragment, CallCenterFragment
  */
@@ -46,33 +46,7 @@ object AutoDialHelper {
             return
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val telecom = ctx.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-            val accounts = try {
-                telecom.callCapablePhoneAccounts ?: emptyList()
-            } catch (_: SecurityException) {
-                emptyList()
-            }
-
-            // A dual-SIM device isn't automatically ambiguous — if the user already has a
-            // default outgoing account configured for calls (Settings → SIM cards → Calls, or
-            // equivalent), use it directly instead of asking every single time. Only fall back
-            // to our own chooser when there's genuinely no default, same as Android's native
-            // dialer would. getDefaultOutgoingPhoneAccount also needs READ_PHONE_STATE.
-            val defaultAccount = try {
-                telecom.getDefaultOutgoingPhoneAccount("tel")
-            } catch (_: SecurityException) {
-                null
-            }
-
-            when {
-                defaultAccount != null -> callDirectWithAccount(fragment, normalizedPhone, defaultAccount)
-                accounts.size >= 2 -> showSimChooser(fragment, normalizedPhone, accounts, telecom)
-                else -> callDirect(fragment, normalizedPhone)
-            }
-        } else {
-            callDirect(fragment, normalizedPhone)
-        }
+        callDirect(fragment, normalizedPhone)
     }
 
     /**
@@ -107,49 +81,5 @@ object AutoDialHelper {
         } catch (_: Exception) {
             openDialpad(fragment, phone) // graceful fallback
         }
-    }
-
-    @androidx.annotation.RequiresApi(Build.VERSION_CODES.M)
-    private fun callDirectWithAccount(fragment: Fragment, phone: String, account: android.telecom.PhoneAccountHandle) {
-        try {
-            val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$phone")).apply {
-                putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
-            }
-            fragment.startActivity(intent)
-        } catch (_: Exception) {
-            callDirect(fragment, phone) // may prompt the OS's own chooser if this specific account fails
-        }
-    }
-
-    @androidx.annotation.RequiresApi(Build.VERSION_CODES.M)
-    private fun showSimChooser(
-        fragment: Fragment,
-        phone: String,
-        accounts: List<android.telecom.PhoneAccountHandle>,
-        telecom: TelecomManager
-    ) {
-        val ctx = fragment.requireContext()
-        val labels = accounts.mapIndexed { i, handle ->
-            try {
-                telecom.getPhoneAccount(handle)?.label?.toString() ?: "SIM ${i + 1}"
-            } catch (_: Exception) {
-                "SIM ${i + 1}"
-            }
-        }.toTypedArray()
-
-        AlertDialog.Builder(ctx)
-            .setTitle("📞 Select SIM to call")
-            .setItems(labels) { _, which ->
-                try {
-                    val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$phone")).apply {
-                        putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, accounts[which])
-                    }
-                    fragment.startActivity(intent)
-                } catch (_: Exception) {
-                    openDialpad(fragment, phone)
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 }
