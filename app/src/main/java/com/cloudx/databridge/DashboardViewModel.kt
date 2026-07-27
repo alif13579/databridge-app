@@ -351,6 +351,18 @@ class DashboardViewModel : ViewModel() {
                     .startAt("push_$startKey")
                     .endAt("push_$endKey~") // '~' sorts after any consignmentId suffix that day
                     .get().await()
+            }.onFailure { e ->
+                // A failed read here silently becomes an empty result below (agentStat shows
+                // 0 for everything, no error surfaced anywhere) — that's the right degrade
+                // for one agent's read failing inside a multi-agent branch view, but it means
+                // a genuine cause (e.g. a security-rules permission denial on this specific
+                // path) is otherwise invisible. Logging it here doesn't change that graceful
+                // degrade; it just makes the real reason checkable via error_logs/{uid}.
+                FirebaseErrorLogger.log(
+                    screen = "DashboardViewModel", action = "remarks_by_userId_read",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("uid" to uid, "startKey" to startKey, "endKey" to endKey)
+                )
             }.getOrNull()
         }
 
@@ -389,7 +401,13 @@ class DashboardViewModel : ViewModel() {
         // its own "Today" total — a Firebase-side key range query would bucket by save time,
         // not the date the earning actually belongs to.
         val earningsSnap = withContext(Dispatchers.IO) {
-            runCatching { db.reference.child("memory/$uid/earnings").get().await() }.getOrNull()
+            runCatching { db.reference.child("memory/$uid/earnings").get().await() }
+                .onFailure { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "DashboardViewModel", action = "memory_earnings_read",
+                        errorMessage = e.message ?: "unknown", extra = mapOf("uid" to uid)
+                    )
+                }.getOrNull()
         }
         val earnings = earningsSnap?.children?.sumOf { e ->
             val createdAt = e.child("createdAt").numberValue() ?: 0.0
@@ -410,11 +428,22 @@ class DashboardViewModel : ViewModel() {
             runCatching {
                 db.reference.child("users/$uid/profile/company_info/system_id")
                     .get().await().getValue(String::class.java)?.trim()
+            }.onFailure { e ->
+                FirebaseErrorLogger.log(
+                    screen = "DashboardViewModel", action = "system_id_read",
+                    errorMessage = e.message ?: "unknown", extra = mapOf("uid" to uid)
+                )
             }.getOrNull()
         }?.takeIf { it.isNotBlank() }
         if (systemId != null) {
             val runsSnap = withContext(Dispatchers.IO) {
-                runCatching { db.reference.child("courier/runs_by_agentSystemId/$systemId").get().await() }.getOrNull()
+                runCatching { db.reference.child("courier/runs_by_agentSystemId/$systemId").get().await() }
+                    .onFailure { e ->
+                        FirebaseErrorLogger.log(
+                            screen = "DashboardViewModel", action = "runs_by_agentSystemId_read",
+                            errorMessage = e.message ?: "unknown", extra = mapOf("systemId" to systemId)
+                        )
+                    }.getOrNull()
             }
             // No createdAt-style field on these entries (unlike memory/earnings) — a run's
             // status can still change well after its own date (open -> closed later), so
