@@ -63,6 +63,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private val callLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) nextPermissionStep() else showPermissionDialog("Call Permission", "অটো ডায়াল ফিচার কাজ করবে না।")
     }
+    private val phoneStateLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        // Not fatal to decline — Auto Call falls back to a less-reliable screen-focus
+        // heuristic without it (see CallStateWatcher.kt), so this always proceeds either way.
+        nextPermissionStep()
+    }
     private val cameraLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) nextPermissionStep() else showPermissionDialog("Camera Permission", "QR স্ক্যান ফিচার কাজ করবে না।")
     }
@@ -179,7 +184,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         if (appPrefs.isPermissionsSetupComplete()) {
             refreshAuthUi()
         }
-        if (permissionStep == 2 && !appPrefs.isPermissionsSetupComplete()) {
+        if (permissionStep == 3 && !appPrefs.isPermissionsSetupComplete()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
                 permissionStep++
                 nextPermissionStep()
@@ -581,9 +586,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private fun nextPermissionStep() {
         when (permissionStep) {
             0 -> callLauncher.launch(android.Manifest.permission.CALL_PHONE)
-            1 -> cameraLauncher.launch(android.Manifest.permission.CAMERA)
-            2 -> requestOverlayPermission()
-            3 -> {
+            1 -> phoneStateLauncher.launch(android.Manifest.permission.READ_PHONE_STATE)
+            2 -> cameraLauncher.launch(android.Manifest.permission.CAMERA)
+            3 -> requestOverlayPermission()
+            4 -> {
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)
             }
@@ -626,11 +632,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                         Uri.fromParts("package", packageName, null)
                     )
                 )
-                permissionStep = 3
+                permissionStep = 4
                 appPrefs.setPermissionsSetupComplete(true)
             }
             .setNegativeButton("Continue Anyway") { _, _ ->
-                permissionStep = 3
+                permissionStep = 4
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)
             }
