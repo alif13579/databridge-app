@@ -815,6 +815,12 @@ class WorkerSpaceFragment : Fragment() {
         if (sortMode == "priority") {
             allParcels = WorkerParcelAdapter.sortByPriority(allParcels)
         }
+        // Remark saved -> collapse the card it was set from (updatedIds also covers a bulk
+        // save; only clears expandedItemId if it's actually one of the parcels just saved,
+        // so an unrelated already-expanded card elsewhere is left alone).
+        if (adapter.expandedItemId in updatedIds) {
+            adapter.expandedItemId = null
+        }
         applyFilters()
 
         val savedCount = items.size

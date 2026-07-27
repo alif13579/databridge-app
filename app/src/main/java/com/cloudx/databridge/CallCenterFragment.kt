@@ -2363,6 +2363,13 @@ class CallCenterFragment : Fragment() {
                 remarks = selectedRemarkText.ifBlank { noteText }
             ) else it
         }
+        // Remark saved -> collapse the card it was set from. Deliberately separate from
+        // applyFilters()'s own collapse check below (which only collapses a card that fell
+        // out of the current filter, to avoid the flash-close bug an EngagedStateManager
+        // echo used to cause) -- this only fires for the item(s) actually just saved.
+        if (adapter.expandedItemId in targetIds) {
+            adapter.expandedItemId = null
+        }
         setupFilterTabs()
         applyFilters()
     }
