@@ -25,6 +25,7 @@ data class DashboardStats(
     val pending:      Int   = 0,
     val openRuns:     Int   = 0,
     val closedRuns:   Int   = 0,
+    val earnings:     Double = 0.0,
 )
 
 data class AgentStat(
@@ -36,6 +37,9 @@ data class AgentStat(
     val onHold:    Int,
     val returned:  Int,
     val pending:   Int,
+    val earnings:  Double = 0.0,
+    val openRuns:  Int = 0,
+    val closedRuns: Int = 0,
 ) {
     val total get() = delivered + onHold + returned + pending
     val deliveryRate get() = if (total > 0) (delivered * 100) / total else 0
@@ -260,15 +264,15 @@ class DashboardViewModel : ViewModel() {
                 // (aggregated); everyone else (supervisor, stuff, manager in flat mode, admin)
                 // gets the flat per-worker breakdown across their branch(es).
                 val results = if (roleId == "worker") {
-                    listOf(loadAgentStat(uid, UserNameResolver.resolveName(uid), startKey, endKey))
+                    listOf(loadAgentStat(uid, UserNameResolver.resolveName(uid), startKey, endKey, range.startTs, range.endTs))
                 } else {
                     val selected = _selectedBranchIds.value ?: emptySet()
                     val available = _availableBranches.value?.map { it.id }?.toSet() ?: emptySet()
                     val branchFilter = selected.ifEmpty { available }
                     if (roleId == "manager" && _rollupMode.value != false) {
-                        loadSupervisorRollups(branchFilter, startKey, endKey)
+                        loadSupervisorRollups(branchFilter, startKey, endKey, range.startTs, range.endTs)
                     } else {
-                        loadWorkerAgentStats(branchFilter, roleId, startKey, endKey)
+                        loadWorkerAgentStats(branchFilter, roleId, startKey, endKey, range.startTs, range.endTs)
                     }
                 }
                 statusMetaDeferred.await()
@@ -281,8 +285,9 @@ class DashboardViewModel : ViewModel() {
                     onHold       = agentStats.sumOf { it.onHold },
                     returned     = agentStats.sumOf { it.returned },
                     pending      = agentStats.sumOf { it.pending },
-                    openRuns     = 0,
-                    closedRuns   = 0,
+                    openRuns     = agentStats.sumOf { it.openRuns },
+                    closedRuns   = agentStats.sumOf { it.closedRuns },
+                    earnings     = agentStats.sumOf { it.earnings },
                 )
 
                 // Merge every agent's raw final_status tally into one dashboard-level count
@@ -336,7 +341,8 @@ class DashboardViewModel : ViewModel() {
      *  derived (entryCount - delivered - onHold - returned), and runId/runStatus are always
      *  blank — see the limitations note above load(). */
     private suspend fun loadAgentStat(
-        uid: String, name: String, startKey: String, endKey: String
+        uid: String, name: String, startKey: String, endKey: String,
+        rangeStartTs: Long, rangeEndTs: Long,
     ): AgentLoadResult {
         val snap = withContext(Dispatchers.IO) {
             runCatching {
@@ -375,6 +381,61 @@ class DashboardViewModel : ViewModel() {
             rawCounts[breakdownKey] = (rawCounts[breakdownKey] ?: 0) + 1
         }
 
+        // memory/{uid}/earnings/earning_{savedAtMs} — the key's own timestamp is just when
+        // that record was last saved, NOT the date it represents (MemoryFragment lets a
+        // worker backfill a past day via a date picker, so createdAt can differ from the key
+        // by anything from seconds to days). Every entry has to be fetched and bucketed by
+        // its createdAt field instead — same date field MemoryFragment.updateSum() uses for
+        // its own "Today" total — a Firebase-side key range query would bucket by save time,
+        // not the date the earning actually belongs to.
+        val earningsSnap = withContext(Dispatchers.IO) {
+            runCatching { db.reference.child("memory/$uid/earnings").get().await() }.getOrNull()
+        }
+        val earnings = earningsSnap?.children?.sumOf { e ->
+            val createdAt = e.child("createdAt").numberValue() ?: 0.0
+            if (createdAt >= rangeStartTs && createdAt <= rangeEndTs) {
+                (e.child("parcelCommission").numberValue() ?: 0.0) +
+                (e.child("documentCommission").numberValue() ?: 0.0) +
+                (e.child("parcelPickupCommission").numberValue() ?: 0.0) +
+                (e.child("documentPickupCommission").numberValue() ?: 0.0)
+            } else 0.0
+        } ?: 0.0
+
+        // courier/runs_by_agentSystemId/{systemId}/{runType}/{runKey} = status — keyed by
+        // company_info/system_id, NOT the Firebase uid (WorkerSpaceFragment.loadData()
+        // resolves the same field before calling attachRunsListener()).
+        var openRuns = 0
+        var closedRuns = 0
+        val systemId = withContext(Dispatchers.IO) {
+            runCatching {
+                db.reference.child("users/$uid/profile/company_info/system_id")
+                    .get().await().getValue(String::class.java)?.trim()
+            }.getOrNull()
+        }?.takeIf { it.isNotBlank() }
+        if (systemId != null) {
+            val runsSnap = withContext(Dispatchers.IO) {
+                runCatching { db.reference.child("courier/runs_by_agentSystemId/$systemId").get().await() }.getOrNull()
+            }
+            // No createdAt-style field on these entries (unlike memory/earnings) — a run's
+            // status can still change well after its own date (open -> closed later), so
+            // range filtering has to go by the date the run key itself encodes, not by when
+            // it was last written. runKey format per the current sheet-sync config:
+            // "run_{yyyyMMdd}_{systemId}" — the yyyyMMdd is compared as a string against the
+            // same startKey/endKey bounds used for courier/remarks_by_userId above, since
+            // same-length zero-padded date strings sort identically to their numeric value.
+            // A runType whose keys don't match this shape is silently skipped, not crashed on.
+            runsSnap?.children?.forEach { runTypeSnap ->
+                runTypeSnap.children.forEach { runEntry ->
+                    val key = runEntry.key ?: return@forEach
+                    val runDateKey = Regex("^run_(\\d{8})_").find(key)?.groupValues?.get(1) ?: return@forEach
+                    if (runDateKey in startKey..endKey) {
+                        val status = runEntry.getValue(String::class.java)?.trim().orEmpty()
+                        if (status.equals("closed", ignoreCase = true)) closedRuns++ else openRuns++
+                    }
+                }
+            }
+        }
+
         val stat = AgentStat(
             agentId   = uid,
             agentName = name,
@@ -390,15 +451,26 @@ class DashboardViewModel : ViewModel() {
             // entry found in the date range counts toward the total", full stop, regardless
             // of what its status is.
             pending   = entryCount - delivered - onHold - returned,
+            earnings  = earnings,
+            openRuns  = openRuns,
+            closedRuns = closedRuns,
         )
         return AgentLoadResult(stat, rawCounts)
     }
+
+    /** Handles a commission/amount value that may be stored as Long, Int, or Double —
+     *  mirrors SalaryModels.kt's numberValue() (file-private there, so re-declared here). */
+    private fun com.google.firebase.database.DataSnapshot.numberValue(): Double? =
+        getValue(Double::class.java)
+            ?: getValue(Long::class.java)?.toDouble()
+            ?: getValue(Int::class.java)?.toDouble()
 
     /** Workers (role_id == "worker") whose branch_ids intersect [branchFilter], each read via
      *  loadAgentStat in parallel. Empty branchFilter + non-admin viewer -> returns nothing
      *  rather than risk a company-wide read (the exact bug loadBranchView() had). */
     private suspend fun loadWorkerAgentStats(
-        branchFilter: Set<String>, viewerRoleId: String, startKey: String, endKey: String
+        branchFilter: Set<String>, viewerRoleId: String, startKey: String, endKey: String,
+        rangeStartTs: Long, rangeEndTs: Long,
     ): List<AgentLoadResult> {
         if (branchFilter.isEmpty() && viewerRoleId != "admin") return emptyList()
 
@@ -419,9 +491,12 @@ class DashboardViewModel : ViewModel() {
 
         return coroutineScope {
             candidates.map { (candidateUid, name) ->
-                async { loadAgentStat(candidateUid, name, startKey, endKey) }
+                async { loadAgentStat(candidateUid, name, startKey, endKey, rangeStartTs, rangeEndTs) }
             }.awaitAll()
-        }.filter { it.stat.total > 0 } // hide workers with nothing actioned in this range
+        }.filter { it.stat.total > 0 || it.stat.earnings > 0 || it.stat.openRuns + it.stat.closedRuns > 0 }
+            // hide workers with nothing actioned, earned, or run in this range — a worker
+            // whose only activity was a backfilled earning or a run with no parcel action
+            // that day would otherwise vanish from those totals too
     }
 
     /** One candidate account found while scanning users/ for loadSupervisorRollups —
@@ -431,14 +506,17 @@ class DashboardViewModel : ViewModel() {
     /** Manager rollup view: one row per supervisor OR stuff account (role hierarchy per
      *  EmployeeFragment.ROLE_LEVELS treats stuff as a peer of supervisor — both oversee
      *  workers directly, stuff's level number sitting between them is org-chart depth, not
-     *  a visibility difference), each row an AGGREGATE of every worker who shares a branch
-     *  with that supervisor/stuff — not that supervisor's own remarks, since supervisors/
-     *  stuff don't action deliveries themselves. A worker whose branch is covered by more
-     *  than one supervisor counts under each of them; that's a real shared-branch org shape,
-     *  not something to dedupe away. Supervisors/stuff with nothing under them are hidden,
-     *  same convention as loadWorkerAgentStats. */
+     *  a visibility difference), each row an AGGREGATE (delivered/onHold/returned/pending,
+     *  earnings, openRuns/closedRuns — every summable AgentStat field) of every worker who
+     *  shares a branch with that supervisor/stuff — not that supervisor's own remarks, since
+     *  supervisors/stuff don't action deliveries themselves. A worker whose branch is covered
+     *  by more than one supervisor counts under each of them; that's a real shared-branch org
+     *  shape, not something to dedupe away. Supervisors/stuff with nothing under them (or
+     *  whose matched workers summed to all-zero across every field) are hidden, same
+     *  convention loadWorkerAgentStats uses per-worker. */
     private suspend fun loadSupervisorRollups(
-        branchFilter: Set<String>, startKey: String, endKey: String
+        branchFilter: Set<String>, startKey: String, endKey: String,
+        rangeStartTs: Long, rangeEndTs: Long,
     ): List<AgentLoadResult> {
         val usersSnap = withContext(Dispatchers.IO) {
             runCatching { db.reference.child("users").get().await() }.getOrNull()
@@ -464,24 +542,39 @@ class DashboardViewModel : ViewModel() {
         // Every matched worker's stat is loaded exactly once regardless of how many
         // supervisors end up summing it in, then grouped below — not re-fetched per supervisor.
         val workerResults = coroutineScope {
-            workers.map { w -> async { w to loadAgentStat(w.uid, w.name, startKey, endKey) } }.awaitAll()
+            workers.map { w ->
+                async { w to loadAgentStat(w.uid, w.name, startKey, endKey, rangeStartTs, rangeEndTs) }
+            }.awaitAll()
         }
 
         return supervisors.mapNotNull { sup ->
             val matched = workerResults.filter { (w, _) -> w.branchIds.any { it in sup.branchIds } }
             if (matched.isEmpty()) return@mapNotNull null
+            val delivered  = matched.sumOf { it.second.stat.delivered }
+            val onHold     = matched.sumOf { it.second.stat.onHold }
+            val returned   = matched.sumOf { it.second.stat.returned }
+            val pending    = matched.sumOf { it.second.stat.pending }
+            val earnings   = matched.sumOf { it.second.stat.earnings }
+            val openRuns   = matched.sumOf { it.second.stat.openRuns }
+            val closedRuns = matched.sumOf { it.second.stat.closedRuns }
+            if (delivered + onHold + returned + pending == 0 && earnings <= 0 && openRuns + closedRuns == 0) {
+                return@mapNotNull null
+            }
             val rawCounts = mutableMapOf<String, Int>()
             matched.forEach { (_, r) -> r.rawStatusCounts.forEach { (k, v) -> rawCounts[k] = (rawCounts[k] ?: 0) + v } }
             AgentLoadResult(
                 stat = AgentStat(
-                    agentId   = sup.uid,
-                    agentName = sup.name,
-                    runId     = "",
-                    runStatus = "",
-                    delivered = matched.sumOf { it.second.stat.delivered },
-                    onHold    = matched.sumOf { it.second.stat.onHold },
-                    returned  = matched.sumOf { it.second.stat.returned },
-                    pending   = matched.sumOf { it.second.stat.pending },
+                    agentId    = sup.uid,
+                    agentName  = sup.name,
+                    runId      = "",
+                    runStatus  = "",
+                    delivered  = delivered,
+                    onHold     = onHold,
+                    returned   = returned,
+                    pending    = pending,
+                    earnings   = earnings,
+                    openRuns   = openRuns,
+                    closedRuns = closedRuns,
                 ),
                 rawStatusCounts = rawCounts,
             )

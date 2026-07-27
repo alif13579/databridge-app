@@ -48,6 +48,7 @@ class DashboardFragment : Fragment() {
     private lateinit var cardTotalRuns: MetricCardViews
     private lateinit var cardOpenRuns:  MetricCardViews
     private lateinit var cardClosedRuns:MetricCardViews
+    private lateinit var cardEarnings: MetricCardViews
 
     // Legend rows — built dynamically in buildStatusBreakdown(), one per status found
     private lateinit var layoutStatusLegend: LinearLayout
@@ -129,6 +130,7 @@ class DashboardFragment : Fragment() {
         cardTotalRuns  = metricCard(R.id.cardTotalRuns)
         cardOpenRuns   = metricCard(R.id.cardOpenRuns)
         cardClosedRuns = metricCard(R.id.cardClosedRuns)
+        cardEarnings   = metricCard(R.id.cardEarnings)
 
         layoutStatusLegend = root.findViewById(R.id.layoutStatusLegend)
 
@@ -148,6 +150,7 @@ class DashboardFragment : Fragment() {
         cardTotalRuns.label.text  = "TOTAL RUNS"
         cardOpenRuns.label.text   = "OPEN"
         cardClosedRuns.label.text = "CLOSED"
+        cardEarnings.label.text   = "EARNINGS"
 
         cardTotal.accentBar.setBackgroundColor(colorBlue)
         cardDelivered.accentBar.setBackgroundColor(colorGreen)
@@ -156,6 +159,7 @@ class DashboardFragment : Fragment() {
         cardTotalRuns.accentBar.setBackgroundColor(colorAccent)
         cardOpenRuns.accentBar.setBackgroundColor(colorGreen)
         cardClosedRuns.accentBar.setBackgroundColor(colorMuted)
+        cardEarnings.accentBar.setBackgroundColor(colorGreen)
     }
 
     // ── Chip setup ─────────────────────────────────────────────────────────────
@@ -354,6 +358,9 @@ class DashboardFragment : Fragment() {
         cardTotalRuns.value.text  = (s.openRuns + s.closedRuns).toString()
         cardOpenRuns.value.text   = s.openRuns.toString()
         cardClosedRuns.value.text = s.closedRuns.toString()
+
+        // ── Earnings ── same ৳-prefixed formatMoneyPlain() convention SalaryManagerFragment uses
+        cardEarnings.value.text = "৳${formatMoneyPlain(s.earnings)}"
 
         // ── Status breakdown bar ──
         buildStatusBreakdown(state.breakdown)
