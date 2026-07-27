@@ -83,6 +83,33 @@ import kotlinx.coroutines.tasks.await
  *      on failure" way StatusMetaCache already does). Copy that pattern,
  *      don't reinvent it.
  *
+ *   ⚠️ CRITICAL SAFETY GAP, MUST BE RESOLVED BEFORE STEP 4 SHIPS: this is
+ *   an access-control change, not a business-data one — the "no backfill,
+ *   fix going forward" precedent used elsewhere in this codebase (ddMMyy,
+ *   the remarks_by_userId/users_by_consignment courier/ path move) does
+ *   NOT safely apply here. Right now none of the 6 existing roles
+ *   (admin/manager/supervisor/stuff/worker/guest) have roles/{roleId}/level
+ *   set in Firebase. If step 4 ships and reads ONLY from Firebase with a
+ *   "default to lowest rank when missing" fallback (as step 3 says), every
+ *   existing admin would silently drop to lowest access the moment this
+ *   ships, until someone manually sets level for all 6 roles — a real
+ *   lockout, not a cosmetic bug.
+ *
+ *   Proposed fix (STILL OPEN — not yet decided with the app owner, ask
+ *   before implementing step 4): keep a small, code-level fallback map for
+ *   ONLY those exact 6 known role names, holding today's ROLE_LEVELS
+ *   values, used ONLY when roles/{roleId}/level is unset in Firebase for
+ *   that specific role. A brand-new role (e.g. "incharge") has no entry in
+ *   this fallback — its level MUST come from the Access Manager form,
+ *   which is the actual dynamic part. Existing roles keep working
+ *   unchanged; an admin can later re-save any of the 6 in Access Manager
+ *   to give it a real Firebase-stored level, at which point the fallback
+ *   for that specific role stops mattering. The alternative — skip the
+ *   code fallback, have the app owner set roles/{roleId}/level for all 6
+ *   directly in Firebase Console before step 4 ships — was also offered
+ *   and is still on the table; whichever is chosen, step 4 must not ship
+ *   without one of these two in place first.
+ *
  * ─── PHASE 2 — generic "who is my subordinate" rule ───
  *   Replace every hardcoded role-name branch (DashboardViewModel.load()'s
  *   `roleId == "worker"` / `roleId == "manager"`, and anywhere else a
