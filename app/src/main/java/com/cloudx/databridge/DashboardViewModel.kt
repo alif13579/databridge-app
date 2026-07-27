@@ -38,6 +38,8 @@ data class AgentStat(
     val returned:  Int,
     val pending:   Int,
     val earnings:  Double = 0.0,
+    val openRuns:  Int = 0,
+    val closedRuns: Int = 0,
 ) {
     val total get() = delivered + onHold + returned + pending
     val deliveryRate get() = if (total > 0) (delivered * 100) / total else 0
@@ -263,8 +265,8 @@ class DashboardViewModel : ViewModel() {
                     onHold       = agentStats.sumOf { it.onHold },
                     returned     = agentStats.sumOf { it.returned },
                     pending      = agentStats.sumOf { it.pending },
-                    openRuns     = 0,
-                    closedRuns   = 0,
+                    openRuns     = agentStats.sumOf { it.openRuns },
+                    closedRuns   = agentStats.sumOf { it.closedRuns },
                     earnings     = agentStats.sumOf { it.earnings },
                 )
 
@@ -379,6 +381,41 @@ class DashboardViewModel : ViewModel() {
             } else 0.0
         } ?: 0.0
 
+        // courier/runs_by_agentSystemId/{systemId}/{runType}/{runKey} = status — keyed by
+        // company_info/system_id, NOT the Firebase uid (WorkerSpaceFragment.loadData()
+        // resolves the same field before calling attachRunsListener()).
+        var openRuns = 0
+        var closedRuns = 0
+        val systemId = withContext(Dispatchers.IO) {
+            runCatching {
+                db.reference.child("users/$uid/profile/company_info/system_id")
+                    .get().await().getValue(String::class.java)?.trim()
+            }.getOrNull()
+        }?.takeIf { it.isNotBlank() }
+        if (systemId != null) {
+            val runsSnap = withContext(Dispatchers.IO) {
+                runCatching { db.reference.child("courier/runs_by_agentSystemId/$systemId").get().await() }.getOrNull()
+            }
+            // No createdAt-style field on these entries (unlike memory/earnings) — a run's
+            // status can still change well after its own date (open -> closed later), so
+            // range filtering has to go by the date the run key itself encodes, not by when
+            // it was last written. runKey format per the current sheet-sync config:
+            // "run_{yyyyMMdd}_{systemId}" — the yyyyMMdd is compared as a string against the
+            // same startKey/endKey bounds used for courier/remarks_by_userId above, since
+            // same-length zero-padded date strings sort identically to their numeric value.
+            // A runType whose keys don't match this shape is silently skipped, not crashed on.
+            runsSnap?.children?.forEach { runTypeSnap ->
+                runTypeSnap.children.forEach { runEntry ->
+                    val key = runEntry.key ?: return@forEach
+                    val runDateKey = Regex("^run_(\\d{8})_").find(key)?.groupValues?.get(1) ?: return@forEach
+                    if (runDateKey in startKey..endKey) {
+                        val status = runEntry.getValue(String::class.java)?.trim().orEmpty()
+                        if (status.equals("closed", ignoreCase = true)) closedRuns++ else openRuns++
+                    }
+                }
+            }
+        }
+
         val stat = AgentStat(
             agentId   = uid,
             agentName = name,
@@ -395,6 +432,8 @@ class DashboardViewModel : ViewModel() {
             // of what its status is.
             pending   = entryCount - delivered - onHold - returned,
             earnings  = earnings,
+            openRuns  = openRuns,
+            closedRuns = closedRuns,
         )
         return AgentLoadResult(stat, rawCounts)
     }
@@ -434,13 +473,10 @@ class DashboardViewModel : ViewModel() {
             candidates.map { (candidateUid, name) ->
                 async { loadAgentStat(candidateUid, name, startKey, endKey, rangeStartTs, rangeEndTs) }
             }.awaitAll()
-        }.filter { it.stat.total > 0 || it.stat.earnings > 0 } // hide workers with nothing
-                                                                 // actioned AND nothing earned
-                                                                 // in this range — a worker
-                                                                 // with a backfilled earning
-                                                                 // but no parcel activity that
-                                                                 // day would otherwise vanish
-                                                                 // from the earnings total too
+        }.filter { it.stat.total > 0 || it.stat.earnings > 0 || it.stat.openRuns + it.stat.closedRuns > 0 }
+            // hide workers with nothing actioned, earned, or run in this range — a worker
+            // whose only activity was a backfilled earning or a run with no parcel action
+            // that day would otherwise vanish from those totals too
     }
 
     /** [ts] (epoch ms) as yyyyMMdd — must match the write side's date-key format exactly
