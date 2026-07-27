@@ -454,8 +454,8 @@ class ScannerFragment : Fragment() {
     private fun exportScansToCsv() {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("CSV Export")
-            .setItems(arrayOf("📱 WhatsApp এ পাঠান", "⬇️ Download করুন")) { _, which ->
-                if (which == 0) saveCsvAndSendToWhatsApp() else saveCsvAndDownload()
+            .setItems(arrayOf("📤 Share করুন", "⬇️ Download করুন")) { _, which ->
+                if (which == 0) saveCsvAndShare() else saveCsvAndDownload()
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -503,7 +503,7 @@ class ScannerFragment : Fragment() {
         }
     }
 
-    private fun saveCsvAndSendToWhatsApp() {
+    private fun saveCsvAndShare() {
         val (csvContent, count) = buildCsvContent() ?: run {
             Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো scan নেই", Toast.LENGTH_SHORT).show()
             return
@@ -512,36 +512,22 @@ class ScannerFragment : Fragment() {
             Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
             return
         }
-        // No "jid" extra here on purpose — without a target chat pinned, WhatsApp opens
-        // its own contact/group picker so the user can choose exactly who to send this to.
-        val whatsappIntent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/csv"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            setPackage("com.whatsapp")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
         try {
-            startActivity(whatsappIntent)
+            // No package pinned — goes straight to the system share sheet so the user can
+            // pick WhatsApp, WhatsApp Business, Telegram, email, or anything else installed
+            // that can handle a CSV, instead of only ever trying one specific app first.
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(shareIntent, "CSV শেয়ার করুন").apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(chooser)
             Toast.makeText(requireContext(), "📤 CSV পাঠানো হচ্ছে ($count rows)", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            // com.whatsapp specifically isn't installed/reachable (WhatsApp Business is a
-            // different package — com.whatsapp.w4b — so it wouldn't have matched setPackage
-            // above either). Fall back to the system share sheet so the user can still send
-            // this via WhatsApp Business, Telegram, email, or anything else installed.
-            try {
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/csv"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                val chooser = Intent.createChooser(shareIntent, "CSV শেয়ার করুন").apply {
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                startActivity(chooser)
-                Toast.makeText(requireContext(), "📤 CSV পাঠানো হচ্ছে ($count rows)", Toast.LENGTH_SHORT).show()
-            } catch (e2: Exception) {
-                Toast.makeText(requireContext(), "⚠ Share করা যায়নি: ${e2.message}", Toast.LENGTH_LONG).show()
-            }
+            Toast.makeText(requireContext(), "⚠ Share করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
