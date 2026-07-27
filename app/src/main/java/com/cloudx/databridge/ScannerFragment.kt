@@ -512,19 +512,36 @@ class ScannerFragment : Fragment() {
             Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
             return
         }
+        // No "jid" extra here on purpose — without a target chat pinned, WhatsApp opens
+        // its own contact/group picker so the user can choose exactly who to send this to.
+        val whatsappIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            setPackage("com.whatsapp")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
         try {
-            // No "jid" extra here on purpose — without a target chat pinned, WhatsApp opens
-            // its own contact/group picker so the user can choose exactly who to send this to.
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/csv"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                setPackage("com.whatsapp")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(intent)
+            startActivity(whatsappIntent)
             Toast.makeText(requireContext(), "📤 CSV পাঠানো হচ্ছে ($count rows)", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(requireContext(), "⚠ WhatsApp খোলা যায়নি — installed আছে কিনা দেখুন", Toast.LENGTH_LONG).show()
+            // com.whatsapp specifically isn't installed/reachable (WhatsApp Business is a
+            // different package — com.whatsapp.w4b — so it wouldn't have matched setPackage
+            // above either). Fall back to the system share sheet so the user can still send
+            // this via WhatsApp Business, Telegram, email, or anything else installed.
+            try {
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/csv"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                val chooser = Intent.createChooser(shareIntent, "CSV শেয়ার করুন").apply {
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(chooser)
+                Toast.makeText(requireContext(), "📤 CSV পাঠানো হচ্ছে ($count rows)", Toast.LENGTH_SHORT).show()
+            } catch (e2: Exception) {
+                Toast.makeText(requireContext(), "⚠ Share করা যায়নি: ${e2.message}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
