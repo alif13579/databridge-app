@@ -18,8 +18,8 @@ import androidx.fragment.app.Fragment
  * Reads the "auto_dial" toggle from SharedPreferences and decides:
  *   OFF  → opens dialpad (ACTION_DIAL, no permission needed)
  *   ON   → direct call (ACTION_CALL):
- *            · Single SIM / default → calls immediately
- *            · Multi-SIM, no default → shows SIM-chooser dialog first
+ *            · Single SIM, or multi-SIM with a user-configured default → calls immediately
+ *            · Multi-SIM with NO default configured → shows SIM-chooser dialog first
  *
  * Used by: WorkerSpaceFragment, CallCenterFragment
  */
@@ -54,10 +54,21 @@ object AutoDialHelper {
                 emptyList()
             }
 
-            if (accounts.size >= 2) {
-                showSimChooser(fragment, normalizedPhone, accounts, telecom)
-            } else {
-                callDirect(fragment, normalizedPhone)
+            // A dual-SIM device isn't automatically ambiguous — if the user already has a
+            // default outgoing account configured for calls (Settings → SIM cards → Calls, or
+            // equivalent), use it directly instead of asking every single time. Only fall back
+            // to our own chooser when there's genuinely no default, same as Android's native
+            // dialer would. getDefaultOutgoingPhoneAccount also needs READ_PHONE_STATE.
+            val defaultAccount = try {
+                telecom.getDefaultOutgoingPhoneAccount("tel")
+            } catch (_: SecurityException) {
+                null
+            }
+
+            when {
+                defaultAccount != null -> callDirectWithAccount(fragment, normalizedPhone, defaultAccount)
+                accounts.size >= 2 -> showSimChooser(fragment, normalizedPhone, accounts, telecom)
+                else -> callDirect(fragment, normalizedPhone)
             }
         } else {
             callDirect(fragment, normalizedPhone)
@@ -95,6 +106,18 @@ object AutoDialHelper {
             fragment.startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$phone")))
         } catch (_: Exception) {
             openDialpad(fragment, phone) // graceful fallback
+        }
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.M)
+    private fun callDirectWithAccount(fragment: Fragment, phone: String, account: android.telecom.PhoneAccountHandle) {
+        try {
+            val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$phone")).apply {
+                putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, account)
+            }
+            fragment.startActivity(intent)
+        } catch (_: Exception) {
+            callDirect(fragment, phone) // may prompt the OS's own chooser if this specific account fails
         }
     }
 
