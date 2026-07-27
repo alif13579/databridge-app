@@ -137,11 +137,11 @@
                         android:focusable="true" />
                 </LinearLayout>
 
-                <!-- ── Section: Overview ── -->
+                <!-- ── Section: Validation Overview ── -->
                 <TextView
                     android:id="@+id/tvSectionOverview"
                     style="@style/DashboardSectionLabel"
-                    android:text="Parcel Overview" />
+                    android:text="Validation Overview" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
