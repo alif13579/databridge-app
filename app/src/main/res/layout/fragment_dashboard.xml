@@ -224,11 +224,36 @@
                 </androidx.cardview.widget.CardView>
 
                 <!-- ── Section: Agent Leaderboard (admin/branch only) ── -->
-                <TextView
-                    android:id="@+id/tvSectionAgents"
-                    style="@style/DashboardSectionLabel"
-                    android:text="Agent Performance"
-                    android:visibility="gone" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/tvSectionAgents"
+                        style="@style/DashboardSectionLabel"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:text="Agent Performance"
+                        android:visibility="gone" />
+
+                    <!-- Manager-only toggle: supervisor rollup (default) vs flat worker
+                         list. DashboardFragment shows/hides this based on
+                         Success.role == "manager" and keeps its text in sync with the
+                         ViewModel's rollupMode. -->
+                    <TextView
+                        android:id="@+id/tvRollupToggle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="10sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/theme_accent"
+                        android:text="👥 By Supervisor ▾"
+                        android:visibility="gone"
+                        android:padding="4dp" />
+
+                </LinearLayout>
 
                 <androidx.cardview.widget.CardView
                     android:id="@+id/cardAgents"

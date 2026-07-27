@@ -31,6 +31,7 @@ class DashboardFragment : Fragment() {
     private lateinit var layoutAgentRows:  LinearLayout
     private lateinit var cardAgents:       View
     private lateinit var tvSectionAgents:  TextView
+    private lateinit var tvRollupToggle:   TextView
 
     // Metric card references (label / value / sub / accent bar)
     private data class MetricCardViews(
@@ -61,6 +62,10 @@ class DashboardFragment : Fragment() {
     // ── Branch filter state (mirrors what the ViewModel's LiveData last reported) ──
     private var availableBranches: List<BranchOption> = emptyList()
     private var selectedBranchIds: Set<String> = emptySet()
+
+    // ── Manager rollup-toggle state (mirrors vm.rollupMode; used by showSuccess() to
+    // label the agent section "Supervisor Performance" vs "Worker Performance") ──
+    private var currentRollupMode: Boolean = true
 
     // ── Colors (theme-aware — resolved via requireContext() so they follow the
     // active day/night theme; must not be read before the fragment has a context) ──
@@ -106,6 +111,8 @@ class DashboardFragment : Fragment() {
         layoutAgentRows = root.findViewById(R.id.layoutAgentRows)
         cardAgents      = root.findViewById(R.id.cardAgents)
         tvSectionAgents = root.findViewById(R.id.tvSectionAgents)
+        tvRollupToggle  = root.findViewById(R.id.tvRollupToggle)
+        tvRollupToggle.setOnClickListener { vm.setRollupMode(!currentRollupMode) }
 
         fun metricCard(id: Int) = root.findViewById<View>(id).let {
             MetricCardViews(
@@ -224,6 +231,12 @@ class DashboardFragment : Fragment() {
         vm.selectedBranchIds.observe(viewLifecycleOwner) { ids ->
             selectedBranchIds = ids
             updateBranchDropdownLabel()
+        }
+        // Only meaningful for role == "manager" (see showSuccess()), but harmless to keep
+        // in sync regardless — cheap LiveData, no Firebase read of its own.
+        vm.rollupMode.observe(viewLifecycleOwner) { rollup ->
+            currentRollupMode = rollup
+            tvRollupToggle.text = if (rollup) "👥 By Supervisor ▾" else "👤 By Worker ▾"
         }
         // Refresh-with-existing-data path: keep the current Success view up, just show
         // swipeRefresh's own spinner instead of the full-screen Loading view (see load()).
@@ -349,6 +362,16 @@ class DashboardFragment : Fragment() {
         val showAgents = state.agents.isNotEmpty() && state.role !in listOf("worker", "delivery")
         cardAgents.isVisible      = showAgents
         tvSectionAgents.isVisible = showAgents
+        val isManager = state.role == "manager"
+        // Visible whenever the role is manager, even if this particular mode found zero
+        // rows — otherwise a manager with no supervisors under them (but real workers)
+        // would have data but no visible way to flip to the flat worker view and see it.
+        tvRollupToggle.isVisible = isManager
+        tvSectionAgents.text = when {
+            isManager && currentRollupMode -> "Supervisor Performance"
+            isManager                      -> "Worker Performance"
+            else                            -> "Agent Performance"
+        }
         if (showAgents) buildAgentRows(state.agents)
     }
 

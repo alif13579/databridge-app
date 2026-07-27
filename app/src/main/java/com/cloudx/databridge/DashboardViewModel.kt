@@ -132,6 +132,19 @@ class DashboardViewModel : ViewModel() {
         load(_dateRange.value ?: todayRange())
     }
 
+    // Manager-only view toggle: true (default) = one row per supervisor/stuff account,
+    // each an aggregate of every worker sharing a branch with them. false = flat list of
+    // individual workers, same view supervisor/stuff/admin already get. Meaningless for
+    // any other role — DashboardFragment only shows the toggle when Success.role == "manager".
+    private val _rollupMode = MutableLiveData(true)
+    val rollupMode: LiveData<Boolean> = _rollupMode
+
+    fun setRollupMode(rollup: Boolean) {
+        if (_rollupMode.value == rollup) return
+        _rollupMode.value = rollup
+        load(_dateRange.value ?: todayRange())
+    }
+
     // ── Date helpers ─────────────────────────────────────────────────────────
 
     companion object {
@@ -243,13 +256,20 @@ class DashboardViewModel : ViewModel() {
 
                 // "worker" = exactly the single bounded self-read courier/remarks_by_userId was
                 // designed for (DashboardFragment already hides the agent table for this
-                // role). Any other role gets the branch-scoped breakdown across workers.
+                // role). "manager" in rollup mode gets one row per supervisor/stuff account
+                // (aggregated); everyone else (supervisor, stuff, manager in flat mode, admin)
+                // gets the flat per-worker breakdown across their branch(es).
                 val results = if (roleId == "worker") {
                     listOf(loadAgentStat(uid, UserNameResolver.resolveName(uid), startKey, endKey))
                 } else {
                     val selected = _selectedBranchIds.value ?: emptySet()
                     val available = _availableBranches.value?.map { it.id }?.toSet() ?: emptySet()
-                    loadWorkerAgentStats(selected.ifEmpty { available }, roleId, startKey, endKey)
+                    val branchFilter = selected.ifEmpty { available }
+                    if (roleId == "manager" && _rollupMode.value != false) {
+                        loadSupervisorRollups(branchFilter, startKey, endKey)
+                    } else {
+                        loadWorkerAgentStats(branchFilter, roleId, startKey, endKey)
+                    }
                 }
                 statusMetaDeferred.await()
 
@@ -402,6 +422,70 @@ class DashboardViewModel : ViewModel() {
                 async { loadAgentStat(candidateUid, name, startKey, endKey) }
             }.awaitAll()
         }.filter { it.stat.total > 0 } // hide workers with nothing actioned in this range
+    }
+
+    /** One candidate account found while scanning users/ for loadSupervisorRollups —
+     *  just enough to match supervisors/stuff against the workers under them by branch. */
+    private data class RollupCandidate(val uid: String, val name: String, val branchIds: List<String>)
+
+    /** Manager rollup view: one row per supervisor OR stuff account (role hierarchy per
+     *  EmployeeFragment.ROLE_LEVELS treats stuff as a peer of supervisor — both oversee
+     *  workers directly, stuff's level number sitting between them is org-chart depth, not
+     *  a visibility difference), each row an AGGREGATE of every worker who shares a branch
+     *  with that supervisor/stuff — not that supervisor's own remarks, since supervisors/
+     *  stuff don't action deliveries themselves. A worker whose branch is covered by more
+     *  than one supervisor counts under each of them; that's a real shared-branch org shape,
+     *  not something to dedupe away. Supervisors/stuff with nothing under them are hidden,
+     *  same convention as loadWorkerAgentStats. */
+    private suspend fun loadSupervisorRollups(
+        branchFilter: Set<String>, startKey: String, endKey: String
+    ): List<AgentLoadResult> {
+        val usersSnap = withContext(Dispatchers.IO) {
+            runCatching { db.reference.child("users").get().await() }.getOrNull()
+        } ?: return emptyList()
+
+        val supervisors = mutableListOf<RollupCandidate>()
+        val workers = mutableListOf<RollupCandidate>()
+        usersSnap.children.forEach { child ->
+            val candidateUid = child.key ?: return@forEach
+            val info = child.child("profile/company_info")
+            val roleId = info.child("role_id").getValue(String::class.java)
+            val branchIds = info.child("branch_ids").children.mapNotNull { it.getValue(String::class.java) }
+            if (branchFilter.isNotEmpty() && branchIds.none { it in branchFilter }) return@forEach
+            val name = child.child("profile/name").getValue(String::class.java)
+                ?.trim()?.takeIf { it.isNotBlank() } ?: candidateUid
+            when (roleId) {
+                "supervisor", "stuff" -> supervisors.add(RollupCandidate(candidateUid, name, branchIds))
+                "worker"              -> workers.add(RollupCandidate(candidateUid, name, branchIds))
+            }
+        }
+        if (supervisors.isEmpty() || workers.isEmpty()) return emptyList()
+
+        // Every matched worker's stat is loaded exactly once regardless of how many
+        // supervisors end up summing it in, then grouped below — not re-fetched per supervisor.
+        val workerResults = coroutineScope {
+            workers.map { w -> async { w to loadAgentStat(w.uid, w.name, startKey, endKey) } }.awaitAll()
+        }
+
+        return supervisors.mapNotNull { sup ->
+            val matched = workerResults.filter { (w, _) -> w.branchIds.any { it in sup.branchIds } }
+            if (matched.isEmpty()) return@mapNotNull null
+            val rawCounts = mutableMapOf<String, Int>()
+            matched.forEach { (_, r) -> r.rawStatusCounts.forEach { (k, v) -> rawCounts[k] = (rawCounts[k] ?: 0) + v } }
+            AgentLoadResult(
+                stat = AgentStat(
+                    agentId   = sup.uid,
+                    agentName = sup.name,
+                    runId     = "",
+                    runStatus = "",
+                    delivered = matched.sumOf { it.second.stat.delivered },
+                    onHold    = matched.sumOf { it.second.stat.onHold },
+                    returned  = matched.sumOf { it.second.stat.returned },
+                    pending   = matched.sumOf { it.second.stat.pending },
+                ),
+                rawStatusCounts = rawCounts,
+            )
+        }
     }
 
     /** [ts] (epoch ms) as yyyyMMdd — must match the write side's date-key format exactly
