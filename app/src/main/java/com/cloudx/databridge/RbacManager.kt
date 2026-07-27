@@ -21,6 +21,141 @@ import kotlinx.coroutines.tasks.await
  *   nav_settings, nav_support, nav_connect, nav_history, nav_space,
  *   nav_scanner, nav_access_manager, nav_memory, nav_salary_manager
  */
+/**
+ * ═══════════════════════════════════════════════════════════════════════
+ * 🚧 PLANNED, NOT YET BUILT: dynamic, arbitrary-depth role hierarchy
+ * ═══════════════════════════════════════════════════════════════════════
+ *
+ * GOAL (app owner's stated intent, kept close to verbatim): every person
+ * should be able to see their own subordinates' data — individually OR
+ * grouped, whichever they want — with NO hardcoded role names and NO
+ * fixed number of hierarchy levels anywhere in code. Adding a brand-new
+ * role (e.g. "incharge") and slotting it into the hierarchy must be
+ * possible from the Access Manager screen alone, zero code changes or
+ * app rebuild. 100% dynamic / future-proof is the actual bar — not just
+ * "make incharge work as a one-off."
+ *
+ * CURRENT STATE (why this isn't dynamic today):
+ *   - Hierarchy rank is EmployeeFragment.ROLE_LEVELS — a hardcoded Kotlin
+ *     map (admin=0 ... guest=5, lower = higher rank). Adding a role means
+ *     editing this map and shipping a new app build.
+ *   - "Who can see whom" is decided by hardcoded role-name checks in two
+ *     places that don't share logic:
+ *       - EmployeeFragment.canManageRole() / manageableRoleIds() — reads
+ *         ROLE_LEVELS directly, myLevel < targetLevel.
+ *       - DashboardViewModel.load() — hardcodes `roleId == "worker"` for
+ *         self-only view and `roleId == "manager" && rollupMode` for a
+ *         2-level supervisor rollup; everything else falls into
+ *         loadWorkerAgentStats(), which only ever resolves role_id ==
+ *         "worker" candidates — i.e. it assumes exactly 2 levels
+ *         (worker, and everyone above worker), not N levels.
+ *   - No person-to-person "reports_to" link exists anywhere (checked —
+ *     grep for reports_to/manager_id/supervisor_id across the whole
+ *     codebase returns nothing). Visibility today is branch_ids
+ *     membership + rank comparison, not an explicit assignment, and
+ *     that's staying true going forward too — an explicit reporting-
+ *     chain field would be a separate, much bigger undertaking and
+ *     isn't what's being asked for; branch+rank is the existing,
+ *     working mechanism, it just needs to stop being hardcoded.
+ *
+ * ─── PHASE 1 — make level itself dynamic (foundation for everything else) ───
+ *   1. New Firebase field: roles/{roleId}/level (Int). Lower = higher
+ *      rank — same convention ROLE_LEVELS already uses, so the mental
+ *      model stays consistent even though the storage location moves.
+ *   2. AccessManagerFragment already has full role create/edit/delete UI
+ *      (its role-save code, ~lines 645-700) — add ONE number input for
+ *      level to that existing form. This is what makes level admin-
+ *      configurable with no code change: creating "incharge" and giving
+ *      it level=75 becomes a normal admin action, not a redeploy.
+ *   3. RbacManager.UserRbacInfo gets a new `level: Int` field, default
+ *      a safe LOWEST possible rank (e.g. 999) — NOT 0, since 0 currently
+ *      means admin/highest rank, so an unresolved/missing level must
+ *      never silently grant top access. RbacManager.load() reads
+ *      roles/$roleId/level alongside name/permissions — same roleSnap
+ *      fetch already happening around line 92, no extra read needed.
+ *   4. EmployeeFragment.ROLE_LEVELS hardcoded map gets removed.
+ *      canManageRole() / manageableRoleIds() switch to
+ *      RbacManager.current.level plus a small levels-by-roleId cache —
+ *      mirror StatusMetaCache.kt's exact pattern (refresh() fetches all
+ *      of roles/ once, admin-config-sized, never per-user or per-
+ *      consignment; entries exposed as a Map<String, Int>; refreshed the
+ *      same "call .refresh() alongside other loads, keep last-good cache
+ *      on failure" way StatusMetaCache already does). Copy that pattern,
+ *      don't reinvent it.
+ *
+ * ─── PHASE 2 — generic "who is my subordinate" rule ───
+ *   Replace every hardcoded role-name branch (DashboardViewModel.load()'s
+ *   `roleId == "worker"` / `roleId == "manager"`, and anywhere else a
+ *   role name currently decides visibility — audit for this, there may
+ *   be more than the two call sites already found) with ONE generic
+ *   rule, computed from the same levels cache Phase 1 builds:
+ *
+ *     subordinatePool(viewer) = every user where
+ *       theirLevel > viewer.level  AND  branch_ids intersects viewer's
+ *       (viewer's own uid excluded from their own pool)
+ *
+ *   Must work for however many levels of hierarchy exist — do NOT
+ *   hardcode "exactly 2 levels" the way loadWorkerAgentStats()/
+ *   loadSupervisorRollups() do today (they only handle worker <->
+ *   {supervisor, stuff} <-> manager, nothing deeper). Unlimited, unnamed
+ *   levels in code is the whole point of this phase.
+ *
+ * ─── PHASE 3 — flexible viewing: flat, grouped, or drill-down (app
+ *      owner's explicit answer: "whichever way I want — individual or
+ *      group") ───
+ *   - FLAT: subordinatePool(viewer), one row per person, regardless of
+ *     how many levels separate them from viewer. Generalizes
+ *     loadWorkerAgentStats() — same bounded-read-per-candidate shape,
+ *     candidates = subordinatePool(viewer) instead of "role_id ==
+ *     worker" users.
+ *   - GROUPED: one row per person at viewer.level's NEXT level down
+ *     only, each row an aggregate of THAT person's own subordinatePool
+ *     (recursively — their subordinates' subordinates, all the way
+ *     down, not just their direct level). Generalizes
+ *     loadSupervisorRollups() from hardcoded 2 levels to N — the
+ *     aggregation math (summing delivered/onHold/returned/pending/
+ *     earnings/openRuns/closedRuns across matched people) already works
+ *     for any group size; it just needs subordinatePool() recursion
+ *     instead of a fixed worker-role filter.
+ *   - DRILL-DOWN: tapping a GROUPED row re-opens the same flat/grouped
+ *     choice, scoped to THAT person as the new viewer — explore
+ *     arbitrary depth without a dedicated screen per level. A UI/
+ *     navigation feature on top of the same subordinatePool() primitive,
+ *     not new data-loading logic.
+ *   Keep today's rollupMode default (grouped) as the initial view, but
+ *   make BOTH flat and grouped always available to ANYONE with at least
+ *   one subordinate — not role-gated the way rollupMode only matters for
+ *   "manager" today.
+ *
+ * ─── CONSTRAINTS TO CARRY THROUGH EVERY PHASE (established elsewhere in
+ *      this codebase — don't relitigate these) ───
+ *   - Every read stays bounded (per-candidate, parallel via async/
+ *     awaitAll — never a company-wide scan). This is THE reason
+ *     courier/remarks_by_userId, courier/users_by_consignment, and the
+ *     whole DashboardViewModel rewrite exist — the old loadBranchView()/
+ *     loadWorkerView() were removed specifically for violating this.
+ *     Whatever subordinatePool() resolves to, each person's stat load
+ *     stays its own bounded courier/remarks_by_userId/{uid} read, same
+ *     as today.
+ *   - Firebase reads that can fail (permission, network) get
+ *     runCatching{}.onFailure { FirebaseErrorLogger.log(...) }.getOrNull()
+ *     — the pattern just added to DashboardViewModel.loadAgentStat() —
+ *     not a silent getOrNull() with no trace.
+ *   - No backfill of existing data for anything in this plan unless
+ *     explicitly asked — matches the ddMMyy format fix and the
+ *     remarks_by_userId/users_by_consignment courier/ path-prefix move
+ *     earlier: fix the mechanism going forward, don't migrate history
+ *     unless told to.
+ *   - Lower level number = higher rank, consistently, everywhere new
+ *     code touches level — the existing ROLE_LEVELS convention, don't
+ *     flip it.
+ *
+ * NONE OF THIS IS BUILT YET as of this comment. If you're picking this
+ * up cold: start at Phase 1 step 1 (add roles/{roleId}/level to Firebase
+ * and to AccessManagerFragment's role form) — every later phase depends
+ * on level actually being readable from Firebase before it can stop
+ * being hardcoded anywhere else.
+ */
 object RbacManager {
 
     data class UserRbacInfo(
