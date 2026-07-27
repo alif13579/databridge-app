@@ -561,6 +561,7 @@ class CallCenterFragment : Fragment() {
                 pushCallStates()
 
                 AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
+                DialCountStore.increment(ctx, id)
                 autoCallIndex++
 
                 // Wait for the call to actually END, not just for the agent's focus to
@@ -647,6 +648,7 @@ class CallCenterFragment : Fragment() {
         adapter = CallCenterAdapter(
             onCall = { item ->
                 AutoDialHelper.dial(this@CallCenterFragment, item.phone)
+                DialCountStore.increment(requireContext(), item.id)
                 callCardStates[item.id] = colorCallDone
                 pushCallStates()
             },
@@ -681,6 +683,7 @@ class CallCenterFragment : Fragment() {
                 onSwipeRight = { position ->
                     adapter.parcelAt(position)?.let { item ->
                         AutoDialHelper.dial(this@CallCenterFragment, item.phone)
+                        DialCountStore.increment(requireContext(), item.id)
                         callCardStates[item.id] = colorCallDone
                         pushCallStates()
                     }

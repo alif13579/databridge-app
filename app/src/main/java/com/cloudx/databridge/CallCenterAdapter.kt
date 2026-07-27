@@ -210,6 +210,7 @@ class CallCenterAdapter(
         private val layoutActions: LinearLayout = view.findViewById(R.id.layoutAgtActions)
         private val btnCall: TextView = view.findViewById(R.id.btnAgtCall)
         private val btnSetRemarks: TextView = view.findViewById(R.id.btnAgtSetRemarks)
+        private val tvCallCount: TextView = view.findViewById(R.id.tvAgtCallCount)
 
         fun bind(
             item: CallCenterParcelItem,
@@ -223,6 +224,15 @@ class CallCenterAdapter(
             onLongPress: (CallCenterParcelItem) -> Unit
         ) {
             tvCustomer.text = item.customer
+            // Local-only dial-attempt count (DialCountStore, per-device, never synced) — only
+            // shown once it's actually meaningful (more than a single, expected first call).
+            val dialCount = DialCountStore.get(itemView.context, item.id)
+            if (dialCount > 1) {
+                tvCallCount.text = "📞 ×$dialCount"
+                tvCallCount.visibility = View.VISIBLE
+            } else {
+                tvCallCount.visibility = View.GONE
+            }
             tvMeta.text = "${item.id} · ${item.phone}"
             tvAddress.text = "📍 ${item.address}"
             tvCod.text = "৳${item.cod}"
