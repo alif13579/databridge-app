@@ -532,10 +532,10 @@ class DashboardViewModel : ViewModel() {
      *  just enough to match supervisors/stuff against the workers under them by branch. */
     private data class RollupCandidate(val uid: String, val name: String, val branchIds: List<String>)
 
-    /** Manager rollup view: one row per supervisor OR stuff account (role hierarchy per
-     *  EmployeeFragment.ROLE_LEVELS treats stuff as a peer of supervisor — both oversee
-     *  workers directly, stuff's level number sitting between them is org-chart depth, not
-     *  a visibility difference), each row an AGGREGATE (delivered/onHold/returned/pending,
+    /** Manager rollup view: one row per supervisor OR stuff account (role hierarchy: stuff
+     *  and supervisor both oversee workers directly, so both get a row here — see
+     *  RoleLevelCache/RbacManager.UserRbacInfo.level for how rank is resolved now), each row
+     *  an AGGREGATE (delivered/onHold/returned/pending,
      *  earnings, openRuns/closedRuns — every summable AgentStat field) of every worker who
      *  shares a branch with that supervisor/stuff — not that supervisor's own remarks, since
      *  supervisors/stuff don't action deliveries themselves. A worker whose branch is covered

@@ -341,6 +341,8 @@ class EmployeeEditFragment : Fragment() {
             val userSnap     = db.reference.child("users/$uid/profile").get().await()
             val branchesSnap = db.reference.child("branches").get().await()
             val rolesSnap    = db.reference.child("roles").get().await()
+            RoleLevelCache.refresh() // separate get() of the same roles/ node — mirrors
+                                      // StatusMetaCache's independently-refreshable pattern
             val salariesSnap = runCatching {
                 db.reference.child("salaries").get().await()
             }.getOrNull()
@@ -370,7 +372,7 @@ class EmployeeEditFragment : Fragment() {
             )
 
             val myRole  = rbac.roleId
-            val myLevel = EmployeeFragment.ROLE_LEVELS[myRole] ?: 99
+            val myLevel = RoleLevelCache.levelOf(myRole)
 
             val currentRole = userSnap.child("company_info/role_id").getValue(String::class.java) ?: ""
             val status      = userSnap.child("company_info/status").getValue(String::class.java) ?: "active"
@@ -378,13 +380,17 @@ class EmployeeEditFragment : Fragment() {
             val agentType   = userSnap.child("company_info/agent_type").getValue(String::class.java) ?: ""
             val salaryModel = userSnap.child("company_info/salary_model").getValue(String::class.java) ?: ""
             val fixedAmount = userSnap.child("company_info/fixed_amount").getValue(String::class.java) ?: ""
-            val targetLevel = EmployeeFragment.ROLE_LEVELS[currentRole] ?: 99
+            val targetLevel = RoleLevelCache.levelOf(currentRole)
             
             // Save for access in listeners
             savedAgentType = agentType
             savedSalaryModel = salaryModel
 
-            // Guard: must be able to manage this user's role
+            // Guard: must be able to manage this user's role. ">2" is intentionally NOT
+            // shifted to ">3" the way canManageUsers()/canManageRole() were -- this cutoff
+            // already excluded "stuff" before "incharge" existed (admin/manager/supervisor
+            // only), so incharge correctly falls outside it too, same as it always did for
+            // stuff/worker/guest.
             if (myRole != "admin" && (myLevel > 2 || myLevel >= targetLevel)) {
                 if (isAdded) {
                     Toast.makeText(requireContext(), "No permission to edit this user", Toast.LENGTH_SHORT).show()
@@ -397,10 +403,10 @@ class EmployeeEditFragment : Fragment() {
             val roleIdsFromDb = rolesMap.keys.sorted()
             allowedRoles.addAll(
                 roleIdsFromDb.filter { rid ->
-                    val level = EmployeeFragment.ROLE_LEVELS[rid] ?: 99
+                    val level = RoleLevelCache.levelOf(rid)
                     when {
                         myRole == "admin" -> true
-                        myLevel > 2 -> false // stuff/worker/guest cannot assign any role
+                        myLevel > 2 -> false // same unshifted cutoff as above
                         else -> level > myLevel
                     }
                 }

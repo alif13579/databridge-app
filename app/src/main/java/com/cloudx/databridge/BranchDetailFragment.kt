@@ -114,9 +114,10 @@ class BranchDetailFragment : Fragment() {
                 val myRole  = RbacManager.current.roleId
                 if (myRole == "admin") true
                 else {
-                    val myLevel = EmployeeFragment.ROLE_LEVELS[myRole] ?: 99
-                    if (myLevel > 3) false  // worker(4) / guest(5) read-only
-                    else (EmployeeFragment.ROLE_LEVELS[roleId] ?: 99) > myLevel
+                    val myLevel = RoleLevelCache.levelOf(myRole)
+                    if (myLevel > 4) false  // worker(5) / guest(6) read-only — same cutoff as
+                                            // EmployeeFragment.canManageRole(), kept consistent
+                    else RoleLevelCache.levelOf(roleId) > myLevel
                 }
             }
         )
@@ -206,6 +207,8 @@ class BranchDetailFragment : Fragment() {
 
             val branchSnap = db.reference.child("branches/$branchId").get().await()
             val rolesSnap  = db.reference.child("roles").get().await()
+            RoleLevelCache.refresh() // separate get() of the same roles/ node — mirrors
+                                      // StatusMetaCache's independently-refreshable pattern
             val name        = branchSnap.child("name").getValue(String::class.java) ?: "Branch"
             val code        = branchSnap.child("branch_code").getValue(String::class.java) ?: ""
             val type        = branchSnap.child("branch_type").getValue(String::class.java) ?: ""
@@ -294,7 +297,7 @@ class BranchDetailFragment : Fragment() {
                     designation = desig,
                     photoUrl    = photoUrl
                 )
-            }.sortedWith(compareBy({ EmployeeFragment.ROLE_LEVELS[it.roleId] ?: 99 }, { it.name }))
+            }.sortedWith(compareBy({ RoleLevelCache.levelOf(it.roleId) }, { it.name }))
 
             pbLoading.visibility = View.GONE
             val availableRoles = allEmployees.map { it.roleId }.filter { it.isNotBlank() }.toSet()

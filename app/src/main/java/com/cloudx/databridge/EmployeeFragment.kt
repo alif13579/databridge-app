@@ -39,8 +39,12 @@ class EmployeeFragment : Fragment() {
     // ── Role hierarchy (level = lower number means higher authority) ──
     // admin can manage ALL roles including same level (admin)
     // others can only manage LOWER level roles
+    // Dynamic since Phase 1 of the role-hierarchy plan (see RbacManager.kt) — level now comes
+    // from RoleLevelCache (roles/{roleId}/level in Firebase, admin-configurable via Access
+    // Manager), not a hardcoded map here. ROLE_LABELS/ROLE_COLORS are unchanged — display-only,
+    // a separate concern from the hierarchy itself; a role with no entry here (e.g. a
+    // brand-new one) falls back to its own Firebase roles/{roleId}/name elsewhere already.
     companion object {
-        val ROLE_LEVELS  = mapOf("admin" to 0, "manager" to 1, "supervisor" to 2, "stuff" to 3, "worker" to 4, "guest" to 5)
         val ROLE_LABELS  = mapOf("admin" to "👑 Admin", "manager" to "💼 Manager",
                                   "supervisor" to "🎯 Supervisor", "stuff" to "📋 Stuff",
                                   "worker" to "👤 Worker", "guest" to "🙋 Guest")
@@ -54,8 +58,12 @@ class EmployeeFragment : Fragment() {
         /** Only admin and manager may create/edit/delete branches. */
         fun canManageBranches(roleId: String) = roleId == "admin" || roleId == "manager"
 
-        /** Minimum level required to manage (create/edit) users: admin/manager/supervisor/stuff (level <= 3). */
-        fun canManageUsers(roleId: String) = (ROLE_LEVELS[roleId] ?: 99) <= 3
+        /** Minimum level required to manage (create/edit) users: level <= 4.
+         *  Previously "<= 3" under the old fixed 6-role numbering (admin/manager/supervisor/
+         *  stuff); shifted by +1 so the same 4 roles keep this capability now that "incharge"
+         *  (level 3) sits between supervisor and stuff, and incharge itself also gets it —
+         *  ASSUMPTION, confirm this is the intended cutoff. */
+        fun canManageUsers(roleId: String) = RoleLevelCache.levelOf(roleId) <= 4
 
         fun forRole(roleId: String): EmployeeFragment =
             EmployeeFragment().also {
@@ -213,21 +221,21 @@ class EmployeeFragment : Fragment() {
 
     private fun canManageRole(targetRoleId: String): Boolean {
         if (myRoleId == "admin") return true
-        val myLevel = ROLE_LEVELS[myRoleId] ?: return false
-        if (myLevel > 3) return false  // worker(4) / guest(5) cannot manage anyone
-        val targetLevel = ROLE_LEVELS[targetRoleId] ?: return false
+        val myLevel = RoleLevelCache.levelOf(myRoleId)
+        if (myLevel > 4) return false  // worker(5) / guest(6) cannot manage anyone
+        val targetLevel = RoleLevelCache.levelOf(targetRoleId)
         return myLevel < targetLevel
     }
 
     private fun manageableRoleIds(): List<String> {
         val myRole = RbacManager.current.roleId
-        val myLevel = ROLE_LEVELS[myRole] ?: 99
+        val myLevel = RoleLevelCache.levelOf(myRole)
         val roleIdsFromDb = roleMap.keys.sorted()
         return roleIdsFromDb.filter { rid ->
             when {
                 myRole == "admin" -> true
-                myLevel > 3 -> false // stuff/worker/guest cannot assign any role
-                else -> (ROLE_LEVELS[rid] ?: 99) > myLevel
+                myLevel > 4 -> false // worker/guest cannot assign any role
+                else -> RoleLevelCache.levelOf(rid) > myLevel
             }
         }
     }
@@ -404,6 +412,10 @@ class EmployeeFragment : Fragment() {
                 val salariesSnap = runCatching {
                     db.reference.child("salaries").get().await()
                 }.getOrNull()
+                // Same roles/ node this screen already fetches above -- RoleLevelCache.refresh()
+                // does its own separate get() (mirrors StatusMetaCache's pattern exactly, so it
+                // stays independently refreshable from any screen), a small accepted redundancy.
+                RoleLevelCache.refresh()
 
                 roleMap = rolesSnap.children.mapNotNull { child ->
                     child.key?.let { it to child.child("name").getValue(String::class.java).orEmpty().trim() }
@@ -475,7 +487,7 @@ class EmployeeFragment : Fragment() {
                         photoUrl    = photoUrl
                     )
                 }.sortedWith(
-                    compareBy({ ROLE_LEVELS[it.roleId] ?: 99 }, { it.name })
+                    compareBy({ RoleLevelCache.levelOf(it.roleId) }, { it.name })
                 ).let { list ->
                     if (branchFilter.isNotBlank()) list.filter { it.branchIds.contains(branchFilter) } else list
                 }
