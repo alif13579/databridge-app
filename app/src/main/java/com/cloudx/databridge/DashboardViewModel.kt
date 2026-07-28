@@ -224,8 +224,16 @@ class DashboardViewModel : ViewModel() {
     //   - It carries no run reference, so AgentStat.runId/runStatus and
     //     DashboardStats.openRuns/closedRuns can't come from it — left blank/0 for now.
     /** loadAgentStat's return: the existing bucketed AgentStat, plus a raw final_status ->
-     *  count tally from the same read, for the dynamic per-status breakdown in load(). */
-    private data class AgentLoadResult(val stat: AgentStat, val rawStatusCounts: Map<String, Int>)
+     *  count tally from the same read, for the dynamic per-status breakdown in load().
+     *  readErrorMessage carries the LAST internal read failure (if any) from any of
+     *  loadAgentStat's 4 reads, so load() can surface it as a visible refreshError toast —
+     *  previously these were only logged to error_logs, with the dashboard silently showing
+     *  degraded/zeroed numbers and no visible sign anything had failed. */
+    private data class AgentLoadResult(
+        val stat: AgentStat,
+        val rawStatusCounts: Map<String, Int>,
+        val readErrorMessage: String? = null,
+    )
 
     private fun load(range: DateRange) {
         loadJob?.cancel()
@@ -321,6 +329,18 @@ class DashboardViewModel : ViewModel() {
                     role      = roleId,
                     breakdown = breakdown,
                 )
+
+                // The load as a whole succeeded (no exception reached this far), but one or
+                // more of loadAgentStat's individual reads may have failed internally and
+                // degraded to zero/empty for that agent (see AgentLoadResult.readErrorMessage) —
+                // previously that was only checkable via error_logs, with the dashboard just
+                // silently showing fewer/zeroed numbers and no visible sign anything had
+                // failed. Surface it as the same refreshError toast a full load()-level
+                // failure would use, on top of the Success state above rather than instead of
+                // it, since the numbers just shown may be incomplete, not necessarily empty.
+                results.firstOrNull { it.readErrorMessage != null }?.let { failed ->
+                    _refreshError.value = "⚠ কিছু data load হয়নি: ${failed.readErrorMessage}"
+                }
             } catch (e: Exception) {
                 if (hasExistingData) {
                     // Keep the old Success data on screen — surface the failure as a one-off
@@ -344,6 +364,7 @@ class DashboardViewModel : ViewModel() {
         uid: String, name: String, startKey: String, endKey: String,
         rangeStartTs: Long, rangeEndTs: Long,
     ): AgentLoadResult {
+        var readError: String? = null
         val snap = withContext(Dispatchers.IO) {
             runCatching {
                 db.reference.child("courier/remarks_by_userId/$uid")
@@ -357,7 +378,9 @@ class DashboardViewModel : ViewModel() {
                 // for one agent's read failing inside a multi-agent branch view, but it means
                 // a genuine cause (e.g. a security-rules permission denial on this specific
                 // path) is otherwise invisible. Logging it here doesn't change that graceful
-                // degrade; it just makes the real reason checkable via error_logs/{uid}.
+                // degrade; it just makes the real reason checkable via error_logs/{uid} — and
+                // readError below also surfaces it as a visible toast via load()'s refreshError.
+                readError = e.message ?: "remarks_by_userId read failed"
                 FirebaseErrorLogger.log(
                     screen = "DashboardViewModel", action = "remarks_by_userId_read",
                     errorMessage = e.message ?: "unknown",
@@ -403,6 +426,7 @@ class DashboardViewModel : ViewModel() {
         val earningsSnap = withContext(Dispatchers.IO) {
             runCatching { db.reference.child("memory/$uid/earnings").get().await() }
                 .onFailure { e ->
+                    readError = e.message ?: "memory/earnings read failed"
                     FirebaseErrorLogger.log(
                         screen = "DashboardViewModel", action = "memory_earnings_read",
                         errorMessage = e.message ?: "unknown", extra = mapOf("uid" to uid)
@@ -429,6 +453,7 @@ class DashboardViewModel : ViewModel() {
                 db.reference.child("users/$uid/profile/company_info/system_id")
                     .get().await().getValue(String::class.java)?.trim()
             }.onFailure { e ->
+                readError = e.message ?: "system_id read failed"
                 FirebaseErrorLogger.log(
                     screen = "DashboardViewModel", action = "system_id_read",
                     errorMessage = e.message ?: "unknown", extra = mapOf("uid" to uid)
@@ -439,6 +464,7 @@ class DashboardViewModel : ViewModel() {
             val runsSnap = withContext(Dispatchers.IO) {
                 runCatching { db.reference.child("courier/runs_by_agentSystemId/$systemId").get().await() }
                     .onFailure { e ->
+                        readError = e.message ?: "runs_by_agentSystemId read failed"
                         FirebaseErrorLogger.log(
                             screen = "DashboardViewModel", action = "runs_by_agentSystemId_read",
                             errorMessage = e.message ?: "unknown", extra = mapOf("systemId" to systemId)
@@ -484,7 +510,7 @@ class DashboardViewModel : ViewModel() {
             openRuns  = openRuns,
             closedRuns = closedRuns,
         )
-        return AgentLoadResult(stat, rawCounts)
+        return AgentLoadResult(stat, rawCounts, readError)
     }
 
     /** Handles a commission/amount value that may be stored as Long, Int, or Double —
@@ -606,12 +632,13 @@ class DashboardViewModel : ViewModel() {
                     closedRuns = closedRuns,
                 ),
                 rawStatusCounts = rawCounts,
+                readErrorMessage = matched.firstNotNullOfOrNull { (_, r) -> r.readErrorMessage },
             )
         }
     }
 
     /** [ts] (epoch ms) as yyyyMMdd — must match the write side's date-key format exactly
-     *  (WorkerSpaceFragment.remarksIndexDateKeyYyyyMmDd / CallCenterFragment's twin). */
+     *  (WorkerSpaceFragment.todayDateKeyYyyyMmDd / CallCenterFragment's twin). */
     private fun dateKey(ts: Long): String =
         java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date(ts))
 
