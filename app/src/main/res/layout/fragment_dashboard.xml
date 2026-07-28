@@ -149,21 +149,18 @@
                     android:orientation="horizontal"
                     android:layout_marginBottom="0dp">
 
-                    <include android:id="@+id/cardTotal"     layout="@layout/item_metric_card" />
-                    <include android:id="@+id/cardDelivered" layout="@layout/item_metric_card" />
+                    <include android:id="@+id/cardTotal" layout="@layout/item_metric_card" />
 
                 </LinearLayout>
 
+                <!-- Per-status cards (dynamic — one per distinct final_status found in range,
+                     2 per row, built in DashboardFragment.buildOverviewCards()) -->
                 <LinearLayout
+                    android:id="@+id/layoutDynamicOverviewCards"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="16dp">
-
-                    <include android:id="@+id/cardOnHold"   layout="@layout/item_metric_card" />
-                    <include android:id="@+id/cardReturned" layout="@layout/item_metric_card" />
-
-                </LinearLayout>
+                    android:orientation="vertical"
+                    android:layout_marginBottom="16dp" />
 
                 <!-- ── Section: Runs ── -->
                 <TextView
