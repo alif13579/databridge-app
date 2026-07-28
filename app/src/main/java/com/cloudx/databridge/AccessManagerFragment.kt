@@ -37,6 +37,7 @@ class AccessManagerFragment : Fragment() {
     private lateinit var btnDelete: View
     private lateinit var btnSave: Button
     private lateinit var tvRole: TextView
+    private lateinit var etRoleLevel: android.widget.EditText
     private lateinit var progress: ProgressBar
     private lateinit var rv: RecyclerView
     private lateinit var rvUsers: RecyclerView
@@ -70,7 +71,8 @@ class AccessManagerFragment : Fragment() {
 
     data class RoleEntry(
         var name: String = "",
-        var permissions: Map<String, Boolean> = emptyMap()
+        var permissions: Map<String, Boolean> = emptyMap(),
+        var level: Int? = null // null = not yet configured; see RoleLevelCache.DEFAULT_LEVEL for the runtime fallback
     )
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
@@ -257,6 +259,7 @@ class AccessManagerFragment : Fragment() {
         btnDelete = view.findViewById(R.id.btnDeleteRole)
         btnSave = view.findViewById(R.id.btnSavePermissions)
         tvRole = view.findViewById(R.id.tvRoleName)
+        etRoleLevel = view.findViewById(R.id.etRoleLevel)
         progress = view.findViewById(R.id.progressAccess)
         rv = view.findViewById(R.id.rvPermissions)
         rvUsers = view.findViewById(R.id.rvUsersAccessList)
@@ -316,7 +319,9 @@ class AccessManagerFragment : Fragment() {
                     val id = child.key ?: return@forEach
                     val name = child.child("name").getValue(String::class.java).orEmpty()
                     val perms = child.child("permissions").getValue<Map<String, Boolean>>() ?: emptyMap()
-                    roles[id] = RoleEntry(name = name, permissions = perms)
+                    val level = child.child("level").getValue(Int::class.java)
+                        ?: child.child("level").getValue(Long::class.java)?.toInt()
+                    roles[id] = RoleEntry(name = name, permissions = perms, level = level)
                 }
                 bindRoles()
             } catch (e: Exception) {
@@ -360,6 +365,7 @@ class AccessManagerFragment : Fragment() {
         val state = PermissionCatalog.defaultPermissions().toMutableMap()
         entry.permissions.forEach { (k, v) -> state[k] = v }
         adapter.submit(PermissionCatalog.all, state)
+        etRoleLevel.setText(entry.level?.toString() ?: "")
         updatePermCountUI()
     }
 
@@ -849,11 +855,21 @@ class AccessManagerFragment : Fragment() {
             Toast.makeText(requireContext(), "No role selected", Toast.LENGTH_SHORT).show(); return
         }
         val state = adapter.currentState()
+        val levelText = etRoleLevel.text.toString().trim()
+        val level = levelText.toIntOrNull()
+        if (levelText.isNotEmpty() && level == null) {
+            Toast.makeText(requireContext(), "Level must be a whole number", Toast.LENGTH_SHORT).show()
+            return
+        }
         setLoading(true)
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                db.reference.child("roles/$roleId/permissions").setValue(state).await()
+                val updates = mutableMapOf<String, Any?>("roles/$roleId/permissions" to state)
+                if (level != null) updates["roles/$roleId/level"] = level
+                db.reference.updateChildren(updates).await()
                 roles[roleId]?.permissions = state
+                if (level != null) roles[roleId]?.level = level
+                RoleLevelCache.refresh() // so this session's own rank comparisons see the new value immediately
                 Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show()
                 (activity as? AuthUiHost)?.refreshAuthUi(forceReload = true)
             } catch (e: Exception) {
