@@ -2373,7 +2373,9 @@ class CallCenterFragment : Fragment() {
                 .setValue(
                     mapOf(
                         "final_status" to selectedStatus,
-                        "remarks_id"   to selectedRemarkText.ifBlank { noteText }
+                        "remarks"      to selectedRemarkText.ifBlank { noteText },
+                        "created_at"   to timestamp,
+                        "updated_at"   to timestamp
                     )
                 )
                 .addOnFailureListener { e ->

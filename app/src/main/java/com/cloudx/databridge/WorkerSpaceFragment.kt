@@ -544,7 +544,9 @@ class WorkerSpaceFragment : Fragment() {
                     .setValue(
                         mapOf(
                             "final_status" to "",
-                            "remarks_id"   to noteText
+                            "remarks"      to noteText,
+                            "created_at"   to timestamp,
+                            "updated_at"   to timestamp
                         )
                     )
 
@@ -767,7 +769,9 @@ class WorkerSpaceFragment : Fragment() {
                 .setValue(
                     mapOf(
                         "final_status" to statusKey,
-                        "remarks_id"   to selectedLabel
+                        "remarks"      to selectedLabel,
+                        "created_at"   to ts,
+                        "updated_at"   to ts
                     )
                 )
                 .addOnFailureListener { e ->
