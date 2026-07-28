@@ -37,6 +37,23 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.21",
+                releasedDate = "27 Jul 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Auto Call was dialing the next number while the current call was still active — now correctly waits for the call to actually end before moving on"),
+                    ChangelogEntry("feature", "Call Center: parcel card now shows how many times you've called that number from this device"),
+                    ChangelogEntry("feature", "New Dashboard — date-range stats, role-based views, per-status breakdown, Earnings card, open/closed run counts"),
+                    ChangelogEntry("feature", "Call Center: worker's real profile photo now shown in the group header instead of a generic icon"),
+                    ChangelogEntry("fix", "Fixed a sync error that was silently blocking the per-day remarks tracking (introduced in 5.22.16) from actually saving"),
+                    ChangelogEntry("fix", "Parcel card: amount and status badge repositioned so neither gets hidden behind the age/attempt badge"),
+                    ChangelogEntry("improvement", "Remarks box redesigned as a compact chat-style bubble with rounded corners, showing how long ago the remark was left"),
+                    ChangelogEntry("fix", "Call Center: branch filter no longer breaks (shows zero parcels) if your assigned branches change"),
+                    ChangelogEntry("fix", "Sheet sync: corrected a date-format bug that could cause mismatched entries"),
+                    ChangelogEntry("fix", "Parcel detail's journey log timeline now matches what the tap-and-hold dialog shows"),
+                    ChangelogEntry("improvement", "Parcel card auto-collapses after remarks are saved (Worker + Call Center)"),
+                )
+            ),
+            ChangelogVersion(
                 versionName = "5.22.16",
                 releasedDate = "26 Jul 2026",
                 entries = listOf(

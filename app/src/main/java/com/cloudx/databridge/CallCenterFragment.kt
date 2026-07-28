@@ -71,6 +71,12 @@ class CallCenterFragment : Fragment() {
     private var autoCallGapSeconds = 8
     private var autoCallJob: Job? = null
     private var searchJob: Job? = null  // ✅ Fix #8: Search debounce job
+    // Perf fix: debounces reprocessAllCachedRuns() so a burst of near-simultaneous run-node
+    // listener callbacks (many agents' initial onDataChange firing within ms of each other on
+    // cold load) collapses into ONE reprocess instead of one per listener — see the listener
+    // in syncCcRunNodeListeners() and the generation guard inside reprocessAllCachedRuns().
+    private var reprocessJob: Job? = null
+    private var ccLoadGeneration = 0
 
     // Waits for the agent to actually return to this screen (call ended/dismissed)
     // before dialing the next number, instead of guessing with a fixed delay.
@@ -197,6 +203,8 @@ class CallCenterFragment : Fragment() {
         // ✅ Fix #8: Cancel pending search debounce job
         searchJob?.cancel()
         searchJob = null
+        reprocessJob?.cancel()
+        reprocessJob = null
         super.onDestroyView()
         stopAutoCall()
         detachRunsListener()
@@ -1512,7 +1520,20 @@ class CallCenterFragment : Fragment() {
                 override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                     if (!isAdded) return
                     ccRunNodeSnapshots[key] = snapshot
-                    viewLifecycleOwner.lifecycleScope.launch { reprocessAllCachedRuns() }
+                    // Debounced (same 300ms idiom as setupSearch()'s searchJob) — on cold
+                    // load, many agents' run listeners fire their initial onDataChange within
+                    // ms of each other. Undebounced, each one independently reprocessed the
+                    // then-current (still-growing) ccRunNodeSnapshots from scratch, redoing
+                    // every earlier agent's consignment fetch again on every new arrival — up
+                    // to O(listener count²) wasted fetches. Coalescing into one call after the
+                    // burst settles fixes that; the generation guard inside
+                    // reprocessAllCachedRuns() is a second line of defense against any results
+                    // still arriving out of order (e.g. a manual refresh mid-debounce).
+                    reprocessJob?.cancel()
+                    reprocessJob = viewLifecycleOwner.lifecycleScope.launch {
+                        delay(300)
+                        reprocessAllCachedRuns()
+                    }
                 }
                 override fun onCancelled(error: com.google.firebase.database.DatabaseError) {}
             }
@@ -1561,23 +1582,21 @@ class CallCenterFragment : Fragment() {
                 val uid   = child.child("uid").getValue(String::class.java)?.trim()
                 if (!sysId.isNullOrBlank() && !uid.isNullOrBlank()) sysIdToUid[sysId] = uid
             }
-            // Step 2: uid → name + employee_id in parallel (2 reads per uid, all concurrent).
+            // Step 2: uid -> name + employee_id + photo, ONE read per uid (all concurrent
+            // across uids). Was 3 sequential reads per uid (name, employee_id, photo_url each
+            // its own round-trip) — same fix as WorkerSpaceFragment.loadData() already applies
+            // for its own agentPhone lookup: read the whole profile node once, pull every
+            // field off that single snapshot instead of a separate fetch per field.
             data class AgentData(val sysId: String, val name: String?, val empId: String?, val photoUrl: String?)
             val results = coroutineScope {
                 sysIdToUid.map { (sysId, uid) ->
                     async(Dispatchers.IO) {
-                        val name = runCatching {
-                            db.reference.child("users/$uid/profile/name").get().await()
-                                .getValue(String::class.java)?.trim()
+                        val profileSnap = runCatching {
+                            db.reference.child("users/$uid/profile").get().await()
                         }.getOrNull()
-                        val empId = runCatching {
-                            db.reference.child("users/$uid/profile/company_info/employee_id").get().await()
-                                .getValue(String::class.java)?.trim()
-                        }.getOrNull()
-                        val photoUrl = runCatching {
-                            db.reference.child("users/$uid/profile/photo_url").get().await()
-                                .getValue(String::class.java)?.trim()
-                        }.getOrNull()
+                        val name     = profileSnap?.child("name")?.getValue(String::class.java)?.trim()
+                        val empId    = profileSnap?.child("company_info/employee_id")?.getValue(String::class.java)?.trim()
+                        val photoUrl = profileSnap?.child("photo_url")?.getValue(String::class.java)?.trim()
                         AgentData(sysId, name, empId, photoUrl)
                     }
                 }.awaitAll()
@@ -1599,6 +1618,12 @@ class CallCenterFragment : Fragment() {
      *  filtering already happened upstream when candidates were selected, so every cached run
      *  here is guaranteed relevant. */
     private suspend fun reprocessAllCachedRuns() {
+        // Perf/correctness guard — see the debounce comment on reprocessJob above. Even with
+        // debouncing, a manual pull-to-refresh (or another trigger) could still overlap an
+        // in-flight reprocess; this generation check (same idea as WorkerSpaceFragment's
+        // loadGeneration) makes sure only the NEWEST call's results ever get applied below,
+        // so a slower-finishing older call can't clobber fresher data with stale results.
+        val generation = ++ccLoadGeneration
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
 
         // Collect consignment ids + statuses + which agent's run + which branch they came from.
@@ -1624,17 +1649,23 @@ class CallCenterFragment : Fragment() {
         }
 
         if (consignmentInfo.isEmpty()) {
+            if (!isAdded || generation != ccLoadGeneration) return
             pbProgress.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
             return
         }
 
-        // One-time (cached) bulk fetch of all agents' names — avoids N per-agent lookups.
-        val nameMap = ensureAgentNameMap()
-
         // Parallel fetch consignment details + full remark history
         val parcels = coroutineScope {
+            // nameMap is only consulted when building each item/history entry below, never
+            // needed to START any of the per-consignment reads — so fire it concurrently with
+            // those instead of blocking them behind a full name-resolution round-trip first.
+            // (ensureAgentNameMap() self-caches, so this is a cheap instant .await() on the
+            // common warm-cache path where attachRootRunTypesListener()'s early fire-and-forget
+            // call already finished.)
+            val nameMapDeferred = async { ensureAgentNameMap() }
+
             val fetches = consignmentInfo.entries.map { entry ->
                 val cId = entry.key
                 val info = entry.value
@@ -1642,7 +1673,20 @@ class CallCenterFragment : Fragment() {
                 val runStatus = info.routeStatus
                 async(Dispatchers.IO) {
                     try {
-                        val snap = db.reference.child("courier/consignments/$cId").get().await()
+                        // Fire both independent reads together instead of sequentially —
+                        // remarksSnap only needs cId (known up-front), not any field from
+                        // snap. Same pattern WorkerSpaceFragment.loadParcelsForSelectedRunType()
+                        // already uses for its own detail+remarks pair. snap is awaited first
+                        // since the early-exists-check and every field below depends on it;
+                        // remarksSnap is awaited later, right where it's first used — by then
+                        // it's essentially always already done.
+                        val snapDeferred = async(Dispatchers.IO) {
+                            db.reference.child("courier/consignments/$cId").get().await()
+                        }
+                        val remarksSnapDeferred = async(Dispatchers.IO) {
+                            db.reference.child("courier/remarks_by_consignment/$cId").get().await()
+                        }
+                        val snap = snapDeferred.await()
                         if (!snap.exists()) return@async null
 
                         val name    = snap.child("recipientName").getValue(String::class.java) ?: ""
@@ -1682,8 +1726,8 @@ class CallCenterFragment : Fragment() {
                         val attemptVal = readCcAttempt(snap)
 
                         // Full remark history (not just the latest) — needed for the journey popup.
-                        val remarksSnap = db.reference.child("courier/remarks_by_consignment/$cId")
-                            .get().await()
+                        // Already fired above, alongside snap — just join it here.
+                        val remarksSnap = remarksSnapDeferred.await()
 
                         // Card badge (overview) — TODAY's TRUE latest remark, any author.
                         // Parse this consignment's remarks_{timestamp} entries, keep only
@@ -1730,6 +1774,7 @@ class CallCenterFragment : Fragment() {
                         // the latest entry today is the CC agent's own (see comment above).
                         val remarkLabel = if (latestTodayEntryIsFromSupport) "" else remarkLabelNote
 
+                        val nameMap = nameMapDeferred.await()
                         Triple(
                             CallCenterParcelItem(
                                 id                = cId,
@@ -1769,6 +1814,7 @@ class CallCenterFragment : Fragment() {
                 .distinct()
             allUids.map { uid -> async(Dispatchers.IO) { UserNameResolver.resolveName(uid) } }.awaitAll()
 
+            val nameMap = nameMapDeferred.await()
             fetches.map { (item, remarksSnap, agentSystemId) ->
                 val history = remarksSnap.children.mapNotNull { r ->
                     val rStatus = r.child("status").getValue(String::class.java)?.trim().orEmpty()
@@ -1814,7 +1860,7 @@ class CallCenterFragment : Fragment() {
             }
         }
 
-        if (!isAdded) return
+        if (!isAdded || generation != ccLoadGeneration) return
         allParcels = parcels.sortedBy { it.id }
         // Branch chips reflect the CC agent's OWN assignment (RbacManager), not whatever
         // branches happen to show up in the fetched parcels — Karim (Sonargaon only) never
