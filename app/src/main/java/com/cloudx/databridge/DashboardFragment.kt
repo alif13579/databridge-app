@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
@@ -245,6 +246,7 @@ class DashboardFragment : Fragment() {
         // wiping that data via showError().
         vm.refreshError.observe(viewLifecycleOwner) { message ->
             if (message == null) return@observe
+            Toast.makeText(requireContext(), "Dashboard error: $message", Toast.LENGTH_LONG).show()
             com.google.android.material.snackbar.Snackbar
                 .make(swipeRefresh, "⚠ $message", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
                 .show()
@@ -325,6 +327,7 @@ class DashboardFragment : Fragment() {
         layoutError.isVisible   = true
         swipeRefresh.isVisible  = false
         tvError.text            = "⚠  $msg"
+        Toast.makeText(requireContext(), "Dashboard error: $msg", Toast.LENGTH_LONG).show()
     }
 
     private fun showSuccess(state: DashboardState.Success) {

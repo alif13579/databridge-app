@@ -266,13 +266,24 @@ class DashboardViewModel : ViewModel() {
                 // keys as labels rather than an empty breakdown.
                 val statusMetaDeferred = async(Dispatchers.IO) { StatusMetaCache.refresh() }
 
-                // "worker" = exactly the single bounded self-read courier/remarks_by_userId was
-                // designed for (DashboardFragment already hides the agent table for this
-                // role). "manager" in rollup mode gets one row per supervisor/stuff account
-                // (aggregated); everyone else (supervisor, stuff, manager in flat mode, admin)
-                // gets the flat per-worker breakdown across their branch(es).
-                val results = if (roleId == "worker") {
-                    listOf(loadAgentStat(uid, UserNameResolver.resolveName(uid), startKey, endKey, range.startTs, range.endTs))
+                // The overview at the top is the logged-in user's own validation activity.
+                // Every role writes remarks_by_userId under its Firebase uid, so reading only
+                // branch workers here makes supervisor/support/manager users look empty even
+                // when their own indexed validation data exists.
+                val selfResult = loadAgentStat(
+                    uid,
+                    UserNameResolver.resolveName(uid),
+                    startKey,
+                    endKey,
+                    range.startTs,
+                    range.endTs
+                )
+
+                // The agent table stays role-based. Worker gets no separate table; manager
+                // in rollup mode gets one row per supervisor/stuff account (aggregated);
+                // everyone else gets the flat per-worker breakdown across their branch(es).
+                val teamResults = if (roleId == "worker") {
+                    emptyList()
                 } else {
                     val selected = _selectedBranchIds.value ?: emptySet()
                     val available = _availableBranches.value?.map { it.id }?.toSet() ?: emptySet()
@@ -285,26 +296,24 @@ class DashboardViewModel : ViewModel() {
                 }
                 statusMetaDeferred.await()
 
-                val agentStats = results.map { it.stat }
+                val agentStats = teamResults.map { it.stat }
 
                 val stats = DashboardStats(
-                    totalParcels = agentStats.sumOf { it.total },
-                    delivered    = agentStats.sumOf { it.delivered },
-                    onHold       = agentStats.sumOf { it.onHold },
-                    returned     = agentStats.sumOf { it.returned },
-                    pending      = agentStats.sumOf { it.pending },
-                    openRuns     = agentStats.sumOf { it.openRuns },
-                    closedRuns   = agentStats.sumOf { it.closedRuns },
-                    earnings     = agentStats.sumOf { it.earnings },
+                    totalParcels = selfResult.stat.total,
+                    delivered    = selfResult.stat.delivered,
+                    onHold       = selfResult.stat.onHold,
+                    returned     = selfResult.stat.returned,
+                    pending      = selfResult.stat.pending,
+                    openRuns     = selfResult.stat.openRuns,
+                    closedRuns   = selfResult.stat.closedRuns,
+                    earnings     = selfResult.stat.earnings,
                 )
 
-                // Merge every agent's raw final_status tally into one dashboard-level count
-                // per distinct status actually seen in range, then resolve each against
+                // One dashboard-level count per distinct final_status from this logged-in
+                // user's own remarks_by_userId range read, then resolve each against
                 // StatusMetaCache for its admin-configured label/color/priority.
                 val mergedRawCounts = mutableMapOf<String, Int>()
-                results.forEach { r ->
-                    r.rawStatusCounts.forEach { (k, v) -> mergedRawCounts[k] = (mergedRawCounts[k] ?: 0) + v }
-                }
+                selfResult.rawStatusCounts.forEach { (k, v) -> mergedRawCounts[k] = v }
                 val totalForPercent = mergedRawCounts.values.sum().coerceAtLeast(1)
                 val breakdown = mergedRawCounts.entries.map { (key, count) ->
                     val meta = StatusMetaCache.entries[key]
@@ -338,7 +347,7 @@ class DashboardViewModel : ViewModel() {
                 // failed. Surface it as the same refreshError toast a full load()-level
                 // failure would use, on top of the Success state above rather than instead of
                 // it, since the numbers just shown may be incomplete, not necessarily empty.
-                results.firstOrNull { it.readErrorMessage != null }?.let { failed ->
+                (listOf(selfResult) + teamResults).firstOrNull { it.readErrorMessage != null }?.let { failed ->
                     _refreshError.value = "⚠ কিছু data load হয়নি: ${failed.readErrorMessage}"
                 }
             } catch (e: Exception) {
@@ -380,7 +389,7 @@ class DashboardViewModel : ViewModel() {
                 // path) is otherwise invisible. Logging it here doesn't change that graceful
                 // degrade; it just makes the real reason checkable via error_logs/{uid} — and
                 // readError below also surfaces it as a visible toast via load()'s refreshError.
-                readError = e.message ?: "remarks_by_userId read failed"
+                readError = "courier/remarks_by_userId/$uid ($startKey-$endKey): ${e.message ?: "read failed"}"
                 FirebaseErrorLogger.log(
                     screen = "DashboardViewModel", action = "remarks_by_userId_read",
                     errorMessage = e.message ?: "unknown",
