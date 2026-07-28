@@ -563,6 +563,10 @@ class AccessManagerFragment : Fragment() {
         val inputId = android.widget.EditText(requireContext())
         inputName.hint = "Role Name"
         inputId.hint = "slug"
+        val inputLevel = android.widget.EditText(requireContext()).apply {
+            hint = "Level (lower = higher rank, e.g. 50)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
         var autoSlug = true
         var suppressSlug = false
         inputName.addTextChangedListener(object : TextWatcher {
@@ -620,6 +624,7 @@ class AccessManagerFragment : Fragment() {
             setPadding(32, 16, 32, 0)
             addView(inputName)
             addView(inputId)
+            addView(inputLevel)
             addView(copyLabel)
             addView(copySpinner)
             addView(permsLayout)
@@ -634,25 +639,33 @@ class AccessManagerFragment : Fragment() {
                 if (rid.isBlank()) { Toast.makeText(requireContext(), "Role id required", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
                 if (rname.isBlank()) { Toast.makeText(requireContext(), "Role name required", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
                 if (roles.containsKey(rid)) { Toast.makeText(requireContext(), "Role exists", Toast.LENGTH_SHORT).show(); return@setPositiveButton }
+                val levelText = inputLevel.text.toString().trim()
+                val level = levelText.toIntOrNull()
+                if (levelText.isNotEmpty() && level == null) {
+                    Toast.makeText(requireContext(), "Level must be a whole number", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
                 val state = PermissionCatalog.defaultPermissions().toMutableMap()
                 checks.forEach { (key, cb) -> state[key] = cb.isChecked }
-                createRole(rid, rname, state)
+                createRole(rid, rname, state, level)
                 dialog.dismiss()
             }
             .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
             .show()
     }
 
-    private fun createRole(id: String, name: String, perms: Map<String, Boolean>) {
+    private fun createRole(id: String, name: String, perms: Map<String, Boolean>, level: Int?) {
         setLoading(true)
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val updates = mapOf(
+                val updates = mutableMapOf<String, Any?>(
                     "roles/$id/name" to name,
                     "roles/$id/permissions" to perms,
                 )
+                if (level != null) updates["roles/$id/level"] = level
                 db.reference.updateChildren(updates).await()
-                roles[id] = RoleEntry(name = name, permissions = perms)
+                roles[id] = RoleEntry(name = name, permissions = perms, level = level)
+                RoleLevelCache.refresh() // so this session's own rank comparisons see the new role immediately
                 bindRoles(selectId = id)
                 Toast.makeText(requireContext(), "Role created", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
