@@ -46,10 +46,12 @@ class EmployeeFragment : Fragment() {
     // brand-new one) falls back to its own Firebase roles/{roleId}/name elsewhere already.
     companion object {
         val ROLE_LABELS  = mapOf("admin" to "👑 Admin", "manager" to "💼 Manager",
-                                  "supervisor" to "🎯 Supervisor", "stuff" to "📋 Stuff",
+                                  "supervisor" to "🎯 Supervisor", "incharge" to "🗂️ Incharge",
+                                  "stuff" to "📋 Stuff",
                                   "worker" to "👤 Worker", "guest" to "🙋 Guest")
         val ROLE_COLORS  = mapOf("admin" to "#7c3aed", "manager" to "#2563eb",
-                                  "supervisor" to "#059669", "stuff" to "#d97706",
+                                  "supervisor" to "#059669", "incharge" to "#0d9488",
+                                  "stuff" to "#d97706",
                                   "worker" to "#4b5563", "guest" to "#888888")
 
         private const val ARG_ROLE   = "arg_role"

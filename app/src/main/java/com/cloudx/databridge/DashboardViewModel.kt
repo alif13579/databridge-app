@@ -60,6 +60,10 @@ sealed class DashboardState {
         val agents:    List<AgentStat>,
         val role:      String,
         val breakdown: List<StatusBreakdownItem>,
+        // Whether subordinatePool() found ANYONE at all — independent of whether the
+        // CURRENT mode (rollup vs flat) happened to produce zero rows, so the Fragment can
+        // decide the flat/rollup toggle's visibility without hardcoding role == "manager".
+        val hasSubordinates: Boolean = false,
     ) : DashboardState()
     data class Error(val message: String) : DashboardState()
 }
@@ -329,6 +333,7 @@ class DashboardViewModel : ViewModel() {
                     agents    = agentStats.sortedByDescending { it.delivered },
                     role      = roleId,
                     breakdown = breakdown,
+                    hasSubordinates = subordinates.isNotEmpty(),
                 )
             } catch (e: Exception) {
                 if (hasExistingData) {
