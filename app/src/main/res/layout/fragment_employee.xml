@@ -56,6 +56,22 @@
         android:layout_height="1dp"
         android:background="@color/theme_text_secondary" />
 
+    <!-- Admin-only: one-time bootstrap of reports_to for employees that don't have it set
+         yet, inferred from current branch+level. Hidden entirely for non-admin roles. -->
+    <TextView
+        android:id="@+id/btnMigrateReportsTo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="🔧 Auto-assign Reports To (unassigned employees)"
+        android:textColor="@color/theme_text_accent"
+        android:textSize="12sp"
+        android:gravity="center"
+        android:padding="8dp"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone" />
+
     <!-- Inline filter dropdowns -->
     <HorizontalScrollView
         android:layout_width="match_parent"

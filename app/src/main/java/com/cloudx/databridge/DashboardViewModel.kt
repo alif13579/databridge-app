@@ -276,7 +276,7 @@ class DashboardViewModel : ViewModel() {
                 // that role is named) naturally resolves to an empty pool here and falls
                 // through to the self-only view below, exactly what "worker" used to be
                 // hardcoded to mean.
-                val subordinates = subordinatePool(viewerLevel, branchFilter, isAdmin)
+                val subordinates = subordinatePool(uid, viewerLevel, branchFilter, isAdmin)
                 val results = if (subordinates.isEmpty()) {
                     listOf(loadAgentStat(uid, UserNameResolver.resolveName(uid), startKey, endKey, range.startTs, range.endTs))
                 } else if (_rollupMode.value != false) {
@@ -503,9 +503,8 @@ class DashboardViewModel : ViewModel() {
             ?: getValue(Long::class.java)?.toDouble()
             ?: getValue(Int::class.java)?.toDouble()
 
-    /** Workers (role_id == "worker") whose branch_ids intersect [branchFilter], each read via
-     *  loadAgentStat in parallel. Empty branchFilter + non-admin viewer -> returns nothing
-     *  rather than risk a company-wide read (the exact bug loadBranchView() had). */
+    /** Every already-resolved subordinate (subordinatePool() — level+branch or explicit
+     *  reports_to, any depth), each read via loadAgentStat in parallel. */
     private suspend fun loadSubordinateAgentStats(
         candidates: List<SubordinateCandidate>, startKey: String, endKey: String,
         rangeStartTs: Long, rangeEndTs: Long,
@@ -520,23 +519,30 @@ class DashboardViewModel : ViewModel() {
     }
 
     /** One candidate account found while scanning users/ — enough to match subordinates
-     *  against the viewer (and each other) by level + shared branch. Replaces the old
-     *  role-name-keyed RollupCandidate now that tier detection is level-based, not
-     *  role_id == "supervisor"/"stuff"/"worker". */
-    private data class SubordinateCandidate(val uid: String, val name: String, val branchIds: List<String>, val level: Int)
+     *  against the viewer (and each other) by level, shared branch, or explicit reports_to. */
+    private data class SubordinateCandidate(
+        val uid: String, val name: String, val branchIds: List<String>, val level: Int, val reportsTo: String,
+    )
 
-    /** Phase 2 of the dynamic role-hierarchy plan (see RbacManager.kt): resolves everyone
-     *  with a lower rank (higher level number) than [viewerLevel] who shares at least one
-     *  branch with [branchFilter] — the generic "who is my subordinate" rule. Replaces the
-     *  old hardcoded role_id == "worker" / role_id in ["supervisor","stuff"] checks;
-     *  works for any number of hierarchy tiers and any role name, since it only ever reads
-     *  role_id to resolve a level via RoleLevelCache, never to compare against a literal
-     *  role string. [isAdmin] bypasses the branch-membership filter, same as every other
-     *  admin bypass already in this codebase (EmployeeFragment.canManageRole() etc.) —
-     *  Phase 2 is about arbitrary-depth hierarchy, not about removing the admin superuser
-     *  concept, so that one stays a named exception. */
+    /** Combines Phase 2 of the dynamic role-hierarchy plan (arbitrary-depth, level-based tiers
+     *  — see RbacManager.kt) with the explicit users/{uid}/profile/company_info/reports_to
+     *  hierarchy (see EmployeeEditFragment's Reports To picker / EmployeeFragment's
+     *  Auto-assign tool): resolves everyone beneath [viewerUid] at ANY depth.
+     *
+     *  An account with reports_to set is placed by walking that chain upward (their reports_to
+     *  -> that person's reports_to -> ...) — reaching [viewerUid] at any hop means they're a
+     *  subordinate however many levels down, REGARDLESS of branch (an explicit assignment is
+     *  ground truth and overrides branch overlap even if it differs). An account with no
+     *  reports_to at all (not yet migrated) falls back to the old level+branch inference —
+     *  their level > viewer's level AND they share a branch — so dashboards for
+     *  not-yet-migrated accounts don't go blank. Chain walk is cycle-guarded (10-hop cap) in
+     *  case of a bad assignment (A reports to B reports to A).
+     *
+     *  [isAdmin] bypasses both the branch filter and the reports_to-chain requirement — same
+     *  "admin sees everything below them" convention as every other admin bypass in this
+     *  codebase; admin is a named superuser exception, not something Phase 2 generalizes away. */
     private suspend fun subordinatePool(
-        viewerLevel: Int, branchFilter: Set<String>, isAdmin: Boolean,
+        viewerUid: String, viewerLevel: Int, branchFilter: Set<String>, isAdmin: Boolean,
     ): List<SubordinateCandidate> {
         if (branchFilter.isEmpty() && !isAdmin) return emptyList() // bounded-read safety —
                                                                      // never a company-wide scan
@@ -544,17 +550,35 @@ class DashboardViewModel : ViewModel() {
             runCatching { db.reference.child("users").get().await() }.getOrNull()
         } ?: return emptyList()
 
-        return usersSnap.children.mapNotNull { child ->
-            val candidateUid = child.key ?: return@mapNotNull null
+        val all = usersSnap.children.mapNotNull { child ->
+            val uid = child.key ?: return@mapNotNull null
             val info = child.child("profile/company_info")
             val roleId = info.child("role_id").getValue(String::class.java) ?: return@mapNotNull null
             val level = RoleLevelCache.levelOf(roleId)
-            if (level <= viewerLevel) return@mapNotNull null // same or higher rank — not a subordinate
             val branchIds = info.child("branch_ids").children.mapNotNull { it.getValue(String::class.java) }
-            if (branchFilter.isNotEmpty() && branchIds.none { it in branchFilter }) return@mapNotNull null
+            val reportsTo = info.child("reports_to").getValue(String::class.java)?.trim().orEmpty()
             val name = child.child("profile/name").getValue(String::class.java)
-                ?.trim()?.takeIf { it.isNotBlank() } ?: candidateUid
-            SubordinateCandidate(candidateUid, name, branchIds, level)
+                ?.trim()?.takeIf { it.isNotBlank() } ?: uid
+            SubordinateCandidate(uid, name, branchIds, level, reportsTo)
+        }
+        val byUid = all.associateBy { it.uid }
+
+        fun chainReachesViewer(start: SubordinateCandidate): Boolean {
+            var cur = start.reportsTo
+            repeat(10) {
+                if (cur == viewerUid) return true
+                val next = byUid[cur]?.reportsTo ?: return false
+                if (next.isBlank()) return false
+                cur = next
+            }
+            return false // cycle guard tripped — treat as unresolved, not a match
+        }
+
+        return all.filter { c ->
+            if (c.uid == viewerUid || c.level <= viewerLevel) return@filter false
+            if (isAdmin) return@filter true
+            if (c.reportsTo.isNotBlank()) chainReachesViewer(c)
+            else c.branchIds.any { it in branchFilter }
         }
     }
 
@@ -562,24 +586,25 @@ class DashboardViewModel : ViewModel() {
      *  level that turns out to be — dynamically the lowest level number found among
      *  [candidates], never a specific role name), each row an AGGREGATE (delivered/onHold/
      *  returned/pending, earnings, openRuns/closedRuns) of everyone deeper than that tier who
-     *  shares a branch with them. A person whose branch is covered by more than one
-     *  direct-report counts under each of them; that's a real shared-branch org shape, not
-     *  something to dedupe away. A direct report with nothing under them (or whose matched
-     *  subordinates summed to all-zero) is hidden, same convention loadSubordinateAgentStats
-     *  uses.
+     *  either chains up to them via reports_to (any depth) or, lacking reports_to, shares a
+     *  branch with them. A person whose branch is covered by more than one direct-report (in
+     *  the no-reports_to fallback case) counts under each of them; that's a real
+     *  shared-branch org shape, not something to dedupe away. A direct report with nothing
+     *  under them (or whose matched subordinates summed to all-zero) is hidden, same
+     *  convention loadSubordinateAgentStats uses.
      *
-     *  Phase 2 scope, not full Phase 3: this is still a single next-tier rollup (mirrors what
-     *  loadSupervisorRollups used to do for exactly "supervisor/stuff" vs "worker"), not
-     *  recursive arbitrary-depth grouping — that's Phase 3's job, on top of this same
-     *  subordinatePool() primitive. */
+     *  Combines Phase 2 (dynamic level-based tiers) with the explicit reports_to hierarchy —
+     *  see subordinatePool()'s doc comment for how each account gets placed. */
     private suspend fun loadTieredRollups(
         candidates: List<SubordinateCandidate>, startKey: String, endKey: String,
         rangeStartTs: Long, rangeEndTs: Long,
     ): List<AgentLoadResult> {
         if (candidates.isEmpty()) return emptyList()
+        val byUid = candidates.associateBy { it.uid }
 
         val nextTierLevel = candidates.minOf { it.level }
         val directReports = candidates.filter { it.level == nextTierLevel }
+        val directReportUids = directReports.map { it.uid }.toSet()
         val deeper = candidates.filter { it.level > nextTierLevel }
 
         if (deeper.isEmpty()) {
@@ -603,8 +628,33 @@ class DashboardViewModel : ViewModel() {
             }.awaitAll()
         }
 
+        // Which direct report(s) a "deeper" person rolls up under: an explicit reports_to
+        // chain wins if walking it (any number of hops through OTHER deeper subordinates)
+        // lands on one of the direct-report uids -- exactly one match, however many levels
+        // down. Lacking reports_to, fall back to branch overlap against every direct report
+        // (can be more than one -- see doc comment above). Cycle-guarded, same 10-hop cap as
+        // subordinatePool()'s own chain walk.
+        fun directReportsFor(person: SubordinateCandidate): List<String> {
+            if (person.reportsTo.isNotBlank()) {
+                var cur = person.reportsTo
+                repeat(10) {
+                    if (cur in directReportUids) return listOf(cur)
+                    cur = byUid[cur]?.reportsTo ?: return emptyList()
+                    if (cur.isBlank()) return emptyList()
+                }
+                return emptyList()
+            }
+            return directReports.filter { rep -> person.branchIds.any { it in rep.branchIds } }.map { it.uid }
+        }
+        val deeperByReport = mutableMapOf<String, MutableList<Pair<SubordinateCandidate, AgentLoadResult>>>()
+        deeperResults.forEach { (person, result) ->
+            directReportsFor(person).forEach { repUid ->
+                deeperByReport.getOrPut(repUid) { mutableListOf() }.add(person to result)
+            }
+        }
+
         return directReports.mapNotNull { rep ->
-            val matched = deeperResults.filter { (c, _) -> c.branchIds.any { it in rep.branchIds } }
+            val matched = deeperByReport[rep.uid] ?: return@mapNotNull null
             if (matched.isEmpty()) return@mapNotNull null
             val delivered  = matched.sumOf { it.second.stat.delivered }
             val onHold     = matched.sumOf { it.second.stat.onHold }
