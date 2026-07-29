@@ -64,6 +64,10 @@ class CallCenterFragment : Fragment() {
     private lateinit var switchAutoCall: Switch
     private lateinit var btnAutoCallStartPause: android.widget.Button
     private lateinit var btnAutoCallGapMenu: TextView
+    private lateinit var cardAutoCallStatus: androidx.cardview.widget.CardView
+    private lateinit var tvAutoCallStatusLabel: TextView
+    private lateinit var tvAutoCallStatusName: TextView
+    private lateinit var tvAutoCallStatusTimer: TextView
     private lateinit var tvSortByDropdown: TextView
     private var sortMode: String = "attempt" // "attempt" (default) or "aging" — same options as Worker Fragment
 
@@ -311,6 +315,10 @@ class CallCenterFragment : Fragment() {
         switchAutoCall = view.findViewById(R.id.switchCcAutoCall)
         btnAutoCallStartPause = view.findViewById(R.id.btnCcAutoCallStartPause)
         btnAutoCallGapMenu = view.findViewById(R.id.btnCcAutoCallGapMenu)
+        cardAutoCallStatus = view.findViewById(R.id.cardAutoCallStatus)
+        tvAutoCallStatusLabel = view.findViewById(R.id.tvAutoCallStatusLabel)
+        tvAutoCallStatusName = view.findViewById(R.id.tvAutoCallStatusName)
+        tvAutoCallStatusTimer = view.findViewById(R.id.tvAutoCallStatusTimer)
         setupAutoCallControls()
 
         val user = FirebaseAuth.getInstance().currentUser
@@ -492,6 +500,36 @@ class CallCenterFragment : Fragment() {
     /** Starts (or resumes) sequentially dialing every currently-pending parcel's number. */
     private fun pushCallStates() {
         if (::adapter.isInitialized) adapter.callStates = callCardStates.toMap()
+    }
+
+    // ── Auto Call status overlay (non-modal — never blocks taps on the parcel list below it) ──
+
+    /** Phase: gap period before the next dial. Shows who's about to be called + a live
+     *  countdown in seconds. Caller ticks this down every second from autoCallGapSeconds. */
+    private fun showAutoCallCountdown(name: String, secondsRemaining: Int) {
+        tvAutoCallStatusLabel.text = "পরবর্তী কল আসছে"
+        tvAutoCallStatusName.text = name
+        tvAutoCallStatusTimer.text = secondsRemaining.toString()
+        tvAutoCallStatusTimer.visibility = View.VISIBLE
+        cardAutoCallStatus.visibility = View.VISIBLE
+    }
+
+    /** Phase: current call is active (dial just fired). Shows who's next in queue after this
+     *  one — no timer, since we don't know when the current call will end. */
+    private fun showAutoCallNextPreview(nextName: String?) {
+        if (nextName == null) {
+            hideAutoCallStatus()
+            return
+        }
+        tvAutoCallStatusLabel.text = "এরপর কল যাবে"
+        tvAutoCallStatusName.text = nextName
+        tvAutoCallStatusTimer.visibility = View.GONE
+        cardAutoCallStatus.visibility = View.VISIBLE
+    }
+
+    /** Phase: call ended (or auto-call stopped entirely). */
+    private fun hideAutoCallStatus() {
+        cardAutoCallStatus.visibility = View.GONE
     }
 
     private fun startAutoCall() {
