@@ -26,6 +26,9 @@
          TelephonyManager (CallStateWatcher.kt), instead of relying on the app merely
          regaining foreground focus, which can happen while a call is still active. -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- Auto Call no-answer detection: reads CallLog.Calls.DURATION after a call ends to
+         tell an unanswered call (duration 0) apart from one that connected. -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-feature
         android:name="android.hardware.telephony"
         android:required="false" />
