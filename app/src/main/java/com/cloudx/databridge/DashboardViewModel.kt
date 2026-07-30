@@ -40,6 +40,10 @@ data class AgentStat(
     val earnings:  Double = 0.0,
     val openRuns:  Int = 0,
     val closedRuns: Int = 0,
+    // Needed to drill into this row: re-run subordinatePool() with THEM as the viewer
+    // (their own level + their own branch scope), not the root viewer's.
+    val level:      Int = RoleLevelCache.DEFAULT_LEVEL,
+    val branchIds:  List<String> = emptyList(),
 ) {
     val total get() = delivered + onHold + returned + pending
     val deliveryRate get() = if (total > 0) (delivered * 100) / total else 0
@@ -140,16 +144,48 @@ class DashboardViewModel : ViewModel() {
         load(_dateRange.value ?: todayRange())
     }
 
-    // Manager-only view toggle: true (default) = one row per supervisor/stuff account,
-    // each an aggregate of every worker sharing a branch with them. false = flat list of
-    // individual workers, same view supervisor/stuff/admin already get. Meaningless for
-    // any other role — DashboardFragment only shows the toggle when Success.role == "manager".
+    // Rollup toggle: true (default) = one row per immediate-next-tier account, each an
+    // aggregate of everyone below that tier (direct + indirect). false = flat list of
+    // individual subordinates at any depth. Meaningless for a viewer with nobody below
+    // them — DashboardFragment shows the toggle only when Success.hasSubordinates is true.
     private val _rollupMode = MutableLiveData(true)
     val rollupMode: LiveData<Boolean> = _rollupMode
 
     fun setRollupMode(rollup: Boolean) {
         if (_rollupMode.value == rollup) return
         _rollupMode.value = rollup
+        load(_dateRange.value ?: todayRange())
+    }
+
+    // ── Drill-down ───────────────────────────────────────────────────────────
+    // Tapping a row re-runs subordinatePool()/load() with THAT person as the viewer instead
+    // of rebuilding a separate nested-tree data structure — reuses the exact same level +
+    // reports_to resolution, just anchored one hop lower each time. The stack is the
+    // breadcrumb trail back up to the real logged-in viewer (empty stack).
+    data class DrillLevel(val uid: String, val name: String, val level: Int, val branchIds: List<String>)
+
+    private val _drillStack = MutableLiveData<List<DrillLevel>>(emptyList())
+    val drillStack: LiveData<List<DrillLevel>> = _drillStack
+
+    /** Only meaningful to call on a row that's already visible to the current viewer (i.e.
+     *  it came from this same subordinatePool() call) — drilling in doesn't check any new
+     *  permission, since seeing [level]/[branchIds] worth of aggregate for that person
+     *  already implied visibility into who makes it up. */
+    fun drillInto(uid: String, name: String, level: Int, branchIds: List<String>) {
+        _drillStack.value = (_drillStack.value ?: emptyList()) + DrillLevel(uid, name, level, branchIds)
+        load(_dateRange.value ?: todayRange())
+    }
+
+    fun drillBack() {
+        val stack = _drillStack.value ?: return
+        if (stack.isEmpty()) return
+        _drillStack.value = stack.dropLast(1)
+        load(_dateRange.value ?: todayRange())
+    }
+
+    fun drillToRoot() {
+        if (_drillStack.value.isNullOrEmpty()) return
+        _drillStack.value = emptyList()
         load(_dateRange.value ?: todayRange())
     }
 
@@ -274,15 +310,39 @@ class DashboardViewModel : ViewModel() {
                 val available = _availableBranches.value?.map { it.id }?.toSet() ?: emptySet()
                 val branchFilter = selected.ifEmpty { available }
 
+                // Drill-down: if a row further down the org was tapped into, resolve THEIR
+                // subordinates instead of the real logged-in viewer's — same subordinatePool()
+                // call, just anchored at whoever's on top of the stack, using their own level
+                // + branch scope (never the root viewer's selected branch filter or admin
+                // bypass, which wouldn't reflect the drilled-into person's real standing).
+                val drillStack = _drillStack.value ?: emptyList()
+                val effectiveUid: String
+                val effectiveLevel: Int
+                val effectiveBranchFilter: Set<String>
+                val effectiveIsAdmin: Boolean
+                if (drillStack.isEmpty()) {
+                    effectiveUid = uid
+                    effectiveLevel = viewerLevel
+                    effectiveBranchFilter = branchFilter
+                    effectiveIsAdmin = isAdmin
+                } else {
+                    val top = drillStack.last()
+                    effectiveUid = top.uid
+                    effectiveLevel = top.level
+                    effectiveBranchFilter = top.branchIds.toSet()
+                    effectiveIsAdmin = false
+                }
+
                 // Generic "who is my subordinate" rule (Phase 2 of the dynamic role-hierarchy
                 // plan, see RbacManager.kt) — replaces the old hardcoded roleId == "worker" /
                 // roleId == "manager" checks. A role with nobody ranked below it (whatever
                 // that role is named) naturally resolves to an empty pool here and falls
                 // through to the self-only view below, exactly what "worker" used to be
                 // hardcoded to mean.
-                val subordinates = subordinatePool(uid, viewerLevel, branchFilter, isAdmin)
+                val subordinates = subordinatePool(effectiveUid, effectiveLevel, effectiveBranchFilter, effectiveIsAdmin)
+                val selfName = drillStack.lastOrNull()?.name ?: UserNameResolver.resolveName(uid)
                 val results = if (subordinates.isEmpty()) {
-                    listOf(loadAgentStat(uid, UserNameResolver.resolveName(uid), startKey, endKey, range.startTs, range.endTs))
+                    listOf(loadAgentStat(effectiveUid, selfName, startKey, endKey, range.startTs, range.endTs))
                 } else if (_rollupMode.value != false) {
                     loadTieredRollups(subordinates, startKey, endKey, range.startTs, range.endTs)
                 } else {
@@ -357,6 +417,7 @@ class DashboardViewModel : ViewModel() {
     private suspend fun loadAgentStat(
         uid: String, name: String, startKey: String, endKey: String,
         rangeStartTs: Long, rangeEndTs: Long,
+        level: Int = RoleLevelCache.DEFAULT_LEVEL, branchIds: List<String> = emptyList(),
     ): AgentLoadResult {
         val snap = withContext(Dispatchers.IO) {
             runCatching {
@@ -495,6 +556,8 @@ class DashboardViewModel : ViewModel() {
             // of what its status is.
             pending   = entryCount - delivered - onHold - returned,
             earnings  = earnings,
+            level     = level,
+            branchIds = branchIds,
             openRuns  = openRuns,
             closedRuns = closedRuns,
         )
@@ -516,7 +579,7 @@ class DashboardViewModel : ViewModel() {
     ): List<AgentLoadResult> {
         return coroutineScope {
             candidates.map { c ->
-                async { loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs) }
+                async { loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs, c.level, c.branchIds) }
             }.awaitAll()
         }.filter { it.stat.total > 0 || it.stat.earnings > 0 || it.stat.openRuns + it.stat.closedRuns > 0 }
             // hide subordinates with nothing actioned, earned, or run in this range — same
@@ -620,7 +683,7 @@ class DashboardViewModel : ViewModel() {
             // this is a deliberate behavior change, confirm it's wanted.
             return coroutineScope {
                 directReports.map { c ->
-                    async { loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs) }
+                    async { loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs, c.level, c.branchIds) }
                 }.awaitAll()
             }
         }
@@ -629,7 +692,7 @@ class DashboardViewModel : ViewModel() {
         // direct reports end up summing it in, then grouped below — not re-fetched per report.
         val deeperResults = coroutineScope {
             deeper.map { c ->
-                async { c to loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs) }
+                async { c to loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs, c.level, c.branchIds) }
             }.awaitAll()
         }
 
@@ -686,6 +749,8 @@ class DashboardViewModel : ViewModel() {
                     earnings   = earnings,
                     openRuns   = openRuns,
                     closedRuns = closedRuns,
+                    level      = rep.level,
+                    branchIds  = rep.branchIds,
                 ),
                 rawStatusCounts = rawCounts,
             )
