@@ -327,6 +327,7 @@ class CallCenterFragment : Fragment() {
         switchAutoCall = view.findViewById(R.id.switchCcAutoCall)
         btnAutoCallStartPause = view.findViewById(R.id.btnCcAutoCallStartPause)
         btnAutoCallGapMenu = view.findViewById(R.id.btnCcAutoCallGapMenu)
+        btnRecallList = view.findViewById(R.id.btnCcRecallList)
         cardAutoCallStatus = view.findViewById(R.id.cardAutoCallStatus)
         tvAutoCallStatusLabel = view.findViewById(R.id.tvAutoCallStatusLabel)
         tvAutoCallStatusName = view.findViewById(R.id.tvAutoCallStatusName)
