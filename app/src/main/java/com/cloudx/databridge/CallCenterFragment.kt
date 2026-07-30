@@ -98,6 +98,7 @@ class CallCenterFragment : Fragment() {
     private var autoCallMinAgeDays = 3
     private var autoCallQueue: List<String> = emptyList()      // phone numbers, in dial order
     private var autoCallQueueIds: List<String> = emptyList()   // matching parcel ids, same order
+    private var autoCallQueueNames: List<String> = emptyList() // matching customer names, same order
     private var autoCallIndex = 0
 
     // Per-consignment last-seen remark timestamp — used to detect genuinely new remarks
@@ -576,6 +577,7 @@ class CallCenterFragment : Fragment() {
             }
             autoCallQueue = eligible.map { it.phone }
             autoCallQueueIds = eligible.map { it.id }
+            autoCallQueueNames = eligible.map { it.customer }
             autoCallIndex = 0
             // Mark the whole fresh queue as "waiting its turn".
             autoCallQueueIds.forEach { id -> callCardStates[id] = colorCallQueued }
@@ -608,7 +610,15 @@ class CallCenterFragment : Fragment() {
 
                 AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
                 DialCountStore.increment(ctx, id)
+                // Auto-expand this parcel's remarks now, not after the call ends — the
+                // overlay below is non-modal, so the agent can start writing notes while the
+                // call is still going instead of waiting for it to finish.
+                pendingExpandParcelId = id
                 autoCallIndex++
+
+                // Preview who's next while this call is active. No timer here — we don't
+                // know when the current call will end.
+                showAutoCallNextPreview(autoCallQueueNames.getOrNull(autoCallIndex))
 
                 // Wait for the call to actually END, not just for the agent's focus to
                 // return to this screen — the two are NOT the same thing. Android often lets
@@ -620,6 +630,7 @@ class CallCenterFragment : Fragment() {
                 // Reliable path: real telephony call-state (OFFHOOK -> IDLE) via
                 // CallStateWatcher, which needs READ_PHONE_STATE.
                 val realCallEndDetected = CallStateWatcher.awaitCallEnd(ctx, AUTO_CALL_RETURN_TIMEOUT_MS)
+                hideAutoCallStatus() // call just ended (or we timed out waiting) — clear the preview
 
                 if (!realCallEndDetected) {
                     // No READ_PHONE_STATE (declined during onboarding, or an existing
@@ -633,7 +644,16 @@ class CallCenterFragment : Fragment() {
                     resumeSignal = null
                 }
 
-                delay(autoCallGapSeconds * 1000L) // short breather once back, before the next dial
+                // Short breather before the next dial — shown as a live countdown instead of
+                // a silent delay, so it's clear who's coming up and exactly when.
+                val upcomingName = autoCallQueueNames.getOrNull(autoCallIndex)
+                if (upcomingName != null) {
+                    for (remaining in autoCallGapSeconds downTo 1) {
+                        showAutoCallCountdown(upcomingName, remaining)
+                        delay(1000L)
+                    }
+                    hideAutoCallStatus() // about to dial — next-preview (above) takes over from here
+                }
             }
             // Finished the whole queue — mark the last item done too.
             if (isAdded) {
@@ -642,7 +662,9 @@ class CallCenterFragment : Fragment() {
                 btnAutoCallStartPause.text = "▶ Start"
                 autoCallQueue = emptyList()
                 autoCallQueueIds = emptyList()
+                autoCallQueueNames = emptyList()
                 autoCallIndex = 0
+                hideAutoCallStatus()
                 Toast.makeText(requireContext(), "Auto Call finished", Toast.LENGTH_SHORT).show()
             }
         }
