@@ -22,6 +22,7 @@ import androidx.fragment.app.viewModels
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.firebase.auth.FirebaseAuth
 import com.google.android.material.tabs.TabLayout
+import com.google.android.material.datepicker.MaterialDatePicker
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -49,6 +50,8 @@ class CashManagementFragment : Fragment() {
     private lateinit var tvBranchName: TextView
     private lateinit var tvToBePaid: TextView
     private lateinit var tvAgainstCollection: TextView
+    private lateinit var tvDateRangeButton: TextView
+    private lateinit var btnClearDateRange: ImageButton
     private lateinit var tvStatCollection: TextView
     private lateinit var tvStatCashInHand: TextView
     private lateinit var tvStatMfsBalance: TextView
@@ -69,7 +72,14 @@ class CashManagementFragment : Fragment() {
 
     private var branchId: String = ""
     private val dateFmt = SimpleDateFormat("dd MMM, h:mm a", Locale.getDefault())
+    private val rangeLabelFmt = SimpleDateFormat("dd MMM", Locale.getDefault())
     private val providerOptions = listOf("Select provider", "Rocket", "bKash", "Other")
+
+    // null = show all-time summary. Otherwise [start, endInclusive] in epoch ms,
+    // applied only to the summary card (Handover/Payment tabs always show the full
+    // live channel list regardless, since you need to see everything to act on it).
+    private var selectedDateRange: Pair<Long, Long>? = null
+    private var lastSuccessState: CashManagementState.Success? = null
 
     // Counts provider-picker rows the person has opened via "+ Add provider" but not
     // yet resolved to a real name. Every Success re-render rebuilds the whole card
@@ -107,6 +117,8 @@ class CashManagementFragment : Fragment() {
         tvBranchName            = view.findViewById(R.id.tvBranchName)
         tvToBePaid              = view.findViewById(R.id.tvToBePaid)
         tvAgainstCollection     = view.findViewById(R.id.tvAgainstCollection)
+        tvDateRangeButton       = view.findViewById(R.id.tvDateRangeButton)
+        btnClearDateRange       = view.findViewById(R.id.btnClearDateRange)
         tvStatCollection        = view.findViewById(R.id.tvStatCollection)
         tvStatCashInHand        = view.findViewById(R.id.tvStatCashInHand)
         tvStatMfsBalance        = view.findViewById(R.id.tvStatMfsBalance)
@@ -140,6 +152,12 @@ class CashManagementFragment : Fragment() {
         swipeRefresh.setOnRefreshListener { vm.refresh() }
         btnRetry.setOnClickListener { vm.load(branchId) }
         btnAddProvider.setOnClickListener { addEmptyProviderRow() }
+        tvDateRangeButton.setOnClickListener { showDateRangePicker() }
+        btnClearDateRange.setOnClickListener {
+            selectedDateRange = null
+            updateDateRangeButtonLabel()
+            lastSuccessState?.let { renderSummary(it) }
+        }
 
         btnAddCollection.setOnClickListener {
             layoutAddCollectionForm.isVisible = true
@@ -203,22 +221,8 @@ class CashManagementFragment : Fragment() {
     }
 
     private fun showSuccess(state: CashManagementState.Success) {
-        tvToBePaid.text = taka(state.summary.toBePaid)
-        tvAgainstCollection.text = "against ${taka(state.summary.totalCollection)} total collection"
-        tvStatCollection.text = taka(state.summary.totalCollection)
-        tvStatCashInHand.text = taka(state.summary.cashInHand)
-        tvStatMfsBalance.text = taka(state.summary.totalMfsBalance)
-        tvStatHubPaid.text = taka(state.summary.totalHubPayment)
-
-        layoutMfsBreakdown.removeAllViews()
-        val activeAccounts = state.accounts.filter { it.hasActivity }
-        if (activeAccounts.isEmpty()) {
-            layoutMfsBreakdown.addView(buildEmptyRow("No MFS balance yet."))
-        } else {
-            activeAccounts.sortedByDescending { it.balance }.forEach { account ->
-                layoutMfsBreakdown.addView(buildSimpleEntryRow(account.provider, taka(account.balance)))
-            }
-        }
+        lastSuccessState = state
+        renderSummary(state)
 
         val stillEmptyRows = pendingEmptyRowCount
         layoutProviderCards.removeAllViews()
@@ -240,6 +244,70 @@ class CashManagementFragment : Fragment() {
                 layoutCollectionEntries.addView(buildSimpleEntryRow(dateFmt.format(Date(entry.timestamp)), taka(entry.amount)))
             }
         }
+    }
+
+    // Recomputes and renders just the summary card for the current date-range
+    // selection (or all-time if none). Handover/Payment tabs are untouched --
+    // they always reflect the full live channel list regardless of this filter.
+    private fun renderSummary(state: CashManagementState.Success) {
+        val range = selectedDateRange
+        val collections = if (range == null) state.collections else state.collections.filter { it.timestamp in range.first..range.second }
+        val accounts = if (range == null) state.accounts else state.accounts.map { acc ->
+            MfsAccountSummary(
+                provider = acc.provider,
+                handovers = acc.handovers.filter { it.timestamp in range.first..range.second },
+                hubPayments = acc.hubPayments.filter { it.timestamp in range.first..range.second },
+            )
+        }
+        val totalCollection = collections.sumOf { it.amount }
+        val totalHandover = accounts.sumOf { it.handoverTotal }
+        val totalHubPayment = accounts.sumOf { it.hubPaymentTotal }
+        val summary = CashManagementSummary(totalCollection, totalHandover, totalHubPayment)
+
+        tvToBePaid.text = taka(summary.toBePaid)
+        tvAgainstCollection.text = "against ${taka(summary.totalCollection)} total collection"
+        tvStatCollection.text = taka(summary.totalCollection)
+        tvStatCashInHand.text = taka(summary.cashInHand)
+        tvStatMfsBalance.text = taka(summary.totalMfsBalance)
+        tvStatHubPaid.text = taka(summary.totalHubPayment)
+
+        layoutMfsBreakdown.removeAllViews()
+        val activeAccounts = accounts.filter { it.hasActivity }
+        if (activeAccounts.isEmpty()) {
+            layoutMfsBreakdown.addView(buildEmptyRow(if (range == null) "No MFS balance yet." else "No MFS activity in this range."))
+        } else {
+            activeAccounts.sortedByDescending { it.balance }.forEach { account ->
+                layoutMfsBreakdown.addView(buildSimpleEntryRow(account.provider, taka(account.balance)))
+            }
+        }
+    }
+
+    private fun updateDateRangeButtonLabel() {
+        val range = selectedDateRange
+        tvDateRangeButton.text = if (range == null) {
+            "\uD83D\uDCC5  All time"
+        } else {
+            "\uD83D\uDCC5  ${rangeLabelFmt.format(Date(range.first))} \u2013 ${rangeLabelFmt.format(Date(range.second))}"
+        }
+        btnClearDateRange.isVisible = range != null
+    }
+
+    private fun showDateRangePicker() {
+        val picker = MaterialDatePicker.Builder.dateRangePicker()
+            .setTitleText("Select date range")
+            .build()
+        picker.addOnPositiveButtonClickListener { selection ->
+            val start = selection.first ?: return@addOnPositiveButtonClickListener
+            val end = selection.second ?: start
+            // MaterialDatePicker gives UTC midnight for both ends; push the end
+            // out to the last millisecond of that day so entries later that day
+            // aren't excluded.
+            val endOfDay = end + 24 * 60 * 60 * 1000L - 1
+            selectedDateRange = start to endOfDay
+            updateDateRangeButtonLabel()
+            lastSuccessState?.let { renderSummary(it) }
+        }
+        picker.show(childFragmentManager, "cash_date_range_picker")
     }
 
     private fun addEmptyProviderRow() {

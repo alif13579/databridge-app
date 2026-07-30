@@ -126,6 +126,37 @@
                             android:textColor="#64748B"
                             android:textSize="12sp" />
 
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <TextView
+                                android:id="@+id/tvDateRangeButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="\uD83D\uDCC5  All time"
+                                android:textSize="12sp"
+                                android:textStyle="bold"
+                                android:textColor="#0F766E"
+                                android:paddingHorizontal="10dp"
+                                android:paddingVertical="6dp"
+                                android:background="@drawable/bg_dashed_button"
+                                android:layerType="software" />
+
+                            <ImageButton
+                                android:id="@+id/btnClearDateRange"
+                                android:layout_width="28dp"
+                                android:layout_height="28dp"
+                                android:layout_marginStart="4dp"
+                                android:background="?attr/selectableItemBackgroundBorderless"
+                                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                                android:contentDescription="Clear date range"
+                                android:visibility="gone" />
+                        </LinearLayout>
+
                         <View
                             android:layout_width="match_parent"
                             android:layout_height="1dp"
