@@ -229,6 +229,11 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Handover" />
+
+                    <com.google.android.material.tabs.TabItem
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Payment" />
                 </com.google.android.material.tabs.TabLayout>
 
                 <!-- ── Collections tab ─────────────────────────────────────── -->
@@ -320,7 +325,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="16dp"
                         android:layout_marginTop="16dp"
-                        android:text="MFS ACCOUNTS"
+                        android:text="MFS CHANNELS"
                         android:textColor="#64748B"
                         android:textSize="11sp"
                         android:textStyle="bold"
@@ -344,11 +349,41 @@
                         android:layout_marginEnd="16dp"
                         android:layout_marginTop="4dp"
                         android:layout_marginBottom="24dp"
-                        android:text="+  Add provider"
+                        android:text="+  Add channel"
                         android:textAllCaps="false"
                         android:textColor="#0F766E"
                         android:background="@drawable/bg_dashed_button"
                         android:layerType="software" />
+                </LinearLayout>
+
+                <!-- ── Payment tab ──────────────────────────────────────────── -->
+                <LinearLayout
+                    android:id="@+id/layoutPaymentTab"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:text="PAY TO HUB"
+                        android:textColor="#64748B"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.06" />
+
+                    <LinearLayout
+                        android:id="@+id/layoutPaymentChannels"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        android:layout_marginTop="8dp"
+                        android:layout_marginBottom="24dp" />
                 </LinearLayout>
 
             </LinearLayout>

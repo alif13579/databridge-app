@@ -62,6 +62,8 @@ class CashManagementFragment : Fragment() {
     private lateinit var tabLayoutCash: TabLayout
     private lateinit var layoutCollectionsTab: View
     private lateinit var layoutHandoverTab: View
+    private lateinit var layoutPaymentTab: View
+    private lateinit var layoutPaymentChannels: LinearLayout
 
     private var branchId: String = ""
     private val dateFmt = SimpleDateFormat("dd MMM, h:mm a", Locale.getDefault())
@@ -116,11 +118,14 @@ class CashManagementFragment : Fragment() {
         tabLayoutCash           = view.findViewById(R.id.tabLayoutCash)
         layoutCollectionsTab    = view.findViewById(R.id.layoutCollectionsTab)
         layoutHandoverTab       = view.findViewById(R.id.layoutHandoverTab)
+        layoutPaymentTab        = view.findViewById(R.id.layoutPaymentTab)
+        layoutPaymentChannels   = view.findViewById(R.id.layoutPaymentChannels)
 
         tabLayoutCash.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 layoutCollectionsTab.isVisible = tab.position == 0
                 layoutHandoverTab.isVisible = tab.position == 1
+                layoutPaymentTab.isVisible = tab.position == 2
             }
             override fun onTabUnselected(tab: TabLayout.Tab) {}
             override fun onTabReselected(tab: TabLayout.Tab) {}
@@ -205,6 +210,13 @@ class CashManagementFragment : Fragment() {
         state.accounts.forEach { account -> layoutProviderCards.addView(buildProviderCard(account.provider, account)) }
         repeat(stillEmptyRows) { layoutProviderCards.addView(buildProviderCard(null, null)) }
 
+        layoutPaymentChannels.removeAllViews()
+        if (state.accounts.isEmpty()) {
+            layoutPaymentChannels.addView(buildEmptyRow("No channels yet -- add one from the Handover tab."))
+        } else {
+            state.accounts.forEach { account -> layoutPaymentChannels.addView(buildPaymentChannelCard(account)) }
+        }
+
         layoutCollectionEntries.removeAllViews()
         if (state.collections.isEmpty()) {
             layoutCollectionEntries.addView(buildEmptyRow("No collection entries yet."))
@@ -229,9 +241,6 @@ class CashManagementFragment : Fragment() {
         val layoutLedgerContent   = card.findViewById<View>(R.id.layoutLedgerContent)
         val tvBalance             = card.findViewById<TextView>(R.id.tvBalance)
         val tvBadge               = card.findViewById<TextView>(R.id.tvBadge)
-        val btnToggleHandover     = card.findViewById<Button>(R.id.btnToggleHandover)
-        val btnToggleHubPayment   = card.findViewById<Button>(R.id.btnToggleHubPayment)
-        val layoutInlineForm      = card.findViewById<View>(R.id.layoutInlineForm)
         val etAmount              = card.findViewById<EditText>(R.id.etEntryAmount)
         val etTrxId               = card.findViewById<EditText>(R.id.etEntryTrxId)
         val tvEnteredByPreview    = card.findViewById<TextView>(R.id.tvEnteredByPreview)
@@ -241,8 +250,6 @@ class CashManagementFragment : Fragment() {
         val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_item, providerOptions)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinner.adapter = adapter
-
-        var openFormType: String? = null // LEDGER_TYPE_HANDOVER | LEDGER_TYPE_HUB_PAYMENT | null
 
         fun resolvedName(): String = when (spinner.selectedItem?.toString()) {
             "Other" -> etCustomName.text.toString().trim()
@@ -276,6 +283,8 @@ class CashManagementFragment : Fragment() {
                     tvBadge.setBackgroundResource(R.drawable.badge_bg_pending)
                 }
             }
+
+            tvEnteredByPreview.text = "By $currentUserDisplayName \u00B7 now"
 
             layoutLedgerEntries.removeAllViews()
             val entries = (account?.handovers.orEmpty().map { it to LEDGER_TYPE_HANDOVER } +
@@ -339,26 +348,7 @@ class CashManagementFragment : Fragment() {
             }
         }
 
-        fun openForm(type: String) {
-            openFormType = type
-            layoutInlineForm.isVisible = true
-            etAmount.setText("")
-            etTrxId.setText("")
-            tvEnteredByPreview.text = "By $currentUserDisplayName \u00B7 now"
-            etAmount.requestFocus()
-        }
-
-        btnToggleHandover.setOnClickListener {
-            if (openFormType == LEDGER_TYPE_HANDOVER) { layoutInlineForm.isVisible = false; openFormType = null }
-            else openForm(LEDGER_TYPE_HANDOVER)
-        }
-        btnToggleHubPayment.setOnClickListener {
-            if (openFormType == LEDGER_TYPE_HUB_PAYMENT) { layoutInlineForm.isVisible = false; openFormType = null }
-            else openForm(LEDGER_TYPE_HUB_PAYMENT)
-        }
-
         btnSaveEntry.setOnClickListener {
-            val type = openFormType ?: return@setOnClickListener
             val amt = etAmount.text.toString().toDoubleOrNull()
             val trxId = etTrxId.text.toString().trim()
             if (amt == null || amt <= 0.0) {
@@ -369,17 +359,90 @@ class CashManagementFragment : Fragment() {
                 Toast.makeText(requireContext(), "Enter a transaction ID", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            vm.addLedgerEntry(resolvedName(), type, amt, trxId) { ok ->
+            vm.addLedgerEntry(resolvedName(), LEDGER_TYPE_HANDOVER, amt, trxId) { ok ->
                 if (ok) {
-                    layoutInlineForm.isVisible = false
-                    openFormType = null
+                    etAmount.setText("")
+                    etTrxId.setText("")
                 } else {
-                    Toast.makeText(requireContext(), "Failed to save entry", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), "Failed to save handover", Toast.LENGTH_SHORT).show()
                 }
             }
         }
 
         return card
+    }
+
+    private fun buildPaymentChannelCard(account: MfsAccountSummary): View {
+        val card = layoutInflater.inflate(R.layout.item_cash_payment_channel, layoutPaymentChannels, false)
+
+        val tvChannelName = card.findViewById<TextView>(R.id.tvChannelName)
+        val tvBalance      = card.findViewById<TextView>(R.id.tvBalance)
+        val tvBadge        = card.findViewById<TextView>(R.id.tvBadge)
+        val btnPayToHub    = card.findViewById<Button>(R.id.btnPayToHub)
+
+        tvChannelName.text = account.provider
+        tvBalance.text = taka(account.balance)
+        when {
+            !account.hasActivity -> {
+                tvBadge.text = "No activity"
+                tvBadge.setBackgroundResource(R.drawable.badge_bg_neutral)
+            }
+            account.settled -> {
+                tvBadge.text = "Settled"
+                tvBadge.setBackgroundResource(R.drawable.badge_bg_settled)
+            }
+            else -> {
+                tvBadge.text = "Balance pending"
+                tvBadge.setBackgroundResource(R.drawable.badge_bg_pending)
+            }
+        }
+
+        // Nothing to pay out yet -- hide the action rather than let someone
+        // record a payment against a channel with no leftover balance.
+        btnPayToHub.isVisible = account.balance > 0.0
+        btnPayToHub.setOnClickListener { showPayToHubDialog(account) }
+
+        return card
+    }
+
+    private fun showPayToHubDialog(account: MfsAccountSummary) {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_cash_payment, null)
+        val tvInfo    = dialogView.findViewById<TextView>(R.id.tvDialogChannelInfo)
+        val etAmount  = dialogView.findViewById<EditText>(R.id.etDialogAmount)
+        val etTrxId   = dialogView.findViewById<EditText>(R.id.etDialogTrxId)
+
+        tvInfo.text = "${account.provider} \u00B7 ${taka(account.balance)} available to pay"
+        etAmount.setText(if (account.balance > 0) Math.round(account.balance).toString() else "")
+
+        val dialog = android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Pay to hub")
+            .setView(dialogView)
+            .setPositiveButton("Pay Now", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val amt = etAmount.text.toString().toDoubleOrNull()
+                val trxId = etTrxId.text.toString().trim()
+                if (amt == null || amt <= 0.0) {
+                    Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                if (trxId.isBlank()) {
+                    Toast.makeText(requireContext(), "Enter a transaction ID", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                vm.addLedgerEntry(account.provider, LEDGER_TYPE_HUB_PAYMENT, amt, trxId) { ok ->
+                    if (ok) {
+                        dialog.dismiss()
+                    } else {
+                        Toast.makeText(requireContext(), "Failed to save payment", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+        dialog.show()
     }
 
     private val currentUserDisplayName: String

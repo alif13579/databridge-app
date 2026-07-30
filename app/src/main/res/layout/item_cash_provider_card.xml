@@ -86,43 +86,22 @@
             </LinearLayout>
 
             <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="10dp">
-
-                <Button
-                    android:id="@+id/btnToggleHandover"
-                    style="?android:attr/buttonStyleSmall"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="4dp"
-                    android:text="&#8595; Handover"
-                    android:textAllCaps="false"
-                    android:textSize="12sp" />
-
-                <Button
-                    android:id="@+id/btnToggleHubPayment"
-                    style="?android:attr/buttonStyleSmall"
-                    android:layout_width="0dp"
-                    android:layout_weight="1"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
-                    android:text="&#8593; Hub Payment"
-                    android:textAllCaps="false"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
-            <LinearLayout
                 android:id="@+id/layoutInlineForm"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:background="#F8FAFC"
                 android:padding="8dp"
-                android:layout_marginTop="8dp"
-                android:visibility="gone">
+                android:layout_marginTop="10dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Log a handover"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="#64748B"
+                    android:layout_marginBottom="4dp" />
 
                 <EditText
                     android:id="@+id/etEntryAmount"
@@ -153,7 +132,7 @@
                     android:id="@+id/btnSaveEntry"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Save entry"
+                    android:text="Save handover"
                     android:textAllCaps="false"
                     android:layout_marginTop="6dp"
                     android:backgroundTint="#0F172A"
