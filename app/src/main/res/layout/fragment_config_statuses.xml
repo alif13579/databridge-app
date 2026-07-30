@@ -111,9 +111,18 @@
             </LinearLayout>
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Priority (বেশি = আগে দেখাবে)" android:textSize="10sp"
+                android:text="Authority Level (courier sync vs. remark — higher wins)" android:textSize="10sp"
                 android:textColor="@color/theme_text_muted" android:textStyle="bold" android:layout_marginBottom="4dp" />
             <EditText android:id="@+id/etNewStatusPriority" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="0"
+                android:textSize="13sp" android:padding="8dp"
+                android:background="@drawable/bg_input_rounded"
+                android:inputType="number" android:layout_marginBottom="10dp" />
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Sort Order (বেশি = আগে দেখাবে)" android:textSize="10sp"
+                android:textColor="@color/theme_text_muted" android:textStyle="bold" android:layout_marginBottom="4dp" />
+            <EditText android:id="@+id/etNewStatusSortOrder" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:hint="0"
                 android:textSize="13sp" android:padding="8dp"
                 android:background="@drawable/bg_input_rounded"

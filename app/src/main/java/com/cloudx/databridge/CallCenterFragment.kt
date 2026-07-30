@@ -405,7 +405,7 @@ class CallCenterFragment : Fragment() {
             statusContainer.removeAllViews()
             statusCheckboxes.clear()
             statusContainer.addView(sectionTitle("কোন কোন Status এ Call যাবে"))
-            val allStatuses = StatusMetaCache.entries.entries.sortedByDescending { it.value.priority }
+            val allStatuses = StatusMetaCache.entries.entries.sortedByDescending { it.value.sortOrder }
             if (allStatuses.isEmpty()) {
                 statusContainer.addView(TextView(ctx).apply {
                     text = "কোনো status পাওয়া যায়নি"; textSize = 12f
@@ -1044,11 +1044,11 @@ class CallCenterFragment : Fragment() {
             statusFilter = "all"
         }
 
-        // Chips sorted by config/statusMeta/{key}/priority (admin-managed in
-        // ConfigStatusesFragment) — higher priority first. Ties broken alphabetically
-        // for a stable order; unconfigured statuses (priority 0) sort last together.
+        // Chips sorted by config/statusMeta/{key}/sortOrder (admin-managed in
+        // ConfigStatusesFragment) — higher sortOrder first. Ties broken alphabetically
+        // for a stable order; unconfigured statuses (sortOrder 0) sort last together.
         val sortedEntries = statusCounts.entries.sortedWith(
-            compareByDescending<Map.Entry<String, Int>> { StatusMetaCache.entries[it.key]?.priority ?: 0 }
+            compareByDescending<Map.Entry<String, Int>> { StatusMetaCache.entries[it.key]?.sortOrder ?: 0 }
                 .thenBy { it.key }
         )
 

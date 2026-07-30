@@ -471,6 +471,14 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
     setBusy(true, "Sheet fetch করছে...")
 
     try {
+        // Needed before the courier/consignments status-change block further down can
+        // compare authority levels correctly. Sequential (not parallelized with the token
+        // fetch below) to avoid adding an async/coroutineScope import for what's a fast,
+        // once-per-sync call, not a per-row one. If this fails (or the cache stays empty),
+        // authorityOf() defaults every status to 0, which safely degrades to "courier sync
+        // always wins" — the same behavior as before this authority system existed.
+        withContext(Dispatchers.IO) { StatusMetaCache.refresh() }
+
         // ── 1. Get token ─────────────────────────────────────────
         val token = withContext(Dispatchers.IO) {
             try { GoogleAuthUtil.getToken(ctx, acctObj, ConfigSheetDriveApi.OAUTH_SCOPE) }
@@ -933,16 +941,24 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                         }
                     }
                     // Propagate into courier/remarks_by_userId/{userId}/push_{day}_{conId}/final_status for
-                    // every (day, userId) that has ever left a remark on this consignment. This is
-                    // what makes final_status the source of truth: courier/consignments/status is
-                    // where it actually comes from, and it may keep changing after the remark that
-                    // originally created the entry. courier/users_by_consignment (written alongside every
-                    // remark save in CallCenterFragment / WorkerSpaceFragment) is the reverse index
-                    // that tells us who to propagate to — one small per-consignment read, never a
-                    // company-wide scan, and it only runs for rows whose status actually changed
-                    // this sync.
+                    // every (day, userId) that has ever left a remark on this consignment — but
+                    // only when the incoming courier status doesn't LOSE an authority comparison
+                    // against whatever final_status already holds. Authority (config/statusMeta/
+                    // {key}/priority, via StatusMetaCache.authorityOf()) exists specifically so a
+                    // human-verified outcome (e.g. CC confirming "Return Verified" after actually
+                    // reaching the customer) isn't silently overwritten by a lower-authority courier
+                    // sync status that happens to land later (e.g. a generic "In Transit" from a
+                    // stale courier-side tracking event). Ties go to the incoming courier status
+                    // (>=, not >) so a same-authority status still updates rather than freezing
+                    // forever on the first value written at that authority level.
+                    //
+                    // courier/users_by_consignment (written alongside every remark save in
+                    // CallCenterFragment / WorkerSpaceFragment) is the reverse index that tells us
+                    // who to check — one small per-consignment read, never a company-wide scan, and
+                    // it only runs for rows whose status actually changed this sync.
                     if (basePath == "courier/consignments" && "status" in changedFields) {
                         val newStatus = changedFields["status"].toString()
+                        val newAuthority = StatusMetaCache.authorityOf(newStatus)
                         val touchedUsersSnap = withContext(Dispatchers.IO) {
                             try { db.reference.child("courier/users_by_consignment/$conId").get().await() }
                             catch (e: Exception) { null }
@@ -951,8 +967,19 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                             val dayKey = dayNode.key ?: return@forEach
                             dayNode.children.forEach { userNode ->
                                 val touchedUserId = userNode.key ?: return@forEach
-                                multiUpdate["courier/remarks_by_userId/$touchedUserId/push_${dayKey}_$conId/final_status"] =
-                                    newStatus
+                                val finalStatusPath =
+                                    "courier/remarks_by_userId/$touchedUserId/push_${dayKey}_$conId/final_status"
+                                val currentStatus = withContext(Dispatchers.IO) {
+                                    try {
+                                        db.reference.child(finalStatusPath).get().await()
+                                            .getValue(String::class.java)
+                                    } catch (e: Exception) { null }
+                                }
+                                val currentAuthority = currentStatus
+                                    ?.let { StatusMetaCache.authorityOf(it) } ?: 0
+                                if (newAuthority >= currentAuthority) {
+                                    multiUpdate[finalStatusPath] = newStatus
+                                }
                             }
                         }
                     }

@@ -396,21 +396,21 @@ class WorkerParcelAdapter(
          * Each parcel's rank is driven by its *effective status* (p.status — already
          * resolved to today's remarkStatus when a remark exists, or the parcel's own
          * courier/consignments status otherwise) looked up in StatusMetaCache.
-         * Higher configured priority → comes first. Priority 0 / unconfigured → last.
+         * Higher configured sortOrder → comes first. sortOrder 0 / unconfigured → last.
          *
          * GROUP ranking:
-         *   1. Max effective-status priority among parcels in the group (descending).
+         *   1. Max effective-status sortOrder among parcels in the group (descending).
          *   2. Tie-break: max attemptCount in the group (descending).
          *   3. Final tie-break: oldest createdAt in the group (ascending).
          *
          * WITHIN each group:
-         *   - Effective-status priority descending.
-         *   - Same priority level: attempt-desc → age-asc.
+         *   - Effective-status sortOrder descending.
+         *   - Same sortOrder level: attempt-desc → age-asc.
          */
         fun sortByPriority(parcels: List<WorkerParcelItem>): List<WorkerParcelItem> {
             fun effectiveAge(p: WorkerParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
             fun statusPriority(p: WorkerParcelItem): Int =
-                StatusMetaCache.entries[p.status]?.priority ?: 0
+                StatusMetaCache.entries[p.status]?.sortOrder ?: 0
             val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
             return groups.values
                 .sortedWith(

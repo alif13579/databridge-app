@@ -35,6 +35,7 @@ class ConfigStatusesFragment : Fragment() {
     private lateinit var etNewBn:             EditText
     private lateinit var etNewEn:             EditText
     private lateinit var etNewPriority:       EditText
+    private lateinit var etNewSortOrder:      EditText
     private lateinit var colorPickerNew:      LinearLayout
     private lateinit var tvColorPreviewNew:   TextView
     private lateinit var tvCreateError:       TextView
@@ -66,6 +67,7 @@ class ConfigStatusesFragment : Fragment() {
         etNewBn             = view.findViewById(R.id.etNewStatusBn)
         etNewEn             = view.findViewById(R.id.etNewStatusEn)
         etNewPriority       = view.findViewById(R.id.etNewStatusPriority)
+        etNewSortOrder      = view.findViewById(R.id.etNewStatusSortOrder)
         colorPickerNew      = view.findViewById(R.id.colorPickerNew)
         tvColorPreviewNew   = view.findViewById(R.id.tvColorPreviewNew)
         tvCreateError       = view.findViewById(R.id.tvCreateError)
@@ -112,7 +114,8 @@ class ConfigStatusesFragment : Fragment() {
                     val color = s.child("color").getValue(String::class.java) ?: "#6B7280"
                     val bg = s.child("bg").getValue(String::class.java) ?: "#F3F4F6"
                     val pri = s.child("priority").getValue(Int::class.java) ?: 0
-                    loadedMeta[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, false)
+                    val sortOrder = s.child("sortOrder").getValue(Int::class.java) ?: 0
+                    loadedMeta[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, sortOrder, false)
                     loadedStatuses.add(key)
                 }
             }
@@ -176,7 +179,7 @@ class ConfigStatusesFragment : Fragment() {
 
             val breakdown = if (count > 0) " (Worker $countW · Agent $countCC)" else ""
             row.findViewById<TextView>(R.id.tvStatusSubtitle).text =
-                "$key · Priority: ${meta.priority} · $count remark${if (count != 1) "s" else ""}$breakdown"
+                "$key · Authority: ${meta.priority} · Sort: ${meta.sortOrder} · $count remark${if (count != 1) "s" else ""}$breakdown"
 
             row.findViewById<View>(R.id.btnEditStatus).setOnClickListener { openEditDialog(key) }
 
@@ -197,6 +200,7 @@ class ConfigStatusesFragment : Fragment() {
         val etBn   = view.findViewById<EditText>(R.id.etEditStatusBn)
         val etEn   = view.findViewById<EditText>(R.id.etEditStatusEn)
         val etPri  = view.findViewById<EditText>(R.id.etEditStatusPriority)
+        val etSort = view.findViewById<EditText>(R.id.etEditStatusSortOrder)
         val picker = view.findViewById<LinearLayout>(R.id.colorPickerEdit)
         val tvPrev = view.findViewById<TextView>(R.id.tvEditColorPreview)
         val tvHint = view.findViewById<TextView>(R.id.tvEditStatusKeyHint)
@@ -205,6 +209,7 @@ class ConfigStatusesFragment : Fragment() {
         etBn.setText(meta.bn)
         etEn.setText(meta.en)
         etPri.setText(meta.priority.toString())
+        etSort.setText(meta.sortOrder.toString())
 
         // Find matching color index
         var editColorIdx = statusColors.indexOfFirst { it.first == meta.color }.coerceAtLeast(0)
@@ -227,8 +232,9 @@ class ConfigStatusesFragment : Fragment() {
                 val newBn  = etBn.text.toString().trim().ifEmpty { meta.bn }
                 val newEn  = etEn.text.toString().trim().ifEmpty { meta.en }
                 val newPri = etPri.text.toString().toIntOrNull() ?: meta.priority
+                val newSort = etSort.text.toString().toIntOrNull() ?: meta.sortOrder
                 val (nc, nb) = statusColors[editColorIdx]
-                val updated = meta.copy(bn = newBn, en = newEn, color = nc, bg = nb, priority = newPri)
+                val updated = meta.copy(bn = newBn, en = newEn, color = nc, bg = nb, priority = newPri, sortOrder = newSort)
                 val newMeta = ConfigState.statusMeta.toMutableMap()
                 newMeta[key] = updated
                 ConfigState.statusMeta = newMeta
@@ -355,6 +361,7 @@ class ConfigStatusesFragment : Fragment() {
         val bn     = etNewBn.text.toString().trim()
         val en     = etNewEn.text.toString().trim()
         val pri    = etNewPriority.text.toString().toIntOrNull() ?: 0
+        val sort   = etNewSortOrder.text.toString().toIntOrNull() ?: 0
 
         if (rawKey.isEmpty()) { showError("Status key দিন"); return }
         if (ConfigState.statuses.contains(rawKey)) { showError("এই key ইতিমধ্যে আছে"); return }
@@ -368,6 +375,7 @@ class ConfigStatusesFragment : Fragment() {
             color    = nc,
             bg       = nb,
             priority = pri,
+            sortOrder = sort,
             builtIn  = false,
         )
         ConfigState.statusMeta = newMeta
@@ -385,7 +393,7 @@ class ConfigStatusesFragment : Fragment() {
                 Toast.makeText(requireContext(), "Status create failed", Toast.LENGTH_LONG).show()
             }
         }
-        etNewKey.setText(""); etNewBn.setText(""); etNewEn.setText(""); etNewPriority.setText("0")
+        etNewKey.setText(""); etNewBn.setText(""); etNewEn.setText(""); etNewPriority.setText("0"); etNewSortOrder.setText("0")
         newColorIdx = 0; updateCreateColorPreview()
         bindStatusList()
     }
@@ -428,6 +436,7 @@ class ConfigStatusesFragment : Fragment() {
         val bnInput = input("বাংলা...")
         val enInput = input("English...")
         val priorityInput = input("0", android.text.InputType.TYPE_CLASS_NUMBER)
+        val sortOrderInput = input("0", android.text.InputType.TYPE_CLASS_NUMBER)
         val picker = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(8), 0, dp(8))
@@ -465,8 +474,10 @@ class ConfigStatusesFragment : Fragment() {
         content.addView(bnInput)
         content.addView(label("English"))
         content.addView(enInput)
-        content.addView(label("Priority"))
+        content.addView(label("Authority Level (courier sync vs. remark)"))
         content.addView(priorityInput)
+        content.addView(label("Sort Order (display order)"))
+        content.addView(sortOrderInput)
         content.addView(label("Color"))
         content.addView(picker)
         content.addView(preview)
@@ -484,6 +495,7 @@ class ConfigStatusesFragment : Fragment() {
                 val bn = bnInput.text.toString().trim()
                 val en = enInput.text.toString().trim()
                 val pri = priorityInput.text.toString().toIntOrNull() ?: 0
+                val sort = sortOrderInput.text.toString().toIntOrNull() ?: 0
 
                 when {
                     rawKey.isEmpty() -> keyInput.error = "Status key দিন"
@@ -495,7 +507,7 @@ class ConfigStatusesFragment : Fragment() {
                     else -> {
                         val (color, bg) = statusColors[selectedColorIdx]
                         dialog.dismiss()
-                        createStatus(rawKey, bn, en, pri, color, bg)
+                        createStatus(rawKey, bn, en, pri, sort, color, bg)
                     }
                 }
             }
@@ -512,6 +524,7 @@ class ConfigStatusesFragment : Fragment() {
         bn: String,
         en: String,
         priority: Int,
+        sortOrder: Int,
         color: String,
         bg: String,
         onSuccess: () -> Unit = {},
@@ -523,6 +536,7 @@ class ConfigStatusesFragment : Fragment() {
             color = color,
             bg = bg,
             priority = priority,
+            sortOrder = sortOrder,
             builtIn = false,
         )
         ConfigState.statusMeta = newMeta
@@ -580,18 +594,19 @@ class ConfigStatusesFragment : Fragment() {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     private fun sortedStatuses(): List<String> =
-        ConfigState.statuses.sortedByDescending { ConfigState.statusMeta[it]?.priority ?: 0 }
+        ConfigState.statuses.sortedByDescending { ConfigState.statusMeta[it]?.sortOrder ?: 0 }
 
     private suspend fun saveStatusMeta(): Boolean =
         try {
             val payload = mutableMapOf<String, Any>()
             ConfigState.statusMeta.forEach { (key, m) ->
                 payload[key] = mapOf(
-                    "bn"       to m.bn,
-                    "en"       to m.en,
-                    "color"    to m.color,
-                    "bg"       to m.bg,
-                    "priority" to m.priority,
+                    "bn"        to m.bn,
+                    "en"        to m.en,
+                    "color"     to m.color,
+                    "bg"        to m.bg,
+                    "priority"  to m.priority,
+                    "sortOrder" to m.sortOrder,
                 )
             }
             db.reference.child("config/statusMeta").setValue(payload).await()

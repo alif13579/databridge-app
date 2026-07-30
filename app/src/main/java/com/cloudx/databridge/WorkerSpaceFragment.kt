@@ -283,11 +283,11 @@ class WorkerSpaceFragment : Fragment() {
             activeFilter = "all"
         }
 
-        // Chips sorted by config/statusMeta/{key}/priority (admin-managed in
-        // ConfigStatusesFragment) — higher priority first. Ties broken alphabetically
-        // for a stable order; unconfigured statuses (priority 0) sort last together.
+        // Chips sorted by config/statusMeta/{key}/sortOrder (admin-managed in
+        // ConfigStatusesFragment) — higher sortOrder first. Ties broken alphabetically
+        // for a stable order; unconfigured statuses (sortOrder 0) sort last together.
         val sortedEntries = statusCounts.entries.sortedWith(
-            compareByDescending<Map.Entry<String, Int>> { StatusMetaCache.entries[it.key]?.priority ?: 0 }
+            compareByDescending<Map.Entry<String, Int>> { StatusMetaCache.entries[it.key]?.sortOrder ?: 0 }
                 .thenBy { it.key }
         )
 
@@ -1263,16 +1263,16 @@ class WorkerSpaceFragment : Fragment() {
                                 )
                             }
                             // Auto-activate Priority sort when a live remark causes a
-                            // status whose configured priority > 0 to become effective.
+                            // status whose configured sortOrder > 0 to become effective.
                             // Only switches when the user hasn't already chosen priority mode.
-                            val newStatusPriority = StatusMetaCache.entries[effectiveStatus]?.priority ?: 0
-                            if (newStatusPriority > 0 && sortMode != "priority") {
+                            val newStatusSortOrder = StatusMetaCache.entries[effectiveStatus]?.sortOrder ?: 0
+                            if (newStatusSortOrder > 0 && sortMode != "priority") {
                                 sortMode = "priority"
                                 saveSortPref()
                                 updateSortByLabel()
                             }
                             // Re-sort whenever priority mode is active so the updated
-                            // remarkStatus priority is immediately reflected in card order.
+                            // remarkStatus sortOrder is immediately reflected in card order.
                             if (sortMode == "priority") {
                                 allParcels = WorkerParcelAdapter.sortByPriority(allParcels)
                             }

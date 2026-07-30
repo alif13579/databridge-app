@@ -325,7 +325,7 @@ class DashboardViewModel : ViewModel() {
                         percent = (count * 100) / totalForPercent,
                     )
                 }.sortedWith(
-                    compareByDescending<StatusBreakdownItem> { StatusMetaCache.entries[it.key]?.priority ?: 0 }
+                    compareByDescending<StatusBreakdownItem> { StatusMetaCache.entries[it.key]?.sortOrder ?: 0 }
                         .thenByDescending { it.count }
                 )
 
