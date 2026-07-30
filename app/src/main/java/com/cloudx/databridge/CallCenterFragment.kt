@@ -64,6 +64,7 @@ class CallCenterFragment : Fragment() {
     private lateinit var switchAutoCall: Switch
     private lateinit var btnAutoCallStartPause: android.widget.Button
     private lateinit var btnAutoCallGapMenu: TextView
+    private lateinit var btnRecallList: TextView
     private lateinit var cardAutoCallStatus: androidx.cardview.widget.CardView
     private lateinit var tvAutoCallStatusLabel: TextView
     private lateinit var tvAutoCallStatusName: TextView
@@ -93,6 +94,11 @@ class CallCenterFragment : Fragment() {
     // reject/invalid-number/network-fail than a genuine unanswered ring — left for manual
     // review instead of risking a wrong auto-classification.
     private val AUTO_NO_ANSWER_MIN_RING_SECONDS = 30
+    // Distinctive, code-controlled text — nothing else in the app produces this exact string —
+    // so recall candidates can be identified by a plain text match on the latest remark
+    // instead of threading a new field through the whole remarks-parsing pipeline.
+    private val AUTO_NO_ANSWER_REMARK_TEXT = "The customer doesn't receive the call"
+    private var recallModeActive = false
 
     // ── Auto Call filter preference ──────────────────────────────────
     // "status" = only cards whose status is in autoCallStatuses go into the queue.
@@ -348,10 +354,21 @@ class CallCenterFragment : Fragment() {
         switchAutoCall.isChecked = false
         switchAutoCall.setOnCheckedChangeListener { _, isChecked ->
             btnAutoCallStartPause.visibility = if (isChecked) View.VISIBLE else View.GONE
-            if (!isChecked) stopAutoCall()
+            if (!isChecked) {
+                recallModeActive = false
+                stopAutoCall()
+            }
         }
 
         btnAutoCallGapMenu.setOnClickListener { showAutoCallGapMenu() }
+
+        btnRecallList.setOnClickListener {
+            recallModeActive = true
+            autoCallQueue = emptyList() // force a fresh queue build under recall filtering
+            autoCallIndex = 0
+            switchAutoCall.isChecked = true
+            startAutoCall()
+        }
 
         btnAutoCallStartPause.setOnClickListener {
             if (autoCallJob?.isActive == true) {
@@ -564,6 +581,9 @@ class CallCenterFragment : Fragment() {
         if (autoCallQueue.isEmpty() || autoCallIndex >= autoCallQueue.size) {
             val eligible = allParcels.filter { p ->
                 if (p.phone.isBlank()) return@filter false
+                if (recallModeActive) {
+                    return@filter p.remarks == AUTO_NO_ANSWER_REMARK_TEXT
+                }
                 val matchesMode = when (autoCallMode) {
                     "status" -> p.effectiveStatus in autoCallStatuses
                     "aging"  -> true // aging mode ignores status entirely
@@ -1108,7 +1128,14 @@ class CallCenterFragment : Fragment() {
     }
 
 
+    private fun updateRecallButton() {
+        val count = allParcels.count { it.remarks == AUTO_NO_ANSWER_REMARK_TEXT }
+        btnRecallList.text = "🔁 Recall($count)"
+        btnRecallList.visibility = if (count > 0) View.VISIBLE else View.GONE
+    }
+
     private fun setupFilterTabs() {
+        updateRecallButton()
         layoutFilterTabs.removeAllViews()
         val scoped       = scopedParcels()
         val total        = scoped.size
@@ -2393,7 +2420,7 @@ class CallCenterFragment : Fragment() {
         val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
         val timestamp = System.currentTimeMillis()
         val indexDateKey = todayDateKeyYyyyMmDd()
-        val noteText = "The customer doesn't receive the call"
+        val noteText = AUTO_NO_ANSWER_REMARK_TEXT
 
         val remarkData = mapOf(
             "userId"      to userId,
