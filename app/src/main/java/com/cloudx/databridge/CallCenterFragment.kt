@@ -88,6 +88,11 @@ class CallCenterFragment : Fragment() {
     private var resumeSignal: CompletableDeferred<Unit>? = null
     private var hasPausedSincePendingDial = false
     private val AUTO_CALL_RETURN_TIMEOUT_MS = 5 * 60 * 1000L // safety net if the signal never arrives
+    // Minimum total ring time (dial -> end) before an unanswered call (CallLog duration == 0)
+    // is confident enough to auto-remark. Below this, it's more likely an immediate
+    // reject/invalid-number/network-fail than a genuine unanswered ring — left for manual
+    // review instead of risking a wrong auto-classification.
+    private val AUTO_NO_ANSWER_MIN_RING_SECONDS = 30
 
     // ── Auto Call filter preference ──────────────────────────────────
     // "status" = only cards whose status is in autoCallStatuses go into the queue.
@@ -608,6 +613,7 @@ class CallCenterFragment : Fragment() {
                 callCardStates[id] = colorCallCalling
                 pushCallStates()
 
+                val dialStartMs = System.currentTimeMillis()
                 AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
                 DialCountStore.increment(ctx, id)
                 // Auto-expand this parcel's remarks now, not after the call ends — the
@@ -631,6 +637,15 @@ class CallCenterFragment : Fragment() {
                 // CallStateWatcher, which needs READ_PHONE_STATE.
                 val realCallEndDetected = CallStateWatcher.awaitCallEnd(ctx, AUTO_CALL_RETURN_TIMEOUT_MS)
                 hideAutoCallStatus() // call just ended (or we timed out waiting) — clear the preview
+
+                // No-answer detection: brief buffer for the OS to actually write the call log
+                // entry, then check whether it connected at all.
+                delay(1000L)
+                val talkDurationSec = CallLogHelper.getLastCallDurationSeconds(ctx, phone, dialStartMs)
+                val totalDurationSec = ((System.currentTimeMillis() - dialStartMs) / 1000L).toInt()
+                if (talkDurationSec == 0 && totalDurationSec >= AUTO_NO_ANSWER_MIN_RING_SECONDS) {
+                    allParcels.find { it.id == id }?.let { item -> saveAutoNoAnswerRemark(item) }
+                }
 
                 if (!realCallEndDetected) {
                     // No READ_PHONE_STATE (declined during onboarding, or an existing
@@ -2369,6 +2384,68 @@ class CallCenterFragment : Fragment() {
      * actually tapped; its WhatsApp template fires (if configured) — siblings share
      * the same phone number so we don't send the customer duplicate messages.
      */
+    /** Auto-remark for a call that rang long enough (AUTO_NO_ANSWER_MIN_RING_SECONDS) but was
+     *  never answered (CallLog duration == 0). Free-text note only, status left blank — same
+     *  shape as the "no configured options" manual remark elsewhere. An agent can still add a
+     *  proper status/remark afterward; this just makes sure the parcel doesn't silently look
+     *  untouched after a real, unanswered call attempt. Tagged "auto": true for traceability. */
+    private fun saveAutoNoAnswerRemark(item: CallCenterParcelItem) {
+        val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
+        val timestamp = System.currentTimeMillis()
+        val indexDateKey = todayDateKeyYyyyMmDd()
+        val noteText = "The customer doesn't receive the call"
+
+        val remarkData = mapOf(
+            "userId"      to userId,
+            "remarks"     to noteText,
+            "note"        to noteText,
+            "status"      to "",
+            "remarked_by" to "support",
+            "createdAt"   to timestamp,
+            "auto"        to true
+        )
+        db.reference.child("courier/remarks_by_consignment/${item.id}/remarks_$timestamp")
+            .setValue(remarkData)
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CallCenterFragment", action = "auto_no_answer_remark_write",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("consignmentId" to item.id, "userId" to userId)
+                )
+            }
+
+        db.reference.child("courier/remarks_by_userId/$userId/push_${indexDateKey}_${item.id}")
+            .setValue(
+                mapOf(
+                    "final_status" to "",
+                    "remarks"      to noteText,
+                    "created_at"   to timestamp,
+                    "updated_at"   to timestamp
+                )
+            )
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CallCenterFragment", action = "auto_no_answer_remarks_by_userId_write",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("consignmentId" to item.id, "userId" to userId)
+                )
+            }
+
+        db.reference.child("courier/users_by_consignment/${item.id}/$indexDateKey/$userId")
+            .setValue(true)
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CallCenterFragment", action = "auto_no_answer_users_by_consignment_write",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("consignmentId" to item.id, "userId" to userId)
+                )
+            }
+
+        allParcels = allParcels.map {
+            if (it.id == item.id) it.copy(remarks = noteText) else it
+        }
+    }
+
     private fun saveCcRemarkForItems(
         items: List<CallCenterParcelItem>,
         selectedStatus: String,
