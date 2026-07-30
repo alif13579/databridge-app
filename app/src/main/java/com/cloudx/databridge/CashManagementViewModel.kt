@@ -60,6 +60,8 @@ data class CashManagementSummary(
 ) {
     // Collected but not yet handed over to any MFS provider.
     val cashInHand get() = totalCollection - totalHandover
+    // Sitting inside MFS channel balances: handed over but not yet paid to the hub.
+    val totalMfsBalance get() = totalHandover - totalHubPayment
     // Outstanding against total collection: cash-in-hand + whatever is still sitting
     // inside MFS provider balances (handoverTotal - hubPaymentTotal, summed).
     val toBePaid get() = totalCollection - totalHubPayment

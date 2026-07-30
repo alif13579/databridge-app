@@ -51,7 +51,9 @@ class CashManagementFragment : Fragment() {
     private lateinit var tvAgainstCollection: TextView
     private lateinit var tvStatCollection: TextView
     private lateinit var tvStatCashInHand: TextView
+    private lateinit var tvStatMfsBalance: TextView
     private lateinit var tvStatHubPaid: TextView
+    private lateinit var layoutMfsBreakdown: LinearLayout
     private lateinit var layoutProviderCards: LinearLayout
     private lateinit var btnAddProvider: Button
     private lateinit var layoutCollectionEntries: LinearLayout
@@ -107,7 +109,9 @@ class CashManagementFragment : Fragment() {
         tvAgainstCollection     = view.findViewById(R.id.tvAgainstCollection)
         tvStatCollection        = view.findViewById(R.id.tvStatCollection)
         tvStatCashInHand        = view.findViewById(R.id.tvStatCashInHand)
+        tvStatMfsBalance        = view.findViewById(R.id.tvStatMfsBalance)
         tvStatHubPaid           = view.findViewById(R.id.tvStatHubPaid)
+        layoutMfsBreakdown      = view.findViewById(R.id.layoutMfsBreakdown)
         layoutProviderCards     = view.findViewById(R.id.layoutProviderCards)
         btnAddProvider          = view.findViewById(R.id.btnAddProvider)
         layoutCollectionEntries = view.findViewById(R.id.layoutCollectionEntries)
@@ -203,7 +207,18 @@ class CashManagementFragment : Fragment() {
         tvAgainstCollection.text = "against ${taka(state.summary.totalCollection)} total collection"
         tvStatCollection.text = taka(state.summary.totalCollection)
         tvStatCashInHand.text = taka(state.summary.cashInHand)
+        tvStatMfsBalance.text = taka(state.summary.totalMfsBalance)
         tvStatHubPaid.text = taka(state.summary.totalHubPayment)
+
+        layoutMfsBreakdown.removeAllViews()
+        val activeAccounts = state.accounts.filter { it.hasActivity }
+        if (activeAccounts.isEmpty()) {
+            layoutMfsBreakdown.addView(buildEmptyRow("No MFS balance yet."))
+        } else {
+            activeAccounts.sortedByDescending { it.balance }.forEach { account ->
+                layoutMfsBreakdown.addView(buildSimpleEntryRow(account.provider, taka(account.balance)))
+            }
+        }
 
         val stillEmptyRows = pendingEmptyRowCount
         layoutProviderCards.removeAllViews()
