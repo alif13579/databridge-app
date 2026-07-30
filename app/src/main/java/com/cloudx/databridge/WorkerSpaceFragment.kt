@@ -523,42 +523,59 @@ class WorkerSpaceFragment : Fragment() {
                 if (noteText.isBlank()) return@setOnClickListener
                 val timestamp = System.currentTimeMillis()
                 val todayDateKey = todayDateKeyYyyyMmDd()
-                val remarkData = mapOf(
-                    "agentSystemId" to systemId,
-                    "userId"        to userId,
-                    "remarks"       to noteText,
-                    "note"          to noteText,
-                    "status"        to "",
-                    "remarked_by"   to "worker",
-                    "createdAt"     to timestamp,
-                    "runId"         to "run_${todayDateKey}_${systemId}"
-                )
-                db.reference.child("courier/remarks_by_consignment/${item.id}/remarks_$timestamp")
-                    .setValue(remarkData)
 
-                // ✅ Secondary per-user index — see saveRemarkForItems() for the full
-                // rationale. status is "" here (no configured remark options to pick a
-                // status from), so final_status is written as "" too, same as the
-                // primary remark above.
-                db.reference.child("courier/remarks_by_userId/$userId/push_${todayDateKey}_${item.id}")
-                    .setValue(
-                        mapOf(
-                            "final_status" to "",
-                            "remarks"      to noteText,
-                            "created_at"   to timestamp,
-                            "updated_at"   to timestamp
+                // Call-log lookup on IO first (same as saveRemarkForItems()), then write.
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val logs = withContext(Dispatchers.IO) {
+                        CallLogHelper.getTodaysCallLogs(requireContext(), item.phone)
+                    }
+                    val remarkData = buildMap<String, Any> {
+                        put("agentSystemId", systemId)
+                        put("userId", userId)
+                        put("remarks", noteText)
+                        put("note", noteText)
+                        put("status", "")
+                        put("remarked_by", "worker")
+                        put("createdAt", timestamp)
+                        put("runId", "run_${todayDateKey}_${systemId}")
+                        // ✅ call_logs — see saveRemarkForItems() for the full rationale.
+                        if (logs.isNotEmpty()) {
+                            put(
+                                "call_logs", mapOf(
+                                    "call_count" to logs.size,
+                                    "total_duration_sec" to logs.sumOf { it.second },
+                                    "calls" to logs.map { (callTs, dur) -> mapOf("ts" to callTs, "duration" to dur) }
+                                )
+                            )
+                        }
+                    }
+                    db.reference.child("courier/remarks_by_consignment/${item.id}/remarks_$timestamp")
+                        .setValue(remarkData)
+
+                    // ✅ Secondary per-user index — see saveRemarkForItems() for the full
+                    // rationale. status is "" here (no configured remark options to pick a
+                    // status from), so final_status is written as "" too, same as the
+                    // primary remark above.
+                    db.reference.child("courier/remarks_by_userId/$userId/push_${todayDateKey}_${item.id}")
+                        .setValue(
+                            mapOf(
+                                "final_status" to "",
+                                "remarks"      to noteText,
+                                "created_at"   to timestamp,
+                                "updated_at"   to timestamp
+                            )
                         )
-                    )
 
-                // ✅ Reverse index — see saveRemarkForItems() for the full rationale
-                // (userId-keyed, not a literal array, so concurrent writes/repeat touches
-                // never race or duplicate).
-                db.reference.child("courier/users_by_consignment/${item.id}/$todayDateKey/$userId")
-                    .setValue(true)
+                    // ✅ Reverse index — see saveRemarkForItems() for the full rationale
+                    // (userId-keyed, not a literal array, so concurrent writes/repeat touches
+                    // never race or duplicate).
+                    db.reference.child("courier/users_by_consignment/${item.id}/$todayDateKey/$userId")
+                        .setValue(true)
 
-                EngagedStateManager.clearEngaged(item.id)
-                android.widget.Toast.makeText(requireContext(), "✓ Note saved", android.widget.Toast.LENGTH_SHORT).show()
-                dialog.dismiss()
+                    EngagedStateManager.clearEngaged(item.id)
+                    android.widget.Toast.makeText(requireContext(), "✓ Note saved", android.widget.Toast.LENGTH_SHORT).show()
+                    dialog.dismiss()
+                }
             }
             layoutOptions.addView(btnSaveNote)
             dialog.show()
