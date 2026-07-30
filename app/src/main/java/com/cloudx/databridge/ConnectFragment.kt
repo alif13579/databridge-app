@@ -109,9 +109,15 @@ class ConnectFragment : Fragment() {
         lifecycleScope.launch {
             try {
                 db.reference.child("sessions/$extId/meta/status").setValue("disconnected").await()
-                val type = db.reference.child("sessions/$extId/meta/type").get().await().getValue(String::class.java)
-                val uid  = db.reference.child("sessions/$extId/meta/user_id").get().await().getValue(String::class.java)
-                if (type == "permanent" && !uid.isNullOrEmpty()) {
+                val uid = db.reference.child("sessions/$extId/meta/user_id").get().await().getValue(String::class.java)
+                // Migration to container/{containerId} needs a uid to build that path from
+                // (containerId = "container_$uid") — that's the actual requirement, not
+                // whether this connection was originally "permanent" vs "temporary" (a scan-
+                // connected session can still carry a real user_id if the person was logged
+                // in when they scanned). A true guest session has no uid at all, so there's
+                // nowhere in container/ to write it — that data is only ever available while
+                // the session itself is live, same as before.
+                if (!uid.isNullOrEmpty()) {
                     val repo = CallRepository(CallDatabase.getDatabase(requireContext()).callDao())
                     FirebaseContainerManager.verifyAndMigrate(extId, uid, repo)
                 }

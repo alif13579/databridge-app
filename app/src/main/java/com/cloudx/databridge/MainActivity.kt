@@ -744,9 +744,12 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                     try { prefs.clearExtensionId() } catch (e: Exception) { Log.e("SessionMonitor", "clearExtensionId failed: $e") }
                     if (!extId.isNullOrEmpty()) {
                         try {
-                            val type = firebaseDb.reference.child("sessions/$extId/meta/type").get().await().getValue(String::class.java)
-                            val uid  = firebaseDb.reference.child("sessions/$extId/meta/user_id").get().await().getValue(String::class.java)
-                            if (type == "permanent" && !uid.isNullOrEmpty()) {
+                            // Migrate whenever a uid exists — see ConnectFragment.disconnectExtension()
+                            // for the full rationale (container/ write needs a uid, not a "permanent"
+                            // connection type; a scan-connected session can still carry a real
+                            // user_id). No uid at all (true guest) = nowhere in container/ to write it.
+                            val uid = firebaseDb.reference.child("sessions/$extId/meta/user_id").get().await().getValue(String::class.java)
+                            if (!uid.isNullOrEmpty()) {
                                 val repo = CallRepository(CallDatabase.getDatabase(this@MainActivity).callDao())
                                 FirebaseContainerManager.verifyAndMigrate(extId, uid, repo)
                             } else {

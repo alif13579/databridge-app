@@ -169,10 +169,13 @@ class DataBridgeService : Service() {
     }
 
     // ✅ Re-writes status="connected" and re-registers the onDisconnect hook for
-    // sessions/$extId/meta. Mirrors ConnectFragment.handleExtensionConnection's
-    // original arm logic exactly (type == "permanent" → updateChildren on meta;
-    // otherwise → removeValue on the whole session node) so behavior is unchanged,
-    // just refreshed on every reconnect instead of only once at initial connect.
+    // sessions/$extId/meta. Arms based on whether user_id exists (matches
+    // ConnectFragment.disconnectExtension()'s fix — container/ write needs a uid, not a
+    // "permanent" connection type) instead of type == "permanent": with a uid, mark
+    // disconnected only and let the app-side SessionMonitor path run the real migration
+    // when it detects the status change; without one (true guest), there's nothing to
+    // migrate, so removing the whole session node immediately on an unexpected disconnect
+    // is safe. Re-armed on every reconnect instead of only once at initial connect.
     private fun reArmPresenceHook(extId: String) {
         val metaRef = database.getReference("sessions/$extId/meta")
         metaRef.get().addOnSuccessListener { snap ->
@@ -180,18 +183,18 @@ class DataBridgeService : Service() {
                 Log.d(TAG, "🔸 Skip presence re-arm — sessions/$extId/meta no longer exists")
                 return@addOnSuccessListener
             }
-            val type = snap.child("type").getValue(String::class.java)
+            val uid = snap.child("user_id").getValue(String::class.java)
             metaRef.updateChildren(
                 mapOf("status" to "connected", "updated_at" to System.currentTimeMillis())
             ).addOnSuccessListener {
-                if (type == "permanent") {
+                if (!uid.isNullOrEmpty()) {
                     metaRef.onDisconnect().updateChildren(
                         mapOf("status" to "disconnected", "updated_at" to System.currentTimeMillis())
                     )
                 } else {
                     database.getReference("sessions/$extId").onDisconnect().removeValue()
                 }
-                Log.d(TAG, "🔄 Presence re-armed for sessions/$extId (type=$type)")
+                Log.d(TAG, "🔄 Presence re-armed for sessions/$extId (uid=${if (uid.isNullOrEmpty()) "none" else "present"})")
             }.addOnFailureListener { e ->
                 Log.w(TAG, "⚠️ Presence re-arm status write failed: ${e.message}")
             }
