@@ -33,9 +33,17 @@
         </LinearLayout>
 
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="Priority" android:textSize="10sp" android:textColor="#9CA3AF"
+            android:text="Authority Level (who wins vs. courier sync)" android:textSize="10sp" android:textColor="#9CA3AF"
             android:textStyle="bold" android:layout_marginBottom="4dp" />
         <EditText android:id="@+id/etEditStatusPriority" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:textSize="13sp" android:padding="8dp"
+            android:background="@drawable/bg_input_rounded"
+            android:inputType="number" android:layout_marginBottom="10dp" />
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Sort Order (chip / worklist display order)" android:textSize="10sp" android:textColor="#9CA3AF"
+            android:textStyle="bold" android:layout_marginBottom="4dp" />
+        <EditText android:id="@+id/etEditStatusSortOrder" android:layout_width="match_parent"
             android:layout_height="wrap_content" android:textSize="13sp" android:padding="8dp"
             android:background="@drawable/bg_input_rounded"
             android:inputType="number" android:layout_marginBottom="10dp" />

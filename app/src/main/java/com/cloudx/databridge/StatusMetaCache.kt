@@ -23,10 +23,24 @@ object StatusMetaCache {
         // outcome) shouldn't overwrite the parcel's actual courier/consignments/{id}/status.
         // Defaults to true (old behavior) for any status that doesn't set this field.
         val updatesParcelStatus: Boolean = true,
-        // Chip sort order — higher priority sorts first. Mirrors config/statusMeta/{key}/priority,
-        // the same field ConfigStatusesFragment's admin panel edits. Defaults to 0 for any
-        // status that doesn't set this field (sorts after anything with an explicit priority).
-        val priority: Int = 0
+        // AUTHORITY level for courier-sync vs remark-status conflicts — NOT display order
+        // (see sortOrder below for that). Mirrors config/statusMeta/{key}/priority, the same
+        // field ConfigStatusesFragment's admin panel edits. Used by
+        // ConfigSheetWizardSteps.kt's propagation to decide whether an incoming
+        // courier/consignments/status change should overwrite an existing
+        // remarks_by_userId/.../final_status: higher authority wins, so e.g. a
+        // human-verified "Return Verified" outcome isn't silently overwritten by a lower-
+        // authority courier sync status. Defaults to 0 (loses every genuine comparison) for
+        // any status that doesn't set this field — an unconfigured status should never
+        // silently outrank a configured one.
+        val priority: Int = 0,
+        // Chip / worklist DISPLAY order — higher sorts first. This is what priority used to
+        // mean before that field was repurposed for authority above; every call site that
+        // used to read .priority for sorting (CallCenterFragment's status chips, Worker's
+        // Priority Queue mode, WorkerParcelAdapter's card ordering, the dashboard breakdown
+        // order) now reads .sortOrder instead. Mirrors config/statusMeta/{key}/sortOrder,
+        // a separate admin-edited field from priority/authority. Defaults to 0.
+        val sortOrder: Int = 0,
     )
 
     @Volatile
@@ -56,7 +70,8 @@ object StatusMetaCache {
                 val updatesParcelStatus = s.child("updatesParcelStatus")
                     .getValue(Boolean::class.java) ?: true
                 val priority = s.child("priority").getValue(Int::class.java) ?: 0
-                map[key] = Entry(bn, en, color, bg, updatesParcelStatus, priority)
+                val sortOrder = s.child("sortOrder").getValue(Int::class.java) ?: 0
+                map[key] = Entry(bn, en, color, bg, updatesParcelStatus, priority, sortOrder)
             }
             if (map.isNotEmpty()) entries = map
         } catch (_: Exception) {
@@ -78,6 +93,13 @@ object StatusMetaCache {
      */
     fun updatesParcelStatus(statusKey: String): Boolean =
         entries[statusKey]?.updatesParcelStatus ?: true
+
+    /** Authority level for [statusKey], for deciding whether an incoming status should
+     *  overwrite an existing one in a courier-sync-vs-remark conflict. Unconfigured
+     *  statuses get 0, same as Entry's default — see Entry.priority's doc for why an
+     *  unconfigured status must never outrank a configured one. */
+    fun authorityOf(statusKey: String): Int =
+        entries[statusKey]?.priority ?: 0
 }
 
 /**
