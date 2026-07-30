@@ -21,6 +21,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.firebase.auth.FirebaseAuth
+import com.google.android.material.tabs.TabLayout
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -58,6 +59,9 @@ class CashManagementFragment : Fragment() {
     private lateinit var etCollectionAmount: EditText
     private lateinit var btnSaveCollection: Button
     private lateinit var btnAddCollection: Button
+    private lateinit var tabLayoutCash: TabLayout
+    private lateinit var layoutCollectionsTab: View
+    private lateinit var layoutHandoverTab: View
 
     private var branchId: String = ""
     private val dateFmt = SimpleDateFormat("dd MMM, h:mm a", Locale.getDefault())
@@ -109,6 +113,18 @@ class CashManagementFragment : Fragment() {
         etCollectionAmount      = view.findViewById(R.id.etCollectionAmount)
         btnSaveCollection       = view.findViewById(R.id.btnSaveCollection)
         btnAddCollection        = view.findViewById(R.id.btnAddCollection)
+        tabLayoutCash           = view.findViewById(R.id.tabLayoutCash)
+        layoutCollectionsTab    = view.findViewById(R.id.layoutCollectionsTab)
+        layoutHandoverTab       = view.findViewById(R.id.layoutHandoverTab)
+
+        tabLayoutCash.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                layoutCollectionsTab.isVisible = tab.position == 0
+                layoutHandoverTab.isVisible = tab.position == 1
+            }
+            override fun onTabUnselected(tab: TabLayout.Tab) {}
+            override fun onTabReselected(tab: TabLayout.Tab) {}
+        })
 
         tvBranchName.text = branchId.ifBlank { "NO BRANCH ASSIGNED" }
 

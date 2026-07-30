@@ -207,108 +207,149 @@
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 
-                <!-- MFS Accounts -->
-                <TextView
-                    android:layout_width="wrap_content"
+                <com.google.android.material.tabs.TabLayout
+                    android:id="@+id/tabLayoutCash"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="16dp"
+                    android:layout_marginEnd="16dp"
                     android:layout_marginTop="4dp"
-                    android:text="MFS ACCOUNTS"
-                    android:textColor="#64748B"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:letterSpacing="0.06" />
+                    app:tabMode="fixed"
+                    app:tabGravity="fill"
+                    app:tabIndicatorColor="#0F766E"
+                    app:tabSelectedTextColor="#0F766E"
+                    app:tabTextColor="#64748B">
 
+                    <com.google.android.material.tabs.TabItem
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Collections" />
+
+                    <com.google.android.material.tabs.TabItem
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Handover" />
+                </com.google.android.material.tabs.TabLayout>
+
+                <!-- ── Collections tab ─────────────────────────────────────── -->
                 <LinearLayout
-                    android:id="@+id/layoutProviderCards"
+                    android:id="@+id/layoutCollectionsTab"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp"
-                    android:layout_marginTop="8dp" />
+                    android:visibility="visible">
 
-                <Button
-                    android:id="@+id/btnAddProvider"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp"
-                    android:layout_marginTop="4dp"
-                    android:text="+  Add provider"
-                    android:textAllCaps="false"
-                    android:textColor="#0F766E"
-                    android:background="@drawable/bg_dashed_button"
-                    android:layerType="software" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:text="COLLECTION LOG"
+                        android:textColor="#64748B"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.06" />
 
-                <!-- Collection log -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginTop="20dp"
-                    android:text="COLLECTION LOG"
-                    android:textColor="#64748B"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:letterSpacing="0.06" />
+                    <androidx.cardview.widget.CardView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="16dp"
+                        app:cardCornerRadius="8dp"
+                        app:cardElevation="1dp">
 
-                <androidx.cardview.widget.CardView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_margin="16dp"
-                    app:cardCornerRadius="8dp"
-                    app:cardElevation="1dp">
+                        <LinearLayout
+                            android:id="@+id/layoutCollectionEntries"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="4dp" />
+                    </androidx.cardview.widget.CardView>
 
                     <LinearLayout
-                        android:id="@+id/layoutCollectionEntries"
+                        android:id="@+id/layoutAddCollectionForm"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        android:visibility="gone"
+                        android:gravity="center_vertical">
+
+                        <EditText
+                            android:id="@+id/etCollectionAmount"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:hint="Amount"
+                            android:inputType="numberDecimal"
+                            android:fontFamily="monospace" />
+
+                        <Button
+                            android:id="@+id/btnSaveCollection"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Save"
+                            android:textAllCaps="false" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/btnAddCollection"
+                        style="?android:attr/borderlessButtonStyle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        android:layout_marginBottom="24dp"
+                        android:text="+  Add collection"
+                        android:textAllCaps="false"
+                        android:textColor="#0F766E"
+                        android:background="@drawable/bg_dashed_button"
+                        android:layerType="software" />
+                </LinearLayout>
+
+                <!-- ── Handover tab ─────────────────────────────────────────── -->
+                <LinearLayout
+                    android:id="@+id/layoutHandoverTab"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginTop="16dp"
+                        android:text="MFS ACCOUNTS"
+                        android:textColor="#64748B"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.06" />
+
+                    <LinearLayout
+                        android:id="@+id/layoutProviderCards"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="4dp" />
-                </androidx.cardview.widget.CardView>
-
-                <LinearLayout
-                    android:id="@+id/layoutAddCollectionForm"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp"
-                    android:visibility="gone"
-                    android:gravity="center_vertical">
-
-                    <EditText
-                        android:id="@+id/etCollectionAmount"
-                        android:layout_width="0dp"
-                        android:layout_weight="1"
-                        android:layout_height="wrap_content"
-                        android:hint="Amount"
-                        android:inputType="numberDecimal"
-                        android:fontFamily="monospace" />
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        android:layout_marginTop="8dp" />
 
                     <Button
-                        android:id="@+id/btnSaveCollection"
-                        android:layout_width="wrap_content"
+                        android:id="@+id/btnAddProvider"
+                        style="?android:attr/borderlessButtonStyle"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Save"
-                        android:textAllCaps="false" />
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="24dp"
+                        android:text="+  Add provider"
+                        android:textAllCaps="false"
+                        android:textColor="#0F766E"
+                        android:background="@drawable/bg_dashed_button"
+                        android:layerType="software" />
                 </LinearLayout>
-
-                <Button
-                    android:id="@+id/btnAddCollection"
-                    style="?android:attr/borderlessButtonStyle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp"
-                    android:layout_marginBottom="24dp"
-                    android:text="+  Add collection"
-                    android:textAllCaps="false"
-                    android:textColor="#0F766E"
-                    android:background="@drawable/bg_dashed_button"
-                    android:layerType="software" />
 
             </LinearLayout>
         </LinearLayout>
