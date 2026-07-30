@@ -59,4 +59,12 @@ object FirebasePaths {
 
     /* ── Number Entries ────────────────────────────────────────────── */
     fun numberEntries(phone: String) = "number_entries/$phone"
+
+    /* ── Cash Management ───────────────────────────────────────────── */
+    // cash_management/{branchId}/collections/{entryId} -> {amount, timestamp, enteredByName, enteredByUid}
+    fun cashManagementCollections(branchId: String) = "cash_management/$branchId/collections"
+    // cash_management/{branchId}/providers/{providerName} -> true  (which MFS providers this branch uses)
+    fun cashManagementProviders(branchId: String) = "cash_management/$branchId/providers"
+    // cash_management/{branchId}/ledger/{providerName}/handovers|hub_payments/{entryId}
+    fun cashManagementLedger(branchId: String) = "cash_management/$branchId/ledger"
 }

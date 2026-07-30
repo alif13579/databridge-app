@@ -275,6 +275,15 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                     if (role == "admin") loadFragment(EmployeeFragment())
                     else loadFragment(EmployeeFragment.forBranch(branchId))
                 }
+                R.id.nav_cash_management -> {
+                    // TODO: role/access scoping deferred for now (per product decision) --
+                    // this always opens the current user's first assigned branch. Admin
+                    // multi-branch selection (like nav_branches has via BranchListFragment)
+                    // can be added once the role for this feature is defined.
+                    val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
+                    if (branchId.isNotBlank()) loadFragment(CashManagementFragment.newInstance(branchId))
+                    else Toast.makeText(this, "No branch assigned to this account", Toast.LENGTH_SHORT).show()
+                }
                 R.id.nav_login     -> launchGoogleSignIn()
                 R.id.nav_logout    -> confirmLogout()
             }

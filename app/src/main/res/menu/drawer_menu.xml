@@ -69,6 +69,11 @@
             android:icon="@android:drawable/ic_menu_myplaces"
             android:title="Employees"
             android:visible="false" />
+        <item
+            android:id="@+id/nav_cash_management"
+            android:icon="@android:drawable/ic_menu_send"
+            android:title="Cash Management"
+            android:visible="true" />
     </group>
 
     <group android:id="@+id/group_settings" android:checkableBehavior="single">
