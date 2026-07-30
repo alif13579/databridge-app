@@ -296,6 +296,23 @@
                         android:textStyle="bold"
                         android:textColor="@color/theme_text_primary" />
 
+                    <TextView
+                        android:id="@+id/btnCcRecallList"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="🔁 Recall"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/theme_accent"
+                        android:gravity="center"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:layout_marginEnd="8dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:visibility="gone" />
+
                     <Button
                         android:id="@+id/btnCcAutoCallStartPause"
                         android:layout_width="wrap_content"
