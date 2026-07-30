@@ -734,20 +734,41 @@ class WorkerSpaceFragment : Fragment() {
             }
         }
 
-        // Firebase + local update for every parcel in the list.
-        items.forEach { p ->
-            // Use a unique timestamp per parcel so keys don't collide in Firebase.
-            val ts = timestamp + items.indexOf(p)
-            val remarkData = mapOf(
-                "agentSystemId" to systemId,
-                "userId"        to userId,
-                "remarks"       to selectedLabel,
-                "status"        to statusKey,
-                "remarked_by"   to "worker",
-                "createdAt"     to ts,
-                "runId"         to runId
-            )
-            db.reference.child("courier/remarks_by_consignment/${p.id}/remarks_$ts")
+        // Firebase + local update for every parcel in the list. Call-log lookups (today's
+        // calls to each parcel's number, for call_logs verification data below) run on IO
+        // first, so the writes below stay exactly as fire-and-forget as before — nothing here
+        // blocks the main thread waiting on call log I/O.
+        viewLifecycleOwner.lifecycleScope.launch {
+            val callLogsByParcelId: Map<String, List<Pair<Long, Int>>> = withContext(Dispatchers.IO) {
+                items.associate { p -> p.id to CallLogHelper.getTodaysCallLogs(requireContext(), p.phone) }
+            }
+
+            items.forEach { p ->
+                // Use a unique timestamp per parcel so keys don't collide in Firebase.
+                val ts = timestamp + items.indexOf(p)
+                val logs = callLogsByParcelId[p.id].orEmpty()
+                val remarkData = buildMap<String, Any> {
+                    put("agentSystemId", systemId)
+                    put("userId", userId)
+                    put("remarks", selectedLabel)
+                    put("status", statusKey)
+                    put("remarked_by", "worker")
+                    put("createdAt", ts)
+                    put("runId", runId)
+                    // ✅ call_logs — today's calls to this parcel's number (count, total talk
+                    // time, and each call's own timestamp+duration), so call-center can verify
+                    // this remark against actual call activity instead of taking it on faith.
+                    if (logs.isNotEmpty()) {
+                        put(
+                            "call_logs", mapOf(
+                                "call_count" to logs.size,
+                                "total_duration_sec" to logs.sumOf { it.second },
+                                "calls" to logs.map { (callTs, dur) -> mapOf("ts" to callTs, "duration" to dur) }
+                            )
+                        )
+                    }
+                }
+                db.reference.child("courier/remarks_by_consignment/${p.id}/remarks_$ts")
                 .setValue(remarkData)
                 .addOnFailureListener { e ->
                     FirebaseErrorLogger.log(
@@ -848,6 +869,7 @@ class WorkerSpaceFragment : Fragment() {
                 )
             )
         }
+        } // end viewLifecycleOwner.lifecycleScope.launch
     }
 
     /** Today's date as yyyyMMdd (e.g. "20260725") — year-first so plain string/key ordering
