@@ -23,6 +23,7 @@ object PermissionCatalog {
         Perm("nav_branches",       "Branches",        "View branches / My branch"),
         Perm("nav_team",           "Employees",       "View and manage employees"),
         Perm("nav_config",         "Config",          "App config: remarks, language, statuses, sheets"),
+        Perm("nav_cash_management","Cash Management", "Branch cash collection & MFS reconciliation"),
     )
 
     /** Helper to get a mutable permissions map with defaults (false). */
