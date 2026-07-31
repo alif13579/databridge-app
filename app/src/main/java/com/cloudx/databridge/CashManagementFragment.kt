@@ -175,6 +175,7 @@ class CashManagementFragment : Fragment() {
                     etCollectionAmount.setText("")
                     layoutAddCollectionForm.isVisible = false
                     btnAddCollection.isVisible = true
+                    Toast.makeText(requireContext(), "Collection saved", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(requireContext(), "Failed to save collection", Toast.LENGTH_SHORT).show()
                 }
@@ -241,7 +242,14 @@ class CashManagementFragment : Fragment() {
             layoutCollectionEntries.addView(buildEmptyRow("No collection entries yet."))
         } else {
             state.collections.forEach { entry ->
-                layoutCollectionEntries.addView(buildSimpleEntryRow(dateFmt.format(Date(entry.timestamp)), taka(entry.amount)))
+                layoutCollectionEntries.addView(
+                    buildEditableEntryRow(
+                        left = dateFmt.format(Date(entry.timestamp)),
+                        amount = entry.amount,
+                        onEdit = { showEditCollectionDialog(entry) },
+                        onDelete = { confirmDeleteCollection(entry) }
+                    )
+                )
             }
         }
     }
@@ -380,7 +388,14 @@ class CashManagementFragment : Fragment() {
                 layoutLedgerEntries.isVisible = true
                 entries.forEach { (entry, type) ->
                     val arrow = if (type == LEDGER_TYPE_HANDOVER) "\u2193" else "\u2191"
-                    layoutLedgerEntries.addView(buildSimpleEntryRow("$arrow #${entry.trxId}", taka(entry.amount)))
+                    layoutLedgerEntries.addView(
+                        buildEditableEntryRow(
+                            left = "$arrow #${entry.trxId}",
+                            amount = entry.amount,
+                            onEdit = { showEditLedgerEntryDialog(name, type, entry) },
+                            onDelete = { confirmDeleteLedgerEntry(name, type, entry) }
+                        )
+                    )
                 }
             }
         }
@@ -404,7 +419,13 @@ class CashManagementFragment : Fragment() {
                 etCustomName.isVisible = value == "Other"
                 if (value != "Select provider" && value != "Other") {
                     pendingEmptyRowCount = (pendingEmptyRowCount - 1).coerceAtLeast(0)
-                    vm.addProvider(value)
+                    vm.addProvider(value) { ok ->
+                        Toast.makeText(
+                            requireContext(),
+                            if (ok) "Channel added" else "Failed to add channel",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
                 refreshLedgerUi()
             }
@@ -416,7 +437,13 @@ class CashManagementFragment : Fragment() {
                 val name = etCustomName.text.toString().trim()
                 if (name.isNotBlank()) {
                     pendingEmptyRowCount = (pendingEmptyRowCount - 1).coerceAtLeast(0)
-                    vm.addProvider(name)
+                    vm.addProvider(name) { ok ->
+                        Toast.makeText(
+                            requireContext(),
+                            if (ok) "Channel added" else "Failed to add channel",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             }
         }
@@ -424,7 +451,13 @@ class CashManagementFragment : Fragment() {
         btnRemove.setOnClickListener {
             val name = resolvedName()
             if (name.isNotBlank()) {
-                vm.removeProvider(name)
+                vm.removeProvider(name) { ok ->
+                    Toast.makeText(
+                        requireContext(),
+                        if (ok) "Channel removed" else "Failed to remove channel",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             } else {
                 pendingEmptyRowCount = (pendingEmptyRowCount - 1).coerceAtLeast(0)
                 layoutProviderCards.removeView(card)
@@ -446,6 +479,7 @@ class CashManagementFragment : Fragment() {
                 if (ok) {
                     etAmount.setText("")
                     etTrxId.setText("")
+                    Toast.makeText(requireContext(), "Handover saved", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(requireContext(), "Failed to save handover", Toast.LENGTH_SHORT).show()
                 }
@@ -519,6 +553,7 @@ class CashManagementFragment : Fragment() {
                 vm.addLedgerEntry(account.provider, LEDGER_TYPE_HUB_PAYMENT, amt, trxId) { ok ->
                     if (ok) {
                         dialog.dismiss()
+                        Toast.makeText(requireContext(), "Payment saved", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(requireContext(), "Failed to save payment", Toast.LENGTH_SHORT).show()
                     }
@@ -554,6 +589,153 @@ class CashManagementFragment : Fragment() {
             setTextColor(0xFF1E293B.toInt())
         })
         return row
+    }
+
+    // Same layout as buildSimpleEntryRow but for an actual saved transaction
+    // (collection entry or ledger entry) -- adds icon-only Edit/Delete buttons.
+    // Not used for aggregate rows like the MFS-balance-by-channel breakdown,
+    // since those aren't a single editable record.
+    private fun buildEditableEntryRow(left: String, amount: Double, onEdit: () -> Unit, onDelete: () -> Unit): View {
+        val row = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            setPadding(dp(8), dp(4), dp(4), dp(4))
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        row.addView(TextView(requireContext()).apply {
+            text = left
+            textSize = 12f
+            setTextColor(0xFF64748B.toInt())
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        row.addView(TextView(requireContext()).apply {
+            text = taka(amount)
+            textSize = 13f
+            typeface = Typeface.MONOSPACE
+            setTextColor(0xFF1E293B.toInt())
+        })
+        row.addView(ImageButton(requireContext()).apply {
+            setImageResource(android.R.drawable.ic_menu_edit)
+            background = null
+            layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginStart = dp(4) }
+            contentDescription = "Edit"
+            setOnClickListener { onEdit() }
+        })
+        row.addView(ImageButton(requireContext()).apply {
+            setImageResource(android.R.drawable.ic_menu_delete)
+            background = null
+            layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginStart = dp(2) }
+            contentDescription = "Delete"
+            setOnClickListener { onDelete() }
+        })
+        return row
+    }
+
+    private fun showEditCollectionDialog(entry: CashCollectionEntry) {
+        val padding = dp(20)
+        val input = EditText(requireContext()).apply {
+            hint = "Amount"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            typeface = Typeface.MONOSPACE
+            setText(Math.round(entry.amount).toString())
+            setSelection(text.length)
+        }
+        val wrapper = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, 0)
+            addView(input)
+        }
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Edit collection")
+            .setView(wrapper)
+            .setPositiveButton("Save") { _, _ ->
+                val amt = input.text.toString().toDoubleOrNull()
+                if (amt == null || amt <= 0.0) {
+                    Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                vm.updateCollection(entry.id, amt) { ok ->
+                    Toast.makeText(
+                        requireContext(),
+                        if (ok) "Collection updated" else "Failed to update collection",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmDeleteCollection(entry: CashCollectionEntry) {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Delete collection entry?")
+            .setMessage("${taka(entry.amount)} \u00B7 ${dateFmt.format(Date(entry.timestamp))}. This can't be undone.")
+            .setPositiveButton("Delete") { _, _ ->
+                vm.deleteCollection(entry.id) { ok ->
+                    Toast.makeText(
+                        requireContext(),
+                        if (ok) "Collection deleted" else "Failed to delete collection",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showEditLedgerEntryDialog(providerName: String, type: String, entry: CashLedgerEntry) {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_cash_payment, null)
+        val tvInfo   = dialogView.findViewById<TextView>(R.id.tvDialogChannelInfo)
+        val etAmount = dialogView.findViewById<EditText>(R.id.etDialogAmount)
+        val etTrxId  = dialogView.findViewById<EditText>(R.id.etDialogTrxId)
+
+        val kindLabel = if (type == LEDGER_TYPE_HANDOVER) "Handover" else "Hub payment"
+        tvInfo.text = "$providerName \u00B7 $kindLabel"
+        etAmount.setText(Math.round(entry.amount).toString())
+        etTrxId.setText(entry.trxId)
+
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Edit $kindLabel".lowercase().replaceFirstChar { it.uppercase() })
+            .setView(dialogView)
+            .setPositiveButton("Save") { _, _ ->
+                val amt = etAmount.text.toString().toDoubleOrNull()
+                val trxId = etTrxId.text.toString().trim()
+                if (amt == null || amt <= 0.0) {
+                    Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                if (trxId.isBlank()) {
+                    Toast.makeText(requireContext(), "Enter a transaction ID", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                vm.updateLedgerEntry(providerName, type, entry.id, amt, trxId) { ok ->
+                    Toast.makeText(
+                        requireContext(),
+                        if (ok) "Entry updated" else "Failed to update entry",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmDeleteLedgerEntry(providerName: String, type: String, entry: CashLedgerEntry) {
+        val kindLabel = if (type == LEDGER_TYPE_HANDOVER) "handover" else "hub payment"
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Delete this $kindLabel?")
+            .setMessage("${taka(entry.amount)} \u00B7 #${entry.trxId}. This can't be undone.")
+            .setPositiveButton("Delete") { _, _ ->
+                vm.deleteLedgerEntry(providerName, type, entry.id) { ok ->
+                    Toast.makeText(
+                        requireContext(),
+                        if (ok) "Entry deleted" else "Failed to delete entry",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun buildEmptyRow(message: String): View {
