@@ -891,6 +891,7 @@ class CallCenterFragment : Fragment() {
                 val tvRemark = timelineView.findViewById<TextView>(R.id.twTimelineRemark)
                 val tvMeta = timelineView.findViewById<TextView>(R.id.twTimelineMeta)
                 val tvGap = timelineView.findViewById<TextView>(R.id.twTimelineGap)
+                val tvCallLogs = timelineView.findViewById<TextView>(R.id.twTimelineCallLogs)
 
                 if (entry.authorPhotoUrl.isNotBlank()) {
                     ivAvatar.load(entry.authorPhotoUrl) {
@@ -922,6 +923,13 @@ class CallCenterFragment : Fragment() {
                     tvGap.visibility = View.VISIBLE
                 } else {
                     tvGap.visibility = View.GONE
+                }
+
+                if (entry.callLogCount > 0) {
+                    tvCallLogs.text = "📞 ${entry.callLogCount} call${if (entry.callLogCount == 1) "" else "s"}, ${entry.callLogTotalDurationSec}s total"
+                    tvCallLogs.visibility = View.VISIBLE
+                } else {
+                    tvCallLogs.visibility = View.GONE
                 }
 
                 layoutTimeline.addView(timelineView)
@@ -1960,7 +1968,9 @@ class CallCenterFragment : Fragment() {
                         author = author,
                         authorRole = authorRole,
                         authorPhotoUrl = resolvedPhoto.orEmpty(),
-                        createdAt = createdAt
+                        createdAt = createdAt,
+                        callLogCount = r.child("call_logs/call_count").getValue(Long::class.java)?.toInt() ?: 0,
+                        callLogTotalDurationSec = r.child("call_logs/total_duration_sec").getValue(Long::class.java)?.toInt() ?: 0
                     )
                 }.sortedBy { it.createdAt }
                 item.copy(history = history)
@@ -2129,7 +2139,9 @@ class CallCenterFragment : Fragment() {
                                 author = author,
                                 authorRole = authorRole,
                                 authorPhotoUrl = resolvedPhoto.orEmpty(),
-                                createdAt = createdAt
+                                createdAt = createdAt,
+                                callLogCount = r.child("call_logs/call_count").getValue(Long::class.java)?.toInt() ?: 0,
+                                callLogTotalDurationSec = r.child("call_logs/total_duration_sec").getValue(Long::class.java)?.toInt() ?: 0
                             )
                         }.sortedBy { it.createdAt }
 
