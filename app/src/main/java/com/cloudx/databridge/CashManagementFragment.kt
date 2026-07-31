@@ -170,7 +170,9 @@ class CashManagementFragment : Fragment() {
                 Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+            setLoading(btnSaveCollection, true, "Saving...", "Save")
             vm.addCollection(amt) { ok ->
+                setLoading(btnSaveCollection, false, "Saving...", "Save")
                 if (ok) {
                     etCollectionAmount.setText("")
                     layoutAddCollectionForm.isVisible = false
@@ -392,7 +394,7 @@ class CashManagementFragment : Fragment() {
                         buildEditableEntryRow(
                             left = "$arrow #${entry.trxId}",
                             amount = entry.amount,
-                            onEdit = { showEditLedgerEntryDialog(name, type, entry) },
+                            onEdit = { showEditLedgerEntryDialog(name, type, entry, account) },
                             onDelete = { confirmDeleteLedgerEntry(name, type, entry) }
                         )
                     )
@@ -475,7 +477,9 @@ class CashManagementFragment : Fragment() {
                 Toast.makeText(requireContext(), "Enter a transaction ID", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
+            setLoading(btnSaveEntry, true, "Saving...", "Save handover")
             vm.addLedgerEntry(resolvedName(), LEDGER_TYPE_HANDOVER, amt, trxId) { ok ->
+                setLoading(btnSaveEntry, false, "Saving...", "Save handover")
                 if (ok) {
                     etAmount.setText("")
                     etTrxId.setText("")
@@ -539,7 +543,9 @@ class CashManagementFragment : Fragment() {
             .create()
 
         dialog.setOnShowListener {
-            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val btnPositive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+            val btnNegative = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)
+            btnPositive.setOnClickListener {
                 val amt = etAmount.text.toString().toDoubleOrNull()
                 val trxId = etTrxId.text.toString().trim()
                 if (amt == null || amt <= 0.0) {
@@ -550,11 +556,25 @@ class CashManagementFragment : Fragment() {
                     Toast.makeText(requireContext(), "Enter a transaction ID", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
+                if (amt > account.balance) {
+                    Toast.makeText(
+                        requireContext(),
+                        "Can't exceed available balance (${taka(account.balance)})",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setOnClickListener
+                }
+                btnPositive.isEnabled = false
+                btnNegative.isEnabled = false
+                btnPositive.text = "Paying..."
                 vm.addLedgerEntry(account.provider, LEDGER_TYPE_HUB_PAYMENT, amt, trxId) { ok ->
                     if (ok) {
                         dialog.dismiss()
                         Toast.makeText(requireContext(), "Payment saved", Toast.LENGTH_SHORT).show()
                     } else {
+                        btnPositive.isEnabled = true
+                        btnNegative.isEnabled = true
+                        btnPositive.text = "Pay Now"
                         Toast.makeText(requireContext(), "Failed to save payment", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -645,25 +665,39 @@ class CashManagementFragment : Fragment() {
             setPadding(padding, padding, padding, 0)
             addView(input)
         }
-        android.app.AlertDialog.Builder(requireContext())
+        val dialog = android.app.AlertDialog.Builder(requireContext())
             .setTitle("Edit collection")
             .setView(wrapper)
-            .setPositiveButton("Save") { _, _ ->
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.setOnShowListener {
+            val btnPositive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+            val btnNegative = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)
+            btnPositive.setOnClickListener {
                 val amt = input.text.toString().toDoubleOrNull()
                 if (amt == null || amt <= 0.0) {
                     Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+                    return@setOnClickListener
                 }
+                btnPositive.isEnabled = false
+                btnNegative.isEnabled = false
+                btnPositive.text = "Saving..."
                 vm.updateCollection(entry.id, amt) { ok ->
-                    Toast.makeText(
-                        requireContext(),
-                        if (ok) "Collection updated" else "Failed to update collection",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    if (ok) {
+                        dialog.dismiss()
+                        Toast.makeText(requireContext(), "Collection updated", Toast.LENGTH_SHORT).show()
+                    } else {
+                        btnPositive.isEnabled = true
+                        btnNegative.isEnabled = true
+                        btnPositive.text = "Save"
+                        Toast.makeText(requireContext(), "Failed to update collection", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
+        dialog.show()
     }
 
     private fun confirmDeleteCollection(entry: CashCollectionEntry) {
@@ -683,41 +717,63 @@ class CashManagementFragment : Fragment() {
             .show()
     }
 
-    private fun showEditLedgerEntryDialog(providerName: String, type: String, entry: CashLedgerEntry) {
+    private fun showEditLedgerEntryDialog(providerName: String, type: String, entry: CashLedgerEntry, account: MfsAccountSummary?) {
         val dialogView = layoutInflater.inflate(R.layout.dialog_cash_payment, null)
         val tvInfo   = dialogView.findViewById<TextView>(R.id.tvDialogChannelInfo)
         val etAmount = dialogView.findViewById<EditText>(R.id.etDialogAmount)
         val etTrxId  = dialogView.findViewById<EditText>(R.id.etDialogTrxId)
 
         val kindLabel = if (type == LEDGER_TYPE_HANDOVER) "Handover" else "Hub payment"
-        tvInfo.text = "$providerName \u00B7 $kindLabel"
+        // For a hub-payment edit, the ceiling is this entry's own current amount
+        // added back to the balance -- i.e. the most this specific entry could be
+        // without pushing the channel's balance negative.
+        val maxAllowed = if (type == LEDGER_TYPE_HUB_PAYMENT && account != null) account.balance + entry.amount else null
+        tvInfo.text = if (maxAllowed != null) "$providerName \u00B7 $kindLabel \u00B7 max ${taka(maxAllowed)}" else "$providerName \u00B7 $kindLabel"
         etAmount.setText(Math.round(entry.amount).toString())
         etTrxId.setText(entry.trxId)
 
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Edit $kindLabel".lowercase().replaceFirstChar { it.uppercase() })
+        val dialog = android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Edit ${kindLabel.lowercase()}")
             .setView(dialogView)
-            .setPositiveButton("Save") { _, _ ->
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.setOnShowListener {
+            val btnPositive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+            val btnNegative = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)
+            btnPositive.setOnClickListener {
                 val amt = etAmount.text.toString().toDoubleOrNull()
                 val trxId = etTrxId.text.toString().trim()
                 if (amt == null || amt <= 0.0) {
                     Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+                    return@setOnClickListener
                 }
                 if (trxId.isBlank()) {
                     Toast.makeText(requireContext(), "Enter a transaction ID", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+                    return@setOnClickListener
                 }
+                if (maxAllowed != null && amt > maxAllowed) {
+                    Toast.makeText(requireContext(), "Can't exceed ${taka(maxAllowed)}", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                btnPositive.isEnabled = false
+                btnNegative.isEnabled = false
+                btnPositive.text = "Saving..."
                 vm.updateLedgerEntry(providerName, type, entry.id, amt, trxId) { ok ->
-                    Toast.makeText(
-                        requireContext(),
-                        if (ok) "Entry updated" else "Failed to update entry",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    if (ok) {
+                        dialog.dismiss()
+                        Toast.makeText(requireContext(), "Entry updated", Toast.LENGTH_SHORT).show()
+                    } else {
+                        btnPositive.isEnabled = true
+                        btnNegative.isEnabled = true
+                        btnPositive.text = "Save"
+                        Toast.makeText(requireContext(), "Failed to update entry", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
+        dialog.show()
     }
 
     private fun confirmDeleteLedgerEntry(providerName: String, type: String, entry: CashLedgerEntry) {
@@ -746,6 +802,13 @@ class CashManagementFragment : Fragment() {
             gravity = Gravity.CENTER
             setPadding(dp(8), dp(16), dp(8), dp(16))
         }
+    }
+
+    // Disables the button and swaps its label while a Firebase write is in
+    // flight, so a fast double-tap can't create a duplicate entry.
+    private fun setLoading(button: Button, loading: Boolean, loadingText: String, normalText: String) {
+        button.isEnabled = !loading
+        button.text = if (loading) loadingText else normalText
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
