@@ -355,10 +355,7 @@ class CallCenterFragment : Fragment() {
         switchAutoCall.isChecked = false
         switchAutoCall.setOnCheckedChangeListener { _, isChecked ->
             btnAutoCallStartPause.visibility = if (isChecked) View.VISIBLE else View.GONE
-            if (!isChecked) {
-                recallModeActive = false
-                stopAutoCall()
-            }
+            if (!isChecked) stopAutoCall()
         }
 
         btnAutoCallGapMenu.setOnClickListener { showAutoCallGapMenu() }
@@ -732,7 +729,10 @@ class CallCenterFragment : Fragment() {
         settleGlowStatesOnHalt()
         autoCallQueue = emptyList()
         autoCallQueueIds = emptyList()
+        autoCallQueueNames = emptyList()
         autoCallIndex = 0
+        recallModeActive = false
+        if (::cardAutoCallStatus.isInitialized) hideAutoCallStatus()
         btnAutoCallStartPause.text = "▶ Start"
     }
 
