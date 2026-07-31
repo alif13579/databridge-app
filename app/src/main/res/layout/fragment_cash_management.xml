@@ -379,7 +379,10 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Save"
-                            android:textAllCaps="false" />
+                            android:textAllCaps="false"
+                            android:drawableStart="@android:drawable/ic_menu_save"
+                            android:drawableTint="#FFFFFF"
+                            android:drawablePadding="4dp" />
                     </LinearLayout>
 
                     <Button
@@ -390,9 +393,12 @@
                         android:layout_marginStart="16dp"
                         android:layout_marginEnd="16dp"
                         android:layout_marginBottom="24dp"
-                        android:text="+  Add collection"
+                        android:text="Add collection"
                         android:textAllCaps="false"
                         android:textColor="#0F766E"
+                        android:drawableStart="@android:drawable/ic_input_add"
+                        android:drawableTint="#0F766E"
+                        android:drawablePadding="6dp"
                         android:background="@drawable/bg_dashed_button"
                         android:layerType="software" />
                 </LinearLayout>
@@ -434,9 +440,12 @@
                         android:layout_marginEnd="16dp"
                         android:layout_marginTop="4dp"
                         android:layout_marginBottom="24dp"
-                        android:text="+  Add channel"
+                        android:text="Add channel"
                         android:textAllCaps="false"
                         android:textColor="#0F766E"
+                        android:drawableStart="@android:drawable/ic_input_add"
+                        android:drawableTint="#0F766E"
+                        android:drawablePadding="6dp"
                         android:background="@drawable/bg_dashed_button"
                         android:layerType="software" />
                 </LinearLayout>

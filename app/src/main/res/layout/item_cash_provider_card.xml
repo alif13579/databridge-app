@@ -134,6 +134,9 @@
                     android:layout_height="wrap_content"
                     android:text="Save handover"
                     android:textAllCaps="false"
+                    android:drawableStart="@android:drawable/ic_menu_save"
+                    android:drawableTint="#FFFFFF"
+                    android:drawablePadding="6dp"
                     android:layout_marginTop="6dp"
                     android:backgroundTint="#0F172A"
                     android:textColor="#FFFFFF" />

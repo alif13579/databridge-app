@@ -71,6 +71,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private val cameraLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) nextPermissionStep() else showPermissionDialog("Camera Permission", "QR স্ক্যান ফিচার কাজ করবে না।")
     }
+    private val callLogLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        // Not fatal to decline — no-answer detection just won't be available, same
+        // graceful-degradation approach as READ_PHONE_STATE above.
+        nextPermissionStep()
+    }
 
     private val googleSignInLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -601,7 +606,8 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             1 -> phoneStateLauncher.launch(android.Manifest.permission.READ_PHONE_STATE)
             2 -> cameraLauncher.launch(android.Manifest.permission.CAMERA)
             3 -> requestOverlayPermission()
-            4 -> {
+            4 -> callLogLauncher.launch(android.Manifest.permission.READ_CALL_LOG)
+            5 -> {
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)
             }
@@ -644,11 +650,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                         Uri.fromParts("package", packageName, null)
                     )
                 )
-                permissionStep = 4
+                permissionStep = 5
                 appPrefs.setPermissionsSetupComplete(true)
             }
             .setNegativeButton("Continue Anyway") { _, _ ->
-                permissionStep = 4
+                permissionStep = 5
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)
             }

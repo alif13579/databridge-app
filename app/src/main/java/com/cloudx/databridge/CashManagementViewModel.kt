@@ -165,20 +165,94 @@ class CashManagementViewModel : ViewModel() {
             }
     }
 
-    fun addProvider(providerName: String) {
+    fun addProvider(providerName: String, onDone: (Boolean) -> Unit = {}) {
         val name = providerName.trim()
-        if (name.isBlank() || branchId.isBlank()) return
+        if (name.isBlank() || branchId.isBlank()) { onDone(false); return }
         db.reference.child(FirebasePaths.cashManagementProviders(branchId)).child(name).setValue(true)
-            .addOnSuccessListener { refresh() }
+            .addOnSuccessListener { refresh(); onDone(true) }
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CashManagementFragment", action = "add_provider",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("branchId" to branchId, "provider" to name)
+                )
+                onDone(false)
+            }
     }
 
     // Removes only the provider marker, not its ledger history -- past handover/hub
     // payment entries stay in Firebase even if the card is removed from this branch's
     // active list, so the money trail is never silently deleted.
-    fun removeProvider(providerName: String) {
-        if (providerName.isBlank() || branchId.isBlank()) return
+    fun removeProvider(providerName: String, onDone: (Boolean) -> Unit = {}) {
+        if (providerName.isBlank() || branchId.isBlank()) { onDone(false); return }
         db.reference.child(FirebasePaths.cashManagementProviders(branchId)).child(providerName).removeValue()
-            .addOnSuccessListener { refresh() }
+            .addOnSuccessListener { refresh(); onDone(true) }
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CashManagementFragment", action = "remove_provider",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("branchId" to branchId, "provider" to providerName)
+                )
+                onDone(false)
+            }
+    }
+
+    fun updateCollection(entryId: String, amount: Double, onDone: (Boolean) -> Unit) {
+        if (entryId.isBlank() || amount <= 0.0) { onDone(false); return }
+        db.reference.child(FirebasePaths.cashManagementCollections(branchId)).child(entryId).child("amount").setValue(amount)
+            .addOnSuccessListener { refresh(); onDone(true) }
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CashManagementFragment", action = "update_collection",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("branchId" to branchId, "entryId" to entryId)
+                )
+                onDone(false)
+            }
+    }
+
+    fun deleteCollection(entryId: String, onDone: (Boolean) -> Unit) {
+        if (entryId.isBlank()) { onDone(false); return }
+        db.reference.child(FirebasePaths.cashManagementCollections(branchId)).child(entryId).removeValue()
+            .addOnSuccessListener { refresh(); onDone(true) }
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CashManagementFragment", action = "delete_collection",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("branchId" to branchId, "entryId" to entryId)
+                )
+                onDone(false)
+            }
+    }
+
+    fun updateLedgerEntry(providerName: String, type: String, entryId: String, amount: Double, trxId: String, onDone: (Boolean) -> Unit) {
+        if (providerName.isBlank() || entryId.isBlank() || trxId.isBlank() || amount <= 0.0) { onDone(false); return }
+        val updates = mapOf("amount" to amount, "trxId" to trxId)
+        db.reference.child(FirebasePaths.cashManagementLedger(branchId)).child(providerName).child(type).child(entryId)
+            .updateChildren(updates)
+            .addOnSuccessListener { refresh(); onDone(true) }
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CashManagementFragment", action = "update_ledger_entry_$type",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("branchId" to branchId, "provider" to providerName, "entryId" to entryId)
+                )
+                onDone(false)
+            }
+    }
+
+    fun deleteLedgerEntry(providerName: String, type: String, entryId: String, onDone: (Boolean) -> Unit) {
+        if (providerName.isBlank() || entryId.isBlank()) { onDone(false); return }
+        db.reference.child(FirebasePaths.cashManagementLedger(branchId)).child(providerName).child(type).child(entryId).removeValue()
+            .addOnSuccessListener { refresh(); onDone(true) }
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CashManagementFragment", action = "delete_ledger_entry_$type",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("branchId" to branchId, "provider" to providerName, "entryId" to entryId)
+                )
+                onDone(false)
+            }
     }
 
     fun addLedgerEntry(providerName: String, type: String, amount: Double, trxId: String, onDone: (Boolean) -> Unit) {

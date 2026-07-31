@@ -64,6 +64,11 @@ class CallCenterFragment : Fragment() {
     private lateinit var switchAutoCall: Switch
     private lateinit var btnAutoCallStartPause: android.widget.Button
     private lateinit var btnAutoCallGapMenu: TextView
+    private lateinit var btnRecallList: TextView
+    private lateinit var cardAutoCallStatus: androidx.cardview.widget.CardView
+    private lateinit var tvAutoCallStatusLabel: TextView
+    private lateinit var tvAutoCallStatusName: TextView
+    private lateinit var tvAutoCallStatusTimer: TextView
     private lateinit var tvSortByDropdown: TextView
     private var sortMode: String = "attempt" // "attempt" (default) or "aging" — same options as Worker Fragment
 
@@ -84,6 +89,16 @@ class CallCenterFragment : Fragment() {
     private var resumeSignal: CompletableDeferred<Unit>? = null
     private var hasPausedSincePendingDial = false
     private val AUTO_CALL_RETURN_TIMEOUT_MS = 5 * 60 * 1000L // safety net if the signal never arrives
+    // Minimum total ring time (dial -> end) before an unanswered call (CallLog duration == 0)
+    // is confident enough to auto-remark. Below this, it's more likely an immediate
+    // reject/invalid-number/network-fail than a genuine unanswered ring — left for manual
+    // review instead of risking a wrong auto-classification.
+    private val AUTO_NO_ANSWER_MIN_RING_SECONDS = 30
+    // Distinctive, code-controlled text — nothing else in the app produces this exact string —
+    // so recall candidates can be identified by a plain text match on the latest remark
+    // instead of threading a new field through the whole remarks-parsing pipeline.
+    private val AUTO_NO_ANSWER_REMARK_TEXT = "The customer doesn't receive the call"
+    private var recallModeActive = false
 
     // ── Auto Call filter preference ──────────────────────────────────
     // "status" = only cards whose status is in autoCallStatuses go into the queue.
@@ -94,6 +109,7 @@ class CallCenterFragment : Fragment() {
     private var autoCallMinAgeDays = 3
     private var autoCallQueue: List<String> = emptyList()      // phone numbers, in dial order
     private var autoCallQueueIds: List<String> = emptyList()   // matching parcel ids, same order
+    private var autoCallQueueNames: List<String> = emptyList() // matching customer names, same order
     private var autoCallIndex = 0
 
     // Per-consignment last-seen remark timestamp — used to detect genuinely new remarks
@@ -311,6 +327,11 @@ class CallCenterFragment : Fragment() {
         switchAutoCall = view.findViewById(R.id.switchCcAutoCall)
         btnAutoCallStartPause = view.findViewById(R.id.btnCcAutoCallStartPause)
         btnAutoCallGapMenu = view.findViewById(R.id.btnCcAutoCallGapMenu)
+        btnRecallList = view.findViewById(R.id.btnCcRecallList)
+        cardAutoCallStatus = view.findViewById(R.id.cardAutoCallStatus)
+        tvAutoCallStatusLabel = view.findViewById(R.id.tvAutoCallStatusLabel)
+        tvAutoCallStatusName = view.findViewById(R.id.tvAutoCallStatusName)
+        tvAutoCallStatusTimer = view.findViewById(R.id.tvAutoCallStatusTimer)
         setupAutoCallControls()
 
         val user = FirebaseAuth.getInstance().currentUser
@@ -338,6 +359,14 @@ class CallCenterFragment : Fragment() {
         }
 
         btnAutoCallGapMenu.setOnClickListener { showAutoCallGapMenu() }
+
+        btnRecallList.setOnClickListener {
+            recallModeActive = true
+            autoCallQueue = emptyList() // force a fresh queue build under recall filtering
+            autoCallIndex = 0
+            switchAutoCall.isChecked = true
+            startAutoCall()
+        }
 
         btnAutoCallStartPause.setOnClickListener {
             if (autoCallJob?.isActive == true) {
@@ -494,6 +523,36 @@ class CallCenterFragment : Fragment() {
         if (::adapter.isInitialized) adapter.callStates = callCardStates.toMap()
     }
 
+    // ── Auto Call status overlay (non-modal — never blocks taps on the parcel list below it) ──
+
+    /** Phase: gap period before the next dial. Shows who's about to be called + a live
+     *  countdown in seconds. Caller ticks this down every second from autoCallGapSeconds. */
+    private fun showAutoCallCountdown(name: String, secondsRemaining: Int) {
+        tvAutoCallStatusLabel.text = "পরবর্তী কল আসছে"
+        tvAutoCallStatusName.text = name
+        tvAutoCallStatusTimer.text = secondsRemaining.toString()
+        tvAutoCallStatusTimer.visibility = View.VISIBLE
+        cardAutoCallStatus.visibility = View.VISIBLE
+    }
+
+    /** Phase: current call is active (dial just fired). Shows who's next in queue after this
+     *  one — no timer, since we don't know when the current call will end. */
+    private fun showAutoCallNextPreview(nextName: String?) {
+        if (nextName == null) {
+            hideAutoCallStatus()
+            return
+        }
+        tvAutoCallStatusLabel.text = "এরপর কল যাবে"
+        tvAutoCallStatusName.text = nextName
+        tvAutoCallStatusTimer.visibility = View.GONE
+        cardAutoCallStatus.visibility = View.VISIBLE
+    }
+
+    /** Phase: call ended (or auto-call stopped entirely). */
+    private fun hideAutoCallStatus() {
+        cardAutoCallStatus.visibility = View.GONE
+    }
+
     private fun startAutoCall() {
         val ctx = requireContext()
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CALL_PHONE)
@@ -520,6 +579,9 @@ class CallCenterFragment : Fragment() {
         if (autoCallQueue.isEmpty() || autoCallIndex >= autoCallQueue.size) {
             val eligible = allParcels.filter { p ->
                 if (p.phone.isBlank()) return@filter false
+                if (recallModeActive) {
+                    return@filter p.remarks == AUTO_NO_ANSWER_REMARK_TEXT
+                }
                 val matchesMode = when (autoCallMode) {
                     "status" -> p.effectiveStatus in autoCallStatuses
                     "aging"  -> true // aging mode ignores status entirely
@@ -538,6 +600,7 @@ class CallCenterFragment : Fragment() {
             }
             autoCallQueue = eligible.map { it.phone }
             autoCallQueueIds = eligible.map { it.id }
+            autoCallQueueNames = eligible.map { it.customer }
             autoCallIndex = 0
             // Mark the whole fresh queue as "waiting its turn".
             autoCallQueueIds.forEach { id -> callCardStates[id] = colorCallQueued }
@@ -568,9 +631,18 @@ class CallCenterFragment : Fragment() {
                 callCardStates[id] = colorCallCalling
                 pushCallStates()
 
+                val dialStartMs = System.currentTimeMillis()
                 AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
                 DialCountStore.increment(ctx, id)
+                // Auto-expand this parcel's remarks now, not after the call ends — the
+                // overlay below is non-modal, so the agent can start writing notes while the
+                // call is still going instead of waiting for it to finish.
+                pendingExpandParcelId = id
                 autoCallIndex++
+
+                // Preview who's next while this call is active. No timer here — we don't
+                // know when the current call will end.
+                showAutoCallNextPreview(autoCallQueueNames.getOrNull(autoCallIndex))
 
                 // Wait for the call to actually END, not just for the agent's focus to
                 // return to this screen — the two are NOT the same thing. Android often lets
@@ -582,6 +654,7 @@ class CallCenterFragment : Fragment() {
                 // Reliable path: real telephony call-state (OFFHOOK -> IDLE) via
                 // CallStateWatcher, which needs READ_PHONE_STATE.
                 val realCallEndDetected = CallStateWatcher.awaitCallEnd(ctx, AUTO_CALL_RETURN_TIMEOUT_MS)
+                hideAutoCallStatus() // call just ended (or we timed out waiting) — clear the preview
 
                 if (!realCallEndDetected) {
                     // No READ_PHONE_STATE (declined during onboarding, or an existing
@@ -595,7 +668,29 @@ class CallCenterFragment : Fragment() {
                     resumeSignal = null
                 }
 
-                delay(autoCallGapSeconds * 1000L) // short breather once back, before the next dial
+                // No-answer detection: only once we're actually confident the call has ended
+                // (real detection succeeded, OR the screen-focus fallback above also
+                // resolved) — NOT right after awaitCallEnd() alone, since a timeout there
+                // doesn't mean the call ended, just that we gave up waiting on the reliable
+                // signal. Checking too early risks reading the call log mid-call. Brief
+                // buffer after that for the OS to actually write the log entry.
+                delay(1000L)
+                val talkDurationSec = CallLogHelper.getLastCallDurationSeconds(ctx, phone, dialStartMs)
+                val totalDurationSec = ((System.currentTimeMillis() - dialStartMs) / 1000L).toInt()
+                if (talkDurationSec == 0 && totalDurationSec >= AUTO_NO_ANSWER_MIN_RING_SECONDS) {
+                    allParcels.find { it.id == id }?.let { item -> saveAutoNoAnswerRemark(item) }
+                }
+
+                // Short breather before the next dial — shown as a live countdown instead of
+                // a silent delay, so it's clear who's coming up and exactly when.
+                val upcomingName = autoCallQueueNames.getOrNull(autoCallIndex)
+                if (upcomingName != null) {
+                    for (remaining in autoCallGapSeconds downTo 1) {
+                        showAutoCallCountdown(upcomingName, remaining)
+                        delay(1000L)
+                    }
+                    hideAutoCallStatus() // about to dial — next-preview (above) takes over from here
+                }
             }
             // Finished the whole queue — mark the last item done too.
             if (isAdded) {
@@ -604,7 +699,9 @@ class CallCenterFragment : Fragment() {
                 btnAutoCallStartPause.text = "▶ Start"
                 autoCallQueue = emptyList()
                 autoCallQueueIds = emptyList()
+                autoCallQueueNames = emptyList()
                 autoCallIndex = 0
+                hideAutoCallStatus()
                 Toast.makeText(requireContext(), "Auto Call finished", Toast.LENGTH_SHORT).show()
             }
         }
@@ -636,7 +733,10 @@ class CallCenterFragment : Fragment() {
         settleGlowStatesOnHalt()
         autoCallQueue = emptyList()
         autoCallQueueIds = emptyList()
+        autoCallQueueNames = emptyList()
         autoCallIndex = 0
+        recallModeActive = false
+        if (::cardAutoCallStatus.isInitialized) hideAutoCallStatus()
         btnAutoCallStartPause.text = "▶ Start"
     }
 
@@ -1033,7 +1133,14 @@ class CallCenterFragment : Fragment() {
     }
 
 
+    private fun updateRecallButton() {
+        val count = allParcels.count { it.remarks == AUTO_NO_ANSWER_REMARK_TEXT }
+        btnRecallList.text = "🔁 Recall($count)"
+        btnRecallList.visibility = if (count > 0) View.VISIBLE else View.GONE
+    }
+
     private fun setupFilterTabs() {
+        updateRecallButton()
         layoutFilterTabs.removeAllViews()
         val scoped       = scopedParcels()
         val total        = scoped.size
@@ -2309,6 +2416,68 @@ class CallCenterFragment : Fragment() {
      * actually tapped; its WhatsApp template fires (if configured) — siblings share
      * the same phone number so we don't send the customer duplicate messages.
      */
+    /** Auto-remark for a call that rang long enough (AUTO_NO_ANSWER_MIN_RING_SECONDS) but was
+     *  never answered (CallLog duration == 0). Free-text note only, status left blank — same
+     *  shape as the "no configured options" manual remark elsewhere. An agent can still add a
+     *  proper status/remark afterward; this just makes sure the parcel doesn't silently look
+     *  untouched after a real, unanswered call attempt. Tagged "auto": true for traceability. */
+    private fun saveAutoNoAnswerRemark(item: CallCenterParcelItem) {
+        val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
+        val timestamp = System.currentTimeMillis()
+        val indexDateKey = todayDateKeyYyyyMmDd()
+        val noteText = AUTO_NO_ANSWER_REMARK_TEXT
+
+        val remarkData = mapOf(
+            "userId"      to userId,
+            "remarks"     to noteText,
+            "note"        to noteText,
+            "status"      to "",
+            "remarked_by" to "support",
+            "createdAt"   to timestamp,
+            "auto"        to true
+        )
+        db.reference.child("courier/remarks_by_consignment/${item.id}/remarks_$timestamp")
+            .setValue(remarkData)
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CallCenterFragment", action = "auto_no_answer_remark_write",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("consignmentId" to item.id, "userId" to userId)
+                )
+            }
+
+        db.reference.child("courier/remarks_by_userId/$userId/push_${indexDateKey}_${item.id}")
+            .setValue(
+                mapOf(
+                    "final_status" to "",
+                    "remarks"      to noteText,
+                    "created_at"   to timestamp,
+                    "updated_at"   to timestamp
+                )
+            )
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CallCenterFragment", action = "auto_no_answer_remarks_by_userId_write",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("consignmentId" to item.id, "userId" to userId)
+                )
+            }
+
+        db.reference.child("courier/users_by_consignment/${item.id}/$indexDateKey/$userId")
+            .setValue(true)
+            .addOnFailureListener { e ->
+                FirebaseErrorLogger.log(
+                    screen = "CallCenterFragment", action = "auto_no_answer_users_by_consignment_write",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("consignmentId" to item.id, "userId" to userId)
+                )
+            }
+
+        allParcels = allParcels.map {
+            if (it.id == item.id) it.copy(remarks = noteText) else it
+        }
+    }
+
     private fun saveCcRemarkForItems(
         items: List<CallCenterParcelItem>,
         selectedStatus: String,

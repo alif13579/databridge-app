@@ -64,6 +64,9 @@
             android:layout_marginTop="10dp"
             android:text="Pay to hub"
             android:textAllCaps="false"
+            android:drawableStart="@android:drawable/ic_menu_send"
+            android:drawableTint="#FFFFFF"
+            android:drawablePadding="6dp"
             android:backgroundTint="#0F766E"
             android:textColor="#FFFFFF" />
     </LinearLayout>

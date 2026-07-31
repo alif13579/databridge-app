@@ -140,7 +140,8 @@ class ConfigRemarksFragment : Fragment() {
                 val color = s.child("color").getValue(String::class.java) ?: "#6B7280"
                 val bg = s.child("bg").getValue(String::class.java) ?: "#F3F4F6"
                 val pri = s.child("priority").getValue(Int::class.java) ?: 0
-                loaded[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, false)
+                val sortOrder = s.child("sortOrder").getValue(Int::class.java) ?: 0
+                loaded[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, sortOrder, false)
                 loadedStatuses.add(key)
             }
         }
