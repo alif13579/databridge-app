@@ -246,7 +246,7 @@ class DashboardViewModel : ViewModel() {
     // courier/remarks_by_consignment entry. This sidesteps the three problems the old
     // (removed) loadBranchView()/loadWorkerView() had:
     //   1. Branch scoping: candidate agents are filtered by branch_ids BEFORE any per-agent
-    //      read (subordinatePool), instead of pulling every branch first.
+    //      read (loadWorkerAgentStats), instead of pulling every branch first.
     //   2. Agent names: resolved from the same users/ read used to find the candidates,
     //      not a separate indexed query per agent.
     //   3. Bounded reads: orderByKey().startAt/endAt on the yyyyMMdd-prefixed key restricts
@@ -264,8 +264,16 @@ class DashboardViewModel : ViewModel() {
     //   - It carries no run reference, so AgentStat.runId/runStatus and
     //     DashboardStats.openRuns/closedRuns can't come from it — left blank/0 for now.
     /** loadAgentStat's return: the existing bucketed AgentStat, plus a raw final_status ->
-     *  count tally from the same read, for the dynamic per-status breakdown in load(). */
-    private data class AgentLoadResult(val stat: AgentStat, val rawStatusCounts: Map<String, Int>)
+     *  count tally from the same read, for the dynamic per-status breakdown in load().
+     *  readErrorMessage carries the LAST internal read failure (if any) from any of
+     *  loadAgentStat's 4 reads, so load() can surface it as a visible refreshError toast —
+     *  previously these were only logged to error_logs, with the dashboard silently showing
+     *  degraded/zeroed numbers and no visible sign anything had failed. */
+    private data class AgentLoadResult(
+        val stat: AgentStat,
+        val rawStatusCounts: Map<String, Int>,
+        val readErrorMessage: String? = null,
+    )
 
     private fun load(range: DateRange) {
         loadJob?.cancel()
@@ -289,10 +297,6 @@ class DashboardViewModel : ViewModel() {
             }
             try {
                 val roleId = RbacManager.current.roleId.ifBlank { "worker" }
-                val viewerLevel = RbacManager.current.level
-                val isAdmin = roleId == "admin" // named superuser bypass, same convention as
-                                                 // everywhere else in the codebase — not part
-                                                 // of what Phase 2 is generalizing
                 val startKey = dateKey(range.startTs)
                 val endKey = dateKey(range.endTs)
 
@@ -301,20 +305,33 @@ class DashboardViewModel : ViewModel() {
                 // was cached before on failure, so a transient miss here degrades to raw status
                 // keys as labels rather than an empty breakdown.
                 val statusMetaDeferred = async(Dispatchers.IO) { StatusMetaCache.refresh() }
-                // Must complete before subordinatePool() below, which reads it for every
-                // candidate's level — small, admin-config-sized read, not worth
-                // parallelizing against the users/ fetch it gates.
-                RoleLevelCache.refresh()
 
+                // The overview at the top is the logged-in user's own validation activity.
+                // Every role writes remarks_by_userId under its Firebase uid, so reading only
+                // branch workers here makes supervisor/support/manager users look empty even
+                // when their own indexed validation data exists.
+                val selfResult = loadAgentStat(
+                    uid,
+                    UserNameResolver.resolveName(uid),
+                    startKey,
+                    endKey,
+                    range.startTs,
+                    range.endTs
+                )
+
+                // The agent table now uses the generic level + reports_to hierarchy (Phase
+                // 2/3 of the dynamic role-hierarchy plan, see RbacManager.kt) instead of
+                // hardcoded roleId == "worker" / "manager" checks — works for any number of
+                // tiers and any role name. Drill-down: if a row further down the org was
+                // tapped into, resolve THEIR subordinates instead of the real logged-in
+                // viewer's (their own level + branch scope, never the root viewer's selected
+                // filter or admin bypass).
                 val selected = _selectedBranchIds.value ?: emptySet()
                 val available = _availableBranches.value?.map { it.id }?.toSet() ?: emptySet()
                 val branchFilter = selected.ifEmpty { available }
+                val viewerLevel = RbacManager.current.level
+                val isAdmin = roleId == "admin"
 
-                // Drill-down: if a row further down the org was tapped into, resolve THEIR
-                // subordinates instead of the real logged-in viewer's — same subordinatePool()
-                // call, just anchored at whoever's on top of the stack, using their own level
-                // + branch scope (never the root viewer's selected branch filter or admin
-                // bypass, which wouldn't reflect the drilled-into person's real standing).
                 val drillStack = _drillStack.value ?: emptyList()
                 val effectiveUid: String
                 val effectiveLevel: Int
@@ -333,16 +350,9 @@ class DashboardViewModel : ViewModel() {
                     effectiveIsAdmin = false
                 }
 
-                // Generic "who is my subordinate" rule (Phase 2 of the dynamic role-hierarchy
-                // plan, see RbacManager.kt) — replaces the old hardcoded roleId == "worker" /
-                // roleId == "manager" checks. A role with nobody ranked below it (whatever
-                // that role is named) naturally resolves to an empty pool here and falls
-                // through to the self-only view below, exactly what "worker" used to be
-                // hardcoded to mean.
                 val subordinates = subordinatePool(effectiveUid, effectiveLevel, effectiveBranchFilter, effectiveIsAdmin)
-                val selfName = drillStack.lastOrNull()?.name ?: UserNameResolver.resolveName(uid)
-                val results = if (subordinates.isEmpty()) {
-                    listOf(loadAgentStat(effectiveUid, selfName, startKey, endKey, range.startTs, range.endTs))
+                val teamResults = if (subordinates.isEmpty()) {
+                    emptyList()
                 } else if (_rollupMode.value != false) {
                     loadTieredRollups(subordinates, startKey, endKey, range.startTs, range.endTs)
                 } else {
@@ -350,26 +360,24 @@ class DashboardViewModel : ViewModel() {
                 }
                 statusMetaDeferred.await()
 
-                val agentStats = results.map { it.stat }
+                val agentStats = teamResults.map { it.stat }
 
                 val stats = DashboardStats(
-                    totalParcels = agentStats.sumOf { it.total },
-                    delivered    = agentStats.sumOf { it.delivered },
-                    onHold       = agentStats.sumOf { it.onHold },
-                    returned     = agentStats.sumOf { it.returned },
-                    pending      = agentStats.sumOf { it.pending },
-                    openRuns     = agentStats.sumOf { it.openRuns },
-                    closedRuns   = agentStats.sumOf { it.closedRuns },
-                    earnings     = agentStats.sumOf { it.earnings },
+                    totalParcels = selfResult.stat.total,
+                    delivered    = selfResult.stat.delivered,
+                    onHold       = selfResult.stat.onHold,
+                    returned     = selfResult.stat.returned,
+                    pending      = selfResult.stat.pending,
+                    openRuns     = selfResult.stat.openRuns,
+                    closedRuns   = selfResult.stat.closedRuns,
+                    earnings     = selfResult.stat.earnings,
                 )
 
-                // Merge every agent's raw final_status tally into one dashboard-level count
-                // per distinct status actually seen in range, then resolve each against
+                // One dashboard-level count per distinct final_status from this logged-in
+                // user's own remarks_by_userId range read, then resolve each against
                 // StatusMetaCache for its admin-configured label/color/priority.
                 val mergedRawCounts = mutableMapOf<String, Int>()
-                results.forEach { r ->
-                    r.rawStatusCounts.forEach { (k, v) -> mergedRawCounts[k] = (mergedRawCounts[k] ?: 0) + v }
-                }
+                selfResult.rawStatusCounts.forEach { (k, v) -> mergedRawCounts[k] = v }
                 val totalForPercent = mergedRawCounts.values.sum().coerceAtLeast(1)
                 val breakdown = mergedRawCounts.entries.map { (key, count) ->
                     val meta = StatusMetaCache.entries[key]
@@ -381,7 +389,7 @@ class DashboardViewModel : ViewModel() {
                         percent = (count * 100) / totalForPercent,
                     )
                 }.sortedWith(
-                    compareByDescending<StatusBreakdownItem> { StatusMetaCache.entries[it.key]?.priority ?: 0 }
+                    compareByDescending<StatusBreakdownItem> { StatusMetaCache.entries[it.key]?.sortOrder ?: 0 }
                         .thenByDescending { it.count }
                 )
 
@@ -395,6 +403,18 @@ class DashboardViewModel : ViewModel() {
                     breakdown = breakdown,
                     hasSubordinates = subordinates.isNotEmpty(),
                 )
+
+                // The load as a whole succeeded (no exception reached this far), but one or
+                // more of loadAgentStat's individual reads may have failed internally and
+                // degraded to zero/empty for that agent (see AgentLoadResult.readErrorMessage) —
+                // previously that was only checkable via error_logs, with the dashboard just
+                // silently showing fewer/zeroed numbers and no visible sign anything had
+                // failed. Surface it as the same refreshError toast a full load()-level
+                // failure would use, on top of the Success state above rather than instead of
+                // it, since the numbers just shown may be incomplete, not necessarily empty.
+                (listOf(selfResult) + teamResults).firstOrNull { it.readErrorMessage != null }?.let { failed ->
+                    _refreshError.value = "⚠ কিছু data load হয়নি: ${failed.readErrorMessage}"
+                }
             } catch (e: Exception) {
                 if (hasExistingData) {
                     // Keep the old Success data on screen — surface the failure as a one-off
@@ -419,6 +439,7 @@ class DashboardViewModel : ViewModel() {
         rangeStartTs: Long, rangeEndTs: Long,
         level: Int = RoleLevelCache.DEFAULT_LEVEL, branchIds: List<String> = emptyList(),
     ): AgentLoadResult {
+        var readError: String? = null
         val snap = withContext(Dispatchers.IO) {
             runCatching {
                 db.reference.child("courier/remarks_by_userId/$uid")
@@ -432,7 +453,9 @@ class DashboardViewModel : ViewModel() {
                 // for one agent's read failing inside a multi-agent branch view, but it means
                 // a genuine cause (e.g. a security-rules permission denial on this specific
                 // path) is otherwise invisible. Logging it here doesn't change that graceful
-                // degrade; it just makes the real reason checkable via error_logs/{uid}.
+                // degrade; it just makes the real reason checkable via error_logs/{uid} — and
+                // readError below also surfaces it as a visible toast via load()'s refreshError.
+                readError = "courier/remarks_by_userId/$uid ($startKey-$endKey): ${e.message ?: "read failed"}"
                 FirebaseErrorLogger.log(
                     screen = "DashboardViewModel", action = "remarks_by_userId_read",
                     errorMessage = e.message ?: "unknown",
@@ -478,6 +501,7 @@ class DashboardViewModel : ViewModel() {
         val earningsSnap = withContext(Dispatchers.IO) {
             runCatching { db.reference.child("memory/$uid/earnings").get().await() }
                 .onFailure { e ->
+                    readError = e.message ?: "memory/earnings read failed"
                     FirebaseErrorLogger.log(
                         screen = "DashboardViewModel", action = "memory_earnings_read",
                         errorMessage = e.message ?: "unknown", extra = mapOf("uid" to uid)
@@ -504,6 +528,7 @@ class DashboardViewModel : ViewModel() {
                 db.reference.child("users/$uid/profile/company_info/system_id")
                     .get().await().getValue(String::class.java)?.trim()
             }.onFailure { e ->
+                readError = e.message ?: "system_id read failed"
                 FirebaseErrorLogger.log(
                     screen = "DashboardViewModel", action = "system_id_read",
                     errorMessage = e.message ?: "unknown", extra = mapOf("uid" to uid)
@@ -514,6 +539,7 @@ class DashboardViewModel : ViewModel() {
             val runsSnap = withContext(Dispatchers.IO) {
                 runCatching { db.reference.child("courier/runs_by_agentSystemId/$systemId").get().await() }
                     .onFailure { e ->
+                        readError = e.message ?: "runs_by_agentSystemId read failed"
                         FirebaseErrorLogger.log(
                             screen = "DashboardViewModel", action = "runs_by_agentSystemId_read",
                             errorMessage = e.message ?: "unknown", extra = mapOf("systemId" to systemId)
@@ -556,12 +582,12 @@ class DashboardViewModel : ViewModel() {
             // of what its status is.
             pending   = entryCount - delivered - onHold - returned,
             earnings  = earnings,
-            level     = level,
-            branchIds = branchIds,
             openRuns  = openRuns,
             closedRuns = closedRuns,
+            level     = level,
+            branchIds = branchIds,
         )
-        return AgentLoadResult(stat, rawCounts)
+        return AgentLoadResult(stat, rawCounts, readError)
     }
 
     /** Handles a commission/amount value that may be stored as Long, Int, or Double —
@@ -570,21 +596,6 @@ class DashboardViewModel : ViewModel() {
         getValue(Double::class.java)
             ?: getValue(Long::class.java)?.toDouble()
             ?: getValue(Int::class.java)?.toDouble()
-
-    /** Every already-resolved subordinate (subordinatePool() — level+branch or explicit
-     *  reports_to, any depth), each read via loadAgentStat in parallel. */
-    private suspend fun loadSubordinateAgentStats(
-        candidates: List<SubordinateCandidate>, startKey: String, endKey: String,
-        rangeStartTs: Long, rangeEndTs: Long,
-    ): List<AgentLoadResult> {
-        return coroutineScope {
-            candidates.map { c ->
-                async { loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs, c.level, c.branchIds) }
-            }.awaitAll()
-        }.filter { it.stat.total > 0 || it.stat.earnings > 0 || it.stat.openRuns + it.stat.closedRuns > 0 }
-            // hide subordinates with nothing actioned, earned, or run in this range — same
-            // convention as before, now applying to whoever the candidate turned out to be
-    }
 
     /** One candidate account found while scanning users/ — enough to match subordinates
      *  against the viewer (and each other) by level, shared branch, or explicit reports_to. */
@@ -648,6 +659,21 @@ class DashboardViewModel : ViewModel() {
             if (c.reportsTo.isNotBlank()) chainReachesViewer(c)
             else c.branchIds.any { it in branchFilter }
         }
+    }
+
+    /** Every already-resolved subordinate (subordinatePool() — level+branch or explicit
+     *  reports_to, any depth), each read via loadAgentStat in parallel. */
+    private suspend fun loadSubordinateAgentStats(
+        candidates: List<SubordinateCandidate>, startKey: String, endKey: String,
+        rangeStartTs: Long, rangeEndTs: Long,
+    ): List<AgentLoadResult> {
+        return coroutineScope {
+            candidates.map { c ->
+                async { loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs, c.level, c.branchIds) }
+            }.awaitAll()
+        }.filter { it.stat.total > 0 || it.stat.earnings > 0 || it.stat.openRuns + it.stat.closedRuns > 0 }
+            // hide subordinates with nothing actioned, earned, or run in this range — same
+            // convention as before, now applying to whoever the candidate turned out to be
     }
 
     /** Rollup view: one row per person at the viewer's IMMEDIATE next tier down (whichever
@@ -753,12 +779,13 @@ class DashboardViewModel : ViewModel() {
                     branchIds  = rep.branchIds,
                 ),
                 rawStatusCounts = rawCounts,
+                readErrorMessage = matched.firstNotNullOfOrNull { (_, r) -> r.second.readErrorMessage },
             )
         }
     }
 
     /** [ts] (epoch ms) as yyyyMMdd — must match the write side's date-key format exactly
-     *  (WorkerSpaceFragment.remarksIndexDateKeyYyyyMmDd / CallCenterFragment's twin). */
+     *  (WorkerSpaceFragment.todayDateKeyYyyyMmDd / CallCenterFragment's twin). */
     private fun dateKey(ts: Long): String =
         java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date(ts))
 

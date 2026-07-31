@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
@@ -43,9 +44,9 @@ class DashboardFragment : Fragment() {
     )
 
     private lateinit var cardTotal:     MetricCardViews
-    private lateinit var cardDelivered: MetricCardViews
-    private lateinit var cardOnHold:    MetricCardViews
-    private lateinit var cardReturned:  MetricCardViews
+    // Delivered/OnHold/Returned are no longer fixed cards — see
+    // layoutDynamicOverviewCards / buildOverviewCards() below.
+    private lateinit var layoutDynamicOverviewCards: LinearLayout
     private lateinit var cardTotalRuns: MetricCardViews
     private lateinit var cardOpenRuns:  MetricCardViews
     private lateinit var cardClosedRuns:MetricCardViews
@@ -127,14 +128,12 @@ class DashboardFragment : Fragment() {
             )
         }
         cardTotal      = metricCard(R.id.cardTotal)
-        cardDelivered  = metricCard(R.id.cardDelivered)
-        cardOnHold     = metricCard(R.id.cardOnHold)
-        cardReturned   = metricCard(R.id.cardReturned)
         cardTotalRuns  = metricCard(R.id.cardTotalRuns)
         cardOpenRuns   = metricCard(R.id.cardOpenRuns)
         cardClosedRuns = metricCard(R.id.cardClosedRuns)
         cardEarnings   = metricCard(R.id.cardEarnings)
 
+        layoutDynamicOverviewCards = root.findViewById(R.id.layoutDynamicOverviewCards)
         layoutStatusLegend = root.findViewById(R.id.layoutStatusLegend)
 
         chipToday     = root.findViewById(R.id.chipToday)
@@ -145,20 +144,16 @@ class DashboardFragment : Fragment() {
 
         root.findViewById<View>(R.id.btnRetry)?.setOnClickListener { vm.refresh() }
 
-        // Initial metric card labels
+        // Initial metric card labels — Delivered/OnHold/Returned no longer have fixed
+        // labels/colors here; buildOverviewCards() sets those per-card, per-render, from
+        // each StatusBreakdownItem's own label/color (same source the legend already uses).
         cardTotal.label.text      = "TOTAL"
-        cardDelivered.label.text  = "DELIVERED"
-        cardOnHold.label.text     = "ON HOLD"
-        cardReturned.label.text   = "RETURNED"
         cardTotalRuns.label.text  = "TOTAL RUNS"
         cardOpenRuns.label.text   = "OPEN"
         cardClosedRuns.label.text = "CLOSED"
         cardEarnings.label.text   = "EARNINGS"
 
         cardTotal.accentBar.setBackgroundColor(colorBlue)
-        cardDelivered.accentBar.setBackgroundColor(colorGreen)
-        cardOnHold.accentBar.setBackgroundColor(colorAmber)
-        cardReturned.accentBar.setBackgroundColor(colorRed)
         cardTotalRuns.accentBar.setBackgroundColor(colorAccent)
         cardOpenRuns.accentBar.setBackgroundColor(colorGreen)
         cardClosedRuns.accentBar.setBackgroundColor(colorMuted)
@@ -239,6 +234,12 @@ class DashboardFragment : Fragment() {
             selectedBranchIds = ids
             updateBranchDropdownLabel()
         }
+        // Meaningful for anyone with subordinates now (hasSubordinates in showSuccess()),
+        // not just role == "manager" — cheap LiveData either way, no Firebase read of its own.
+        vm.rollupMode.observe(viewLifecycleOwner) { rollup ->
+            currentRollupMode = rollup
+            tvRollupToggle.text = if (rollup) "👥 Team View ▾" else "👤 Direct Reports ▾"
+        }
         vm.drillStack.observe(viewLifecycleOwner) { stack ->
             if (stack.isEmpty()) {
                 tvDrillBreadcrumb.isVisible = false
@@ -246,12 +247,6 @@ class DashboardFragment : Fragment() {
                 tvDrillBreadcrumb.isVisible = true
                 tvDrillBreadcrumb.text = "← " + stack.joinToString(" / ") { it.name }
             }
-        }
-        // Meaningful for anyone with subordinates now (hasSubordinates in showSuccess()),
-        // not just role == "manager" — cheap LiveData either way, no Firebase read of its own.
-        vm.rollupMode.observe(viewLifecycleOwner) { rollup ->
-            currentRollupMode = rollup
-            tvRollupToggle.text = if (rollup) "👥 Team View ▾" else "👤 Direct Reports ▾"
         }
         // Refresh-with-existing-data path: keep the current Success view up, just show
         // swipeRefresh's own spinner instead of the full-screen Loading view (see load()).
@@ -262,6 +257,7 @@ class DashboardFragment : Fragment() {
         // wiping that data via showError().
         vm.refreshError.observe(viewLifecycleOwner) { message ->
             if (message == null) return@observe
+            Toast.makeText(requireContext(), "Dashboard error: $message", Toast.LENGTH_LONG).show()
             com.google.android.material.snackbar.Snackbar
                 .make(swipeRefresh, "⚠ $message", com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
                 .show()
@@ -342,6 +338,7 @@ class DashboardFragment : Fragment() {
         layoutError.isVisible   = true
         swipeRefresh.isVisible  = false
         tvError.text            = "⚠  $msg"
+        Toast.makeText(requireContext(), "Dashboard error: $msg", Toast.LENGTH_LONG).show()
     }
 
     private fun showSuccess(state: DashboardState.Success) {
@@ -353,17 +350,8 @@ class DashboardFragment : Fragment() {
         val s = state.stats
 
         // ── Parcel metric cards ──
-        cardTotal.value.text     = s.totalParcels.toString()
-        cardDelivered.value.text = s.delivered.toString()
-        cardOnHold.value.text    = s.onHold.toString()
-        cardReturned.value.text  = s.returned.toString()
-
-        // Sub labels
-        if (s.totalParcels > 0) {
-            val rate = (s.delivered * 100) / s.totalParcels
-            cardDelivered.sub.text = "$rate% success rate"
-            cardDelivered.sub.isVisible = true
-        }
+        cardTotal.value.text = s.totalParcels.toString()
+        buildOverviewCards(state.breakdown)
 
         // ── Run metric cards ──
         cardTotalRuns.value.text  = (s.openRuns + s.closedRuns).toString()
@@ -376,8 +364,10 @@ class DashboardFragment : Fragment() {
         // ── Status breakdown bar ──
         buildStatusBreakdown(state.breakdown)
 
-        // ── Agent list (admin/branch only) ──
-        val showAgents = state.agents.isNotEmpty() && state.role !in listOf("worker", "delivery")
+        // ── Agent list — visible for anyone with subordinates (Success.hasSubordinates),
+        // not a hardcoded role !in ["worker","delivery"] check — a role with nobody below
+        // it naturally has an empty agents list either way, so this generalizes safely.
+        val showAgents = state.hasSubordinates
         cardAgents.isVisible      = showAgents
         tvSectionAgents.isVisible = showAgents
         // Visible for ANYONE with at least one subordinate (subordinatePool() found someone),
@@ -392,6 +382,38 @@ class DashboardFragment : Fragment() {
             else                                        -> "Agent Performance"
         }
         if (showAgents) buildAgentRows(state.agents)
+    }
+
+    // ── Per-status overview cards ────────────────────────────────────────────────
+
+    /** Replaces the old fixed Delivered/OnHold/Returned cards — one dynamic card per
+     *  distinct final_status actually found in range, 2 per row (same visual convention
+     *  the old fixed rows used), value = count, sub = percentage of total. Reuses the
+     *  same StatusBreakdownItem list buildStatusBreakdown() already renders as the bar +
+     *  legend below — no separate computation, just a second rendering of it as cards. */
+    private fun buildOverviewCards(breakdown: List<StatusBreakdownItem>) {
+        layoutDynamicOverviewCards.removeAllViews()
+
+        breakdown.filter { it.count > 0 }.chunked(2).forEach { pair ->
+            val row = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+            pair.forEach { item ->
+                val card = layoutInflater.inflate(R.layout.item_metric_card, row, false)
+                card.findViewById<View>(R.id.viewAccentBar).setBackgroundColor(item.color)
+                card.findViewById<TextView>(R.id.tvMetricLabel).text = item.label.uppercase()
+                card.findViewById<TextView>(R.id.tvMetricValue).text = item.count.toString()
+                card.findViewById<TextView>(R.id.tvMetricSub).apply {
+                    text = "${item.percent}% of total"
+                    isVisible = true
+                }
+                row.addView(card)
+            }
+            layoutDynamicOverviewCards.addView(row)
+        }
     }
 
     // ── Status breakdown bar ───────────────────────────────────────────────────
