@@ -656,15 +656,6 @@ class CallCenterFragment : Fragment() {
                 val realCallEndDetected = CallStateWatcher.awaitCallEnd(ctx, AUTO_CALL_RETURN_TIMEOUT_MS)
                 hideAutoCallStatus() // call just ended (or we timed out waiting) — clear the preview
 
-                // No-answer detection: brief buffer for the OS to actually write the call log
-                // entry, then check whether it connected at all.
-                delay(1000L)
-                val talkDurationSec = CallLogHelper.getLastCallDurationSeconds(ctx, phone, dialStartMs)
-                val totalDurationSec = ((System.currentTimeMillis() - dialStartMs) / 1000L).toInt()
-                if (talkDurationSec == 0 && totalDurationSec >= AUTO_NO_ANSWER_MIN_RING_SECONDS) {
-                    allParcels.find { it.id == id }?.let { item -> saveAutoNoAnswerRemark(item) }
-                }
-
                 if (!realCallEndDetected) {
                     // No READ_PHONE_STATE (declined during onboarding, or an existing
                     // install that hasn't been through the updated flow yet), or the
@@ -675,6 +666,19 @@ class CallCenterFragment : Fragment() {
                     resumeSignal = deferred
                     withTimeoutOrNull(AUTO_CALL_RETURN_TIMEOUT_MS) { deferred.await() }
                     resumeSignal = null
+                }
+
+                // No-answer detection: only once we're actually confident the call has ended
+                // (real detection succeeded, OR the screen-focus fallback above also
+                // resolved) — NOT right after awaitCallEnd() alone, since a timeout there
+                // doesn't mean the call ended, just that we gave up waiting on the reliable
+                // signal. Checking too early risks reading the call log mid-call. Brief
+                // buffer after that for the OS to actually write the log entry.
+                delay(1000L)
+                val talkDurationSec = CallLogHelper.getLastCallDurationSeconds(ctx, phone, dialStartMs)
+                val totalDurationSec = ((System.currentTimeMillis() - dialStartMs) / 1000L).toInt()
+                if (talkDurationSec == 0 && totalDurationSec >= AUTO_NO_ANSWER_MIN_RING_SECONDS) {
+                    allParcels.find { it.id == id }?.let { item -> saveAutoNoAnswerRemark(item) }
                 }
 
                 // Short breather before the next dial — shown as a live countdown instead of
