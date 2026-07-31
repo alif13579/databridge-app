@@ -283,12 +283,19 @@
                             android:textStyle="bold"
                             android:letterSpacing="0.04" />
 
-                        <LinearLayout
-                            android:id="@+id/layoutMfsBreakdown"
+                        <ScrollView
                             android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical"
-                            android:layout_marginTop="2dp" />
+                            android:layout_height="140dp"
+                            android:layout_marginTop="2dp"
+                            android:scrollbars="vertical"
+                            android:fillViewport="false">
+
+                            <LinearLayout
+                                android:id="@+id/layoutMfsBreakdown"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="vertical" />
+                        </ScrollView>
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 

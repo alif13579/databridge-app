@@ -404,7 +404,16 @@ class CashManagementFragment : Fragment() {
 
         refreshLedgerUi()
 
+        // Spinner.setSelection() posts its selection notification rather than firing
+        // it synchronously, so it still reaches onItemSelected below even though the
+        // listener gets attached *after* this call. Without this guard, restoring an
+        // already-existing channel's selection on every rebuild would look like a
+        // fresh pick, call vm.addProvider() again, trigger refresh(), rebuild the
+        // cards, restore selection again... an infinite reload loop.
+        var isRestoringSelection = false
+
         if (!initialProvider.isNullOrBlank()) {
+            isRestoringSelection = true
             val presetIndex = providerOptions.indexOf(initialProvider)
             if (presetIndex >= 0) {
                 spinner.setSelection(presetIndex)
@@ -419,6 +428,11 @@ class CashManagementFragment : Fragment() {
             override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
                 val value = providerOptions[position]
                 etCustomName.isVisible = value == "Other"
+                if (isRestoringSelection) {
+                    isRestoringSelection = false
+                    refreshLedgerUi()
+                    return
+                }
                 if (value != "Select provider" && value != "Other") {
                     pendingEmptyRowCount = (pendingEmptyRowCount - 1).coerceAtLeast(0)
                     vm.addProvider(value) { ok ->
