@@ -64,7 +64,12 @@ data class HistoryEntry(
      *  very first entry (nothing to compare against). Computed once via
      *  [WorkerParcelAdapter.withResponseGaps] rather than stored — this is UI-derived, not
      *  raw data. */
-    val responseGapMinutes: Long? = null
+    val responseGapMinutes: Long? = null,
+    /** From the remark's call_logs field (worker remark-save call log verification) —
+     *  how many calls were made to this number today, and their combined talk duration.
+     *  0/0 when the remark has no call_logs (e.g. no permission, or nothing matched). */
+    val callLogCount: Int = 0,
+    val callLogTotalDurationSec: Int = 0
 )
 
 class WorkerParcelAdapter(
