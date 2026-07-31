@@ -752,11 +752,37 @@ class CallCenterFragment : Fragment() {
         return allParcels.filter { it.phone.normalizedPhone() == normalized }
     }
 
+    /** Only counts a dial attempt once the system call log actually confirms it happened —
+     *  not just that we asked Android to place the call, which can silently fail (permission
+     *  denied mid-flow, no dialer app, etc.) without AutoDialHelper knowing. Falls back to
+     *  counting immediately if READ_CALL_LOG isn't granted, so the badge still works (just
+     *  less precisely — back to "we asked to dial" instead of "the call log confirms it") for
+     *  anyone who declined that permission during onboarding. */
+    private fun verifyAndIncrementDialCount(consignmentId: String, phone: String) {
+        val ctx = requireContext()
+        if (!CallLogHelper.hasPermission(ctx)) {
+            DialCountStore.increment(ctx, consignmentId)
+            applyFilters()
+            return
+        }
+        val dialAttemptMs = System.currentTimeMillis()
+        viewLifecycleOwner.lifecycleScope.launch {
+            delay(1500L) // give the OS a moment to write the call log entry
+            val confirmed = withContext(Dispatchers.IO) {
+                CallLogHelper.getLastCallDurationSeconds(ctx, phone, dialAttemptMs) != null
+            }
+            if (confirmed && isAdded) {
+                DialCountStore.increment(ctx, consignmentId)
+                applyFilters() // refresh the badge on this card
+            }
+        }
+    }
+
     private fun setupAdapter() {
         adapter = CallCenterAdapter(
             onCall = { item ->
                 AutoDialHelper.dial(this@CallCenterFragment, item.phone)
-                DialCountStore.increment(requireContext(), item.id)
+                verifyAndIncrementDialCount(item.id, item.phone)
                 callCardStates[item.id] = colorCallDone
                 pushCallStates()
             },
@@ -791,7 +817,7 @@ class CallCenterFragment : Fragment() {
                 onSwipeRight = { position ->
                     adapter.parcelAt(position)?.let { item ->
                         AutoDialHelper.dial(this@CallCenterFragment, item.phone)
-                        DialCountStore.increment(requireContext(), item.id)
+                        verifyAndIncrementDialCount(item.id, item.phone)
                         callCardStates[item.id] = colorCallDone
                         pushCallStates()
                     }
