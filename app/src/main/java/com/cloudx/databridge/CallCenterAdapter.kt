@@ -224,10 +224,11 @@ class CallCenterAdapter(
             onLongPress: (CallCenterParcelItem) -> Unit
         ) {
             tvCustomer.text = item.customer
-            // Local-only dial-attempt count (DialCountStore, per-device, never synced) — only
-            // shown once it's actually meaningful (more than a single, expected first call).
+            // Local-only dial-attempt count (DialCountStore, per-device, never synced) —
+            // shown from the very first call, so it's clear at a glance how many times this
+            // number has been dialed from this device.
             val dialCount = DialCountStore.get(itemView.context, item.id)
-            if (dialCount > 1) {
+            if (dialCount > 0) {
                 tvCallCount.text = "📞 ×$dialCount"
                 tvCallCount.visibility = View.VISIBLE
             } else {
