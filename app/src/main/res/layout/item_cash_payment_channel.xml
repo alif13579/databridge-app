@@ -38,6 +38,15 @@
                 android:textSize="10sp"
                 android:textStyle="bold"
                 android:background="@drawable/badge_bg_neutral" />
+
+            <ImageButton
+                android:id="@+id/btnRemoveChannel"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_delete_modern"
+                android:contentDescription="Remove channel" />
         </LinearLayout>
 
         <TextView
@@ -69,5 +78,23 @@
             android:drawablePadding="6dp"
             android:backgroundTint="#0F766E"
             android:textColor="#FFFFFF" />
+
+        <TextView
+            android:id="@+id/tvPaymentHistoryLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="PAYMENT HISTORY"
+            android:textColor="#94A3B8"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.05" />
+
+        <LinearLayout
+            android:id="@+id/layoutPaymentHistory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="2dp" />
     </LinearLayout>
 </androidx.cardview.widget.CardView>

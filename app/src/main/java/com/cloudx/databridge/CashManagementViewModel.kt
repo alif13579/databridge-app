@@ -180,12 +180,17 @@ class CashManagementViewModel : ViewModel() {
             }
     }
 
-    // Removes only the provider marker, not its ledger history -- past handover/hub
-    // payment entries stay in Firebase even if the card is removed from this branch's
-    // active list, so the money trail is never silently deleted.
+    // Removing a channel now deletes its ledger history along with the marker --
+    // previously this only hid the channel (ledger data stayed in Firebase), which
+    // meant re-adding the same name later silently resurrected old handover/hub-
+    // payment records. That was surprising, so removal is a real delete now.
     fun removeProvider(providerName: String, onDone: (Boolean) -> Unit = {}) {
         if (providerName.isBlank() || branchId.isBlank()) { onDone(false); return }
-        db.reference.child(FirebasePaths.cashManagementProviders(branchId)).child(providerName).removeValue()
+        val updates: Map<String, Any?> = mapOf(
+            "${FirebasePaths.cashManagementProviders(branchId)}/$providerName" to null,
+            "${FirebasePaths.cashManagementLedger(branchId)}/$providerName" to null,
+        )
+        db.reference.updateChildren(updates)
             .addOnSuccessListener { refresh(); onDone(true) }
             .addOnFailureListener { e ->
                 FirebaseErrorLogger.log(
