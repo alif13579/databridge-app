@@ -1302,6 +1302,8 @@ class CallCenterFragment : Fragment() {
 
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
         val branchIdsSnapshot = myBranchIds
+        ccReportedBranchIds.clear()
+        ccExpectedBranchCount = branchIdsSnapshot.size
 
         val todayDateKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH)
             .format(java.util.Date())
@@ -1320,6 +1322,7 @@ class CallCenterFragment : Fragment() {
             branchRef.addListenerForSingleValueEvent(object : com.google.firebase.database.ValueEventListener {
                 override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                     if (!isAdded) return
+                    ccReportedBranchIds.add(branchId)
                     val runTypes = snapshot.children.mapNotNull { it.key }.distinct().sorted()
                     if (runTypes.isEmpty()) {
                         val allTypes = ccBranchRangeSnapshots.keys
@@ -1620,6 +1623,13 @@ class CallCenterFragment : Fragment() {
 
         val typesToWatch = if (ccSelectedRunType == CC_RUN_TYPE_ALL) runTypes else listOf(ccSelectedRunType)
         if (typesToWatch.isEmpty()) {
+            if (ccReportedBranchIds.size < ccExpectedBranchCount) {
+                // Not every assigned branch has reported yet — an empty result right now
+                // could just mean the branches that DO have runs haven't responded yet.
+                // Leave the loading spinner (already showing since loadData()) as-is rather
+                // than flashing "No Run" and then correcting it a moment later.
+                return
+            }
             pbProgress.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nকোনো run নেই"
@@ -1686,6 +1696,20 @@ class CallCenterFragment : Fragment() {
     private val ccActiveListeners = mutableListOf<Pair<com.google.firebase.database.Query, com.google.firebase.database.ValueEventListener>>()
     /** Per (branchId/runType) range-query result snapshots — accumulated as each live query fires. */
     private val ccBranchRangeSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
+
+    // Guards the "no run" empty state against a race: each assigned branch's Phase 1
+    // discovery listener fires independently and asynchronously (Firebase gives no
+    // ordering guarantee across separate reads), so onBranchIndexesLoaded() can be called
+    // with an incomplete picture — e.g. branch A (genuinely empty today) reports before
+    // branch B (which has runs) has reported at all, momentarily computing an empty
+    // runTypes list and flashing "No Run" before branch B's data arrives a moment later
+    // and corrects it. ccReportedBranchIds tracks which branches have completed Phase 1
+    // discovery at least once; only once every branch in ccExpectedBranchCount has
+    // reported is an empty result trusted enough to show the empty state. Does not affect
+    // how or when data is fetched or rendered once available — only gates the specific
+    // "conclude there's nothing" decision during the initial load window.
+    private var ccExpectedBranchCount = 0
+    private val ccReportedBranchIds = mutableSetOf<String>()
 
     private fun detachRunsListener() {
         ccActiveListeners.forEach { (ref, l) -> ref.removeEventListener(l) }
