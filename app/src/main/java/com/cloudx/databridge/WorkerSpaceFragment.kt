@@ -376,7 +376,8 @@ class WorkerSpaceFragment : Fragment() {
                 }
             },
             onCollapse = { item ->
-                samePhoneGroup(item).forEach { p -> EngagedStateManager.clearEngaged(p.id) }
+                val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                samePhoneGroup(item).forEach { p -> EngagedStateManager.clearEngaged(p.id, uid) }
             }
         )
 
@@ -572,7 +573,7 @@ class WorkerSpaceFragment : Fragment() {
                     db.reference.child("courier/users_by_consignment/${item.id}/$todayDateKey/$userId")
                         .setValue(true)
 
-                    EngagedStateManager.clearEngaged(item.id)
+                    EngagedStateManager.clearEngaged(item.id, userId)
                     android.widget.Toast.makeText(requireContext(), "✓ Note saved", android.widget.Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
                 }
@@ -833,7 +834,7 @@ class WorkerSpaceFragment : Fragment() {
                         extra = mapOf("consignmentId" to p.id, "userId" to userId)
                     )
                 }
-            EngagedStateManager.clearEngaged(p.id)
+            EngagedStateManager.clearEngaged(p.id, userId)
         }
 
         // Local state update for all affected parcels.
