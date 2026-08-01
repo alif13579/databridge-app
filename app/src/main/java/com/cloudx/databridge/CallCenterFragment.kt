@@ -809,7 +809,8 @@ class CallCenterFragment : Fragment() {
                 }
             },
             onCollapse = { item ->
-                samePhoneGroup(item).forEach { p -> EngagedStateManager.clearEngaged(p.id) }
+                val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                samePhoneGroup(item).forEach { p -> EngagedStateManager.clearEngaged(p.id, uid) }
             }
         )
         adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()
@@ -1993,7 +1994,7 @@ class CallCenterFragment : Fragment() {
                                 remarksAt         = latestTodayEntry?.child("createdAt")?.getValue(Long::class.java) ?: 0L,
                                 createdAt         = createdAtVal,
                                 updatedAt         = updatedAtVal,
-                                engagedAt         = remarksSnap.child("engaged_at/timestamp").getValue(Long::class.java) ?: 0L,
+                                engagedAgents     = EngagedStateManager.parseEngagedAgents(remarksSnap.child("engaged_at")),
                                 attemptCount      = attemptVal
                             ),
                             remarksSnap,
@@ -2237,7 +2238,7 @@ class CallCenterFragment : Fragment() {
                                     validationRequest = isVerifyRequestStatus(liveRemarkStatus),
                                     validationNote = if (isVerifyRequestStatus(liveRemarkStatus)) latestRemarkNote else "",
                                     remarksAt = latestTodayForBadge?.child("createdAt")?.getValue(Long::class.java) ?: 0L,
-                                    engagedAt = snapshot.child("engaged_at/timestamp").getValue(Long::class.java) ?: 0L,
+                                    engagedAgents = EngagedStateManager.parseEngagedAgents(snapshot.child("engaged_at")),
                                     history = history
                                 )
                             }
@@ -2663,7 +2664,7 @@ class CallCenterFragment : Fragment() {
                     )
                 }
 
-            EngagedStateManager.clearEngaged(target.id)
+            EngagedStateManager.clearEngaged(target.id, userId)
         }
 
         // Parcel status (courier/consignments/{id}/status) is a SEPARATE concept from

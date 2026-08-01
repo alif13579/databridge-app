@@ -1,6 +1,7 @@
 package com.cloudx.databridge
 
 import android.content.res.ColorStateList
+import coil.load
 import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
 import android.view.View
@@ -35,7 +36,7 @@ data class WorkerParcelItem(
     /** courier/remarks_by_consignment/{id}/engaged_at's timestamp — 0 if nobody has this
      *  parcel's card open right now (or that engagement has gone stale). See
      *  EngagedStateManager for the write/clear/staleness logic this is populated from. */
-    val engagedAt: Long = 0L,
+    val engagedAgents: List<EngagedAgent> = emptyList(),
     val attemptCount: Int = 0,
     val history: List<HistoryEntry> = emptyList()
 )
@@ -100,7 +101,12 @@ class WorkerParcelAdapter(
         val remarksBox: View = view.findViewById(R.id.layoutParcelRemarksBox)
         val tvRemarks: TextView = view.findViewById(R.id.tvParcelRemarks)
         val tvRemarksTime: TextView = view.findViewById(R.id.tvParcelRemarksTime)
-        val engagedRing: EngagedRingView = view.findViewById(R.id.viewEngagedRing)
+        val layoutEngagedAvatars: LinearLayout = view.findViewById(R.id.layoutEngagedAvatars)
+        val ivEngagedAvatar1: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar1)
+        val ivEngagedAvatar2: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar2)
+        val ivEngagedAvatar3: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar3)
+        val ivEngagedAvatar4: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar4)
+        val tvEngagedOverflow: TextView = view.findViewById(R.id.tvEngagedOverflow)
 
         val tvCcRemarkBlock: View = view.findViewById(R.id.layoutCcRemarkBlock)
         val tvCcRemarkLabel: TextView = view.findViewById(R.id.tvCcRemarkLabel)
@@ -228,12 +234,36 @@ class WorkerParcelAdapter(
             holder.remarksBox.visibility = View.GONE
         }
 
-        // Engaged ring — spins while someone (either side) has this parcel's card expanded
-        // and that engagement hasn't gone stale (see EngagedStateManager).
-        if (EngagedStateManager.isFresh(item.engagedAt)) {
-            holder.engagedRing.start()
+        // Engaged avatars — up to 4 stacked circles (oldest first, so the newest engagement
+        // draws on top), replacing the old spinning ring with exactly WHO is currently
+        // engaged. See EngagedStateManager.
+        val freshAgents = item.engagedAgents.filter { EngagedStateManager.isFresh(it.timestamp) }
+            .sortedBy { it.timestamp }
+        if (freshAgents.isNotEmpty()) {
+            holder.layoutEngagedAvatars.visibility = View.VISIBLE
+            val slots = listOf(holder.ivEngagedAvatar1, holder.ivEngagedAvatar2, holder.ivEngagedAvatar3, holder.ivEngagedAvatar4)
+            slots.forEachIndexed { i, slot ->
+                val agent = freshAgents.getOrNull(i)
+                if (agent != null) {
+                    slot.visibility = View.VISIBLE
+                    slot.load(agent.photoUrl) {
+                        crossfade(true)
+                        placeholder(R.drawable.bg_timeline_avatar_placeholder)
+                        error(R.drawable.bg_timeline_avatar_placeholder)
+                    }
+                } else {
+                    slot.visibility = View.GONE
+                }
+            }
+            val overflow = freshAgents.size - slots.size
+            if (overflow > 0) {
+                holder.tvEngagedOverflow.text = "+$overflow"
+                holder.tvEngagedOverflow.visibility = View.VISIBLE
+            } else {
+                holder.tvEngagedOverflow.visibility = View.GONE
+            }
         } else {
-            holder.engagedRing.stop()
+            holder.layoutEngagedAvatars.visibility = View.GONE
         }
 
         // Card border: colored when there's a remark, default otherwise

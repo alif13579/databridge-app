@@ -376,7 +376,8 @@ class WorkerSpaceFragment : Fragment() {
                 }
             },
             onCollapse = { item ->
-                samePhoneGroup(item).forEach { p -> EngagedStateManager.clearEngaged(p.id) }
+                val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                samePhoneGroup(item).forEach { p -> EngagedStateManager.clearEngaged(p.id, uid) }
             }
         )
 
@@ -572,7 +573,7 @@ class WorkerSpaceFragment : Fragment() {
                     db.reference.child("courier/users_by_consignment/${item.id}/$todayDateKey/$userId")
                         .setValue(true)
 
-                    EngagedStateManager.clearEngaged(item.id)
+                    EngagedStateManager.clearEngaged(item.id, userId)
                     android.widget.Toast.makeText(requireContext(), "✓ Note saved", android.widget.Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
                 }
@@ -833,7 +834,7 @@ class WorkerSpaceFragment : Fragment() {
                         extra = mapOf("consignmentId" to p.id, "userId" to userId)
                     )
                 }
-            EngagedStateManager.clearEngaged(p.id)
+            EngagedStateManager.clearEngaged(p.id, userId)
         }
 
         // Local state update for all affected parcels.
@@ -1288,7 +1289,7 @@ class WorkerSpaceFragment : Fragment() {
                         val idx = allParcels.indexOfFirst { it.id == cId }
                         if (idx != -1) {
                             val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status
-                            val engagedAtVal = snapshot.child("engaged_at/timestamp").getValue(Long::class.java) ?: 0L
+                            val engagedAgentsVal = EngagedStateManager.parseEngagedAgents(snapshot.child("engaged_at"))
                             allParcels = allParcels.toMutableList().also {
                                 it[idx] = it[idx].copy(
                                     status  = effectiveStatus,
@@ -1297,7 +1298,7 @@ class WorkerSpaceFragment : Fragment() {
                                     validationRequest = isVerifyRequestStatus(lastRemarkStatus),
                                     validationNote = if (isVerifyRequestStatus(lastRemarkStatus)) lastRemark else "",
                                     remarksAt = latestTodayEntry?.createdAt ?: 0L,
-                                    engagedAt = engagedAtVal,
+                                    engagedAgents = engagedAgentsVal,
                                     history = history
                                 )
                             }
@@ -1609,7 +1610,7 @@ class WorkerSpaceFragment : Fragment() {
             val createdAtVal = detailSnap.child("createdAt").getValue(Long::class.java) ?: 0L
             val updatedAtVal = detailSnap.child("updatedAt").getValue(Long::class.java) ?: 0L
             val attemptVal = readAttempt(detailSnap)
-            val engagedAtValBulk = remarksSnap.child("engaged_at/timestamp").getValue(Long::class.java) ?: 0L
+            val engagedAgentsValBulk = EngagedStateManager.parseEngagedAgents(remarksSnap.child("engaged_at"))
             parcels.add(
                 WorkerParcelItem(
                     id = cId,
@@ -1626,7 +1627,7 @@ class WorkerSpaceFragment : Fragment() {
                     remarksAt = latestTodayEntryBulk?.createdAt ?: 0L,
                     createdAt = createdAtVal,
                     updatedAt = updatedAtVal,
-                    engagedAt = engagedAtValBulk,
+                    engagedAgents = engagedAgentsValBulk,
                     attemptCount = attemptVal,
                     history = history
                 )
