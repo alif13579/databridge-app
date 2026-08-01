@@ -1971,7 +1971,7 @@ class CallCenterFragment : Fragment() {
                                 remarksAt         = latestTodayEntry?.child("createdAt")?.getValue(Long::class.java) ?: 0L,
                                 createdAt         = createdAtVal,
                                 updatedAt         = updatedAtVal,
-                                engagedAt         = remarksSnap.child("engaged_at/timestamp").getValue(Long::class.java) ?: 0L,
+                                engagedAgents     = EngagedStateManager.parseEngagedAgents(remarksSnap.child("engaged_at")),
                                 attemptCount      = attemptVal
                             ),
                             remarksSnap,
@@ -2215,7 +2215,7 @@ class CallCenterFragment : Fragment() {
                                     validationRequest = isVerifyRequestStatus(liveRemarkStatus),
                                     validationNote = if (isVerifyRequestStatus(liveRemarkStatus)) latestRemarkNote else "",
                                     remarksAt = latestTodayForBadge?.child("createdAt")?.getValue(Long::class.java) ?: 0L,
-                                    engagedAt = snapshot.child("engaged_at/timestamp").getValue(Long::class.java) ?: 0L,
+                                    engagedAgents = EngagedStateManager.parseEngagedAgents(snapshot.child("engaged_at")),
                                     history = history
                                 )
                             }
