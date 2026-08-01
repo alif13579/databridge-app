@@ -36,11 +36,11 @@ import java.util.TimeZone
 
 /**
  * Branch-scoped cash reconciliation screen:
- *   Collection (manual entry) -> deposited into one or more MFS channel accounts
- *   (Rocket / bKash / Other, configurable per branch) -> from each channel a
- * "Pay to hub" settles some or all of it back to the branch's central account.
- * Not day-locked: a day's collection can be fully settled same-day, partially, or
- * carried forward if an MFS channel doesn't have full balance ready yet.
+ *   Collection (manual entry) -> deposited into one or more MFS channels
+ *   (a channel is just a name that accumulates a balance -- created the moment
+ *   it's first deposited into) -> from each channel a "Pay to hub" settles some
+ * or all of it back to the branch's central account. Not day-locked: a day's
+ * collection can be fully settled same-day, partially, or carried forward.
  */
 class CashManagementFragment : Fragment() {
 
@@ -63,8 +63,8 @@ class CashManagementFragment : Fragment() {
     private lateinit var tvStatMfsBalance: TextView
     private lateinit var tvStatHubPaid: TextView
     private lateinit var layoutMfsBreakdown: LinearLayout
-    private lateinit var layoutProviderCards: LinearLayout
-    private lateinit var btnAddProvider: Button
+    private lateinit var btnAddDeposit: Button
+    private lateinit var layoutDepositEntries: LinearLayout
     private lateinit var layoutCollectionEntries: LinearLayout
     private lateinit var btnAddCollection: Button
     private lateinit var tabLayoutCash: TabLayout
@@ -77,23 +77,16 @@ class CashManagementFragment : Fragment() {
     private var branchId: String = ""
     private val dateFmt = SimpleDateFormat("dd MMM, h:mm a", Locale.getDefault())
     private val rangeLabelFmt = SimpleDateFormat("dd MMM", Locale.getDefault())
-    private val providerOptions = listOf("Select provider", "Rocket", "bKash", "Other")
 
     private val colorGreen = 0xFF15803D.toInt()
     private val colorRed = 0xFFB91C1C.toInt()
     private val colorNeutral = 0xFF1E293B.toInt()
 
     // null = show all-time summary. Otherwise [start, endInclusive] in epoch ms,
-    // applied only to the summary card (Handover/Payment tabs always show the full
+    // applied only to the summary card (Deposit/Payment tabs always show the full
     // live channel list regardless, since you need to see everything to act on it).
     private var selectedDateRange: Pair<Long, Long>? = null
     private var lastSuccessState: CashManagementState.Success? = null
-
-    // Counts provider-picker rows the person has opened via "+ Add channel" but not
-    // yet resolved to a real name. Every Success re-render rebuilds the whole card
-    // list from Firebase state, so this keeps still-in-progress blank rows from
-    // disappearing underneath the person mid-pick.
-    private var pendingEmptyRowCount = 0
 
     // Which channel's card is showing on the Payment tab's chip selector.
     private var selectedPaymentChannel: String? = null
@@ -131,8 +124,8 @@ class CashManagementFragment : Fragment() {
         tvStatMfsBalance         = view.findViewById(R.id.tvStatMfsBalance)
         tvStatHubPaid            = view.findViewById(R.id.tvStatHubPaid)
         layoutMfsBreakdown       = view.findViewById(R.id.layoutMfsBreakdown)
-        layoutProviderCards      = view.findViewById(R.id.layoutProviderCards)
-        btnAddProvider           = view.findViewById(R.id.btnAddProvider)
+        btnAddDeposit            = view.findViewById(R.id.btnAddDeposit)
+        layoutDepositEntries     = view.findViewById(R.id.layoutDepositEntries)
         layoutCollectionEntries  = view.findViewById(R.id.layoutCollectionEntries)
         btnAddCollection         = view.findViewById(R.id.btnAddCollection)
         tabLayoutCash            = view.findViewById(R.id.tabLayoutCash)
@@ -160,8 +153,8 @@ class CashManagementFragment : Fragment() {
 
         swipeRefresh.setOnRefreshListener { vm.refresh() }
         btnRetry.setOnClickListener { vm.load(branchId) }
-        btnAddProvider.setOnClickListener { addEmptyProviderRow() }
         btnAddCollection.setOnClickListener { showAddCollectionDialog() }
+        btnAddDeposit.setOnClickListener { showDepositDialog() }
         tvDateRangeButton.setOnClickListener { showDateRangePicker() }
         btnClearDateRange.setOnClickListener {
             selectedDateRange = null
@@ -212,10 +205,26 @@ class CashManagementFragment : Fragment() {
         lastSuccessState = state
         renderSummary(state)
 
-        val stillEmptyRows = pendingEmptyRowCount
-        layoutProviderCards.removeAllViews()
-        state.accounts.forEach { account -> layoutProviderCards.addView(buildProviderCard(account.provider, account)) }
-        repeat(stillEmptyRows) { layoutProviderCards.addView(buildProviderCard(null, null)) }
+        // Flat deposit log: every handover across every channel, newest first.
+        layoutDepositEntries.removeAllViews()
+        val allDeposits = state.accounts.flatMap { acc -> acc.handovers.map { acc.provider to it } }
+            .sortedByDescending { it.second.timestamp }
+        if (allDeposits.isEmpty()) {
+            layoutDepositEntries.addView(buildEmptyRow("No deposits yet."))
+        } else {
+            allDeposits.forEach { (provider, entry) ->
+                layoutDepositEntries.addView(
+                    buildEditableEntryRow(
+                        title = provider,
+                        subtitle = entryMetaLine(entry),
+                        amount = entry.amount,
+                        rowColor = colorGreen,
+                        onEdit = { showEditLedgerEntryDialog(provider, LEDGER_TYPE_HANDOVER, entry, state.accounts.find { it.provider == provider }) },
+                        onDelete = { confirmDeleteLedgerEntry(provider, LEDGER_TYPE_HANDOVER, entry) }
+                    )
+                )
+            }
+        }
 
         rebuildPaymentTab(state.accounts)
 
@@ -226,9 +235,10 @@ class CashManagementFragment : Fragment() {
             state.collections.forEach { entry ->
                 layoutCollectionEntries.addView(
                     buildEditableEntryRow(
-                        left = dateFmt.format(Date(entry.timestamp)),
+                        title = dateFmt.format(Date(entry.timestamp)),
+                        subtitle = null,
                         amount = entry.amount,
-                        amountColor = colorNeutral,
+                        rowColor = colorNeutral,
                         onEdit = { showEditCollectionDialog(entry) },
                         onDelete = { confirmDeleteCollection(entry) }
                     )
@@ -237,8 +247,13 @@ class CashManagementFragment : Fragment() {
         }
     }
 
+    private fun entryMetaLine(entry: CashLedgerEntry): String {
+        val trx = if (entry.trxId.isBlank()) "no trx id" else "#${entry.trxId}"
+        return "$trx \u00B7 ${dateFmt.format(Date(entry.timestamp))}"
+    }
+
     // Recomputes and renders just the summary card for the current date-range
-    // selection (or all-time if none). Handover/Payment tabs are untouched --
+    // selection (or all-time if none). Deposit/Payment tabs are untouched --
     // they always reflect the full live channel list regardless of this filter.
     private fun renderSummary(state: CashManagementState.Success) {
         val range = selectedDateRange
@@ -290,9 +305,6 @@ class CashManagementFragment : Fragment() {
         picker.addOnPositiveButtonClickListener { selection ->
             val start = selection.first ?: return@addOnPositiveButtonClickListener
             val end = selection.second ?: start
-            // MaterialDatePicker gives UTC midnight for both ends; push the end
-            // out to the last millisecond of that day so entries later that day
-            // aren't excluded.
             val endOfDay = end + 24 * 60 * 60 * 1000L - 1
             selectedDateRange = start to endOfDay
             updateDateRangeButtonLabel()
@@ -303,10 +315,6 @@ class CashManagementFragment : Fragment() {
 
     // ── Single-date picker helper, used by every add/deposit/payment popup ──────
 
-    // MaterialDatePicker's single-date result is UTC midnight of the picked day.
-    // Combine that day with the current local time-of-day so a "Today" pick keeps
-    // showing roughly when it was actually entered, and a backdated pick doesn't
-    // look like it happened at midnight.
     private fun combineDateKeepingTimeOfDay(pickedUtcMidnight: Long): Long {
         val datePart = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = pickedUtcMidnight }
         val combined = Calendar.getInstance()
@@ -322,9 +330,6 @@ class CashManagementFragment : Fragment() {
         return ca.get(Calendar.YEAR) == cb.get(Calendar.YEAR) && ca.get(Calendar.DAY_OF_YEAR) == cb.get(Calendar.DAY_OF_YEAR)
     }
 
-    // Wires a "date button" inside a dialog to open a single-date MaterialDatePicker
-    // and update its own label. Returns a getter for whatever is currently picked
-    // (defaults to now, so an untouched button still yields a sensible timestamp).
     private fun wireDatePickerButton(button: TextView, initial: Long): () -> Long {
         var selected = initial
         fun updateLabel() {
@@ -345,6 +350,16 @@ class CashManagementFragment : Fragment() {
         return { selected }
     }
 
+    private fun styledDateButton(): TextView = TextView(requireContext()).apply {
+        textSize = 13f
+        setTypeface(null, Typeface.BOLD)
+        setTextColor(0xFF0F766E.toInt())
+        setPadding(dp(10), dp(6), dp(10), dp(6))
+        setBackgroundResource(R.drawable.bg_dashed_button)
+        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }
+    }
+
     // ── Collection ───────────────────────────────────────────────────────────
 
     private fun showAddCollectionDialog() {
@@ -354,15 +369,7 @@ class CashManagementFragment : Fragment() {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
             typeface = Typeface.MONOSPACE
         }
-        val dateButton = TextView(requireContext()).apply {
-            textSize = 13f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(0xFF0F766E.toInt())
-            setPadding(dp(10), dp(6), dp(10), dp(6))
-            setBackgroundResource(R.drawable.bg_dashed_button)
-            setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }
-        }
+        val dateButton = styledDateButton()
         val getDate = wireDatePickerButton(dateButton, System.currentTimeMillis())
 
         val wrapper = LinearLayout(requireContext()).apply {
@@ -473,184 +480,59 @@ class CashManagementFragment : Fragment() {
             .show()
     }
 
-    // ── Handover tab ─────────────────────────────────────────────────────────
+    // ── Deposit (formerly Handover) tab ─────────────────────────────────────────
+    // One global Deposit button rather than a per-channel card: a channel is
+    // just a name that accumulates balance, so picking a not-yet-used name in
+    // this same popup both creates it and records its first deposit in one step.
 
-    private fun addEmptyProviderRow() {
-        pendingEmptyRowCount++
-        layoutProviderCards.addView(buildProviderCard(null, null))
-    }
+    private fun showDepositDialog() {
+        val padding = dp(20)
+        val existingChannels = lastSuccessState?.accounts?.map { it.provider }.orEmpty()
+        val channelOptions = listOf("Select channel") + (listOf("Rocket", "bKash") + existingChannels).distinct() + listOf("Other")
 
-    private fun buildProviderCard(initialProvider: String?, account: MfsAccountSummary?): View {
-        val card = layoutInflater.inflate(R.layout.item_cash_provider_card, layoutProviderCards, false)
-
-        val spinner              = card.findViewById<Spinner>(R.id.spinnerProvider)
-        val etCustomName          = card.findViewById<EditText>(R.id.etCustomProviderName)
-        val btnRemove             = card.findViewById<ImageButton>(R.id.btnRemoveProvider)
-        val layoutLedgerContent   = card.findViewById<View>(R.id.layoutLedgerContent)
-        val tvBalance             = card.findViewById<TextView>(R.id.tvBalance)
-        val tvBadge               = card.findViewById<TextView>(R.id.tvBadge)
-        val btnDeposit            = card.findViewById<Button>(R.id.btnDeposit)
-        val layoutLedgerEntries   = card.findViewById<LinearLayout>(R.id.layoutLedgerEntries)
-
-        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_item, providerOptions)
+        val spinner = Spinner(requireContext())
+        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_item, channelOptions)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinner.adapter = adapter
 
-        fun resolvedName(): String = when (spinner.selectedItem?.toString()) {
-            "Other" -> etCustomName.text.toString().trim()
-            "Select provider", null -> ""
-            else -> spinner.selectedItem.toString()
+        val customNameInput = EditText(requireContext()).apply {
+            hint = "Channel name"
+            isVisible = false
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) }
         }
-
-        fun refreshLedgerUi() {
-            val name = resolvedName()
-            if (name.isBlank()) {
-                layoutLedgerContent.isVisible = false
-                return
-            }
-            layoutLedgerContent.isVisible = true
-            val hasActivity = account?.hasActivity ?: false
-            val balance = account?.balance ?: 0.0
-            val settled = account?.settled ?: false
-
-            tvBalance.text = taka(balance)
-            when {
-                !hasActivity -> {
-                    tvBadge.text = "No activity"
-                    tvBadge.setBackgroundResource(R.drawable.badge_bg_neutral)
-                }
-                settled -> {
-                    tvBadge.text = "Settled"
-                    tvBadge.setBackgroundResource(R.drawable.badge_bg_settled)
-                }
-                else -> {
-                    tvBadge.text = "Balance pending"
-                    tvBadge.setBackgroundResource(R.drawable.badge_bg_pending)
-                }
-            }
-
-            btnDeposit.setOnClickListener { showDepositDialog(name) }
-
-            layoutLedgerEntries.removeAllViews()
-            val entries = (account?.handovers.orEmpty().map { it to LEDGER_TYPE_HANDOVER } +
-                    account?.hubPayments.orEmpty().map { it to LEDGER_TYPE_HUB_PAYMENT })
-                .sortedByDescending { it.first.timestamp }
-                .take(4)
-            if (entries.isEmpty()) {
-                layoutLedgerEntries.isVisible = false
-            } else {
-                layoutLedgerEntries.isVisible = true
-                entries.forEach { (entry, type) ->
-                    val arrow = if (type == LEDGER_TYPE_HANDOVER) "\u2193" else "\u2191"
-                    val trxLabel = if (entry.trxId.isBlank()) "$arrow no trx id" else "$arrow #${entry.trxId}"
-                    val color = if (type == LEDGER_TYPE_HANDOVER) colorGreen else colorRed
-                    layoutLedgerEntries.addView(
-                        buildEditableEntryRow(
-                            left = trxLabel,
-                            amount = entry.amount,
-                            amountColor = color,
-                            onEdit = { showEditLedgerEntryDialog(name, type, entry, account) },
-                            onDelete = { confirmDeleteLedgerEntry(name, type, entry) }
-                        )
-                    )
-                }
-            }
-        }
-
-        refreshLedgerUi()
-
-        // Spinner.setSelection() posts its selection notification rather than firing
-        // it synchronously, so it still reaches onItemSelected below even though the
-        // listener gets attached *after* this call. Without this guard, restoring an
-        // already-existing channel's selection on every rebuild would look like a
-        // fresh pick, call vm.addProvider() again, trigger refresh(), rebuild the
-        // cards, restore selection again... an infinite reload loop.
-        var isRestoringSelection = false
-
-        if (!initialProvider.isNullOrBlank()) {
-            isRestoringSelection = true
-            val presetIndex = providerOptions.indexOf(initialProvider)
-            if (presetIndex >= 0) {
-                spinner.setSelection(presetIndex)
-            } else {
-                spinner.setSelection(providerOptions.indexOf("Other"))
-                etCustomName.isVisible = true
-                etCustomName.setText(initialProvider)
-            }
-        }
-
         spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
-                val value = providerOptions[position]
-                etCustomName.isVisible = value == "Other"
-                if (isRestoringSelection) {
-                    isRestoringSelection = false
-                    refreshLedgerUi()
-                    return
-                }
-                if (value != "Select provider" && value != "Other") {
-                    pendingEmptyRowCount = (pendingEmptyRowCount - 1).coerceAtLeast(0)
-                    vm.addProvider(value) { ok ->
-                        Toast.makeText(
-                            requireContext(),
-                            if (ok) "Channel added" else "Failed to add channel",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                }
-                refreshLedgerUi()
+                customNameInput.isVisible = channelOptions[position] == "Other"
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        etCustomName.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) {
-                val name = etCustomName.text.toString().trim()
-                if (name.isNotBlank()) {
-                    pendingEmptyRowCount = (pendingEmptyRowCount - 1).coerceAtLeast(0)
-                    vm.addProvider(name) { ok ->
-                        Toast.makeText(
-                            requireContext(),
-                            if (ok) "Channel added" else "Failed to add channel",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                }
-            }
+        val amountInput = EditText(requireContext()).apply {
+            hint = "Amount"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            typeface = Typeface.MONOSPACE
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) }
         }
-
-        btnRemove.setOnClickListener {
-            val name = resolvedName()
-            if (name.isNotBlank()) {
-                vm.removeProvider(name) { ok ->
-                    Toast.makeText(
-                        requireContext(),
-                        if (ok) "Channel removed" else "Failed to remove channel",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            } else {
-                pendingEmptyRowCount = (pendingEmptyRowCount - 1).coerceAtLeast(0)
-                layoutProviderCards.removeView(card)
-            }
+        val trxIdInput = EditText(requireContext()).apply {
+            hint = "Transaction ID (optional)"
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) }
         }
-
-        return card
-    }
-
-    private fun showDepositDialog(providerName: String) {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_cash_payment, null)
-        val tvInfo     = dialogView.findViewById<TextView>(R.id.tvDialogChannelInfo)
-        val etAmount   = dialogView.findViewById<EditText>(R.id.etDialogAmount)
-        val etTrxId    = dialogView.findViewById<EditText>(R.id.etDialogTrxId)
-        val dateButton = dialogView.findViewById<TextView>(R.id.tvDialogDateButton)
-
-        tvInfo.text = "Deposit into $providerName"
+        val dateButton = styledDateButton()
         val getDate = wireDatePickerButton(dateButton, System.currentTimeMillis())
+
+        val wrapper = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, 0)
+            addView(spinner)
+            addView(customNameInput)
+            addView(amountInput)
+            addView(trxIdInput)
+            addView(dateButton)
+        }
 
         val dialog = android.app.AlertDialog.Builder(requireContext())
             .setTitle("Deposit")
-            .setView(dialogView)
+            .setView(wrapper)
             .setPositiveButton("Save", null)
             .setNegativeButton("Cancel", null)
             .create()
@@ -659,25 +541,49 @@ class CashManagementFragment : Fragment() {
             val btnPositive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
             val btnNegative = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)
             btnPositive.setOnClickListener {
-                val amt = etAmount.text.toString().toDoubleOrNull()
-                val trxId = etTrxId.text.toString().trim()
+                val selectedOption = spinner.selectedItem?.toString().orEmpty()
+                val channelName = if (selectedOption == "Other") customNameInput.text.toString().trim() else selectedOption
+                if (selectedOption == "Select channel" || channelName.isBlank()) {
+                    Toast.makeText(requireContext(), "Select or enter a channel", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val amt = amountInput.text.toString().toDoubleOrNull()
                 if (amt == null || amt <= 0.0) {
                     Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
+                val trxId = trxIdInput.text.toString().trim()
+                val dateMillis = getDate()
+
                 btnPositive.isEnabled = false
                 btnNegative.isEnabled = false
                 btnPositive.text = "Saving..."
-                vm.addLedgerEntry(providerName, LEDGER_TYPE_HANDOVER, amt, trxId, getDate()) { ok ->
-                    if (ok) {
-                        dialog.dismiss()
-                        Toast.makeText(requireContext(), "Deposit saved", Toast.LENGTH_SHORT).show()
-                    } else {
-                        btnPositive.isEnabled = true
-                        btnNegative.isEnabled = true
-                        btnPositive.text = "Save"
-                        Toast.makeText(requireContext(), "Failed to save deposit", Toast.LENGTH_SHORT).show()
+
+                fun saveDeposit() {
+                    vm.addLedgerEntry(channelName, LEDGER_TYPE_HANDOVER, amt, trxId, dateMillis) { ok ->
+                        if (ok) {
+                            dialog.dismiss()
+                            Toast.makeText(requireContext(), "Deposit saved", Toast.LENGTH_SHORT).show()
+                        } else {
+                            btnPositive.isEnabled = true
+                            btnNegative.isEnabled = true
+                            btnPositive.text = "Save"
+                            Toast.makeText(requireContext(), "Failed to save deposit", Toast.LENGTH_SHORT).show()
+                        }
                     }
+                }
+
+                if (existingChannels.none { it == channelName }) {
+                    vm.addProvider(channelName) { addOk ->
+                        if (addOk) saveDeposit() else {
+                            btnPositive.isEnabled = true
+                            btnNegative.isEnabled = true
+                            btnPositive.text = "Save"
+                            Toast.makeText(requireContext(), "Failed to create channel", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    saveDeposit()
                 }
             }
         }
@@ -685,22 +591,39 @@ class CashManagementFragment : Fragment() {
     }
 
     private fun showEditLedgerEntryDialog(providerName: String, type: String, entry: CashLedgerEntry, account: MfsAccountSummary?) {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_cash_payment, null)
-        val tvInfo   = dialogView.findViewById<TextView>(R.id.tvDialogChannelInfo)
-        val etAmount = dialogView.findViewById<EditText>(R.id.etDialogAmount)
-        val etTrxId  = dialogView.findViewById<EditText>(R.id.etDialogTrxId)
-        val dateRow  = dialogView.findViewById<TextView>(R.id.tvDialogDateButton)
-        dateRow.isVisible = false // editing keeps the original date; only amount/trxid change here
-
+        val padding = dp(20)
         val kindLabel = if (type == LEDGER_TYPE_HANDOVER) "Deposit" else "Hub payment"
         val maxAllowed = if (type == LEDGER_TYPE_HUB_PAYMENT && account != null) account.balance + entry.amount else null
-        tvInfo.text = if (maxAllowed != null) "$providerName \u00B7 $kindLabel \u00B7 max ${taka(maxAllowed)}" else "$providerName \u00B7 $kindLabel"
-        etAmount.setText(Math.round(entry.amount).toString())
-        etTrxId.setText(entry.trxId)
+
+        val infoText = TextView(requireContext()).apply {
+            text = if (maxAllowed != null) "$providerName \u00B7 $kindLabel \u00B7 max ${taka(maxAllowed)}" else "$providerName \u00B7 $kindLabel"
+            textSize = 12f
+            setTextColor(0xFF64748B.toInt())
+        }
+        val amountInput = EditText(requireContext()).apply {
+            hint = "Amount"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            typeface = Typeface.MONOSPACE
+            setText(Math.round(entry.amount).toString())
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) }
+        }
+        val trxIdInput = EditText(requireContext()).apply {
+            hint = "Transaction ID (optional)"
+            setText(entry.trxId)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) }
+        }
+
+        val wrapper = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, 0)
+            addView(infoText)
+            addView(amountInput)
+            addView(trxIdInput)
+        }
 
         val dialog = android.app.AlertDialog.Builder(requireContext())
             .setTitle("Edit ${kindLabel.lowercase()}")
-            .setView(dialogView)
+            .setView(wrapper)
             .setPositiveButton("Save", null)
             .setNegativeButton("Cancel", null)
             .create()
@@ -709,8 +632,8 @@ class CashManagementFragment : Fragment() {
             val btnPositive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
             val btnNegative = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)
             btnPositive.setOnClickListener {
-                val amt = etAmount.text.toString().toDoubleOrNull()
-                val trxId = etTrxId.text.toString().trim()
+                val amt = amountInput.text.toString().toDoubleOrNull()
+                val trxId = trxIdInput.text.toString().trim()
                 if (amt == null || amt <= 0.0) {
                     Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
@@ -763,7 +686,7 @@ class CashManagementFragment : Fragment() {
         if (accounts.isEmpty()) {
             selectedPaymentChannel = null
             layoutSelectedPaymentChannel.removeAllViews()
-            layoutSelectedPaymentChannel.addView(buildEmptyRow("No channels yet -- add one from the Handover tab."))
+            layoutSelectedPaymentChannel.addView(buildEmptyRow("No channels yet -- deposit into one from the Deposit tab."))
             return
         }
         if (selectedPaymentChannel == null || accounts.none { it.provider == selectedPaymentChannel }) {
@@ -795,10 +718,12 @@ class CashManagementFragment : Fragment() {
     private fun buildPaymentChannelDetailView(account: MfsAccountSummary): View {
         val card = layoutInflater.inflate(R.layout.item_cash_payment_channel, layoutSelectedPaymentChannel, false)
 
-        val tvChannelName = card.findViewById<TextView>(R.id.tvChannelName)
-        val tvBalance      = card.findViewById<TextView>(R.id.tvBalance)
-        val tvBadge        = card.findViewById<TextView>(R.id.tvBadge)
-        val btnPayToHub    = card.findViewById<Button>(R.id.btnPayToHub)
+        val tvChannelName       = card.findViewById<TextView>(R.id.tvChannelName)
+        val tvBalance            = card.findViewById<TextView>(R.id.tvBalance)
+        val tvBadge              = card.findViewById<TextView>(R.id.tvBadge)
+        val btnRemoveChannel     = card.findViewById<ImageButton>(R.id.btnRemoveChannel)
+        val btnPayToHub          = card.findViewById<Button>(R.id.btnPayToHub)
+        val layoutPaymentHistory = card.findViewById<LinearLayout>(R.id.layoutPaymentHistory)
 
         tvChannelName.text = account.provider
         tvBalance.text = taka(account.balance)
@@ -817,28 +742,80 @@ class CashManagementFragment : Fragment() {
             }
         }
 
-        // Nothing to pay out yet -- hide the action rather than let someone
-        // record a payment against a channel with no leftover balance.
         btnPayToHub.isVisible = account.balance > 0.0
         btnPayToHub.setOnClickListener { showPayToHubDialog(account) }
+
+        btnRemoveChannel.setOnClickListener {
+            android.app.AlertDialog.Builder(requireContext())
+                .setTitle("Remove ${account.provider}?")
+                .setMessage("This deletes its whole deposit and payment history. This can't be undone.")
+                .setPositiveButton("Remove") { _, _ ->
+                    vm.removeProvider(account.provider) { ok ->
+                        Toast.makeText(
+                            requireContext(),
+                            if (ok) "Channel removed" else "Failed to remove channel",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        val payments = account.hubPayments.sortedByDescending { it.timestamp }.take(6)
+        if (payments.isEmpty()) {
+            layoutPaymentHistory.addView(buildEmptyRow("No payments yet."))
+        } else {
+            payments.forEach { entry ->
+                layoutPaymentHistory.addView(
+                    buildEditableEntryRow(
+                        title = account.provider,
+                        subtitle = entryMetaLine(entry),
+                        amount = entry.amount,
+                        rowColor = colorRed,
+                        onEdit = { showEditLedgerEntryDialog(account.provider, LEDGER_TYPE_HUB_PAYMENT, entry, account) },
+                        onDelete = { confirmDeleteLedgerEntry(account.provider, LEDGER_TYPE_HUB_PAYMENT, entry) }
+                    )
+                )
+            }
+        }
 
         return card
     }
 
     private fun showPayToHubDialog(account: MfsAccountSummary) {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_cash_payment, null)
-        val tvInfo     = dialogView.findViewById<TextView>(R.id.tvDialogChannelInfo)
-        val etAmount   = dialogView.findViewById<EditText>(R.id.etDialogAmount)
-        val etTrxId    = dialogView.findViewById<EditText>(R.id.etDialogTrxId)
-        val dateButton = dialogView.findViewById<TextView>(R.id.tvDialogDateButton)
-
-        tvInfo.text = "${account.provider} \u00B7 ${taka(account.balance)} available to pay"
-        etAmount.setText(if (account.balance > 0) Math.round(account.balance).toString() else "")
+        val padding = dp(20)
+        val infoText = TextView(requireContext()).apply {
+            text = "${account.provider} \u00B7 ${taka(account.balance)} available to pay"
+            textSize = 12f
+            setTextColor(0xFF64748B.toInt())
+        }
+        val amountInput = EditText(requireContext()).apply {
+            hint = "Amount"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            typeface = Typeface.MONOSPACE
+            setText(if (account.balance > 0) Math.round(account.balance).toString() else "")
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) }
+        }
+        val trxIdInput = EditText(requireContext()).apply {
+            hint = "Transaction ID (optional)"
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) }
+        }
+        val dateButton = styledDateButton()
         val getDate = wireDatePickerButton(dateButton, System.currentTimeMillis())
+
+        val wrapper = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, 0)
+            addView(infoText)
+            addView(amountInput)
+            addView(trxIdInput)
+            addView(dateButton)
+        }
 
         val dialog = android.app.AlertDialog.Builder(requireContext())
             .setTitle("Pay to hub")
-            .setView(dialogView)
+            .setView(wrapper)
             .setPositiveButton("Pay Now", null)
             .setNegativeButton("Cancel", null)
             .create()
@@ -847,8 +824,8 @@ class CashManagementFragment : Fragment() {
             val btnPositive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
             val btnNegative = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)
             btnPositive.setOnClickListener {
-                val amt = etAmount.text.toString().toDoubleOrNull()
-                val trxId = etTrxId.text.toString().trim()
+                val amt = amountInput.text.toString().toDoubleOrNull()
+                val trxId = trxIdInput.text.toString().trim()
                 if (amt == null || amt <= 0.0) {
                     Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
@@ -904,41 +881,56 @@ class CashManagementFragment : Fragment() {
         return row
     }
 
-    // Same layout as buildSimpleEntryRow but for an actual saved transaction
-    // (collection entry or ledger entry) -- adds icon-only Edit/Delete buttons and
-    // a caller-chosen amount color (green/red for handover/payment, neutral for
-    // collections). Not used for aggregate rows like the MFS-balance-by-channel
-    // breakdown, since those aren't a single editable record.
-    private fun buildEditableEntryRow(left: String, amount: Double, amountColor: Int, onEdit: () -> Unit, onDelete: () -> Unit): View {
+    // A saved transaction row (deposit, hub payment, or collection): title +
+    // optional subtitle on the left (both tinted rowColor so the whole row reads
+    // as one color-coded unit, not just the amount), amount on the right, small
+    // modern Edit/Delete icon buttons at the end.
+    private fun buildEditableEntryRow(title: String, subtitle: String?, amount: Double, rowColor: Int, onEdit: () -> Unit, onDelete: () -> Unit): View {
         val row = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            setPadding(dp(8), dp(4), dp(4), dp(4))
+            setPadding(dp(8), dp(6), dp(4), dp(6))
             gravity = Gravity.CENTER_VERTICAL
         }
-        row.addView(TextView(requireContext()).apply {
-            text = left
-            textSize = 12f
-            setTextColor(0xFF64748B.toInt())
+        val textColumn = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        textColumn.addView(TextView(requireContext()).apply {
+            text = title
+            textSize = 13f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(rowColor)
         })
+        if (subtitle != null) {
+            textColumn.addView(TextView(requireContext()).apply {
+                text = subtitle
+                textSize = 11f
+                setTextColor(rowColor)
+            })
+        }
+        row.addView(textColumn)
         row.addView(TextView(requireContext()).apply {
             text = taka(amount)
             textSize = 13f
             typeface = Typeface.MONOSPACE
-            setTextColor(amountColor)
+            setTextColor(rowColor)
         })
         row.addView(ImageButton(requireContext()).apply {
-            setImageResource(android.R.drawable.ic_menu_edit)
+            setImageResource(R.drawable.ic_edit_modern)
             background = null
-            layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginStart = dp(4) }
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+            layoutParams = LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(6) }
             contentDescription = "Edit"
             setOnClickListener { onEdit() }
         })
         row.addView(ImageButton(requireContext()).apply {
-            setImageResource(android.R.drawable.ic_menu_delete)
+            setImageResource(R.drawable.ic_delete_modern)
             background = null
-            layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginStart = dp(2) }
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            setPadding(dp(2), dp(2), dp(2), dp(2))
+            layoutParams = LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginStart = dp(2) }
             contentDescription = "Delete"
             setOnClickListener { onDelete() }
         })
