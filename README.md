@@ -138,6 +138,40 @@ All config changes are written to `history/` with timestamp, user name, role, an
 
 ---
 
+## Working with This Repo
+
+This repo gets worked on by multiple sessions/branches in parallel (AI and
+human), often without visibility into each other's in-progress work. A few
+things that have caused real problems in practice, worth checking before you
+git push or git branch --delete:
+
+- **Check for existing work on the same topic before branching.** Run
+  `git branch -a` before starting something new. Two branches
+  (`feat/dynamic-role-hierarchy` and `feat/explicit-reports-to-hierarchy`)
+  were built in parallel for the exact same feature because neither session
+  checked what the other had already started.
+
+- **`git branch --merged` is not the same as "safe to delete."** It lists
+  any branch whose commits are *all* ancestors of the target — which is
+  trivially true for a branch that was just created off the current tip and
+  hasn't received its intended work yet, not just for branches that were
+  genuinely finished and merged. Before bulk-deleting anything that shows up
+  as "merged," check whether it's a *freshly created* branch with zero
+  commits of its own (`git log main..branch` empty) — if so, confirm with
+  whoever's asking before deleting; it may be about to receive work, not
+  actually done. (GitHub's own "auto-delete head branches after merge"
+  setting already handles genuinely-merged-via-PR branches for you — most
+  merged branches you see are probably already gone by the time you check.)
+
+- **Pull before pushing, every time.** Another session may have pushed since
+  you last synced. If `git push` is rejected, `git fetch` + check
+  `git diff --stat` between your base and the new remote tip before merging
+  — if the changed files don't overlap with what you touched, a plain
+  `git merge` is safe; if they do, look at the actual diff in the
+  overlapping file before assuming it'll merge cleanly.
+
+---
+
 ## Version
 
 Current: **2.7**
