@@ -362,36 +362,6 @@
                             android:padding="4dp" />
                     </androidx.cardview.widget.CardView>
 
-                    <LinearLayout
-                        android:id="@+id/layoutAddCollectionForm"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginStart="16dp"
-                        android:layout_marginEnd="16dp"
-                        android:visibility="gone"
-                        android:gravity="center_vertical">
-
-                        <EditText
-                            android:id="@+id/etCollectionAmount"
-                            android:layout_width="0dp"
-                            android:layout_weight="1"
-                            android:layout_height="wrap_content"
-                            android:hint="Amount"
-                            android:inputType="numberDecimal"
-                            android:fontFamily="monospace" />
-
-                        <Button
-                            android:id="@+id/btnSaveCollection"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Save"
-                            android:textAllCaps="false"
-                            android:drawableStart="@android:drawable/ic_menu_save"
-                            android:drawableTint="#FFFFFF"
-                            android:drawablePadding="4dp" />
-                    </LinearLayout>
-
                     <Button
                         android:id="@+id/btnAddCollection"
                         style="?android:attr/borderlessButtonStyle"
@@ -476,14 +446,29 @@
                         android:textStyle="bold"
                         android:letterSpacing="0.06" />
 
-                    <LinearLayout
-                        android:id="@+id/layoutPaymentChannels"
+                    <HorizontalScrollView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical"
+                        android:layout_marginTop="8dp"
+                        android:scrollbars="none">
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/chipGroupPaymentChannels"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="16dp"
+                            android:layout_marginEnd="16dp"
+                            app:singleSelection="true"
+                            app:chipSpacingHorizontal="6dp" />
+                    </HorizontalScrollView>
+
+                    <FrameLayout
+                        android:id="@+id/layoutSelectedPaymentChannel"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
                         android:layout_marginStart="16dp"
                         android:layout_marginEnd="16dp"
-                        android:layout_marginTop="8dp"
+                        android:layout_marginTop="10dp"
                         android:layout_marginBottom="24dp" />
                 </LinearLayout>
 

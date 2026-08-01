@@ -143,13 +143,13 @@ class CashManagementViewModel : ViewModel() {
             ?: auth.currentUser?.email?.takeIf { it.isNotBlank() }
             ?: "Unknown"
 
-    fun addCollection(amount: Double, onDone: (Boolean) -> Unit) {
+    fun addCollection(amount: Double, timestampMillis: Long, onDone: (Boolean) -> Unit) {
         val uid = auth.currentUser?.uid
         if (uid == null || amount <= 0.0) { onDone(false); return }
         val ref = db.reference.child(FirebasePaths.cashManagementCollections(branchId)).push()
         val entry = mapOf(
             "amount" to amount,
-            "timestamp" to System.currentTimeMillis(),
+            "timestamp" to timestampMillis,
             "enteredByName" to currentUserName(),
             "enteredByUid" to uid,
         )
@@ -226,8 +226,8 @@ class CashManagementViewModel : ViewModel() {
     }
 
     fun updateLedgerEntry(providerName: String, type: String, entryId: String, amount: Double, trxId: String, onDone: (Boolean) -> Unit) {
-        if (providerName.isBlank() || entryId.isBlank() || trxId.isBlank() || amount <= 0.0) { onDone(false); return }
-        val updates = mapOf("amount" to amount, "trxId" to trxId)
+        if (providerName.isBlank() || entryId.isBlank() || amount <= 0.0) { onDone(false); return }
+        val updates = mapOf("amount" to amount, "trxId" to trxId.trim())
         db.reference.child(FirebasePaths.cashManagementLedger(branchId)).child(providerName).child(type).child(entryId)
             .updateChildren(updates)
             .addOnSuccessListener { refresh(); onDone(true) }
@@ -255,14 +255,14 @@ class CashManagementViewModel : ViewModel() {
             }
     }
 
-    fun addLedgerEntry(providerName: String, type: String, amount: Double, trxId: String, onDone: (Boolean) -> Unit) {
+    fun addLedgerEntry(providerName: String, type: String, amount: Double, trxId: String, timestampMillis: Long, onDone: (Boolean) -> Unit) {
         val uid = auth.currentUser?.uid
-        if (uid == null || providerName.isBlank() || trxId.isBlank() || amount <= 0.0) { onDone(false); return }
+        if (uid == null || providerName.isBlank() || amount <= 0.0) { onDone(false); return }
         val ref = db.reference.child(FirebasePaths.cashManagementLedger(branchId)).child(providerName).child(type).push()
         val entry = mapOf(
             "amount" to amount,
-            "trxId" to trxId,
-            "timestamp" to System.currentTimeMillis(),
+            "trxId" to trxId.trim(),
+            "timestamp" to timestampMillis,
             "enteredByName" to currentUserName(),
             "enteredByUid" to uid,
         )

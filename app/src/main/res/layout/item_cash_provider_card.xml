@@ -85,69 +85,25 @@
                     android:background="@drawable/badge_bg_neutral" />
             </LinearLayout>
 
-            <LinearLayout
-                android:id="@+id/layoutInlineForm"
+            <Button
+                android:id="@+id/btnDeposit"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:background="#F8FAFC"
-                android:padding="8dp"
-                android:layout_marginTop="10dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Log a handover"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:textColor="#64748B"
-                    android:layout_marginBottom="4dp" />
-
-                <EditText
-                    android:id="@+id/etEntryAmount"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Amount"
-                    android:inputType="numberDecimal"
-                    android:fontFamily="monospace"
-                    android:textSize="13sp" />
-
-                <EditText
-                    android:id="@+id/etEntryTrxId"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Transaction ID"
-                    android:textSize="13sp"
-                    android:layout_marginTop="4dp" />
-
-                <TextView
-                    android:id="@+id/tvEnteredByPreview"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="11sp"
-                    android:textColor="#94A3B8"
-                    android:layout_marginTop="4dp" />
-
-                <Button
-                    android:id="@+id/btnSaveEntry"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Save handover"
-                    android:textAllCaps="false"
-                    android:drawableStart="@android:drawable/ic_menu_save"
-                    android:drawableTint="#FFFFFF"
-                    android:drawablePadding="6dp"
-                    android:layout_marginTop="6dp"
-                    android:backgroundTint="#0F172A"
-                    android:textColor="#FFFFFF" />
-            </LinearLayout>
+                android:layout_marginTop="10dp"
+                android:text="Deposit"
+                android:textAllCaps="false"
+                android:drawableStart="@android:drawable/ic_input_add"
+                android:drawableTint="#FFFFFF"
+                android:drawablePadding="6dp"
+                android:backgroundTint="#0F766E"
+                android:textColor="#FFFFFF" />
 
             <LinearLayout
                 android:id="@+id/layoutLedgerEntries"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginTop="8dp" />
+                android:layout_marginTop="10dp" />
         </LinearLayout>
     </LinearLayout>
 </androidx.cardview.widget.CardView>
