@@ -33,6 +33,7 @@ class DashboardFragment : Fragment() {
     private lateinit var cardAgents:       View
     private lateinit var tvSectionAgents:  TextView
     private lateinit var tvRollupToggle:   TextView
+    private lateinit var tvDrillBreadcrumb: TextView
 
     // Metric card references (label / value / sub / accent bar)
     private data class MetricCardViews(
@@ -115,6 +116,8 @@ class DashboardFragment : Fragment() {
         tvSectionAgents = root.findViewById(R.id.tvSectionAgents)
         tvRollupToggle  = root.findViewById(R.id.tvRollupToggle)
         tvRollupToggle.setOnClickListener { vm.setRollupMode(!currentRollupMode) }
+        tvDrillBreadcrumb = root.findViewById(R.id.tvDrillBreadcrumb)
+        tvDrillBreadcrumb.setOnClickListener { vm.drillBack() }
 
         fun metricCard(id: Int) = root.findViewById<View>(id).let {
             MetricCardViews(
@@ -231,11 +234,19 @@ class DashboardFragment : Fragment() {
             selectedBranchIds = ids
             updateBranchDropdownLabel()
         }
-        // Only meaningful for role == "manager" (see showSuccess()), but harmless to keep
-        // in sync regardless — cheap LiveData, no Firebase read of its own.
+        // Meaningful for anyone with subordinates now (hasSubordinates in showSuccess()),
+        // not just role == "manager" — cheap LiveData either way, no Firebase read of its own.
         vm.rollupMode.observe(viewLifecycleOwner) { rollup ->
             currentRollupMode = rollup
-            tvRollupToggle.text = if (rollup) "👥 By Supervisor ▾" else "👤 By Worker ▾"
+            tvRollupToggle.text = if (rollup) "👥 Team View ▾" else "👤 Direct Reports ▾"
+        }
+        vm.drillStack.observe(viewLifecycleOwner) { stack ->
+            if (stack.isEmpty()) {
+                tvDrillBreadcrumb.isVisible = false
+            } else {
+                tvDrillBreadcrumb.isVisible = true
+                tvDrillBreadcrumb.text = "← " + stack.joinToString(" / ") { it.name }
+            }
         }
         // Refresh-with-existing-data path: keep the current Success view up, just show
         // swipeRefresh's own spinner instead of the full-screen Loading view (see load()).
@@ -353,19 +364,22 @@ class DashboardFragment : Fragment() {
         // ── Status breakdown bar ──
         buildStatusBreakdown(state.breakdown)
 
-        // ── Agent list (admin/branch only) ──
-        val showAgents = state.agents.isNotEmpty() && state.role !in listOf("worker", "delivery")
+        // ── Agent list — visible for anyone with subordinates (Success.hasSubordinates),
+        // not a hardcoded role !in ["worker","delivery"] check — a role with nobody below
+        // it naturally has an empty agents list either way, so this generalizes safely.
+        val showAgents = state.hasSubordinates
         cardAgents.isVisible      = showAgents
         tvSectionAgents.isVisible = showAgents
-        val isManager = state.role == "manager"
-        // Visible whenever the role is manager, even if this particular mode found zero
-        // rows — otherwise a manager with no supervisors under them (but real workers)
-        // would have data but no visible way to flip to the flat worker view and see it.
-        tvRollupToggle.isVisible = isManager
+        // Visible for ANYONE with at least one subordinate (subordinatePool() found someone),
+        // not just role == "manager" — Phase 3 item from the dynamic role-hierarchy plan.
+        // Stays true even if this particular mode found zero rows — otherwise a viewer whose
+        // rollup tier is empty (but who has real people further down) would have data but no
+        // visible way to flip to the flat view and see it.
+        tvRollupToggle.isVisible = state.hasSubordinates
         tvSectionAgents.text = when {
-            isManager && currentRollupMode -> "Supervisor Performance"
-            isManager                      -> "Worker Performance"
-            else                            -> "Agent Performance"
+            state.hasSubordinates && currentRollupMode -> "Team Performance"
+            state.hasSubordinates                      -> "Direct Reports"
+            else                                        -> "Agent Performance"
         }
         if (showAgents) buildAgentRows(state.agents)
     }
@@ -452,6 +466,15 @@ class DashboardFragment : Fragment() {
             })
 
             layoutAgentRows.addView(row)
+
+            // Tap any row to drill into that person's own subordinates (their own
+            // level/branch scope, not this screen's). Harmless if they turn out to have
+            // nobody below them — that just falls through to their own single-person stat,
+            // same self-only view they'd see logging in themselves.
+            row.isClickable = true
+            row.setOnClickListener {
+                vm.drillInto(agent.agentId, agent.agentName, agent.level, agent.branchIds)
+            }
         }
     }
 

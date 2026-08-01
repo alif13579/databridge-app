@@ -35,6 +35,7 @@ class EmployeeEditFragment : Fragment() {
     private val db = FirebaseDatabase.getInstance()
 
     data class BranchItem(val id: String, val name: String, val type: String)
+    data class ReportsToItem(val uid: String, val name: String, val roleId: String, val branchIds: List<String>)
 
     private val allBranches  = mutableListOf<BranchItem>()
     private val allowedRoles = mutableListOf<String>()
@@ -44,6 +45,12 @@ class EmployeeEditFragment : Fragment() {
     private val selectedBranchIds = mutableSetOf<String>()
     private val originalBranchIds = mutableSetOf<String>()
     private var originalSystemId = ""
+    // Every other employee (for the Reports To picker) — loaded once in loadAll(), filtered
+    // to "one tier up" candidates fresh each time the picker opens (level via RoleLevelCache),
+    // since which level counts as "one up" depends on whatever role is currently selected.
+    private val allEmployeesForReportsTo = mutableListOf<ReportsToItem>()
+    private var selectedReportsTo = ""
+    private var originalReportsTo = ""
     private var suppressAgentEvents = false
     private var suppressSalaryModelEvents = false
     private var savedAgentType = ""
@@ -76,6 +83,9 @@ class EmployeeEditFragment : Fragment() {
     private lateinit var btnSelectBranch: TextView
     private lateinit var btnClearBranch: TextView
     private lateinit var tvBranchSelected: TextView
+    private lateinit var btnSelectReportsTo: TextView
+    private lateinit var btnClearReportsTo: TextView
+    private lateinit var tvReportsToHint: TextView
     private lateinit var btnSave: Button
     private lateinit var btnCancel: Button
 
@@ -108,6 +118,9 @@ class EmployeeEditFragment : Fragment() {
         btnSelectBranch  = view.findViewById(R.id.btnSelectBranch)
         btnClearBranch   = view.findViewById(R.id.btnClearBranch)
         tvBranchSelected = view.findViewById(R.id.tvBranchSelected)
+        btnSelectReportsTo = view.findViewById(R.id.btnSelectReportsTo)
+        btnClearReportsTo  = view.findViewById(R.id.btnClearReportsTo)
+        tvReportsToHint    = view.findViewById(R.id.tvReportsToHint)
         btnSave          = view.findViewById(R.id.btnSaveEmployee)
         btnCancel        = view.findViewById(R.id.btnCancelEmployee)
         btnToggleSalaryModel = view.findViewById(R.id.btnToggleSalaryModel)
@@ -125,6 +138,16 @@ class EmployeeEditFragment : Fragment() {
             tvBranchSelected.text = "None selected"
             tvBranchSelected.setTextColor(color(R.color.theme_text_secondary))
             btnClearBranch.visibility = View.GONE
+        }
+
+        btnSelectReportsTo.setOnClickListener { showReportsToPicker() }
+        btnClearReportsTo.setOnClickListener {
+            selectedReportsTo = ""
+            btnSelectReportsTo.text = "Tap to select ▾"
+            btnSelectReportsTo.setTextColor(color(R.color.theme_text_secondary))
+            tvReportsToHint.text = "None selected"
+            tvReportsToHint.setTextColor(color(R.color.theme_text_secondary))
+            btnClearReportsTo.visibility = View.GONE
         }
 
         btnSave.setOnClickListener { onSave() }
@@ -335,16 +358,134 @@ class EmployeeEditFragment : Fragment() {
         })
     }
 
+    /** Single-select picker for "Reports To". Candidates are every employee whose level sits
+     *  at the closest tier above whatever role is currently selected in spinnerRole (e.g. a
+     *  worker picks from whichever level is immediately above worker's, a supervisor picks
+     *  from whichever is above that) — recomputed fresh each time this opens rather than
+     *  cached, since the role spinner can change first. "Closest tier above" is found
+     *  dynamically from RoleLevelCache among the actual employees on file, not a hardcoded
+     *  myLevel - 1, so a gap in the level numbering (or a level nobody currently holds)
+     *  doesn't break this. The employee being edited is excluded (can't report to
+     *  themselves). Branch-overlapping candidates are listed first as a convenience, but any
+     *  candidate at the right level can be picked — branch and reporting line are related but
+     *  not forced to match 1:1. */
+    private fun showReportsToPicker() {
+        val myUid = arguments?.getString(ARG_UID) ?: return
+        val ctx = requireContext()
+        val dp  = resources.displayMetrics.density.toInt()
+
+        val myRoleId = allowedRoles.getOrNull(spinnerRole.selectedItemPosition) ?: ""
+        val myLevel  = RoleLevelCache.levelOf(myRoleId)
+
+        val candidatesAbove = allEmployeesForReportsTo.filter { it.uid != myUid && RoleLevelCache.levelOf(it.roleId) < myLevel }
+        if (candidatesAbove.isEmpty()) {
+            toast("${EmployeeFragment.ROLE_LABELS[myRoleId] ?: myRoleId} has nobody above them to report to")
+            return
+        }
+        val targetLevel = candidatesAbove.maxOf { RoleLevelCache.levelOf(it.roleId) }
+
+        val myBranches = selectedBranchIds
+        val candidates = candidatesAbove
+            .filter { RoleLevelCache.levelOf(it.roleId) == targetLevel }
+            .sortedWith(
+                compareByDescending<ReportsToItem> { it.branchIds.any { b -> b in myBranches } }
+                    .thenBy { it.name.lowercase() }
+            )
+
+        if (candidates.isEmpty()) {
+            toast("No eligible accounts found to assign")
+            return
+        }
+
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp * 16, dp * 8, dp * 16, 0)
+        }
+        val etSearch = EditText(ctx).apply {
+            hint = "Search name..."
+            setTextColor(color(R.color.theme_text_primary))
+            setHintTextColor(color(R.color.theme_text_secondary))
+        }
+        container.addView(etSearch)
+        val listView = ListView(ctx).apply { choiceMode = ListView.CHOICE_MODE_SINGLE }
+        container.addView(listView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp * 300))
+
+        var filtered = candidates.toMutableList()
+        fun labelFor(item: ReportsToItem): String {
+            val branchTag = if (item.branchIds.any { it in myBranches }) " ★" else ""
+            return "${item.name}  (${EmployeeFragment.ROLE_LABELS[item.roleId] ?: item.roleId})$branchTag"
+        }
+        fun makeAdapter(list: List<ReportsToItem>) = object : ArrayAdapter<ReportsToItem>(
+            ctx, android.R.layout.simple_list_item_single_choice, list) {
+            override fun getView(pos: Int, cv: View?, parent: ViewGroup): View {
+                val v = super.getView(pos, cv, parent)
+                (v as? TextView)?.text = labelFor(list[pos])
+                return v
+            }
+        }
+        listView.adapter = makeAdapter(filtered)
+        val currentIdx = filtered.indexOfFirst { it.uid == selectedReportsTo }
+        if (currentIdx >= 0) listView.setItemChecked(currentIdx, true)
+
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle("Reports To")
+            .setView(container)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        listView.setOnItemClickListener { _, _, i, _ ->
+            val item = filtered[i]
+            selectedReportsTo = item.uid
+            btnSelectReportsTo.text = item.name
+            btnSelectReportsTo.setTextColor(color(R.color.theme_text_primary))
+            tvReportsToHint.text = EmployeeFragment.ROLE_LABELS[item.roleId] ?: item.roleId
+            tvReportsToHint.setTextColor(0xFF00D4FF.toInt())
+            btnClearReportsTo.visibility = View.VISIBLE
+            dialog.dismiss()
+        }
+
+        etSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {
+                val q = s?.toString()?.trim() ?: ""
+                filtered = candidates.filter {
+                    q.isEmpty() || it.name.contains(q, ignoreCase = true)
+                }.toMutableList()
+                listView.adapter = makeAdapter(filtered)
+                val idx = filtered.indexOfFirst { it.uid == selectedReportsTo }
+                if (idx >= 0) listView.setItemChecked(idx, true)
+            }
+        })
+
+        dialog.show()
+    }
+
     private suspend fun loadAll() {
         val uid = arguments?.getString(ARG_UID) ?: return
         try {
             val userSnap     = db.reference.child("users/$uid/profile").get().await()
             val branchesSnap = db.reference.child("branches").get().await()
             val rolesSnap    = db.reference.child("roles").get().await()
+            RoleLevelCache.refresh() // separate get() of the same roles/ node — mirrors
+                                      // StatusMetaCache's independently-refreshable pattern
+            val allUsersSnap = db.reference.child("users").get().await()
             val salariesSnap = runCatching {
                 db.reference.child("salaries").get().await()
             }.getOrNull()
             val rbac         = RbacManager.current
+
+            allEmployeesForReportsTo.clear()
+            allUsersSnap.children.forEach { c ->
+                val cUid = c.key ?: return@forEach
+                val info = c.child("profile/company_info")
+                val roleId = info.child("role_id").getValue(String::class.java) ?: return@forEach
+                val name = c.child("profile/name").getValue(String::class.java)
+                    ?.trim()?.takeIf { it.isNotBlank() } ?: cUid
+                val branchIds = info.child("branch_ids").children.mapNotNull { it.getValue(String::class.java) }
+                allEmployeesForReportsTo.add(ReportsToItem(cUid, name, roleId, branchIds))
+            }
 
             allBranches.clear()
             branchesSnap.children.forEach { c ->
@@ -370,7 +511,7 @@ class EmployeeEditFragment : Fragment() {
             )
 
             val myRole  = rbac.roleId
-            val myLevel = EmployeeFragment.ROLE_LEVELS[myRole] ?: 99
+            val myLevel = RoleLevelCache.levelOf(myRole)
 
             val currentRole = userSnap.child("company_info/role_id").getValue(String::class.java) ?: ""
             val status      = userSnap.child("company_info/status").getValue(String::class.java) ?: "active"
@@ -378,13 +519,17 @@ class EmployeeEditFragment : Fragment() {
             val agentType   = userSnap.child("company_info/agent_type").getValue(String::class.java) ?: ""
             val salaryModel = userSnap.child("company_info/salary_model").getValue(String::class.java) ?: ""
             val fixedAmount = userSnap.child("company_info/fixed_amount").getValue(String::class.java) ?: ""
-            val targetLevel = EmployeeFragment.ROLE_LEVELS[currentRole] ?: 99
+            val targetLevel = RoleLevelCache.levelOf(currentRole)
             
             // Save for access in listeners
             savedAgentType = agentType
             savedSalaryModel = salaryModel
 
-            // Guard: must be able to manage this user's role
+            // Guard: must be able to manage this user's role. ">2" is intentionally NOT
+            // shifted to ">3" the way canManageUsers()/canManageRole() were -- this cutoff
+            // already excluded "stuff" before "incharge" existed (admin/manager/supervisor
+            // only), so incharge correctly falls outside it too, same as it always did for
+            // stuff/worker/guest.
             if (myRole != "admin" && (myLevel > 2 || myLevel >= targetLevel)) {
                 if (isAdded) {
                     Toast.makeText(requireContext(), "No permission to edit this user", Toast.LENGTH_SHORT).show()
@@ -397,10 +542,10 @@ class EmployeeEditFragment : Fragment() {
             val roleIdsFromDb = rolesMap.keys.sorted()
             allowedRoles.addAll(
                 roleIdsFromDb.filter { rid ->
-                    val level = EmployeeFragment.ROLE_LEVELS[rid] ?: 99
+                    val level = RoleLevelCache.levelOf(rid)
                     when {
                         myRole == "admin" -> true
-                        myLevel > 2 -> false // stuff/worker/guest cannot assign any role
+                        myLevel > 2 -> false // same unshifted cutoff as above
                         else -> level > myLevel
                     }
                 }
@@ -527,6 +672,17 @@ class EmployeeEditFragment : Fragment() {
                     tvBranchSelected.setTextColor(0xFF00D4FF.toInt())
                     btnClearBranch.visibility = View.VISIBLE
                 }
+            }
+
+            originalReportsTo = userSnap.child("company_info/reports_to").getValue(String::class.java) ?: ""
+            selectedReportsTo = originalReportsTo
+            if (selectedReportsTo.isNotBlank()) {
+                val mgr = allEmployeesForReportsTo.find { it.uid == selectedReportsTo }
+                btnSelectReportsTo.text = mgr?.name ?: selectedReportsTo
+                btnSelectReportsTo.setTextColor(color(R.color.theme_text_primary))
+                tvReportsToHint.text = mgr?.let { EmployeeFragment.ROLE_LABELS[it.roleId] ?: it.roleId } ?: "Unknown account"
+                tvReportsToHint.setTextColor(0xFF00D4FF.toInt())
+                btnClearReportsTo.visibility = View.VISIBLE
             }
         } catch (e: Exception) {
             if (isAdded) toast("Failed to load: ${e.message}")
@@ -655,10 +811,16 @@ class EmployeeEditFragment : Fragment() {
                     "users/$uid/profile/company_info/agent_type"   to agentType,
                     "users/$uid/profile/company_info/salary_model" to salaryModel,
                     "users/$uid/profile/company_info/fixed_amount" to fixedAmount,
+                    "users/$uid/profile/company_info/reports_to"   to selectedReportsTo.ifBlank { null },
                     // Reverse-index: systemId → {uid, status}
                     "users_by_systemId/$sysId/uid"                 to uid,
                     "users_by_systemId/$sysId/status"              to status,
                 )
+                // Reverse-index: managerUid → {subordinateUid: true} — same pattern as
+                // users_by_systemId above, mirrors users_by_consignment elsewhere in the app.
+                if (selectedReportsTo.isNotBlank()) {
+                    updates["users_by_manager/$selectedReportsTo/$uid"] = true
+                }
                 // Sync branch employees index: add for all selected
                 selectedBranchIds.forEach { bid ->
                     updates["branches/$bid/employees/$uid"] = mapOf("employee_id" to empId, "user_id" to uid)
@@ -667,6 +829,10 @@ class EmployeeEditFragment : Fragment() {
                 // Remove old systemId entry if it changed
                 if (originalSystemId.isNotBlank() && originalSystemId != sysId) {
                     db.reference.child("users_by_systemId/$originalSystemId").removeValue().await()
+                }
+                // Remove old reports_to reverse-index entry if it changed or was cleared
+                if (originalReportsTo.isNotBlank() && originalReportsTo != selectedReportsTo) {
+                    db.reference.child("users_by_manager/$originalReportsTo/$uid").removeValue().await()
                 }
                 // Remove from old branch indices no longer selected
                 val toRemove = originalBranchIds.minus(selectedBranchIds)

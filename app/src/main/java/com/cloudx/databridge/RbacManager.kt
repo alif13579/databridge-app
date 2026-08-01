@@ -192,7 +192,12 @@ object RbacManager {
         val permissions: Map<String, Boolean> = emptyMap(),
         val branchIds: List<String> = emptyList(),
         val overridePages: List<String> = emptyList(),
-        val overrideActive: Boolean = false
+        val overrideActive: Boolean = false,
+        // Lower = higher rank (0 = admin today) — same convention EmployeeFragment.
+        // ROLE_LEVELS used. Defaults to RoleLevelCache.DEFAULT_LEVEL (lowest possible rank),
+        // never 0, so a role whose roles/{roleId}/level isn't set in Firebase yet never
+        // silently gets top access.
+        val level: Int = RoleLevelCache.DEFAULT_LEVEL,
     )
 
     var current: UserRbacInfo = UserRbacInfo()
@@ -256,6 +261,9 @@ object RbacManager {
 
             val roleName = roleSnap?.child("name")?.getValue(String::class.java).orEmpty()
             val permissions = parsePermissions(roleSnap?.child("permissions"))
+            val level = roleSnap?.child("level")?.getValue(Int::class.java)
+                ?: roleSnap?.child("level")?.getValue(Long::class.java)?.toInt()
+                ?: RoleLevelCache.DEFAULT_LEVEL
 
             val (overridePages, overrideActive) = runCatching {
                 val node = profileSnap.child("company_info/access_overrides/permissions")
@@ -270,7 +278,7 @@ object RbacManager {
                 }
             }.getOrDefault(Pair(emptyList(), false))
 
-            current = UserRbacInfo(roleId, branchName, roleName, permissions, branchIds, overridePages, overrideActive)
+            current = UserRbacInfo(roleId, branchName, roleName, permissions, branchIds, overridePages, overrideActive, level)
             // Also refresh guest cache while authenticated, so logout can use cached guest permissions if rules block unauth reads
             runCatching { primeGuestCache() }
             current
@@ -286,7 +294,10 @@ object RbacManager {
             val roleSnap = runCatching { db.reference.child("roles/guest").get().await() }.getOrNull()
             val roleName = roleSnap?.child("name")?.getValue(String::class.java).orEmpty()
             val permissions = parsePermissions(roleSnap?.child("permissions"))
-            current = UserRbacInfo(roleId = "guest", roleName = roleName.ifBlank { "Guest" }, permissions = permissions)
+            val level = roleSnap?.child("level")?.getValue(Int::class.java)
+                ?: roleSnap?.child("level")?.getValue(Long::class.java)?.toInt()
+                ?: RoleLevelCache.DEFAULT_LEVEL
+            current = UserRbacInfo(roleId = "guest", roleName = roleName.ifBlank { "Guest" }, permissions = permissions, level = level)
             cachedGuest = current
             current
         } catch (_: Exception) {

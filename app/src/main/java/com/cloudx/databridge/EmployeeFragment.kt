@@ -39,13 +39,19 @@ class EmployeeFragment : Fragment() {
     // ── Role hierarchy (level = lower number means higher authority) ──
     // admin can manage ALL roles including same level (admin)
     // others can only manage LOWER level roles
+    // Dynamic since Phase 1 of the role-hierarchy plan (see RbacManager.kt) — level now comes
+    // from RoleLevelCache (roles/{roleId}/level in Firebase, admin-configurable via Access
+    // Manager), not a hardcoded map here. ROLE_LABELS/ROLE_COLORS are unchanged — display-only,
+    // a separate concern from the hierarchy itself; a role with no entry here (e.g. a
+    // brand-new one) falls back to its own Firebase roles/{roleId}/name elsewhere already.
     companion object {
-        val ROLE_LEVELS  = mapOf("admin" to 0, "manager" to 1, "supervisor" to 2, "stuff" to 3, "worker" to 4, "guest" to 5)
         val ROLE_LABELS  = mapOf("admin" to "👑 Admin", "manager" to "💼 Manager",
-                                  "supervisor" to "🎯 Supervisor", "stuff" to "📋 Stuff",
+                                  "supervisor" to "🎯 Supervisor", "incharge" to "🗂️ Incharge",
+                                  "stuff" to "📋 Stuff",
                                   "worker" to "👤 Worker", "guest" to "🙋 Guest")
         val ROLE_COLORS  = mapOf("admin" to "#7c3aed", "manager" to "#2563eb",
-                                  "supervisor" to "#059669", "stuff" to "#d97706",
+                                  "supervisor" to "#059669", "incharge" to "#0d9488",
+                                  "stuff" to "#d97706",
                                   "worker" to "#4b5563", "guest" to "#888888")
 
         private const val ARG_ROLE   = "arg_role"
@@ -54,8 +60,12 @@ class EmployeeFragment : Fragment() {
         /** Only admin and manager may create/edit/delete branches. */
         fun canManageBranches(roleId: String) = roleId == "admin" || roleId == "manager"
 
-        /** Minimum level required to manage (create/edit) users: admin/manager/supervisor/stuff (level <= 3). */
-        fun canManageUsers(roleId: String) = (ROLE_LEVELS[roleId] ?: 99) <= 3
+        /** Minimum level required to manage (create/edit) users: level <= 4.
+         *  Previously "<= 3" under the old fixed 6-role numbering (admin/manager/supervisor/
+         *  stuff); shifted by +1 so the same 4 roles keep this capability now that "incharge"
+         *  (level 3) sits between supervisor and stuff, and incharge itself also gets it —
+         *  ASSUMPTION, confirm this is the intended cutoff. */
+        fun canManageUsers(roleId: String) = RoleLevelCache.levelOf(roleId) <= 4
 
         fun forRole(roleId: String): EmployeeFragment =
             EmployeeFragment().also {
@@ -165,6 +175,7 @@ class EmployeeFragment : Fragment() {
     private lateinit var pbLoading: ProgressBar
     private lateinit var tvEmpty: TextView
     private lateinit var ivAddUser: ImageView
+    private lateinit var btnMigrateReportsTo: TextView
     private lateinit var etSearch: EditText
     private lateinit var spFilterStatus: Spinner
     private lateinit var spFilterRole: Spinner
@@ -185,6 +196,7 @@ class EmployeeFragment : Fragment() {
         pbLoading = view.findViewById(R.id.pbUsersLoading)
         tvEmpty   = view.findViewById(R.id.tvUsersEmpty)
         ivAddUser = view.findViewById(R.id.ivAddUser)
+        btnMigrateReportsTo = view.findViewById(R.id.btnMigrateReportsTo)
         etSearch  = view.findViewById(R.id.etUserSearch)
         spFilterStatus = view.findViewById(R.id.spFilterStatus)
         spFilterRole = view.findViewById(R.id.spFilterRole)
@@ -207,27 +219,127 @@ class EmployeeFragment : Fragment() {
         loadData()
     }
 
+    /** Admin-only one-time bootstrap: for every account that doesn't already have reports_to
+     *  set, infer it from current branch + level — matched against whichever level is the
+     *  next one up (the closest level number smaller than theirs, found dynamically among
+     *  the accounts on file, not a hardcoded worker/supervisor/stuff/manager 2-hop chain, so
+     *  this works for however many tiers actually exist). Only auto-assigns when there's
+     *  EXACTLY one candidate at that tier sharing a branch; zero or multiple candidates are
+     *  left alone and counted as "skipped" rather than guessed at, since a wrong guess is
+     *  worse than a gap someone fixes by hand in the employee edit screen's Reports To
+     *  picker. Never touches an account that already has reports_to — this is a bootstrap
+     *  for the gap, not a resync.
+     *
+     *  Each level is matched only against its own immediate next tier up now — the old
+     *  "supervisor and stuff are peer visibility levels, share one combined candidate pool"
+     *  special-case isn't carried over, since it doesn't generalize to an arbitrary tier
+     *  count. If two roles should genuinely be treated as peers, give them the same level
+     *  number in Access Manager rather than adjacent ones. */
+    private fun confirmAndRunReportsToMigration() {
+        AlertDialog.Builder(requireContext())
+            .setTitle("Auto-assign Reports To")
+            .setMessage(
+                "For every employee without a Reports To set, this looks at their current " +
+                "branch + level and assigns the one obvious candidate at the next tier up. " +
+                "Employees where a branch has zero or more than one candidate are left " +
+                "unassigned for you to set by hand. Already-assigned employees are never " +
+                "touched. Continue?"
+            )
+            .setPositiveButton("Run") { _, _ -> runReportsToMigration() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun runReportsToMigration() {
+        val db = FirebaseDatabase.getInstance()
+        lifecycleScope.launch {
+            btnMigrateReportsTo.isEnabled = false
+            btnMigrateReportsTo.text = "🔧 Running…"
+            try {
+                data class Emp(val uid: String, val level: Int, val branchIds: List<String>, val hasReportsTo: Boolean)
+
+                val usersSnap = db.reference.child("users").get().await()
+                val all = usersSnap.children.mapNotNull { c ->
+                    val uid = c.key ?: return@mapNotNull null
+                    val info = c.child("profile/company_info")
+                    val roleId = info.child("role_id").getValue(String::class.java) ?: return@mapNotNull null
+                    val level = RoleLevelCache.levelOf(roleId)
+                    val branchIds = info.child("branch_ids").children.mapNotNull { it.getValue(String::class.java) }
+                    val hasReportsTo = info.child("reports_to").getValue(String::class.java)?.isNotBlank() == true
+                    Emp(uid, level, branchIds, hasReportsTo)
+                }
+
+                var assigned = 0
+                var skipped = 0
+                val updates = mutableMapOf<String, Any?>()
+
+                fun tryAssign(subordinates: List<Emp>, bosses: List<Emp>) {
+                    subordinates.filter { !it.hasReportsTo }.forEach { emp ->
+                        val candidates = bosses.filter { boss -> boss.branchIds.any { it in emp.branchIds } }
+                        if (candidates.size == 1) {
+                            val bossUid = candidates[0].uid
+                            updates["users/${emp.uid}/profile/company_info/reports_to"] = bossUid
+                            updates["users_by_manager/$bossUid/${emp.uid}"] = true
+                            assigned++
+                        } else {
+                            skipped++
+                        }
+                    }
+                }
+
+                // Every distinct level actually present, from lowest rank up to the top —
+                // generic, any tier count. Each tier's un-migrated accounts match against
+                // whichever level is immediately above (the largest level number still
+                // smaller than theirs, found dynamically), not a fixed offset.
+                val levelsDescending = all.map { it.level }.distinct().sortedDescending()
+                for (lvl in levelsDescending) {
+                    val subordinates = all.filter { it.level == lvl }
+                    val tierUp = levelsDescending.filter { it < lvl }.maxOrNull() ?: continue // nothing above the top tier
+                    val bosses = all.filter { it.level == tierUp }
+                    tryAssign(subordinates, bosses)
+                }
+
+                if (updates.isNotEmpty()) db.reference.updateChildren(updates).await()
+
+                if (isAdded) {
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("Done")
+                        .setMessage("Assigned: $assigned\nSkipped (ambiguous or no candidate): $skipped\n\nSkipped employees can be set manually from their edit screen's Reports To picker.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            } catch (e: Exception) {
+                if (isAdded) Toast.makeText(requireContext(), "Migration failed: ${e.message}", Toast.LENGTH_LONG).show()
+            } finally {
+                if (isAdded) {
+                    btnMigrateReportsTo.isEnabled = true
+                    btnMigrateReportsTo.text = "🔧 Auto-assign Reports To (unassigned employees)"
+                }
+            }
+        }
+    }
+
     // ── RBAC helpers ──────────────────────────────────────────────────────
 
     private val myRoleId get() = RbacManager.current.roleId
 
     private fun canManageRole(targetRoleId: String): Boolean {
         if (myRoleId == "admin") return true
-        val myLevel = ROLE_LEVELS[myRoleId] ?: return false
-        if (myLevel > 3) return false  // worker(4) / guest(5) cannot manage anyone
-        val targetLevel = ROLE_LEVELS[targetRoleId] ?: return false
+        val myLevel = RoleLevelCache.levelOf(myRoleId)
+        if (myLevel > 4) return false  // worker(5) / guest(6) cannot manage anyone
+        val targetLevel = RoleLevelCache.levelOf(targetRoleId)
         return myLevel < targetLevel
     }
 
     private fun manageableRoleIds(): List<String> {
         val myRole = RbacManager.current.roleId
-        val myLevel = ROLE_LEVELS[myRole] ?: 99
+        val myLevel = RoleLevelCache.levelOf(myRole)
         val roleIdsFromDb = roleMap.keys.sorted()
         return roleIdsFromDb.filter { rid ->
             when {
                 myRole == "admin" -> true
-                myLevel > 3 -> false // stuff/worker/guest cannot assign any role
-                else -> (ROLE_LEVELS[rid] ?: 99) > myLevel
+                myLevel > 4 -> false // worker/guest cannot assign any role
+                else -> RoleLevelCache.levelOf(rid) > myLevel
             }
         }
     }
@@ -387,6 +499,8 @@ class EmployeeFragment : Fragment() {
     private fun refreshAddButtonVisibility() {
         val canAdd = manageableRoleIds().isNotEmpty()
         ivAddUser.visibility = if (canAdd) View.VISIBLE else View.GONE
+        btnMigrateReportsTo.visibility = if (RbacManager.current.roleId == "admin") View.VISIBLE else View.GONE
+        btnMigrateReportsTo.setOnClickListener { confirmAndRunReportsToMigration() }
     }
 
     // ── Data loading ──────────────────────────────────────────────────────
@@ -404,6 +518,10 @@ class EmployeeFragment : Fragment() {
                 val salariesSnap = runCatching {
                     db.reference.child("salaries").get().await()
                 }.getOrNull()
+                // Same roles/ node this screen already fetches above -- RoleLevelCache.refresh()
+                // does its own separate get() (mirrors StatusMetaCache's pattern exactly, so it
+                // stays independently refreshable from any screen), a small accepted redundancy.
+                RoleLevelCache.refresh()
 
                 roleMap = rolesSnap.children.mapNotNull { child ->
                     child.key?.let { it to child.child("name").getValue(String::class.java).orEmpty().trim() }
@@ -475,7 +593,7 @@ class EmployeeFragment : Fragment() {
                         photoUrl    = photoUrl
                     )
                 }.sortedWith(
-                    compareBy({ ROLE_LEVELS[it.roleId] ?: 99 }, { it.name })
+                    compareBy({ RoleLevelCache.levelOf(it.roleId) }, { it.name })
                 ).let { list ->
                     if (branchFilter.isNotBlank()) list.filter { it.branchIds.contains(branchFilter) } else list
                 }
