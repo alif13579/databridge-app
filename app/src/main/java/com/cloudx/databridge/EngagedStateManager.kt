@@ -1,6 +1,17 @@
 package com.cloudx.databridge
 
+import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.FirebaseDatabase
+
+/** One agent's engagement entry — mirrors one child of engaged_at/{agentUid}. photoUrl is
+ *  resolved separately (via UserNameResolver, cached) since it isn't stored in the entry
+ *  itself. */
+data class EngagedAgent(
+    val uid: String,
+    val name: String,
+    val timestamp: Long,
+    val photoUrl: String = ""
+)
 
 /**
  * Tracks "someone has this parcel's card open right now" across both Worker Space and Call
@@ -68,5 +79,24 @@ object EngagedStateManager {
     fun isFresh(timestamp: Long): Boolean {
         if (timestamp <= 0L) return false
         return (System.currentTimeMillis() - timestamp) < STALE_AFTER_MS
+    }
+
+    /** Parses an engaged_at snapshot (the node containing one child per engaged agentUid)
+     *  into a list of EngagedAgent, resolving each one's photo via UserNameResolver's cache.
+     *  Shared by both fragments' batch-load and live-listener parsing paths so there's one
+     *  place that knows this shape, instead of four copies. Does NOT filter by isFresh() —
+     *  callers/adapters still do that at bind/render time, same as before. */
+    suspend fun parseEngagedAgents(engagedAtSnapshot: DataSnapshot): List<EngagedAgent> {
+        return engagedAtSnapshot.children.mapNotNull { child ->
+            val uid = child.key ?: return@mapNotNull null
+            val timestamp = child.child("timestamp").getValue(Long::class.java) ?: return@mapNotNull null
+            val name = child.child("agentName").getValue(String::class.java).orEmpty()
+            EngagedAgent(
+                uid = uid,
+                name = name,
+                timestamp = timestamp,
+                photoUrl = UserNameResolver.resolvePhotoUrl(uid)
+            )
+        }
     }
 }
