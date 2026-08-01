@@ -809,7 +809,8 @@ class CallCenterFragment : Fragment() {
                 }
             },
             onCollapse = { item ->
-                samePhoneGroup(item).forEach { p -> EngagedStateManager.clearEngaged(p.id) }
+                val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                samePhoneGroup(item).forEach { p -> EngagedStateManager.clearEngaged(p.id, uid) }
             }
         )
         adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()
@@ -2640,7 +2641,7 @@ class CallCenterFragment : Fragment() {
                     )
                 }
 
-            EngagedStateManager.clearEngaged(target.id)
+            EngagedStateManager.clearEngaged(target.id, userId)
         }
 
         // Parcel status (courier/consignments/{id}/status) is a SEPARATE concept from
