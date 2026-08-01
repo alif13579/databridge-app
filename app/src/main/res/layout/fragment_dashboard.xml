@@ -251,10 +251,9 @@
                         android:text="Agent Performance"
                         android:visibility="gone" />
 
-                    <!-- Manager-only toggle: supervisor rollup (default) vs flat worker
-                         list. DashboardFragment shows/hides this based on
-                         Success.role == "manager" and keeps its text in sync with the
-                         ViewModel's rollupMode. -->
+                    <!-- Visible for anyone with subordinates (Success.hasSubordinates), not
+                         just role == "manager" — DashboardFragment keeps its text in sync
+                         with the ViewModel's rollupMode. -->
                     <TextView
                         android:id="@+id/tvRollupToggle"
                         android:layout_width="wrap_content"
@@ -262,11 +261,26 @@
                         android:textSize="10sp"
                         android:textStyle="bold"
                         android:textColor="@color/theme_accent"
-                        android:text="👥 By Supervisor ▾"
+                        android:text="👥 Team View ▾"
                         android:visibility="gone"
                         android:padding="4dp" />
 
                 </LinearLayout>
+
+                <!-- Drill-down breadcrumb — visible only while vm.drillStack is non-empty.
+                     Tapping it goes back one level (see DashboardFragment.drillBack()). -->
+                <TextView
+                    android:id="@+id/tvDrillBreadcrumb"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="11sp"
+                    android:textColor="@color/theme_accent"
+                    android:padding="6dp"
+                    android:background="@drawable/bg_card_rounded"
+                    android:layout_marginBottom="8dp"
+                    android:visibility="gone"
+                    android:clickable="true"
+                    android:focusable="true" />
 
                 <androidx.cardview.widget.CardView
                     android:id="@+id/cardAgents"

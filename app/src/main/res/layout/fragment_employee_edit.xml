@@ -150,6 +150,39 @@
             android:paddingStart="4dp"
             android:layout_marginBottom="24dp"/>
 
+        <!-- Reports To (single-select picker, candidates one tier up) -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Reports To" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <RelativeLayout
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:layout_marginBottom="4dp">
+            <TextView
+                android:id="@+id/btnSelectReportsTo"
+                android:layout_width="match_parent" android:layout_height="match_parent"
+                android:text="Tap to select ▾"
+                android:textColor="@color/theme_text_secondary"
+                android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="44dp"
+                android:gravity="center_vertical"
+                android:clickable="true" android:focusable="true"/>
+            <TextView
+                android:id="@+id/btnClearReportsTo"
+                android:layout_width="44dp" android:layout_height="match_parent"
+                android:text="✕"
+                android:textColor="#ff4444" android:textSize="16sp"
+                android:gravity="center"
+                android:layout_alignParentEnd="true"
+                android:clickable="true" android:focusable="true"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:visibility="gone"/>
+        </RelativeLayout>
+        <TextView
+            android:id="@+id/tvReportsToHint"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="None selected"
+            android:textColor="@color/theme_text_secondary" android:textSize="12sp"
+            android:paddingStart="4dp"
+            android:layout_marginBottom="24dp"/>
+
         <!-- Optional Agent Type toggle -->
         <TextView
             android:id="@+id/btnToggleAgentType"

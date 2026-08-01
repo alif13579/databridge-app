@@ -633,7 +633,6 @@ class CallCenterFragment : Fragment() {
 
                 val dialStartMs = System.currentTimeMillis()
                 AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
-                DialCountStore.increment(ctx, id)
                 // Auto-expand this parcel's remarks now, not after the call ends — the
                 // overlay below is non-modal, so the agent can start writing notes while the
                 // call is still going instead of waiting for it to finish.
@@ -677,6 +676,16 @@ class CallCenterFragment : Fragment() {
                 delay(1000L)
                 val talkDurationSec = CallLogHelper.getLastCallDurationSeconds(ctx, phone, dialStartMs)
                 val totalDurationSec = ((System.currentTimeMillis() - dialStartMs) / 1000L).toInt()
+
+                // Same verified-counting principle as verifyAndIncrementDialCount() for the
+                // manual tap/swipe paths: only count it once the call log confirms the dial
+                // actually happened (talkDurationSec != null), reusing the query above instead
+                // of a second one. Falls back to unconditional counting if READ_CALL_LOG isn't
+                // granted, same graceful degradation as the manual paths.
+                if (talkDurationSec != null || !CallLogHelper.hasPermission(ctx)) {
+                    DialCountStore.increment(ctx, id)
+                }
+
                 if (talkDurationSec == 0 && totalDurationSec >= AUTO_NO_ANSWER_MIN_RING_SECONDS) {
                     allParcels.find { it.id == id }?.let { item -> saveAutoNoAnswerRemark(item) }
                 }
