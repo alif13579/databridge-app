@@ -281,12 +281,12 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                     else loadFragment(EmployeeFragment.forBranch(branchId))
                 }
                 R.id.nav_cash_management -> {
-                    // Role gating now lives in PermissionCatalog ("nav_cash_management"),
+                    // Role gating lives in PermissionCatalog ("nav_cash_management"),
                     // editable per-role from Access Manager. Still open: admin multi-branch
                     // selection (like nav_branches has via BranchListFragment) -- this
                     // always opens the current user's first assigned branch for now.
                     val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
-                    if (branchId.isNotBlank()) loadFragment(CashManagementFragment.newInstance(branchId))
+                    if (branchId.isNotBlank()) loadFragment(CashManagementHomeFragment.newInstance(branchId))
                     else Toast.makeText(this, "No branch assigned to this account", Toast.LENGTH_SHORT).show()
                 }
                 R.id.nav_login     -> launchGoogleSignIn()

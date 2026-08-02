@@ -21,10 +21,15 @@ import kotlinx.coroutines.withContext
 // non-day-locked ledger: any day's collection can be settled same-day, partially,
 // or carried forward, since MFS providers may not always have full balance ready.
 
+const val COLLECTION_TYPE_CASH = "cash"
+const val COLLECTION_TYPE_ADJUSTMENT = "adjustment"
+
 @IgnoreExtraProperties
 data class CashCollectionEntry(
     val id: String = "",
     val amount: Double = 0.0,
+    val type: String = COLLECTION_TYPE_CASH,
+    val remarks: String = "",
     val timestamp: Long = 0L,
     val enteredByName: String = "",
     val enteredByUid: String = "",
@@ -35,6 +40,7 @@ data class CashLedgerEntry(
     val id: String = "",
     val amount: Double = 0.0,
     val trxId: String = "",
+    val remarks: String = "",
     val timestamp: Long = 0L,
     val enteredByName: String = "",
     val enteredByUid: String = "",
@@ -73,6 +79,7 @@ sealed class CashManagementState {
         val summary: CashManagementSummary,
         val accounts: List<MfsAccountSummary>,
         val collections: List<CashCollectionEntry>,
+        val defaultProvider: String?,
     ) : CashManagementState()
     data class Error(val message: String) : CashManagementState()
 }
@@ -95,12 +102,13 @@ class CashManagementViewModel : ViewModel() {
         _state.value = CashManagementState.Loading
         viewModelScope.launch {
             try {
-                val (collectionsSnap, providersSnap, ledgerSnap) = withContext(Dispatchers.IO) {
+                val (collectionsSnap, providersSnap, ledgerSnap, defaultProviderSnap) = withContext(Dispatchers.IO) {
                     coroutineScope {
                         val collectionsDeferred = async { db.reference.child(FirebasePaths.cashManagementCollections(branchId)).get().await() }
                         val providersDeferred   = async { db.reference.child(FirebasePaths.cashManagementProviders(branchId)).get().await() }
                         val ledgerDeferred      = async { db.reference.child(FirebasePaths.cashManagementLedger(branchId)).get().await() }
-                        Triple(collectionsDeferred.await(), providersDeferred.await(), ledgerDeferred.await())
+                        val defaultDeferred     = async { db.reference.child(FirebasePaths.cashManagementDefaultProvider(branchId)).get().await() }
+                        listOf(collectionsDeferred.await(), providersDeferred.await(), ledgerDeferred.await(), defaultDeferred.await())
                     }
                 }
 
@@ -127,7 +135,9 @@ class CashManagementViewModel : ViewModel() {
                     totalHubPayment = accounts.sumOf { it.hubPaymentTotal },
                 )
 
-                _state.value = CashManagementState.Success(summary, accounts, collectionList)
+                val defaultProvider = defaultProviderSnap.getValue(String::class.java)?.takeIf { it.isNotBlank() }
+
+                _state.value = CashManagementState.Success(summary, accounts, collectionList, defaultProvider)
             } catch (e: Exception) {
                 _state.value = CashManagementState.Error(e.message ?: "Failed to load cash management data")
             }
@@ -143,12 +153,14 @@ class CashManagementViewModel : ViewModel() {
             ?: auth.currentUser?.email?.takeIf { it.isNotBlank() }
             ?: "Unknown"
 
-    fun addCollection(amount: Double, timestampMillis: Long, onDone: (Boolean) -> Unit) {
+    fun addCollection(amount: Double, type: String, remarks: String, timestampMillis: Long, onDone: (Boolean) -> Unit) {
         val uid = auth.currentUser?.uid
         if (uid == null || amount <= 0.0) { onDone(false); return }
         val ref = db.reference.child(FirebasePaths.cashManagementCollections(branchId)).push()
         val entry = mapOf(
             "amount" to amount,
+            "type" to type,
+            "remarks" to remarks.trim(),
             "timestamp" to timestampMillis,
             "enteredByName" to currentUserName(),
             "enteredByUid" to uid,
@@ -163,6 +175,13 @@ class CashManagementViewModel : ViewModel() {
                 )
                 onDone(false)
             }
+    }
+
+    fun setDefaultProvider(providerName: String, onDone: (Boolean) -> Unit = {}) {
+        if (branchId.isBlank()) { onDone(false); return }
+        db.reference.child(FirebasePaths.cashManagementDefaultProvider(branchId)).setValue(providerName)
+            .addOnSuccessListener { refresh(); onDone(true) }
+            .addOnFailureListener { onDone(false) }
     }
 
     fun addProvider(providerName: String, onDone: (Boolean) -> Unit = {}) {
@@ -260,13 +279,14 @@ class CashManagementViewModel : ViewModel() {
             }
     }
 
-    fun addLedgerEntry(providerName: String, type: String, amount: Double, trxId: String, timestampMillis: Long, onDone: (Boolean) -> Unit) {
+    fun addLedgerEntry(providerName: String, type: String, amount: Double, trxId: String, remarks: String, timestampMillis: Long, onDone: (Boolean) -> Unit) {
         val uid = auth.currentUser?.uid
         if (uid == null || providerName.isBlank() || amount <= 0.0) { onDone(false); return }
         val ref = db.reference.child(FirebasePaths.cashManagementLedger(branchId)).child(providerName).child(type).push()
         val entry = mapOf(
             "amount" to amount,
             "trxId" to trxId.trim(),
+            "remarks" to remarks.trim(),
             "timestamp" to timestampMillis,
             "enteredByName" to currentUserName(),
             "enteredByUid" to uid,

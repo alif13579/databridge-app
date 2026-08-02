@@ -398,7 +398,7 @@ class CashManagementFragment : Fragment() {
                 btnPositive.isEnabled = false
                 btnNegative.isEnabled = false
                 btnPositive.text = "Saving..."
-                vm.addCollection(amt, getDate()) { ok ->
+                vm.addCollection(amt, COLLECTION_TYPE_CASH, "", getDate()) { ok ->
                     if (ok) {
                         dialog.dismiss()
                         Toast.makeText(requireContext(), "Collection saved", Toast.LENGTH_SHORT).show()
@@ -560,7 +560,7 @@ class CashManagementFragment : Fragment() {
                 btnPositive.text = "Saving..."
 
                 fun saveDeposit() {
-                    vm.addLedgerEntry(channelName, LEDGER_TYPE_HANDOVER, amt, trxId, dateMillis) { ok ->
+                    vm.addLedgerEntry(channelName, LEDGER_TYPE_HANDOVER, amt, trxId, "", dateMillis) { ok ->
                         if (ok) {
                             dialog.dismiss()
                             Toast.makeText(requireContext(), "Deposit saved", Toast.LENGTH_SHORT).show()
@@ -841,7 +841,7 @@ class CashManagementFragment : Fragment() {
                 btnPositive.isEnabled = false
                 btnNegative.isEnabled = false
                 btnPositive.text = "Paying..."
-                vm.addLedgerEntry(account.provider, LEDGER_TYPE_HUB_PAYMENT, amt, trxId, getDate()) { ok ->
+                vm.addLedgerEntry(account.provider, LEDGER_TYPE_HUB_PAYMENT, amt, trxId, "", getDate()) { ok ->
                     if (ok) {
                         dialog.dismiss()
                         Toast.makeText(requireContext(), "Payment saved", Toast.LENGTH_SHORT).show()
