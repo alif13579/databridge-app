@@ -26,8 +26,11 @@ import java.util.Locale
 /**
  * Full-screen parcel detail view — like a product page in eCommerce.
  *
- * Top section  : parcel info (customer, phone, address, status, COD, hub, dates)
- * Bottom section: complete journey log / remarks timeline (live-updated)
+ * Top section : identity (customer, phone, status, COD) + overview, then the
+ *               complete journey log / remarks timeline (live-updated) — shown
+ *               before address/hub/dates since it's what a decision on the
+ *               parcel actually depends on.
+ * Bottom section: address, hub, dates (reference info, needed once you act)
  *
  * Entry point: create via [newInstance] and load via MainActivity.loadFragment().
  */
@@ -263,7 +266,9 @@ class ParcelDetailFragment : Fragment() {
             val author:   String,
             val role:     String,
             val photoUrl: String,
-            val createdAt:Long
+            val createdAt:Long,
+            val callLogCount: Int = 0,
+            val callLogTotalDurationSec: Int = 0
         )
 
         val sdf = SimpleDateFormat("dd-MM-yy  hh:mm a", Locale.getDefault())
@@ -331,7 +336,12 @@ class ParcelDetailFragment : Fragment() {
                     else                  -> ""
                 }
 
-                Entry(rStatus, display, timeStr, author, role, photoUrl, createdAt)
+                // Call attempts logged against this entry — same path/shape CallCenterFragment's
+                // Journey Log dialog already reads, just not previously wired up here.
+                val callLogCount = r.child("call_logs/call_count").getValue(Long::class.java)?.toInt() ?: 0
+                val callLogTotalDurationSec = r.child("call_logs/total_duration_sec").getValue(Long::class.java)?.toInt() ?: 0
+
+                Entry(rStatus, display, timeStr, author, role, photoUrl, createdAt, callLogCount, callLogTotalDurationSec)
             }
             .sortedBy { it.createdAt }   // oldest first → timeline reads top-to-bottom
 
@@ -443,6 +453,15 @@ class ParcelDetailFragment : Fragment() {
                     tvGap.visibility = View.VISIBLE
                 } else {
                     tvGap.visibility = View.GONE
+                }
+
+                // Call attempts on this entry — matches CallCenterFragment's Journey Log dialog.
+                val tvCallLogs = row.findViewById<TextView>(R.id.twTimelineCallLogs)
+                if (entry.callLogCount > 0) {
+                    tvCallLogs.text = "📞 ${entry.callLogCount} call${if (entry.callLogCount == 1) "" else "s"}, ${entry.callLogTotalDurationSec}s total"
+                    tvCallLogs.visibility = View.VISIBLE
+                } else {
+                    tvCallLogs.visibility = View.GONE
                 }
 
                 layoutTimeline.addView(row)
