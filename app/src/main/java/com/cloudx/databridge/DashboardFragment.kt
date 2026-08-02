@@ -473,7 +473,7 @@ class DashboardFragment : Fragment() {
             // same self-only view they'd see logging in themselves.
             row.isClickable = true
             row.setOnClickListener {
-                vm.drillInto(agent.agentId, agent.agentName, agent.level, agent.branchIds)
+                vm.drillInto(agent.agentId, agent.agentName, agent.level, agent.roleId, agent.branchIds)
             }
         }
     }

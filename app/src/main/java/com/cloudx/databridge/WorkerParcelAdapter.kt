@@ -6,6 +6,7 @@ import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -101,6 +102,7 @@ class WorkerParcelAdapter(
         val remarksBox: View = view.findViewById(R.id.layoutParcelRemarksBox)
         val tvRemarks: TextView = view.findViewById(R.id.tvParcelRemarks)
         val tvRemarksTime: TextView = view.findViewById(R.id.tvParcelRemarksTime)
+        val engagedRing: EngagedRingView = view.findViewById(R.id.viewEngagedRing)
         val layoutEngagedAvatars: LinearLayout = view.findViewById(R.id.layoutEngagedAvatars)
         val ivEngagedAvatar1: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar1)
         val ivEngagedAvatar2: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar2)
@@ -234,12 +236,12 @@ class WorkerParcelAdapter(
             holder.remarksBox.visibility = View.GONE
         }
 
-        // Engaged avatars — up to 4 stacked circles (oldest first, so the newest engagement
-        // draws on top), replacing the old spinning ring with exactly WHO is currently
-        // engaged. See EngagedStateManager.
+        // Engaged ring (ambient "someone's on this" glow) + avatars (exactly who) — both
+        // shown together, not one replacing the other. Same freshness check drives both.
         val freshAgents = item.engagedAgents.filter { EngagedStateManager.isFresh(it.timestamp) }
             .sortedBy { it.timestamp }
         if (freshAgents.isNotEmpty()) {
+            holder.engagedRing.start()
             holder.layoutEngagedAvatars.visibility = View.VISIBLE
             val slots = listOf(holder.ivEngagedAvatar1, holder.ivEngagedAvatar2, holder.ivEngagedAvatar3, holder.ivEngagedAvatar4)
             slots.forEachIndexed { i, slot ->
@@ -263,6 +265,7 @@ class WorkerParcelAdapter(
                 holder.tvEngagedOverflow.visibility = View.GONE
             }
         } else {
+            holder.engagedRing.stop()
             holder.layoutEngagedAvatars.visibility = View.GONE
         }
 

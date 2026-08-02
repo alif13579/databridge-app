@@ -41,8 +41,9 @@ data class AgentStat(
     val openRuns:  Int = 0,
     val closedRuns: Int = 0,
     // Needed to drill into this row: re-run subordinatePool() with THEM as the viewer
-    // (their own level + their own branch scope), not the root viewer's.
+    // (their own role + their own branch scope), not the root viewer's.
     val level:      Int = RoleLevelCache.DEFAULT_LEVEL,
+    val roleId:     String = "",
     val branchIds:  List<String> = emptyList(),
 ) {
     val total get() = delivered + onHold + returned + pending
@@ -159,20 +160,20 @@ class DashboardViewModel : ViewModel() {
 
     // ── Drill-down ───────────────────────────────────────────────────────────
     // Tapping a row re-runs subordinatePool()/load() with THAT person as the viewer instead
-    // of rebuilding a separate nested-tree data structure — reuses the exact same level +
+    // of rebuilding a separate nested-tree data structure — reuses the exact same role_
     // reports_to resolution, just anchored one hop lower each time. The stack is the
     // breadcrumb trail back up to the real logged-in viewer (empty stack).
-    data class DrillLevel(val uid: String, val name: String, val level: Int, val branchIds: List<String>)
+    data class DrillLevel(val uid: String, val name: String, val level: Int, val roleId: String, val branchIds: List<String>)
 
     private val _drillStack = MutableLiveData<List<DrillLevel>>(emptyList())
     val drillStack: LiveData<List<DrillLevel>> = _drillStack
 
     /** Only meaningful to call on a row that's already visible to the current viewer (i.e.
      *  it came from this same subordinatePool() call) — drilling in doesn't check any new
-     *  permission, since seeing [level]/[branchIds] worth of aggregate for that person
+     *  permission, since seeing [roleId]/[branchIds] worth of aggregate for that person
      *  already implied visibility into who makes it up. */
-    fun drillInto(uid: String, name: String, level: Int, branchIds: List<String>) {
-        _drillStack.value = (_drillStack.value ?: emptyList()) + DrillLevel(uid, name, level, branchIds)
+    fun drillInto(uid: String, name: String, level: Int, roleId: String, branchIds: List<String>) {
+        _drillStack.value = (_drillStack.value ?: emptyList()) + DrillLevel(uid, name, level, roleId, branchIds)
         load(_dateRange.value ?: todayRange())
     }
 
@@ -324,33 +325,32 @@ class DashboardViewModel : ViewModel() {
                 // hardcoded roleId == "worker" / "manager" checks — works for any number of
                 // tiers and any role name. Drill-down: if a row further down the org was
                 // tapped into, resolve THEIR subordinates instead of the real logged-in
-                // viewer's (their own level + branch scope, never the root viewer's selected
+                // viewer's (their own role + branch scope, never the root viewer's selected
                 // filter or admin bypass).
                 val selected = _selectedBranchIds.value ?: emptySet()
                 val available = _availableBranches.value?.map { it.id }?.toSet() ?: emptySet()
                 val branchFilter = selected.ifEmpty { available }
-                val viewerLevel = RbacManager.current.level
                 val isAdmin = roleId == "admin"
 
                 val drillStack = _drillStack.value ?: emptyList()
                 val effectiveUid: String
-                val effectiveLevel: Int
+                val effectiveRoleId: String
                 val effectiveBranchFilter: Set<String>
                 val effectiveIsAdmin: Boolean
                 if (drillStack.isEmpty()) {
                     effectiveUid = uid
-                    effectiveLevel = viewerLevel
+                    effectiveRoleId = roleId
                     effectiveBranchFilter = branchFilter
                     effectiveIsAdmin = isAdmin
                 } else {
                     val top = drillStack.last()
                     effectiveUid = top.uid
-                    effectiveLevel = top.level
+                    effectiveRoleId = top.roleId
                     effectiveBranchFilter = top.branchIds.toSet()
                     effectiveIsAdmin = false
                 }
 
-                val subordinates = subordinatePool(effectiveUid, effectiveLevel, effectiveBranchFilter, effectiveIsAdmin)
+                val subordinates = subordinatePool(effectiveUid, effectiveRoleId, effectiveBranchFilter, effectiveIsAdmin)
                 val teamResults = if (subordinates.isEmpty()) {
                     emptyList()
                 } else if (_rollupMode.value != false) {
@@ -437,7 +437,7 @@ class DashboardViewModel : ViewModel() {
     private suspend fun loadAgentStat(
         uid: String, name: String, startKey: String, endKey: String,
         rangeStartTs: Long, rangeEndTs: Long,
-        level: Int = RoleLevelCache.DEFAULT_LEVEL, branchIds: List<String> = emptyList(),
+        level: Int = RoleLevelCache.DEFAULT_LEVEL, roleId: String = "", branchIds: List<String> = emptyList(),
     ): AgentLoadResult {
         var readError: String? = null
         val snap = withContext(Dispatchers.IO) {
@@ -585,6 +585,7 @@ class DashboardViewModel : ViewModel() {
             openRuns  = openRuns,
             closedRuns = closedRuns,
             level     = level,
+            roleId    = roleId,
             branchIds = branchIds,
         )
         return AgentLoadResult(stat, rawCounts, readError)
@@ -598,36 +599,48 @@ class DashboardViewModel : ViewModel() {
             ?: getValue(Int::class.java)?.toDouble()
 
     /** One candidate account found while scanning users/ — enough to match subordinates
-     *  against the viewer (and each other) by level, shared branch, or explicit reports_to. */
+     *  against the viewer (and each other) by role + shared branch. */
     private data class SubordinateCandidate(
-        val uid: String, val name: String, val branchIds: List<String>, val level: Int, val reportsTo: String,
+        val uid: String, val name: String, val branchIds: List<String>, val level: Int, val roleId: String,
     )
 
-    /** Combines Phase 2 of the dynamic role-hierarchy plan (arbitrary-depth, level-based tiers
-     *  — see RbacManager.kt) with the explicit users/{uid}/profile/company_info/reports_to
-     *  hierarchy (see EmployeeEditFragment's Reports To picker / EmployeeFragment's
-     *  Auto-assign tool): resolves everyone beneath [viewerUid] at ANY depth.
+    /** role_reports_to/{roleId}/target_roles — an admin-configured policy (Access Manager)
+     *  for every account holding that role: "report to whoever holds one of these OTHER
+     *  roles, in the same branch". Person-specific overrides (a named individual instead of
+     *  a role) are a later phase, not built yet — role-wise only for now. */
+    private data class RoleReportsPolicy(val targetRoles: Set<String>)
+
+    /** Resolves everyone beneath [viewerUid] at ANY depth via role_reports_to policy alone —
+     *  no individual reports_to, no level/branch inference fallback.
      *
-     *  An account with reports_to set is placed by walking that chain upward (their reports_to
-     *  -> that person's reports_to -> ...) — reaching [viewerUid] at any hop means they're a
-     *  subordinate however many levels down, REGARDLESS of branch (an explicit assignment is
-     *  ground truth and overrides branch overlap even if it differs). An account with no
-     *  reports_to at all (not yet migrated) falls back to the old level+branch inference —
-     *  their level > viewer's level AND they share a branch — so dashboards for
-     *  not-yet-migrated accounts don't go blank. Chain walk is cycle-guarded (10-hop cap) in
-     *  case of a bad assignment (A reports to B reports to A).
+     *  Example: delivery_agent's policy has target_roles = [incharge, supervisor]. An
+     *  incharge account then sees every delivery_agent who shares a branch with them
+     *  specifically (not every delivery_agent company-wide) — role_reports_to says WHICH
+     *  roles can see a delivery_agent's data, branch still scopes it to THAT incharge's own
+     *  assigned branch.
      *
-     *  [isAdmin] bypasses both the branch filter and the reports_to-chain requirement — same
-     *  "admin sees everything below them" convention as every other admin bypass in this
-     *  codebase; admin is a named superuser exception, not something Phase 2 generalizes away. */
+     *  A role can itself be a target of another role's policy, chaining upward (e.g.
+     *  incharge's own policy could point to supervisor) — walked as a BFS frontier since one
+     *  hop can fan out to multiple people, not a single linear chain. Cycle/depth guarded at
+     *  10 hops.
+     *
+     *  An account whose role has no policy pointing anyone at [viewerUid]'s role has no boss
+     *  and isn't anyone's subordinate until an admin configures target_roles for it — no
+     *  fallback keeps someone visible in the meantime.
+     *
+     *  [isAdmin] bypasses this resolution entirely — same "admin sees everything below them"
+     *  convention as every other admin bypass in this codebase. */
     private suspend fun subordinatePool(
-        viewerUid: String, viewerLevel: Int, branchFilter: Set<String>, isAdmin: Boolean,
+        viewerUid: String, viewerRoleId: String, branchFilter: Set<String>, isAdmin: Boolean,
     ): List<SubordinateCandidate> {
         if (branchFilter.isEmpty() && !isAdmin) return emptyList() // bounded-read safety —
                                                                      // never a company-wide scan
         val usersSnap = withContext(Dispatchers.IO) {
             runCatching { db.reference.child("users").get().await() }.getOrNull()
         } ?: return emptyList()
+        val policySnap = withContext(Dispatchers.IO) {
+            runCatching { db.reference.child("role_reports_to").get().await() }.getOrNull()
+        }
 
         val all = usersSnap.children.mapNotNull { child ->
             val uid = child.key ?: return@mapNotNull null
@@ -635,29 +648,43 @@ class DashboardViewModel : ViewModel() {
             val roleId = info.child("role_id").getValue(String::class.java) ?: return@mapNotNull null
             val level = RoleLevelCache.levelOf(roleId)
             val branchIds = info.child("branch_ids").children.mapNotNull { it.getValue(String::class.java) }
-            val reportsTo = info.child("reports_to").getValue(String::class.java)?.trim().orEmpty()
             val name = child.child("profile/name").getValue(String::class.java)
                 ?.trim()?.takeIf { it.isNotBlank() } ?: uid
-            SubordinateCandidate(uid, name, branchIds, level, reportsTo)
+            SubordinateCandidate(uid, name, branchIds, level, roleId)
         }
-        val byUid = all.associateBy { it.uid }
+        val byRole = all.groupBy { it.roleId }
 
-        fun chainReachesViewer(start: SubordinateCandidate): Boolean {
-            var cur = start.reportsTo
+        val policies = policySnap?.children?.mapNotNull { roleSnap ->
+            val roleId = roleSnap.key ?: return@mapNotNull null
+            val targetRoles = roleSnap.child("target_roles").children.mapNotNull { it.key }.toSet()
+            roleId to RoleReportsPolicy(targetRoles)
+        }?.toMap() ?: emptyMap()
+
+        // Which roles this person's OWN role reports to, one hop — e.g. delivery_agent's
+        // policy might say [incharge, supervisor].
+        fun targetRolesOf(roleId: String): Set<String> = policies[roleId]?.targetRoles ?: emptySet()
+
+        fun roleChainReachesViewerRole(startRoleId: String): Boolean {
+            var frontier = targetRolesOf(startRoleId)
             repeat(10) {
-                if (cur == viewerUid) return true
-                val next = byUid[cur]?.reportsTo ?: return false
-                if (next.isBlank()) return false
-                cur = next
+                if (viewerRoleId in frontier) return true
+                val next = mutableSetOf<String>()
+                frontier.forEach { next += targetRolesOf(it) }
+                if (next.isEmpty()) return false
+                frontier = next
             }
-            return false // cycle guard tripped — treat as unresolved, not a match
+            return false // cycle/depth guard tripped — treat as unresolved, not a match
         }
+
+        // Cache role-chain results per distinct role (not per person) — the chain only
+        // depends on the ROLE, so this avoids re-walking it for every single employee.
+        val roleReachesViewer = mutableMapOf<String, Boolean>()
 
         return all.filter { c ->
-            if (c.uid == viewerUid || c.level <= viewerLevel) return@filter false
+            if (c.uid == viewerUid) return@filter false
             if (isAdmin) return@filter true
-            if (c.reportsTo.isNotBlank()) chainReachesViewer(c)
-            else c.branchIds.any { it in branchFilter }
+            val reaches = roleReachesViewer.getOrPut(c.roleId) { roleChainReachesViewerRole(c.roleId) }
+            reaches && c.branchIds.any { it in branchFilter }
         }
     }
 
@@ -669,7 +696,7 @@ class DashboardViewModel : ViewModel() {
     ): List<AgentLoadResult> {
         return coroutineScope {
             candidates.map { c ->
-                async { loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs, c.level, c.branchIds) }
+                async { loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs, c.level, c.roleId, c.branchIds) }
             }.awaitAll()
         }.filter { it.stat.total > 0 || it.stat.earnings > 0 || it.stat.openRuns + it.stat.closedRuns > 0 }
             // hide subordinates with nothing actioned, earned, or run in this range — same
@@ -709,7 +736,7 @@ class DashboardViewModel : ViewModel() {
             // this is a deliberate behavior change, confirm it's wanted.
             return coroutineScope {
                 directReports.map { c ->
-                    async { loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs, c.level, c.branchIds) }
+                    async { loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs, c.level, c.roleId, c.branchIds) }
                 }.awaitAll()
             }
         }
@@ -718,7 +745,7 @@ class DashboardViewModel : ViewModel() {
         // direct reports end up summing it in, then grouped below — not re-fetched per report.
         val deeperResults = coroutineScope {
             deeper.map { c ->
-                async { c to loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs, c.level, c.branchIds) }
+                async { c to loadAgentStat(c.uid, c.name, startKey, endKey, rangeStartTs, rangeEndTs, c.level, c.roleId, c.branchIds) }
             }.awaitAll()
         }
 
@@ -776,6 +803,7 @@ class DashboardViewModel : ViewModel() {
                     openRuns   = openRuns,
                     closedRuns = closedRuns,
                     level      = rep.level,
+                    roleId     = rep.roleId,
                     branchIds  = rep.branchIds,
                 ),
                 rawStatusCounts = rawCounts,

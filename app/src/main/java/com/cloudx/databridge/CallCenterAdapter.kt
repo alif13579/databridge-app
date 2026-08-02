@@ -206,6 +206,7 @@ class CallCenterAdapter(
         private val remarksBox: View = view.findViewById(R.id.layoutAgtRemarksBox)
         private val tvRemarks: TextView = view.findViewById(R.id.tvAgtRemarks)
         private val tvRemarksTime: TextView = view.findViewById(R.id.tvAgtRemarksTime)
+        private val engagedRing: EngagedRingView = view.findViewById(R.id.viewEngagedRing)
         private val layoutEngagedAvatars: LinearLayout = view.findViewById(R.id.layoutEngagedAvatars)
         private val ivEngagedAvatar1: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar1)
         private val ivEngagedAvatar2: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar2)
@@ -302,12 +303,12 @@ class CallCenterAdapter(
                 remarksBox.visibility = View.GONE
             }
 
-            // Engaged avatars — up to 4 stacked circles (oldest first, so the newest
-            // engagement draws on top), replacing the old spinning ring with exactly WHO is
-            // currently engaged. See EngagedStateManager.
+            // Engaged ring (ambient "someone's on this" glow) + avatars (exactly who) — both
+            // shown together, not one replacing the other. Same freshness check drives both.
             val freshAgents = item.engagedAgents.filter { EngagedStateManager.isFresh(it.timestamp) }
                 .sortedBy { it.timestamp }
             if (freshAgents.isNotEmpty()) {
+                engagedRing.start()
                 layoutEngagedAvatars.visibility = View.VISIBLE
                 val slots = listOf(ivEngagedAvatar1, ivEngagedAvatar2, ivEngagedAvatar3, ivEngagedAvatar4)
                 slots.forEachIndexed { i, slot ->
@@ -331,6 +332,7 @@ class CallCenterAdapter(
                     tvEngagedOverflow.visibility = View.GONE
                 }
             } else {
+                engagedRing.stop()
                 layoutEngagedAvatars.visibility = View.GONE
             }
 

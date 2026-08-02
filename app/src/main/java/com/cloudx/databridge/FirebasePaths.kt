@@ -67,4 +67,6 @@ object FirebasePaths {
     fun cashManagementProviders(branchId: String) = "cash_management/$branchId/providers"
     // cash_management/{branchId}/ledger/{providerName}/handovers|hub_payments/{entryId}
     fun cashManagementLedger(branchId: String) = "cash_management/$branchId/ledger"
+    // cash_management/{branchId}/defaultProvider -> provider name string
+    fun cashManagementDefaultProvider(branchId: String) = "cash_management/$branchId/defaultProvider"
 }
