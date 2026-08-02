@@ -59,6 +59,7 @@ class CallCenterFragment : Fragment() {
     private lateinit var layoutFilterTabs: LinearLayout
     private lateinit var rvParcelList: RecyclerView
     private lateinit var pbProgress: ProgressBar
+    private lateinit var tvLoadingPercent: TextView
     private lateinit var tvEmpty: TextView
     private lateinit var swipeRefresh: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
     private lateinit var switchAutoCall: Switch
@@ -301,6 +302,7 @@ class CallCenterFragment : Fragment() {
         layoutFilterTabs = view.findViewById(R.id.layoutCcaFilterTabs)
         rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
+        tvLoadingPercent = view.findViewById(R.id.twCcaLoadingPercent)
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
 
@@ -1261,6 +1263,8 @@ class CallCenterFragment : Fragment() {
 
     private fun loadData() {
         pbProgress.visibility = View.VISIBLE
+        tvLoadingPercent.visibility = View.VISIBLE
+        tvLoadingPercent.text = "লোড হচ্ছে... 0%"
         tvEmpty.visibility    = View.GONE
         detachRunsListener()
         attachRootRunTypesListener()
@@ -1305,6 +1309,7 @@ class CallCenterFragment : Fragment() {
         }
         if (myBranchIds.isEmpty()) {
             pbProgress.visibility = View.GONE
+            tvLoadingPercent.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "⚠ কোনো branch assigned নেই — admin-এর সাথে যোগাযোগ করুন"
             return
@@ -1315,6 +1320,7 @@ class CallCenterFragment : Fragment() {
         ccReportedBranchIds.clear()
         ccExpectedBranchCount = branchIdsSnapshot.size
         ccExpectedPhase2Keys.clear()
+        ccStableCandidateKeys = emptySet()
 
         val todayDateKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH)
             .format(java.util.Date())
@@ -1334,6 +1340,7 @@ class CallCenterFragment : Fragment() {
                 override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                     if (!isAdded) return
                     ccReportedBranchIds.add(branchId)
+                    updateCcLoadingPercentDisplay()
                     val runTypes = snapshot.children.mapNotNull { it.key }.distinct().sorted()
                     if (runTypes.isEmpty()) {
                         val allTypes = ccBranchRangeSnapshots.keys
@@ -1354,6 +1361,7 @@ class CallCenterFragment : Fragment() {
                             override fun onDataChange(snap: com.google.firebase.database.DataSnapshot) {
                                 if (!isAdded) return
                                 ccBranchRangeSnapshots[rangeKey] = snap
+                                updateCcLoadingPercentDisplay()
                                 val allRunTypes = ccBranchRangeSnapshots.keys
                                     .map { it.substringAfter("/") }.distinct().sorted()
                                 onBranchIndexesLoaded(allRunTypes, ccBranchRangeSnapshots)
@@ -1368,6 +1376,7 @@ class CallCenterFragment : Fragment() {
                 override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
                     if (!isAdded) return
                     pbProgress.visibility = View.GONE
+                    tvLoadingPercent.visibility = View.GONE
                     tvEmpty.visibility    = View.VISIBLE
                     tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
                 }
@@ -1643,6 +1652,7 @@ class CallCenterFragment : Fragment() {
                 return
             }
             pbProgress.visibility = View.GONE
+            tvLoadingPercent.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nকোনো run নেই"
             return
@@ -1678,12 +1688,15 @@ class CallCenterFragment : Fragment() {
                 return
             }
             pbProgress.visibility = View.GONE
+            tvLoadingPercent.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
             return
         }
 
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
+        ccStableCandidateKeys = candidateKeys.toSet()
+        updateCcLoadingPercentDisplay()
         candidateKeys.forEach { (runType, runId) ->
             val key = "$runType/$runId"
             if (key in ccAttachedRunKeys) return@forEach
@@ -1693,6 +1706,7 @@ class CallCenterFragment : Fragment() {
                 override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                     if (!isAdded) return
                     ccRunNodeSnapshots[key] = snapshot
+                    updateCcLoadingPercentDisplay()
                     // Debounced (same 300ms idiom as setupSearch()'s searchJob) — on cold
                     // load, many agents' run listeners fire their initial onDataChange within
                     // ms of each other. Undebounced, each one independently reprocessed the
@@ -1718,6 +1732,44 @@ class CallCenterFragment : Fragment() {
     private val ccActiveListeners = mutableListOf<Pair<com.google.firebase.database.Query, com.google.firebase.database.ValueEventListener>>()
     /** Per (branchId/runType) range-query result snapshots — accumulated as each live query fires. */
     private val ccBranchRangeSnapshots = mutableMapOf<String, com.google.firebase.database.DataSnapshot>()
+    /** Snapshot of candidateKeys taken once Stage 2 (below) completes — a fixed denominator
+     *  for the loading-percentage Stage 3, since the live candidateKeys local recomputes
+     *  (and would keep growing) on every onBranchIndexesLoaded() call before that point. */
+    private var ccStableCandidateKeys: Set<Pair<String, String>> = emptySet()
+
+    /** 3-stage sequential progress (0-30% branch discovery, 30-70% run-type range queries,
+     *  70-100% individual run-node fetches) rather than a naive completed/expected ratio,
+     *  because each later stage's denominator only becomes known/stable once the stage
+     *  before it fully completes — a naive ratio would grow its own denominator as more
+     *  branches/run-types are discovered and could make the shown percentage go backwards.
+     *  A stage is capped at not-yet-started (0% of its own share) until the stage before it
+     *  is done, so the number only ever moves forward. */
+    private fun computeCcLoadingPercent(): Int {
+        if (ccExpectedBranchCount <= 0) return 0
+        val stage1Pct = (ccReportedBranchIds.size.toFloat() / ccExpectedBranchCount).coerceIn(0f, 1f)
+        val stage1Done = ccReportedBranchIds.size >= ccExpectedBranchCount
+        if (!stage1Done) return (stage1Pct * 30).toInt().coerceIn(0, 29)
+
+        val stage2Done = ccExpectedPhase2Keys.isEmpty() ||
+            ccBranchRangeSnapshots.keys.containsAll(ccExpectedPhase2Keys)
+        val stage2Pct = if (ccExpectedPhase2Keys.isNotEmpty())
+            (ccBranchRangeSnapshots.keys.count { it in ccExpectedPhase2Keys }
+                .toFloat() / ccExpectedPhase2Keys.size).coerceIn(0f, 1f)
+        else 1f // nothing to wait for — every reporting branch genuinely has zero run-types
+        if (!stage2Done) return 30 + (stage2Pct * 40).toInt().coerceIn(0, 39)
+
+        if (ccStableCandidateKeys.isEmpty()) return 100 // stage 2 done, genuinely nothing to fetch
+        val stage3Pct = (ccRunNodeSnapshots.keys.count { key ->
+            ccStableCandidateKeys.any { "${it.first}/${it.second}" == key }
+        }.toFloat() / ccStableCandidateKeys.size).coerceIn(0f, 1f)
+        return 70 + (stage3Pct * 30).toInt().coerceIn(0, 30)
+    }
+
+    private fun updateCcLoadingPercentDisplay() {
+        if (!isAdded || !::tvLoadingPercent.isInitialized) return
+        if (tvLoadingPercent.visibility != View.VISIBLE) return
+        tvLoadingPercent.text = "লোড হচ্ছে... ${computeCcLoadingPercent()}%"
+    }
 
     // Guards the "no run" empty state against a race: each assigned branch's Phase 1
     // discovery listener fires independently and asynchronously (Firebase gives no
@@ -1849,6 +1901,7 @@ class CallCenterFragment : Fragment() {
         if (consignmentInfo.isEmpty()) {
             if (!isAdded || generation != ccLoadGeneration) return
             pbProgress.visibility = View.GONE
+            tvLoadingPercent.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
             return
@@ -2070,6 +2123,7 @@ class CallCenterFragment : Fragment() {
         setupFilterTabs()
         applyFilters()
         pbProgress.visibility = View.GONE
+        tvLoadingPercent.visibility = View.GONE
         syncCcRemarkListeners(allParcels.map { it.id }.toSet())
     }
 

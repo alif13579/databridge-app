@@ -523,6 +523,16 @@
                     android:visibility="gone" />
 
                 <TextView
+                    android:id="@+id/twCcaLoadingPercent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:layout_marginTop="8dp"
+                    android:textSize="12sp"
+                    android:textColor="@color/theme_text_secondary"
+                    android:visibility="gone" />
+
+                <TextView
                     android:id="@+id/twCcaEmptyState"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
