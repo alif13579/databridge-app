@@ -1314,6 +1314,7 @@ class CallCenterFragment : Fragment() {
         val branchIdsSnapshot = myBranchIds
         ccReportedBranchIds.clear()
         ccExpectedBranchCount = branchIdsSnapshot.size
+        ccExpectedPhase2Keys.clear()
 
         val todayDateKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH)
             .format(java.util.Date())
@@ -1361,6 +1362,7 @@ class CallCenterFragment : Fragment() {
                         }
                         query.addValueEventListener(listener)
                         ccActiveListeners.add(query to listener)
+                        ccExpectedPhase2Keys.add(rangeKey)
                     }
                 }
                 override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
@@ -1665,6 +1667,16 @@ class CallCenterFragment : Fragment() {
         }
 
         if (candidateKeys.isEmpty()) {
+            val allBranchesReported = ccReportedBranchIds.size >= ccExpectedBranchCount
+            val allPhase2Reported = ccBranchRangeSnapshots.keys.containsAll(ccExpectedPhase2Keys)
+            if (!allBranchesReported || !allPhase2Reported) {
+                // Same reasoning as the No Run gate above, one layer deeper: some branches
+                // may not have finished Phase 1 discovery yet (so we don't yet know all the
+                // Phase 2 listeners that WILL be attached), or some already-attached Phase 2
+                // range queries haven't reported back yet. Either way, an empty result right
+                // now doesn't mean genuinely nothing today — leave the loading state alone.
+                return
+            }
             pbProgress.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
@@ -1720,6 +1732,17 @@ class CallCenterFragment : Fragment() {
     // "conclude there's nothing" decision during the initial load window.
     private var ccExpectedBranchCount = 0
     private val ccReportedBranchIds = mutableSetOf<String>()
+    // Same race, one layer deeper: once run-TYPES are known (the gate above passes), the
+    // ACTUAL consignments for those types come from per-(branch,runType) Phase 2 range
+    // queries, each firing independently. typesToWatch can go non-empty the moment ANY one
+    // branch's Phase 1 finds run-types, well before every attached Phase 2 listener (for
+    // that branch's OTHER run-types, or a slower branch's own Phase 1+Phase 2) has reported
+    // — so candidateKeys can look empty and flash "No consignment" the same way runTypes
+    // could flash "No Run". ccExpectedPhase2Keys records "$branchId/$runType" the moment
+    // each Phase 2 listener is attached; only once ccBranchRangeSnapshots has an entry for
+    // every key in it (regardless of whether that entry's snapshot has children) is an
+    // empty candidateKeys trusted.
+    private val ccExpectedPhase2Keys = mutableSetOf<String>()
 
     private fun detachRunsListener() {
         ccActiveListeners.forEach { (ref, l) -> ref.removeEventListener(l) }

@@ -72,7 +72,10 @@ class AccessManagerFragment : Fragment() {
     data class RoleEntry(
         var name: String = "",
         var permissions: Map<String, Boolean> = emptyMap(),
-        var level: Int? = null // null = not yet configured; see RoleLevelCache.DEFAULT_LEVEL for the runtime fallback
+        var level: Int? = null, // null = not yet configured; see RoleLevelCache.DEFAULT_LEVEL for the runtime fallback
+        // role_reports_to/{roleId}/target_roles — which OTHER roles this role's employees'
+        // data is visible to (branch-scoped at read time in DashboardViewModel.subordinatePool()).
+        var targetRoles: Set<String> = emptySet(),
     )
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
@@ -125,14 +128,69 @@ class AccessManagerFragment : Fragment() {
         val popup = PopupMenu(requireContext(), anchor)
         popup.menu.add(0, 2, 0, "Rename role")
         popup.menu.add(0, 3, 1, "Delete role")
+        popup.menu.add(0, 4, 2, "Reports To (roles)")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 2 -> btnRename.performClick()
                 3 -> btnDelete.performClick()
+                4 -> promptEditReportsTo()
             }
             true
         }
         popup.show()
+    }
+
+    /** Which OTHER roles this role's employees' data is visible to (branch-scoped at read
+     *  time in DashboardViewModel.subordinatePool()) — e.g. delivery_agent's target_roles
+     *  might be [incharge, supervisor]. Multi-select since more than one role can see the
+     *  same role's data. */
+    private fun promptEditReportsTo() {
+        val roleId = currentRoleId ?: run {
+            Toast.makeText(requireContext(), "No role selected", Toast.LENGTH_SHORT).show(); return
+        }
+        val ctx = requireContext()
+        val existing = roles[roleId]?.targetRoles ?: emptySet()
+        val checks = mutableListOf<Pair<String, CheckBox>>()
+        val layout = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 16, 32, 0)
+        }
+        roleIds.filter { it != roleId }.forEach { rid ->
+            val cb = CheckBox(ctx).apply {
+                text = roles[rid]?.name?.ifBlank { rid } ?: rid
+                isChecked = rid in existing
+            }
+            checks.add(rid to cb)
+            layout.addView(cb)
+        }
+        AlertDialog.Builder(ctx)
+            .setTitle("${roles[roleId]?.name ?: roleId}: Reports To (roles)")
+            .setView(layout)
+            .setPositiveButton("Save") { dialog, _ ->
+                val targetRoles = checks.filter { it.second.isChecked }.map { it.first }.toSet()
+                saveReportsToRoles(roleId, targetRoles)
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+            .show()
+    }
+
+    private fun saveReportsToRoles(roleId: String, targetRoles: Set<String>) {
+        setLoading(true)
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                // Full overwrite of this role's target_roles list, not a merge — an unchecked
+                // box means "no longer reports to this role", so a partial update (only
+                // writing the checked ones) would never remove a previously-set one.
+                db.reference.child("role_reports_to/$roleId/target_roles")
+                    .setValue(targetRoles.associateWith { true }.ifEmpty { null })
+                    .await()
+                roles[roleId]?.targetRoles = targetRoles
+                Toast.makeText(requireContext(), "Reports To updated", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), "Save failed: ${e.message}", Toast.LENGTH_LONG).show()
+            } finally { setLoading(false) }
+        }
     }
 
     private fun openUsersAccessDialog() {
@@ -314,6 +372,7 @@ class AccessManagerFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val snap = db.reference.child("roles").get().await()
+                val reportsToSnap = runCatching { db.reference.child("role_reports_to").get().await() }.getOrNull()
                 roles.clear()
                 snap.children.forEach { child ->
                     val id = child.key ?: return@forEach
@@ -321,7 +380,9 @@ class AccessManagerFragment : Fragment() {
                     val perms = child.child("permissions").getValue<Map<String, Boolean>>() ?: emptyMap()
                     val level = child.child("level").getValue(Int::class.java)
                         ?: child.child("level").getValue(Long::class.java)?.toInt()
-                    roles[id] = RoleEntry(name = name, permissions = perms, level = level)
+                    val targetRoles = reportsToSnap?.child(id)?.child("target_roles")?.children
+                        ?.mapNotNull { it.key }?.toSet() ?: emptySet()
+                    roles[id] = RoleEntry(name = name, permissions = perms, level = level, targetRoles = targetRoles)
                 }
                 bindRoles()
             } catch (e: Exception) {
@@ -594,6 +655,18 @@ class AccessManagerFragment : Fragment() {
         val copyOptions = listOf("None") + roleIds
         copySpinner.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, copyOptions)
 
+        // Reports To (roles) — which OTHER roles can see this new role's employees' data
+        // (branch-scoped at read time). Multi-select since the same example role
+        // (e.g. delivery_agent) can report to more than one role (incharge AND supervisor).
+        val reportsToLabel = TextView(requireContext()).apply { text = "Reports To (roles)" }
+        val reportsToChecks = mutableListOf<Pair<String, CheckBox>>()
+        val reportsToLayout = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
+        roleIds.forEach { rid ->
+            val cb = CheckBox(requireContext()).apply { text = roles[rid]?.name?.ifBlank { rid } ?: rid }
+            reportsToChecks.add(rid to cb)
+            reportsToLayout.addView(cb)
+        }
+
         val checks = mutableListOf<Pair<String, CheckBox>>()
         val permsLayout = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
         PermissionCatalog.all.forEach { perm ->
@@ -625,6 +698,8 @@ class AccessManagerFragment : Fragment() {
             addView(inputName)
             addView(inputId)
             addView(inputLevel)
+            addView(reportsToLabel)
+            addView(reportsToLayout)
             addView(copyLabel)
             addView(copySpinner)
             addView(permsLayout)
@@ -647,14 +722,15 @@ class AccessManagerFragment : Fragment() {
                 }
                 val state = PermissionCatalog.defaultPermissions().toMutableMap()
                 checks.forEach { (key, cb) -> state[key] = cb.isChecked }
-                createRole(rid, rname, state, level)
+                val targetRoles = reportsToChecks.filter { it.second.isChecked }.map { it.first }.toSet()
+                createRole(rid, rname, state, level, targetRoles)
                 dialog.dismiss()
             }
             .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
             .show()
     }
 
-    private fun createRole(id: String, name: String, perms: Map<String, Boolean>, level: Int?) {
+    private fun createRole(id: String, name: String, perms: Map<String, Boolean>, level: Int?, targetRoles: Set<String> = emptySet()) {
         setLoading(true)
         viewLifecycleOwner.lifecycleScope.launch {
             try {
@@ -663,8 +739,11 @@ class AccessManagerFragment : Fragment() {
                     "roles/$id/permissions" to perms,
                 )
                 if (level != null) updates["roles/$id/level"] = level
+                if (targetRoles.isNotEmpty()) {
+                    updates["role_reports_to/$id/target_roles"] = targetRoles.associateWith { true }
+                }
                 db.reference.updateChildren(updates).await()
-                roles[id] = RoleEntry(name = name, permissions = perms, level = level)
+                roles[id] = RoleEntry(name = name, permissions = perms, level = level, targetRoles = targetRoles)
                 RoleLevelCache.refresh() // so this session's own rank comparisons see the new role immediately
                 bindRoles(selectId = id)
                 Toast.makeText(requireContext(), "Role created", Toast.LENGTH_SHORT).show()

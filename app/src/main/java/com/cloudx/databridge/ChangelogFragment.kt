@@ -37,6 +37,17 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.35",
+                releasedDate = "02 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Access Manager: roles now have a configurable rank (Level) — no more fixed 6-role list, add a new role and place it in the hierarchy without a code change"),
+                    ChangelogEntry("feature", "Access Manager: each role can set \"Reports To\" — pick which other roles should see its employees' data (e.g. Delivery Agent reports to Incharge and Supervisor)"),
+                    ChangelogEntry("feature", "Dashboard: the team list below your own stats now works for any role with people reporting to it, not just Manager"),
+                    ChangelogEntry("feature", "Dashboard: tap anyone in your team list to drill into their own team, with a trail back up to where you started"),
+                    ChangelogEntry("improvement", "Dashboard: switching between team view and individual view is now available wherever it's relevant, with clearer labels"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.21",
                 releasedDate = "27 Jul 2026",
                 entries = listOf(
