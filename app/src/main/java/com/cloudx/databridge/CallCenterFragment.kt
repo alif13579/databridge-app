@@ -51,9 +51,7 @@ class CallCenterFragment : Fragment() {
     private lateinit var tvAgentInfo: TextView
     private lateinit var tvValidationCount: TextView
     private lateinit var tvStatTotal: TextView
-    private lateinit var tvStatConfirmed: TextView
-    private lateinit var tvStatPending: TextView
-    private lateinit var tvStatRejected: TextView
+    private lateinit var layoutCcStatDynamic: LinearLayout
     private lateinit var tvModeDropdown: TextView
     private lateinit var tvBranchDropdown: TextView
     private lateinit var layoutFilterTabs: LinearLayout
@@ -288,9 +286,7 @@ class CallCenterFragment : Fragment() {
         tvAgentInfo = view.findViewById(R.id.twCcaAgentInfo)
         tvValidationCount = view.findViewById(R.id.twCcaValidationCount)
         tvStatTotal = view.findViewById(R.id.twCcaStatTotalValue)
-        tvStatConfirmed = view.findViewById(R.id.twCcaStatConfirmedValue)
-        tvStatPending = view.findViewById(R.id.twCcaStatPendingValue)
-        tvStatRejected = view.findViewById(R.id.twCcaStatRejectedValue)
+        layoutCcStatDynamic = view.findViewById(R.id.layoutCcaStatDynamic)
         tvModeDropdown = view.findViewById(R.id.tvCcaModeDropdown)
         tvBranchDropdown = view.findViewById(R.id.tvCcaBranchDropdown)
         tvAgentDropdown = view.findViewById(R.id.tvCcaAgentDropdown)
@@ -2789,15 +2785,10 @@ class CallCenterFragment : Fragment() {
         // actually visible below rather than always showing the global totals.
         val scoped = scopedParcels()
         val total = scoped.size
-        val confirmed = scoped.count { it.effectiveStatus == "confirmed" }
-        val pending = scoped.count { it.effectiveStatus == "pending" }
-        val rejected = scoped.count { it.effectiveStatus == "rejected" }
         val validationCount = scoped.count { it.validationRequest }
 
         tvStatTotal.text = total.toString()
-        tvStatConfirmed.text = confirmed.toString()
-        tvStatPending.text = pending.toString()
-        tvStatRejected.text = rejected.toString()
+        buildCcDynamicStatChips(scoped)
         tvValidationCount.text = "$validationCount pending"
 
         // Render list — DiffUtil computes the minimal set of changes, so the
@@ -2833,6 +2824,41 @@ class CallCenterFragment : Fragment() {
         if (targetId != null) {
             val idx = filtered.indexOfFirst { it.id == targetId }
             if (idx >= 0) rvParcelList.post { rvParcelList.smoothScrollToPosition(idx) }
+        }
+    }
+
+    /** Replaces the old fixed Confirmed/Pending/Rejected stat chips — one dynamic chip per
+     *  distinct effectiveStatus actually present in [scoped], sorted the same way the status
+     *  filter chips already are (config/statusMeta/{key}/sortOrder descending, StatusMetaCache
+     *  — see the authority/sortOrder split docs on StatusMetaCache.Entry for why sortOrder
+     *  and not priority/authority is the right field for display order). Label/color resolve
+     *  via StatusMetaCache same as everywhere else in this file; an unconfigured status shows
+     *  its raw key as the label with a neutral color rather than being dropped. Blank
+     *  effectiveStatus (remarkStatus and status both blank) groups under "(no status)" instead
+     *  of vanishing from the count the way it would with a plain filter. */
+    private fun buildCcDynamicStatChips(scoped: List<CallCenterParcelItem>) {
+        layoutCcStatDynamic.removeAllViews()
+
+        val counts = mutableMapOf<String, Int>()
+        scoped.forEach { p ->
+            val key = p.effectiveStatus.trim().ifBlank { "(no status)" }
+            counts[key] = (counts[key] ?: 0) + 1
+        }
+
+        val sorted = counts.entries.sortedWith(
+            compareByDescending<Map.Entry<String, Int>> { StatusMetaCache.entries[it.key]?.sortOrder ?: 0 }
+                .thenByDescending { it.value }
+        )
+
+        sorted.forEach { (status, count) ->
+            val meta = StatusMetaCache.entries[status]
+            val chip = layoutInflater.inflate(R.layout.item_cc_stat_chip, layoutCcStatDynamic, false)
+            val tvValue = chip.findViewById<TextView>(R.id.tvCcStatChipValue)
+            val tvLabel = chip.findViewById<TextView>(R.id.tvCcStatChipLabel)
+            tvValue.text = count.toString()
+            tvValue.setTextColor(meta?.color ?: android.graphics.Color.GRAY)
+            tvLabel.text = meta?.en?.takeIf { it.isNotBlank() } ?: status
+            layoutCcStatDynamic.addView(chip)
         }
     }
 
