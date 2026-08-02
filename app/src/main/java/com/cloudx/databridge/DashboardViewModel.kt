@@ -707,25 +707,22 @@ class DashboardViewModel : ViewModel() {
      *  level that turns out to be — dynamically the lowest level number found among
      *  [candidates], never a specific role name), each row an AGGREGATE (delivered/onHold/
      *  returned/pending, earnings, openRuns/closedRuns) of everyone deeper than that tier who
-     *  either chains up to them via reports_to (any depth) or, lacking reports_to, shares a
-     *  branch with them. A person whose branch is covered by more than one direct-report (in
-     *  the no-reports_to fallback case) counts under each of them; that's a real
-     *  shared-branch org shape, not something to dedupe away. A direct report with nothing
-     *  under them (or whose matched subordinates summed to all-zero) is hidden, same
-     *  convention loadSubordinateAgentStats uses.
+     *  shares a branch with them. A person whose branch is covered by more than one
+     *  direct-report counts under each of them; that's a real shared-branch org shape, not
+     *  something to dedupe away. A direct report with nothing under them (or whose matched
+     *  subordinates summed to all-zero) is hidden, same convention loadSubordinateAgentStats
+     *  uses.
      *
-     *  Combines Phase 2 (dynamic level-based tiers) with the explicit reports_to hierarchy —
-     *  see subordinatePool()'s doc comment for how each account gets placed. */
+     *  Combines Phase 2 (dynamic level-based tiers) with role_reports_to-resolved membership —
+     *  see subordinatePool()'s doc comment for how each account gets placed in [candidates]. */
     private suspend fun loadTieredRollups(
         candidates: List<SubordinateCandidate>, startKey: String, endKey: String,
         rangeStartTs: Long, rangeEndTs: Long,
     ): List<AgentLoadResult> {
         if (candidates.isEmpty()) return emptyList()
-        val byUid = candidates.associateBy { it.uid }
 
         val nextTierLevel = candidates.minOf { it.level }
         val directReports = candidates.filter { it.level == nextTierLevel }
-        val directReportUids = directReports.map { it.uid }.toSet()
         val deeper = candidates.filter { it.level > nextTierLevel }
 
         if (deeper.isEmpty()) {
@@ -749,24 +746,15 @@ class DashboardViewModel : ViewModel() {
             }.awaitAll()
         }
 
-        // Which direct report(s) a "deeper" person rolls up under: an explicit reports_to
-        // chain wins if walking it (any number of hops through OTHER deeper subordinates)
-        // lands on one of the direct-report uids -- exactly one match, however many levels
-        // down. Lacking reports_to, fall back to branch overlap against every direct report
-        // (can be more than one -- see doc comment above). Cycle-guarded, same 10-hop cap as
-        // subordinatePool()'s own chain walk.
-        fun directReportsFor(person: SubordinateCandidate): List<String> {
-            if (person.reportsTo.isNotBlank()) {
-                var cur = person.reportsTo
-                repeat(10) {
-                    if (cur in directReportUids) return listOf(cur)
-                    cur = byUid[cur]?.reportsTo ?: return emptyList()
-                    if (cur.isBlank()) return emptyList()
-                }
-                return emptyList()
-            }
-            return directReports.filter { rep -> person.branchIds.any { it in rep.branchIds } }.map { it.uid }
-        }
+        // Which direct report(s) a "deeper" person rolls up under: branch overlap against
+        // every direct report — a person can match more than one (see doc comment above).
+        // NOTE: there is no individual/per-person reports_to chain to consult here —
+        // subordinatePool() resolves this entire candidate list via role_reports_to POLICY
+        // alone (see its doc comment); SubordinateCandidate doesn't carry a reports_to field.
+        // An earlier version of this function walked one, back when accounts could each have
+        // their own explicit reports_to uid — that model was replaced.
+        fun directReportsFor(person: SubordinateCandidate): List<String> =
+            directReports.filter { rep -> person.branchIds.any { it in rep.branchIds } }.map { it.uid }
         val deeperByReport = mutableMapOf<String, MutableList<Pair<SubordinateCandidate, AgentLoadResult>>>()
         deeperResults.forEach { (person, result) ->
             directReportsFor(person).forEach { repUid ->

@@ -64,7 +64,7 @@
             android:paddingTop="12dp"
             android:paddingBottom="32dp">
 
-            <!-- ── Parcel Info Card ────────────────────────────────── -->
+            <!-- ── Parcel Header Card (who / status / COD / call) ───── -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -127,8 +127,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="5dp">
+                    android:gravity="center_vertical">
 
                     <TextView
                         android:id="@+id/tvPdMeta"
@@ -152,38 +151,6 @@
                         android:focusable="true"
                         android:background="?attr/selectableItemBackgroundBorderless" />
                 </LinearLayout>
-
-                <!-- Address -->
-                <TextView
-                    android:id="@+id/tvPdAddress"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="📍 Fatullah, Narayanganj"
-                    android:textSize="12sp"
-                    android:textColor="@color/theme_text_secondary"
-                    android:includeFontPadding="false"
-                    android:layout_marginBottom="5dp" />
-
-                <!-- Hub -->
-                <TextView
-                    android:id="@+id/tvPdHub"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="🏢 Sonargaon Hub"
-                    android:textSize="12sp"
-                    android:textColor="@color/theme_text_secondary"
-                    android:includeFontPadding="false"
-                    android:layout_marginBottom="5dp" />
-
-                <!-- Dates -->
-                <TextView
-                    android:id="@+id/tvPdDates"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Created: 12 Jul 2026"
-                    android:textSize="11sp"
-                    android:textColor="@color/theme_text_muted"
-                    android:includeFontPadding="false" />
             </LinearLayout>
 
             <!-- ── Overview card (status / created / updated / age) ── -->
@@ -292,7 +259,10 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- ── Journey Log section ────────────────────────────── -->
+            <!-- ── Journey Log section (moved above the address/hub/dates
+                 details card so it's visible without scrolling past
+                 reference info that isn't needed to decide what to do
+                 with the parcel) ─────────────────────────────────── -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -335,7 +305,49 @@
                 android:id="@+id/layoutPdTimeline"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical" />
+                android:orientation="vertical"
+                android:layout_marginBottom="14dp" />
+
+            <!-- ── Parcel Details Card (address / hub / dates) ──────── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_parcel_card"
+                android:padding="16dp">
+
+                <!-- Address -->
+                <TextView
+                    android:id="@+id/tvPdAddress"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="📍 Fatullah, Narayanganj"
+                    android:textSize="12sp"
+                    android:textColor="@color/theme_text_secondary"
+                    android:includeFontPadding="false"
+                    android:layout_marginBottom="5dp" />
+
+                <!-- Hub -->
+                <TextView
+                    android:id="@+id/tvPdHub"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🏢 Sonargaon Hub"
+                    android:textSize="12sp"
+                    android:textColor="@color/theme_text_secondary"
+                    android:includeFontPadding="false"
+                    android:layout_marginBottom="5dp" />
+
+                <!-- Dates -->
+                <TextView
+                    android:id="@+id/tvPdDates"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Created: 12 Jul 2026"
+                    android:textSize="11sp"
+                    android:textColor="@color/theme_text_muted"
+                    android:includeFontPadding="false" />
+            </LinearLayout>
 
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
