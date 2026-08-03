@@ -150,25 +150,21 @@ class AccessManagerFragment : Fragment() {
         }
         val ctx = requireContext()
         val existing = roles[roleId]?.targetRoles ?: emptySet()
-        val checks = mutableListOf<Pair<String, CheckBox>>()
-        val layout = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(32, 16, 32, 0)
-        }
-        roleIds.filter { it != roleId }.forEach { rid ->
-            val cb = CheckBox(ctx).apply {
-                text = roles[rid]?.name?.ifBlank { rid } ?: rid
-                isChecked = rid in existing
-            }
-            checks.add(rid to cb)
-            layout.addView(cb)
-        }
+        // setMultiChoiceItems scrolls natively — inline checkboxes in a plain LinearLayout
+        // (the earlier approach) had no scroll at all and pushed the buttons off-screen
+        // once there were enough roles to list.
+        val optionIds = roleIds.filter { it != roleId }
+        val optionLabels = optionIds.map { roles[it]?.name?.ifBlank { it } ?: it }
+        val checkedArr = optionIds.map { it in existing }.toBooleanArray()
+        val tempSelection = existing.toMutableSet()
         AlertDialog.Builder(ctx)
             .setTitle("${roles[roleId]?.name ?: roleId}: Reports To (roles)")
-            .setView(layout)
+            .setMultiChoiceItems(optionLabels.toTypedArray(), checkedArr) { _, which, isChecked ->
+                val rid = optionIds[which]
+                if (isChecked) tempSelection.add(rid) else tempSelection.remove(rid)
+            }
             .setPositiveButton("Save") { dialog, _ ->
-                val targetRoles = checks.filter { it.second.isChecked }.map { it.first }.toSet()
-                saveReportsToRoles(roleId, targetRoles)
+                saveReportsToRoles(roleId, tempSelection.toSet())
                 dialog.dismiss()
             }
             .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
@@ -658,13 +654,40 @@ class AccessManagerFragment : Fragment() {
         // Reports To (roles) — which OTHER roles can see this new role's employees' data
         // (branch-scoped at read time). Multi-select since the same example role
         // (e.g. delivery_agent) can report to more than one role (incharge AND supervisor).
-        val reportsToLabel = TextView(requireContext()).apply { text = "Reports To (roles)" }
-        val reportsToChecks = mutableListOf<Pair<String, CheckBox>>()
-        val reportsToLayout = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
-        roleIds.forEach { rid ->
-            val cb = CheckBox(requireContext()).apply { text = roles[rid]?.name?.ifBlank { rid } ?: rid }
-            reportsToChecks.add(rid to cb)
-            reportsToLayout.addView(cb)
+        // A compact button + separate popup (not inline checkboxes) — with many roles, an
+        // inline list pushed the rest of this dialog off-screen with no way to scroll to it.
+        var selectedReportsToRoles = mutableSetOf<String>()
+        val btnReportsTo = TextView(requireContext()).apply {
+            text = "Reports To (roles): tap to select ▾"
+            setPadding(0, 24, 0, 24)
+            setTextColor(resources.getColor(android.R.color.holo_blue_light, null))
+        }
+        fun refreshReportsToLabel() {
+            btnReportsTo.text = if (selectedReportsToRoles.isEmpty()) {
+                "Reports To (roles): tap to select ▾"
+            } else {
+                "Reports To: " + selectedReportsToRoles.joinToString(", ") { roles[it]?.name?.ifBlank { it } ?: it } + " ▾"
+            }
+        }
+        btnReportsTo.setOnClickListener {
+            val ctx = requireContext()
+            val optionIds = roleIds
+            val optionLabels = optionIds.map { roles[it]?.name?.ifBlank { it } ?: it }
+            val checkedArr = optionIds.map { it in selectedReportsToRoles }.toBooleanArray()
+            val tempSelection = selectedReportsToRoles.toMutableSet()
+            AlertDialog.Builder(ctx)
+                .setTitle("Reports To (roles)")
+                .setMultiChoiceItems(optionLabels.toTypedArray(), checkedArr) { _, which, isChecked ->
+                    val rid = optionIds[which]
+                    if (isChecked) tempSelection.add(rid) else tempSelection.remove(rid)
+                }
+                .setPositiveButton("OK") { dialog, _ ->
+                    selectedReportsToRoles = tempSelection
+                    refreshReportsToLabel()
+                    dialog.dismiss()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
 
         val checks = mutableListOf<Pair<String, CheckBox>>()
@@ -692,18 +715,20 @@ class AccessManagerFragment : Fragment() {
         }
         updateChecks(PermissionCatalog.defaultPermissions())
 
-        val layout = LinearLayout(requireContext()).apply {
+        val innerLayout = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 16, 32, 0)
             addView(inputName)
             addView(inputId)
             addView(inputLevel)
-            addView(reportsToLabel)
-            addView(reportsToLayout)
+            addView(btnReportsTo)
             addView(copyLabel)
             addView(copySpinner)
             addView(permsLayout)
         }
+        // Whole dialog content scrolls now — with a full permission catalog this easily
+        // exceeds one screen, and previously had no way to reach anything below the fold.
+        val layout = android.widget.ScrollView(requireContext()).apply { addView(innerLayout) }
 
         AlertDialog.Builder(requireContext())
             .setTitle("Create role")
@@ -722,7 +747,7 @@ class AccessManagerFragment : Fragment() {
                 }
                 val state = PermissionCatalog.defaultPermissions().toMutableMap()
                 checks.forEach { (key, cb) -> state[key] = cb.isChecked }
-                val targetRoles = reportsToChecks.filter { it.second.isChecked }.map { it.first }.toSet()
+                val targetRoles = selectedReportsToRoles.toSet()
                 createRole(rid, rname, state, level, targetRoles)
                 dialog.dismiss()
             }
