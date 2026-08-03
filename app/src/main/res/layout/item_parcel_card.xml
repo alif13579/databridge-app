@@ -55,7 +55,7 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-                        <!-- Engaged avatars — its own row, above the name, top-left. Zero height when
+            <!-- Engaged avatars: its own row, above the name, top-left. Zero height when
                  no one's engaged (not an overlay, so it can never collide with the age badge
                  in the corner). -->
             <LinearLayout
@@ -327,4 +327,6 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />
+
+
 </FrameLayout>
