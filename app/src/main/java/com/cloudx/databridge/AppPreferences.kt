@@ -39,6 +39,7 @@ class AppPreferences(private val context: Context) {
 
         // 🔹 Simple Flag Key (SharedPreferences - not in DataStore)
         private const val KEY_PERMS_SETUP_DONE = "perms_setup_done"
+        private const val KEY_ASKED_NOTIF_PERM = "asked_notif_perm"
     }
 
     // ══════════════════════════════
@@ -58,6 +59,19 @@ class AppPreferences(private val context: Context) {
     /** ✅ পারমিশন সেটআপ কমপ্লিট মার্ক করুন (Instant) */
     fun setPermissionsSetupComplete(done: Boolean) {
         simplePrefs.edit().putBoolean(KEY_PERMS_SETUP_DONE, done).apply()
+    }
+
+    /** Whether the POST_NOTIFICATIONS prompt has been shown at least once.
+     *  Needed separately from KEY_PERMS_SETUP_DONE because existing users who
+     *  finished the first-launch permission chain before this step existed
+     *  would otherwise never see it — this lets MainActivity ask once, outside
+     *  that chain, without re-nagging on every launch afterward. */
+    fun hasAskedNotificationPermission(): Boolean {
+        return simplePrefs.getBoolean(KEY_ASKED_NOTIF_PERM, false)
+    }
+
+    fun setAskedNotificationPermission(asked: Boolean) {
+        simplePrefs.edit().putBoolean(KEY_ASKED_NOTIF_PERM, asked).apply()
     }
 
     // ══════════════════════════════

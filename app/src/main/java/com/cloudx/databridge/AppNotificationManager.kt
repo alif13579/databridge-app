@@ -1,16 +1,34 @@
 package com.cloudx.databridge
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.RingtoneManager
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 
 /**
  * In-app notification manager — holds a list of app-generated notifications
- * (new remarks, alerts, etc.) and drives the top-bar badge + notification sound.
+ * (new remarks, alerts, etc.) and drives the top-bar badge + notification sound
+ * + (while the app process is alive) a real Android status-bar notification.
  *
- * Lifecycle: process-scoped singleton. Notifications are in-memory only;
- * they reset when the app process is killed.
+ * Lifecycle: process-scoped singleton. The in-app list is in-memory only and
+ * resets when the app process is killed — same for the status-bar notification
+ * below, since nothing here runs from a persistent background listener. This
+ * is NOT push notification (no FCM): it only fires while the fragment that
+ * detected the new remark (WorkerSpaceFragment/CallCenterFragment) is alive.
  */
 object AppNotificationManager {
+
+    private const val CHANNEL_ID = "databridge_alerts_channel"
+    const val EXTRA_PARCEL_ID = "notif_parcel_id"
+    const val EXTRA_SCOPE = "notif_scope"
 
     data class NotifItem(
         val id: String = System.currentTimeMillis().toString() + (Math.random() * 1000).toInt(),
@@ -41,7 +59,8 @@ object AppNotificationManager {
     }
 
     /**
-     * Add a new notification. Plays a sound and updates the badge.
+     * Add a new notification. Plays a sound, updates the badge, and (if the
+     * permission is granted) posts a real status-bar notification.
      * Should be called from the main thread (or post to main).
      */
     fun add(context: Context, item: NotifItem) {
@@ -51,6 +70,7 @@ object AppNotificationManager {
         }
         badgeListener?.invoke(unreadCount)
         playSound(context)
+        showSystemNotification(context, item)
     }
 
     /** Mark all notifications as read and reset badge to 0. */
@@ -63,6 +83,72 @@ object AppNotificationManager {
     fun clearAll() {
         _notifications.clear()
         badgeListener?.invoke(0)
+    }
+
+    private var channelCreated = false
+
+    private fun ensureChannel(context: Context) {
+        if (channelCreated || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "New Alerts",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "New remarks and alerts on parcels"
+            enableLights(true)
+            enableVibration(true)
+        }
+        context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+        channelCreated = true
+    }
+
+    /**
+     * Posts a real Android status-bar notification for [item]. Tapping it opens
+     * MainActivity and navigates straight to the parcel (same parcelId/scope the
+     * in-app bell's NotificationListBottomSheet already uses to navigate).
+     *
+     * Best-effort: silently does nothing if POST_NOTIFICATIONS isn't granted
+     * (Android 13+) — same posture as playSound() and the rest of the app's
+     * permission-gated features (e.g. DataBridgeService's CALL_PHONE checks).
+     */
+    private fun showSystemNotification(context: Context, item: NotifItem) {
+        try {
+            val appCtx = context.applicationContext
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(appCtx, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED
+            ) return
+
+            ensureChannel(appCtx)
+
+            val openIntent = Intent(appCtx, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(EXTRA_PARCEL_ID, item.parcelId)
+                putExtra(EXTRA_SCOPE, item.scope)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                appCtx,
+                item.id.hashCode(),
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(appCtx, CHANNEL_ID)
+                .setContentTitle(item.title)
+                .setContentText(item.message)
+                .setSmallIcon(android.R.drawable.ic_dialog_email)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            NotificationManagerCompat.from(appCtx).notify(item.id.hashCode(), notification)
+        } catch (_: SecurityException) {
+            // Permission race (revoked between the check above and notify()) — best-effort.
+        } catch (_: Exception) {
+            // Never let a notification-display failure take down the caller.
+        }
     }
 
     private fun playSound(context: Context) {

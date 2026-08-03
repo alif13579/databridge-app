@@ -76,6 +76,13 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         // graceful-degradation approach as READ_PHONE_STATE above.
         nextPermissionStep()
     }
+    private val notificationLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        // Not fatal to decline — new-remark alerts just won't show in the system tray;
+        // the in-app bell still works either way. Only advance the first-launch chain
+        // if that's actually where this request came from — the standalone ask for
+        // existing users (maybeRequestNotificationPermission) isn't part of that chain.
+        if (!appPrefs.isPermissionsSetupComplete()) nextPermissionStep()
+    }
 
     private val googleSignInLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -126,10 +133,42 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         setupNetworkMonitor()
         if (appPrefs.isPermissionsSetupComplete()) {
             initApp(savedInstanceState == null)
+            handleNotificationIntent(intent)
+            maybeRequestNotificationPermission()
         } else {
             permissionStep = 0
             nextPermissionStep()
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
+    /** Tapping a status-bar notification (AppNotificationManager.showSystemNotification)
+     *  lands here with the parcel it's about — navigate straight to it, same as tapping
+     *  the entry in the in-app bell's NotificationListBottomSheet. */
+    private fun handleNotificationIntent(intent: Intent?) {
+        val parcelId = intent?.getStringExtra(AppNotificationManager.EXTRA_PARCEL_ID)
+        if (parcelId.isNullOrBlank()) return
+        when (intent.getStringExtra(AppNotificationManager.EXTRA_SCOPE)) {
+            "worker" -> navigateToWorkerSpaceWithParcel(parcelId)
+            else     -> navigateToCallCenterWithParcel(parcelId)
+        }
+    }
+
+    /** One-time ask for existing users — they already have isPermissionsSetupComplete()
+     *  = true from before this permission existed, so nextPermissionStep()'s chain
+     *  (new installs only) would never reach them otherwise. */
+    private fun maybeRequestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (appPrefs.hasAskedNotificationPermission()) return
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+            == android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        appPrefs.setAskedNotificationPermission(true)
+        notificationLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
     }
 
     override fun onBackPressed() {
@@ -607,12 +646,22 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             2 -> cameraLauncher.launch(android.Manifest.permission.CAMERA)
             3 -> requestOverlayPermission()
             4 -> callLogLauncher.launch(android.Manifest.permission.READ_CALL_LOG)
-            5 -> {
+            5 -> requestNotificationPermission()
+            6 -> {
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)
             }
         }
         permissionStep++
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            appPrefs.setAskedNotificationPermission(true)
+            notificationLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            nextPermissionStep()
+        }
     }
 
     private fun requestOverlayPermission() {
@@ -650,11 +699,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                         Uri.fromParts("package", packageName, null)
                     )
                 )
-                permissionStep = 5
+                permissionStep = 6
                 appPrefs.setPermissionsSetupComplete(true)
             }
             .setNegativeButton("Continue Anyway") { _, _ ->
-                permissionStep = 5
+                permissionStep = 6
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)
             }
