@@ -56,8 +56,6 @@ class CashManagementHomeFragment : Fragment() {
     private lateinit var layoutWalletCards: LinearLayout
     private lateinit var tvViewAllActivity: TextView
     private lateinit var layoutRecentActivity: LinearLayout
-    private lateinit var btnAddCollection: Button
-    private lateinit var btnPayToHub: Button
     private lateinit var btnFab: Button
     private lateinit var layoutSpeedDial: View
     private lateinit var layoutSpeedDialItems: LinearLayout
@@ -103,8 +101,6 @@ class CashManagementHomeFragment : Fragment() {
         layoutWalletCards        = view.findViewById(R.id.layoutWalletCards)
         tvViewAllActivity        = view.findViewById(R.id.tvViewAllActivity)
         layoutRecentActivity     = view.findViewById(R.id.layoutRecentActivity)
-        btnAddCollection         = view.findViewById(R.id.btnHomeAddCollection)
-        btnPayToHub              = view.findViewById(R.id.btnHomePayToHub)
         btnFab                   = view.findViewById(R.id.btnHomeFab)
         layoutSpeedDial          = view.findViewById(R.id.layoutSpeedDial)
         layoutSpeedDialItems     = view.findViewById(R.id.layoutSpeedDialItems)
@@ -113,12 +109,10 @@ class CashManagementHomeFragment : Fragment() {
         btnRetry.setOnClickListener { vm.load(branchId) }
         tvHomeDateRange.setOnClickListener { showDateRangePicker() }
 
-        btnAddCollection.setOnClickListener { showAddCollectionDialog() }
-        btnPayToHub.setOnClickListener { startPayToHubFlow() }
         btnFab.setOnClickListener { toggleSpeedDial() }
         layoutSpeedDial.setOnClickListener { toggleSpeedDial() }
         tvManageWallets.setOnClickListener { openOldCashManagement() }
-        tvViewAllActivity.setOnClickListener { openOldCashManagement() }
+        tvViewAllActivity.setOnClickListener { showViewAllPicker() }
 
         vm.state.observe(viewLifecycleOwner) { state -> render(state) }
 
@@ -133,6 +127,22 @@ class CashManagementHomeFragment : Fragment() {
         closeSpeedDial()
         parentFragmentManager.beginTransaction()
             .replace(R.id.container, CashManagementFragment.newInstance(branchId))
+            .addToBackStack(null)
+            .commitAllowingStateLoss()
+    }
+
+    private fun showViewAllPicker() {
+        val options = arrayOf("Collections", "Deposits", "Payments")
+        val modes = arrayOf(CashListMode.COLLECTIONS, CashListMode.DEPOSITS, CashListMode.PAYMENTS)
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("View all")
+            .setItems(options) { _, index -> openLedgerList(modes[index]) }
+            .show()
+    }
+
+    private fun openLedgerList(mode: CashListMode) {
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.container, CashLedgerListFragment.newInstance(branchId, mode))
             .addToBackStack(null)
             .commitAllowingStateLoss()
     }

@@ -16,7 +16,7 @@
             android:layout_height="match_parent"
             android:fillViewport="true"
             android:clipToPadding="false"
-            android:paddingBottom="110dp">
+            android:paddingBottom="90dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -259,57 +259,13 @@
             </LinearLayout>
         </ScrollView>
 
-        <!-- Bottom action bar -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="#FFFFFF"
-            android:elevation="8dp"
-            android:paddingHorizontal="16dp"
-            android:paddingTop="14dp"
-            android:paddingBottom="18dp">
-
-            <Button
-                android:id="@+id/btnHomeAddCollection"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="34dp"
-                android:text="Add Collection"
-                android:textAllCaps="false"
-                android:textSize="12sp"
-                android:drawableStart="@android:drawable/ic_input_add"
-                android:drawableTint="#0369A1"
-                android:drawablePadding="4dp"
-                android:backgroundTint="#E0F2FE"
-                android:textColor="#0369A1" />
-
-            <Button
-                android:id="@+id/btnHomePayToHub"
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="34dp"
-                android:text="Pay to Hub"
-                android:textAllCaps="false"
-                android:textSize="12sp"
-                android:drawableStart="@android:drawable/ic_menu_send"
-                android:drawableTint="#047857"
-                android:drawablePadding="4dp"
-                android:backgroundTint="#D1FAE5"
-                android:textColor="#047857" />
-        </LinearLayout>
-
         <!-- FAB -->
         <Button
             android:id="@+id/btnHomeFab"
             android:layout_width="60dp"
             android:layout_height="60dp"
             android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="64dp"
+            android:layout_marginBottom="28dp"
             android:elevation="10dp"
             android:text="+"
             android:textSize="28sp"
@@ -328,7 +284,7 @@
             android:gravity="bottom|end"
             android:background="#66020617"
             android:paddingEnd="16dp"
-            android:paddingBottom="140dp"
+            android:paddingBottom="100dp"
             android:visibility="gone">
 
             <LinearLayout
