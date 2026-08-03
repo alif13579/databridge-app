@@ -55,7 +55,7 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-                        <!-- Engaged avatars -- its own row, above the name, top-left. Zero height when
+                        <!-- Engaged avatars — its own row, above the name, top-left. Zero height when
                  no one's engaged (not an overlay, so it can never collide with the age badge
                  in the corner). -->
             <LinearLayout
@@ -327,76 +327,4 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:visibility="gone" />
-
-    <!-- Engaged agent avatars — up to 4 stacked circles (50%% overlap, newest drawn last so
-         it's on top), plus a +N overflow badge. Replaces the old spinning ring: this shows
-         exactly WHO is engaged instead of just "someone is". See EngagedStateManager. -->
-    <LinearLayout
-        android:id="@+id/layoutEngagedAvatars"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="28dp"
-        android:orientation="horizontal"
-        android:visibility="gone">
-
-        <com.google.android.material.imageview.ShapeableImageView
-            android:id="@+id/ivEngagedAvatar1"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:scaleType="centerCrop"
-            android:background="@drawable/bg_timeline_avatar_placeholder"
-            app:strokeColor="@color/theme_bg_card"
-            app:strokeWidth="1.5dp"
-            app:shapeAppearanceOverlay="@style/CircleImageStyle" />
-
-        <com.google.android.material.imageview.ShapeableImageView
-            android:id="@+id/ivEngagedAvatar2"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="-12dp"
-            android:scaleType="centerCrop"
-            android:background="@drawable/bg_timeline_avatar_placeholder"
-            app:strokeColor="@color/theme_bg_card"
-            app:strokeWidth="1.5dp"
-            app:shapeAppearanceOverlay="@style/CircleImageStyle"
-            android:visibility="gone" />
-
-        <com.google.android.material.imageview.ShapeableImageView
-            android:id="@+id/ivEngagedAvatar3"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="-12dp"
-            android:scaleType="centerCrop"
-            android:background="@drawable/bg_timeline_avatar_placeholder"
-            app:strokeColor="@color/theme_bg_card"
-            app:strokeWidth="1.5dp"
-            app:shapeAppearanceOverlay="@style/CircleImageStyle"
-            android:visibility="gone" />
-
-        <com.google.android.material.imageview.ShapeableImageView
-            android:id="@+id/ivEngagedAvatar4"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="-12dp"
-            android:scaleType="centerCrop"
-            android:background="@drawable/bg_timeline_avatar_placeholder"
-            app:strokeColor="@color/theme_bg_card"
-            app:strokeWidth="1.5dp"
-            app:shapeAppearanceOverlay="@style/CircleImageStyle"
-            android:visibility="gone" />
-
-        <TextView
-            android:id="@+id/tvEngagedOverflow"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="-12dp"
-            android:background="@drawable/bg_timeline_avatar_placeholder"
-            android:gravity="center"
-            android:textSize="9sp"
-            android:textStyle="bold"
-            android:textColor="@color/theme_text_primary"
-            android:visibility="gone" />
-    </LinearLayout>
 </FrameLayout>
