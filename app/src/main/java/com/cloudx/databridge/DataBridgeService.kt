@@ -69,7 +69,16 @@ class DataBridgeService : Service() {
     // ✅ SINGLE Companion Object (All constants + helpers here)
     companion object {
         private const val TAG = "DataBridgeService"
+        // Call alerts only now — kept HIGH importance (sound/vibration) since those are
+        // genuinely time-sensitive. The always-on "service active" notification moved to
+        // its own low-importance channel below so it doesn't share that behavior.
         const val CHANNEL_ID = "databridge_service_channel"
+        // New channel ID (not reusing CHANNEL_ID) because Android locks a channel's
+        // importance to whatever it was on first creation — recreating databridge_service_channel
+        // with a lower importance would silently no-op for anyone who already has the app
+        // installed. NOTIFICATION_ID also moved with it since startForeground() needs a
+        // notification built against this channel.
+        const val SERVICE_STATUS_CHANNEL_ID = "databridge_service_status_channel"
         const val NOTIFICATION_ID = 1
         private const val PREFS_NAME = "databridge_toggles"
 
@@ -420,11 +429,12 @@ class DataBridgeService : Service() {
 
     // ─── 🔹 Foreground Service & Alerts (Preserved) ───
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, SERVICE_STATUS_CHANNEL_ID)
             .setContentTitle("DataBridge Active")
             .setContentText("Listening for incoming data...")
             .setSmallIcon(android.R.drawable.ic_menu_call)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
             .setOngoing(true)
             .build()
         // ✅ API 34+ requires the foreground service type (matches manifest dataSync)
@@ -469,16 +479,30 @@ class DataBridgeService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
+            val nm = getSystemService(NotificationManager::class.java)
+
+            val callChannel = NotificationChannel(
                 CHANNEL_ID,
                 "DataBridge",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Sync Service"
+                description = "Incoming call alerts"
                 enableLights(true)
                 enableVibration(true)
             }
-            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+            nm?.createNotificationChannel(callChannel)
+
+            val statusChannel = NotificationChannel(
+                SERVICE_STATUS_CHANNEL_ID,
+                "DataBridge Status",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Ongoing 'DataBridge is active' indicator — required by Android while the background sync service is running"
+                enableLights(false)
+                enableVibration(false)
+                setSound(null, null)
+            }
+            nm?.createNotificationChannel(statusChannel)
         }
     }
 

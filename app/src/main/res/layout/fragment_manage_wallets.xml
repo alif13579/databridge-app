@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#F1F5F9">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#FFFFFF"
+        android:padding="14dp">
+
+        <ImageButton
+            android:id="@+id/btnManageWalletsBack"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_revert"
+            android:contentDescription="Back" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Manage Wallets"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:textColor="#0F172A" />
+
+        <Button
+            android:id="@+id/btnAddWallet"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Add Wallet"
+            android:textAllCaps="false"
+            android:textSize="12sp"
+            android:drawableStart="@android:drawable/ic_input_add"
+            android:drawableTint="#FFFFFF"
+            android:drawablePadding="4dp"
+            android:backgroundTint="#0F172A"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:id="@+id/layoutManageWalletList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="\u24D8 You can add, set default, or remove your wallets. Removing a wallet deletes its whole deposit and payment history."
+                android:textSize="11sp"
+                android:textColor="#94A3B8" />
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

@@ -56,8 +56,6 @@ class CashManagementHomeFragment : Fragment() {
     private lateinit var layoutWalletCards: LinearLayout
     private lateinit var tvViewAllActivity: TextView
     private lateinit var layoutRecentActivity: LinearLayout
-    private lateinit var btnAddCollection: Button
-    private lateinit var btnPayToHub: Button
     private lateinit var btnFab: Button
     private lateinit var layoutSpeedDial: View
     private lateinit var layoutSpeedDialItems: LinearLayout
@@ -103,8 +101,6 @@ class CashManagementHomeFragment : Fragment() {
         layoutWalletCards        = view.findViewById(R.id.layoutWalletCards)
         tvViewAllActivity        = view.findViewById(R.id.tvViewAllActivity)
         layoutRecentActivity     = view.findViewById(R.id.layoutRecentActivity)
-        btnAddCollection         = view.findViewById(R.id.btnHomeAddCollection)
-        btnPayToHub              = view.findViewById(R.id.btnHomePayToHub)
         btnFab                   = view.findViewById(R.id.btnHomeFab)
         layoutSpeedDial          = view.findViewById(R.id.layoutSpeedDial)
         layoutSpeedDialItems     = view.findViewById(R.id.layoutSpeedDialItems)
@@ -113,12 +109,15 @@ class CashManagementHomeFragment : Fragment() {
         btnRetry.setOnClickListener { vm.load(branchId) }
         tvHomeDateRange.setOnClickListener { showDateRangePicker() }
 
-        btnAddCollection.setOnClickListener { showAddCollectionDialog() }
-        btnPayToHub.setOnClickListener { startPayToHubFlow() }
         btnFab.setOnClickListener { toggleSpeedDial() }
         layoutSpeedDial.setOnClickListener { toggleSpeedDial() }
-        tvManageWallets.setOnClickListener { openOldCashManagement() }
-        tvViewAllActivity.setOnClickListener { openOldCashManagement() }
+        tvManageWallets.setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, ManageWalletsFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+        tvViewAllActivity.setOnClickListener { showViewAllPicker() }
 
         vm.state.observe(viewLifecycleOwner) { state -> render(state) }
 
@@ -129,10 +128,18 @@ class CashManagementHomeFragment : Fragment() {
         }
     }
 
-    private fun openOldCashManagement() {
-        closeSpeedDial()
+    private fun showViewAllPicker() {
+        val options = arrayOf("Collections", "Deposits", "Payments")
+        val modes = arrayOf(CashListMode.COLLECTIONS, CashListMode.DEPOSITS, CashListMode.PAYMENTS)
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("View all")
+            .setItems(options) { _, index -> openLedgerList(modes[index]) }
+            .show()
+    }
+
+    private fun openLedgerList(mode: CashListMode) {
         parentFragmentManager.beginTransaction()
-            .replace(R.id.container, CashManagementFragment.newInstance(branchId))
+            .replace(R.id.container, CashLedgerListFragment.newInstance(branchId, mode))
             .addToBackStack(null)
             .commitAllowingStateLoss()
     }
@@ -300,7 +307,12 @@ class CashManagementHomeFragment : Fragment() {
             tvIcon.background = roundedDrawable(bg, dp(17))
             tvName.text = name
             tvBalance.text = taka(balance)
-            card.setOnClickListener { openOldCashManagement() }
+            card.setOnClickListener {
+                parentFragmentManager.beginTransaction()
+                    .replace(R.id.container, ManageWalletsFragment.newInstance(branchId))
+                    .addToBackStack(null)
+                    .commitAllowingStateLoss()
+            }
             layoutWalletCards.addView(card)
         }
     }
@@ -656,97 +668,14 @@ class CashManagementHomeFragment : Fragment() {
 
     private fun startPayToHubFlow() {
         val accountsWithBalance = lastSuccessState?.accounts?.filter { it.balance > 0.0 }.orEmpty()
-        when {
-            accountsWithBalance.isEmpty() -> Toast.makeText(requireContext(), "No channel has a balance to pay out yet", Toast.LENGTH_SHORT).show()
-            accountsWithBalance.size == 1 -> showPayToHubDialog(accountsWithBalance.first())
-            else -> {
-                val labels = accountsWithBalance.map { "${it.provider} \u00B7 ${taka(it.balance)}" }.toTypedArray()
-                android.app.AlertDialog.Builder(requireContext())
-                    .setTitle("Select wallet")
-                    .setItems(labels) { _, index -> showPayToHubDialog(accountsWithBalance[index]) }
-                    .show()
-            }
+        if (accountsWithBalance.isEmpty()) {
+            Toast.makeText(requireContext(), "No channel has a balance to pay out yet", Toast.LENGTH_SHORT).show()
+            return
         }
-    }
-
-    private fun showPayToHubDialog(account: MfsAccountSummary) {
-        val padding = dp(20)
-        val infoText = TextView(requireContext()).apply {
-            text = "${account.provider} \u00B7 ${taka(account.balance)} available to pay"
-            textSize = 12f
-            setTextColor(0xFF64748B.toInt())
-        }
-        val amountInput = EditText(requireContext()).apply {
-            hint = "Amount"
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            typeface = Typeface.MONOSPACE
-            setText(if (account.balance > 0) Math.round(account.balance).toString() else "")
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) }
-        }
-        val trxIdInput = EditText(requireContext()).apply {
-            hint = "Transaction ID (optional)"
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) }
-        }
-        val remarksInput = EditText(requireContext()).apply {
-            hint = "Remarks (optional)"
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) }
-        }
-        val dateButton = styledDateButton()
-        val getDate = wireDatePickerButton(dateButton, System.currentTimeMillis())
-
-        val wrapper = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(padding, padding, padding, 0)
-            addView(infoText)
-            addView(amountInput)
-            addView(trxIdInput)
-            addView(remarksInput)
-            addView(dateButton)
-        }
-
-        val dialog = android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Pay to hub")
-            .setView(wrapper)
-            .setPositiveButton("Pay Now", null)
-            .setNegativeButton("Cancel", null)
-            .create()
-
-        dialog.setOnShowListener {
-            val btnPositive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
-            val btnNegative = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)
-            btnPositive.setOnClickListener {
-                val amt = amountInput.text.toString().toDoubleOrNull()
-                val trxId = trxIdInput.text.toString().trim()
-                val remarks = remarksInput.text.toString()
-                if (amt == null || amt <= 0.0) {
-                    Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                if (amt > account.balance) {
-                    Toast.makeText(
-                        requireContext(),
-                        "Can't exceed available balance (${taka(account.balance)})",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    return@setOnClickListener
-                }
-                btnPositive.isEnabled = false
-                btnNegative.isEnabled = false
-                btnPositive.text = "Paying..."
-                vm.addLedgerEntry(account.provider, LEDGER_TYPE_HUB_PAYMENT, amt, trxId, remarks, getDate()) { ok ->
-                    if (ok) {
-                        dialog.dismiss()
-                        Toast.makeText(requireContext(), "Payment saved", Toast.LENGTH_SHORT).show()
-                    } else {
-                        btnPositive.isEnabled = true
-                        btnNegative.isEnabled = true
-                        btnPositive.text = "Pay Now"
-                        Toast.makeText(requireContext(), "Failed to save payment", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-        dialog.show()
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.container, PayToHubSelectWalletFragment.newInstance(branchId))
+            .addToBackStack(BACK_STACK_PAY_TO_HUB_FLOW)
+            .commitAllowingStateLoss()
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
