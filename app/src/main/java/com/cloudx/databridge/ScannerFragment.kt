@@ -59,14 +59,23 @@ class ScannerFragment : Fragment() {
             // Some barcodes encode extra data after a '|' (e.g. "DB12345|120") — only the
             // part before the '|' is the actual code we want to keep.
             val code = rawCode?.substringBefore('|')?.trim()
-            if (!code.isNullOrBlank()) {
-                addItem(code, manual = false)
-                // Batch mode: auto re-launch after each successful scan
-                if (isBatchMode) {
-                    launchCamera()
+            when {
+                code.isNullOrBlank() -> {
+                    Toast.makeText(requireContext(), "No code found", Toast.LENGTH_SHORT).show()
                 }
-            } else {
-                Toast.makeText(requireContext(), "No code found", Toast.LENGTH_SHORT).show()
+                code.length != 12 || !code.all { it.isDigit() } -> {
+                    // Valid codes are always exactly 12 digits — anything else after the
+                    // trim above is a bad/partial read, not a real code.
+                    Toast.makeText(requireContext(), "⚠ আপনার স্ক্যান সঠিক নয়। পুনরায় স্ক্যান করুন।", Toast.LENGTH_LONG).show()
+                    if (isBatchMode) launchCamera()
+                }
+                else -> {
+                    addItem(code, manual = false)
+                    // Batch mode: auto re-launch after each successful scan
+                    if (isBatchMode) {
+                        launchCamera()
+                    }
+                }
             }
         } else if (res.resultCode == android.app.Activity.RESULT_CANCELED && isBatchMode) {
             // User pressed back on camera → stop batch mode
