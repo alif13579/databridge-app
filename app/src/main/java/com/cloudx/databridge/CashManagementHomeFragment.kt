@@ -128,14 +128,6 @@ class CashManagementHomeFragment : Fragment() {
         }
     }
 
-    private fun openOldCashManagement() {
-        closeSpeedDial()
-        parentFragmentManager.beginTransaction()
-            .replace(R.id.container, CashManagementFragment.newInstance(branchId))
-            .addToBackStack(null)
-            .commitAllowingStateLoss()
-    }
-
     private fun showViewAllPicker() {
         val options = arrayOf("Collections", "Deposits", "Payments")
         val modes = arrayOf(CashListMode.COLLECTIONS, CashListMode.DEPOSITS, CashListMode.PAYMENTS)
@@ -315,7 +307,12 @@ class CashManagementHomeFragment : Fragment() {
             tvIcon.background = roundedDrawable(bg, dp(17))
             tvName.text = name
             tvBalance.text = taka(balance)
-            card.setOnClickListener { openOldCashManagement() }
+            card.setOnClickListener {
+                parentFragmentManager.beginTransaction()
+                    .replace(R.id.container, ManageWalletsFragment.newInstance(branchId))
+                    .addToBackStack(null)
+                    .commitAllowingStateLoss()
+            }
             layoutWalletCards.addView(card)
         }
     }
