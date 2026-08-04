@@ -773,7 +773,7 @@ class CallCenterFragment : Fragment() {
         val ctx = requireContext()
         if (!CallLogHelper.hasPermission(ctx)) {
             DialCountStore.increment(ctx, consignmentId)
-            applyFilters()
+            adapter.refreshItem(consignmentId)
             return
         }
         val dialAttemptMs = System.currentTimeMillis()
@@ -784,7 +784,8 @@ class CallCenterFragment : Fragment() {
             }
             if (confirmed && isAdded) {
                 DialCountStore.increment(ctx, consignmentId)
-                applyFilters() // refresh the badge on this card
+                adapter.refreshItem(consignmentId) // targeted — full applyFilters() here can
+                // land mid-swipe on another card and disrupt the gesture (see refreshItem() doc)
             }
         }
     }
