@@ -2171,6 +2171,13 @@ class CallCenterFragment : Fragment() {
                             val remarkStatus = latest?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
                             val statusLabelForNotif = if (remarkStatus.isNotBlank())
                                 WorkerParcelAdapter.getStatusConfig(ctx, remarkStatus, ccStatusLang).label else ""
+                            // Who actually wrote it — same resolver + fallback chain as the
+                            // Journey Log dialogs/ParcelDetailFragment, so the name shown here
+                            // always matches what you'd see if you opened the parcel.
+                            val remarkUid = latest?.child("userId")?.getValue(String::class.java)?.trim().orEmpty()
+                            val resolvedName = if (remarkUid.isNotBlank())
+                                UserNameResolver.resolveName(remarkUid).takeIf { it.isNotBlank() && it != remarkUid } else null
+                            val authorName = resolvedName ?: "Delivery Agent"
                             val message = when {
                                 statusLabelForNotif.isNotBlank() && remarkText.isNotBlank() -> "$statusLabelForNotif — $remarkText"
                                 statusLabelForNotif.isNotBlank() -> statusLabelForNotif
@@ -2180,7 +2187,7 @@ class CallCenterFragment : Fragment() {
                             AppNotificationManager.add(
                                 ctx,
                                 AppNotificationManager.NotifItem(
-                                    title = "New Remark — $customer",
+                                    title = "$authorName — $customer",
                                     message = message,
                                     type = "remark",
                                     parcelId = cId,

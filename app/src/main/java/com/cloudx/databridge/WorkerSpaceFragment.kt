@@ -1176,6 +1176,13 @@ class WorkerSpaceFragment : Fragment() {
                                 val customer = parcel?.customer?.takeIf { it.isNotBlank() } ?: cId
                                 val remarkText = latestSnap?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
                                 val remarkStatus = latestSnap?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
+                                // Who actually wrote it — same resolver + fallback chain as the
+                                // Journey Log dialogs/ParcelDetailFragment, so the name shown here
+                                // always matches what you'd see if you opened the parcel.
+                                val remarkUid = latestSnap?.child("userId")?.getValue(String::class.java)?.trim().orEmpty()
+                                val resolvedName = if (remarkUid.isNotBlank())
+                                    UserNameResolver.resolveName(remarkUid).takeIf { it.isNotBlank() && it != remarkUid } else null
+                                val authorName = resolvedName ?: "CC Agent"
                                 val message = when {
                                     remarkText.isNotBlank() -> remarkText
                                     remarkStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, remarkStatus, workerStatusLang).label
@@ -1184,7 +1191,7 @@ class WorkerSpaceFragment : Fragment() {
                                 AppNotificationManager.add(
                                     ctx,
                                     AppNotificationManager.NotifItem(
-                                        title = "CC Remark — $customer",
+                                        title = "$authorName — $customer",
                                         message = message,
                                         type = "remark",
                                         parcelId = cId,
