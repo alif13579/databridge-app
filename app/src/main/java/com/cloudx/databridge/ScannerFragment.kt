@@ -63,9 +63,9 @@ class ScannerFragment : Fragment() {
                 code.isNullOrBlank() -> {
                     Toast.makeText(requireContext(), "No code found", Toast.LENGTH_SHORT).show()
                 }
-                code.length != 12 || !code.all { it.isDigit() } -> {
-                    // Valid codes are always exactly 12 digits — anything else after the
-                    // trim above is a bad/partial read, not a real code.
+                code.length != 12 -> {
+                    // Valid codes are always exactly 12 characters — length only, not
+                    // digits-only (tracking IDs aren't guaranteed to be purely numeric).
                     Toast.makeText(requireContext(), "⚠ আপনার স্ক্যান সঠিক নয়। পুনরায় স্ক্যান করুন।", Toast.LENGTH_LONG).show()
                     if (isBatchMode) launchCamera()
                 }
