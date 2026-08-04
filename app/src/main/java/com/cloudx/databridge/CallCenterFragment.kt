@@ -314,6 +314,12 @@ class CallCenterFragment : Fragment() {
         setupSearch()
         setupCollapseToggle()
         swipeRefresh = view.findViewById(R.id.swipeRefreshCca)
+        // Pull-to-refresh gesture disabled — it conflicts with the card swipe-to-call gesture
+        // (both are touch-drag systems on the same RecyclerView), causing misfired/dropped
+        // swipes. The listener below is left in place but effectively dormant; re-enable
+        // (swipeRefresh.isEnabled = true) if pull-to-refresh is ever wanted back once the
+        // gesture conflict is resolved some other way.
+        swipeRefresh.isEnabled = false
         swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
         swipeRefresh.setOnRefreshListener {
             systemIdToName = emptyMap()
