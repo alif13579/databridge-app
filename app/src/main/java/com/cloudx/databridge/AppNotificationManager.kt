@@ -136,6 +136,7 @@ object AppNotificationManager {
             val notification = NotificationCompat.Builder(appCtx, CHANNEL_ID)
                 .setContentTitle(item.title)
                 .setContentText(item.message)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(item.message))
                 .setSmallIcon(android.R.drawable.ic_dialog_email)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)

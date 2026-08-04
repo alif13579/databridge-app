@@ -1183,11 +1183,17 @@ class WorkerSpaceFragment : Fragment() {
                                 val resolvedName = if (remarkUid.isNotBlank())
                                     UserNameResolver.resolveName(remarkUid).takeIf { it.isNotBlank() && it != remarkUid } else null
                                 val authorName = resolvedName ?: "CC Agent"
-                                val message = when {
+                                val baseMessage = when {
                                     remarkText.isNotBlank() -> remarkText
                                     remarkStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, remarkStatus, workerStatusLang).label
                                     else -> "CC থেকে নতুন রিমার্ক এসেছে"
                                 }
+                                // Age + delivery attempt count — same formatAge() and
+                                // attemptCount ("A{n}" badge) the parcel card already shows.
+                                val ageStr = formatAge(parcel?.createdAt ?: 0L, parcel?.updatedAt ?: 0L)
+                                val attempts = parcel?.attemptCount ?: 0
+                                val infoLine = "📅 $ageStr  •  🔁 $attempts attempt${if (attempts == 1) "" else "s"}"
+                                val message = "$baseMessage\n$infoLine"
                                 AppNotificationManager.add(
                                     ctx,
                                     AppNotificationManager.NotifItem(
