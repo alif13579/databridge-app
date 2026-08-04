@@ -424,6 +424,24 @@ class DataBridgeService : Service() {
                     else if (togglePrefs.getBoolean("auto_open_dialer", false)) triggerOpenDialer(record.cleaned)
                 }
             }
+            // Auto-copy — moved here from HistoryFragment so it also fires while the app
+            // is backgrounded, since this service (unlike a fragment) keeps running the
+            // whole time it's connected. Scoped to source == "session" only, same as the
+            // alert/vibrate block above, so a container migration replaying older records
+            // never overwrites the clipboard with stale text.
+            if (source == "session" && togglePrefs.getBoolean("auto_copy", false) && record.cleaned.isNotEmpty()) {
+                copyRecordToClipboard(record.cleaned)
+            }
+        }
+    }
+
+    private fun copyRecordToClipboard(text: String) {
+        try {
+            val clipboard = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("DataBridge", text))
+            android.widget.Toast.makeText(applicationContext, "📋 Copied: $text", android.widget.Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) {
+            // Best-effort, same posture as playSound()/vibrateDevice() above.
         }
     }
 

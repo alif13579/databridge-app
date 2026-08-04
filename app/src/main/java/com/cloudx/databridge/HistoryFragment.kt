@@ -65,8 +65,6 @@ class HistoryFragment : Fragment() {
 
     private val recordsCache = mutableMapOf<String, CallRecord>()
     private val actionsListenerRefs = mutableMapOf<String, Pair<ValueEventListener, String>>()
-    // auto-copy: skip first batch (existing records), only copy truly new arrivals
-    private var isInitialLoad = true
 
     private val authStateListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
         val uid = firebaseAuth.currentUser?.uid
@@ -171,23 +169,8 @@ class HistoryFragment : Fragment() {
         }
     }
 
-    // Timestamp when this fragment instance was created — only copy records newer than this
-    private val fragmentCreatedAt = System.currentTimeMillis()
-
     private fun mergeRecordsFromFlow(records: List<CallRecord>) {
         val incomingIds = records.map { it.id }.toSet()
-
-        // Auto-copy: only for records that arrived AFTER this fragment instance was created
-        if (!isInitialLoad) {
-            val newRecords = records.filter { it.id !in recordsCache }
-            if (newRecords.isNotEmpty()) {
-                val latest = newRecords.maxByOrNull { it.received_at } ?: newRecords.first()
-                // Only copy if record arrived after this fragment was created (not pre-existing)
-                if (latest.received_at > fragmentCreatedAt) {
-                    autoCopyIfEnabled(latest)
-                }
-            }
-        }
 
         records.forEach { incoming ->
             val existing = recordsCache[incoming.id]
@@ -196,33 +179,11 @@ class HistoryFragment : Fragment() {
         }
         recordsCache.keys.filter { it !in incomingIds }.forEach { recordsCache.remove(it) }
 
-        isInitialLoad = false  // first batch processed
-
         val snapshot = recordsCache.values.toList()
         lifecycleScope.launch {
             snapshot.forEach { repository.insertCall(it) }
         }
         refreshUi()
-    }
-
-    /** Copy record.cleaned to clipboard if auto_copy setting is ON and record arrived after fragment was created */
-    private fun autoCopyIfEnabled(record: CallRecord) {
-        if (!isAdded || _binding == null) return
-        val autoCopy = requireContext()
-            .getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
-            .getBoolean("auto_copy", false)
-        if (!autoCopy || record.cleaned.isBlank()) return
-
-        val clipboard = requireContext()
-            .getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        clipboard.setPrimaryClip(
-            android.content.ClipData.newPlainText("DataBridge", record.cleaned)
-        )
-        android.widget.Toast.makeText(
-            requireContext(),
-            "📋 Copied: ${record.cleaned}",
-            android.widget.Toast.LENGTH_SHORT
-        ).show()
     }
 
     private fun pickActions(incoming: String, cached: String?): String {
@@ -560,7 +521,6 @@ class HistoryFragment : Fragment() {
         auth.removeAuthStateListener(authStateListener)
         historyFetcher.stopFetching()
         detachAllActionsListeners()
-        isInitialLoad = true  // reset so next resume doesn't copy old records
     }
 
     override fun onDestroyView() {
