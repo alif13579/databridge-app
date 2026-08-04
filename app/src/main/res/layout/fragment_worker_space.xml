@@ -260,64 +260,14 @@
                                 android:layout_marginTop="1dp" />
                         </LinearLayout>
 
+                        <!-- Per-status chips (dynamic — one per distinct final_status found in
+                             today's remarks_by_userId, built in buildWsDynamicStatChips()) -->
                         <LinearLayout
-                            android:id="@+id/layoutStatConfirmed"
+                            android:id="@+id/layoutStatDynamic"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical"
-                            android:gravity="center"
-                            android:padding="6dp"
-                            android:background="@drawable/bg_stat_card"
-                            android:layout_marginEnd="5dp">
-
-                            <TextView
-                                android:id="@+id/twStatConfirmedValue"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="0"
-                                android:textSize="18sp"
-                                android:textColor="@color/theme_green"
-                                android:textStyle="bold"
-                                android:fontFamily="sans-serif-medium" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Confirmed"
-                                android:textSize="10sp"
-                                android:textColor="@color/theme_text_secondary"
-                                android:layout_marginTop="1dp" />
-                        </LinearLayout>
-
-                        <LinearLayout
-                            android:id="@+id/layoutStatPending"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:orientation="vertical"
-                            android:gravity="center"
-                            android:padding="6dp"
-                            android:background="@drawable/bg_stat_card">
-
-                            <TextView
-                                android:id="@+id/twStatPendingValue"
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="0"
-                                android:textSize="18sp"
-                                android:textColor="@color/theme_yellow"
-                                android:textStyle="bold"
-                                android:fontFamily="sans-serif-medium" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="Pending"
-                                android:textSize="10sp"
-                                android:textColor="@color/theme_text_secondary"
-                                android:layout_marginTop="1dp" />
-                        </LinearLayout>
+                            android:layout_weight="2"
+                            android:orientation="horizontal" />
                     </LinearLayout>
                 </LinearLayout>
                 <!-- /layoutStatsCollapsible -->

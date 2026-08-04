@@ -46,8 +46,7 @@ class WorkerSpaceFragment : Fragment() {
     private lateinit var tvAgentInfo: TextView
     private lateinit var tvTodayCod: TextView
     private lateinit var tvStatTotalValue: TextView
-    private lateinit var tvStatConfirmedValue: TextView
-    private lateinit var tvStatPendingValue: TextView
+    private lateinit var layoutWsStatDynamic: LinearLayout
     private lateinit var etSearch: EditText
     private lateinit var tvSearchClear: TextView
     private lateinit var tvSearchScan: TextView
@@ -139,6 +138,7 @@ class WorkerSpaceFragment : Fragment() {
         setupAdapter()
         loadRemarkOptions()
         loadData()
+        loadTodayRemarksStats()
     }
 
     override fun onDestroyView() {
@@ -156,8 +156,7 @@ class WorkerSpaceFragment : Fragment() {
         tvSortByDropdown.setOnClickListener { showSortByDropdown() }
         tvTodayCod = view.findViewById(R.id.twTodayCod)
         tvStatTotalValue = view.findViewById(R.id.twStatTotalValue)
-        tvStatConfirmedValue = view.findViewById(R.id.twStatConfirmedValue)
-        tvStatPendingValue = view.findViewById(R.id.twStatPendingValue)
+        layoutWsStatDynamic = view.findViewById(R.id.layoutStatDynamic)
         etSearch = view.findViewById(R.id.twSearchInput)
         tvSearchClear = view.findViewById(R.id.twSearchClear)
         tvSearchScan = view.findViewById(R.id.twSearchScan)
@@ -574,6 +573,7 @@ class WorkerSpaceFragment : Fragment() {
                         .setValue(true)
 
                     EngagedStateManager.clearEngaged(item.id, userId)
+                    loadTodayRemarksStats()
                     android.widget.Toast.makeText(requireContext(), "✓ Note saved", android.widget.Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
                 }
@@ -836,6 +836,7 @@ class WorkerSpaceFragment : Fragment() {
                 }
             EngagedStateManager.clearEngaged(p.id, userId)
         }
+        loadTodayRemarksStats()
 
         // Local state update for all affected parcels.
         val updatedIds = items.map { it.id }.toSet()
@@ -1775,16 +1776,77 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
+    /** COD sum only, from the currently-loaded live run (allParcels) — remarks_by_userId
+     *  doesn't carry a cod/collectableAmount field, so this can't move to
+     *  loadTodayRemarksStats() the way total/confirmed/pending did. This is a genuinely
+     *  different scope too: "today's" summary (loadTodayRemarksStats) vs the currently
+     *  assigned live run (this function) — they just happen to have shared a stat row before. */
     private fun updateCounts() {
-        val total = allParcels.size
-        val confirmed = allParcels.count { it.status == "confirmed" }
-        val pending = allParcels.count { it.status == "pending" || isVerifyRequestStatus(it.status) || it.status == "delivery_req" }
         val totalCod = allParcels.filter { it.status == "confirmed" }.sumOf { it.cod }
-
-        tvStatTotalValue.text = total.toString()
-        tvStatConfirmedValue.text = confirmed.toString()
-        tvStatPendingValue.text = pending.toString()
         tvTodayCod.text = "৳$totalCod"
+    }
+
+    /** Total + per-status breakdown chips — "today's everything", sourced from
+     *  courier/remarks_by_userId/{uid} (today's yyyyMMdd range) instead of the live allParcels
+     *  list, so it reflects everything actioned today rather than just what's in the
+     *  currently-assigned run. Mirrors DashboardViewModel.loadAgentStat()'s exact query shape
+     *  (same path, same startAt/endAt range) so there's no path/format mismatch between the
+     *  two screens. Call this on load and again right after a remark save, not from
+     *  updateCounts()'s cadence — a single bounded read per call, not worth re-querying on
+     *  every minor live-list update. */
+    private fun loadTodayRemarksStats() {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val todayKey = todayDateKeyYyyyMmDd()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val snap = withContext(Dispatchers.IO) {
+                runCatching {
+                    db.reference.child("courier/remarks_by_userId/$uid")
+                        .orderByKey()
+                        .startAt("push_$todayKey")
+                        .endAt("push_$todayKey~")
+                        .get().await()
+                }.onFailure { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "WorkerSpaceFragment", action = "today_remarks_stats_read",
+                        errorMessage = e.message ?: "unknown", extra = mapOf("uid" to uid)
+                    )
+                }.getOrNull()
+            }
+            if (!isAdded) return@launch
+
+            val counts = mutableMapOf<String, Int>()
+            snap?.children?.forEach { entry ->
+                val status = entry.child("final_status").getValue(String::class.java)
+                    ?.trim()?.ifBlank { "(no status)" } ?: "(no status)"
+                counts[status] = (counts[status] ?: 0) + 1
+            }
+
+            tvStatTotalValue.text = counts.values.sum().toString()
+            buildWsDynamicStatChips(counts)
+        }
+    }
+
+    /** Inflates one item_cc_stat_chip per entry in [counts], sorted by
+     *  config/statusMeta/{key}/sortOrder descending (same field/order the status filter chips
+     *  already use) — label/color resolved via StatusMetaCache with a graceful fallback (raw
+     *  status text, neutral gray) for anything not configured there. Reuses CallCenterFragment's
+     *  item_cc_stat_chip.xml layout rather than adding a near-identical duplicate. */
+    private fun buildWsDynamicStatChips(counts: Map<String, Int>) {
+        layoutWsStatDynamic.removeAllViews()
+        val sorted = counts.entries.sortedWith(
+            compareByDescending<Map.Entry<String, Int>> { StatusMetaCache.entries[it.key]?.sortOrder ?: 0 }
+                .thenByDescending { it.value }
+        )
+        sorted.forEach { (status, count) ->
+            val meta = StatusMetaCache.entries[status]
+            val chip = layoutInflater.inflate(R.layout.item_cc_stat_chip, layoutWsStatDynamic, false)
+            val tvValue = chip.findViewById<TextView>(R.id.tvCcStatChipValue)
+            val tvLabel = chip.findViewById<TextView>(R.id.tvCcStatChipLabel)
+            tvValue.text = count.toString()
+            tvValue.setTextColor(meta?.color ?: android.graphics.Color.GRAY)
+            tvLabel.text = meta?.en?.takeIf { it.isNotBlank() } ?: status
+            layoutWsStatDynamic.addView(chip)
+        }
     }
 
 
