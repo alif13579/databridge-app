@@ -48,8 +48,11 @@ class BranchEditFragment : Fragment() {
     private val allBranches  = mutableListOf<PickerItem>()
     private var selectedManagerUid  = ""
     private var selectedManagerName = ""
+    private var selectedAccountantUid  = ""
+    private var selectedAccountantName = ""
     private var selectedParentId    = ""
     private var originalManagerUid  = ""
+    private var originalAccountantUid  = ""
     private var selectedImageUri: Uri? = null
     private var uploadedImageUrl      = ""
 
@@ -75,6 +78,9 @@ class BranchEditFragment : Fragment() {
     private lateinit var btnSelectManager: TextView
     private lateinit var btnClearManager: TextView
     private lateinit var tvManagerSelected: TextView
+    private lateinit var btnSelectAccountant: TextView
+    private lateinit var btnClearAccountant: TextView
+    private lateinit var tvAccountantSelected: TextView
     private lateinit var btnSelectParentBranch: TextView
     private lateinit var btnClearParentBranch: TextView
     private lateinit var tvParentSelected: TextView
@@ -119,6 +125,9 @@ class BranchEditFragment : Fragment() {
         btnSelectManager      = v.findViewById(R.id.btnSelectManager)
         btnClearManager       = v.findViewById(R.id.btnClearManager)
         tvManagerSelected     = v.findViewById(R.id.tvManagerSelected)
+        btnSelectAccountant   = v.findViewById(R.id.btnSelectAccountant)
+        btnClearAccountant    = v.findViewById(R.id.btnClearAccountant)
+        tvAccountantSelected  = v.findViewById(R.id.tvAccountantSelected)
         btnSelectParentBranch = v.findViewById(R.id.btnSelectParentBranch)
         btnClearParentBranch  = v.findViewById(R.id.btnClearParentBranch)
         tvParentSelected      = v.findViewById(R.id.tvParentBranchSelected)
@@ -156,6 +165,26 @@ class BranchEditFragment : Fragment() {
             tvManagerSelected.text = "None selected"
             tvManagerSelected.setTextColor(0xFF555555.toInt())
             btnClearManager.visibility = View.GONE
+        }
+        btnSelectAccountant.setOnClickListener {
+            showSearchPicker("Select Accountant", allEmployees) { item ->
+                selectedAccountantUid  = item.id
+                selectedAccountantName = item.name
+                btnSelectAccountant.text = item.name
+                btnSelectAccountant.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
+                tvAccountantSelected.text = item.sub
+                tvAccountantSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
+                btnClearAccountant.visibility = View.VISIBLE
+            }
+        }
+        btnClearAccountant.setOnClickListener {
+            selectedAccountantUid  = ""
+            selectedAccountantName = ""
+            btnSelectAccountant.text = "Tap to select accountant ▾"
+            btnSelectAccountant.setTextColor(0xFF888888.toInt())
+            tvAccountantSelected.text = "None selected"
+            tvAccountantSelected.setTextColor(0xFF555555.toInt())
+            btnClearAccountant.visibility = View.GONE
         }
         btnSelectParentBranch.setOnClickListener {
             val myId = arguments?.getString(ARG_ID) ?: ""
@@ -279,6 +308,9 @@ class BranchEditFragment : Fragment() {
         selectedManagerUid  = snap.child("manager_uid").getValue(String::class.java) ?: ""
         selectedManagerName = snap.child("manager_name").getValue(String::class.java) ?: ""
         originalManagerUid  = selectedManagerUid
+        selectedAccountantUid  = snap.child("accountant_uid").getValue(String::class.java) ?: ""
+        selectedAccountantName = snap.child("accountant_name").getValue(String::class.java) ?: ""
+        originalAccountantUid  = selectedAccountantUid
         uploadedImageUrl    = snap.child("image_url").getValue(String::class.java) ?: ""
         if (uploadedImageUrl.isNotBlank()) {
             ivBranchImage.load(uploadedImageUrl) {
@@ -292,6 +324,13 @@ class BranchEditFragment : Fragment() {
             tvManagerSelected.text = allEmployees.find { it.id == selectedManagerUid }?.sub ?: ""
             tvManagerSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
             btnClearManager.visibility = View.VISIBLE
+        }
+        if (selectedAccountantName.isNotBlank()) {
+            btnSelectAccountant.text = selectedAccountantName
+            btnSelectAccountant.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
+            tvAccountantSelected.text = allEmployees.find { it.id == selectedAccountantUid }?.sub ?: ""
+            tvAccountantSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
+            btnClearAccountant.visibility = View.VISIBLE
         }
 
         selectedParentId = snap.child("parent_branch_id").getValue(String::class.java) ?: ""
@@ -333,6 +372,8 @@ class BranchEditFragment : Fragment() {
                     "branches/$branchId/phone"           to etPhone.text.toString().trim(),
                     "branches/$branchId/manager_uid"     to selectedManagerUid,
                     "branches/$branchId/manager_name"    to selectedManagerName,
+                    "branches/$branchId/accountant_uid"  to selectedAccountantUid,
+                    "branches/$branchId/accountant_name" to selectedAccountantName,
                     "branches/$branchId/parent_branch_id" to selectedParentId,
                     "branches/$branchId/status"          to status,
                     "branches/$branchId/updated_at"      to now,
@@ -356,14 +397,35 @@ class BranchEditFragment : Fragment() {
                     updates["branches/$branchId/employees/$selectedManagerUid"] =
                         mapOf("user_id" to selectedManagerUid, "employee_id" to empId)
                 }
+                if (selectedAccountantUid.isNotBlank()) {
+                    // Same as manager: ensure accountant has this branch in branch_ids and index entry exists
+                    val idsSnap = db.reference.child("users/$selectedAccountantUid/profile/company_info/branch_ids").get().await()
+                    val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
+                    val newIds = (currentIds + branchId).distinct()
+                    updates["users/$selectedAccountantUid/profile/company_info/branch_ids"] = newIds
+                    val empId = allEmployees.find { it.id == selectedAccountantUid }?.empId ?: ""
+                    updates["branches/$branchId/employees/$selectedAccountantUid"] =
+                        mapOf("user_id" to selectedAccountantUid, "employee_id" to empId)
+                }
                 db.reference.updateChildren(updates).await()
-                // Remove old manager from employees index and update their branch_ids
-                if (originalManagerUid.isNotBlank() && originalManagerUid != selectedManagerUid) {
+                // Remove old manager from employees index and update their branch_ids —
+                // but only if they didn't just become the accountant instead (still needs access)
+                if (originalManagerUid.isNotBlank() && originalManagerUid != selectedManagerUid &&
+                    originalManagerUid != selectedAccountantUid) {
                     db.reference.child("branches/$branchId/employees/$originalManagerUid").removeValue().await()
                     val oldIdsSnap = db.reference.child("users/$originalManagerUid/profile/company_info/branch_ids").get().await()
                     val oldIds = if (oldIdsSnap.exists()) oldIdsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
                     val filtered = oldIds.filter { it != branchId }
                     db.reference.child("users/$originalManagerUid/profile/company_info/branch_ids").setValue(filtered).await()
+                }
+                // Same guarded cleanup for the old accountant
+                if (originalAccountantUid.isNotBlank() && originalAccountantUid != selectedAccountantUid &&
+                    originalAccountantUid != selectedManagerUid) {
+                    db.reference.child("branches/$branchId/employees/$originalAccountantUid").removeValue().await()
+                    val oldIdsSnap = db.reference.child("users/$originalAccountantUid/profile/company_info/branch_ids").get().await()
+                    val oldIds = if (oldIdsSnap.exists()) oldIdsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
+                    val filtered = oldIds.filter { it != branchId }
+                    db.reference.child("users/$originalAccountantUid/profile/company_info/branch_ids").setValue(filtered).await()
                 }
                 toast("Branch updated ✓")
                 parentFragmentManager.popBackStack()

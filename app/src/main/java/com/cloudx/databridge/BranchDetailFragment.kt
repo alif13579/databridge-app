@@ -48,6 +48,7 @@ class BranchDetailFragment : Fragment() {
     private lateinit var tvBranchType: TextView
     private lateinit var tvBranchAddress: TextView
     private lateinit var tvBranchManager: TextView
+    private lateinit var tvBranchAccountant: TextView
     private lateinit var tvBranchEmail: TextView
     private lateinit var tvBranchPhone: TextView
     private lateinit var tvBranchStatus: TextView
@@ -74,6 +75,7 @@ class BranchDetailFragment : Fragment() {
         tvBranchType    = view.findViewById(R.id.tvDetailBranchType)
         tvBranchAddress = view.findViewById(R.id.tvDetailBranchAddress)
         tvBranchManager = view.findViewById(R.id.tvDetailBranchManager)
+        tvBranchAccountant = view.findViewById(R.id.tvDetailBranchAccountant)
         tvBranchEmail   = view.findViewById(R.id.tvDetailBranchEmail)
         tvBranchPhone   = view.findViewById(R.id.tvDetailBranchPhone)
         tvBranchStatus  = view.findViewById(R.id.tvDetailBranchStatus)
@@ -214,6 +216,7 @@ class BranchDetailFragment : Fragment() {
             val type        = branchSnap.child("branch_type").getValue(String::class.java) ?: ""
             val address     = branchSnap.child("address").getValue(String::class.java) ?: ""
             val managerName = branchSnap.child("manager_name").getValue(String::class.java) ?: "—"
+            val accountantName = branchSnap.child("accountant_name").getValue(String::class.java) ?: "—"
             val email       = branchSnap.child("email").getValue(String::class.java) ?: ""
             val phone       = branchSnap.child("phone").getValue(String::class.java) ?: ""
             val status      = branchSnap.child("status").getValue(String::class.java) ?: "active"
@@ -233,6 +236,7 @@ class BranchDetailFragment : Fragment() {
             tvBranchType.text    = if (type.isNotBlank()) type.uppercase() else ""
             tvBranchAddress.text = if (address.isNotBlank()) "📍 $address" else ""
             tvBranchManager.text = "👤 $managerName"
+            tvBranchAccountant.text = "🧾 $accountantName"
             tvBranchEmail.text   = if (email.isNotBlank()) "✉  $email" else ""
             tvBranchPhone.text   = if (phone.isNotBlank()) "📞 $phone" else ""
             tvBranchStatus.text  = if (status == "active") "● Active" else "● Inactive"

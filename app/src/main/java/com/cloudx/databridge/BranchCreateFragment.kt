@@ -18,6 +18,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import coil.load
@@ -53,6 +54,8 @@ class BranchCreateFragment : Fragment() {
 
     private var selectedManagerUid  = ""
     private var selectedManagerName = ""
+    private var selectedAccountantUid  = ""
+    private var selectedAccountantName = ""
     private var selectedParentId    = ""
     private var selectedImageUri: Uri? = null
     private var uploadedImageUrl      = ""
@@ -70,6 +73,9 @@ class BranchCreateFragment : Fragment() {
     private lateinit var btnSelectManager: TextView
     private lateinit var btnClearManager: TextView
     private lateinit var tvManagerSelected: TextView
+    private lateinit var btnSelectAccountant: TextView
+    private lateinit var btnClearAccountant: TextView
+    private lateinit var tvAccountantSelected: TextView
     private lateinit var btnSelectParentBranch: TextView
     private lateinit var btnClearParentBranch: TextView
     private lateinit var tvParentSelected: TextView
@@ -101,6 +107,9 @@ class BranchCreateFragment : Fragment() {
         btnSelectManager      = view.findViewById(R.id.btnSelectManager)
         btnClearManager       = view.findViewById(R.id.btnClearManager)
         tvManagerSelected     = view.findViewById(R.id.tvManagerSelected)
+        btnSelectAccountant   = view.findViewById(R.id.btnSelectAccountant)
+        btnClearAccountant    = view.findViewById(R.id.btnClearAccountant)
+        tvAccountantSelected  = view.findViewById(R.id.tvAccountantSelected)
         btnSelectParentBranch = view.findViewById(R.id.btnSelectParentBranch)
         btnClearParentBranch  = view.findViewById(R.id.btnClearParentBranch)
         tvParentSelected      = view.findViewById(R.id.tvParentBranchSelected)
@@ -130,9 +139,9 @@ class BranchCreateFragment : Fragment() {
                 selectedManagerUid  = item.id
                 selectedManagerName = item.name
                 btnSelectManager.text = item.name
-                btnSelectManager.setTextColor(0xFFFFFFFF.toInt())
+                btnSelectManager.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
                 tvManagerSelected.text = item.sub
-                tvManagerSelected.setTextColor(0xFF00D4FF.toInt())
+                tvManagerSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
                 btnClearManager.visibility = View.VISIBLE
             }
         }
@@ -146,13 +155,34 @@ class BranchCreateFragment : Fragment() {
             btnClearManager.visibility = View.GONE
         }
 
+        btnSelectAccountant.setOnClickListener {
+            showSearchPicker("Select Accountant", allEmployees) { item ->
+                selectedAccountantUid  = item.id
+                selectedAccountantName = item.name
+                btnSelectAccountant.text = item.name
+                btnSelectAccountant.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
+                tvAccountantSelected.text = item.sub
+                tvAccountantSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
+                btnClearAccountant.visibility = View.VISIBLE
+            }
+        }
+        btnClearAccountant.setOnClickListener {
+            selectedAccountantUid  = ""
+            selectedAccountantName = ""
+            btnSelectAccountant.text = "Tap to select accountant ▾"
+            btnSelectAccountant.setTextColor(0xFF888888.toInt())
+            tvAccountantSelected.text = "None selected"
+            tvAccountantSelected.setTextColor(0xFF555555.toInt())
+            btnClearAccountant.visibility = View.GONE
+        }
+
         btnSelectParentBranch.setOnClickListener {
             showSearchPicker("Select Parent Branch", allBranches) { item ->
                 selectedParentId = item.id
                 btnSelectParentBranch.text = item.name
-                btnSelectParentBranch.setTextColor(0xFFFFFFFF.toInt())
+                btnSelectParentBranch.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
                 tvParentSelected.text = item.sub
-                tvParentSelected.setTextColor(0xFF00D4FF.toInt())
+                tvParentSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
                 btnClearParentBranch.visibility = View.VISIBLE
             }
         }
@@ -287,6 +317,8 @@ class BranchCreateFragment : Fragment() {
                     phone           = phone,
                     manager_uid     = selectedManagerUid,
                     manager_name    = selectedManagerName,
+                    accountant_uid  = selectedAccountantUid,
+                    accountant_name = selectedAccountantName,
                     parent_branch_id = selectedParentId,
                     status          = status,
                     image_url       = imageUrl,
@@ -307,6 +339,17 @@ class BranchCreateFragment : Fragment() {
                     val empId = allEmployees.find { it.id == selectedManagerUid }?.empId ?: ""
                     db.reference.child("branches/$autoId/employees/$selectedManagerUid")
                         .setValue(mapOf("user_id" to selectedManagerUid, "employee_id" to empId)).await()
+                }
+
+                if (selectedAccountantUid.isNotBlank()) {
+                    // Same as manager: add branch to accountant's branch_ids and ensure branch employees index
+                    val idsSnap = db.reference.child("users/$selectedAccountantUid/profile/company_info/branch_ids").get().await()
+                    val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
+                    val newIds = (currentIds + autoId).distinct()
+                    db.reference.child("users/$selectedAccountantUid/profile/company_info/branch_ids").setValue(newIds).await()
+                    val empId = allEmployees.find { it.id == selectedAccountantUid }?.empId ?: ""
+                    db.reference.child("branches/$autoId/employees/$selectedAccountantUid")
+                        .setValue(mapOf("user_id" to selectedAccountantUid, "employee_id" to empId)).await()
                 }
 
                 toast("Branch created ✓")
