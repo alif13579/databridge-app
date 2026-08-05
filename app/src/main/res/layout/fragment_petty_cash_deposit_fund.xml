@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F1F5F9">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Toolbar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="12dp"
+            android:background="#FFFFFF">
+
+            <ImageButton
+                android:id="@+id/btnPcDepositBack"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@android:drawable/ic_menu_revert"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Back" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Deposit Fund"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A"
+                android:layout_marginStart="8dp" />
+
+            <ImageButton
+                android:id="@+id/btnPcDepositHistory"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@android:drawable/ic_menu_recent_history"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Deposit History" />
+        </LinearLayout>
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:clipToPadding="false"
+            android:paddingBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <!-- Current Balance card -->
+                <androidx.cardview.widget.CardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardCornerRadius="14dp"
+                    app:cardElevation="1dp"
+                    app:cardBackgroundColor="#F0FDF4">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:padding="16dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Current Balance"
+                                android:textSize="12sp"
+                                android:textColor="#166534" />
+
+                            <TextView
+                                android:id="@+id/tvPcDepositCurrentBalance"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="2dp"
+                                android:fontFamily="monospace"
+                                android:textStyle="bold"
+                                android:textSize="22sp"
+                                android:textColor="#0F172A" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Available Balance"
+                                android:textSize="11sp"
+                                android:textColor="#166534" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:text="\uD83D\uDCB3"
+                            android:textSize="17sp"
+                            android:gravity="center"
+                            android:background="#059669" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- Deposit Amount -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Deposit Amount"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#334155"
+                    android:layout_marginTop="20dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_pc_input"
+                    android:paddingHorizontal="14dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="\u09F3"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="#64748B" />
+
+                    <EditText
+                        android:id="@+id/etPcDepositAmount"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="52dp"
+                        android:background="@android:color/transparent"
+                        android:inputType="numberDecimal"
+                        android:hint="0"
+                        android:textSize="16sp"
+                        android:textColor="#0F172A"
+                        android:paddingStart="8dp"
+                        android:maxLines="1" />
+                </LinearLayout>
+
+                <!-- Source -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Source"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#334155"
+                    android:layout_marginTop="16dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcDepositSource"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_pc_input"
+                    android:paddingHorizontal="14dp"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <TextView
+                        android:id="@+id/tvPcDepositSourceSelected"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Select Source"
+                        android:textSize="14sp"
+                        android:textColor="#94A3B8" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="\u25BC"
+                        android:textSize="11sp"
+                        android:textColor="#94A3B8" />
+                </LinearLayout>
+
+                <!-- Reference -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Reference (Optional)"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#334155"
+                    android:layout_marginTop="16dp" />
+
+                <EditText
+                    android:id="@+id/etPcDepositReference"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_pc_input"
+                    android:hint="Enter reference"
+                    android:textSize="14sp"
+                    android:textColor="#0F172A"
+                    android:paddingHorizontal="14dp"
+                    android:maxLines="1" />
+
+                <!-- Remarks -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Remarks (Optional)"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#334155"
+                    android:layout_marginTop="16dp" />
+
+                <EditText
+                    android:id="@+id/etPcDepositRemarks"
+                    android:layout_width="match_parent"
+                    android:layout_height="90dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_pc_input"
+                    android:hint="Enter remarks"
+                    android:textSize="14sp"
+                    android:textColor="#0F172A"
+                    android:padding="14dp"
+                    android:gravity="top"
+                    android:maxLength="120"
+                    android:inputType="textMultiLine" />
+
+                <TextView
+                    android:id="@+id/tvPcDepositRemarksCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:layout_marginTop="4dp"
+                    android:text="0/120"
+                    android:textSize="11sp"
+                    android:textColor="#94A3B8" />
+
+                <!-- Deposit Now button -->
+                <Button
+                    android:id="@+id/btnPcDepositNow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="Deposit Now"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#059669"
+                    android:paddingVertical="12dp" />
+
+                <!-- After Deposit preview -->
+                <androidx.cardview.widget.CardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    app:cardCornerRadius="14dp"
+                    app:cardElevation="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="14dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="After Deposit"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:textColor="#64748B"
+                            android:layout_marginBottom="4dp" />
+
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcAfterPrevious" />
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcAfterDeposit" />
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcAfterNewBalance" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+            </LinearLayout>
+        </ScrollView>
+    </LinearLayout>
+</FrameLayout>

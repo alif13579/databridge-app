@@ -15,7 +15,7 @@ import androidx.fragment.app.Fragment
  *
  * Phase plan (mockup screens):
  *  [x] 1. Dashboard               -> PettyCashDashboardFragment (done)
- *  [ ] 2. Deposit Fund            -> PettyCashDepositFundFragment
+ *  [x] 2. Deposit Fund            -> PettyCashDepositFundFragment (done)
  *  [x] 3. Pending Settlement List -> PettyCashPendingSettlementFragment (done)
  *  [x] 4. Settlement Details      -> PettyCashSettlementDetailsFragment (done)
  *  [x] 5. Settlement Success      -> PettyCashSettlementSuccessFragment (done)
@@ -35,16 +35,16 @@ private fun placeholderView(context: android.content.Context, title: String): Vi
     }
 }
 
-class PettyCashDepositFundFragment : Fragment() {
+class PettyCashDepositHistoryFragment : Fragment() {
     private var branchId: String = ""
     companion object {
-        fun newInstance(branchId: String) = PettyCashDepositFundFragment().apply {
+        fun newInstance(branchId: String) = PettyCashDepositHistoryFragment().apply {
             arguments = Bundle().apply { putString("branch_id", branchId) }
         }
     }
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         branchId = arguments?.getString("branch_id").orEmpty()
-        return placeholderView(requireContext(), "Deposit Fund")
+        return placeholderView(requireContext(), "Deposit History")
     }
 }
 
