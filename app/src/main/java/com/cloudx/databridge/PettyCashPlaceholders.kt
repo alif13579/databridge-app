@@ -22,7 +22,7 @@ import androidx.fragment.app.Fragment
  *  [x] 6. Deposit History         -> PettyCashDepositHistoryFragment (done)
  *  [x] 7. Settlement History      -> PettyCashSettlementHistoryFragment (done)
  *  [x] 8. All Requests            -> PettyCashAllRequestsFragment (done)
- *  [ ] 9. Wallet Summary          -> PettyCashWalletSummaryFragment
+ *  [x] 9. Wallet Summary          -> PettyCashWalletSummaryFragment (done)
  *  [ ] 10. Filter / Search        -> PettyCashFilterFragment
  */
 private fun placeholderView(context: android.content.Context, title: String): View {

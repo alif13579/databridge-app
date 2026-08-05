@@ -103,6 +103,13 @@ class PettyCashDashboardFragment : Fragment() {
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
+
+        view.findViewById<View>(R.id.cardPcTotalFund).setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashWalletSummaryFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
     }
 
     private data class QueueRowData(val code: String, val worker: String, val category: String, val amount: Double, val status: String)
