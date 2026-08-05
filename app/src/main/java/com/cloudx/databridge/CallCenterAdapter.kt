@@ -76,6 +76,17 @@ class CallCenterAdapter(
     }
 
     /** Call this with the flat parcel list; builds header+card rows and diffs against the current list. */
+    /** Lightweight, targeted refresh for a single card — rebinds just that one row via
+     *  notifyItemChanged, without going through the fragment's full re-filter/re-sort/
+     *  re-scope pass (applyFilters()). Use for updates that don't change which items are
+     *  visible or their order, like the dial-count badge — applyFilters() firing mid-gesture
+     *  is what caused swipe actions to misbehave (position shifts from the DiffUtil pass
+     *  landing while a swipe was still in progress). */
+    fun refreshItem(consignmentId: String) {
+        val position = currentList.indexOfFirst { (it as? Row.CardRow)?.parcel?.id == consignmentId }
+        if (position >= 0) notifyItemChanged(position)
+    }
+
     fun submitParcels(items: List<CallCenterParcelItem>) {
         val map = linkedMapOf<String, MutableList<CallCenterParcelItem>>()
         items.forEach { parcel ->

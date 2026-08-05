@@ -167,6 +167,11 @@ class WorkerSpaceFragment : Fragment() {
         pbProgress = view.findViewById(R.id.twProgressBar)
         tvEmpty = view.findViewById(R.id.twEmptyState)
         swipeRefresh = view.findViewById(R.id.swipeRefresh)
+        // Pull-to-refresh gesture disabled — same reason as CallCenterFragment: conflicts
+        // with the card swipe-to-call gesture (both are touch-drag systems on the same
+        // RecyclerView), causing misfired/dropped swipes. Listener left in place but
+        // effectively dormant.
+        swipeRefresh.isEnabled = false
         swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
         swipeRefresh.setOnRefreshListener {
             UserNameResolver.clearCache()

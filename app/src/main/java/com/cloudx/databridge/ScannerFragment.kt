@@ -19,6 +19,10 @@ import com.google.firebase.database.FirebaseDatabase
 
 class ScannerFragment : Fragment() {
 
+    private companion object {
+        const val TRACKING_ID_LENGTH = 14
+    }
+
     private val localItems = mutableListOf<ScanItem>()
     private val uploadedItems = mutableListOf<ScanItem>()
     private var scansListener: com.google.firebase.database.ValueEventListener? = null
@@ -63,8 +67,8 @@ class ScannerFragment : Fragment() {
                 code.isNullOrBlank() -> {
                     Toast.makeText(requireContext(), "No code found", Toast.LENGTH_SHORT).show()
                 }
-                code.length != 12 -> {
-                    // Valid codes are always exactly 12 characters — length only, not
+                code.length != TRACKING_ID_LENGTH -> {
+                    // Valid tracking IDs are always exactly 14 characters — length only, not
                     // digits-only (tracking IDs aren't guaranteed to be purely numeric).
                     Toast.makeText(requireContext(), "⚠ আপনার স্ক্যান সঠিক নয়। পুনরায় স্ক্যান করুন।", Toast.LENGTH_LONG).show()
                     if (isBatchMode) launchCamera()

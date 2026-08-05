@@ -314,6 +314,12 @@ class CallCenterFragment : Fragment() {
         setupSearch()
         setupCollapseToggle()
         swipeRefresh = view.findViewById(R.id.swipeRefreshCca)
+        // Pull-to-refresh gesture disabled — it conflicts with the card swipe-to-call gesture
+        // (both are touch-drag systems on the same RecyclerView), causing misfired/dropped
+        // swipes. The listener below is left in place but effectively dormant; re-enable
+        // (swipeRefresh.isEnabled = true) if pull-to-refresh is ever wanted back once the
+        // gesture conflict is resolved some other way.
+        swipeRefresh.isEnabled = false
         swipeRefresh.setColorSchemeResources(R.color.theme_brand_red)
         swipeRefresh.setOnRefreshListener {
             systemIdToName = emptyMap()
@@ -773,7 +779,7 @@ class CallCenterFragment : Fragment() {
         val ctx = requireContext()
         if (!CallLogHelper.hasPermission(ctx)) {
             DialCountStore.increment(ctx, consignmentId)
-            applyFilters()
+            adapter.refreshItem(consignmentId)
             return
         }
         val dialAttemptMs = System.currentTimeMillis()
@@ -784,7 +790,8 @@ class CallCenterFragment : Fragment() {
             }
             if (confirmed && isAdded) {
                 DialCountStore.increment(ctx, consignmentId)
-                applyFilters() // refresh the badge on this card
+                adapter.refreshItem(consignmentId) // targeted — full applyFilters() here can
+                // land mid-swipe on another card and disrupt the gesture (see refreshItem() doc)
             }
         }
     }
