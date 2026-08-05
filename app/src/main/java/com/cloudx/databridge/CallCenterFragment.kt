@@ -70,6 +70,7 @@ class CallCenterFragment : Fragment() {
     private lateinit var tvAutoCallStatusLabel: TextView
     private lateinit var tvAutoCallStatusName: TextView
     private lateinit var tvAutoCallStatusTimer: TextView
+    private lateinit var tvAutoCallStatusInfo: TextView
     private lateinit var tvSortByDropdown: TextView
     private var sortMode: String = "attempt" // "attempt" (default) or "aging" — same options as Worker Fragment
 
@@ -111,6 +112,7 @@ class CallCenterFragment : Fragment() {
     private var autoCallQueue: List<String> = emptyList()      // phone numbers, in dial order
     private var autoCallQueueIds: List<String> = emptyList()   // matching parcel ids, same order
     private var autoCallQueueNames: List<String> = emptyList() // matching customer names, same order
+    private var autoCallQueueItems: List<CallCenterParcelItem> = emptyList() // full item, for rich popup
     private var autoCallIndex = 0
 
     // Per-consignment last-seen remark timestamp — used to detect genuinely new remarks
@@ -340,6 +342,7 @@ class CallCenterFragment : Fragment() {
         tvAutoCallStatusLabel = view.findViewById(R.id.tvAutoCallStatusLabel)
         tvAutoCallStatusName = view.findViewById(R.id.tvAutoCallStatusName)
         tvAutoCallStatusTimer = view.findViewById(R.id.tvAutoCallStatusTimer)
+        tvAutoCallStatusInfo = view.findViewById(R.id.tvAutoCallStatusInfo)
         setupAutoCallControls()
 
         val user = FirebaseAuth.getInstance().currentUser
@@ -535,9 +538,17 @@ class CallCenterFragment : Fragment() {
 
     /** Phase: gap period before the next dial. Shows who's about to be called + a live
      *  countdown in seconds. Caller ticks this down every second from autoCallGapSeconds. */
-    private fun showAutoCallCountdown(name: String, secondsRemaining: Int) {
+    private fun showAutoCallCountdown(item: CallCenterParcelItem, secondsRemaining: Int) {
+        val dialCount = DialCountStore.get(requireContext(), item.id)
+        val infoLine = buildString {
+            if (item.cod > 0) append("💵 ৳${item.cod}")
+            if (dialCount > 0) { if (isNotEmpty()) append("  •  "); append("📞 ${dialCount}x attempt") }
+            if (item.address.isNotBlank()) { if (isNotEmpty()) append("  •  "); append("📍 ${item.address.take(35).trimEnd()}") }
+        }
         tvAutoCallStatusLabel.text = "পরবর্তী কল আসছে"
-        tvAutoCallStatusName.text = name
+        tvAutoCallStatusName.text = item.customer
+        tvAutoCallStatusInfo.text = infoLine
+        tvAutoCallStatusInfo.visibility = if (infoLine.isNotEmpty()) View.VISIBLE else View.GONE
         tvAutoCallStatusTimer.text = secondsRemaining.toString()
         tvAutoCallStatusTimer.visibility = View.VISIBLE
         cardAutoCallStatus.visibility = View.VISIBLE
@@ -545,13 +556,21 @@ class CallCenterFragment : Fragment() {
 
     /** Phase: current call is active (dial just fired). Shows who's next in queue after this
      *  one — no timer, since we don't know when the current call will end. */
-    private fun showAutoCallNextPreview(nextName: String?) {
-        if (nextName == null) {
+    private fun showAutoCallNextPreview(nextItem: CallCenterParcelItem?) {
+        if (nextItem == null) {
             hideAutoCallStatus()
             return
         }
+        val dialCount = DialCountStore.get(requireContext(), nextItem.id)
+        val infoLine = buildString {
+            if (nextItem.cod > 0) append("💵 ৳${nextItem.cod}")
+            if (dialCount > 0) { if (isNotEmpty()) append("  •  "); append("📞 ${dialCount}x attempt") }
+            if (nextItem.address.isNotBlank()) { if (isNotEmpty()) append("  •  "); append("📍 ${nextItem.address.take(35).trimEnd()}") }
+        }
         tvAutoCallStatusLabel.text = "এরপর কল যাবে"
-        tvAutoCallStatusName.text = nextName
+        tvAutoCallStatusName.text = nextItem.customer
+        tvAutoCallStatusInfo.text = infoLine
+        tvAutoCallStatusInfo.visibility = if (infoLine.isNotEmpty()) View.VISIBLE else View.GONE
         tvAutoCallStatusTimer.visibility = View.GONE
         cardAutoCallStatus.visibility = View.VISIBLE
     }
@@ -606,9 +625,12 @@ class CallCenterFragment : Fragment() {
                 switchAutoCall.isChecked = false
                 return
             }
-            autoCallQueue = eligible.map { it.phone }
-            autoCallQueueIds = eligible.map { it.id }
-            autoCallQueueNames = eligible.map { it.customer }
+            val seenPhones = mutableSetOf<String>()
+            val dedupedEligible = eligible.filter { seenPhones.add(it.phone.trim()) }
+            autoCallQueue = dedupedEligible.map { it.phone }
+            autoCallQueueIds = dedupedEligible.map { it.id }
+            autoCallQueueNames = dedupedEligible.map { it.customer }
+            autoCallQueueItems = dedupedEligible
             autoCallIndex = 0
             // Mark the whole fresh queue as "waiting its turn".
             autoCallQueueIds.forEach { id -> callCardStates[id] = colorCallQueued }
@@ -649,7 +671,7 @@ class CallCenterFragment : Fragment() {
 
                 // Preview who's next while this call is active. No timer here — we don't
                 // know when the current call will end.
-                showAutoCallNextPreview(autoCallQueueNames.getOrNull(autoCallIndex))
+                showAutoCallNextPreview(autoCallQueueItems.getOrNull(autoCallIndex))
 
                 // Wait for the call to actually END, not just for the agent's focus to
                 // return to this screen — the two are NOT the same thing. Android often lets
@@ -700,10 +722,10 @@ class CallCenterFragment : Fragment() {
 
                 // Short breather before the next dial — shown as a live countdown instead of
                 // a silent delay, so it's clear who's coming up and exactly when.
-                val upcomingName = autoCallQueueNames.getOrNull(autoCallIndex)
-                if (upcomingName != null) {
+                val upcomingItem = autoCallQueueItems.getOrNull(autoCallIndex)
+                if (upcomingItem != null) {
                     for (remaining in autoCallGapSeconds downTo 1) {
-                        showAutoCallCountdown(upcomingName, remaining)
+                        showAutoCallCountdown(upcomingItem, remaining)
                         delay(1000L)
                     }
                     hideAutoCallStatus() // about to dial — next-preview (above) takes over from here
@@ -717,6 +739,7 @@ class CallCenterFragment : Fragment() {
                 autoCallQueue = emptyList()
                 autoCallQueueIds = emptyList()
                 autoCallQueueNames = emptyList()
+                autoCallQueueItems = emptyList()
                 autoCallIndex = 0
                 hideAutoCallStatus()
                 Toast.makeText(requireContext(), "Auto Call finished", Toast.LENGTH_SHORT).show()
@@ -751,6 +774,7 @@ class CallCenterFragment : Fragment() {
         autoCallQueue = emptyList()
         autoCallQueueIds = emptyList()
         autoCallQueueNames = emptyList()
+        autoCallQueueItems = emptyList()
         autoCallIndex = 0
         recallModeActive = false
         if (::cardAutoCallStatus.isInitialized) hideAutoCallStatus()
@@ -2831,6 +2855,8 @@ class CallCenterFragment : Fragment() {
             // Don't collapse — set expansion to the notification target before submit
             adapter.expandedItemId = targetId
             pendingExpandParcelId = null
+        } else if (autoCallJob?.isActive == true && adapter.expandedItemId != null) {
+            // Auto-call running — keep the expanded card's drawer open for remarks entry.
         } else if (adapter.expandedItemId != null && filtered.none { it.id == adapter.expandedItemId }) {
             // Whatever was expanded fell out of the current filter/tab — nothing to show it
             // against, so collapse it. Otherwise leave adapter.expandedItemId alone: this
