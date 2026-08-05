@@ -18,6 +18,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import coil.load
@@ -141,9 +142,9 @@ class BranchEditFragment : Fragment() {
                 selectedManagerUid  = item.id
                 selectedManagerName = item.name
                 btnSelectManager.text = item.name
-                btnSelectManager.setTextColor(0xFFFFFFFF.toInt())
+                btnSelectManager.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
                 tvManagerSelected.text = item.sub
-                tvManagerSelected.setTextColor(0xFF00D4FF.toInt())
+                tvManagerSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
                 btnClearManager.visibility = View.VISIBLE
             }
         }
@@ -161,9 +162,9 @@ class BranchEditFragment : Fragment() {
             showSearchPicker("Select Parent Branch", allBranches.filter { it.id != myId }) { item ->
                 selectedParentId = item.id
                 btnSelectParentBranch.text = item.name
-                btnSelectParentBranch.setTextColor(0xFFFFFFFF.toInt())
+                btnSelectParentBranch.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
                 tvParentSelected.text = item.sub
-                tvParentSelected.setTextColor(0xFF00D4FF.toInt())
+                tvParentSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
                 btnClearParentBranch.visibility = View.VISIBLE
             }
         }
@@ -287,9 +288,9 @@ class BranchEditFragment : Fragment() {
         }
         if (selectedManagerName.isNotBlank()) {
             btnSelectManager.text = selectedManagerName
-            btnSelectManager.setTextColor(0xFFFFFFFF.toInt())
+            btnSelectManager.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
             tvManagerSelected.text = allEmployees.find { it.id == selectedManagerUid }?.sub ?: ""
-            tvManagerSelected.setTextColor(0xFF00D4FF.toInt())
+            tvManagerSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
             btnClearManager.visibility = View.VISIBLE
         }
 
@@ -297,9 +298,9 @@ class BranchEditFragment : Fragment() {
         if (selectedParentId.isNotBlank()) {
             val parentName = allBranches.find { it.id == selectedParentId }?.name ?: selectedParentId
             btnSelectParentBranch.text = parentName
-            btnSelectParentBranch.setTextColor(0xFFFFFFFF.toInt())
+            btnSelectParentBranch.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
             tvParentSelected.text = allBranches.find { it.id == selectedParentId }?.sub ?: ""
-            tvParentSelected.setTextColor(0xFF00D4FF.toInt())
+            tvParentSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
             btnClearParentBranch.visibility = View.VISIBLE
         }
     }
