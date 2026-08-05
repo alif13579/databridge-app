@@ -17,7 +17,7 @@ import androidx.fragment.app.Fragment
  *  [x] 1. Dashboard               -> PettyCashDashboardFragment (done)
  *  [ ] 2. Deposit Fund            -> PettyCashDepositFundFragment
  *  [x] 3. Pending Settlement List -> PettyCashPendingSettlementFragment (done)
- *  [ ] 4. Settlement Details      -> PettyCashSettlementDetailsFragment
+ *  [x] 4. Settlement Details      -> PettyCashSettlementDetailsFragment (done)
  *  [ ] 5. Settlement Success      -> PettyCashSettlementSuccessFragment
  *  [ ] 6. Deposit History         -> PettyCashDepositHistoryFragment
  *  [ ] 7. Settlement History      -> PettyCashSettlementHistoryFragment
@@ -48,11 +48,11 @@ class PettyCashDepositFundFragment : Fragment() {
     }
 }
 
-class PettyCashSettlementDetailsFragment : Fragment() {
+class PettyCashSettlementSuccessFragment : Fragment() {
     private var branchId: String = ""
     private var requestCode: String = ""
     companion object {
-        fun newInstance(branchId: String, requestCode: String) = PettyCashSettlementDetailsFragment().apply {
+        fun newInstance(branchId: String, requestCode: String) = PettyCashSettlementSuccessFragment().apply {
             arguments = Bundle().apply {
                 putString("branch_id", branchId)
                 putString("request_code", requestCode)
@@ -62,7 +62,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         branchId = arguments?.getString("branch_id").orEmpty()
         requestCode = arguments?.getString("request_code").orEmpty()
-        return placeholderView(requireContext(), "Settlement Details\n$requestCode")
+        return placeholderView(requireContext(), "Settlement Success\n$requestCode")
     }
 }
 

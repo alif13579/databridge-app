@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F1F5F9">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Toolbar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="12dp"
+            android:background="#FFFFFF">
+
+            <ImageButton
+                android:id="@+id/btnPcDetailBack"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@android:drawable/ic_menu_revert"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Back" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Settlement Details"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A"
+                android:layout_marginStart="8dp" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/pbPcDetailLoading"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="60dp"
+            android:visibility="gone" />
+
+        <ScrollView
+            android:id="@+id/scrollPcDetail"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:clipToPadding="false"
+            android:paddingBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <!-- Request code + priority -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/tvPcDetailCode"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="#0F172A" />
+
+                    <TextView
+                        android:id="@+id/tvPcDetailPriority"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="High"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:textColor="#C2410C"
+                        android:paddingHorizontal="10dp"
+                        android:paddingVertical="4dp"
+                        android:background="@drawable/bg_pc_badge_high" />
+                </LinearLayout>
+
+                <!-- Worker row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="12dp">
+
+                    <TextView
+                        android:id="@+id/tvPcDetailWorkerInitial"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:gravity="center"
+                        android:textSize="15sp"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:background="#E2E8F0" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginStart="10dp">
+
+                        <TextView
+                            android:id="@+id/tvPcDetailWorkerName"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="#0F172A" />
+
+                        <TextView
+                            android:id="@+id/tvPcDetailWorkerRole"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textSize="12sp"
+                            android:textColor="#94A3B8" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Category / Amount card -->
+                <androidx.cardview.widget.CardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    app:cardCornerRadius="14dp"
+                    app:cardElevation="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="14dp">
+
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcCategory" />
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcAmount" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- Purpose -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Purpose"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="#64748B"
+                    android:layout_marginTop="18dp" />
+
+                <TextView
+                    android:id="@+id/tvPcDetailPurpose"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textSize="13sp"
+                    android:textColor="#334155"
+                    android:lineSpacingExtra="3dp" />
+
+                <!-- Attachment -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Attachment"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="#64748B"
+                    android:layout_marginTop="18dp" />
+
+                <androidx.cardview.widget.CardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:padding="12dp">
+
+                        <TextView
+                            android:id="@+id/tvPcDetailAttachmentName"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:textSize="13sp"
+                            android:textColor="#334155" />
+
+                        <TextView
+                            android:id="@+id/btnPcDetailAttachmentView"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="\u2B07"
+                            android:textSize="16sp"
+                            android:padding="6dp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- Approval Info -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Approval Info"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="#64748B"
+                    android:layout_marginTop="20dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcApprovalSteps"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="8dp" />
+
+                <!-- Settlement Summary -->
+                <androidx.cardview.widget.CardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    app:cardCornerRadius="14dp"
+                    app:cardElevation="1dp"
+                    app:cardBackgroundColor="#F0FDF4">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="14dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Settlement Summary"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:textColor="#166534"
+                            android:layout_marginBottom="6dp" />
+
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryCurrentBalance" />
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryRequestAmount" />
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryRemaining" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- Action buttons -->
+                <Button
+                    android:id="@+id/btnPcDetailSettleNow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    android:text="Settle Now"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#059669"
+                    android:paddingVertical="12dp" />
+
+                <Button
+                    android:id="@+id/btnPcDetailReject"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Reject"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:textColor="#DC2626"
+                    android:backgroundTint="#FEE2E2"
+                    android:paddingVertical="12dp" />
+
+            </LinearLayout>
+        </ScrollView>
+    </LinearLayout>
+</FrameLayout>
