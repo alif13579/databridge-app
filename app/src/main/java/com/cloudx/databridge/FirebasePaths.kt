@@ -69,4 +69,17 @@ object FirebasePaths {
     fun cashManagementLedger(branchId: String) = "cash_management/$branchId/ledger"
     // cash_management/{branchId}/defaultProvider -> provider name string
     fun cashManagementDefaultProvider(branchId: String) = "cash_management/$branchId/defaultProvider"
+
+    /* ── Petty Cash / Convenience Bill Management ────────────────────
+     * Flow: Worker request -> Team Aligned -> Cash POC -> Accounts settlement
+     */
+    // petty_cash/{branchId}/requests/{requestId} -> PettyCashRequest
+    fun pettyCashRequests(branchId: String) = "petty_cash/$branchId/requests"
+    fun pettyCashRequest(branchId: String, requestId: String) = "petty_cash/$branchId/requests/$requestId"
+    // petty_cash/{branchId}/wallet/balance -> Double
+    fun pettyCashWalletBalance(branchId: String) = "petty_cash/$branchId/wallet/balance"
+    // petty_cash/{branchId}/wallet/deposits/{depositId} -> PettyCashDeposit
+    fun pettyCashDeposits(branchId: String) = "petty_cash/$branchId/wallet/deposits"
+    // petty_cash_roles/{branchId} -> PettyCashBranchRoles (team aligned / cash poc / accounts assignment)
+    fun pettyCashRoles(branchId: String) = "petty_cash_roles/$branchId"
 }

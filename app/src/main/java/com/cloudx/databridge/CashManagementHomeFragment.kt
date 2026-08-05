@@ -119,6 +119,13 @@ class CashManagementHomeFragment : Fragment() {
         }
         tvViewAllActivity.setOnClickListener { showViewAllPicker() }
 
+        view.findViewById<View>(R.id.cardPettyCashEntry).setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashDashboardFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+
         vm.state.observe(viewLifecycleOwner) { state -> render(state) }
 
         if (branchId.isBlank()) {
