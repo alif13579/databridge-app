@@ -839,6 +839,10 @@ class CallCenterFragment : Fragment() {
                         verifyAndIncrementDialCount(item.id, item.phone)
                         callCardStates[item.id] = colorCallDone
                         pushCallStates()
+                        // Expand this card's remarks drawer immediately so it's visible to
+                        // anyone else on the same screen that this parcel is being worked on.
+                        pendingExpandParcelId = item.id
+                        applyFilters()
                     }
                 },
                 onSwipeLeft = { position ->
