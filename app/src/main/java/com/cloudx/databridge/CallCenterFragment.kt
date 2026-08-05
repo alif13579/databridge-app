@@ -96,6 +96,8 @@ class CallCenterFragment : Fragment() {
     // reject/invalid-number/network-fail than a genuine unanswered ring — left for manual
     // review instead of risking a wrong auto-classification.
     private val AUTO_NO_ANSWER_MIN_RING_SECONDS = 30
+    private var autoRedialEnabled = false
+    private var autoRedialMaxTimes = 2
     // Distinctive, code-controlled text — nothing else in the app produces this exact string —
     // so recall candidates can be identified by a plain text match on the latest remark
     // instead of threading a new field through the whole remarks-parsing pipeline.
@@ -361,6 +363,9 @@ class CallCenterFragment : Fragment() {
         autoCallStatuses = (prefs.getStringSet("cc_auto_call_statuses", setOf("pending")) ?: setOf("pending")).toMutableSet()
         autoCallAgeEnabled = prefs.getBoolean("cc_auto_call_age_enabled", false)
         autoCallMinAgeDays = prefs.getInt("cc_auto_call_min_age_days", 3)
+        val togglePrefs = requireContext().getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
+        autoRedialEnabled = togglePrefs.getBoolean("auto_redial", false)
+        autoRedialMaxTimes = togglePrefs.getInt("auto_redial_count", 2).coerceIn(1, 5)
 
         switchAutoCall.setOnCheckedChangeListener(null)
         switchAutoCall.isChecked = false
@@ -716,7 +721,38 @@ class CallCenterFragment : Fragment() {
                     DialCountStore.increment(ctx, id)
                 }
 
-                if (talkDurationSec == 0 && totalDurationSec >= AUTO_NO_ANSWER_MIN_RING_SECONDS) {
+                val noAnswer = talkDurationSec == 0 && totalDurationSec >= AUTO_NO_ANSWER_MIN_RING_SECONDS
+
+                if (noAnswer && autoRedialEnabled) {
+                    var redialAttempts = 0
+                    while (redialAttempts < autoRedialMaxTimes) {
+                        redialAttempts++
+                        val redialItem = autoCallQueueItems.find { it.id == id }
+                        if (redialItem != null) {
+                            for (remaining in autoCallGapSeconds downTo 1) {
+                                showAutoCallCountdown(redialItem, remaining)
+                                delay(1000L)
+                            }
+                        }
+                        hideAutoCallStatus()
+                        val redialStartMs = System.currentTimeMillis()
+                        AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
+                        showAutoCallNextPreview(autoCallQueueItems.getOrNull(autoCallIndex))
+                        val redialRealEnd = CallStateWatcher.awaitCallEnd(ctx, AUTO_CALL_RETURN_TIMEOUT_MS)
+                        hideAutoCallStatus()
+                        if (!redialRealEnd) {
+                            hasPausedSincePendingDial = false
+                            val d2 = CompletableDeferred<Unit>(); resumeSignal = d2
+                            withTimeoutOrNull(AUTO_CALL_RETURN_TIMEOUT_MS) { d2.await() }; resumeSignal = null
+                        }
+                        delay(1000L)
+                        val redialTalk = CallLogHelper.getLastCallDurationSeconds(ctx, phone, redialStartMs)
+                        val redialTotal = ((System.currentTimeMillis() - redialStartMs) / 1000L).toInt()
+                        if (redialTalk != null && redialTalk > 0) break // answered — stop
+                        if (redialTotal < AUTO_NO_ANSWER_MIN_RING_SECONDS) break // auto-cut — stop
+                    }
+                    allParcels.find { it.id == id }?.let { item -> saveAutoNoAnswerRemark(item) }
+                } else if (noAnswer) {
                     allParcels.find { it.id == id }?.let { item -> saveAutoNoAnswerRemark(item) }
                 }
 
