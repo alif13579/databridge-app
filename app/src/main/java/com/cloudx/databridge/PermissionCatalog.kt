@@ -24,6 +24,7 @@ object PermissionCatalog {
         Perm("nav_team",           "Employees",       "View and manage employees"),
         Perm("nav_config",         "Config",          "App config: remarks, language, statuses, sheets"),
         Perm("nav_cash_management","Cash Management", "Branch cash collection & MFS reconciliation"),
+        Perm("nav_petty_cash",     "Petty Cash",      "Worker convenience bill requests & approval chain"),
     )
 
     /** Helper to get a mutable permissions map with defaults (false). */

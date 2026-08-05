@@ -82,67 +82,6 @@
                     android:orientation="vertical"
                     android:visibility="gone">
 
-                    <!-- Petty Cash Management entry -->
-                    <androidx.cardview.widget.CardView
-                        android:id="@+id/cardPettyCashEntry"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginHorizontal="16dp"
-                        android:layout_marginBottom="10dp"
-                        app:cardCornerRadius="14dp"
-                        app:cardElevation="1dp"
-                        android:foreground="?attr/selectableItemBackground"
-                        android:clickable="true"
-                        android:focusable="true">
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:gravity="center_vertical"
-                            android:padding="14dp">
-
-                            <TextView
-                                android:layout_width="34dp"
-                                android:layout_height="34dp"
-                                android:text="\uD83D\uDCB3"
-                                android:textSize="15sp"
-                                android:gravity="center"
-                                android:background="#D1FAE5" />
-
-                            <LinearLayout
-                                android:layout_width="0dp"
-                                android:layout_weight="1"
-                                android:layout_height="wrap_content"
-                                android:orientation="vertical"
-                                android:layout_marginStart="10dp">
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="Petty Cash Management"
-                                    android:textSize="13sp"
-                                    android:textStyle="bold"
-                                    android:textColor="#0F172A" />
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="Worker requests, approvals &amp; settlement"
-                                    android:textSize="11sp"
-                                    android:textColor="#64748B" />
-                            </LinearLayout>
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="\u203A"
-                                android:textSize="18sp"
-                                android:textColor="#94A3B8" />
-                        </LinearLayout>
-                    </androidx.cardview.widget.CardView>
-
-                    <!-- Hero card -->
                     <androidx.cardview.widget.CardView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
