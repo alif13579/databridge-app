@@ -169,7 +169,7 @@ class CashManagementViewModel : ViewModel() {
             .addOnSuccessListener { refresh(); onDone(true) }
             .addOnFailureListener { e ->
                 FirebaseErrorLogger.log(
-                    screen = "CashManagementFragment", action = "add_collection",
+                    screen = "CashManagement", action = "add_collection",
                     errorMessage = e.message ?: "unknown",
                     extra = mapOf("branchId" to branchId)
                 )
@@ -191,7 +191,7 @@ class CashManagementViewModel : ViewModel() {
             .addOnSuccessListener { refresh(); onDone(true) }
             .addOnFailureListener { e ->
                 FirebaseErrorLogger.log(
-                    screen = "CashManagementFragment", action = "add_provider",
+                    screen = "CashManagement", action = "add_provider",
                     errorMessage = e.message ?: "unknown",
                     extra = mapOf("branchId" to branchId, "provider" to name)
                 )
@@ -213,7 +213,7 @@ class CashManagementViewModel : ViewModel() {
             .addOnSuccessListener { refresh(); onDone(true) }
             .addOnFailureListener { e ->
                 FirebaseErrorLogger.log(
-                    screen = "CashManagementFragment", action = "remove_provider",
+                    screen = "CashManagement", action = "remove_provider",
                     errorMessage = e.message ?: "unknown",
                     extra = mapOf("branchId" to branchId, "provider" to providerName)
                 )
@@ -227,7 +227,7 @@ class CashManagementViewModel : ViewModel() {
             .addOnSuccessListener { refresh(); onDone(true) }
             .addOnFailureListener { e ->
                 FirebaseErrorLogger.log(
-                    screen = "CashManagementFragment", action = "update_collection",
+                    screen = "CashManagement", action = "update_collection",
                     errorMessage = e.message ?: "unknown",
                     extra = mapOf("branchId" to branchId, "entryId" to entryId)
                 )
@@ -241,7 +241,7 @@ class CashManagementViewModel : ViewModel() {
             .addOnSuccessListener { refresh(); onDone(true) }
             .addOnFailureListener { e ->
                 FirebaseErrorLogger.log(
-                    screen = "CashManagementFragment", action = "delete_collection",
+                    screen = "CashManagement", action = "delete_collection",
                     errorMessage = e.message ?: "unknown",
                     extra = mapOf("branchId" to branchId, "entryId" to entryId)
                 )
@@ -257,7 +257,7 @@ class CashManagementViewModel : ViewModel() {
             .addOnSuccessListener { refresh(); onDone(true) }
             .addOnFailureListener { e ->
                 FirebaseErrorLogger.log(
-                    screen = "CashManagementFragment", action = "update_ledger_entry_$type",
+                    screen = "CashManagement", action = "update_ledger_entry_$type",
                     errorMessage = e.message ?: "unknown",
                     extra = mapOf("branchId" to branchId, "provider" to providerName, "entryId" to entryId)
                 )
@@ -271,7 +271,7 @@ class CashManagementViewModel : ViewModel() {
             .addOnSuccessListener { refresh(); onDone(true) }
             .addOnFailureListener { e ->
                 FirebaseErrorLogger.log(
-                    screen = "CashManagementFragment", action = "delete_ledger_entry_$type",
+                    screen = "CashManagement", action = "delete_ledger_entry_$type",
                     errorMessage = e.message ?: "unknown",
                     extra = mapOf("branchId" to branchId, "provider" to providerName, "entryId" to entryId)
                 )
@@ -295,7 +295,7 @@ class CashManagementViewModel : ViewModel() {
             .addOnSuccessListener { refresh(); onDone(true) }
             .addOnFailureListener { e ->
                 FirebaseErrorLogger.log(
-                    screen = "CashManagementFragment", action = "add_ledger_entry_$type",
+                    screen = "CashManagement", action = "add_ledger_entry_$type",
                     errorMessage = e.message ?: "unknown",
                     extra = mapOf("branchId" to branchId, "provider" to providerName)
                 )

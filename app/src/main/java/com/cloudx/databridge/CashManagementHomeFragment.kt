@@ -29,10 +29,10 @@ import java.util.TimeZone
  * Home/dashboard entry point for Cash Management: hero "need to pay" card,
  * 4-step Collection -> Deposit -> Ready to Pay -> Paid to Hub flow, wallet
  * balances, recent activity, and quick actions (Add Collection / Deposit /
- * Pay to Hub) via a bottom bar + speed-dial FAB.
+ * Pay to Hub) via a speed-dial FAB.
  *
- * "View all" / "Manage" currently bridge to the older tab-based
- * CashManagementFragment until dedicated list/manage screens are built.
+ * "View all" opens a Collections/Deposits/Payments picker leading into
+ * CashLedgerListFragment; "Manage" opens ManageWalletsFragment.
  */
 class CashManagementHomeFragment : Fragment() {
 
@@ -292,11 +292,17 @@ class CashManagementHomeFragment : Fragment() {
 
     private fun buildWalletCards(accounts: List<MfsAccountSummary>) {
         layoutWalletCards.removeAllViews()
-        val known = listOf("Rocket", "bKash", "Nagad", "Upay")
-        val names = (known + accounts.map { it.provider }).distinct()
-        names.forEach { name ->
-            val account = accounts.find { it.provider == name }
-            val balance = account?.balance ?: 0.0
+        if (accounts.isEmpty()) {
+            layoutWalletCards.addView(TextView(requireContext()).apply {
+                text = "No wallets yet -- add one from the speed dial."
+                textSize = 12f
+                setTextColor(0xFF94A3B8.toInt())
+                setPadding(dp(4), dp(10), dp(4), dp(10))
+            })
+            return
+        }
+        accounts.sortedByDescending { it.balance }.forEach { account ->
+            val name = account.provider
             val (bg, fg) = channelColor(name)
             val card = layoutInflater.inflate(R.layout.item_wallet_card, layoutWalletCards, false)
             val tvIcon = card.findViewById<TextView>(R.id.tvWalletIcon)
@@ -306,7 +312,7 @@ class CashManagementHomeFragment : Fragment() {
             tvIcon.setTextColor(android.graphics.Color.parseColor(fg))
             tvIcon.background = roundedDrawable(bg, dp(17))
             tvName.text = name
-            tvBalance.text = taka(balance)
+            tvBalance.text = taka(account.balance)
             card.setOnClickListener {
                 parentFragmentManager.beginTransaction()
                     .replace(R.id.container, ManageWalletsFragment.newInstance(branchId))
