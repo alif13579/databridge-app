@@ -429,8 +429,11 @@ class DataBridgeService : Service() {
             // whole time it's connected. Scoped to source == "session" only, same as the
             // alert/vibrate block above, so a container migration replaying older records
             // never overwrites the clipboard with stale text.
-            if (source == "session" && togglePrefs.getBoolean("auto_copy", false) && record.cleaned.isNotEmpty()) {
-                copyRecordToClipboard(record.cleaned)
+            // Use record.text (not record.cleaned) for clipboard — cleaned strips spaces from
+            // non-phone values (e.g. "TANJIR RAHAMAN" → "TANJIRRAHAMAN"), which is wrong for
+            // display/paste use. text always has the original value as the user sent it.
+            if (source == "session" && togglePrefs.getBoolean("auto_copy", false) && record.text.isNotBlank()) {
+                copyRecordToClipboard(record.text)
             }
         }
     }
