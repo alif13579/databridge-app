@@ -17,6 +17,7 @@ data class Branch(
     val manager_name: String   = "",
     val accountant_uid: String = "",
     val accountant_name: String = "",
+    val accountant_role: String = "",
     val parent_branch_id: String = "",
     val status: String         = "active",
     val image_url: String      = "",

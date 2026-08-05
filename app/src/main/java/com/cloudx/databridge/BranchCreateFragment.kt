@@ -51,11 +51,13 @@ class BranchCreateFragment : Fragment() {
 
     private val allEmployees = mutableListOf<PickerItem>()
     private val allBranches  = mutableListOf<PickerItem>()
+    private val allRoles     = mutableListOf<PickerItem>()
 
     private var selectedManagerUid  = ""
     private var selectedManagerName = ""
     private var selectedAccountantUid  = ""
     private var selectedAccountantName = ""
+    private var selectedAccountantRole = ""
     private var selectedParentId    = ""
     private var selectedImageUri: Uri? = null
     private var uploadedImageUrl      = ""
@@ -156,9 +158,16 @@ class BranchCreateFragment : Fragment() {
         }
 
         btnSelectAccountant.setOnClickListener {
-            showSearchPicker("Select Accountant", allEmployees) { item ->
-                selectedAccountantUid  = item.id
-                selectedAccountantName = item.name
+            showSearchPicker("Select Accountant (role or person)", allRoles + allEmployees) { item ->
+                if (item.id.startsWith("role:")) {
+                    selectedAccountantRole = item.id.removePrefix("role:")
+                    selectedAccountantUid  = ""
+                    selectedAccountantName = item.name
+                } else {
+                    selectedAccountantRole = ""
+                    selectedAccountantUid  = item.id
+                    selectedAccountantName = item.name
+                }
                 btnSelectAccountant.text = item.name
                 btnSelectAccountant.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
                 tvAccountantSelected.text = item.sub
@@ -169,6 +178,7 @@ class BranchCreateFragment : Fragment() {
         btnClearAccountant.setOnClickListener {
             selectedAccountantUid  = ""
             selectedAccountantName = ""
+            selectedAccountantRole = ""
             btnSelectAccountant.text = "Tap to select accountant ▾"
             btnSelectAccountant.setTextColor(0xFF888888.toInt())
             tvAccountantSelected.text = "None selected"
@@ -257,14 +267,29 @@ class BranchCreateFragment : Fragment() {
             usersSnap.children.forEach { child ->
                 val uid   = child.key ?: return@forEach
                 val role  = child.child("profile/company_info/role_id").getValue(String::class.java) ?: ""
-                if (role in listOf("admin", "manager", "supervisor", "stuff", "worker")) {
-                    val name  = child.child("profile/name").getValue(String::class.java)
-                               ?: child.child("profile/email").getValue(String::class.java)
-                               ?: uid.take(8)
-                    val empId = child.child("profile/company_info/employee_id").getValue(String::class.java) ?: ""
-                    val desig = child.child("profile/company_info/designation").getValue(String::class.java)
-                               ?: EmployeeFragment.ROLE_LABELS[role] ?: role
-                    allEmployees.add(PickerItem(uid, name, desig, empId))
+                val name  = child.child("profile/name").getValue(String::class.java)
+                           ?: child.child("profile/email").getValue(String::class.java)
+                           ?: uid.take(8)
+                val empId = child.child("profile/company_info/employee_id").getValue(String::class.java) ?: ""
+                val desig = child.child("profile/company_info/designation").getValue(String::class.java)
+                           ?: EmployeeFragment.ROLE_LABELS[role] ?: role
+                allEmployees.add(PickerItem(uid, name, desig, empId))
+            }
+
+            // Any role, not just the handful of built-ins — merge built-in labels with whatever
+            // custom roles the admin has configured via Access Manager (roles/{roleId}).
+            allRoles.clear()
+            val seenRoleIds = mutableSetOf<String>()
+            EmployeeFragment.ROLE_LABELS.forEach { (roleId, label) ->
+                allRoles.add(PickerItem("role:$roleId", label, "Role — everyone with this role at this branch"))
+                seenRoleIds.add(roleId)
+            }
+            val rolesSnap = db.reference.child("roles").get().await()
+            rolesSnap.children.forEach { child ->
+                val roleId = child.key ?: return@forEach
+                if (roleId !in seenRoleIds) {
+                    val roleName = child.child("name").getValue(String::class.java) ?: roleId
+                    allRoles.add(PickerItem("role:$roleId", roleName, "Role — everyone with this role at this branch"))
                 }
             }
 
@@ -319,6 +344,7 @@ class BranchCreateFragment : Fragment() {
                     manager_name    = selectedManagerName,
                     accountant_uid  = selectedAccountantUid,
                     accountant_name = selectedAccountantName,
+                    accountant_role = selectedAccountantRole,
                     parent_branch_id = selectedParentId,
                     status          = status,
                     image_url       = imageUrl,

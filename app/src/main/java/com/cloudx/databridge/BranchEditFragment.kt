@@ -46,10 +46,13 @@ class BranchEditFragment : Fragment() {
 
     private val allEmployees = mutableListOf<PickerItem>()
     private val allBranches  = mutableListOf<PickerItem>()
+    private val allRoles     = mutableListOf<PickerItem>()
+    private val branchEmployeeUids = mutableSetOf<String>()
     private var selectedManagerUid  = ""
     private var selectedManagerName = ""
     private var selectedAccountantUid  = ""
     private var selectedAccountantName = ""
+    private var selectedAccountantRole = ""
     private var selectedParentId    = ""
     private var originalManagerUid  = ""
     private var originalAccountantUid  = ""
@@ -167,9 +170,18 @@ class BranchEditFragment : Fragment() {
             btnClearManager.visibility = View.GONE
         }
         btnSelectAccountant.setOnClickListener {
-            showSearchPicker("Select Accountant", allEmployees) { item ->
-                selectedAccountantUid  = item.id
-                selectedAccountantName = item.name
+            val branchScopedEmployees = allEmployees.filter { it.id in branchEmployeeUids }
+            val combined = allRoles + branchScopedEmployees
+            showSearchPicker("Select Accountant (role or person)", combined) { item ->
+                if (item.id.startsWith("role:")) {
+                    selectedAccountantRole = item.id.removePrefix("role:")
+                    selectedAccountantUid  = ""
+                    selectedAccountantName = item.name
+                } else {
+                    selectedAccountantRole = ""
+                    selectedAccountantUid  = item.id
+                    selectedAccountantName = item.name
+                }
                 btnSelectAccountant.text = item.name
                 btnSelectAccountant.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
                 tvAccountantSelected.text = item.sub
@@ -180,6 +192,7 @@ class BranchEditFragment : Fragment() {
         btnClearAccountant.setOnClickListener {
             selectedAccountantUid  = ""
             selectedAccountantName = ""
+            selectedAccountantRole = ""
             btnSelectAccountant.text = "Tap to select accountant ▾"
             btnSelectAccountant.setTextColor(0xFF888888.toInt())
             tvAccountantSelected.text = "None selected"
@@ -259,16 +272,34 @@ class BranchEditFragment : Fragment() {
             val thisSnap   = db.reference.child("branches/$branchId").get().await()
 
             allEmployees.clear()
+            branchEmployeeUids.clear()
+            thisSnap.child("employees").children.forEach { e -> e.key?.let { branchEmployeeUids.add(it) } }
+
             usersSnap.children.forEach { c ->
                 val uid   = c.key ?: return@forEach
                 val role  = c.child("profile/company_info/role_id").getValue(String::class.java) ?: ""
-                if (role in listOf("admin","manager","supervisor","stuff","worker")) {
-                    val name  = c.child("profile/name").getValue(String::class.java)
-                               ?: c.child("profile/email").getValue(String::class.java) ?: uid.take(8)
-                    val empId = c.child("profile/company_info/employee_id").getValue(String::class.java) ?: ""
-                    val desig = c.child("profile/company_info/designation").getValue(String::class.java)
-                               ?: EmployeeFragment.ROLE_LABELS[role] ?: role
-                    allEmployees.add(PickerItem(uid, name, desig, empId))
+                val name  = c.child("profile/name").getValue(String::class.java)
+                           ?: c.child("profile/email").getValue(String::class.java) ?: uid.take(8)
+                val empId = c.child("profile/company_info/employee_id").getValue(String::class.java) ?: ""
+                val desig = c.child("profile/company_info/designation").getValue(String::class.java)
+                           ?: EmployeeFragment.ROLE_LABELS[role] ?: role
+                allEmployees.add(PickerItem(uid, name, desig, empId))
+            }
+
+            // Any role, not just the handful of built-ins — merge built-in labels with whatever
+            // custom roles the admin has configured via Access Manager (roles/{roleId}).
+            allRoles.clear()
+            val seenRoleIds = mutableSetOf<String>()
+            EmployeeFragment.ROLE_LABELS.forEach { (roleId, label) ->
+                allRoles.add(PickerItem("role:$roleId", label, "Role — everyone with this role at this branch"))
+                seenRoleIds.add(roleId)
+            }
+            val rolesSnap = db.reference.child("roles").get().await()
+            rolesSnap.children.forEach { c ->
+                val roleId = c.key ?: return@forEach
+                if (roleId !in seenRoleIds) {
+                    val roleName = c.child("name").getValue(String::class.java) ?: roleId
+                    allRoles.add(PickerItem("role:$roleId", roleName, "Role — everyone with this role at this branch"))
                 }
             }
 
@@ -310,6 +341,7 @@ class BranchEditFragment : Fragment() {
         originalManagerUid  = selectedManagerUid
         selectedAccountantUid  = snap.child("accountant_uid").getValue(String::class.java) ?: ""
         selectedAccountantName = snap.child("accountant_name").getValue(String::class.java) ?: ""
+        selectedAccountantRole = snap.child("accountant_role").getValue(String::class.java) ?: ""
         originalAccountantUid  = selectedAccountantUid
         uploadedImageUrl    = snap.child("image_url").getValue(String::class.java) ?: ""
         if (uploadedImageUrl.isNotBlank()) {
@@ -328,7 +360,10 @@ class BranchEditFragment : Fragment() {
         if (selectedAccountantName.isNotBlank()) {
             btnSelectAccountant.text = selectedAccountantName
             btnSelectAccountant.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
-            tvAccountantSelected.text = allEmployees.find { it.id == selectedAccountantUid }?.sub ?: ""
+            tvAccountantSelected.text = if (selectedAccountantRole.isNotBlank())
+                "Role — everyone with this role at this branch"
+            else
+                allEmployees.find { it.id == selectedAccountantUid }?.sub ?: ""
             tvAccountantSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
             btnClearAccountant.visibility = View.VISIBLE
         }
@@ -374,6 +409,7 @@ class BranchEditFragment : Fragment() {
                     "branches/$branchId/manager_name"    to selectedManagerName,
                     "branches/$branchId/accountant_uid"  to selectedAccountantUid,
                     "branches/$branchId/accountant_name" to selectedAccountantName,
+                    "branches/$branchId/accountant_role" to selectedAccountantRole,
                     "branches/$branchId/parent_branch_id" to selectedParentId,
                     "branches/$branchId/status"          to status,
                     "branches/$branchId/updated_at"      to now,
