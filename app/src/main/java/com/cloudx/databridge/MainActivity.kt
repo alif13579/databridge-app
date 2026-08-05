@@ -328,6 +328,13 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                     if (branchId.isNotBlank()) loadFragment(CashManagementHomeFragment.newInstance(branchId))
                     else Toast.makeText(this, "No branch assigned to this account", Toast.LENGTH_SHORT).show()
                 }
+                R.id.nav_petty_cash -> {
+                    // Same branch-resolution pattern as nav_cash_management above.
+                    // Role gating lives in PermissionCatalog ("nav_petty_cash").
+                    val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
+                    if (branchId.isNotBlank()) loadFragment(PettyCashDashboardFragment.newInstance(branchId))
+                    else Toast.makeText(this, "No branch assigned to this account", Toast.LENGTH_SHORT).show()
+                }
                 R.id.nav_login     -> launchGoogleSignIn()
                 R.id.nav_logout    -> confirmLogout()
             }
@@ -527,6 +534,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         }
         menu.findItem(R.id.nav_cash_management)?.apply {
             isVisible = RbacManager.hasPermission("nav_cash_management")
+        }
+        menu.findItem(R.id.nav_petty_cash)?.apply {
+            isVisible = RbacManager.hasPermission("nav_petty_cash")
         }
 
         // Primary nav items – no role gating; only permission-based

@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F1F5F9">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Toolbar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="12dp"
+            android:background="#FFFFFF">
+
+            <ImageButton
+                android:id="@+id/btnPcFilterBack"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@android:drawable/ic_menu_revert"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Back" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Filter"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A"
+                android:layout_marginStart="8dp" />
+        </LinearLayout>
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:clipToPadding="false"
+            android:paddingBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <!-- Date Range -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Date Range"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#334155" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="6dp">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="From"
+                            android:textSize="11sp"
+                            android:textColor="#94A3B8" />
+
+                        <TextView
+                            android:id="@+id/tvPcFilterDateFrom"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:layout_marginTop="4dp"
+                            android:background="@drawable/bg_pc_input"
+                            android:gravity="center_vertical"
+                            android:paddingHorizontal="12dp"
+                            android:textSize="13sp"
+                            android:textColor="#0F172A"
+                            android:clickable="true"
+                            android:focusable="true" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="10dp"
+                        android:layout_height="1dp" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="To"
+                            android:textSize="11sp"
+                            android:textColor="#94A3B8" />
+
+                        <TextView
+                            android:id="@+id/tvPcFilterDateTo"
+                            android:layout_width="match_parent"
+                            android:layout_height="48dp"
+                            android:layout_marginTop="4dp"
+                            android:background="@drawable/bg_pc_input"
+                            android:gravity="center_vertical"
+                            android:paddingHorizontal="12dp"
+                            android:textSize="13sp"
+                            android:textColor="#0F172A"
+                            android:clickable="true"
+                            android:focusable="true" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Status -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Status"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#334155"
+                    android:layout_marginTop="20dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcFilterStatusOptions"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="4dp" />
+
+                <!-- Category -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Category"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#334155"
+                    android:layout_marginTop="20dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcFilterCategory"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_pc_input"
+                    android:paddingHorizontal="14dp"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <TextView
+                        android:id="@+id/tvPcFilterCategorySelected"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="All Categories"
+                        android:textSize="14sp"
+                        android:textColor="#0F172A" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="\u25BC"
+                        android:textSize="11sp"
+                        android:textColor="#94A3B8" />
+                </LinearLayout>
+
+                <!-- Worker Category -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Worker Category"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#334155"
+                    android:layout_marginTop="16dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcFilterWorkerCategory"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_pc_input"
+                    android:paddingHorizontal="14dp"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <TextView
+                        android:id="@+id/tvPcFilterWorkerCategorySelected"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="All Categories"
+                        android:textSize="14sp"
+                        android:textColor="#0F172A" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="\u25BC"
+                        android:textSize="11sp"
+                        android:textColor="#94A3B8" />
+                </LinearLayout>
+
+                <!-- Reset / Apply -->
+                <Button
+                    android:id="@+id/btnPcFilterReset"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:text="Reset"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:textColor="#334155"
+                    android:backgroundTint="#FFFFFF"
+                    android:paddingVertical="12dp" />
+
+                <Button
+                    android:id="@+id/btnPcFilterApply"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Apply Filter"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#059669"
+                    android:paddingVertical="12dp" />
+
+            </LinearLayout>
+        </ScrollView>
+    </LinearLayout>
+</FrameLayout>
