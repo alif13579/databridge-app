@@ -76,6 +76,12 @@ class PettyCashPendingSettlementFragment : Fragment() {
         view.findViewById<View>(R.id.btnPcPendingBack).setOnClickListener {
             parentFragmentManager.popBackStack()
         }
+        view.findViewById<View>(R.id.btnPcPendingHistory).setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashSettlementHistoryFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
         view.findViewById<View>(R.id.btnPcPendingFilter).setOnClickListener {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))

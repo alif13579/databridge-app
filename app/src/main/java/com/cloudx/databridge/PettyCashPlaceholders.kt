@@ -20,7 +20,7 @@ import androidx.fragment.app.Fragment
  *  [x] 4. Settlement Details      -> PettyCashSettlementDetailsFragment (done)
  *  [x] 5. Settlement Success      -> PettyCashSettlementSuccessFragment (done)
  *  [x] 6. Deposit History         -> PettyCashDepositHistoryFragment (done)
- *  [ ] 7. Settlement History      -> PettyCashSettlementHistoryFragment
+ *  [x] 7. Settlement History      -> PettyCashSettlementHistoryFragment (done)
  *  [ ] 8. All Requests            -> PettyCashAllRequestsFragment
  *  [ ] 9. Wallet Summary          -> PettyCashWalletSummaryFragment
  *  [ ] 10. Filter / Search        -> PettyCashFilterFragment
