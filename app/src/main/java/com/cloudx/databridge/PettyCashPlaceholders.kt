@@ -19,7 +19,7 @@ import androidx.fragment.app.Fragment
  *  [x] 3. Pending Settlement List -> PettyCashPendingSettlementFragment (done)
  *  [x] 4. Settlement Details      -> PettyCashSettlementDetailsFragment (done)
  *  [x] 5. Settlement Success      -> PettyCashSettlementSuccessFragment (done)
- *  [ ] 6. Deposit History         -> PettyCashDepositHistoryFragment
+ *  [x] 6. Deposit History         -> PettyCashDepositHistoryFragment (done)
  *  [ ] 7. Settlement History      -> PettyCashSettlementHistoryFragment
  *  [ ] 8. All Requests            -> PettyCashAllRequestsFragment
  *  [ ] 9. Wallet Summary          -> PettyCashWalletSummaryFragment
@@ -32,19 +32,6 @@ private fun placeholderView(context: android.content.Context, title: String): Vi
         gravity = Gravity.CENTER
         setTextColor(0xFF64748B.toInt())
         setPadding(48, 200, 48, 48)
-    }
-}
-
-class PettyCashDepositHistoryFragment : Fragment() {
-    private var branchId: String = ""
-    companion object {
-        fun newInstance(branchId: String) = PettyCashDepositHistoryFragment().apply {
-            arguments = Bundle().apply { putString("branch_id", branchId) }
-        }
-    }
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        branchId = arguments?.getString("branch_id").orEmpty()
-        return placeholderView(requireContext(), "Deposit History")
     }
 }
 
