@@ -16,7 +16,7 @@ import androidx.fragment.app.Fragment
  * Phase plan (mockup screens):
  *  [x] 1. Dashboard               -> PettyCashDashboardFragment (done)
  *  [ ] 2. Deposit Fund            -> PettyCashDepositFundFragment
- *  [ ] 3. Pending Settlement List -> PettyCashPendingSettlementFragment
+ *  [x] 3. Pending Settlement List -> PettyCashPendingSettlementFragment (done)
  *  [ ] 4. Settlement Details      -> PettyCashSettlementDetailsFragment
  *  [ ] 5. Settlement Success      -> PettyCashSettlementSuccessFragment
  *  [ ] 6. Deposit History         -> PettyCashDepositHistoryFragment
@@ -48,19 +48,6 @@ class PettyCashDepositFundFragment : Fragment() {
     }
 }
 
-class PettyCashPendingSettlementFragment : Fragment() {
-    private var branchId: String = ""
-    companion object {
-        fun newInstance(branchId: String) = PettyCashPendingSettlementFragment().apply {
-            arguments = Bundle().apply { putString("branch_id", branchId) }
-        }
-    }
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        branchId = arguments?.getString("branch_id").orEmpty()
-        return placeholderView(requireContext(), "Pending Settlement List")
-    }
-}
-
 class PettyCashSettlementDetailsFragment : Fragment() {
     private var branchId: String = ""
     private var requestCode: String = ""
@@ -89,5 +76,18 @@ class PettyCashAllRequestsFragment : Fragment() {
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         branchId = arguments?.getString("branch_id").orEmpty()
         return placeholderView(requireContext(), "All Requests")
+    }
+}
+
+class PettyCashFilterFragment : Fragment() {
+    private var branchId: String = ""
+    companion object {
+        fun newInstance(branchId: String) = PettyCashFilterFragment().apply {
+            arguments = Bundle().apply { putString("branch_id", branchId) }
+        }
+    }
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+        branchId = arguments?.getString("branch_id").orEmpty()
+        return placeholderView(requireContext(), "Filter / Search")
     }
 }
