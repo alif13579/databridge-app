@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F1F5F9">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true"
+        android:clipToPadding="false"
+        android:paddingBottom="24dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <!-- Checkmark -->
+            <TextView
+                android:id="@+id/tvPcSuccessCheck"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="24dp"
+                android:text="\u2713"
+                android:textSize="34sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:gravity="center"
+                android:background="@drawable/bg_pc_success_check" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="16dp"
+                android:text="Settlement Successful!"
+                android:textSize="19sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A" />
+
+            <TextView
+                android:id="@+id/tvPcSuccessSubtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="4dp"
+                android:textSize="13sp"
+                android:textColor="#64748B"
+                android:gravity="center" />
+
+            <!-- Settled amount + new balance card -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="1dp"
+                app:cardBackgroundColor="#F0FDF4">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Settled Amount"
+                        android:textSize="12sp"
+                        android:textColor="#166534" />
+
+                    <TextView
+                        android:id="@+id/tvPcSuccessSettledAmount"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:fontFamily="monospace"
+                        android:textStyle="bold"
+                        android:textSize="22sp"
+                        android:textColor="#0F172A" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:layout_marginVertical="12dp"
+                        android:background="#BBF7D0" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="New Available Balance"
+                        android:textSize="12sp"
+                        android:textColor="#166534" />
+
+                    <TextView
+                        android:id="@+id/tvPcSuccessNewBalance"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:fontFamily="monospace"
+                        android:textStyle="bold"
+                        android:textSize="20sp"
+                        android:textColor="#0F172A" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Settlement details -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Settlement Details"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#64748B"
+                android:layout_marginTop="20dp" />
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                app:cardCornerRadius="14dp"
+                app:cardElevation="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="14dp">
+
+                    <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSuccessPaymentMethod" />
+                    <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSuccessSettledOn" />
+                    <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSuccessSettledBy" />
+                    <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSuccessTrxId" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Actions -->
+            <Button
+                android:id="@+id/btnPcSuccessViewDetails"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="View Details"
+                android:textAllCaps="false"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#059669"
+                android:paddingVertical="12dp" />
+
+            <TextView
+                android:id="@+id/btnPcSuccessBackToDashboard"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="14dp"
+                android:text="Back to Dashboard"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#059669"
+                android:padding="6dp"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true" />
+
+        </LinearLayout>
+    </ScrollView>
+</FrameLayout>
