@@ -395,6 +395,10 @@ class WorkerSpaceFragment : Fragment() {
                 onSwipeRight = { position ->
                     adapter.currentList.getOrNull(position)?.let { item ->
                         AutoDialHelper.dial(this, item.phone)
+                        // Expand this card's remarks drawer immediately so it's visible to
+                        // anyone else on the same screen that this parcel is being worked on.
+                        adapter.expandedItemId = item.id
+                        adapter.notifyDataSetChanged()
                     }
                 },
                 onSwipeLeft = { position ->
