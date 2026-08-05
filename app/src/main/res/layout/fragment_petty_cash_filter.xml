@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#F1F5F9">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#FFFFFF"
+        android:padding="14dp">
+
+        <ImageButton
+            android:id="@+id/btnFilterBack"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_revert"
+            android:contentDescription="Back" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Filter"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:textColor="#0F172A" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Date Range -->
+            <TextView
+                style="@style/DashboardSectionLabel"
+                android:text="DATE RANGE" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="From"
+                        android:textSize="12sp"
+                        android:textColor="#64748B"
+                        android:layout_marginBottom="4dp" />
+
+                    <LinearLayout
+                        android:id="@+id/btnFromDate"
+                        android:layout_width="match_parent"
+                        android:layout_height="46dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:background="@drawable/bg_input_rounded"
+                        android:paddingHorizontal="12dp"
+                        android:clickable="true"
+                        android:focusable="true">
+
+                        <TextView
+                            android:id="@+id/tvFromDate"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="01 Jul 2025"
+                            android:textSize="13sp"
+                            android:textColor="#0F172A" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📅"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="10dp"
+                    android:layout_height="1dp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="To"
+                        android:textSize="12sp"
+                        android:textColor="#64748B"
+                        android:layout_marginBottom="4dp" />
+
+                    <LinearLayout
+                        android:id="@+id/btnToDate"
+                        android:layout_width="match_parent"
+                        android:layout_height="46dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:background="@drawable/bg_input_rounded"
+                        android:paddingHorizontal="12dp"
+                        android:clickable="true"
+                        android:focusable="true">
+
+                        <TextView
+                            android:id="@+id/tvToDate"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="01 Aug 2025"
+                            android:textSize="13sp"
+                            android:textColor="#0F172A" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="📅"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- Status -->
+            <TextView
+                style="@style/DashboardSectionLabel"
+                android:layout_marginTop="20dp"
+                android:text="STATUS" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_card_rounded"
+                android:padding="12dp"
+                android:layout_marginTop="8dp">
+
+                <CheckBox
+                    android:id="@+id/cbStatusPending"
+                    style="@style/PettyCashFilterCheckbox"
+                    android:text="Pending Approval"
+                    android:checked="true" />
+
+                <CheckBox
+                    android:id="@+id/cbStatusApproved"
+                    style="@style/PettyCashFilterCheckbox"
+                    android:text="Approved (Waiting Settlement)"
+                    android:checked="true" />
+
+                <CheckBox
+                    android:id="@+id/cbStatusSettled"
+                    style="@style/PettyCashFilterCheckbox"
+                    android:text="Settled"
+                    android:checked="true" />
+
+                <CheckBox
+                    android:id="@+id/cbStatusRejected"
+                    style="@style/PettyCashFilterCheckbox"
+                    android:text="Rejected"
+                    android:checked="true" />
+            </LinearLayout>
+
+            <!-- Category -->
+            <TextView
+                style="@style/DashboardSectionLabel"
+                android:layout_marginTop="20dp"
+                android:text="CATEGORY" />
+
+            <LinearLayout
+                android:id="@+id/btnCategory"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_input_rounded"
+                android:paddingHorizontal="12dp"
+                android:layout_marginTop="8dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:id="@+id/tvCategoryValue"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="All Categories"
+                    android:textSize="13sp"
+                    android:textColor="#0F172A" />
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:src="@android:drawable/arrow_down_float"
+                    app:tint="#64748B" />
+            </LinearLayout>
+
+            <!-- Worker Category -->
+            <TextView
+                style="@style/DashboardSectionLabel"
+                android:layout_marginTop="20dp"
+                android:text="WORKER CATEGORY" />
+
+            <LinearLayout
+                android:id="@+id/btnWorkerCategory"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_input_rounded"
+                android:paddingHorizontal="12dp"
+                android:layout_marginTop="8dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:id="@+id/tvWorkerCategoryValue"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="All Categories"
+                    android:textSize="13sp"
+                    android:textColor="#0F172A" />
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:src="@android:drawable/arrow_down_float"
+                    app:tint="#64748B" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Bottom action bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="#FFFFFF"
+        android:padding="14dp"
+        android:elevation="8dp">
+
+        <TextView
+            android:id="@+id/btnFilterReset"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="46dp"
+            android:gravity="center"
+            android:text="Reset"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#0F172A"
+            android:background="@drawable/bg_input_rounded"
+            android:clickable="true"
+            android:focusable="true" />
+
+        <View
+            android:layout_width="10dp"
+            android:layout_height="1dp" />
+
+        <TextView
+            android:id="@+id/btnFilterApply"
+            android:layout_width="0dp"
+            android:layout_weight="2"
+            android:layout_height="46dp"
+            android:gravity="center"
+            android:text="Apply Filter"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/btn_call_green"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+</LinearLayout>

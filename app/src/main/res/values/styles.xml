@@ -13,4 +13,15 @@
         <item name="android:layout_marginTop">4dp</item>
     </style>
 
+    <!-- Matches item_agent_checkbox.xml's look, for inline <CheckBox> use (petty cash filter) -->
+    <style name="PettyCashFilterCheckbox">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/theme_text_primary</item>
+        <item name="android:paddingTop">8dp</item>
+        <item name="android:paddingBottom">8dp</item>
+        <item name="android:paddingStart">4dp</item>
+    </style>
+
 </resources>
