@@ -36,6 +36,11 @@ class SettingsFragment : Fragment() {
     private lateinit var switchIncomingAlert: Switch
     private lateinit var switchSound: Switch
     private lateinit var switchAutoCopy: Switch
+    private lateinit var switchRedial: Switch
+    private lateinit var layoutRedialCount: View
+    private lateinit var tvRedialCount: android.widget.TextView
+    private lateinit var tvRedialMinus: android.widget.TextView
+    private lateinit var tvRedialPlus: android.widget.TextView
     // ✅ Dark mode toggle removed from settings — now in drawer header
     private lateinit var layoutLogin: LinearLayout
     private lateinit var tvLoginStatus: TextView
@@ -82,6 +87,11 @@ class SettingsFragment : Fragment() {
         switchIncomingAlert  = binding.findViewById(R.id.switchIncomingAlert)
         switchSound          = binding.findViewById(R.id.switchSound)
         switchAutoCopy       = binding.findViewById(R.id.switchAutoCopy)
+        switchRedial         = binding.findViewById(R.id.switchRedial)
+        layoutRedialCount    = binding.findViewById(R.id.layoutRedialCount)
+        tvRedialCount        = binding.findViewById(R.id.tvRedialCount)
+        tvRedialMinus        = binding.findViewById(R.id.tvRedialMinus)
+        tvRedialPlus         = binding.findViewById(R.id.tvRedialPlus)
         // switchDarkMode removed — controlled from drawer toggle
         layoutLogin          = binding.findViewById(R.id.layoutLogin)
         tvLoginStatus        = binding.findViewById(R.id.tvLoginStatus)
@@ -170,6 +180,31 @@ class SettingsFragment : Fragment() {
         switchSound.isChecked = togglePrefs.getBoolean("sound_on_receive", true)
         switchSound.setOnCheckedChangeListener { _, isChecked ->
             togglePrefs.edit().putBoolean("sound_on_receive", isChecked).apply()
+        }
+
+        // ── Redial settings ──
+        val redialEnabled = togglePrefs.getBoolean("auto_redial", false)
+        var redialCount = togglePrefs.getInt("auto_redial_count", 2).coerceIn(1, 5)
+        switchRedial.isChecked = redialEnabled
+        layoutRedialCount.visibility = if (redialEnabled) View.VISIBLE else View.GONE
+        tvRedialCount.text = redialCount.toString()
+        switchRedial.setOnCheckedChangeListener { _, isChecked ->
+            togglePrefs.edit().putBoolean("auto_redial", isChecked).apply()
+            layoutRedialCount.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+        tvRedialMinus.setOnClickListener {
+            if (redialCount > 1) {
+                redialCount--
+                tvRedialCount.text = redialCount.toString()
+                togglePrefs.edit().putInt("auto_redial_count", redialCount).apply()
+            }
+        }
+        tvRedialPlus.setOnClickListener {
+            if (redialCount < 5) {
+                redialCount++
+                tvRedialCount.text = redialCount.toString()
+                togglePrefs.edit().putInt("auto_redial_count", redialCount).apply()
+            }
         }
 
         switchAutoCopy.setOnCheckedChangeListener(null)
