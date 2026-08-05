@@ -1794,13 +1794,19 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
-    /** COD sum only, from the currently-loaded live run (allParcels) — remarks_by_userId
-     *  doesn't carry a cod/collectableAmount field, so this can't move to
-     *  loadTodayRemarksStats() the way total/confirmed/pending did. This is a genuinely
-     *  different scope too: "today's" summary (loadTodayRemarksStats) vs the currently
-     *  assigned live run (this function) — they just happen to have shared a stat row before. */
+    /** Sum of collectableAmount across every currently-loaded parcel, no status filter —
+     *  the old `it.status == "confirmed"` filter matched nothing real ("confirmed" was
+     *  never an actual written status anywhere in the remark-save logic, only in this
+     *  and a couple of similarly-broken comparisons elsewhere), so this always summed to 0
+     *  regardless of actual expected COD.
+     *
+     *  Scoped to the currently-loaded live run (allParcels), not "today" overall —
+     *  remarks_by_userId doesn't carry a cod/collectableAmount field, so this can't move
+     *  to loadTodayRemarksStats() the way total/confirmed/pending did. Genuinely a
+     *  different scope too: cash expected from the current live run vs today's action
+     *  count — they just happened to share a stat row before. */
     private fun updateCounts() {
-        val totalCod = allParcels.filter { it.status == "confirmed" }.sumOf { it.cod }
+        val totalCod = allParcels.sumOf { it.cod }
         tvTodayCod.text = "৳$totalCod"
     }
 
