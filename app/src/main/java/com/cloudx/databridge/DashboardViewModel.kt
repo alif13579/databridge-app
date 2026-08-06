@@ -190,6 +190,54 @@ class DashboardViewModel : ViewModel() {
         load(_dateRange.value ?: todayRange())
     }
 
+    // ── Expand-in-place (Phase 3: recursive multi-level grouping) ──────────────
+    // A row's own chevron shows ITS subordinates nested/indented directly under it in the
+    // same list — same subordinatePool()/rollup resolution as drill-down, just rendered in
+    // place instead of replacing the whole screen. Lazy: nothing is fetched until a row is
+    // actually expanded, so this stays bounded-reads regardless of how many tiers exist.
+    private val _expandedRows = MutableLiveData<Map<String, List<AgentStat>>>(emptyMap())
+    val expandedRows: LiveData<Map<String, List<AgentStat>>> = _expandedRows
+
+    fun toggleExpand(uid: String, roleId: String, branchIds: List<String>) {
+        val current = _expandedRows.value ?: emptyMap()
+        if (uid in current) {
+            // Collapse: also drop this row's own already-expanded children (recursive
+            // prune) so re-expanding later starts clean instead of showing stale grandchildren.
+            val toRemove = mutableSetOf(uid)
+            var frontier = setOf(uid)
+            while (frontier.isNotEmpty()) {
+                val next = mutableSetOf<String>()
+                frontier.forEach { u -> current[u]?.forEach { child -> if (child.agentId in current) next += child.agentId } }
+                toRemove += next
+                frontier = next
+            }
+            _expandedRows.value = current - toRemove
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val range = _dateRange.value ?: todayRange()
+                val startKey = dateKey(range.startTs)
+                val endKey = dateKey(range.endTs)
+                // Never an admin bypass here, same convention as drill-down — expanding a
+                // row resolves THAT person's own subordinates on their own standing, not
+                // the root viewer's.
+                val subordinates = subordinatePool(uid, roleId, branchIds.toSet(), isAdmin = false)
+                val children = if (subordinates.isEmpty()) {
+                    emptyList()
+                } else if (_rollupMode.value != false) {
+                    loadTieredRollups(subordinates, startKey, endKey, range.startTs, range.endTs)
+                } else {
+                    loadSubordinateAgentStats(subordinates, startKey, endKey, range.startTs, range.endTs)
+                }.map { it.stat }
+                _expandedRows.value = (_expandedRows.value ?: emptyMap()) + (uid to children)
+            } catch (_: Exception) {
+                // Silent — an expand failing just leaves the chevron collapsed; the row's
+                // own stat (already visible) is unaffected.
+            }
+        }
+    }
+
     // ── Date helpers ─────────────────────────────────────────────────────────
 
     companion object {
@@ -278,6 +326,8 @@ class DashboardViewModel : ViewModel() {
 
     private fun load(range: DateRange) {
         loadJob?.cancel()
+        _expandedRows.value = emptyMap() // new top-level rows are coming — any old expansion
+                                          // would refer to a stale/different row's children
         loadJob = viewModelScope.launch {
             // If we already have data on screen, this is a refresh (pull-to-refresh, a chip
             // tap, or a branch-filter change) — keep that data visible and just flip the

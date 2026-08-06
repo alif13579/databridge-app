@@ -69,6 +69,8 @@ class DashboardFragment : Fragment() {
     // ── Manager rollup-toggle state (mirrors vm.rollupMode; used by showSuccess() to
     // label the agent section "Supervisor Performance" vs "Worker Performance") ──
     private var currentRollupMode: Boolean = true
+    private var lastAgents: List<AgentStat> = emptyList() // for expandedRows re-renders,
+                                                            // which fire independently of state
 
     // ── Colors (theme-aware — resolved via requireContext() so they follow the
     // active day/night theme; must not be read before the fragment has a context) ──
@@ -248,6 +250,11 @@ class DashboardFragment : Fragment() {
                 tvDrillBreadcrumb.text = "← " + stack.joinToString(" / ") { it.name }
             }
         }
+        // Fires independently of vm.state (a chevron tap doesn't touch state) — re-render
+        // against whatever agent list showSuccess() last cached.
+        vm.expandedRows.observe(viewLifecycleOwner) { expanded ->
+            buildAgentRows(lastAgents, expanded)
+        }
         // Refresh-with-existing-data path: keep the current Success view up, just show
         // swipeRefresh's own spinner instead of the full-screen Loading view (see load()).
         vm.isRefreshing.observe(viewLifecycleOwner) { refreshing ->
@@ -381,7 +388,8 @@ class DashboardFragment : Fragment() {
             state.hasSubordinates                      -> "Direct Reports"
             else                                        -> "Agent Performance"
         }
-        if (showAgents) buildAgentRows(state.agents)
+        lastAgents = state.agents
+        if (showAgents) buildAgentRows(state.agents, vm.expandedRows.value ?: emptyMap())
     }
 
     // ── Per-status overview cards ────────────────────────────────────────────────
@@ -444,37 +452,63 @@ class DashboardFragment : Fragment() {
     }
 
     // ── Agent rows ─────────────────────────────────────────────────────────────
+    // Phase 3 (recursive multi-level grouping): each row's tvAgentRunId — always blank here,
+    // runId is never set on a dashboard AgentStat — is repurposed as an expand/collapse
+    // chevron instead of adding a new view. Expanding fetches that row's own subordinates
+    // lazily (vm.toggleExpand) and renders them indented directly beneath it in this same
+    // list, recursively — not a separate nested-tree data structure, just this function
+    // calling itself one level deeper. Tapping the REST of the row still drills in (replaces
+    // the whole screen) — two different ways to go deeper, chevron for a quick peek in
+    // place, row-tap for full focus.
 
-    private fun buildAgentRows(agents: List<AgentStat>) {
+    private fun buildAgentRows(agents: List<AgentStat>, expandedRows: Map<String, List<AgentStat>>) {
         layoutAgentRows.removeAllViews()
-        agents.forEachIndexed { i, agent ->
-            val row = layoutInflater.inflate(R.layout.item_agent_stat, layoutAgentRows, false)
+        val rank = intArrayOf(1)
+        agents.forEach { renderAgentRow(it, expandedRows, depth = 0, rank) }
+    }
 
-            row.findViewById<TextView>(R.id.tvAgentRank).text      = "#${i + 1}"
-            row.findViewById<TextView>(R.id.tvAgentName).text      = agent.agentName
-            row.findViewById<TextView>(R.id.tvAgentRunId).text     = agent.runId
-            row.findViewById<TextView>(R.id.tvAgentDelivered).text = "${agent.delivered}✓"
-            row.findViewById<TextView>(R.id.tvAgentReturned).text  = "${agent.returned}↩"
-            row.findViewById<TextView>(R.id.tvAgentOnHold).text    = "${agent.onHold}⏸"
+    private fun renderAgentRow(agent: AgentStat, expandedRows: Map<String, List<AgentStat>>, depth: Int, rank: IntArray) {
+        val row = layoutInflater.inflate(R.layout.item_agent_stat, layoutAgentRows, false)
 
-            val rateView = row.findViewById<TextView>(R.id.tvAgentRate)
-            rateView.text = "${agent.deliveryRate}%"
-            rateView.setTextColor(when {
-                agent.deliveryRate >= 70 -> colorGreen
-                agent.deliveryRate >= 50 -> colorAmber
-                else                     -> colorRed
-            })
+        row.findViewById<TextView>(R.id.tvAgentRank).text      = "#${rank[0]}"
+        rank[0]++
+        row.findViewById<TextView>(R.id.tvAgentName).text      = agent.agentName
+        row.findViewById<TextView>(R.id.tvAgentDelivered).text = "${agent.delivered}✓"
+        row.findViewById<TextView>(R.id.tvAgentReturned).text  = "${agent.returned}↩"
+        row.findViewById<TextView>(R.id.tvAgentOnHold).text    = "${agent.onHold}⏸"
 
-            layoutAgentRows.addView(row)
+        val rateView = row.findViewById<TextView>(R.id.tvAgentRate)
+        rateView.text = "${agent.deliveryRate}%"
+        rateView.setTextColor(when {
+            agent.deliveryRate >= 70 -> colorGreen
+            agent.deliveryRate >= 50 -> colorAmber
+            else                     -> colorRed
+        })
 
-            // Tap any row to drill into that person's own subordinates (their own
-            // level/branch scope, not this screen's). Harmless if they turn out to have
-            // nobody below them — that just falls through to their own single-person stat,
-            // same self-only view they'd see logging in themselves.
-            row.isClickable = true
-            row.setOnClickListener {
-                vm.drillInto(agent.agentId, agent.agentName, agent.level, agent.roleId, agent.branchIds)
-            }
+        val isExpanded = agent.agentId in expandedRows
+        val chevron = row.findViewById<TextView>(R.id.tvAgentRunId)
+        chevron.text = if (isExpanded) "▼" else "▶"
+        chevron.isClickable = true
+        chevron.setOnClickListener {
+            vm.toggleExpand(agent.agentId, agent.roleId, agent.branchIds)
+        }
+
+        // Indent nested rows so depth is visually obvious.
+        row.setPadding(row.paddingLeft + depth * 32, row.paddingTop, row.paddingRight, row.paddingBottom)
+
+        layoutAgentRows.addView(row)
+
+        // Tap any row to drill into that person's own subordinates (their own
+        // level/branch scope, not this screen's). Harmless if they turn out to have
+        // nobody below them — that just falls through to their own single-person stat,
+        // same self-only view they'd see logging in themselves.
+        row.isClickable = true
+        row.setOnClickListener {
+            vm.drillInto(agent.agentId, agent.agentName, agent.level, agent.roleId, agent.branchIds)
+        }
+
+        if (isExpanded) {
+            expandedRows[agent.agentId]?.forEach { child -> renderAgentRow(child, expandedRows, depth + 1, rank) }
         }
     }
 
