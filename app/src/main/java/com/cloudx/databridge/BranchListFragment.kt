@@ -211,6 +211,20 @@ class BranchListFragment : Fragment() {
                     db.reference.child("users/${branch.accountantUid}/profile/company_info/branch_ids").setValue(filtered).await()
                 }
 
+                // Petty Cash POC lives in the separate petty_cash_roles/{branchId} node —
+                // fetch it fresh here since it's not part of the branch snapshot itself
+                val pcRolesSnap = db.reference.child("petty_cash_roles/${branch.branchId}").get().await()
+                val pettyCashPocUid = pcRolesSnap.child("cashPocUid").getValue(String::class.java) ?: ""
+                if (pettyCashPocUid.isNotBlank()) {
+                    val idsSnap = db.reference.child("users/$pettyCashPocUid/profile/company_info/branch_ids").get().await()
+                    val ids = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
+                    val filtered = ids.filter { it != branch.branchId }
+                    db.reference.child("users/$pettyCashPocUid/profile/company_info/branch_ids").setValue(filtered).await()
+                }
+                if (pcRolesSnap.exists()) {
+                    db.reference.child("petty_cash_roles/${branch.branchId}").removeValue().await()
+                }
+
                 db.reference.child("branches/${branch.branchId}").removeValue().await()
                 Toast.makeText(requireContext(), "Branch deleted ✓", Toast.LENGTH_SHORT).show()
                 loadData()

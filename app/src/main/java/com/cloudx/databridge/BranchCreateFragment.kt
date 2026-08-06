@@ -58,6 +58,8 @@ class BranchCreateFragment : Fragment() {
     private var selectedAccountantUid  = ""
     private var selectedAccountantName = ""
     private var selectedAccountantRole = ""
+    private var selectedPettyCashPocUid  = ""
+    private var selectedPettyCashPocName = ""
     private var selectedParentId    = ""
     private var selectedImageUri: Uri? = null
     private var uploadedImageUrl      = ""
@@ -78,6 +80,9 @@ class BranchCreateFragment : Fragment() {
     private lateinit var btnSelectAccountant: TextView
     private lateinit var btnClearAccountant: TextView
     private lateinit var tvAccountantSelected: TextView
+    private lateinit var btnSelectPettyCashPoc: TextView
+    private lateinit var btnClearPettyCashPoc: TextView
+    private lateinit var tvPettyCashPocSelected: TextView
     private lateinit var btnSelectParentBranch: TextView
     private lateinit var btnClearParentBranch: TextView
     private lateinit var tvParentSelected: TextView
@@ -112,6 +117,9 @@ class BranchCreateFragment : Fragment() {
         btnSelectAccountant   = view.findViewById(R.id.btnSelectAccountant)
         btnClearAccountant    = view.findViewById(R.id.btnClearAccountant)
         tvAccountantSelected  = view.findViewById(R.id.tvAccountantSelected)
+        btnSelectPettyCashPoc  = view.findViewById(R.id.btnSelectPettyCashPoc)
+        btnClearPettyCashPoc   = view.findViewById(R.id.btnClearPettyCashPoc)
+        tvPettyCashPocSelected = view.findViewById(R.id.tvPettyCashPocSelected)
         btnSelectParentBranch = view.findViewById(R.id.btnSelectParentBranch)
         btnClearParentBranch  = view.findViewById(R.id.btnClearParentBranch)
         tvParentSelected      = view.findViewById(R.id.tvParentBranchSelected)
@@ -184,6 +192,27 @@ class BranchCreateFragment : Fragment() {
             tvAccountantSelected.text = "None selected"
             tvAccountantSelected.setTextColor(0xFF555555.toInt())
             btnClearAccountant.visibility = View.GONE
+        }
+
+        btnSelectPettyCashPoc.setOnClickListener {
+            showSearchPicker("Select Petty Cash POC", allEmployees) { item ->
+                selectedPettyCashPocUid  = item.id
+                selectedPettyCashPocName = item.name
+                btnSelectPettyCashPoc.text = item.name
+                btnSelectPettyCashPoc.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
+                tvPettyCashPocSelected.text = item.sub
+                tvPettyCashPocSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
+                btnClearPettyCashPoc.visibility = View.VISIBLE
+            }
+        }
+        btnClearPettyCashPoc.setOnClickListener {
+            selectedPettyCashPocUid  = ""
+            selectedPettyCashPocName = ""
+            btnSelectPettyCashPoc.text = "Tap to select petty cash POC ▾"
+            btnSelectPettyCashPoc.setTextColor(0xFF888888.toInt())
+            tvPettyCashPocSelected.text = "None selected"
+            tvPettyCashPocSelected.setTextColor(0xFF555555.toInt())
+            btnClearPettyCashPoc.visibility = View.GONE
         }
 
         btnSelectParentBranch.setOnClickListener {
@@ -356,6 +385,13 @@ class BranchCreateFragment : Fragment() {
 
                 db.reference.child("branches/$autoId").setValue(branch).await()
 
+                if (selectedPettyCashPocUid.isNotBlank()) {
+                    // Petty Cash POC lives in the petty_cash_roles/{branchId} node (PettyCashBranchRoles),
+                    // not on the branch itself — that's what the Petty Cash approval chain reads from.
+                    db.reference.child("petty_cash_roles/$autoId/cashPocUid").setValue(selectedPettyCashPocUid).await()
+                    db.reference.child("petty_cash_roles/$autoId/cashPocName").setValue(selectedPettyCashPocName).await()
+                }
+
                 if (selectedManagerUid.isNotBlank()) {
                     // Add branch to manager's branch_ids and ensure branch employees index
                     val idsSnap = db.reference.child("users/$selectedManagerUid/profile/company_info/branch_ids").get().await()
@@ -376,6 +412,17 @@ class BranchCreateFragment : Fragment() {
                     val empId = allEmployees.find { it.id == selectedAccountantUid }?.empId ?: ""
                     db.reference.child("branches/$autoId/employees/$selectedAccountantUid")
                         .setValue(mapOf("user_id" to selectedAccountantUid, "employee_id" to empId)).await()
+                }
+
+                if (selectedPettyCashPocUid.isNotBlank()) {
+                    // Same as manager/accountant: add branch to POC's branch_ids and ensure branch employees index
+                    val idsSnap = db.reference.child("users/$selectedPettyCashPocUid/profile/company_info/branch_ids").get().await()
+                    val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
+                    val newIds = (currentIds + autoId).distinct()
+                    db.reference.child("users/$selectedPettyCashPocUid/profile/company_info/branch_ids").setValue(newIds).await()
+                    val empId = allEmployees.find { it.id == selectedPettyCashPocUid }?.empId ?: ""
+                    db.reference.child("branches/$autoId/employees/$selectedPettyCashPocUid")
+                        .setValue(mapOf("user_id" to selectedPettyCashPocUid, "employee_id" to empId)).await()
                 }
 
                 toast("Branch created ✓")

@@ -49,6 +49,7 @@ class BranchDetailFragment : Fragment() {
     private lateinit var tvBranchAddress: TextView
     private lateinit var tvBranchManager: TextView
     private lateinit var tvBranchAccountant: TextView
+    private lateinit var tvBranchPettyCashPoc: TextView
     private lateinit var tvBranchEmail: TextView
     private lateinit var tvBranchPhone: TextView
     private lateinit var tvBranchStatus: TextView
@@ -76,6 +77,7 @@ class BranchDetailFragment : Fragment() {
         tvBranchAddress = view.findViewById(R.id.tvDetailBranchAddress)
         tvBranchManager = view.findViewById(R.id.tvDetailBranchManager)
         tvBranchAccountant = view.findViewById(R.id.tvDetailBranchAccountant)
+        tvBranchPettyCashPoc = view.findViewById(R.id.tvDetailBranchPettyCashPoc)
         tvBranchEmail   = view.findViewById(R.id.tvDetailBranchEmail)
         tvBranchPhone   = view.findViewById(R.id.tvDetailBranchPhone)
         tvBranchStatus  = view.findViewById(R.id.tvDetailBranchStatus)
@@ -209,6 +211,7 @@ class BranchDetailFragment : Fragment() {
 
             val branchSnap = db.reference.child("branches/$branchId").get().await()
             val rolesSnap  = db.reference.child("roles").get().await()
+            val pcRolesSnap = db.reference.child("petty_cash_roles/$branchId").get().await()
             RoleLevelCache.refresh() // separate get() of the same roles/ node — mirrors
                                       // StatusMetaCache's independently-refreshable pattern
             val name        = branchSnap.child("name").getValue(String::class.java) ?: "Branch"
@@ -218,6 +221,7 @@ class BranchDetailFragment : Fragment() {
             val managerName = branchSnap.child("manager_name").getValue(String::class.java) ?: "—"
             val accountantName = branchSnap.child("accountant_name").getValue(String::class.java) ?: "—"
             val accountantRole = branchSnap.child("accountant_role").getValue(String::class.java) ?: ""
+            val pettyCashPocName = pcRolesSnap.child("cashPocName").getValue(String::class.java) ?: "—"
             val email       = branchSnap.child("email").getValue(String::class.java) ?: ""
             val phone       = branchSnap.child("phone").getValue(String::class.java) ?: ""
             val status      = branchSnap.child("status").getValue(String::class.java) ?: "active"
@@ -238,6 +242,7 @@ class BranchDetailFragment : Fragment() {
             tvBranchAddress.text = if (address.isNotBlank()) "📍 $address" else ""
             tvBranchManager.text = "👤 $managerName"
             tvBranchAccountant.text = "🧾 $accountantName" + if (accountantRole.isNotBlank()) " · role" else ""
+            tvBranchPettyCashPoc.text = "💵 $pettyCashPocName"
             tvBranchEmail.text   = if (email.isNotBlank()) "✉  $email" else ""
             tvBranchPhone.text   = if (phone.isNotBlank()) "📞 $phone" else ""
             tvBranchStatus.text  = if (status == "active") "● Active" else "● Inactive"
