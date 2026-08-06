@@ -300,7 +300,6 @@ class BranchEditFragment : Fragment() {
             val usersSnap  = db.reference.child("users").get().await()
             val allSnap    = db.reference.child("branches").get().await()
             val thisSnap   = db.reference.child("branches/$branchId").get().await()
-            val pcRolesSnap = db.reference.child("petty_cash_roles/$branchId").get().await()
 
             allEmployees.clear()
             branchEmployeeUids.clear()
@@ -343,13 +342,13 @@ class BranchEditFragment : Fragment() {
             }
 
             if (!isAdded) return
-            prefill(thisSnap, pcRolesSnap, branchId)
+            prefill(thisSnap, branchId)
         } catch (e: Exception) {
             if (isAdded) toast("Failed to load: ${e.message}")
         }
     }
 
-    private fun prefill(snap: com.google.firebase.database.DataSnapshot, pcRolesSnap: com.google.firebase.database.DataSnapshot, branchId: String) {
+    private fun prefill(snap: com.google.firebase.database.DataSnapshot, branchId: String) {
         tvId.text = "Branch ID: $branchId"
         etCode.setText(snap.child("branch_code").getValue(String::class.java) ?: "")
         etName.setText(snap.child("name").getValue(String::class.java) ?: "")
@@ -374,8 +373,8 @@ class BranchEditFragment : Fragment() {
         selectedAccountantName = snap.child("accountant_name").getValue(String::class.java) ?: ""
         selectedAccountantRole = snap.child("accountant_role").getValue(String::class.java) ?: ""
         originalAccountantUid  = selectedAccountantUid
-        selectedPettyCashPocUid  = pcRolesSnap.child("cashPocUid").getValue(String::class.java) ?: ""
-        selectedPettyCashPocName = pcRolesSnap.child("cashPocName").getValue(String::class.java) ?: ""
+        selectedPettyCashPocUid  = snap.child("petty_cash_poc_uid").getValue(String::class.java) ?: ""
+        selectedPettyCashPocName = snap.child("petty_cash_poc_name").getValue(String::class.java) ?: ""
         originalPettyCashPocUid  = selectedPettyCashPocUid
         uploadedImageUrl    = snap.child("image_url").getValue(String::class.java) ?: ""
         if (uploadedImageUrl.isNotBlank()) {
@@ -451,8 +450,8 @@ class BranchEditFragment : Fragment() {
                     "branches/$branchId/accountant_uid"  to selectedAccountantUid,
                     "branches/$branchId/accountant_name" to selectedAccountantName,
                     "branches/$branchId/accountant_role" to selectedAccountantRole,
-                    "petty_cash_roles/$branchId/cashPocUid"  to selectedPettyCashPocUid,
-                    "petty_cash_roles/$branchId/cashPocName" to selectedPettyCashPocName,
+                    "branches/$branchId/petty_cash_poc_uid"  to selectedPettyCashPocUid,
+                    "branches/$branchId/petty_cash_poc_name" to selectedPettyCashPocName,
                     "branches/$branchId/parent_branch_id" to selectedParentId,
                     "branches/$branchId/status"          to status,
                     "branches/$branchId/updated_at"      to now,

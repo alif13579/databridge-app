@@ -374,6 +374,8 @@ class BranchCreateFragment : Fragment() {
                     accountant_uid  = selectedAccountantUid,
                     accountant_name = selectedAccountantName,
                     accountant_role = selectedAccountantRole,
+                    petty_cash_poc_uid  = selectedPettyCashPocUid,
+                    petty_cash_poc_name = selectedPettyCashPocName,
                     parent_branch_id = selectedParentId,
                     status          = status,
                     image_url       = imageUrl,
@@ -384,13 +386,6 @@ class BranchCreateFragment : Fragment() {
                 )
 
                 db.reference.child("branches/$autoId").setValue(branch).await()
-
-                if (selectedPettyCashPocUid.isNotBlank()) {
-                    // Petty Cash POC lives in the petty_cash_roles/{branchId} node (PettyCashBranchRoles),
-                    // not on the branch itself — that's what the Petty Cash approval chain reads from.
-                    db.reference.child("petty_cash_roles/$autoId/cashPocUid").setValue(selectedPettyCashPocUid).await()
-                    db.reference.child("petty_cash_roles/$autoId/cashPocName").setValue(selectedPettyCashPocName).await()
-                }
 
                 if (selectedManagerUid.isNotBlank()) {
                     // Add branch to manager's branch_ids and ensure branch employees index

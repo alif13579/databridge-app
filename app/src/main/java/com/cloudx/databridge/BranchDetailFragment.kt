@@ -211,7 +211,6 @@ class BranchDetailFragment : Fragment() {
 
             val branchSnap = db.reference.child("branches/$branchId").get().await()
             val rolesSnap  = db.reference.child("roles").get().await()
-            val pcRolesSnap = db.reference.child("petty_cash_roles/$branchId").get().await()
             RoleLevelCache.refresh() // separate get() of the same roles/ node — mirrors
                                       // StatusMetaCache's independently-refreshable pattern
             val name        = branchSnap.child("name").getValue(String::class.java) ?: "Branch"
@@ -221,7 +220,7 @@ class BranchDetailFragment : Fragment() {
             val managerName = branchSnap.child("manager_name").getValue(String::class.java) ?: "—"
             val accountantName = branchSnap.child("accountant_name").getValue(String::class.java) ?: "—"
             val accountantRole = branchSnap.child("accountant_role").getValue(String::class.java) ?: ""
-            val pettyCashPocName = pcRolesSnap.child("cashPocName").getValue(String::class.java) ?: "—"
+            val pettyCashPocName = branchSnap.child("petty_cash_poc_name").getValue(String::class.java) ?: "—"
             val email       = branchSnap.child("email").getValue(String::class.java) ?: ""
             val phone       = branchSnap.child("phone").getValue(String::class.java) ?: ""
             val status      = branchSnap.child("status").getValue(String::class.java) ?: "active"

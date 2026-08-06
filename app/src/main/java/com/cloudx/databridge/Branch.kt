@@ -18,6 +18,8 @@ data class Branch(
     val accountant_uid: String = "",
     val accountant_name: String = "",
     val accountant_role: String = "",
+    val petty_cash_poc_uid: String = "",
+    val petty_cash_poc_name: String = "",
     val parent_branch_id: String = "",
     val status: String         = "active",
     val image_url: String      = "",

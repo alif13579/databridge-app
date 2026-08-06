@@ -54,6 +54,7 @@ class BranchListFragment : Fragment() {
         val managerUid: String,
         val managerName: String,
         val accountantUid: String,
+        val pettyCashPocUid: String,
         val parentBranchId: String,
         val status: String,
         val imageUrl: String,
@@ -135,6 +136,7 @@ class BranchListFragment : Fragment() {
                         managerUid    = managerUid,
                         managerName   = cachedName ?: "",
                         accountantUid = child.child("accountant_uid").getValue(String::class.java) ?: "",
+                        pettyCashPocUid = child.child("petty_cash_poc_uid").getValue(String::class.java) ?: "",
                         parentBranchId = child.child("parent_branch_id").getValue(String::class.java) ?: "",
                         status        = child.child("status").getValue(String::class.java) ?: "active",
                         imageUrl      = child.child("image_url").getValue(String::class.java) ?: "",
@@ -211,18 +213,12 @@ class BranchListFragment : Fragment() {
                     db.reference.child("users/${branch.accountantUid}/profile/company_info/branch_ids").setValue(filtered).await()
                 }
 
-                // Petty Cash POC lives in the separate petty_cash_roles/{branchId} node —
-                // fetch it fresh here since it's not part of the branch snapshot itself
-                val pcRolesSnap = db.reference.child("petty_cash_roles/${branch.branchId}").get().await()
-                val pettyCashPocUid = pcRolesSnap.child("cashPocUid").getValue(String::class.java) ?: ""
-                if (pettyCashPocUid.isNotBlank()) {
-                    val idsSnap = db.reference.child("users/$pettyCashPocUid/profile/company_info/branch_ids").get().await()
+                // Same for Petty Cash POC's branch_ids
+                if (branch.pettyCashPocUid.isNotBlank()) {
+                    val idsSnap = db.reference.child("users/${branch.pettyCashPocUid}/profile/company_info/branch_ids").get().await()
                     val ids = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
                     val filtered = ids.filter { it != branch.branchId }
-                    db.reference.child("users/$pettyCashPocUid/profile/company_info/branch_ids").setValue(filtered).await()
-                }
-                if (pcRolesSnap.exists()) {
-                    db.reference.child("petty_cash_roles/${branch.branchId}").removeValue().await()
+                    db.reference.child("users/${branch.pettyCashPocUid}/profile/company_info/branch_ids").setValue(filtered).await()
                 }
 
                 db.reference.child("branches/${branch.branchId}").removeValue().await()
