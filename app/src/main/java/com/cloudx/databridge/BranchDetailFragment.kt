@@ -50,6 +50,7 @@ class BranchDetailFragment : Fragment() {
     private lateinit var tvBranchManager: TextView
     private lateinit var tvBranchAccountant: TextView
     private lateinit var tvBranchPettyCashPoc: TextView
+    private lateinit var tvBranchTeamAligned: TextView
     private lateinit var tvBranchEmail: TextView
     private lateinit var tvBranchPhone: TextView
     private lateinit var tvBranchStatus: TextView
@@ -78,6 +79,7 @@ class BranchDetailFragment : Fragment() {
         tvBranchManager = view.findViewById(R.id.tvDetailBranchManager)
         tvBranchAccountant = view.findViewById(R.id.tvDetailBranchAccountant)
         tvBranchPettyCashPoc = view.findViewById(R.id.tvDetailBranchPettyCashPoc)
+        tvBranchTeamAligned = view.findViewById(R.id.tvDetailBranchTeamAligned)
         tvBranchEmail   = view.findViewById(R.id.tvDetailBranchEmail)
         tvBranchPhone   = view.findViewById(R.id.tvDetailBranchPhone)
         tvBranchStatus  = view.findViewById(R.id.tvDetailBranchStatus)
@@ -221,6 +223,8 @@ class BranchDetailFragment : Fragment() {
             val accountantName = branchSnap.child("accountant_name").getValue(String::class.java) ?: "—"
             val accountantRole = branchSnap.child("accountant_role").getValue(String::class.java) ?: ""
             val pettyCashPocName = branchSnap.child("petty_cash_poc_name").getValue(String::class.java) ?: "—"
+            val teamAlignedName = branchSnap.child("team_aligned_name").getValue(String::class.java) ?: "—"
+            val teamAlignedRole = branchSnap.child("team_aligned_role").getValue(String::class.java) ?: ""
             val email       = branchSnap.child("email").getValue(String::class.java) ?: ""
             val phone       = branchSnap.child("phone").getValue(String::class.java) ?: ""
             val status      = branchSnap.child("status").getValue(String::class.java) ?: "active"
@@ -242,6 +246,7 @@ class BranchDetailFragment : Fragment() {
             tvBranchManager.text = "👤 $managerName"
             tvBranchAccountant.text = "🧾 $accountantName" + if (accountantRole.isNotBlank()) " · role" else ""
             tvBranchPettyCashPoc.text = "💵 $pettyCashPocName"
+            tvBranchTeamAligned.text = "🧑‍🤝‍🧑 $teamAlignedName" + if (teamAlignedRole.isNotBlank()) " · role" else ""
             tvBranchEmail.text   = if (email.isNotBlank()) "✉  $email" else ""
             tvBranchPhone.text   = if (phone.isNotBlank()) "📞 $phone" else ""
             tvBranchStatus.text  = if (status == "active") "● Active" else "● Inactive"
