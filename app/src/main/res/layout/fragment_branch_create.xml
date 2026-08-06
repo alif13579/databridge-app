@@ -265,6 +265,39 @@
             android:paddingStart="4dp"
             android:layout_marginBottom="12dp"/>
 
+        <!-- Petty Cash: Team Aligned (dropdown picker, role or individual) -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Petty Cash: Team Aligned" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <RelativeLayout
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:layout_marginBottom="4dp">
+            <TextView
+                android:id="@+id/btnSelectTeamAligned"
+                android:layout_width="match_parent" android:layout_height="match_parent"
+                android:text="Tap to select Team Aligned ▾"
+                android:textColor="@color/theme_text_secondary"
+                android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="44dp"
+                android:gravity="center_vertical"
+                android:clickable="true" android:focusable="true"/>
+            <TextView
+                android:id="@+id/btnClearTeamAligned"
+                android:layout_width="44dp" android:layout_height="match_parent"
+                android:text="✕"
+                android:textColor="@color/theme_red" android:textSize="16sp"
+                android:gravity="center"
+                android:layout_alignParentEnd="true"
+                android:clickable="true" android:focusable="true"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:visibility="gone"/>
+        </RelativeLayout>
+        <TextView
+            android:id="@+id/tvTeamAlignedSelected"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="None selected"
+            android:textColor="@color/theme_text_secondary" android:textSize="12sp"
+            android:paddingStart="4dp"
+            android:layout_marginBottom="12dp"/>
+
         <!-- Parent Branch (dropdown picker) -->
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="Parent Branch (optional)" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>

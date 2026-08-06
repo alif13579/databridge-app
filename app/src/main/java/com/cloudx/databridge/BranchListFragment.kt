@@ -55,6 +55,7 @@ class BranchListFragment : Fragment() {
         val managerName: String,
         val accountantUid: String,
         val pettyCashPocUid: String,
+        val teamAlignedUid: String,
         val parentBranchId: String,
         val status: String,
         val imageUrl: String,
@@ -137,6 +138,7 @@ class BranchListFragment : Fragment() {
                         managerName   = cachedName ?: "",
                         accountantUid = child.child("accountant_uid").getValue(String::class.java) ?: "",
                         pettyCashPocUid = child.child("petty_cash_poc_uid").getValue(String::class.java) ?: "",
+                        teamAlignedUid = child.child("team_aligned_uid").getValue(String::class.java) ?: "",
                         parentBranchId = child.child("parent_branch_id").getValue(String::class.java) ?: "",
                         status        = child.child("status").getValue(String::class.java) ?: "active",
                         imageUrl      = child.child("image_url").getValue(String::class.java) ?: "",
@@ -219,6 +221,14 @@ class BranchListFragment : Fragment() {
                     val ids = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
                     val filtered = ids.filter { it != branch.branchId }
                     db.reference.child("users/${branch.pettyCashPocUid}/profile/company_info/branch_ids").setValue(filtered).await()
+                }
+
+                // Same for Team Aligned's branch_ids
+                if (branch.teamAlignedUid.isNotBlank()) {
+                    val idsSnap = db.reference.child("users/${branch.teamAlignedUid}/profile/company_info/branch_ids").get().await()
+                    val ids = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
+                    val filtered = ids.filter { it != branch.branchId }
+                    db.reference.child("users/${branch.teamAlignedUid}/profile/company_info/branch_ids").setValue(filtered).await()
                 }
 
                 db.reference.child("branches/${branch.branchId}").removeValue().await()
