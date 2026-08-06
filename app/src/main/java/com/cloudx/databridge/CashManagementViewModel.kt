@@ -33,6 +33,7 @@ data class CashCollectionEntry(
     val timestamp: Long = 0L,
     val enteredByName: String = "",
     val enteredByUid: String = "",
+    val isEdited: Boolean = false,
 )
 
 @IgnoreExtraProperties
@@ -44,6 +45,20 @@ data class CashLedgerEntry(
     val timestamp: Long = 0L,
     val enteredByName: String = "",
     val enteredByUid: String = "",
+    val isEdited: Boolean = false,
+)
+
+// Audit trail for edits, stored under each entry's own `history/` child (so it travels
+// with the entry and needs no separate lookup). "Created" is NOT stored here -- it's
+// synthesized from the entry's own timestamp/enteredByName, same approach as this app's
+// existing parcel Journey Log (CallCenterFragment.showActionHistoryDialog). Only edits
+// (and any future field-level changes) get a real history node.
+@IgnoreExtraProperties
+data class CashHistoryEntry(
+    val changedByName: String = "",
+    val changedByUid: String = "",
+    val changedAt: Long = 0L,
+    val summary: String = "",
 )
 
 data class MfsAccountSummary(
@@ -153,6 +168,34 @@ class CashManagementViewModel : ViewModel() {
             ?: auth.currentUser?.email?.takeIf { it.isNotBlank() }
             ?: "Unknown"
 
+    private fun plainTaka(amount: Double): String {
+        val whole = Math.round(amount)
+        return "\u09F3${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(whole)}"
+    }
+
+    private fun historyEntryMap(summary: String): Map<String, Any?> = mapOf(
+        "changedByName" to currentUserName(),
+        "changedByUid" to (auth.currentUser?.uid ?: ""),
+        "changedAt" to System.currentTimeMillis(),
+        "summary" to summary,
+    )
+
+    /** Path to a Collection entry, for history lookups from the UI layer. */
+    fun collectionEntryPath(entryId: String) = "${FirebasePaths.cashManagementCollections(branchId)}/$entryId"
+
+    /** Path to a Deposit/Payment (ledger) entry, for history lookups from the UI layer. */
+    fun ledgerEntryPath(providerName: String, type: String, entryId: String) =
+        "${FirebasePaths.cashManagementLedger(branchId)}/$providerName/$type/$entryId"
+
+    /** Reads the `history/` child at [entryPath] (an entry path from the two helpers above), newest first. */
+    fun loadHistory(entryPath: String, onResult: (List<CashHistoryEntry>) -> Unit) {
+        db.reference.child(entryPath).child("history").get()
+            .addOnSuccessListener { snap ->
+                onResult(snap.children.mapNotNull { it.getValue(CashHistoryEntry::class.java) }.sortedByDescending { it.changedAt })
+            }
+            .addOnFailureListener { onResult(emptyList()) }
+    }
+
     fun addCollection(amount: Double, type: String, remarks: String, timestampMillis: Long, onDone: (Boolean) -> Unit) {
         val uid = auth.currentUser?.uid
         if (uid == null || amount <= 0.0) { onDone(false); return }
@@ -221,18 +264,39 @@ class CashManagementViewModel : ViewModel() {
             }
     }
 
-    fun updateCollection(entryId: String, amount: Double, onDone: (Boolean) -> Unit) {
+    fun updateCollection(entryId: String, amount: Double, remarks: String, timestampMillis: Long, onDone: (Boolean) -> Unit) {
         if (entryId.isBlank() || amount <= 0.0) { onDone(false); return }
-        db.reference.child(FirebasePaths.cashManagementCollections(branchId)).child(entryId).child("amount").setValue(amount)
-            .addOnSuccessListener { refresh(); onDone(true) }
-            .addOnFailureListener { e ->
-                FirebaseErrorLogger.log(
-                    screen = "CashManagement", action = "update_collection",
-                    errorMessage = e.message ?: "unknown",
-                    extra = mapOf("branchId" to branchId, "entryId" to entryId)
-                )
-                onDone(false)
-            }
+        val ref = db.reference.child(FirebasePaths.cashManagementCollections(branchId)).child(entryId)
+        ref.get().addOnSuccessListener { snap ->
+            val old = snap.getValue(CashCollectionEntry::class.java)
+            if (old == null) { onDone(false); return@addOnSuccessListener }
+
+            val changes = mutableListOf<String>()
+            if (old.amount != amount) changes.add("Amount ${plainTaka(old.amount)} \u2192 ${plainTaka(amount)}")
+            if (old.remarks.trim() != remarks.trim()) changes.add("Remarks updated")
+            if (old.timestamp != timestampMillis) changes.add("Date changed")
+            if (changes.isEmpty()) { onDone(true); return@addOnSuccessListener }
+
+            val updates = mapOf(
+                "amount" to amount,
+                "remarks" to remarks.trim(),
+                "timestamp" to timestampMillis,
+                "isEdited" to true,
+            )
+            ref.updateChildren(updates)
+                .addOnSuccessListener {
+                    ref.child("history").push().setValue(historyEntryMap(changes.joinToString("; ")))
+                    refresh(); onDone(true)
+                }
+                .addOnFailureListener { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "CashManagement", action = "update_collection",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("branchId" to branchId, "entryId" to entryId)
+                    )
+                    onDone(false)
+                }
+        }.addOnFailureListener { onDone(false) }
     }
 
     fun deleteCollection(entryId: String, onDone: (Boolean) -> Unit) {
@@ -249,20 +313,41 @@ class CashManagementViewModel : ViewModel() {
             }
     }
 
-    fun updateLedgerEntry(providerName: String, type: String, entryId: String, amount: Double, trxId: String, onDone: (Boolean) -> Unit) {
+    fun updateLedgerEntry(providerName: String, type: String, entryId: String, amount: Double, trxId: String, remarks: String, timestampMillis: Long, onDone: (Boolean) -> Unit) {
         if (providerName.isBlank() || entryId.isBlank() || amount <= 0.0) { onDone(false); return }
-        val updates = mapOf("amount" to amount, "trxId" to trxId.trim())
-        db.reference.child(FirebasePaths.cashManagementLedger(branchId)).child(providerName).child(type).child(entryId)
-            .updateChildren(updates)
-            .addOnSuccessListener { refresh(); onDone(true) }
-            .addOnFailureListener { e ->
-                FirebaseErrorLogger.log(
-                    screen = "CashManagement", action = "update_ledger_entry_$type",
-                    errorMessage = e.message ?: "unknown",
-                    extra = mapOf("branchId" to branchId, "provider" to providerName, "entryId" to entryId)
-                )
-                onDone(false)
-            }
+        val ref = db.reference.child(FirebasePaths.cashManagementLedger(branchId)).child(providerName).child(type).child(entryId)
+        ref.get().addOnSuccessListener { snap ->
+            val old = snap.getValue(CashLedgerEntry::class.java)
+            if (old == null) { onDone(false); return@addOnSuccessListener }
+
+            val changes = mutableListOf<String>()
+            if (old.amount != amount) changes.add("Amount ${plainTaka(old.amount)} \u2192 ${plainTaka(amount)}")
+            if (old.trxId.trim() != trxId.trim()) changes.add("TRX ID updated")
+            if (old.remarks.trim() != remarks.trim()) changes.add("Remarks updated")
+            if (old.timestamp != timestampMillis) changes.add("Date changed")
+            if (changes.isEmpty()) { onDone(true); return@addOnSuccessListener }
+
+            val updates = mapOf(
+                "amount" to amount,
+                "trxId" to trxId.trim(),
+                "remarks" to remarks.trim(),
+                "timestamp" to timestampMillis,
+                "isEdited" to true,
+            )
+            ref.updateChildren(updates)
+                .addOnSuccessListener {
+                    ref.child("history").push().setValue(historyEntryMap(changes.joinToString("; ")))
+                    refresh(); onDone(true)
+                }
+                .addOnFailureListener { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "CashManagement", action = "update_ledger_entry_$type",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("branchId" to branchId, "provider" to providerName, "entryId" to entryId)
+                    )
+                    onDone(false)
+                }
+        }.addOnFailureListener { onDone(false) }
     }
 
     fun deleteLedgerEntry(providerName: String, type: String, entryId: String, onDone: (Boolean) -> Unit) {
