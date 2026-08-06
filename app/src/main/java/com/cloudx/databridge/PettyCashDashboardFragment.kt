@@ -104,7 +104,7 @@ class PettyCashDashboardFragment : Fragment() {
                 .commitAllowingStateLoss()
         }
 
-        view.findViewById<View>(R.id.cardPcTotalFund).setOnClickListener {
+        view?.findViewById<View>(R.id.cardPcTotalFund)?.setOnClickListener {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashWalletSummaryFragment.newInstance(branchId))
                 .addToBackStack(null)
