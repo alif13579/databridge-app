@@ -159,7 +159,8 @@ class BranchEditFragment : Fragment() {
 
     private fun setupSearchListeners() {
         btnSelectManager.setOnClickListener {
-            showSearchPicker("Select Manager", allEmployees) { item ->
+            val branchScopedEmployees = allEmployees.filter { it.id in branchEmployeeUids }
+            showSearchPicker("Select Manager", branchScopedEmployees) { item ->
                 selectedManagerUid  = item.id
                 selectedManagerName = item.name
                 btnSelectManager.text = item.name
