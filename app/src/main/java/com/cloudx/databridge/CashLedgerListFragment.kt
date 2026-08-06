@@ -1,6 +1,8 @@
 package com.cloudx.databridge
 
+import android.graphics.Typeface
 import android.os.Bundle
+import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -8,11 +10,14 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.datepicker.MaterialDatePicker
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -55,7 +60,17 @@ class CashLedgerListFragment : Fragment() {
     private val pageSize = 5
     private var lastSuccessState: CashManagementState.Success? = null
 
-    private data class Row(val timestamp: Long, val amount: Double, val channel: String?, val subDetail: String)
+    private data class Row(
+        val id: String,
+        val timestamp: Long,
+        val amount: Double,
+        val channel: String?,
+        val subDetail: String,
+        val remarks: String,
+        val trxId: String,
+        val isEdited: Boolean,
+        val enteredByName: String,
+    )
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -158,13 +173,17 @@ class CashLedgerListFragment : Fragment() {
 
     private fun allRows(state: CashManagementState.Success): List<Row> = when (mode) {
         CashListMode.COLLECTIONS -> state.collections.map {
-            Row(it.timestamp, it.amount, null, "Collected by ${it.enteredByName.ifBlank { "someone" }}")
+            Row(it.id, it.timestamp, it.amount, null, "Collected by ${it.enteredByName.ifBlank { "someone" }}", it.remarks, "", it.isEdited, it.enteredByName)
         }
         CashListMode.DEPOSITS -> state.accounts.flatMap { acc ->
-            acc.handovers.map { Row(it.timestamp, it.amount, acc.provider, if (it.trxId.isBlank()) "TRX: \u2014" else "TRX: ${it.trxId}") }
+            acc.handovers.map {
+                Row(it.id, it.timestamp, it.amount, acc.provider, if (it.trxId.isBlank()) "TRX: \u2014" else "TRX: ${it.trxId}", it.remarks, it.trxId, it.isEdited, it.enteredByName)
+            }
         }
         CashListMode.PAYMENTS -> state.accounts.flatMap { acc ->
-            acc.hubPayments.map { Row(it.timestamp, it.amount, acc.provider, if (it.trxId.isBlank()) "TRX: \u2014" else "TRX: ${it.trxId}") }
+            acc.hubPayments.map {
+                Row(it.id, it.timestamp, it.amount, acc.provider, if (it.trxId.isBlank()) "TRX: \u2014" else "TRX: ${it.trxId}", it.remarks, it.trxId, it.isEdited, it.enteredByName)
+            }
         }
     }
 
@@ -204,6 +223,7 @@ class CashLedgerListFragment : Fragment() {
         card.findViewById<TextView>(R.id.tvRowDate).text = dateFmt.format(Date(row.timestamp))
         card.findViewById<TextView>(R.id.tvRowAmount).text = taka(row.amount)
         card.findViewById<TextView>(R.id.tvRowSubDetail).text = row.subDetail
+        card.findViewById<TextView>(R.id.tvRowEditedBadge).isVisible = row.isEdited
         val channelBadge = card.findViewById<TextView>(R.id.tvRowChannelBadge)
         if (row.channel != null) {
             channelBadge.isVisible = true
@@ -211,6 +231,22 @@ class CashLedgerListFragment : Fragment() {
         } else {
             channelBadge.isVisible = false
         }
+
+        card.findViewById<ImageButton>(R.id.btnRowMenu).setOnClickListener { anchor ->
+            val popup = PopupMenu(anchor.context, anchor)
+            popup.menu.add(0, 1, 0, "Edit")
+            popup.menu.add(0, 2, 1, "Delete")
+            popup.setOnMenuItemClickListener { item ->
+                when (item.itemId) {
+                    1 -> { showEditDialog(row); true }
+                    2 -> { confirmDelete(row); true }
+                    else -> false
+                }
+            }
+            popup.show()
+        }
+        card.setOnLongClickListener { showHistoryDialog(row); true }
+
         return card
     }
 
@@ -282,6 +318,292 @@ class CashLedgerListFragment : Fragment() {
                 lastSuccessState?.let { renderList(it) }
             }
             .show()
+    }
+
+    // ── Row menu: Edit / Delete ──────────────────────────────────────────────────
+
+    private fun ledgerTypeForMode(): String = if (mode == CashListMode.DEPOSITS) LEDGER_TYPE_HANDOVER else LEDGER_TYPE_HUB_PAYMENT
+
+    private fun showEditDialog(row: Row) {
+        if (mode == CashListMode.COLLECTIONS) showEditCollectionDialog(row) else showEditLedgerDialog(row)
+    }
+
+    private fun confirmDelete(row: Row) {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Delete entry?")
+            .setMessage("This will permanently remove this ${taka(row.amount)} entry. This can't be undone.")
+            .setPositiveButton("Delete") { _, _ ->
+                val onDone: (Boolean) -> Unit = { ok ->
+                    Toast.makeText(requireContext(), if (ok) "Deleted" else "Failed to delete", Toast.LENGTH_SHORT).show()
+                }
+                if (mode == CashListMode.COLLECTIONS) {
+                    vm.deleteCollection(row.id, onDone)
+                } else {
+                    vm.deleteLedgerEntry(row.channel.orEmpty(), ledgerTypeForMode(), row.id, onDone)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // ── Date-picker helpers for the edit dialogs (mirrors CashManagementHomeFragment's
+    // Add-Collection/Deposit dialogs, so editing feels the same as creating) ──────────
+
+    private fun combineDateKeepingTimeOfDay(pickedUtcMidnight: Long): Long {
+        val datePart = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply { timeInMillis = pickedUtcMidnight }
+        val combined = java.util.Calendar.getInstance()
+        combined.set(java.util.Calendar.YEAR, datePart.get(java.util.Calendar.YEAR))
+        combined.set(java.util.Calendar.MONTH, datePart.get(java.util.Calendar.MONTH))
+        combined.set(java.util.Calendar.DAY_OF_MONTH, datePart.get(java.util.Calendar.DAY_OF_MONTH))
+        return combined.timeInMillis
+    }
+
+    private fun isSameLocalDay(a: Long, b: Long): Boolean {
+        val ca = java.util.Calendar.getInstance().apply { timeInMillis = a }
+        val cb = java.util.Calendar.getInstance().apply { timeInMillis = b }
+        return ca.get(java.util.Calendar.YEAR) == cb.get(java.util.Calendar.YEAR) && ca.get(java.util.Calendar.DAY_OF_YEAR) == cb.get(java.util.Calendar.DAY_OF_YEAR)
+    }
+
+    private fun styledDateButton(): TextView = TextView(requireContext()).apply {
+        textSize = 13f
+        setTypeface(null, Typeface.BOLD)
+        setTextColor(0xFF0F766E.toInt())
+        setPadding(dp(10), dp(6), dp(10), dp(6))
+        setBackgroundResource(R.drawable.bg_dashed_button)
+        setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }
+    }
+
+    private fun wireDatePickerButton(button: TextView, initial: Long): () -> Long {
+        var selected = initial
+        fun updateLabel() {
+            button.text = "\uD83D\uDCC5  " + if (isSameLocalDay(selected, System.currentTimeMillis())) "Today" else rangeLabelFmt.format(Date(selected))
+        }
+        updateLabel()
+        button.setOnClickListener {
+            val picker = MaterialDatePicker.Builder.datePicker()
+                .setTitleText("Select date")
+                .setSelection(selected)
+                .build()
+            picker.addOnPositiveButtonClickListener { pickedMillis ->
+                selected = combineDateKeepingTimeOfDay(pickedMillis)
+                updateLabel()
+            }
+            picker.show(childFragmentManager, "cash_edit_date_picker")
+        }
+        return { selected }
+    }
+
+    private fun showEditCollectionDialog(row: Row) {
+        val padding = dp(20)
+        val amountInput = EditText(requireContext()).apply {
+            hint = "Amount"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            typeface = Typeface.MONOSPACE
+            setText(if (row.amount == Math.floor(row.amount)) row.amount.toLong().toString() else row.amount.toString())
+        }
+        val remarksInput = EditText(requireContext()).apply {
+            hint = "Remarks (optional)"
+            setText(row.remarks)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }
+        }
+        val dateButton = styledDateButton()
+        val getDate = wireDatePickerButton(dateButton, row.timestamp)
+
+        val wrapper = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, 0)
+            addView(amountInput)
+            addView(remarksInput)
+            addView(dateButton)
+        }
+
+        val dialog = android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Edit Collection")
+            .setView(wrapper)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.setOnShowListener {
+            val btnPositive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+            val btnNegative = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)
+            btnPositive.setOnClickListener {
+                val amt = amountInput.text.toString().toDoubleOrNull()
+                if (amt == null || amt <= 0.0) {
+                    Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                btnPositive.isEnabled = false
+                btnNegative.isEnabled = false
+                btnPositive.text = "Saving..."
+                vm.updateCollection(row.id, amt, remarksInput.text.toString(), getDate()) { ok ->
+                    if (ok) {
+                        dialog.dismiss()
+                        Toast.makeText(requireContext(), "Collection updated", Toast.LENGTH_SHORT).show()
+                    } else {
+                        btnPositive.isEnabled = true
+                        btnNegative.isEnabled = true
+                        btnPositive.text = "Save"
+                        Toast.makeText(requireContext(), "Failed to update", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showEditLedgerDialog(row: Row) {
+        val padding = dp(20)
+        val amountInput = EditText(requireContext()).apply {
+            hint = "Amount"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            typeface = Typeface.MONOSPACE
+            setText(if (row.amount == Math.floor(row.amount)) row.amount.toLong().toString() else row.amount.toString())
+        }
+        val trxIdInput = EditText(requireContext()).apply {
+            hint = "Transaction ID (optional)"
+            setText(row.trxId)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) }
+        }
+        val remarksInput = EditText(requireContext()).apply {
+            hint = "Remarks (optional)"
+            setText(row.remarks)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) }
+        }
+        val dateButton = styledDateButton()
+        val getDate = wireDatePickerButton(dateButton, row.timestamp)
+
+        val wrapper = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(padding, padding, padding, 0)
+            addView(amountInput)
+            addView(trxIdInput)
+            addView(remarksInput)
+            addView(dateButton)
+        }
+
+        val dialog = android.app.AlertDialog.Builder(requireContext())
+            .setTitle(if (mode == CashListMode.DEPOSITS) "Edit Deposit" else "Edit Payment")
+            .setView(wrapper)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.setOnShowListener {
+            val btnPositive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+            val btnNegative = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)
+            btnPositive.setOnClickListener {
+                val amt = amountInput.text.toString().toDoubleOrNull()
+                if (amt == null || amt <= 0.0) {
+                    Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                btnPositive.isEnabled = false
+                btnNegative.isEnabled = false
+                btnPositive.text = "Saving..."
+                vm.updateLedgerEntry(
+                    row.channel.orEmpty(), ledgerTypeForMode(), row.id, amt,
+                    trxIdInput.text.toString(), remarksInput.text.toString(), getDate()
+                ) { ok ->
+                    if (ok) {
+                        dialog.dismiss()
+                        Toast.makeText(requireContext(), "Updated", Toast.LENGTH_SHORT).show()
+                    } else {
+                        btnPositive.isEnabled = true
+                        btnNegative.isEnabled = true
+                        btnPositive.text = "Save"
+                        Toast.makeText(requireContext(), "Failed to update", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    // ── History (tap and hold) ───────────────────────────────────────────────────
+
+    private fun showHistoryDialog(row: Row) {
+        val sheet = BottomSheetDialog(requireContext())
+        val fullFmt = SimpleDateFormat("dd MMM yyyy, h:mm a", Locale.getDefault())
+
+        val content = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(20), dp(20), dp(24))
+        }
+        content.addView(TextView(requireContext()).apply {
+            text = "History"
+            textSize = 16f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(0xFF0F172A.toInt())
+        })
+        content.addView(TextView(requireContext()).apply {
+            text = "${taka(row.amount)} \u00B7 ${row.subDetail}"
+            textSize = 12f
+            setTextColor(0xFF64748B.toInt())
+            setPadding(0, dp(2), 0, dp(16))
+        })
+
+        fun entryRow(action: String, byName: String, atMillis: Long, detail: String?): View =
+            LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, dp(8), 0, dp(8))
+                addView(TextView(requireContext()).apply {
+                    text = "$action \u00B7 $byName"
+                    textSize = 13f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(0xFF0F172A.toInt())
+                })
+                addView(TextView(requireContext()).apply {
+                    text = fullFmt.format(Date(atMillis))
+                    textSize = 11f
+                    setTextColor(0xFF94A3B8.toInt())
+                })
+                if (!detail.isNullOrBlank()) {
+                    addView(TextView(requireContext()).apply {
+                        text = detail
+                        textSize = 12f
+                        setTextColor(0xFF334155.toInt())
+                        setPadding(0, dp(2), 0, 0)
+                    })
+                }
+            }
+
+        // "Created" is always first (oldest) -- synthesized from the entry's own fields,
+        // same approach as this app's existing parcel Journey Log, so there's no need to
+        // write a duplicate "created" history node on every single entry.
+        content.addView(entryRow("Created", row.enteredByName.ifBlank { "Unknown" }, row.timestamp, null))
+
+        val divider = View(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(4); bottomMargin = dp(4) }
+            setBackgroundColor(0xFFE2E8F0.toInt())
+        }
+        content.addView(divider)
+
+        val pbLoad = ProgressBar(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                gravity = android.view.Gravity.CENTER
+                topMargin = dp(12)
+            }
+        }
+        content.addView(pbLoad)
+
+        sheet.setContentView(content)
+        sheet.show()
+
+        val path = if (mode == CashListMode.COLLECTIONS) vm.collectionEntryPath(row.id)
+                   else vm.ledgerEntryPath(row.channel.orEmpty(), ledgerTypeForMode(), row.id)
+
+        vm.loadHistory(path) { entries ->
+            content.removeView(pbLoad)
+            if (entries.isEmpty()) {
+                content.removeView(divider)
+            } else {
+                entries.forEach { h ->
+                    content.addView(entryRow("Edited", h.changedByName.ifBlank { "Unknown" }, h.changedAt, h.summary))
+                }
+            }
+        }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
