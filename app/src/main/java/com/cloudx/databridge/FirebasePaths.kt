@@ -80,6 +80,7 @@ object FirebasePaths {
     fun pettyCashWalletBalance(branchId: String) = "petty_cash/$branchId/wallet/balance"
     // petty_cash/{branchId}/wallet/deposits/{depositId} -> PettyCashDeposit
     fun pettyCashDeposits(branchId: String) = "petty_cash/$branchId/wallet/deposits"
-    // petty_cash_roles/{branchId} -> PettyCashBranchRoles (team aligned / cash poc / accounts assignment)
-    fun pettyCashRoles(branchId: String) = "petty_cash_roles/$branchId"
+    // petty_cash_roles/{branchId} — REMOVED: branch role assignment (Team
+    // Aligned / Petty Cash POC / Accounts) lives on Branch.kt fields instead
+    // (team_aligned_uid, petty_cash_poc_uid, accountant_uid), same as manager_uid.
 }

@@ -1,13 +1,17 @@
 package com.cloudx.databridge
 
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import java.text.NumberFormat
 import java.util.Locale
@@ -15,13 +19,16 @@ import java.util.Locale
 /**
  * Petty Cash Management — Dashboard (Accounts view).
  *
- * Phase 1 of the Petty Cash feature build: layout + static mock data matching
- * the approved mockup (screen 1 "Accounts Dashboard"). Firebase wiring lands
- * in a later phase once PettyCashViewModel is built.
+ * Wired to PettyCashViewModel: real requests/deposits/wallet balance for
+ * the branch, live settlement queue (requests in PC_STATUS_APPROVED,
+ * waiting for Accounts to settle).
  *
- * Entry point: reached from CashManagementHomeFragment as a sub-section.
+ * Entry point: reached from the drawer's "Petty Cash" item (top-level, see
+ * MainActivity), or from Cash Management's related-feature card.
  */
 class PettyCashDashboardFragment : Fragment() {
+
+    private val viewModel: PettyCashViewModel by viewModels()
 
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var layoutContent: View
@@ -62,13 +69,29 @@ class PettyCashDashboardFragment : Fragment() {
             parentFragmentManager.popBackStack()
         }
 
-        swipeRefresh.setOnRefreshListener {
-            swipeRefresh.isRefreshing = false
-            loadMockData()
+        swipeRefresh.setOnRefreshListener { viewModel.load(branchId) }
+
+        tvViewAllQueue.setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+        view.findViewById<View>(R.id.cardPcTotalFund).setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashWalletSummaryFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
         }
 
         wireQuickActions(view)
-        loadMockData()
+
+        viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
+        if (branchId.isBlank()) {
+            render(PettyCashState.Error("No branch selected"))
+        } else {
+            viewModel.load(branchId)
+        }
     }
 
     private fun taka(amount: Double): String {
@@ -77,44 +100,51 @@ class PettyCashDashboardFragment : Fragment() {
         return "\u09F3$formatted"
     }
 
-    // ── Mock data (Phase 1) — will be replaced by PettyCashViewModel + Firebase ──
-    private fun loadMockData() {
-        view?.findViewById<View>(R.id.pbPcDashboardLoading)?.isVisible = false
-        layoutContent.isVisible = true
+    private fun render(state: PettyCashState) {
+        val root = view ?: return
+        val pbLoading = root.findViewById<View>(R.id.pbPcDashboardLoading)
+        val layoutError = root.findViewById<View>(R.id.layoutPcDashboardError)
 
-        tvAvailableBalance.text = taka(142750.0)
-        tvTotalFund.text = taka(500000.0)
+        swipeRefresh.isRefreshing = false
 
-        bindStatCard(R.id.statPcPendingApproval, "\u23F3", "Pending\nApproval", taka(58200.0), "#FFEDD5", "#C2410C")
-        bindStatCard(R.id.statPcApprovedSettlement, "\u23F3", "Approved\n(Settlement)", taka(21350.0), "#EDE9FE", "#6D28D9")
-        bindStatCard(R.id.statPcSettledMonth, "\u2705", "Settled\nThis Month", taka(278900.0), "#D1FAE5", "#059669")
-
-        tvQueueTitle.text = "Settlement Queue (10)"
-
-        val mockQueue = listOf(
-            QueueRowData("REQ-2401", "Hasib Khan", "Travel Expense", 1250.0, "POC Approved"),
-            QueueRowData("REQ-2400", "Salman Khan", "Fuel Expense", 950.0, "POC Approved")
-        )
-        buildQueueList(mockQueue)
-
-        tvViewAllQueue.setOnClickListener {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
-
-        view?.findViewById<View>(R.id.cardPcTotalFund)?.setOnClickListener {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashWalletSummaryFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
+        when (state) {
+            is PettyCashState.Loading -> {
+                pbLoading.isVisible = true
+                layoutError.isVisible = false
+                layoutContent.isVisible = false
+            }
+            is PettyCashState.Error -> {
+                pbLoading.isVisible = false
+                layoutContent.isVisible = false
+                layoutError.isVisible = true
+                root.findViewById<TextView>(R.id.tvPcDashboardError).text = state.message
+                root.findViewById<View>(R.id.btnPcDashboardRetry).setOnClickListener {
+                    if (branchId.isNotBlank()) viewModel.load(branchId)
+                }
+            }
+            is PettyCashState.Success -> {
+                pbLoading.isVisible = false
+                layoutError.isVisible = false
+                layoutContent.isVisible = true
+                renderSuccess(root, state)
+            }
         }
     }
 
-    private data class QueueRowData(val code: String, val worker: String, val category: String, val amount: Double, val status: String)
+    private fun renderSuccess(root: View, state: PettyCashState.Success) {
+        tvAvailableBalance.text = taka(state.walletBalance)
+        tvTotalFund.text = taka(state.totalFund)
 
-    private fun buildQueueList(items: List<QueueRowData>) {
+        bindStatCard(root, R.id.statPcPendingApproval, "\u23F3", "Pending\nApproval", taka(state.pendingApprovalTotal), "#FFEDD5", "#C2410C")
+        bindStatCard(root, R.id.statPcApprovedSettlement, "\u23F3", "Approved\n(Settlement)", taka(state.approvedWaitingSettlementTotal), "#EDE9FE", "#6D28D9")
+        bindStatCard(root, R.id.statPcSettledMonth, "\u2705", "Settled\nThis Month", taka(state.settledThisMonthTotal), "#D1FAE5", "#059669")
+
+        val queue = state.pendingSettlementQueue
+        tvQueueTitle.text = "Settlement Queue (${queue.size})"
+        buildQueueList(queue, canSettle = state.roles.isAccounts)
+    }
+
+    private fun buildQueueList(items: List<PettyCashRequest>, canSettle: Boolean) {
         layoutQueueList.removeAllViews()
         if (items.isEmpty()) {
             layoutQueueList.addView(TextView(requireContext()).apply {
@@ -126,29 +156,35 @@ class PettyCashDashboardFragment : Fragment() {
             })
             return
         }
-        items.forEach { item ->
+        items.take(5).forEach { item ->
             val row = layoutInflater.inflate(R.layout.item_petty_cash_queue_row, layoutQueueList, false)
-            row.findViewById<TextView>(R.id.tvQueueRowCode).text = item.code
-            row.findViewById<TextView>(R.id.tvQueueRowSubtitle).text = "${item.worker}\n${item.category}"
+            row.findViewById<TextView>(R.id.tvQueueRowCode).text = item.requestCode
+            row.findViewById<TextView>(R.id.tvQueueRowSubtitle).text = "${item.workerName}\n${item.category}"
             row.findViewById<TextView>(R.id.tvQueueRowAmount).text = taka(item.amount)
-            row.findViewById<TextView>(R.id.tvQueueRowStatus).text = item.status
-            row.findViewById<TextView>(R.id.btnQueueRowSettle).setOnClickListener {
+            row.findViewById<TextView>(R.id.tvQueueRowStatus).text = "POC Approved"
+
+            val btnSettle = row.findViewById<TextView>(R.id.btnQueueRowSettle)
+            btnSettle.isVisible = canSettle
+            val openDetails = View.OnClickListener {
                 parentFragmentManager.beginTransaction()
-                    .replace(R.id.container, PettyCashSettlementDetailsFragment.newInstance(branchId, item.code))
+                    .replace(R.id.container, PettyCashSettlementDetailsFragment.newInstance(branchId, item.requestCode))
                     .addToBackStack(null)
                     .commitAllowingStateLoss()
             }
+            row.setOnClickListener(openDetails)
+            btnSettle.setOnClickListener(openDetails)
+
             layoutQueueList.addView(row)
         }
     }
 
-    private fun bindStatCard(includeId: Int, icon: String, label: String, value: String, bg: String, fg: String) {
-        val root = view?.findViewById<View>(includeId) ?: return
-        val tvIcon = root.findViewById<TextView>(R.id.tvStatCardIcon)
-        val tvLabel = root.findViewById<TextView>(R.id.tvStatCardLabel)
-        val tvValue = root.findViewById<TextView>(R.id.tvStatCardValue)
+    private fun bindStatCard(root: View, includeId: Int, icon: String, label: String, value: String, bg: String, fg: String) {
+        val statRoot = root.findViewById<View>(includeId) ?: return
+        val tvIcon = statRoot.findViewById<TextView>(R.id.tvStatCardIcon)
+        val tvLabel = statRoot.findViewById<TextView>(R.id.tvStatCardLabel)
+        val tvValue = statRoot.findViewById<TextView>(R.id.tvStatCardValue)
         tvIcon.text = icon
-        tvIcon.setTextColor(android.graphics.Color.parseColor(fg))
+        tvIcon.setTextColor(Color.parseColor(fg))
         tvIcon.background = roundedDrawable(bg, dp(8))
         tvLabel.text = label
         tvValue.text = value
@@ -174,7 +210,7 @@ class PettyCashDashboardFragment : Fragment() {
                 .commitAllowingStateLoss()
         }
         bindQuickAction(root.findViewById(R.id.actionPcReports), "\uD83D\uDCCA", "Reports") {
-            // Reports screen not in current mockup batch — placeholder for now.
+            Toast.makeText(requireContext(), "Reports coming soon", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -187,9 +223,9 @@ class PettyCashDashboardFragment : Fragment() {
         root.setOnClickListener { onClick() }
     }
 
-    private fun roundedDrawable(hexColor: String, radiusPx: Int): android.graphics.drawable.GradientDrawable {
-        return android.graphics.drawable.GradientDrawable().apply {
-            setColor(android.graphics.Color.parseColor(hexColor))
+    private fun roundedDrawable(hexColor: String, radiusPx: Int): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(Color.parseColor(hexColor))
             cornerRadius = radiusPx.toFloat()
         }
     }

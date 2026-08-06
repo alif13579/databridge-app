@@ -90,16 +90,9 @@ data class PettyCashWalletSummary(
     val totalFund: Double = 0.0
 )
 
-/**
- * Branch-wise role assignment for the petty cash approval chain.
- * petty_cash_roles/{branchId} -> PettyCashBranchRoles
- */
-@IgnoreExtraProperties
-data class PettyCashBranchRoles(
-    val teamAlignedUid: String = "",
-    val teamAlignedName: String = "",
-    val cashPocUid: String = "",
-    val cashPocName: String = "",
-    val accountsUid: String = "",
-    val accountsName: String = ""
-)
+// NOTE: branch-wise role assignment for the petty cash approval chain
+// (Team Aligned / Petty Cash POC / Accounts) lives on Branch.kt as
+// team_aligned_uid/name/role, petty_cash_poc_uid/name, and the pre-existing
+// accountant_uid/name/role — NOT a separate petty_cash_roles/{branchId}
+// node. This follows the manager_uid/accountant_uid pattern so branch role
+// assignment stays in one place (BranchEditFragment/BranchCreateFragment).
