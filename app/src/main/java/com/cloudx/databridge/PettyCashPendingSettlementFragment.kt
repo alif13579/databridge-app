@@ -9,26 +9,35 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 /**
  * Petty Cash Management — Pending Settlement List (mockup screen 3).
  *
- * Phase 2 of the Petty Cash feature build: layout + static mock data + working
- * All/High/Normal tab filter. Firebase wiring lands once PettyCashViewModel is
- * built (aggregating PC_STATUS_APPROVED requests by branch).
+ * Wired to PettyCashViewModel: shows real requests in PC_STATUS_APPROVED
+ * (POC has approved, waiting for Accounts to settle), with a working
+ * All/High/Normal priority tab filter. The per-card Settle button only
+ * shows for users whose roles.isAccounts is true — everyone else can still
+ * see the queue (read-only) by tapping through to Settlement Details.
  */
 class PettyCashPendingSettlementFragment : Fragment() {
+
+    private val viewModel: PettyCashViewModel by viewModels()
 
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var layoutTabs: LinearLayout
     private lateinit var layoutList: LinearLayout
     private lateinit var pbLoading: View
+    private lateinit var layoutError: View
 
     private var branchId: String = ""
     private var selectedFilter: String = FILTER_ALL
+    private var latestState: PettyCashState.Success? = null
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -43,23 +52,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
         }
     }
 
-    private data class MockSettlement(
-        val code: String,
-        val worker: String,
-        val category: String,
-        val amount: Double,
-        val priority: String, // PC_PRIORITY_HIGH or PC_PRIORITY_NORMAL
-        val approvedAt: String,
-        val approvedBy: String
-    )
-
-    private val mockData = listOf(
-        MockSettlement("REQ-2401", "Hasib Khan", "Travel Expense", 1250.0, PC_PRIORITY_HIGH, "01 Aug, 11:25 AM", "Moin Uddin (POC)"),
-        MockSettlement("REQ-2400", "Salman Khan", "Fuel Expense", 950.0, PC_PRIORITY_NORMAL, "01 Aug, 11:10 AM", "Moin Uddin (POC)"),
-        MockSettlement("REQ-2399", "Jannatul", "Stationery", 620.0, PC_PRIORITY_NORMAL, "01 Aug, 10:55 AM", "Moin Uddin (POC)"),
-        MockSettlement("REQ-2398", "Riya Akter", "Office Supplies", 850.0, PC_PRIORITY_NORMAL, "01 Aug, 10:40 AM", "Moin Uddin (POC)")
-    )
-
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         return inflater.inflate(R.layout.fragment_petty_cash_pending_settlement, container, false)
     }
@@ -72,6 +64,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
         layoutTabs   = view.findViewById(R.id.layoutPcPendingTabs)
         layoutList   = view.findViewById(R.id.layoutPcPendingList)
         pbLoading    = view.findViewById(R.id.pbPcPendingLoading)
+        layoutError  = view.findViewById(R.id.layoutPcPendingError)
 
         view.findViewById<View>(R.id.btnPcPendingBack).setOnClickListener {
             parentFragmentManager.popBackStack()
@@ -89,13 +82,16 @@ class PettyCashPendingSettlementFragment : Fragment() {
                 .commitAllowingStateLoss()
         }
 
-        swipeRefresh.setOnRefreshListener {
-            swipeRefresh.isRefreshing = false
-            renderList()
-        }
+        swipeRefresh.setOnRefreshListener { if (branchId.isNotBlank()) viewModel.load(branchId) }
 
         buildTabs()
-        renderList()
+
+        viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
+        if (branchId.isBlank()) {
+            render(PettyCashState.Error("No branch selected"))
+        } else {
+            viewModel.load(branchId)
+        }
     }
 
     private fun taka(amount: Double): String {
@@ -103,12 +99,38 @@ class PettyCashPendingSettlementFragment : Fragment() {
         return "\u09F3${NumberFormat.getNumberInstance(Locale.US).format(whole)}"
     }
 
+    private fun render(state: PettyCashState) {
+        swipeRefresh.isRefreshing = false
+        when (state) {
+            is PettyCashState.Loading -> {
+                pbLoading.isVisible = true
+                layoutError.isVisible = false
+            }
+            is PettyCashState.Error -> {
+                pbLoading.isVisible = false
+                layoutError.isVisible = true
+                view?.findViewById<TextView>(R.id.tvPcPendingError)?.text = state.message
+                view?.findViewById<View>(R.id.btnPcPendingRetry)?.setOnClickListener {
+                    if (branchId.isNotBlank()) viewModel.load(branchId)
+                }
+            }
+            is PettyCashState.Success -> {
+                pbLoading.isVisible = false
+                layoutError.isVisible = false
+                latestState = state
+                buildTabs()
+                renderList()
+            }
+        }
+    }
+
     private fun buildTabs() {
         layoutTabs.removeAllViews()
-        val highCount = mockData.count { it.priority == PC_PRIORITY_HIGH }
-        val normalCount = mockData.count { it.priority == PC_PRIORITY_NORMAL }
+        val queue = latestState?.pendingSettlementQueue.orEmpty()
+        val highCount = queue.count { it.priority == PC_PRIORITY_HIGH }
+        val normalCount = queue.count { it.priority == PC_PRIORITY_NORMAL }
         val tabs = listOf(
-            Pair(FILTER_ALL, "All (${mockData.size})"),
+            Pair(FILTER_ALL, "All (${queue.size})"),
             Pair(FILTER_HIGH, "High ($highCount)"),
             Pair(FILTER_NORMAL, "Normal ($normalCount)")
         )
@@ -135,13 +157,21 @@ class PettyCashPendingSettlementFragment : Fragment() {
         }
     }
 
+    private fun formatApprovedAt(millis: Long): String {
+        if (millis == 0L) return "—"
+        return SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
+    }
+
     private fun renderList() {
-        pbLoading.isVisible = false
+        val state = latestState ?: return
+        val queue = state.pendingSettlementQueue
         val filtered = when (selectedFilter) {
-            FILTER_HIGH -> mockData.filter { it.priority == PC_PRIORITY_HIGH }
-            FILTER_NORMAL -> mockData.filter { it.priority == PC_PRIORITY_NORMAL }
-            else -> mockData
+            FILTER_HIGH -> queue.filter { it.priority == PC_PRIORITY_HIGH }
+            FILTER_NORMAL -> queue.filter { it.priority == PC_PRIORITY_NORMAL }
+            else -> queue
         }
+        val canSettle = state.roles.isAccounts
+
         layoutList.removeAllViews()
         if (filtered.isEmpty()) {
             layoutList.addView(TextView(requireContext()).apply {
@@ -155,29 +185,29 @@ class PettyCashPendingSettlementFragment : Fragment() {
         }
         filtered.forEach { item ->
             val card = layoutInflater.inflate(R.layout.item_petty_cash_settlement_card, layoutList, false)
-            card.findViewById<TextView>(R.id.tvPsCardCode).text = item.code
-            card.findViewById<TextView>(R.id.tvPsCardWorker).text = item.worker
+            card.findViewById<TextView>(R.id.tvPsCardCode).text = item.requestCode
+            card.findViewById<TextView>(R.id.tvPsCardWorker).text = item.workerName
             card.findViewById<TextView>(R.id.tvPsCardCategory).text = item.category
             card.findViewById<TextView>(R.id.tvPsCardAmount).text = taka(item.amount)
-            card.findViewById<TextView>(R.id.tvPsCardApprovedInfo).text = "POC Approved: ${item.approvedAt}"
-            card.findViewById<TextView>(R.id.tvPsCardApprovedBy).text = "Approved by: ${item.approvedBy}"
+            card.findViewById<TextView>(R.id.tvPsCardApprovedInfo).text = "POC Approved: ${formatApprovedAt(item.pocApprovedAt)}"
+            card.findViewById<TextView>(R.id.tvPsCardApprovedBy).text =
+                "Approved by: ${item.pocApprovedByName.ifBlank { "—" }}"
 
             val tvPriority = card.findViewById<TextView>(R.id.tvPsCardPriority)
-            if (item.priority == PC_PRIORITY_HIGH) {
-                tvPriority.isVisible = true
-                tvPriority.text = "High"
-            } else {
-                tvPriority.isVisible = false
-            }
+            tvPriority.isVisible = item.priority == PC_PRIORITY_HIGH
+            if (item.priority == PC_PRIORITY_HIGH) tvPriority.text = "High"
+
+            val btnSettle = card.findViewById<TextView>(R.id.btnPsCardSettle)
+            btnSettle.isVisible = canSettle
 
             val openDetails = View.OnClickListener {
                 parentFragmentManager.beginTransaction()
-                    .replace(R.id.container, PettyCashSettlementDetailsFragment.newInstance(branchId, item.code))
+                    .replace(R.id.container, PettyCashSettlementDetailsFragment.newInstance(branchId, item.requestCode))
                     .addToBackStack(null)
                     .commitAllowingStateLoss()
             }
             card.setOnClickListener(openDetails)
-            card.findViewById<TextView>(R.id.btnPsCardSettle).setOnClickListener(openDetails)
+            btnSettle.setOnClickListener(openDetails)
 
             layoutList.addView(card)
         }
