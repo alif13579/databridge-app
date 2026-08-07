@@ -7,25 +7,36 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 /**
  * Petty Cash Management — Deposit History (mockup screen 6).
  *
- * Phase 6 of the Petty Cash feature build: layout + static mock data + working
- * All/Cash/Bank/Adjustment tab filter. Firebase wiring (reading
- * petty_cash/{branch}/wallet/deposits ordered by timestamp) lands once
- * PettyCashViewModel is built.
+ * Wired to PettyCashViewModel: real deposits for the branch (already sorted
+ * newest-first by the ViewModel), with a working All/Cash/Bank/Adjustment
+ * source tab filter. "Balance After" is computed by walking the full
+ * deposit list chronologically rather than trusting a stored value, since
+ * older deposit rows created before this field existed wouldn't have it.
  */
 class PettyCashDepositHistoryFragment : Fragment() {
 
+    private val viewModel: PettyCashViewModel by viewModels()
+
     private lateinit var layoutTabs: LinearLayout
     private lateinit var layoutList: LinearLayout
+    private lateinit var pbLoading: View
+    private lateinit var layoutError: View
 
     private var branchId: String = ""
     private var selectedFilter: String = FILTER_ALL
+    private var latestState: PettyCashState.Success? = null
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -41,22 +52,6 @@ class PettyCashDepositHistoryFragment : Fragment() {
         }
     }
 
-    private data class MockDeposit(
-        val dateTime: String,
-        val source: String, // Cash, Bank, Adjustment
-        val amount: Double,
-        val ref: String,
-        val balanceAfter: Double
-    )
-
-    private val mockData = listOf(
-        MockDeposit("01 Aug 2025, 11:50 AM", FILTER_BANK, 100000.0, "Ref: TRX-10081", 242750.0),
-        MockDeposit("29 Jul 2025, 04:20 PM", FILTER_CASH, 80000.0, "Ref: —", 142750.0),
-        MockDeposit("25 Jul 2025, 10:10 AM", FILTER_BANK, 100000.0, "Ref: TRX-09872", 62750.0),
-        MockDeposit("20 Jul 2025, 02:30 PM", FILTER_ADJUSTMENT, 50000.0, "Ref: ADJ-0023", 12750.0),
-        MockDeposit("15 Jul 2025, 11:15 AM", FILTER_CASH, 25000.0, "Ref: —", -37250.0)
-    )
-
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         return inflater.inflate(R.layout.fragment_petty_cash_deposit_history, container, false)
     }
@@ -67,6 +62,8 @@ class PettyCashDepositHistoryFragment : Fragment() {
 
         layoutTabs = view.findViewById(R.id.layoutPcDepHistTabs)
         layoutList = view.findViewById(R.id.layoutPcDepHistList)
+        pbLoading  = view.findViewById(R.id.pbPcDepHistLoading)
+        layoutError = view.findViewById(R.id.layoutPcDepHistError)
 
         view.findViewById<View>(R.id.btnPcDepHistBack).setOnClickListener {
             parentFragmentManager.popBackStack()
@@ -78,17 +75,67 @@ class PettyCashDepositHistoryFragment : Fragment() {
                 .commitAllowingStateLoss()
         }
 
-        view.findViewById<TextView>(R.id.tvPcDepHistTotalMonth).text =
-            taka(mockData.filter { it.dateTime.contains("Aug 2025") }.sumOf { it.amount })
-
         buildTabs()
-        renderList()
+
+        viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
+        if (branchId.isBlank()) {
+            render(PettyCashState.Error("No branch selected"))
+        } else {
+            viewModel.load(branchId)
+        }
     }
 
     private fun taka(amount: Double): String {
         val sign = if (amount < 0) "-" else ""
         val whole = Math.round(Math.abs(amount))
         return "$sign\u09F3${NumberFormat.getNumberInstance(Locale.US).format(whole)}"
+    }
+
+    private fun formatDateTime(millis: Long): String {
+        if (millis == 0L) return "—"
+        return SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(millis))
+    }
+
+    private fun render(state: PettyCashState) {
+        val root = view ?: return
+        val scroll = root.findViewById<View>(R.id.scrollPcDepHist)
+
+        when (state) {
+            is PettyCashState.Loading -> {
+                pbLoading.isVisible = true
+                layoutError.isVisible = false
+                scroll.isVisible = false
+            }
+            is PettyCashState.Error -> {
+                pbLoading.isVisible = false
+                scroll.isVisible = false
+                layoutError.isVisible = true
+                root.findViewById<TextView>(R.id.tvPcDepHistError).text = state.message
+                root.findViewById<View>(R.id.btnPcDepHistRetry).setOnClickListener {
+                    if (branchId.isNotBlank()) viewModel.load(branchId)
+                }
+            }
+            is PettyCashState.Success -> {
+                pbLoading.isVisible = false
+                layoutError.isVisible = false
+                scroll.isVisible = true
+                latestState = state
+                buildTabs()
+                renderTotalThisMonth(root, state)
+                renderList(state)
+            }
+        }
+    }
+
+    private fun renderTotalThisMonth(root: View, state: PettyCashState.Success) {
+        val cal = Calendar.getInstance()
+        val currentMonth = cal.get(Calendar.MONTH)
+        val currentYear = cal.get(Calendar.YEAR)
+        val total = state.deposits.filter {
+            cal.timeInMillis = it.timestamp
+            cal.get(Calendar.MONTH) == currentMonth && cal.get(Calendar.YEAR) == currentYear
+        }.sumOf { it.amount }
+        root.findViewById<TextView>(R.id.tvPcDepHistTotalMonth).text = taka(total)
     }
 
     private fun buildTabs() {
@@ -105,7 +152,7 @@ class PettyCashDepositHistoryFragment : Fragment() {
             tab.setOnClickListener {
                 selectedFilter = key
                 buildTabs()
-                renderList()
+                latestState?.let { renderList(it) }
             }
             styleTab(tab, key == selectedFilter)
             layoutTabs.addView(tab)
@@ -128,10 +175,22 @@ class PettyCashDepositHistoryFragment : Fragment() {
         else -> R.drawable.bg_pc_tag_cash
     }
 
-    private fun renderList() {
-        val filtered = if (selectedFilter == FILTER_ALL) mockData else mockData.filter { it.source == selectedFilter }
-        layoutList.removeAllViews()
+    private fun renderList(state: PettyCashState.Success) {
+        // Compute a running balance chronologically (oldest -> newest), since
+        // the ViewModel sorts `deposits` newest-first for display but we need
+        // forward order to get correct running totals.
+        val chronological = state.deposits.sortedBy { it.timestamp }
+        var running = 0.0
+        val balanceAfterById = mutableMapOf<String, Double>()
+        chronological.forEach { d ->
+            running += d.amount
+            balanceAfterById[d.id] = running
+        }
 
+        val source = state.deposits // newest-first, as the ViewModel provides
+        val filtered = if (selectedFilter == FILTER_ALL) source else source.filter { it.source == selectedFilter }
+
+        layoutList.removeAllViews()
         if (filtered.isEmpty()) {
             layoutList.addView(TextView(requireContext()).apply {
                 text = "No deposits found."
@@ -145,14 +204,16 @@ class PettyCashDepositHistoryFragment : Fragment() {
 
         filtered.forEach { item ->
             val row = layoutInflater.inflate(R.layout.item_petty_cash_deposit_history_row, layoutList, false)
-            row.findViewById<TextView>(R.id.tvDepHistRowDateTime).text = item.dateTime
+            row.findViewById<TextView>(R.id.tvDepHistRowDateTime).text = formatDateTime(item.timestamp)
             row.findViewById<TextView>(R.id.tvDepHistRowTag).apply {
                 text = item.source
                 background = androidx.core.content.ContextCompat.getDrawable(requireContext(), tagDrawableFor(item.source))
             }
             row.findViewById<TextView>(R.id.tvDepHistRowAmount).text = "+ ${taka(item.amount)}"
-            row.findViewById<TextView>(R.id.tvDepHistRowRef).text = item.ref
-            row.findViewById<TextView>(R.id.tvDepHistRowBalanceAfter).text = taka(item.balanceAfter)
+            row.findViewById<TextView>(R.id.tvDepHistRowRef).text =
+                "Ref: ${item.reference.ifBlank { "—" }}"
+            row.findViewById<TextView>(R.id.tvDepHistRowBalanceAfter).text =
+                taka(balanceAfterById[item.id] ?: item.balanceAfter)
 
             layoutList.addView(row)
         }
