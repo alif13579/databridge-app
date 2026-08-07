@@ -6,25 +6,33 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
 
 /**
  * Petty Cash Management — Deposit Fund (mockup screen 2).
  *
- * Phase 5 of the Petty Cash feature build: layout + static mock current
- * balance + live "After Deposit" preview as the amount is typed. Firebase
- * wiring (writing a PettyCashDeposit + bumping petty_cash/{branch}/wallet/balance)
- * lands with PettyCashViewModel.
+ * Wired to PettyCashViewModel. Current balance is the real wallet balance;
+ * "After Deposit" preview updates live as the amount is typed. Deposit Now
+ * writes a real PettyCashDeposit and increments the wallet balance via
+ * viewModel.depositFund() (Firebase transaction under the hood, so
+ * concurrent deposits from different Accounts users don't race).
  */
 class PettyCashDepositFundFragment : Fragment() {
 
+    private val viewModel: PettyCashViewModel by viewModels()
+
     private var branchId: String = ""
-    private val currentBalance = 142750.0 // mock — matches Dashboard's mock balance
+    private var currentBalance: Double = 0.0
+    private var dataLoaded = false
 
     private val sources = listOf("Cash", "Bank", "Adjustment")
     private var selectedSource: String = ""
@@ -33,6 +41,7 @@ class PettyCashDepositFundFragment : Fragment() {
     private lateinit var etRemarks: EditText
     private lateinit var tvRemarksCount: TextView
     private lateinit var tvSourceSelected: TextView
+    private lateinit var btnDepositNow: Button
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -55,8 +64,8 @@ class PettyCashDepositFundFragment : Fragment() {
         etRemarks = view.findViewById(R.id.etPcDepositRemarks)
         tvRemarksCount = view.findViewById(R.id.tvPcDepositRemarksCount)
         tvSourceSelected = view.findViewById(R.id.tvPcDepositSourceSelected)
-
-        view.findViewById<TextView>(R.id.tvPcDepositCurrentBalance).text = taka(currentBalance)
+        btnDepositNow = view.findViewById(R.id.btnPcDepositNow)
+        btnDepositNow.isEnabled = false // enabled once the real balance has loaded
 
         view.findViewById<View>(R.id.btnPcDepositBack).setOnClickListener {
             parentFragmentManager.popBackStack()
@@ -84,9 +93,20 @@ class PettyCashDepositFundFragment : Fragment() {
             }
         })
 
-        view.findViewById<View>(R.id.btnPcDepositNow).setOnClickListener { onDepositNow() }
+        btnDepositNow.setOnClickListener { onDepositNow() }
 
-        updateAfterDepositPreview(view)
+        viewModel.state.observe(viewLifecycleOwner) { state ->
+            if (state is PettyCashState.Success) {
+                currentBalance = state.walletBalance
+                dataLoaded = true
+                btnDepositNow.isEnabled = true
+                view.findViewById<TextView>(R.id.tvPcDepositCurrentBalance).text = taka(currentBalance)
+                updateAfterDepositPreview(view)
+            } else if (state is PettyCashState.Error) {
+                Toast.makeText(requireContext(), state.message, Toast.LENGTH_SHORT).show()
+            }
+        }
+        if (branchId.isNotBlank()) viewModel.load(branchId)
     }
 
     private fun taka(amount: Double): String {
@@ -123,6 +143,10 @@ class PettyCashDepositFundFragment : Fragment() {
     }
 
     private fun onDepositNow() {
+        if (!dataLoaded) {
+            Toast.makeText(requireContext(), "Still loading wallet balance, try again in a moment", Toast.LENGTH_SHORT).show()
+            return
+        }
         val amount = enteredAmount()
         if (amount <= 0.0) {
             Toast.makeText(requireContext(), "Enter a valid deposit amount", Toast.LENGTH_SHORT).show()
@@ -132,10 +156,19 @@ class PettyCashDepositFundFragment : Fragment() {
             Toast.makeText(requireContext(), "Select a source", Toast.LENGTH_SHORT).show()
             return
         }
-        // TODO(Firebase phase): write PettyCashDeposit to
-        // FirebasePaths.pettyCashDeposits(branchId) and bump
-        // FirebasePaths.pettyCashWalletBalance(branchId) via a transaction.
-        Toast.makeText(requireContext(), "Deposited ${taka(amount)} via $selectedSource", Toast.LENGTH_SHORT).show()
-        parentFragmentManager.popBackStack()
+        val reference = view?.findViewById<EditText>(R.id.etPcDepositReference)?.text?.toString().orEmpty()
+        val remarks = etRemarks.text?.toString().orEmpty()
+
+        btnDepositNow.isEnabled = false
+        lifecycleScope.launch {
+            val result = viewModel.depositFund(branchId, amount, selectedSource, reference, remarks)
+            if (result.isSuccess) {
+                Toast.makeText(requireContext(), "Deposited ${taka(amount)} via $selectedSource", Toast.LENGTH_SHORT).show()
+                parentFragmentManager.popBackStack()
+            } else {
+                btnDepositNow.isEnabled = true
+                Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Deposit failed", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 }
