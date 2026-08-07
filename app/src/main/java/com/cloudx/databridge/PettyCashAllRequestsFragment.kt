@@ -7,25 +7,39 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import com.google.firebase.auth.FirebaseAuth
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import kotlin.math.ceil
+import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Petty Cash Management — All Requests (mockup screen 8).
  *
- * Phase 8 of the Petty Cash feature build: layout + static mock data + working
- * All/My Requests/Pending/Approved/Settled tab filter + static pagination
- * display. Firebase wiring (reading all petty_cash/{branch}/requests,
- * paginated) lands once PettyCashViewModel is built.
+ * Wired to PettyCashViewModel: real requests for the branch, working
+ * All/My Requests/Pending/Approved/Settled tab filter, and real client-side
+ * pagination (5 per page — the ViewModel loads the whole branch's request
+ * list in one read, there's no server-side cursor to page against yet).
  */
 class PettyCashAllRequestsFragment : Fragment() {
 
+    private val viewModel: PettyCashViewModel by viewModels()
+
     private lateinit var layoutTabs: LinearLayout
     private lateinit var layoutList: LinearLayout
+    private lateinit var pbLoading: View
+    private lateinit var layoutError: View
 
     private var branchId: String = ""
     private var selectedFilter: String = FILTER_ALL
+    private var currentPage: Int = 1
+    private var latestState: PettyCashState.Success? = null
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -34,6 +48,7 @@ class PettyCashAllRequestsFragment : Fragment() {
         private const val FILTER_PENDING = "pending"
         private const val FILTER_APPROVED = "approved"
         private const val FILTER_SETTLED = "settled"
+        private const val PAGE_SIZE = 5
 
         fun newInstance(branchId: String): PettyCashAllRequestsFragment {
             val f = PettyCashAllRequestsFragment()
@@ -41,25 +56,6 @@ class PettyCashAllRequestsFragment : Fragment() {
             return f
         }
     }
-
-    private data class MockRequest(
-        val code: String,
-        val worker: String,
-        val category: String,
-        val amount: Double,
-        val status: String, // "Pending (POC)" | "Pending (Team Aligned)" | "Approved (POC)" | "Settled"
-        val statusKey: String, // FILTER_PENDING / FILTER_APPROVED / FILTER_SETTLED for filtering
-        val date: String,
-        val isMine: Boolean
-    )
-
-    private val mockData = listOf(
-        MockRequest("REQ-2401", "Hasib Khan", "Travel Expense", 1250.0, "Pending (POC)", FILTER_PENDING, "01 Aug, 10:20 AM", true),
-        MockRequest("REQ-2400", "Salman Khan", "Fuel Expense", 950.0, "Approved (POC)", FILTER_APPROVED, "01 Aug, 10:15 AM", false),
-        MockRequest("REQ-2399", "Jannatul", "Stationery", 620.0, "Pending (Team Aligned)", FILTER_PENDING, "01 Aug, 09:55 AM", false),
-        MockRequest("REQ-2396", "Riya Akter", "Office Supplies", 850.0, "Settled", FILTER_SETTLED, "31 Jul, 04:30 PM", false),
-        MockRequest("REQ-2393", "Hasib Khan", "Travel Expense", 1100.0, "Settled", FILTER_SETTLED, "31 Jul, 03:10 PM", true)
-    )
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         return inflater.inflate(R.layout.fragment_petty_cash_all_requests, container, false)
@@ -71,6 +67,8 @@ class PettyCashAllRequestsFragment : Fragment() {
 
         layoutTabs = view.findViewById(R.id.layoutPcAllReqTabs)
         layoutList = view.findViewById(R.id.layoutPcAllReqList)
+        pbLoading  = view.findViewById(R.id.pbPcAllReqLoading)
+        layoutError = view.findViewById(R.id.layoutPcAllReqError)
 
         view.findViewById<View>(R.id.btnPcAllReqBack).setOnClickListener {
             parentFragmentManager.popBackStack()
@@ -89,13 +87,54 @@ class PettyCashAllRequestsFragment : Fragment() {
         }
 
         buildTabs()
-        renderList()
-        buildPagination(view)
+
+        viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
+        if (branchId.isBlank()) {
+            render(PettyCashState.Error("No branch selected"))
+        } else {
+            viewModel.load(branchId)
+        }
     }
 
     private fun taka(amount: Double): String {
         val whole = Math.round(amount)
         return "\u09F3${NumberFormat.getNumberInstance(Locale.US).format(whole)}"
+    }
+
+    private fun formatDate(millis: Long): String {
+        if (millis == 0L) return "—"
+        return SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
+    }
+
+    private fun render(state: PettyCashState) {
+        val root = view ?: return
+        val scroll = root.findViewById<View>(R.id.scrollPcAllReq)
+
+        when (state) {
+            is PettyCashState.Loading -> {
+                pbLoading.isVisible = true
+                layoutError.isVisible = false
+                scroll.isVisible = false
+            }
+            is PettyCashState.Error -> {
+                pbLoading.isVisible = false
+                scroll.isVisible = false
+                layoutError.isVisible = true
+                root.findViewById<TextView>(R.id.tvPcAllReqError).text = state.message
+                root.findViewById<View>(R.id.btnPcAllReqRetry).setOnClickListener {
+                    if (branchId.isNotBlank()) viewModel.load(branchId)
+                }
+            }
+            is PettyCashState.Success -> {
+                pbLoading.isVisible = false
+                layoutError.isVisible = false
+                scroll.isVisible = true
+                latestState = state
+                currentPage = 1
+                buildTabs()
+                renderList(root)
+            }
+        }
     }
 
     private fun buildTabs() {
@@ -112,8 +151,9 @@ class PettyCashAllRequestsFragment : Fragment() {
             tab.text = label
             tab.setOnClickListener {
                 selectedFilter = key
+                currentPage = 1
                 buildTabs()
-                renderList()
+                view?.let { renderList(it) }
             }
             styleTab(tab, key == selectedFilter)
             layoutTabs.addView(tab)
@@ -130,26 +170,38 @@ class PettyCashAllRequestsFragment : Fragment() {
         }
     }
 
-    private fun statusDrawableFor(statusKey: String): Int = when (statusKey) {
-        FILTER_APPROVED -> R.drawable.bg_pc_status_approved
-        FILTER_SETTLED -> R.drawable.bg_pc_status_settled
-        else -> R.drawable.bg_pc_status_pending
+    /** Maps a request's raw status to (display label, filter bucket, badge drawable, badge text color). */
+    private fun statusDisplay(request: PettyCashRequest): StatusDisplay = when (request.status) {
+        PC_STATUS_PENDING_TEAM_ALIGN -> StatusDisplay("Pending (Team Aligned)", FILTER_PENDING, R.drawable.bg_pc_status_pending, "#C2410C")
+        PC_STATUS_PENDING_POC -> StatusDisplay("Pending (POC)", FILTER_PENDING, R.drawable.bg_pc_status_pending, "#C2410C")
+        PC_STATUS_APPROVED -> StatusDisplay("Approved (POC)", FILTER_APPROVED, R.drawable.bg_pc_status_approved, "#6D28D9")
+        PC_STATUS_SETTLED -> StatusDisplay("Settled", FILTER_SETTLED, R.drawable.bg_pc_status_settled, "#059669")
+        PC_STATUS_REJECTED -> StatusDisplay("Rejected", "rejected", R.drawable.bg_pc_status_pending, "#B91C1C")
+        else -> StatusDisplay(request.status, "", R.drawable.bg_pc_status_pending, "#64748B")
     }
 
-    private fun statusTextColorFor(statusKey: String): String = when (statusKey) {
-        FILTER_APPROVED -> "#6D28D9"
-        FILTER_SETTLED -> "#059669"
-        else -> "#C2410C"
-    }
+    private data class StatusDisplay(val label: String, val bucket: String, val badgeBg: Int, val badgeColor: String)
 
-    private fun renderList() {
-        val filtered = when (selectedFilter) {
-            FILTER_MINE -> mockData.filter { it.isMine }
-            FILTER_PENDING, FILTER_APPROVED, FILTER_SETTLED -> mockData.filter { it.statusKey == selectedFilter }
-            else -> mockData
+    private fun filteredRequests(): List<PettyCashRequest> {
+        val all = latestState?.requests.orEmpty()
+        val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        return when (selectedFilter) {
+            FILTER_MINE -> all.filter { it.workerUid == myUid }
+            FILTER_PENDING, FILTER_APPROVED, FILTER_SETTLED -> all.filter { statusDisplay(it).bucket == selectedFilter }
+            else -> all
         }
-        layoutList.removeAllViews()
+    }
 
+    private fun renderList(root: View) {
+        val filtered = filteredRequests()
+        val totalPages = max(1, ceil(filtered.size / PAGE_SIZE.toDouble()).toInt())
+        currentPage = currentPage.coerceIn(1, totalPages)
+
+        val fromIndex = (currentPage - 1) * PAGE_SIZE
+        val toIndex = min(fromIndex + PAGE_SIZE, filtered.size)
+        val pageItems = if (fromIndex < filtered.size) filtered.subList(fromIndex, toIndex) else emptyList()
+
+        layoutList.removeAllViews()
         if (filtered.isEmpty()) {
             layoutList.addView(TextView(requireContext()).apply {
                 text = "No requests found."
@@ -158,53 +210,61 @@ class PettyCashAllRequestsFragment : Fragment() {
                 gravity = android.view.Gravity.CENTER
                 setPadding(dp(8), dp(40), dp(8), dp(40))
             })
-            return
+        } else {
+            pageItems.forEach { item ->
+                val status = statusDisplay(item)
+                val row = layoutInflater.inflate(R.layout.item_petty_cash_all_request_row, layoutList, false)
+                row.findViewById<TextView>(R.id.tvAllReqRowIcon).text = item.workerName.take(1).uppercase()
+                row.findViewById<TextView>(R.id.tvAllReqRowCode).text = item.requestCode
+                row.findViewById<TextView>(R.id.tvAllReqRowSubtitle).text = "${item.workerName}\n${item.category}"
+                row.findViewById<TextView>(R.id.tvAllReqRowAmount).text = taka(item.amount)
+                row.findViewById<TextView>(R.id.tvAllReqRowDate).text = formatDate(item.createdAt)
+                row.findViewById<TextView>(R.id.tvAllReqRowStatus).apply {
+                    text = status.label
+                    setTextColor(Color.parseColor(status.badgeColor))
+                    background = androidx.core.content.ContextCompat.getDrawable(requireContext(), status.badgeBg)
+                }
+
+                row.setOnClickListener {
+                    parentFragmentManager.beginTransaction()
+                        .replace(R.id.container, PettyCashSettlementDetailsFragment.newInstance(branchId, item.requestCode))
+                        .addToBackStack(null)
+                        .commitAllowingStateLoss()
+                }
+
+                layoutList.addView(row)
+            }
         }
 
-        filtered.forEach { item ->
-            val row = layoutInflater.inflate(R.layout.item_petty_cash_all_request_row, layoutList, false)
-            row.findViewById<TextView>(R.id.tvAllReqRowIcon).text = item.worker.take(1).uppercase()
-            row.findViewById<TextView>(R.id.tvAllReqRowCode).text = item.code
-            row.findViewById<TextView>(R.id.tvAllReqRowSubtitle).text = "${item.worker}\n${item.category}"
-            row.findViewById<TextView>(R.id.tvAllReqRowAmount).text = taka(item.amount)
-            row.findViewById<TextView>(R.id.tvAllReqRowDate).text = item.date
-            row.findViewById<TextView>(R.id.tvAllReqRowStatus).apply {
-                text = item.status
-                setTextColor(Color.parseColor(statusTextColorFor(item.statusKey)))
-                background = androidx.core.content.ContextCompat.getDrawable(requireContext(), statusDrawableFor(item.statusKey))
-            }
-
-            row.setOnClickListener {
-                parentFragmentManager.beginTransaction()
-                    .replace(R.id.container, PettyCashSettlementDetailsFragment.newInstance(branchId, item.code))
-                    .addToBackStack(null)
-                    .commitAllowingStateLoss()
-            }
-
-            layoutList.addView(row)
-        }
+        buildPagination(root, filtered.size, fromIndex, toIndex, totalPages)
     }
 
-    private fun buildPagination(root: View) {
-        root.findViewById<TextView>(R.id.tvPcAllReqPageInfo).text = "Showing 1 to 5 of 48"
+    private fun buildPagination(root: View, totalCount: Int, fromIndex: Int, toIndex: Int, totalPages: Int) {
+        val pageInfo = root.findViewById<TextView>(R.id.tvPcAllReqPageInfo)
+        pageInfo.text = if (totalCount == 0) "No requests" else "Showing ${fromIndex + 1} to $toIndex of $totalCount"
 
         val container = root.findViewById<LinearLayout>(R.id.layoutPcAllReqPageButtons)
         container.removeAllViews()
-        // Static page buttons matching the mockup — real pagination wiring
-        // (page state + Firebase query cursors) lands with the ViewModel phase.
-        listOf("1", "2", "3", "...", "10").forEach { label ->
+        if (totalPages <= 1) return
+
+        for (page in 1..totalPages) {
             val btn = TextView(requireContext()).apply {
-                text = label
+                text = page.toString()
                 textSize = 12f
                 setPadding(dp(10), dp(6), dp(10), dp(6))
-                setTextColor(if (label == "1") Color.WHITE else Color.parseColor("#64748B"))
+                val isCurrent = page == currentPage
+                setTextColor(if (isCurrent) Color.WHITE else Color.parseColor("#64748B"))
                 background = androidx.core.content.ContextCompat.getDrawable(
                     requireContext(),
-                    if (label == "1") R.drawable.bg_pc_step_done else R.drawable.bg_pc_tab_inactive
+                    if (isCurrent) R.drawable.bg_pc_step_done else R.drawable.bg_pc_tab_inactive
                 )
                 val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
                 lp.marginStart = dp(4)
                 layoutParams = lp
+                setOnClickListener {
+                    currentPage = page
+                    renderList(root)
+                }
             }
             container.addView(btn)
         }
