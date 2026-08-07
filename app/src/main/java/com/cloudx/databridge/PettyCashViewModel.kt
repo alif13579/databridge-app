@@ -52,7 +52,28 @@ sealed class PettyCashState {
         val deposits: List<PettyCashDeposit>,
         val walletBalance: Double,
         val roles: PettyCashUserRoles
-    ) : PettyCashState()
+    ) : PettyCashState() {
+        // Derived aggregates, computed once here so every screen (Dashboard,
+        // Pending Settlement, Wallet Summary, All Requests) reads the same
+        // numbers instead of each recomputing its own slightly different sum.
+        val totalFund: Double get() = deposits.sumOf { it.amount }
+        val pendingApprovalTotal: Double get() =
+            requests.filter { it.status == PC_STATUS_PENDING_TEAM_ALIGN || it.status == PC_STATUS_PENDING_POC }.sumOf { it.amount }
+        val approvedWaitingSettlementTotal: Double get() =
+            requests.filter { it.status == PC_STATUS_APPROVED }.sumOf { it.amount }
+        val settledThisMonthTotal: Double get() {
+            val cal = java.util.Calendar.getInstance()
+            val currentMonth = cal.get(java.util.Calendar.MONTH)
+            val currentYear = cal.get(java.util.Calendar.YEAR)
+            return requests.filter {
+                if (it.status != PC_STATUS_SETTLED || it.settledAt == 0L) return@filter false
+                cal.timeInMillis = it.settledAt
+                cal.get(java.util.Calendar.MONTH) == currentMonth && cal.get(java.util.Calendar.YEAR) == currentYear
+            }.sumOf { it.amount }
+        }
+        val pendingSettlementQueue: List<PettyCashRequest> get() =
+            requests.filter { it.status == PC_STATUS_APPROVED }.sortedByDescending { it.pocApprovedAt }
+    }
     data class Error(val message: String) : PettyCashState()
 }
 
