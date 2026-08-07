@@ -7,25 +7,36 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 /**
  * Petty Cash Management — Settlement History (mockup screen 7).
  *
- * Phase 7 of the Petty Cash feature build: layout + static mock data + working
- * All/Today/This Month tab filter. Firebase wiring (reading
- * petty_cash/{branch}/requests filtered to PC_STATUS_SETTLED, ordered by
- * settledAt) lands once PettyCashViewModel is built.
+ * Wired to PettyCashViewModel: real settled requests (PC_STATUS_SETTLED),
+ * with a working All/Today/This Month tab filter based on the real
+ * settledAt timestamp. Tapping a row opens Settlement Details (read-only,
+ * since the request is already settled — Settlement Details itself hides
+ * all action buttons once status is SETTLED).
  */
 class PettyCashSettlementHistoryFragment : Fragment() {
 
+    private val viewModel: PettyCashViewModel by viewModels()
+
     private lateinit var layoutTabs: LinearLayout
     private lateinit var layoutList: LinearLayout
+    private lateinit var pbLoading: View
+    private lateinit var layoutError: View
 
     private var branchId: String = ""
     private var selectedFilter: String = FILTER_ALL
+    private var latestState: PettyCashState.Success? = null
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -40,24 +51,6 @@ class PettyCashSettlementHistoryFragment : Fragment() {
         }
     }
 
-    private data class MockSettled(
-        val dateTime: String,
-        val code: String,
-        val worker: String,
-        val paymentMethod: String, // Cash, Bank
-        val balanceAfter: Double,
-        val isToday: Boolean,
-        val isThisMonth: Boolean
-    )
-
-    private val mockData = listOf(
-        MockSettled("01 Aug 2025, 12:15 PM", "REQ-2401", "Hasib Khan", "Cash", 141500.0, isToday = true, isThisMonth = true),
-        MockSettled("31 Jul 2025, 04:30 PM", "REQ-2396", "Jannatul", "Cash", 142750.0, isToday = false, isThisMonth = true),
-        MockSettled("31 Jul 2025, 03:10 PM", "REQ-2393", "Salman Khan", "Cash", 143370.0, isToday = false, isThisMonth = true),
-        MockSettled("30 Jul 2025, 01:40 PM", "REQ-2388", "Riya Akter", "Cash", 144620.0, isToday = false, isThisMonth = true),
-        MockSettled("29 Jul 2025, 02:20 PM", "REQ-2380", "Hasib Khan", "Bank", 145470.0, isToday = false, isThisMonth = true)
-    )
-
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         return inflater.inflate(R.layout.fragment_petty_cash_settlement_history, container, false)
     }
@@ -68,6 +61,8 @@ class PettyCashSettlementHistoryFragment : Fragment() {
 
         layoutTabs = view.findViewById(R.id.layoutPcSetHistTabs)
         layoutList = view.findViewById(R.id.layoutPcSetHistList)
+        pbLoading  = view.findViewById(R.id.pbPcSetHistLoading)
+        layoutError = view.findViewById(R.id.layoutPcSetHistError)
 
         view.findViewById<View>(R.id.btnPcSetHistBack).setOnClickListener {
             parentFragmentManager.popBackStack()
@@ -80,13 +75,60 @@ class PettyCashSettlementHistoryFragment : Fragment() {
         }
 
         buildTabs()
-        renderList()
+
+        viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
+        if (branchId.isBlank()) {
+            render(PettyCashState.Error("No branch selected"))
+        } else {
+            viewModel.load(branchId)
+        }
     }
 
     private fun taka(amount: Double): String {
         val whole = Math.round(amount)
         return "\u09F3${NumberFormat.getNumberInstance(Locale.US).format(whole)}"
     }
+
+    private fun formatDateTime(millis: Long): String {
+        if (millis == 0L) return "—"
+        return SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(millis))
+    }
+
+    private fun render(state: PettyCashState) {
+        val root = view ?: return
+        val scroll = root.findViewById<View>(R.id.scrollPcSetHist)
+
+        when (state) {
+            is PettyCashState.Loading -> {
+                pbLoading.isVisible = true
+                layoutError.isVisible = false
+                scroll.isVisible = false
+            }
+            is PettyCashState.Error -> {
+                pbLoading.isVisible = false
+                scroll.isVisible = false
+                layoutError.isVisible = true
+                root.findViewById<TextView>(R.id.tvPcSetHistError).text = state.message
+                root.findViewById<View>(R.id.btnPcSetHistRetry).setOnClickListener {
+                    if (branchId.isNotBlank()) viewModel.load(branchId)
+                }
+            }
+            is PettyCashState.Success -> {
+                pbLoading.isVisible = false
+                layoutError.isVisible = false
+                scroll.isVisible = true
+                latestState = state
+                buildTabs()
+                renderList()
+            }
+        }
+    }
+
+    private fun settledRequests(): List<PettyCashRequest> =
+        latestState?.requests
+            ?.filter { it.status == PC_STATUS_SETTLED }
+            ?.sortedByDescending { it.settledAt }
+            ?: emptyList()
 
     private fun buildTabs() {
         layoutTabs.removeAllViews()
@@ -118,14 +160,31 @@ class PettyCashSettlementHistoryFragment : Fragment() {
         }
     }
 
-    private fun renderList() {
-        val filtered = when (selectedFilter) {
-            FILTER_TODAY -> mockData.filter { it.isToday }
-            FILTER_MONTH -> mockData.filter { it.isThisMonth }
-            else -> mockData
-        }
-        layoutList.removeAllViews()
+    private fun isToday(millis: Long): Boolean {
+        if (millis == 0L) return false
+        val now = Calendar.getInstance()
+        val then = Calendar.getInstance().apply { timeInMillis = millis }
+        return now.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR) &&
+            now.get(Calendar.YEAR) == then.get(Calendar.YEAR)
+    }
 
+    private fun isThisMonth(millis: Long): Boolean {
+        if (millis == 0L) return false
+        val now = Calendar.getInstance()
+        val then = Calendar.getInstance().apply { timeInMillis = millis }
+        return now.get(Calendar.MONTH) == then.get(Calendar.MONTH) &&
+            now.get(Calendar.YEAR) == then.get(Calendar.YEAR)
+    }
+
+    private fun renderList() {
+        val all = settledRequests()
+        val filtered = when (selectedFilter) {
+            FILTER_TODAY -> all.filter { isToday(it.settledAt) }
+            FILTER_MONTH -> all.filter { isThisMonth(it.settledAt) }
+            else -> all
+        }
+
+        layoutList.removeAllViews()
         if (filtered.isEmpty()) {
             layoutList.addView(TextView(requireContext()).apply {
                 text = "No settlements found."
@@ -139,21 +198,21 @@ class PettyCashSettlementHistoryFragment : Fragment() {
 
         filtered.forEach { item ->
             val row = layoutInflater.inflate(R.layout.item_petty_cash_settlement_history_row, layoutList, false)
-            row.findViewById<TextView>(R.id.tvSetHistRowDateTime).text = item.dateTime
+            row.findViewById<TextView>(R.id.tvSetHistRowDateTime).text = formatDateTime(item.settledAt)
             row.findViewById<TextView>(R.id.tvSetHistRowTag).apply {
-                text = item.paymentMethod
+                text = item.settledPaymentMethod.ifBlank { "—" }
                 background = androidx.core.content.ContextCompat.getDrawable(
                     requireContext(),
-                    if (item.paymentMethod == "Bank") R.drawable.bg_pc_tag_bank else R.drawable.bg_pc_tag_cash
+                    if (item.settledPaymentMethod == "Bank") R.drawable.bg_pc_tag_bank else R.drawable.bg_pc_tag_cash
                 )
             }
-            row.findViewById<TextView>(R.id.tvSetHistRowCode).text = item.code
-            row.findViewById<TextView>(R.id.tvSetHistRowWorker).text = item.worker
-            row.findViewById<TextView>(R.id.tvSetHistRowBalanceAfter).text = taka(item.balanceAfter)
+            row.findViewById<TextView>(R.id.tvSetHistRowCode).text = item.requestCode
+            row.findViewById<TextView>(R.id.tvSetHistRowWorker).text = item.workerName
+            row.findViewById<TextView>(R.id.tvSetHistRowBalanceAfter).text = taka(item.amount)
 
             row.setOnClickListener {
                 parentFragmentManager.beginTransaction()
-                    .replace(R.id.container, PettyCashSettlementDetailsFragment.newInstance(branchId, item.code))
+                    .replace(R.id.container, PettyCashSettlementDetailsFragment.newInstance(branchId, item.requestCode))
                     .addToBackStack(null)
                     .commitAllowingStateLoss()
             }
