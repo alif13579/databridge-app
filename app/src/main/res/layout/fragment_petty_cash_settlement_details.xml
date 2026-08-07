@@ -48,6 +48,31 @@
             android:layout_marginTop="60dp"
             android:visibility="gone" />
 
+        <LinearLayout
+            android:id="@+id/layoutPcDetailError"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="24dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvPcDetailError"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#B91C1C"
+                android:gravity="center" />
+
+            <Button
+                android:id="@+id/btnPcDetailRetry"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Retry"
+                android:textAllCaps="false" />
+        </LinearLayout>
+
         <ScrollView
             android:id="@+id/scrollPcDetail"
             android:layout_width="match_parent"
