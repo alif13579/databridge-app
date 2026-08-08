@@ -1,9 +1,22 @@
-# Firebase Realtime Database Rules — Petty Cash
+# Firebase Realtime Database Rules
 
-`database.rules.json` (repo root) is the deployable rules file — kept as
-strict single-line-string JSON so it validates with any plain JSON parser
-and deploys cleanly via `firebase deploy --only database`. This file
-explains the logic in readable form; if you change the rules, update both.
+`database.rules.json` (repo root) is the full production rules file,
+covering every top-level node in the database (`users`, `roles`,
+`branches`, `chats`, `memory`, `cash_management`, `courier`, `petty_cash`,
+and others) — kept in the repo so rule changes go through the same
+review/history as app code, instead of being edited ad-hoc in the Firebase
+Console with no record of what changed or why.
+
+Kept as strict single-line-string JSON so it validates with any plain
+JSON parser and deploys cleanly via `firebase deploy --only database`.
+
+**This README only documents the `petty_cash` node in detail** (the
+feature this repo's recent history has been building). The other nodes
+follow simple, consistent patterns — mostly `auth != null` reads with
+role_id checks (`admin`/`manager`/`supervisor`/etc, read from
+`users/{uid}/profile/company_info/role_id`) gating writes — readable
+directly from the rules file itself. If you change the rules, update
+both the file and this doc.
 
 ## Known limitation: `branch_ids` membership can't be checked in rules
 
