@@ -68,6 +68,12 @@ class PettyCashDashboardFragment : Fragment() {
         view.findViewById<View>(R.id.btnPcDashboardBack).setOnClickListener {
             parentFragmentManager.popBackStack()
         }
+        view.findViewById<View>(R.id.btnPcDashboardNewRequest).setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashRequestCreateFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
 
         swipeRefresh.setOnRefreshListener { viewModel.load(branchId) }
 

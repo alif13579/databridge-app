@@ -64,6 +64,14 @@
                     </LinearLayout>
 
                     <ImageButton
+                        android:id="@+id/btnPcDashboardNewRequest"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:src="@android:drawable/ic_input_add"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="New Request" />
+
+                    <ImageButton
                         android:id="@+id/btnPcDashboardNotif"
                         android:layout_width="36dp"
                         android:layout_height="36dp"
