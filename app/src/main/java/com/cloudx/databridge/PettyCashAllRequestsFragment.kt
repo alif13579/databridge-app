@@ -40,6 +40,7 @@ class PettyCashAllRequestsFragment : Fragment() {
     private var selectedFilter: String = FILTER_ALL
     private var currentPage: Int = 1
     private var latestState: PettyCashState.Success? = null
+    private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -84,6 +85,13 @@ class PettyCashAllRequestsFragment : Fragment() {
                 .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
+        }
+
+        parentFragmentManager.setFragmentResultListener(PettyCashFilterState.FRAGMENT_RESULT_KEY, viewLifecycleOwner) { _, bundle ->
+            val stateBundle = bundle.getBundle(PettyCashFilterState.BUNDLE_KEY_STATE)
+            advancedFilter = stateBundle?.let { PettyCashFilterState.fromBundle(it) } ?: PettyCashFilterState()
+            currentPage = 1
+            view?.let { renderList(it) }
         }
 
         buildTabs()
@@ -185,11 +193,12 @@ class PettyCashAllRequestsFragment : Fragment() {
     private fun filteredRequests(): List<PettyCashRequest> {
         val all = latestState?.requests.orEmpty()
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-        return when (selectedFilter) {
+        val tabFiltered = when (selectedFilter) {
             FILTER_MINE -> all.filter { it.workerUid == myUid }
             FILTER_PENDING, FILTER_APPROVED, FILTER_SETTLED -> all.filter { statusDisplay(it).bucket == selectedFilter }
             else -> all
         }
+        return if (advancedFilter.isActive) tabFiltered.filter { advancedFilter.matches(it) } else tabFiltered
     }
 
     private fun renderList(root: View) {

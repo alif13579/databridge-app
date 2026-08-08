@@ -1,5 +1,6 @@
 package com.cloudx.databridge
 
+import android.os.Bundle
 import com.google.firebase.database.IgnoreExtraProperties
 
 /**
@@ -89,6 +90,67 @@ data class PettyCashWalletSummary(
     val settledThisMonthTotal: Double = 0.0,
     val totalFund: Double = 0.0
 )
+
+/**
+ * Shared filter state produced by PettyCashFilterFragment and consumed by
+ * every screen that routes its filter icon there (Pending Settlement,
+ * Deposit History, Settlement History, All Requests). Passed via the
+ * Fragment Result API (see FRAGMENT_RESULT_KEY) rather than a shared
+ * ViewModel scope, since the filter screen and its caller aren't always
+ * in the same back-stack entry group.
+ *
+ * All fields are "no restriction" when at their default — an empty
+ * statuses set, blank category, 0L dates all mean "don't filter on this".
+ */
+data class PettyCashFilterState(
+    val dateFromMillis: Long = 0L,
+    val dateToMillis: Long = 0L,
+    val statuses: Set<String> = emptySet(), // subset of PC_STATUS_* constants
+    val category: String = "",              // "" or "All Categories" = no restriction
+    val workerCategory: String = ""         // "" or "All Categories" = no restriction
+) {
+    val isActive: Boolean get() =
+        dateFromMillis != 0L || dateToMillis != 0L || statuses.isNotEmpty() ||
+        (category.isNotBlank() && category != "All Categories") ||
+        (workerCategory.isNotBlank() && workerCategory != "All Categories")
+
+    fun matches(request: PettyCashRequest): Boolean {
+        if (dateFromMillis != 0L && request.createdAt < dateFromMillis) return false
+        if (dateToMillis != 0L && request.createdAt > dateToMillis) return false
+        if (statuses.isNotEmpty() && request.status !in statuses) return false
+        if (category.isNotBlank() && category != "All Categories" && request.category != category) return false
+        if (workerCategory.isNotBlank() && workerCategory != "All Categories" && request.workerRole != workerCategory) return false
+        return true
+    }
+
+    /** Date-range-only match for deposits, which have no status/category/worker-role. */
+    fun matches(deposit: PettyCashDeposit): Boolean {
+        if (dateFromMillis != 0L && deposit.timestamp < dateFromMillis) return false
+        if (dateToMillis != 0L && deposit.timestamp > dateToMillis) return false
+        return true
+    }
+
+    companion object {
+        const val FRAGMENT_RESULT_KEY = "petty_cash_filter_result"
+        const val BUNDLE_KEY_STATE = "petty_cash_filter_state"
+
+        fun toBundle(state: PettyCashFilterState): Bundle = Bundle().apply {
+            putLong("dateFromMillis", state.dateFromMillis)
+            putLong("dateToMillis", state.dateToMillis)
+            putStringArrayList("statuses", ArrayList(state.statuses))
+            putString("category", state.category)
+            putString("workerCategory", state.workerCategory)
+        }
+
+        fun fromBundle(bundle: Bundle): PettyCashFilterState = PettyCashFilterState(
+            dateFromMillis = bundle.getLong("dateFromMillis", 0L),
+            dateToMillis = bundle.getLong("dateToMillis", 0L),
+            statuses = (bundle.getStringArrayList("statuses") ?: arrayListOf()).toSet(),
+            category = bundle.getString("category").orEmpty(),
+            workerCategory = bundle.getString("workerCategory").orEmpty()
+        )
+    }
+}
 
 // NOTE: branch-wise role assignment for the petty cash approval chain
 // (Team Aligned / Petty Cash POC / Accounts) lives on Branch.kt as

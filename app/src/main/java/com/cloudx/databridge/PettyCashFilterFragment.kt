@@ -7,25 +7,31 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.TextView
-import android.widget.Toast
 import androidx.fragment.app.Fragment
 import java.util.Calendar
 
 /**
  * Petty Cash Management — Filter / Search (mockup screen 10).
  *
- * Phase 10 (final phase) of the Petty Cash feature build: layout + working
- * date pickers, status checkboxes, category/worker-category selectors,
- * Reset/Apply. This is a standalone filter form for now — wiring it to
- * actually filter Pending Settlement / All Requests / History lists (via
- * a shared filter state passed back through the fragment result API) is a
- * TODO for the ViewModel phase, same as the rest of the Firebase wiring.
+ * Date pickers, status checkboxes (mapped to real PC_STATUS_* constants),
+ * category/worker-category selectors, Reset/Apply. Apply packages the
+ * selection into a PettyCashFilterState and sends it back to whichever
+ * screen opened this one via the Fragment Result API — Pending Settlement,
+ * Deposit History, Settlement History, and All Requests all route their
+ * filter icon here and listen for PettyCashFilterState.FRAGMENT_RESULT_KEY.
  */
 class PettyCashFilterFragment : Fragment() {
 
     private var branchId: String = ""
 
-    private val statusOptions = listOf("Pending Approval", "Approved (Waiting Settlement)", "Settled", "Rejected")
+    // Checkbox labels map 1:1 to PC_STATUS_* constants — label shown to the
+    // person, value is what actually gets matched against request.status.
+    private val statusOptions = listOf(
+        "Pending Approval" to setOf(PC_STATUS_PENDING_TEAM_ALIGN, PC_STATUS_PENDING_POC),
+        "Approved (Waiting Settlement)" to setOf(PC_STATUS_APPROVED),
+        "Settled" to setOf(PC_STATUS_SETTLED),
+        "Rejected" to setOf(PC_STATUS_REJECTED)
+    )
     private val categoryOptions = listOf("All Categories", "Travel Expense", "Fuel Expense", "Stationery", "Office Supplies")
     private val workerCategoryOptions = listOf("All Categories", "Delivery Agent", "Office Staff", "Call Center Agent")
 
@@ -33,6 +39,7 @@ class PettyCashFilterFragment : Fragment() {
     private var dateToMillis: Long = 0L
     private var selectedCategory = categoryOptions.first()
     private var selectedWorkerCategory = workerCategoryOptions.first()
+    private val checkedStatusGroups = mutableSetOf<Int>() // indices into statusOptions
 
     private lateinit var tvDateFrom: TextView
     private lateinit var tvDateTo: TextView
@@ -65,16 +72,12 @@ class PettyCashFilterFragment : Fragment() {
             parentFragmentManager.popBackStack()
         }
 
-        // Default range: last 30 days, matching the mockup's pre-filled dates.
-        val cal = Calendar.getInstance()
-        dateToMillis = cal.timeInMillis
-        tvDateTo.text = formatDate(dateToMillis)
-        cal.add(Calendar.DAY_OF_MONTH, -30)
-        dateFromMillis = cal.timeInMillis
-        tvDateFrom.text = formatDate(dateFromMillis)
+        statusOptions.indices.forEach { checkedStatusGroups.add(it) } // all checked by default, matches mockup
 
         tvDateFrom.setOnClickListener { pickDate(isFrom = true) }
         tvDateTo.setOnClickListener { pickDate(isFrom = false) }
+        tvDateFrom.text = "Any"
+        tvDateTo.text = "Any"
 
         buildStatusCheckboxes(view)
 
@@ -86,6 +89,7 @@ class PettyCashFilterFragment : Fragment() {
     }
 
     private fun formatDate(millis: Long): String {
+        if (millis == 0L) return "Any"
         val cal = Calendar.getInstance().apply { timeInMillis = millis }
         val day = cal.get(Calendar.DAY_OF_MONTH)
         val month = cal.get(Calendar.MONTH) + 1
@@ -99,7 +103,8 @@ class PettyCashFilterFragment : Fragment() {
     }
 
     private fun pickDate(isFrom: Boolean) {
-        val cal = Calendar.getInstance().apply { timeInMillis = if (isFrom) dateFromMillis else dateToMillis }
+        val base = if (isFrom) dateFromMillis else dateToMillis
+        val cal = Calendar.getInstance().apply { if (base != 0L) timeInMillis = base }
         DatePickerDialog(
             requireContext(),
             { _, year, month, day ->
@@ -119,12 +124,17 @@ class PettyCashFilterFragment : Fragment() {
     private fun buildStatusCheckboxes(root: View) {
         val container = root.findViewById<android.widget.LinearLayout>(R.id.layoutPcFilterStatusOptions)
         container.removeAllViews()
-        statusOptions.forEach { label ->
+        statusOptions.forEachIndexed { index, (label, _) ->
             val row = layoutInflater.inflate(R.layout.item_petty_cash_filter_checkbox, container, false)
             val cb = row.findViewById<CheckBox>(R.id.cbFilterOption)
             row.findViewById<TextView>(R.id.tvFilterOptionLabel).text = label
-            cb.isChecked = true // all checked by default, matches mockup
-            row.setOnClickListener { cb.isChecked = !cb.isChecked }
+            cb.isChecked = index in checkedStatusGroups
+            val toggle = {
+                if (index in checkedStatusGroups) checkedStatusGroups.remove(index) else checkedStatusGroups.add(index)
+                cb.isChecked = index in checkedStatusGroups
+            }
+            row.setOnClickListener { toggle() }
+            cb.setOnClickListener { toggle() }
             container.addView(row)
         }
     }
@@ -150,27 +160,40 @@ class PettyCashFilterFragment : Fragment() {
     }
 
     private fun resetFilters(root: View) {
-        val cal = Calendar.getInstance()
-        dateToMillis = cal.timeInMillis
-        tvDateTo.text = formatDate(dateToMillis)
-        cal.add(Calendar.DAY_OF_MONTH, -30)
-        dateFromMillis = cal.timeInMillis
-        tvDateFrom.text = formatDate(dateFromMillis)
+        dateFromMillis = 0L
+        dateToMillis = 0L
+        tvDateFrom.text = "Any"
+        tvDateTo.text = "Any"
 
         selectedCategory = categoryOptions.first()
         selectedWorkerCategory = workerCategoryOptions.first()
         tvCategorySelected.text = selectedCategory
         tvWorkerCategorySelected.text = selectedWorkerCategory
 
+        checkedStatusGroups.clear()
+        statusOptions.indices.forEach { checkedStatusGroups.add(it) }
         buildStatusCheckboxes(root)
     }
 
     private fun applyFilters() {
-        // TODO(ViewModel phase): pass the selected filter state back to the
-        // screen that opened this (Pending Settlement / Deposit History /
-        // Settlement History / All Requests) via setFragmentResult, and have
-        // that screen re-query Firebase with the filter applied.
-        Toast.makeText(requireContext(), "Filters applied", Toast.LENGTH_SHORT).show()
+        // If every status group is checked, that's equivalent to "no status
+        // filter" — don't narrow the result to a redundant full-coverage set.
+        val allChecked = checkedStatusGroups.size == statusOptions.size
+        val resolvedStatuses: Set<String> = if (allChecked) emptySet()
+        else checkedStatusGroups.flatMap { statusOptions[it].second }.toSet()
+
+        val filterState = PettyCashFilterState(
+            dateFromMillis = dateFromMillis,
+            dateToMillis = dateToMillis,
+            statuses = resolvedStatuses,
+            category = selectedCategory,
+            workerCategory = selectedWorkerCategory
+        )
+
+        parentFragmentManager.setFragmentResult(
+            PettyCashFilterState.FRAGMENT_RESULT_KEY,
+            Bundle().apply { putBundle(PettyCashFilterState.BUNDLE_KEY_STATE, PettyCashFilterState.toBundle(filterState)) }
+        )
         parentFragmentManager.popBackStack()
     }
 }
