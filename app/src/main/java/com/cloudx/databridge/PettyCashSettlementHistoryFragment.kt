@@ -37,6 +37,7 @@ class PettyCashSettlementHistoryFragment : Fragment() {
     private var branchId: String = ""
     private var selectedFilter: String = FILTER_ALL
     private var latestState: PettyCashState.Success? = null
+    private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -72,6 +73,12 @@ class PettyCashSettlementHistoryFragment : Fragment() {
                 .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
+        }
+
+        parentFragmentManager.setFragmentResultListener(PettyCashFilterState.FRAGMENT_RESULT_KEY, viewLifecycleOwner) { _, bundle ->
+            val stateBundle = bundle.getBundle(PettyCashFilterState.BUNDLE_KEY_STATE)
+            advancedFilter = stateBundle?.let { PettyCashFilterState.fromBundle(it) } ?: PettyCashFilterState()
+            renderList()
         }
 
         buildTabs()
@@ -178,11 +185,12 @@ class PettyCashSettlementHistoryFragment : Fragment() {
 
     private fun renderList() {
         val all = settledRequests()
-        val filtered = when (selectedFilter) {
+        val tabFiltered = when (selectedFilter) {
             FILTER_TODAY -> all.filter { isToday(it.settledAt) }
             FILTER_MONTH -> all.filter { isThisMonth(it.settledAt) }
             else -> all
         }
+        val filtered = if (advancedFilter.isActive) tabFiltered.filter { advancedFilter.matches(it) } else tabFiltered
 
         layoutList.removeAllViews()
         if (filtered.isEmpty()) {

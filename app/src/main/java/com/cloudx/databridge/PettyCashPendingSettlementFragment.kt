@@ -38,6 +38,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
     private var branchId: String = ""
     private var selectedFilter: String = FILTER_ALL
     private var latestState: PettyCashState.Success? = null
+    private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -83,6 +84,12 @@ class PettyCashPendingSettlementFragment : Fragment() {
         }
 
         swipeRefresh.setOnRefreshListener { if (branchId.isNotBlank()) viewModel.load(branchId) }
+
+        parentFragmentManager.setFragmentResultListener(PettyCashFilterState.FRAGMENT_RESULT_KEY, viewLifecycleOwner) { _, bundle ->
+            val stateBundle = bundle.getBundle(PettyCashFilterState.BUNDLE_KEY_STATE)
+            advancedFilter = stateBundle?.let { PettyCashFilterState.fromBundle(it) } ?: PettyCashFilterState()
+            renderList()
+        }
 
         buildTabs()
 
@@ -165,11 +172,12 @@ class PettyCashPendingSettlementFragment : Fragment() {
     private fun renderList() {
         val state = latestState ?: return
         val queue = state.pendingSettlementQueue
-        val filtered = when (selectedFilter) {
+        val priorityFiltered = when (selectedFilter) {
             FILTER_HIGH -> queue.filter { it.priority == PC_PRIORITY_HIGH }
             FILTER_NORMAL -> queue.filter { it.priority == PC_PRIORITY_NORMAL }
             else -> queue
         }
+        val filtered = if (advancedFilter.isActive) priorityFiltered.filter { advancedFilter.matches(it) } else priorityFiltered
         val canSettle = state.roles.isAccounts
 
         layoutList.removeAllViews()

@@ -168,7 +168,8 @@ class PettyCashViewModel : ViewModel() {
         amount: Double,
         priority: String,
         attachmentUrl: String,
-        attachmentName: String
+        attachmentName: String,
+        workerRole: String = ""
     ): Result<String> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Worker" }
@@ -183,6 +184,7 @@ class PettyCashViewModel : ViewModel() {
             requestCode = requestCode,
             workerUid = uid,
             workerName = name,
+            workerRole = workerRole,
             category = category,
             purpose = purpose,
             amount = amount,

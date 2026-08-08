@@ -37,6 +37,7 @@ class PettyCashDepositHistoryFragment : Fragment() {
     private var branchId: String = ""
     private var selectedFilter: String = FILTER_ALL
     private var latestState: PettyCashState.Success? = null
+    private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -73,6 +74,12 @@ class PettyCashDepositHistoryFragment : Fragment() {
                 .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
+        }
+
+        parentFragmentManager.setFragmentResultListener(PettyCashFilterState.FRAGMENT_RESULT_KEY, viewLifecycleOwner) { _, bundle ->
+            val stateBundle = bundle.getBundle(PettyCashFilterState.BUNDLE_KEY_STATE)
+            advancedFilter = stateBundle?.let { PettyCashFilterState.fromBundle(it) } ?: PettyCashFilterState()
+            latestState?.let { renderList(it) }
         }
 
         buildTabs()
@@ -188,7 +195,8 @@ class PettyCashDepositHistoryFragment : Fragment() {
         }
 
         val source = state.deposits // newest-first, as the ViewModel provides
-        val filtered = if (selectedFilter == FILTER_ALL) source else source.filter { it.source == selectedFilter }
+        val tabFiltered = if (selectedFilter == FILTER_ALL) source else source.filter { it.source == selectedFilter }
+        val filtered = if (advancedFilter.isActive) tabFiltered.filter { advancedFilter.matches(it) } else tabFiltered
 
         layoutList.removeAllViews()
         if (filtered.isEmpty()) {
