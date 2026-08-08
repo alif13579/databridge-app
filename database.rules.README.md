@@ -47,7 +47,7 @@ the corresponding role field on `branches/{branchId}`:
 
 | From status | To status | Allowed by |
 |---|---|---|
-| *(new)* | `pending_team_align` | the request's own `workerUid` (self-submit only) |
+| *(new)* | `pending_team_align` | the request's own `workerUid` (self-submit only), **and** the submitter's role must have `petty_cash_requester: true` under `roles/{role_id}/permissions` (checked by resolving `users/{uid}/profile/company_info/role_id` then looking up that role's permissions) |
 | `pending_team_align` | `pending_poc` | `branches/{branchId}/team_aligned_uid` |
 | `pending_poc` | `approved` | `branches/{branchId}/petty_cash_poc_uid` |
 | `approved` | `settled` | `branches/{branchId}/accountant_uid` |
@@ -70,6 +70,25 @@ write (deposits and settlements both go through
 `accountant_uid` can create (never edit/delete — `!data.exists()` blocks
 overwriting an existing deposit record), and the deposit's own
 `enteredByUid` must match the writer.
+
+## Who can be a "Requester"?
+
+Unlike Team Aligned / Petty Cash POC / Accountant (branch-specific
+assignments on `branches/{branchId}`), submitting a new request is gated
+by a **company-wide role permission**: `petty_cash_requester` under
+`PermissionCatalog`. An admin grants this to whichever job-title roles
+should be able to file requests (e.g. Pickup Agent, Delivery Agent) via
+the existing Access Manager screen — no separate UI was built for this,
+since Access Manager already lets an admin toggle any permission key
+per-role, and `petty_cash_requester` is just one more entry in that same
+catalog. Multiple roles can hold it simultaneously.
+
+App-side, `PettyCashRequestCreateFragment` checks
+`RbacManager.hasPermission("petty_cash_requester")` before rendering the
+form. The rules file re-checks the same thing server-side on write (see
+the `roles/{role_id}/permissions/petty_cash_requester` lookup in the
+create-transition rule above) so a compromised or modified client can't
+bypass the app-side check.
 
 ## Deploying
 

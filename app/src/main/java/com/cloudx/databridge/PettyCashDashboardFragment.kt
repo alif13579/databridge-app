@@ -68,7 +68,13 @@ class PettyCashDashboardFragment : Fragment() {
         view.findViewById<View>(R.id.btnPcDashboardBack).setOnClickListener {
             parentFragmentManager.popBackStack()
         }
-        view.findViewById<View>(R.id.btnPcDashboardNewRequest).setOnClickListener {
+        val btnNewRequest = view.findViewById<View>(R.id.btnPcDashboardNewRequest)
+        // Only roles explicitly granted "petty_cash_requester" (Access Manager)
+        // can submit new requests — e.g. Pickup Agent, Delivery Agent. Whether
+        // someone can also see this whole Dashboard (nav_petty_cash) is a
+        // separate permission; this button doesn't assume the two overlap.
+        btnNewRequest.isVisible = RbacManager.hasPermission("petty_cash_requester")
+        btnNewRequest.setOnClickListener {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashRequestCreateFragment.newInstance(branchId))
                 .addToBackStack(null)
