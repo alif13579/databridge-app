@@ -1,53 +1,87 @@
 {
   "rules": {
-    ".read": false,
-    ".write": false,
-
-    "users": {
+    "error_logs": {
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
-        ".write": "auth != null && auth.uid === $uid",
-        "profile": {
-          "company_info": {
-            "branch_ids": {
-              ".read": "auth != null"
-            },
-            "role_id": {
-              ".read": "auth != null"
-            }
-          }
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "scanned": {
+      ".read": "auth != null",
+      ".write": true,
+      "barcode_scans": {
+        ".indexOn": ["lastScannedAt"]
+      }
+    },
+    "users_by_systemId": {
+      ".read": "auth != null",
+      "$sysId": {
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'supervisor')"
+      }
+    },
+    "users": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && (auth.uid == $uid || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'supervisor' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'stuff')",
+        "run-routes": {
+          ".indexOn": ["created_at"]
         }
       }
     },
-
+    "chats": {
+      "$chatId": {
+        ".read": "auth != null && data.child('meta/participants').child(auth.uid).exists()",
+        ".write": "auth != null"
+      }
+    },
+    "user_chats": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null"
+      }
+    },
+    "memory": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid",
+        "earnings": {
+          ".read": "auth != null && (auth.uid == $uid || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'supervisor')",
+          "$entryId": {
+            ".validate": "newData.hasChildren(['parcelDelivery','documentDelivery','parcelAssigned','documentAssigned','parcelCommission','documentCommission','createdAt','model']) && newData.child('createdAt').isNumber() && newData.child('createdAt').val() > 0"
+          },
+          ".indexOn": ["createdAt"]
+        }
+      }
+    },
     "roles": {
       ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin'",
+      "guest": {
+        ".read": true,
+        ".write": false
+      },
       "$roleId": {
-        ".write": false
-      }
-    },
-
-    "branches": {
-      "$branchId": {
         ".read": "auth != null",
-        ".write": false
+        ".write": "auth != null && root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin'"
       }
     },
-
+    "role_reports_to": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin'"
+    },
+    "branches": {
+      ".read": "auth != null",
+      ".write": "auth != null && (root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager')"
+    },
     "petty_cash": {
       "$branchId": {
-
         ".read": "auth != null",
-
         "requests": {
           "$requestId": {
-
             ".read": "auth != null",
-
             ".write": "auth != null && ( (!data.exists() && newData.child('workerUid').val() === auth.uid && newData.child('branchId').val() === $branchId && newData.child('status').val() === 'pending_team_align' && root.child('roles').child(root.child('users').child(auth.uid).child('profile/company_info/role_id').val()).child('permissions/petty_cash_requester').val() === true) || (data.exists() && newData.exists() && newData.child('workerUid').val() === data.child('workerUid').val() && newData.child('branchId').val() === data.child('branchId').val() && newData.child('amount').val() === data.child('amount').val() && newData.child('category').val() === data.child('category').val() && ( (data.child('status').val() === 'pending_team_align' && newData.child('status').val() === 'pending_poc' && root.child('branches').child($branchId).child('team_aligned_uid').val() === auth.uid) || (data.child('status').val() === 'pending_poc' && newData.child('status').val() === 'approved' && root.child('branches').child($branchId).child('petty_cash_poc_uid').val() === auth.uid) || (data.child('status').val() === 'approved' && newData.child('status').val() === 'settled' && root.child('branches').child($branchId).child('accountant_uid').val() === auth.uid) || (data.child('status').val() === 'pending_team_align' && newData.child('status').val() === 'rejected' && root.child('branches').child($branchId).child('team_aligned_uid').val() === auth.uid) || (data.child('status').val() === 'pending_poc' && newData.child('status').val() === 'rejected' && root.child('branches').child($branchId).child('petty_cash_poc_uid').val() === auth.uid) )) )"
           }
         },
-
         "wallet": {
           "balance": {
             ".read": "auth != null",
@@ -59,6 +93,158 @@
               ".write": "auth != null && root.child('branches').child($branchId).child('accountant_uid').val() === auth.uid && !data.exists() && newData.child('enteredByUid').val() === auth.uid"
             }
           }
+        }
+      }
+    },
+    "run-routes": {
+      "scanned": {
+        "$uid": {
+          ".read": "auth != null && (auth.uid == $uid || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'supervisor')",
+          ".write": "auth != null && (auth.uid == $uid || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'supervisor')",
+          ".indexOn": ["scan_at", "status"],
+          "$scanKey": {
+            ".validate": "!newData.exists() || (newData.hasChildren(['scan_text','scan_at','status','user_id']) && newData.child('scan_text').isString() && newData.child('scan_text').val().length > 0 && newData.child('scan_at').isNumber() && newData.child('scan_at').val() > 0 && newData.child('status').isString() && newData.child('user_id').val() == $uid && (!newData.child('manual').exists() || newData.child('manual').isBoolean()))"
+          }
+        }
+      },
+      "$runId": {
+        ".read": "auth != null && $runId != 'scanned'",
+        ".write": "auth != null && $runId != 'scanned'",
+        ".indexOn": ["created_at", "status"]
+      }
+    },
+    "salaries": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin'"
+    },
+    "cash_management": {
+      "$branchId": {
+        ".read": "auth != null && root.child('roles').child(root.child('users').child(auth.uid).child('profile/company_info/role_id').val()).child('permissions/nav_cash_management').val() === true",
+        ".write": "auth != null && root.child('roles').child(root.child('users').child(auth.uid).child('profile/company_info/role_id').val()).child('permissions/nav_cash_management').val() === true",
+        "collections": {
+          "$entryId": {
+            ".validate": "newData.hasChildren(['amount','timestamp','enteredByName','enteredByUid']) && newData.child('amount').isNumber() && newData.child('amount').val() > 0 && newData.child('enteredByUid').val() === auth.uid"
+          }
+        },
+        "providers": {
+          "$providerName": { ".validate": "newData.isBoolean()" }
+        },
+        "ledger": {
+          "$providerName": {
+            "handovers": {
+              "$entryId": {
+                ".validate": "newData.hasChildren(['amount','trxId','timestamp','enteredByName','enteredByUid']) && newData.child('amount').isNumber() && newData.child('amount').val() > 0 && newData.child('enteredByUid').val() === auth.uid"
+              }
+            },
+            "hub_payments": {
+              "$entryId": {
+                ".validate": "newData.hasChildren(['amount','trxId','timestamp','enteredByName','enteredByUid']) && newData.child('amount').isNumber() && newData.child('amount').val() > 0 && newData.child('enteredByUid').val() === auth.uid"
+              }
+            }
+          }
+        }
+      }
+    },
+    "container": {
+      "$cid": {
+        ".read": "auth != null && $cid == 'container_' + auth.uid",
+        ".write": "auth != null && $cid == 'container_' + auth.uid",
+        "meta": {
+          ".read": "auth != null && $cid == 'container_' + auth.uid",
+          ".write": "auth != null && $cid == 'container_' + auth.uid"
+        },
+        "records": {
+          "$rid": {
+            ".read": "auth != null && $cid == 'container_' + auth.uid",
+            ".write": "auth != null && $cid == 'container_' + auth.uid",
+            ".indexOn": ["type", "received_at"],
+            "actions": {
+              ".read": "auth != null && $cid == 'container_' + auth.uid",
+              ".write": "auth != null && $cid == 'container_' + auth.uid"
+            }
+          }
+        }
+      }
+    },
+    "sessions": {
+      "$extId": {
+        ".read": true,
+        ".write": true,
+        "meta": {
+          ".indexOn": ["status", "type", "updated_at"]
+        },
+        "records": {
+          "$rid": {
+            ".indexOn": ["type", "received_at"]
+          }
+        }
+      }
+    },
+    "numbers": {
+      "$phone": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "remarks_options": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "config": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "courier": {
+      ".read": "auth != null",
+      "consignments": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$consignmentId": {
+          ".indexOn": ["status", "recipientPhone", "deliveryHub"]
+        }
+      },
+      "consignments_by_phone": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
+      "run_routes": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "delivery_run": {
+          "$runId": {
+            ".indexOn": ["agentId", "status", "createdAt"]
+          }
+        }
+      },
+      "runs_by_branchId": {
+        "$branchId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      },
+      "runs_by_agentSystemId": {
+        "$agentSystemId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      },
+      "remarks_by_consignment": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "$consignmentId": {
+          ".indexOn": ["createdAt"]
+        }
+      },
+      "users_by_consignment": {
+        "$conId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      },
+      "remarks_by_userId": {
+        "$uid": {
+          ".read": "auth != null",
+          ".write": "auth != null"
         }
       }
     }
