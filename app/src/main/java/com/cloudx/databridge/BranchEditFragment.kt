@@ -357,21 +357,15 @@ class BranchEditFragment : Fragment() {
                 allEmployees.add(PickerItem(uid, name, desig, empId))
             }
 
-            // Any role, not just the handful of built-ins — merge built-in labels with whatever
-            // custom roles the admin has configured via Access Manager (roles/{roleId}).
+            // Roles come straight from Firebase (roles/{roleId}, admin-configured via Access
+            // Manager) — no built-in fallback list, so a role that's been removed or renamed
+            // there can't still show up here as a pickable (but no-longer-real) option.
             allRoles.clear()
-            val seenRoleIds = mutableSetOf<String>()
-            EmployeeFragment.ROLE_LABELS.forEach { (roleId, label) ->
-                allRoles.add(PickerItem("role:$roleId", label, "Role — everyone with this role at this branch"))
-                seenRoleIds.add(roleId)
-            }
             val rolesSnap = db.reference.child("roles").get().await()
             rolesSnap.children.forEach { c ->
                 val roleId = c.key ?: return@forEach
-                if (roleId !in seenRoleIds) {
-                    val roleName = c.child("name").getValue(String::class.java) ?: roleId
-                    allRoles.add(PickerItem("role:$roleId", roleName, "Role — everyone with this role at this branch"))
-                }
+                val roleName = c.child("name").getValue(String::class.java) ?: roleId
+                allRoles.add(PickerItem("role:$roleId", roleName, "Role — everyone with this role at this branch"))
             }
 
             allBranches.clear()
