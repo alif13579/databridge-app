@@ -914,6 +914,30 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                     val firebaseVal = existSnap.child(path).value
                     if ((firebaseVal?.toString() ?: "") != v.toString()) changedFields[path] = v
                 }
+
+                // runs_by_branchId backfill check — deliberately OUTSIDE the changedFields.isNotEmpty()
+                // gate below, because a run whose resolvedBranchIds never got set (the agent had no
+                // branch_ids yet when this run was first INSERTed — the only place that used to
+                // resolve it) must still get backfilled on a later sync even when nothing else about
+                // this particular row changed. Once resolvedBranchIds IS set, we leave it alone here
+                // (today's run stays attached to the branch it was created/backfilled with, even if
+                // the agent's branch assignment changes again later).
+                val runTypeMatchUpd = Regex("^courier/run_routes/([^/]+)$").find(basePath)
+                var branchIdsForIndex: List<String> = emptyList()
+                var branchBackfilled = false
+                if (runTypeMatchUpd != null && userSystemId.isNotBlank()) {
+                    branchIdsForIndex = existSnap.child("resolvedBranchIds")
+                        .children.mapNotNull { it.getValue(String::class.java) }
+                    if (branchIdsForIndex.isEmpty()) {
+                        val resolvedNow = resolveAgentBranchIds(userSystemId)
+                        if (resolvedNow.isNotEmpty()) {
+                            multiUpdate["$basePath/$conId/resolvedBranchIds"] = resolvedNow
+                            branchIdsForIndex = resolvedNow
+                            branchBackfilled = true
+                        }
+                    }
+                }
+
                 if (changedFields.isNotEmpty()) {
                     changedFields.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
                     // Update consignments_by_phone if status changed (guarded, see note above)
@@ -922,24 +946,33 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                             changedFields["status"].toString()
                     }
                     // Update runs_by_agentSystemId if status changed (same guarded pattern, generalized run type)
-                    val runTypeMatchUpd = Regex("^courier/run_routes/([^/]+)$").find(basePath)
                     if (runTypeMatchUpd != null && "status" in changedFields && userSystemId.isNotBlank()) {
                         val runType = runTypeMatchUpd.groupValues[1]
                         multiUpdate["courier/runs_by_agentSystemId/$userSystemId/$runType/$conId"] =
                             changedFields["status"].toString()
+                    }
+                }
 
-                        // runs_by_branchId — branch was already locked in at INSERT time
-                        // (resolvedBranchIds on the run node). We only propagate the new
-                        // status here; we deliberately do NOT re-resolve the agent's branch,
-                        // since today's run must stay attached to the branch it was created in
-                        // even if the agent's branch assignment changes later today.
-                        val lockedBranchIds = existSnap?.child("resolvedBranchIds")
-                            ?.children?.mapNotNull { it.getValue(String::class.java) }.orEmpty()
-                        lockedBranchIds.forEach { branchId ->
+                // runs_by_branchId propagation — runs whenever we have branch ids to write to AND
+                // either the status changed this sync, or we just backfilled resolvedBranchIds for
+                // the first time (so a backfilled run doesn't sit indexless until its next status
+                // change). Uses the incoming status if it changed, else falls back to the row's
+                // current status so a fresh backfill still gets a real value instead of blank.
+                if (runTypeMatchUpd != null && branchIdsForIndex.isNotEmpty() &&
+                    ("status" in changedFields || branchBackfilled)) {
+                    val runType = runTypeMatchUpd.groupValues[1]
+                    val statusForIndex = (changedFields["status"] as? String)
+                        ?: fieldMap["status"]?.toString()
+                        ?: existSnap.child("status").getValue(String::class.java) ?: ""
+                    if (statusForIndex.isNotBlank()) {
+                        branchIdsForIndex.forEach { branchId ->
                             multiUpdate["courier/runs_by_branchId/$branchId/$runType/$conId"] =
-                                changedFields["status"].toString()
+                                statusForIndex
                         }
                     }
+                }
+
+                if (changedFields.isNotEmpty()) {
                     // Propagate into courier/remarks_by_userId/{userId}/push_{day}_{conId}/final_status for
                     // every (day, userId) that has ever left a remark on this consignment — but
                     // only when the incoming courier status doesn't LOSE an authority comparison
@@ -983,6 +1016,8 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                             }
                         }
                     }
+                    updated++
+                } else if (branchBackfilled) {
                     updated++
                 } else {
                     skipped++

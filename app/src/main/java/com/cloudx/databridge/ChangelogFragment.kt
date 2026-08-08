@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.56",
+                releasedDate = "08 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Sheet sync: a run whose agent had no branch assigned yet at creation time was permanently missing from branch-wise run lists — later syncs now retry resolving the branch and backfill it instead of leaving it stuck"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.35",
                 releasedDate = "02 Aug 2026",
                 entries = listOf(
