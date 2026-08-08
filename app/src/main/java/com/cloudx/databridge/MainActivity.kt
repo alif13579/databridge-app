@@ -52,6 +52,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private var sessionMonitorRef: DatabaseReference? = null
     private var sessionMonitorListener: ValueEventListener? = null
     private var disconnectGraceJob: kotlinx.coroutines.Job? = null  // grace period before treating "disconnected" as real
+    private var isExtensionConnected = false  // last value passed to updateConnectionStatus(); combined with Google auth state in refreshConnectionDot()
     private var permissionStep = 0
 
     private var layoutNoInternet: View? = null
@@ -349,6 +350,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
 
     override fun refreshAuthUi(forceReload: Boolean) {
         updateUserName()
+        refreshConnectionDot()
         updateDrawerAuthItems()
         updateDrawerHeader()
         val uid = auth.currentUser?.uid
@@ -830,8 +832,19 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     }
 
     fun updateConnectionStatus(isConnected: Boolean) {
+        isExtensionConnected = isConnected
+        refreshConnectionDot()
+    }
+
+    /** Green when EITHER channel is live: a QR/manually-paired browser extension
+     *  session (isExtensionConnected, set by updateConnectionStatus above) or a
+     *  signed-in Google account — a Google-linked extension can still exchange data
+     *  via the container/{uid} tree without this specific session being paired.
+     *  Also called from refreshAuthUi() so a sign-in/sign-out alone (no session
+     *  change) updates the dot too. */
+    private fun refreshConnectionDot() {
         statusDot.setBackgroundResource(
-            if (isConnected) R.drawable.circle_green else R.drawable.circle_red
+            if (isExtensionConnected || AuthManager.isLoggedIn()) R.drawable.circle_green else R.drawable.circle_red
         )
     }
 
