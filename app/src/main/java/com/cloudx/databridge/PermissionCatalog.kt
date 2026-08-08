@@ -25,8 +25,29 @@ object PermissionCatalog {
         Perm("nav_config",         "Config",          "App config: remarks, language, statuses, sheets"),
         Perm("nav_cash_management","Cash Management", "Branch cash collection & MFS reconciliation"),
         Perm("nav_petty_cash",     "Petty Cash",      "Worker convenience bill requests & approval chain"),
-        Perm("petty_cash_requester", "Petty Cash: Requester", "Can submit new petty cash requests (e.g. Pickup Agent, Delivery Agent)"),
+        Perm("petty_cash_requester", "Requester", "Can submit new petty cash requests (e.g. Pickup Agent, Delivery Agent)"),
     )
+
+    /**
+     * Sub-permissions shown nested under their parent in Access Manager,
+     * only enabled/visible once the parent permission is checked.
+     *
+     * Currently just Petty Cash: Requester lives under Petty Cash — the
+     * other petty cash roles (Team Aligned / Cash POC / Accountant) are
+     * deliberately NOT here, since those are per-branch individual
+     * assignments made from Branch Edit, not a role-wide permission. Making
+     * Team Aligned a role-wide permission here would mean every branch's
+     * holder of that role becomes Team Aligned everywhere, losing the
+     * per-branch distinction that assignment exists for.
+     */
+    val childrenOf: Map<String, List<Perm>> = mapOf(
+        "nav_petty_cash" to all.filter { it.key == "petty_cash_requester" }
+    )
+
+    private val childKeys: Set<String> = childrenOf.values.flatten().map { it.key }.toSet()
+
+    /** Top-level permissions only — excludes anything nested under childrenOf, for the main list UI. */
+    val topLevel: List<Perm> = all.filter { it.key !in childKeys }
 
     /** Helper to get a mutable permissions map with defaults (false). */
     fun blankPermissions(): MutableMap<String, Boolean> = all.associate { it.key to false }.toMutableMap()

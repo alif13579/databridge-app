@@ -120,7 +120,7 @@ class AccessManagerFragment : Fragment() {
     private fun setAllPermissions(value: Boolean) {
         val current = adapter.currentState().toMutableMap()
         PermissionCatalog.all.forEach { perm -> current[perm.key] = value }
-        adapter.submit(PermissionCatalog.all, current)
+        adapter.submit(PermissionCatalog.topLevel, current)
         updatePermCountUI()
     }
 
@@ -421,7 +421,7 @@ class AccessManagerFragment : Fragment() {
         val entry = roles[roleId] ?: return
         val state = PermissionCatalog.defaultPermissions().toMutableMap()
         entry.permissions.forEach { (k, v) -> state[k] = v }
-        adapter.submit(PermissionCatalog.all, state)
+        adapter.submit(PermissionCatalog.topLevel, state)
         etRoleLevel.setText(entry.level?.toString() ?: "")
         updatePermCountUI()
     }
@@ -955,7 +955,7 @@ class AccessManagerFragment : Fragment() {
                     roleIds = emptyList()
                     currentRoleId = null
                     spinner.adapter = null
-                    adapter.submit(PermissionCatalog.all, emptyMap())
+                    adapter.submit(PermissionCatalog.topLevel, emptyMap())
                     tvRole.text = "Role:"
                 } else {
                     bindRoles()
