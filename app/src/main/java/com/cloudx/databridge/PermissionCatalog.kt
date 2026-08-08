@@ -25,6 +25,7 @@ object PermissionCatalog {
         Perm("nav_config",         "Config",          "App config: remarks, language, statuses, sheets"),
         Perm("nav_cash_management","Cash Management", "Branch cash collection & MFS reconciliation"),
         Perm("nav_petty_cash",     "Petty Cash",      "Worker convenience bill requests & approval chain"),
+        Perm("petty_cash_requester", "Petty Cash: Requester", "Can submit new petty cash requests (e.g. Pickup Agent, Delivery Agent)"),
     )
 
     /** Helper to get a mutable permissions map with defaults (false). */

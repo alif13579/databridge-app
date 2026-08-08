@@ -70,6 +70,12 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvPriorityHigh = view.findViewById(R.id.tvPcRequestPriorityHigh)
         btnSubmit = view.findViewById(R.id.btnPcRequestSubmit)
 
+        if (!RbacManager.hasPermission("petty_cash_requester")) {
+            Toast.makeText(requireContext(), "Your role isn't set up to submit petty cash requests", Toast.LENGTH_LONG).show()
+            parentFragmentManager.popBackStack()
+            return
+        }
+
         view.findViewById<View>(R.id.btnPcRequestCreateBack).setOnClickListener {
             parentFragmentManager.popBackStack()
         }
@@ -159,7 +165,8 @@ class PettyCashRequestCreateFragment : Fragment() {
                 amount = amount,
                 priority = selectedPriority,
                 attachmentUrl = "",
-                attachmentName = attachmentName
+                attachmentName = attachmentName,
+                workerRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId }
             )
             if (result.isSuccess) {
                 Toast.makeText(requireContext(), "Request ${result.getOrNull()} submitted", Toast.LENGTH_SHORT).show()
