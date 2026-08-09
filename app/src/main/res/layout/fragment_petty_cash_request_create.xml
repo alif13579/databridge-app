@@ -167,51 +167,6 @@
                     android:textSize="11sp"
                     android:textColor="#94A3B8" />
 
-                <!-- Priority -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Priority"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:textColor="#334155"
-                    android:layout_marginTop="12dp" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="6dp">
-
-                    <TextView
-                        android:id="@+id/tvPcRequestPriorityNormal"
-                        android:layout_width="0dp"
-                        android:layout_weight="1"
-                        android:layout_height="wrap_content"
-                        android:text="Normal"
-                        android:textSize="13sp"
-                        android:textStyle="bold"
-                        android:gravity="center"
-                        android:padding="12dp"
-                        android:clickable="true"
-                        android:focusable="true" />
-
-                    <View android:layout_width="8dp" android:layout_height="1dp" />
-
-                    <TextView
-                        android:id="@+id/tvPcRequestPriorityHigh"
-                        android:layout_width="0dp"
-                        android:layout_weight="1"
-                        android:layout_height="wrap_content"
-                        android:text="High"
-                        android:textSize="13sp"
-                        android:textStyle="bold"
-                        android:gravity="center"
-                        android:padding="12dp"
-                        android:clickable="true"
-                        android:focusable="true" />
-                </LinearLayout>
-
                 <!-- Attachment (optional, name-only for now — file picker upload TODO) -->
                 <TextView
                     android:layout_width="wrap_content"

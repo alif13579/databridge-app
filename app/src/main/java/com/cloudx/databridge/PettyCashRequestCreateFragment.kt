@@ -32,17 +32,14 @@ class PettyCashRequestCreateFragment : Fragment() {
     private val viewModel: PettyCashViewModel by viewModels()
 
     private var branchId: String = ""
-    private val categoryOptions = listOf("Travel Expense", "Fuel Expense", "Stationery", "Office Supplies")
+    private val categoryOptions = listOf("Bulk Delivery", "Pickup")
     private var selectedCategory: String = ""
-    private var selectedPriority: String = PC_PRIORITY_NORMAL
     private var attachmentName: String = ""
 
     private lateinit var tvCategorySelected: TextView
     private lateinit var etAmount: EditText
     private lateinit var etPurpose: EditText
     private lateinit var tvPurposeCount: TextView
-    private lateinit var tvPriorityNormal: TextView
-    private lateinit var tvPriorityHigh: TextView
     private lateinit var btnSubmit: android.widget.Button
 
     companion object {
@@ -66,8 +63,6 @@ class PettyCashRequestCreateFragment : Fragment() {
         etAmount = view.findViewById(R.id.etPcRequestAmount)
         etPurpose = view.findViewById(R.id.etPcRequestPurpose)
         tvPurposeCount = view.findViewById(R.id.tvPcRequestPurposeCount)
-        tvPriorityNormal = view.findViewById(R.id.tvPcRequestPriorityNormal)
-        tvPriorityHigh = view.findViewById(R.id.tvPcRequestPriorityHigh)
         btnSubmit = view.findViewById(R.id.btnPcRequestSubmit)
 
         if (!RbacManager.hasPermission("petty_cash_requester")) {
@@ -90,10 +85,6 @@ class PettyCashRequestCreateFragment : Fragment() {
                 tvPurposeCount.text = "${s?.length ?: 0}/200"
             }
         })
-
-        tvPriorityNormal.setOnClickListener { selectPriority(PC_PRIORITY_NORMAL) }
-        tvPriorityHigh.setOnClickListener { selectPriority(PC_PRIORITY_HIGH) }
-        selectPriority(PC_PRIORITY_NORMAL)
 
         btnSubmit.setOnClickListener { onSubmit() }
     }
@@ -118,21 +109,6 @@ class PettyCashRequestCreateFragment : Fragment() {
             setTextColor(android.graphics.Color.parseColor("#0F172A"))
         }
         Toast.makeText(requireContext(), "Attachment picker not wired yet — using a placeholder name", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun selectPriority(priority: String) {
-        selectedPriority = priority
-        if (priority == PC_PRIORITY_HIGH) {
-            tvPriorityHigh.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_priority_selected_high)
-            tvPriorityHigh.setTextColor(android.graphics.Color.parseColor("#C2410C"))
-            tvPriorityNormal.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_input)
-            tvPriorityNormal.setTextColor(android.graphics.Color.parseColor("#64748B"))
-        } else {
-            tvPriorityNormal.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_priority_selected_normal)
-            tvPriorityNormal.setTextColor(android.graphics.Color.parseColor("#059669"))
-            tvPriorityHigh.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_input)
-            tvPriorityHigh.setTextColor(android.graphics.Color.parseColor("#64748B"))
-        }
     }
 
     private fun onSubmit() {
@@ -163,7 +139,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                 category = selectedCategory,
                 purpose = purpose,
                 amount = amount,
-                priority = selectedPriority,
+                priority = PC_PRIORITY_NORMAL,
                 attachmentUrl = "",
                 attachmentName = attachmentName,
                 workerRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId }
