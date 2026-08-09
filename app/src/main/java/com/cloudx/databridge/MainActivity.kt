@@ -331,10 +331,19 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 }
                 R.id.nav_petty_cash -> {
                     // Same branch-resolution pattern as nav_cash_management above.
-                    // Role gating lives in PermissionCatalog ("nav_petty_cash").
+                    // Role gating: nav_petty_cash sees the full approver Dashboard.
+                    // Someone with only petty_cash_requester (no nav_petty_cash) is
+                    // a pure Requester — the Dashboard's balance/wallet/settlement
+                    // queue would be meaningless to them, so they land on the
+                    // simplified My Requests screen instead.
                     val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
-                    if (branchId.isNotBlank()) loadFragment(PettyCashDashboardFragment.newInstance(branchId))
-                    else Toast.makeText(this, "No branch assigned to this account", Toast.LENGTH_SHORT).show()
+                    if (branchId.isBlank()) {
+                        Toast.makeText(this, "No branch assigned to this account", Toast.LENGTH_SHORT).show()
+                    } else if (RbacManager.hasPermission("nav_petty_cash")) {
+                        loadFragment(PettyCashDashboardFragment.newInstance(branchId))
+                    } else {
+                        loadFragment(PettyCashMyRequestsFragment.newInstance(branchId))
+                    }
                 }
                 R.id.nav_login     -> launchGoogleSignIn()
                 R.id.nav_logout    -> confirmLogout()
@@ -538,7 +547,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             isVisible = RbacManager.hasPermission("nav_cash_management")
         }
         menu.findItem(R.id.nav_petty_cash)?.apply {
-            isVisible = RbacManager.hasPermission("nav_petty_cash")
+            // Visible if either the full approver Dashboard (nav_petty_cash) or
+            // just Requester access (petty_cash_requester) is granted — the
+            // click handler above routes to the right screen for whichever it is.
+            isVisible = RbacManager.hasPermission("nav_petty_cash") || RbacManager.hasPermission("petty_cash_requester")
         }
 
         // Primary nav items – no role gating; only permission-based
