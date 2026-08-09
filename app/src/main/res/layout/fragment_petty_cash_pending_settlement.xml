@@ -38,7 +38,7 @@
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
-                    android:text="Pending Settlement"
+                    android:text="Requests"
                     android:textSize="17sp"
                     android:textStyle="bold"
                     android:textColor="#0F172A"

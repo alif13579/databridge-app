@@ -17,13 +17,16 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Petty Cash Management — Pending Settlement List (mockup screen 3).
+ * Petty Cash Management — Requests / Settlement List (mockup screen 3).
  *
- * Wired to PettyCashViewModel: shows real requests in PC_STATUS_APPROVED
- * (POC has approved, waiting for Accounts to settle), with a working
- * All/High/Normal priority tab filter. The per-card Settle button only
- * shows for users whose roles.isAccounts is true — everyone else can still
- * see the queue (read-only) by tapping through to Settlement Details.
+ * Wired to PettyCashViewModel. Originally scoped to only PC_STATUS_APPROVED
+ * (POC-approved, waiting for Accounts) with a High/Normal priority filter —
+ * changed per feedback: this screen now shows requests of EVERY status, with
+ * tabs generated dynamically from whatever statuses actually exist in the
+ * branch's requests (so a Requester's freshly-submitted PENDING_TEAM_ALIGN
+ * request is visible here too, not just PC_STATUS_APPROVED ones). "All"
+ * always shows everything; each other tab is one status, labeled with a
+ * human-readable name and a live count.
  */
 class PettyCashPendingSettlementFragment : Fragment() {
 
@@ -36,15 +39,13 @@ class PettyCashPendingSettlementFragment : Fragment() {
     private lateinit var layoutError: View
 
     private var branchId: String = ""
-    private var selectedFilter: String = FILTER_ALL
+    private var selectedStatus: String = FILTER_ALL // FILTER_ALL or one of the PC_STATUS_* constants
     private var latestState: PettyCashState.Success? = null
     private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
         private const val FILTER_ALL = "all"
-        private const val FILTER_HIGH = "high"
-        private const val FILTER_NORMAL = "normal"
 
         fun newInstance(branchId: String): PettyCashPendingSettlementFragment {
             val f = PettyCashPendingSettlementFragment()
@@ -91,8 +92,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
             renderList()
         }
 
-        buildTabs()
-
         viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
         if (branchId.isBlank()) {
             render(PettyCashState.Error("No branch selected"))
@@ -104,6 +103,15 @@ class PettyCashPendingSettlementFragment : Fragment() {
     private fun taka(amount: Double): String {
         val whole = Math.round(amount)
         return "\u09F3${NumberFormat.getNumberInstance(Locale.US).format(whole)}"
+    }
+
+    private fun statusLabel(status: String): String = when (status) {
+        PC_STATUS_PENDING_TEAM_ALIGN -> "Pending (Team Aligned)"
+        PC_STATUS_PENDING_POC -> "Pending (POC)"
+        PC_STATUS_APPROVED -> "Approved"
+        PC_STATUS_SETTLED -> "Settled"
+        PC_STATUS_REJECTED -> "Rejected"
+        else -> status
     }
 
     private fun render(state: PettyCashState) {
@@ -133,23 +141,30 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     private fun buildTabs() {
         layoutTabs.removeAllViews()
-        val queue = latestState?.pendingSettlementQueue.orEmpty()
-        val highCount = queue.count { it.priority == PC_PRIORITY_HIGH }
-        val normalCount = queue.count { it.priority == PC_PRIORITY_NORMAL }
-        val tabs = listOf(
-            Pair(FILTER_ALL, "All (${queue.size})"),
-            Pair(FILTER_HIGH, "High ($highCount)"),
-            Pair(FILTER_NORMAL, "Normal ($normalCount)")
-        )
+        val all = latestState?.requests.orEmpty()
+
+        // Dynamic tabs: one per unique status actually present, in a fixed
+        // canonical order (rather than whatever order they happen to appear
+        // in the data) so tabs don't reshuffle as requests move through the
+        // approval chain.
+        val canonicalOrder = listOf(PC_STATUS_PENDING_TEAM_ALIGN, PC_STATUS_PENDING_POC, PC_STATUS_APPROVED, PC_STATUS_SETTLED, PC_STATUS_REJECTED)
+        val presentStatuses = canonicalOrder.filter { status -> all.any { it.status == status } }
+
+        val tabs = mutableListOf(Pair(FILTER_ALL, "All (${all.size})"))
+        presentStatuses.forEach { status ->
+            val count = all.count { it.status == status }
+            tabs.add(Pair(status, "${statusLabel(status)} ($count)"))
+        }
+
         tabs.forEach { (key, label) ->
             val tab = layoutInflater.inflate(R.layout.item_petty_cash_filter_tab, layoutTabs, false) as TextView
             tab.text = label
             tab.setOnClickListener {
-                selectedFilter = key
+                selectedStatus = key
                 buildTabs()
                 renderList()
             }
-            styleTab(tab, key == selectedFilter)
+            styleTab(tab, key == selectedStatus)
             layoutTabs.addView(tab)
         }
     }
@@ -164,26 +179,32 @@ class PettyCashPendingSettlementFragment : Fragment() {
         }
     }
 
-    private fun formatApprovedAt(millis: Long): String {
+    private fun formatDateTime(millis: Long): String {
         if (millis == 0L) return "—"
         return SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
     }
 
+    /** Status-appropriate secondary line — what to show instead of a hardcoded "POC Approved:" for every card. */
+    private fun statusInfoLine(item: PettyCashRequest): Pair<String, String> = when (item.status) {
+        PC_STATUS_PENDING_TEAM_ALIGN -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.workerName}"
+        PC_STATUS_PENDING_POC -> "Team Aligned: ${formatDateTime(item.teamAlignedAt)}" to "By: ${item.teamAlignedByName.ifBlank { "—" }}"
+        PC_STATUS_APPROVED -> "POC Approved: ${formatDateTime(item.pocApprovedAt)}" to "By: ${item.pocApprovedByName.ifBlank { "—" }}"
+        PC_STATUS_SETTLED -> "Settled: ${formatDateTime(item.settledAt)}" to "By: ${item.settledByName.ifBlank { "—" }}"
+        PC_STATUS_REJECTED -> "Rejected: ${formatDateTime(item.rejectedAt)}" to "By: ${item.rejectedByName.ifBlank { "—" }}"
+        else -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.workerName}"
+    }
+
     private fun renderList() {
         val state = latestState ?: return
-        val queue = state.pendingSettlementQueue
-        val priorityFiltered = when (selectedFilter) {
-            FILTER_HIGH -> queue.filter { it.priority == PC_PRIORITY_HIGH }
-            FILTER_NORMAL -> queue.filter { it.priority == PC_PRIORITY_NORMAL }
-            else -> queue
-        }
-        val filtered = if (advancedFilter.isActive) priorityFiltered.filter { advancedFilter.matches(it) } else priorityFiltered
+        val all = state.requests
+        val statusFiltered = if (selectedStatus == FILTER_ALL) all else all.filter { it.status == selectedStatus }
+        val filtered = if (advancedFilter.isActive) statusFiltered.filter { advancedFilter.matches(it) } else statusFiltered
         val canSettle = state.roles.isAccounts
 
         layoutList.removeAllViews()
         if (filtered.isEmpty()) {
             layoutList.addView(TextView(requireContext()).apply {
-                text = "No pending settlements."
+                text = "No requests found."
                 textSize = 13f
                 setTextColor(0xFF94A3B8.toInt())
                 gravity = android.view.Gravity.CENTER
@@ -191,22 +212,28 @@ class PettyCashPendingSettlementFragment : Fragment() {
             })
             return
         }
-        filtered.forEach { item ->
+        filtered.sortedByDescending { it.updatedAt }.forEach { item ->
             val card = layoutInflater.inflate(R.layout.item_petty_cash_settlement_card, layoutList, false)
             card.findViewById<TextView>(R.id.tvPsCardCode).text = item.requestCode
             card.findViewById<TextView>(R.id.tvPsCardWorker).text = item.workerName
             card.findViewById<TextView>(R.id.tvPsCardCategory).text = item.category
             card.findViewById<TextView>(R.id.tvPsCardAmount).text = taka(item.amount)
-            card.findViewById<TextView>(R.id.tvPsCardApprovedInfo).text = "POC Approved: ${formatApprovedAt(item.pocApprovedAt)}"
-            card.findViewById<TextView>(R.id.tvPsCardApprovedBy).text =
-                "Approved by: ${item.pocApprovedByName.ifBlank { "—" }}"
+
+            val (infoLine, byLine) = statusInfoLine(item)
+            card.findViewById<TextView>(R.id.tvPsCardApprovedInfo).text = infoLine
+            card.findViewById<TextView>(R.id.tvPsCardApprovedBy).text = byLine
 
             val tvPriority = card.findViewById<TextView>(R.id.tvPsCardPriority)
             tvPriority.isVisible = item.priority == PC_PRIORITY_HIGH
             if (item.priority == PC_PRIORITY_HIGH) tvPriority.text = "High"
 
+            // Settle is only a meaningful action from this list for
+            // PC_STATUS_APPROVED cards — other statuses just navigate to
+            // Settlement Details, which shows the action appropriate to
+            // whatever stage the request is actually at (Align/Approve/none).
             val btnSettle = card.findViewById<TextView>(R.id.btnPsCardSettle)
-            btnSettle.isVisible = canSettle
+            btnSettle.isVisible = canSettle && item.status == PC_STATUS_APPROVED
+            if (btnSettle.isVisible) btnSettle.text = "Settle"
 
             val openDetails = View.OnClickListener {
                 parentFragmentManager.beginTransaction()
