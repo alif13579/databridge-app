@@ -32,6 +32,14 @@
             android:textSize="17sp"
             android:textStyle="bold"
             android:textColor="#0F172A" />
+
+        <ImageButton
+            android:id="@+id/btnExportCsv"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/stat_sys_download"
+            android:contentDescription="Export CSV" />
     </LinearLayout>
 
     <!-- Search -->

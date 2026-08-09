@@ -1,5 +1,6 @@
 package com.cloudx.databridge
 
+import android.content.Intent
 import android.graphics.Typeface
 import android.os.Bundle
 import android.text.InputType
@@ -38,6 +39,7 @@ class CashLedgerListFragment : Fragment() {
 
     private lateinit var btnBack: ImageButton
     private lateinit var tvTitle: TextView
+    private lateinit var btnExportCsv: ImageButton
     private lateinit var etSearch: EditText
     private lateinit var tvFilterDate: TextView
     private lateinit var tvFilterChannel: TextView
@@ -96,6 +98,7 @@ class CashLedgerListFragment : Fragment() {
 
         btnBack           = view.findViewById(R.id.btnListBack)
         tvTitle           = view.findViewById(R.id.tvListTitle)
+        btnExportCsv      = view.findViewById(R.id.btnExportCsv)
         etSearch          = view.findViewById(R.id.etListSearch)
         tvFilterDate      = view.findViewById(R.id.tvFilterDate)
         tvFilterChannel   = view.findViewById(R.id.tvFilterChannel)
@@ -114,6 +117,7 @@ class CashLedgerListFragment : Fragment() {
         tvFilterChannel.isVisible = mode != CashListMode.COLLECTIONS
 
         btnBack.setOnClickListener { parentFragmentManager.popBackStack() }
+        btnExportCsv.setOnClickListener { exportToCsv() }
 
         etSearch.onSearchTextChanged {
             searchQuery = it
@@ -187,15 +191,19 @@ class CashLedgerListFragment : Fragment() {
         }
     }
 
-    private fun renderList(state: CashManagementState.Success) {
+    private fun filteredRows(state: CashManagementState.Success): List<Row> {
         var rows = allRows(state).sortedByDescending { it.timestamp }
-
         dateFilter?.let { range -> rows = rows.filter { it.timestamp in range.first..range.second } }
         channelFilter?.let { ch -> rows = rows.filter { it.channel == ch } }
         if (searchQuery.isNotBlank()) {
             val q = searchQuery.trim().lowercase()
             rows = rows.filter { it.subDetail.lowercase().contains(q) || (it.channel?.lowercase()?.contains(q) == true) }
         }
+        return rows
+    }
+
+    private fun renderList(state: CashManagementState.Success) {
+        val rows = filteredRows(state)
 
         val total = rows.size
         val maxPage = if (total == 0) 0 else (total - 1) / pageSize
@@ -318,6 +326,127 @@ class CashLedgerListFragment : Fragment() {
                 lastSuccessState?.let { renderList(it) }
             }
             .show()
+    }
+
+    // ── CSV export ──────────────────────────────────────────────────────────────
+    // Exports whatever is currently on screen -- same date/channel/search filters
+    // renderList() applies -- so "export by date range" is just "set the date
+    // filter, then export", reusing the filter UI that already exists above.
+
+    private fun exportToCsv() {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("CSV Export")
+            .setItems(arrayOf("📤 Share করুন", "⬇️ Download করুন")) { _, which ->
+                if (which == 0) saveCsvAndShare() else saveCsvAndDownload()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Builds CSV for the currently filtered rows (all pages, not just the visible one). Null if empty. */
+    private fun buildCsvContent(): Pair<String, Int>? {
+        val state = lastSuccessState ?: return null
+        val rows = filteredRows(state)
+        if (rows.isEmpty()) return null
+
+        val csvDateFmt = SimpleDateFormat("dd-MM-yyyy hh:mm a", Locale.getDefault())
+        fun esc(s: String) = "\"${s.replace("\"", "\"\"")}\""
+
+        val csv = StringBuilder()
+        if (mode == CashListMode.COLLECTIONS) {
+            csv.append("Date,Amount,Collected By,Remarks\n")
+            rows.forEach {
+                csv.append("${csvDateFmt.format(Date(it.timestamp))},${amountForCsv(it.amount)},${esc(it.enteredByName)},${esc(it.remarks)}\n")
+            }
+        } else {
+            csv.append("Date,Amount,Channel,Transaction ID,Entered By,Remarks\n")
+            rows.forEach {
+                csv.append("${csvDateFmt.format(Date(it.timestamp))},${amountForCsv(it.amount)},${esc(it.channel.orEmpty())},${esc(it.trxId)},${esc(it.enteredByName)},${esc(it.remarks)}\n")
+            }
+        }
+        return csv.toString() to rows.size
+    }
+
+    private fun amountForCsv(amount: Double): String =
+        if (amount == Math.floor(amount)) amount.toLong().toString() else String.format(Locale.US, "%.2f", amount)
+
+    private fun csvFileName(): String {
+        val modeLabel = mode.name.lowercase().replaceFirstChar { it.uppercase() }
+        return "DataBridge_Cash_${modeLabel}_${System.currentTimeMillis()}.csv"
+    }
+
+    /** Saves CSV to app-specific cache dir (for sharing via FileProvider) -- no storage permission needed. */
+    private fun saveCsvToCache(csvContent: String): android.net.Uri? {
+        return try {
+            val cacheDir = java.io.File(requireContext().cacheDir, "exports").apply { mkdirs() }
+            val file = java.io.File(cacheDir, csvFileName())
+            file.writeText(csvContent)
+            androidx.core.content.FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                file
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun saveCsvAndShare() {
+        val (csvContent, count) = buildCsvContent() ?: run {
+            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো entry নেই", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = saveCsvToCache(csvContent) ?: run {
+            Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(shareIntent, "CSV শেয়ার করুন").apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(chooser)
+            Toast.makeText(requireContext(), "📤 CSV পাঠানো হচ্ছে ($count rows)", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(requireContext(), "⚠ Share করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun saveCsvAndDownload() {
+        val (csvContent, count) = buildCsvContent() ?: run {
+            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো entry নেই", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val fileName = csvFileName()
+        try {
+            val resolver = requireContext().contentResolver
+            val uri: android.net.Uri?
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/csv")
+                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                }
+                uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            } else {
+                @Suppress("DEPRECATION")
+                val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                val file = java.io.File(downloadsDir, fileName)
+                uri = android.net.Uri.fromFile(file)
+            }
+            if (uri == null) {
+                Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
+                return
+            }
+            resolver.openOutputStream(uri)?.use { out -> out.write(csvContent.toByteArray()) }
+            Toast.makeText(requireContext(), "✅ CSV Downloads এ সেভ হয়েছে ($count rows)", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(requireContext(), "⚠ Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     // ── Row menu: Edit / Delete ──────────────────────────────────────────────────
