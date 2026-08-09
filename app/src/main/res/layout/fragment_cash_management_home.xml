@@ -32,7 +32,6 @@
                     android:padding="16dp">
 
                     <TextView
-                        android:id="@+id/tvHomeBranchName"
                         android:layout_width="0dp"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
@@ -40,6 +39,26 @@
                         android:textSize="18sp"
                         android:textStyle="bold"
                         android:textColor="#0F172A" />
+
+                    <!-- Branch switcher chip: hidden by default, shown by
+                         CashManagementHomeFragment only when the signed-in
+                         user has more than one assigned branch. -->
+                    <TextView
+                        android:id="@+id/tvHomeBranchName"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_branch_switcher_chip"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="6dp"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#0F172A"
+                        android:drawablePadding="4dp"
+                        android:gravity="center_vertical"
+                        android:maxWidth="140dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <ProgressBar

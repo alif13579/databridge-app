@@ -1,5 +1,6 @@
 package com.cloudx.databridge
 
+import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.text.InputType
@@ -13,11 +14,18 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.datepicker.MaterialDatePicker
+import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -44,6 +52,7 @@ class CashManagementHomeFragment : Fragment() {
     private lateinit var tvError: TextView
     private lateinit var btnRetry: Button
     private lateinit var layoutContent: View
+    private lateinit var tvHomeBranchName: TextView
     private lateinit var tvHomeNeedToPay: TextView
     private lateinit var tvHomeAgainstCollection: TextView
     private lateinit var tvHomeDateRange: TextView
@@ -61,6 +70,8 @@ class CashManagementHomeFragment : Fragment() {
     private lateinit var layoutSpeedDialItems: LinearLayout
 
     private var branchId: String = ""
+    private val db = FirebaseDatabase.getInstance()
+    private var branchNames: Map<String, String> = emptyMap()
     private val dateFmt = SimpleDateFormat("dd MMM, h:mm a", Locale.getDefault())
     private val rangeLabelFmt = SimpleDateFormat("dd MMM", Locale.getDefault())
     private var lastSuccessState: CashManagementState.Success? = null
@@ -89,6 +100,7 @@ class CashManagementHomeFragment : Fragment() {
         tvError                  = view.findViewById(R.id.tvHomeError)
         btnRetry                 = view.findViewById(R.id.btnHomeRetry)
         layoutContent            = view.findViewById(R.id.layoutHomeContent)
+        tvHomeBranchName         = view.findViewById(R.id.tvHomeBranchName)
         tvHomeNeedToPay          = view.findViewById(R.id.tvHomeNeedToPay)
         tvHomeAgainstCollection  = view.findViewById(R.id.tvHomeAgainstCollection)
         tvHomeDateRange          = view.findViewById(R.id.tvHomeDateRange)
@@ -119,6 +131,8 @@ class CashManagementHomeFragment : Fragment() {
         }
         tvViewAllActivity.setOnClickListener { showViewAllPicker() }
 
+        setupBranchSwitcher()
+
         vm.state.observe(viewLifecycleOwner) { state -> render(state) }
 
         if (branchId.isBlank()) {
@@ -142,6 +156,62 @@ class CashManagementHomeFragment : Fragment() {
             .replace(R.id.container, CashLedgerListFragment.newInstance(branchId, mode))
             .addToBackStack(null)
             .commitAllowingStateLoss()
+    }
+
+    // ── Branch switcher ──────────────────────────────────────────────────────────
+    // Lets a user with more than one assigned branch (RbacManager.current.branchIds)
+    // pick which branch's Cash Management data to view. Hidden entirely for the
+    // common single-branch case. Starts on branchIds.firstOrNull(), same branch
+    // MainActivity already passed into newInstance(); switching here just reloads
+    // this screen against the new branchId, which also carries into any downstream
+    // screen opened afterwards (View all, Manage Wallets, Pay to Hub) since they
+    // all read this fragment's branchId field at click time.
+    private fun setupBranchSwitcher() {
+        val branchIds = RbacManager.current.branchIds
+        if (branchIds.size <= 1) return
+
+        val arrow = ContextCompat.getDrawable(requireContext(), R.drawable.ic_arrow_drop_down_white)?.mutate()
+        arrow?.setTint(Color.parseColor("#0F172A"))
+        tvHomeBranchName.setCompoundDrawablesWithIntrinsicBounds(null, null, arrow, null)
+        tvHomeBranchName.isVisible = true
+        tvHomeBranchName.setOnClickListener { showBranchPicker(branchIds) }
+
+        // Seed with the primary branch's name, already resolved by RbacManager at
+        // login, so there's no flash of a raw branch id while the rest load below.
+        val primaryId = branchIds.first()
+        if (RbacManager.current.branchName.isNotBlank()) {
+            branchNames = mapOf(primaryId to RbacManager.current.branchName)
+        }
+        tvHomeBranchName.text = branchNames[branchId] ?: "Branch"
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val resolved = coroutineScope {
+                branchIds.filter { it !in branchNames }.associateWith { id ->
+                    async {
+                        runCatching {
+                            db.reference.child("branches/$id/name").get().await().getValue(String::class.java)
+                        }.getOrNull()
+                    }
+                }.mapValues { (id, deferred) -> deferred.await()?.takeIf { it.isNotBlank() } ?: id }
+            }
+            branchNames = branchNames + resolved
+            tvHomeBranchName.text = branchNames[branchId] ?: branchId
+        }
+    }
+
+    private fun showBranchPicker(branchIds: List<String>) {
+        val labels = branchIds.map { branchNames[it] ?: it }.toTypedArray()
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Switch branch")
+            .setItems(labels) { _, index ->
+                val newBranchId = branchIds[index]
+                if (newBranchId != branchId) {
+                    branchId = newBranchId
+                    tvHomeBranchName.text = branchNames[branchId] ?: branchId
+                    vm.load(branchId)
+                }
+            }
+            .show()
     }
 
     private fun render(state: CashManagementState) {
