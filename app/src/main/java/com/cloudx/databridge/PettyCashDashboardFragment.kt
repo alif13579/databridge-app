@@ -209,7 +209,7 @@ class PettyCashDashboardFragment : Fragment() {
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
-        bindQuickAction(root.findViewById(R.id.actionPcPendingSettlement), "\uD83D\uDCCB", "Pending\nSettlement") {
+        bindQuickAction(root.findViewById(R.id.actionPcPendingSettlement), "\uD83D\uDCCB", "Requests\n(by status)") {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId))
                 .addToBackStack(null)
