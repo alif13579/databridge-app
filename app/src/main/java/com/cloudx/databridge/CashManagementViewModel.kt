@@ -99,6 +99,37 @@ sealed class CashManagementState {
     data class Error(val message: String) : CashManagementState()
 }
 
+// A single row for CSV export, combining Collections/Deposits/Payments into one
+// shape via `type` so all three can be exported together, sorted by date, instead
+// of three separate per-mode exports (see CashLedgerListFragment for the
+// single-mode equivalent of this same mapping).
+data class CashExportRow(
+    val timestamp: Long,
+    val type: String, // "Collection" | "Deposit" | "Payment"
+    val amount: Double,
+    val channel: String?, // null for Collections -- no channel concept there
+    val trxId: String,    // "" for Collections
+    val enteredByName: String,
+    val remarks: String,
+)
+
+fun CashManagementState.Success.toExportRows(): List<CashExportRow> {
+    val collectionRows = collections.map {
+        CashExportRow(it.timestamp, "Collection", it.amount, null, "", it.enteredByName, it.remarks)
+    }
+    val depositRows = accounts.flatMap { acc ->
+        acc.handovers.map {
+            CashExportRow(it.timestamp, "Deposit", it.amount, acc.provider, it.trxId, it.enteredByName, it.remarks)
+        }
+    }
+    val paymentRows = accounts.flatMap { acc ->
+        acc.hubPayments.map {
+            CashExportRow(it.timestamp, "Payment", it.amount, acc.provider, it.trxId, it.enteredByName, it.remarks)
+        }
+    }
+    return (collectionRows + depositRows + paymentRows).sortedByDescending { it.timestamp }
+}
+
 const val LEDGER_TYPE_HANDOVER = "handovers"
 const val LEDGER_TYPE_HUB_PAYMENT = "hub_payments"
 

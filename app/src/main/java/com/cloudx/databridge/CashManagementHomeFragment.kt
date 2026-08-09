@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -53,6 +54,7 @@ class CashManagementHomeFragment : Fragment() {
     private lateinit var btnRetry: Button
     private lateinit var layoutContent: View
     private lateinit var tvHomeBranchName: TextView
+    private lateinit var btnHomeExportCsv: ImageButton
     private lateinit var tvHomeNeedToPay: TextView
     private lateinit var tvHomeAgainstCollection: TextView
     private lateinit var tvHomeDateRange: TextView
@@ -101,6 +103,7 @@ class CashManagementHomeFragment : Fragment() {
         btnRetry                 = view.findViewById(R.id.btnHomeRetry)
         layoutContent            = view.findViewById(R.id.layoutHomeContent)
         tvHomeBranchName         = view.findViewById(R.id.tvHomeBranchName)
+        btnHomeExportCsv         = view.findViewById(R.id.btnHomeExportCsv)
         tvHomeNeedToPay          = view.findViewById(R.id.tvHomeNeedToPay)
         tvHomeAgainstCollection  = view.findViewById(R.id.tvHomeAgainstCollection)
         tvHomeDateRange          = view.findViewById(R.id.tvHomeDateRange)
@@ -132,6 +135,7 @@ class CashManagementHomeFragment : Fragment() {
         tvViewAllActivity.setOnClickListener { showViewAllPicker() }
 
         setupBranchSwitcher()
+        btnHomeExportCsv.setOnClickListener { exportCombinedCsv() }
 
         vm.state.observe(viewLifecycleOwner) { state -> render(state) }
 
@@ -212,6 +216,155 @@ class CashManagementHomeFragment : Fragment() {
                 }
             }
             .show()
+    }
+
+    // ── Combined CSV export ─────────────────────────────────────────────────────
+    // Unlike CashLedgerListFragment's per-mode export, this combines Collections +
+    // Deposits + Payments into one date-sorted CSV (CashExportRow/toExportRows in
+    // the ViewModel file), since Home is the one screen with all three at once.
+    // Date range is chosen at export time rather than kept as a persistent filter,
+    // since the dashboard itself isn't a filterable list.
+    private fun exportCombinedCsv() {
+        val options = arrayOf("All", "Today", "This Week", "This Month", "Custom range")
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Export: date range")
+            .setItems(options) { _, index ->
+                val now = System.currentTimeMillis()
+                val cal = java.util.Calendar.getInstance()
+                when (index) {
+                    0 -> showExportShareChooser(null)
+                    1 -> {
+                        cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0); cal.set(java.util.Calendar.SECOND, 0)
+                        showExportShareChooser(cal.timeInMillis to now)
+                    }
+                    2 -> {
+                        cal.add(java.util.Calendar.DAY_OF_YEAR, -7)
+                        showExportShareChooser(cal.timeInMillis to now)
+                    }
+                    3 -> {
+                        cal.add(java.util.Calendar.DAY_OF_YEAR, -30)
+                        showExportShareChooser(cal.timeInMillis to now)
+                    }
+                    4 -> {
+                        val picker = MaterialDatePicker.Builder.dateRangePicker().setTitleText("Select date range").build()
+                        picker.addOnPositiveButtonClickListener { selection ->
+                            val start = selection.first ?: return@addOnPositiveButtonClickListener
+                            val end = (selection.second ?: start) + 24 * 60 * 60 * 1000L - 1
+                            showExportShareChooser(start to end)
+                        }
+                        picker.show(childFragmentManager, "cash_home_export_range_picker")
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun showExportShareChooser(range: Pair<Long, Long>?) {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("CSV Export")
+            .setItems(arrayOf("📤 Share করুন", "⬇️ Download করুন")) { _, which ->
+                if (which == 0) saveCombinedCsvAndShare(range) else saveCombinedCsvAndDownload(range)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Builds the combined CSV for an optional [start, end] range. Null if there's nothing to export. */
+    private fun buildCombinedCsvContent(range: Pair<Long, Long>?): Pair<String, Int>? {
+        val state = lastSuccessState ?: return null
+        var rows = state.toExportRows()
+        range?.let { r -> rows = rows.filter { it.timestamp in r.first..r.second } }
+        if (rows.isEmpty()) return null
+
+        val csvDateFmt = SimpleDateFormat("dd-MM-yyyy hh:mm a", Locale.getDefault())
+        fun esc(s: String) = "\"${s.replace("\"", "\"\"")}\""
+
+        val csv = StringBuilder()
+        csv.append("Date,Type,Amount,Channel,Transaction ID,Entered By,Remarks\n")
+        rows.forEach {
+            csv.append(
+                "${csvDateFmt.format(Date(it.timestamp))},${it.type},${amountForCsv(it.amount)}," +
+                    "${esc(it.channel.orEmpty())},${esc(it.trxId)},${esc(it.enteredByName)},${esc(it.remarks)}\n"
+            )
+        }
+        return csv.toString() to rows.size
+    }
+
+    private fun amountForCsv(amount: Double): String =
+        if (amount == Math.floor(amount)) amount.toLong().toString() else String.format(Locale.US, "%.2f", amount)
+
+    private fun saveCombinedCsvToCache(csvContent: String): android.net.Uri? {
+        return try {
+            val fileName = "DataBridge_CashManagement_${System.currentTimeMillis()}.csv"
+            val cacheDir = java.io.File(requireContext().cacheDir, "exports").apply { mkdirs() }
+            val file = java.io.File(cacheDir, fileName)
+            file.writeText(csvContent)
+            androidx.core.content.FileProvider.getUriForFile(
+                requireContext(),
+                "${requireContext().packageName}.fileprovider",
+                file
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun saveCombinedCsvAndShare(range: Pair<Long, Long>?) {
+        val (csvContent, count) = buildCombinedCsvContent(range) ?: run {
+            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো entry নেই", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = saveCombinedCsvToCache(csvContent) ?: run {
+            Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = android.content.Intent.createChooser(shareIntent, "CSV শেয়ার করুন").apply {
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(chooser)
+            Toast.makeText(requireContext(), "📤 CSV পাঠানো হচ্ছে ($count rows)", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(requireContext(), "⚠ Share করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun saveCombinedCsvAndDownload(range: Pair<Long, Long>?) {
+        val (csvContent, count) = buildCombinedCsvContent(range) ?: run {
+            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো entry নেই", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val fileName = "DataBridge_CashManagement_${System.currentTimeMillis()}.csv"
+        try {
+            val resolver = requireContext().contentResolver
+            val uri: android.net.Uri?
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
+                    put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/csv")
+                    put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                }
+                uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            } else {
+                @Suppress("DEPRECATION")
+                val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                val file = java.io.File(downloadsDir, fileName)
+                uri = android.net.Uri.fromFile(file)
+            }
+            if (uri == null) {
+                Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
+                return
+            }
+            resolver.openOutputStream(uri)?.use { out -> out.write(csvContent.toByteArray()) }
+            Toast.makeText(requireContext(), "✅ CSV Downloads এ সেভ হয়েছে ($count rows)", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(requireContext(), "⚠ Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun render(state: CashManagementState) {
