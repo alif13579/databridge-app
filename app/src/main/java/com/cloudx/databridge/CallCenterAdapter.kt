@@ -60,7 +60,8 @@ class CallCenterAdapter(
         val workerName: String,
         val branch: String,
         val parcels: List<CallCenterParcelItem>,
-        val workerPhotoUrl: String = ""
+        val workerPhotoUrl: String = "",
+        val workerPhone: String = ""
     )
 
     sealed class Row {
@@ -100,7 +101,7 @@ class CallCenterAdapter(
                 "aging" -> sortByGroupAge(rawParcels)
                 else    -> sortByAttempt(rawParcels)
             }
-            val group = WorkerGroup(worker, parcels.firstOrNull()?.branch ?: "", parcels, parcels.firstOrNull()?.workerPhotoUrl ?: "")
+            val group = WorkerGroup(worker, parcels.firstOrNull()?.branch ?: "", parcels, parcels.firstOrNull()?.workerPhotoUrl ?: "", parcels.firstOrNull()?.workerPhone ?: "")
             rows.add(Row.HeaderRow(group))
             parcels.forEach { parcel ->
                 rows.add(Row.CardRow(
@@ -173,12 +174,15 @@ class CallCenterAdapter(
         private val tvWorkerIcon: TextView = view.findViewById(R.id.tvGroupWorkerIcon)
         private val ivWorkerAvatar: ImageView = view.findViewById(R.id.ivGroupWorkerAvatar)
         private val tvWorkerName: TextView = view.findViewById(R.id.tvGroupWorkerName)
+        private val tvWorkerPhone: TextView = view.findViewById(R.id.tvGroupWorkerPhone)
         private val tvWorkerMeta: TextView = view.findViewById(R.id.tvGroupWorkerMeta)
         private val tvConfirmed: TextView = view.findViewById(R.id.tvGroupConfirmed)
         private val tvPending: TextView = view.findViewById(R.id.tvGroupPending)
 
         fun bind(group: WorkerGroup, onGroupClick: ((WorkerGroup) -> Unit)?) {
             tvWorkerName.text = group.workerName
+            tvWorkerPhone.text = group.workerPhone
+            tvWorkerPhone.visibility = if (group.workerPhone.isNotBlank()) View.VISIBLE else View.GONE
             tvWorkerMeta.text = "${group.branch} · ${group.parcels.size} parcels"
 
             // Photo when we have one (same load/fallback pattern as item_user_card.xml in
