@@ -154,6 +154,9 @@ class CallCenterFragment : Fragment() {
     // systemId -> users/{uid}/profile/photo_url, resolved alongside name/employee_id in
     // ensureAgentNameMap()'s same parallel per-uid fetch. Cleared on pull-to-refresh.
     private var systemIdToPhotoUrl: Map<String, String> = emptyMap()
+    // systemId -> users/{uid}/profile/phone, resolved alongside name/employee_id/photo_url
+    // in ensureAgentNameMap()'s same parallel per-uid fetch. Cleared on pull-to-refresh.
+    private var systemIdToPhone: Map<String, String> = emptyMap()
 
     private lateinit var adapter: CallCenterAdapter
 
@@ -1908,7 +1911,7 @@ class CallCenterFragment : Fragment() {
             // its own round-trip) — same fix as WorkerSpaceFragment.loadData() already applies
             // for its own agentPhone lookup: read the whole profile node once, pull every
             // field off that single snapshot instead of a separate fetch per field.
-            data class AgentData(val sysId: String, val name: String?, val empId: String?, val photoUrl: String?)
+            data class AgentData(val sysId: String, val name: String?, val empId: String?, val photoUrl: String?, val phone: String?)
             val results = coroutineScope {
                 sysIdToUid.map { (sysId, uid) ->
                     async(Dispatchers.IO) {
@@ -1918,16 +1921,19 @@ class CallCenterFragment : Fragment() {
                         val name     = profileSnap?.child("name")?.getValue(String::class.java)?.trim()
                         val empId    = profileSnap?.child("company_info/employee_id")?.getValue(String::class.java)?.trim()
                         val photoUrl = profileSnap?.child("photo_url")?.getValue(String::class.java)?.trim()
-                        AgentData(sysId, name, empId, photoUrl)
+                        val phone    = profileSnap?.child("phone")?.getValue(String::class.java)?.trim()
+                        AgentData(sysId, name, empId, photoUrl, phone)
                     }
                 }.awaitAll()
             }
             val nameMap  = results.filter { !it.name.isNullOrBlank()  }.associate { it.sysId to it.name!! }
             val empIdMap = results.filter { !it.empId.isNullOrBlank() }.associate { it.sysId to it.empId!! }
             val photoMap = results.filter { !it.photoUrl.isNullOrBlank() }.associate { it.sysId to it.photoUrl!! }
+            val phoneMap = results.filter { !it.phone.isNullOrBlank() }.associate { it.sysId to it.phone!! }
             systemIdToName       = nameMap
             systemIdToEmployeeId = empIdMap
             systemIdToPhotoUrl   = photoMap
+            systemIdToPhone      = phoneMap
             nameMap
         } catch (e: Exception) {
             emptyMap()
@@ -2113,6 +2119,7 @@ class CallCenterFragment : Fragment() {
                                 worker            = nameMap[agentSystemId] ?: agentSystemId,
                                 workerSystemId    = agentSystemId,
                                 workerPhotoUrl    = systemIdToPhotoUrl[agentSystemId] ?: "",
+                                workerPhone       = systemIdToPhone[agentSystemId] ?: "",
                                 branch            = hubName,
                                 branchIds         = scopedBranchIds,
                                 remarksAt         = latestTodayEntry?.child("createdAt")?.getValue(Long::class.java) ?: 0L,
