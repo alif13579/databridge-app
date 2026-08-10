@@ -6,8 +6,9 @@ import com.google.firebase.database.IgnoreExtraProperties
 /**
  * Petty Cash / Convenience Bill Management — data models.
  *
- * Flow: Worker submits a request -> Team Aligned (incharge) aligns it ->
- * Cash POC approves it -> Accounts settles it (pays out + deposits fund).
+ * Flow: Requester submits a request -> Team Aligned acknowledges it ->
+ * Cash POC approves it -> Accounts marks it ready to settle -> Accounts
+ * hands over cash and marks it settled.
  *
  * Firebase structure (see FirebasePaths.pettyCash*):
  *   petty_cash/{branchId}/requests/{requestId} -> PettyCashRequest
@@ -16,10 +17,11 @@ import com.google.firebase.database.IgnoreExtraProperties
  */
 
 // Request lifecycle status
-const val PC_STATUS_PENDING_TEAM_ALIGN = "pending_team_align"
-const val PC_STATUS_PENDING_POC = "pending_poc"
-const val PC_STATUS_APPROVED = "approved"          // POC approved, waiting settlement
-const val PC_STATUS_SETTLED = "settled"
+const val PC_STATUS_PENDING = "pending"                       // just submitted by the Requester
+const val PC_STATUS_ACKNOWLEDGED = "acknowledged"              // Team Aligned has acknowledged it
+const val PC_STATUS_APPROVED = "approved"                      // Cash POC has approved it
+const val PC_STATUS_SETTLE_IN_PROCESS = "settle_in_process"    // Accounts has queued it for cash handover
+const val PC_STATUS_SETTLED = "settled"                        // cash handed over, done
 const val PC_STATUS_REJECTED = "rejected"
 
 const val PC_PRIORITY_HIGH = "high"
@@ -27,7 +29,7 @@ const val PC_PRIORITY_NORMAL = "normal"
 
 @IgnoreExtraProperties
 data class PettyCashApprovalStep(
-    val stepName: String = "",      // "Request Submitted" | "Team Aligned Approval" | "POC Approval" | "Accounts Settlement"
+    val stepName: String = "",      // "Request Submitted" | "Team Aligned Acknowledged" | "POC Approval" | "Ready to Settle" | "Settled"
     val status: String = "",        // "done" | "pending" | "rejected"
     val byUid: String = "",
     val byName: String = "",
@@ -43,13 +45,13 @@ data class PettyCashRequest(
     val workerUid: String = "",
     val workerName: String = "",
     val workerRole: String = "",           // e.g. "Delivery Agent"
-    val category: String = "",             // Travel Expense, Fuel Expense, Stationery, Office Supplies...
+    val category: String = "",             // Bulk Delivery, Pickup
     val purpose: String = "",
     val amount: Double = 0.0,
     val priority: String = PC_PRIORITY_NORMAL,
     val attachmentUrl: String = "",
     val attachmentName: String = "",
-    val status: String = PC_STATUS_PENDING_TEAM_ALIGN,
+    val status: String = PC_STATUS_PENDING,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
     val teamAlignedByUid: String = "",
@@ -58,6 +60,9 @@ data class PettyCashRequest(
     val pocApprovedByUid: String = "",
     val pocApprovedByName: String = "",
     val pocApprovedAt: Long = 0L,
+    val settleInProcessByUid: String = "",
+    val settleInProcessByName: String = "",
+    val settleInProcessAt: Long = 0L,
     val settledByUid: String = "",
     val settledByName: String = "",
     val settledAt: Long = 0L,

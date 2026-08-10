@@ -119,9 +119,10 @@ class PettyCashMyRequestsFragment : Fragment() {
     }
 
     private fun statusDisplay(request: PettyCashRequest): Triple<String, Int, String> = when (request.status) {
-        PC_STATUS_PENDING_TEAM_ALIGN -> Triple("Pending (Team Aligned)", R.drawable.bg_pc_status_pending, "#C2410C")
-        PC_STATUS_PENDING_POC -> Triple("Pending (POC)", R.drawable.bg_pc_status_pending, "#C2410C")
+        PC_STATUS_PENDING -> Triple("Pending", R.drawable.bg_pc_status_pending, "#C2410C")
+        PC_STATUS_ACKNOWLEDGED -> Triple("Acknowledged", R.drawable.bg_pc_status_pending, "#C2410C")
         PC_STATUS_APPROVED -> Triple("Approved", R.drawable.bg_pc_status_approved, "#6D28D9")
+        PC_STATUS_SETTLE_IN_PROCESS -> Triple("Settle in Process", R.drawable.bg_pc_status_approved, "#6D28D9")
         PC_STATUS_SETTLED -> Triple("Settled", R.drawable.bg_pc_status_settled, "#059669")
         PC_STATUS_REJECTED -> Triple("Rejected", R.drawable.bg_pc_status_pending, "#B91C1C")
         else -> Triple(request.status, R.drawable.bg_pc_status_pending, "#64748B")
@@ -157,6 +158,15 @@ class PettyCashMyRequestsFragment : Fragment() {
                 text = label
                 setTextColor(Color.parseColor(badgeColor))
                 background = androidx.core.content.ContextCompat.getDrawable(requireContext(), badgeBg)
+            }
+            // Tapping any request (regardless of status) opens Settlement
+            // Details, which itself surfaces Edit/Delete for the owner while
+            // status == PENDING — no need to duplicate that logic here.
+            row.setOnClickListener {
+                parentFragmentManager.beginTransaction()
+                    .replace(R.id.container, PettyCashSettlementDetailsFragment.newInstance(branchId, item.requestCode))
+                    .addToBackStack(null)
+                    .commitAllowingStateLoss()
             }
             container.addView(row)
         }

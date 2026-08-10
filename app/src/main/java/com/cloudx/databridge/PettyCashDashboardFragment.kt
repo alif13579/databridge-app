@@ -20,7 +20,8 @@ import java.util.Locale
  * Petty Cash Management — Dashboard (Accounts view).
  *
  * Wired to PettyCashViewModel: real requests/deposits/wallet balance for
- * the branch, live settlement queue (requests in PC_STATUS_APPROVED,
+ * the branch, live settlement queue (requests in PC_STATUS_APPROVED or
+ * PC_STATUS_SETTLE_IN_PROCESS, ready for Accounts to act on).
  * waiting for Accounts to settle).
  *
  * Entry point: reached from the drawer's "Petty Cash" item (top-level, see
@@ -173,10 +174,12 @@ class PettyCashDashboardFragment : Fragment() {
             row.findViewById<TextView>(R.id.tvQueueRowCode).text = item.requestCode
             row.findViewById<TextView>(R.id.tvQueueRowSubtitle).text = "${item.workerName}\n${item.category}"
             row.findViewById<TextView>(R.id.tvQueueRowAmount).text = taka(item.amount)
-            row.findViewById<TextView>(R.id.tvQueueRowStatus).text = "POC Approved"
+            row.findViewById<TextView>(R.id.tvQueueRowStatus).text =
+                if (item.status == PC_STATUS_SETTLE_IN_PROCESS) "Ready to Settle" else "Approved"
 
             val btnSettle = row.findViewById<TextView>(R.id.btnQueueRowSettle)
             btnSettle.isVisible = canSettle
+            btnSettle.text = if (item.status == PC_STATUS_SETTLE_IN_PROCESS) "Settle" else "Mark Ready"
             val openDetails = View.OnClickListener {
                 parentFragmentManager.beginTransaction()
                     .replace(R.id.container, PettyCashSettlementDetailsFragment.newInstance(branchId, item.requestCode))

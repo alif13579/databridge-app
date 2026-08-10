@@ -106,9 +106,10 @@ class PettyCashPendingSettlementFragment : Fragment() {
     }
 
     private fun statusLabel(status: String): String = when (status) {
-        PC_STATUS_PENDING_TEAM_ALIGN -> "Pending (Team Aligned)"
-        PC_STATUS_PENDING_POC -> "Pending (POC)"
+        PC_STATUS_PENDING -> "Pending"
+        PC_STATUS_ACKNOWLEDGED -> "Acknowledged"
         PC_STATUS_APPROVED -> "Approved"
+        PC_STATUS_SETTLE_IN_PROCESS -> "Settle in Process"
         PC_STATUS_SETTLED -> "Settled"
         PC_STATUS_REJECTED -> "Rejected"
         else -> status
@@ -147,7 +148,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
         // canonical order (rather than whatever order they happen to appear
         // in the data) so tabs don't reshuffle as requests move through the
         // approval chain.
-        val canonicalOrder = listOf(PC_STATUS_PENDING_TEAM_ALIGN, PC_STATUS_PENDING_POC, PC_STATUS_APPROVED, PC_STATUS_SETTLED, PC_STATUS_REJECTED)
+        val canonicalOrder = listOf(PC_STATUS_PENDING, PC_STATUS_ACKNOWLEDGED, PC_STATUS_APPROVED, PC_STATUS_SETTLE_IN_PROCESS, PC_STATUS_SETTLED, PC_STATUS_REJECTED)
         val presentStatuses = canonicalOrder.filter { status -> all.any { it.status == status } }
 
         val tabs = mutableListOf(Pair(FILTER_ALL, "All (${all.size})"))
@@ -186,9 +187,10 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     /** Status-appropriate secondary line — what to show instead of a hardcoded "POC Approved:" for every card. */
     private fun statusInfoLine(item: PettyCashRequest): Pair<String, String> = when (item.status) {
-        PC_STATUS_PENDING_TEAM_ALIGN -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.workerName}"
-        PC_STATUS_PENDING_POC -> "Team Aligned: ${formatDateTime(item.teamAlignedAt)}" to "By: ${item.teamAlignedByName.ifBlank { "—" }}"
-        PC_STATUS_APPROVED -> "POC Approved: ${formatDateTime(item.pocApprovedAt)}" to "By: ${item.pocApprovedByName.ifBlank { "—" }}"
+        PC_STATUS_PENDING -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.workerName}"
+        PC_STATUS_ACKNOWLEDGED -> "Acknowledged: ${formatDateTime(item.teamAlignedAt)}" to "By: ${item.teamAlignedByName.ifBlank { "—" }}"
+        PC_STATUS_APPROVED -> "Approved: ${formatDateTime(item.pocApprovedAt)}" to "By: ${item.pocApprovedByName.ifBlank { "—" }}"
+        PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle: ${formatDateTime(item.settleInProcessAt)}" to "By: ${item.settleInProcessByName.ifBlank { "—" }}"
         PC_STATUS_SETTLED -> "Settled: ${formatDateTime(item.settledAt)}" to "By: ${item.settledByName.ifBlank { "—" }}"
         PC_STATUS_REJECTED -> "Rejected: ${formatDateTime(item.rejectedAt)}" to "By: ${item.rejectedByName.ifBlank { "—" }}"
         else -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.workerName}"
@@ -227,13 +229,22 @@ class PettyCashPendingSettlementFragment : Fragment() {
             tvPriority.isVisible = item.priority == PC_PRIORITY_HIGH
             if (item.priority == PC_PRIORITY_HIGH) tvPriority.text = "High"
 
-            // Settle is only a meaningful action from this list for
-            // PC_STATUS_APPROVED cards — other statuses just navigate to
-            // Settlement Details, which shows the action appropriate to
-            // whatever stage the request is actually at (Align/Approve/none).
+            // The inline button here just navigates to Settlement Details,
+            // which shows whatever action actually fits the request's real
+            // stage (Acknowledge/Approve/Mark Ready/Settle Now). Label and
+            // visibility here are just a preview of what that action will be.
             val btnSettle = card.findViewById<TextView>(R.id.btnPsCardSettle)
-            btnSettle.isVisible = canSettle && item.status == PC_STATUS_APPROVED
-            if (btnSettle.isVisible) btnSettle.text = "Settle"
+            when {
+                canSettle && item.status == PC_STATUS_APPROVED -> {
+                    btnSettle.isVisible = true
+                    btnSettle.text = "Mark Ready"
+                }
+                canSettle && item.status == PC_STATUS_SETTLE_IN_PROCESS -> {
+                    btnSettle.isVisible = true
+                    btnSettle.text = "Settle"
+                }
+                else -> btnSettle.isVisible = false
+            }
 
             val openDetails = View.OnClickListener {
                 parentFragmentManager.beginTransaction()
