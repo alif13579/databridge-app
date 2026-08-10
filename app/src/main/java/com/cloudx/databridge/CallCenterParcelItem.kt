@@ -22,6 +22,10 @@ data class CallCenterParcelItem(
      *  users_by_systemId -> uid lookup ensureAgentNameMap() already does for the name.
      *  Blank when the worker has no photo set or the lookup hasn't resolved it yet. */
     val workerPhotoUrl: String = "",
+    /** users/{uid}/profile/phone for this worker — resolved alongside name/photo_url in
+     *  ensureAgentNameMap()'s same per-uid profile fetch. Blank when the worker has no
+     *  phone on file or the lookup hasn't resolved it yet. */
+    val workerPhone: String = "",
     val branch: String,
     val branchIds: List<String> = emptyList(),
     /** createdAt of the specific remark entry shown in `remarks` above — used to render
