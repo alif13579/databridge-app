@@ -27,8 +27,8 @@ class PettyCashFilterFragment : Fragment() {
     // Checkbox labels map 1:1 to PC_STATUS_* constants — label shown to the
     // person, value is what actually gets matched against request.status.
     private val statusOptions = listOf(
-        "Pending Approval" to setOf(PC_STATUS_PENDING_TEAM_ALIGN, PC_STATUS_PENDING_POC),
-        "Approved (Waiting Settlement)" to setOf(PC_STATUS_APPROVED),
+        "Pending" to setOf(PC_STATUS_PENDING, PC_STATUS_ACKNOWLEDGED),
+        "Approved / Settle in Process" to setOf(PC_STATUS_APPROVED, PC_STATUS_SETTLE_IN_PROCESS),
         "Settled" to setOf(PC_STATUS_SETTLED),
         "Rejected" to setOf(PC_STATUS_REJECTED)
     )

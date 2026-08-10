@@ -35,6 +35,9 @@ import kotlinx.coroutines.withContext
  * A person can hold more than one role (e.g. be both Cash POC and
  * Accounts) — [PettyCashUserRoles] exposes all of them so a screen can
  * show the union of what someone is allowed to do.
+ *
+ * Status flow: pending -> acknowledged -> approved -> settle_in_process ->
+ * settled (or rejected, from pending/acknowledged only).
  */
 
 data class PettyCashUserRoles(
@@ -54,13 +57,13 @@ sealed class PettyCashState {
         val roles: PettyCashUserRoles
     ) : PettyCashState() {
         // Derived aggregates, computed once here so every screen (Dashboard,
-        // Pending Settlement, Wallet Summary, All Requests) reads the same
-        // numbers instead of each recomputing its own slightly different sum.
+        // Requests, Wallet Summary, All Requests) reads the same numbers
+        // instead of each recomputing its own slightly different sum.
         val totalFund: Double get() = deposits.sumOf { it.amount }
         val pendingApprovalTotal: Double get() =
-            requests.filter { it.status == PC_STATUS_PENDING_TEAM_ALIGN || it.status == PC_STATUS_PENDING_POC }.sumOf { it.amount }
+            requests.filter { it.status == PC_STATUS_PENDING || it.status == PC_STATUS_ACKNOWLEDGED }.sumOf { it.amount }
         val approvedWaitingSettlementTotal: Double get() =
-            requests.filter { it.status == PC_STATUS_APPROVED }.sumOf { it.amount }
+            requests.filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }.sumOf { it.amount }
         val settledThisMonthTotal: Double get() {
             val cal = java.util.Calendar.getInstance()
             val currentMonth = cal.get(java.util.Calendar.MONTH)
@@ -71,8 +74,10 @@ sealed class PettyCashState {
                 cal.get(java.util.Calendar.MONTH) == currentMonth && cal.get(java.util.Calendar.YEAR) == currentYear
             }.sumOf { it.amount }
         }
+        /** Requests Accounts can act on right now — either mark ready-to-settle (approved) or hand over cash (settle_in_process). */
         val pendingSettlementQueue: List<PettyCashRequest> get() =
-            requests.filter { it.status == PC_STATUS_APPROVED }.sortedByDescending { it.pocApprovedAt }
+            requests.filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
+                .sortedByDescending { if (it.status == PC_STATUS_SETTLE_IN_PROCESS) it.settleInProcessAt else it.pocApprovedAt }
     }
     data class Error(val message: String) : PettyCashState()
 }
@@ -148,8 +153,6 @@ class PettyCashViewModel : ViewModel() {
         )
     }
 
-    // ── Worker: submit a new request ────────────────────────────────────────
-
     /** Fetches the signed-in user's real display name from their profile — role
      *  names ("Manager", "Cash POC") are not person names and shouldn't be
      *  stored as the actor on an approval step. */
@@ -160,6 +163,8 @@ class PettyCashViewModel : ViewModel() {
             db.reference.child("users/$uid/profile/name").get().await().getValue(String::class.java)
         }.getOrNull()?.takeIf { it.isNotBlank() } ?: auth.currentUser?.displayName.orEmpty()
     }
+
+    // ── Requester: submit a new request ─────────────────────────────────────
 
     suspend fun submitRequest(
         branchId: String,
@@ -172,7 +177,7 @@ class PettyCashViewModel : ViewModel() {
         workerRole: String = ""
     ): Result<String> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
-        val name = currentUserName().ifBlank { "Worker" }
+        val name = currentUserName().ifBlank { "Requester" }
         val ref = db.reference.child(FirebasePaths.pettyCashRequests(branchId)).push()
         val requestId = ref.key ?: throw IllegalStateException("Could not generate request id")
         val now = System.currentTimeMillis()
@@ -191,7 +196,7 @@ class PettyCashViewModel : ViewModel() {
             priority = priority,
             attachmentUrl = attachmentUrl,
             attachmentName = attachmentName,
-            status = PC_STATUS_PENDING_TEAM_ALIGN,
+            status = PC_STATUS_PENDING,
             createdAt = now,
             updatedAt = now,
             steps = listOf(
@@ -202,9 +207,50 @@ class PettyCashViewModel : ViewModel() {
         requestCode
     }
 
-    // ── Team Aligned: align a request (1st approval) ────────────────────────
+    // ── Requester: edit a request (only while status == pending) ────────────
 
-    suspend fun alignRequest(branchId: String, requestId: String): Result<Unit> = runCatching {
+    suspend fun updateRequest(
+        branchId: String,
+        requestId: String,
+        category: String,
+        purpose: String,
+        amount: Double
+    ): Result<Unit> = runCatching {
+        val uid = auth.currentUser?.uid.orEmpty()
+        val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
+        val snap = ref.get().await()
+        val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
+
+        if (existing.workerUid != uid) throw IllegalStateException("You can only edit your own requests")
+        if (existing.status != PC_STATUS_PENDING) throw IllegalStateException("This request can no longer be edited")
+
+        ref.updateChildren(
+            mapOf(
+                "category" to category,
+                "purpose" to purpose,
+                "amount" to amount,
+                "updatedAt" to System.currentTimeMillis()
+            )
+        ).await()
+    }
+
+    // ── Requester: delete a request (only while status == pending) ──────────
+
+    suspend fun deleteRequest(branchId: String, requestId: String): Result<Unit> = runCatching {
+        val uid = auth.currentUser?.uid.orEmpty()
+        val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
+        val snap = ref.get().await()
+        val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
+
+        if (existing.workerUid != uid) throw IllegalStateException("You can only delete your own requests")
+        if (existing.status != PC_STATUS_PENDING) throw IllegalStateException("This request can no longer be deleted")
+
+        ref.removeValue().await()
+    }
+
+    // ── Team Aligned: acknowledge a request (1st approval) ──────────────────
+
+    suspend fun acknowledgeRequest(branchId: String, requestId: String): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Team Aligned" }
         val now = System.currentTimeMillis()
@@ -213,11 +259,11 @@ class PettyCashViewModel : ViewModel() {
         val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
 
         val updatedSteps = existing.steps + PettyCashApprovalStep(
-            stepName = "Team Aligned Approval", status = "done", byUid = uid, byName = name, at = now
+            stepName = "Team Aligned Acknowledged", status = "done", byUid = uid, byName = name, at = now
         )
         ref.updateChildren(
             mapOf(
-                "status" to PC_STATUS_PENDING_POC,
+                "status" to PC_STATUS_ACKNOWLEDGED,
                 "teamAlignedByUid" to uid,
                 "teamAlignedByName" to name,
                 "teamAlignedAt" to now,
@@ -252,6 +298,31 @@ class PettyCashViewModel : ViewModel() {
         ).await()
     }
 
+    // ── Accounts: mark a request ready to settle (queues it for cash handover) ──
+
+    suspend fun markReadyToSettle(branchId: String, requestId: String): Result<Unit> = runCatching {
+        val uid = auth.currentUser?.uid.orEmpty()
+        val name = currentUserName().ifBlank { "Accounts" }
+        val now = System.currentTimeMillis()
+        val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
+        val snap = ref.get().await()
+        val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
+
+        val updatedSteps = existing.steps + PettyCashApprovalStep(
+            stepName = "Ready to Settle", status = "done", byUid = uid, byName = name, at = now
+        )
+        ref.updateChildren(
+            mapOf(
+                "status" to PC_STATUS_SETTLE_IN_PROCESS,
+                "settleInProcessByUid" to uid,
+                "settleInProcessByName" to name,
+                "settleInProcessAt" to now,
+                "updatedAt" to now,
+                "steps" to updatedSteps
+            )
+        ).await()
+    }
+
     // ── Accounts: settle a request (final step, deducts wallet balance) ─────
 
     suspend fun settleRequest(
@@ -268,7 +339,7 @@ class PettyCashViewModel : ViewModel() {
         val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
 
         val updatedSteps = existing.steps + PettyCashApprovalStep(
-            stepName = "Accounts Settlement", status = "done", byUid = uid, byName = name, at = now
+            stepName = "Settled", status = "done", byUid = uid, byName = name, at = now
         )
 
         // Deduct from wallet balance via a transaction so concurrent settlements
@@ -298,7 +369,7 @@ class PettyCashViewModel : ViewModel() {
         ).await()
     }
 
-    // ── Reject (can happen at Team Aligned or Cash POC stage) ───────────────
+    // ── Reject (can happen at Pending or Acknowledged stage only) ───────────
 
     suspend fun rejectRequest(branchId: String, requestId: String, reason: String): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()

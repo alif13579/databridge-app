@@ -12,6 +12,7 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -21,19 +22,25 @@ import java.util.Locale
 /**
  * Petty Cash Management — Settlement Details (mockup screen 4).
  *
- * Wired to PettyCashViewModel. This screen is the one place all four
- * approval-chain roles pass through, so the primary action button changes
+ * Wired to PettyCashViewModel. This screen is the one place every role in
+ * the approval chain passes through, so the primary action button changes
  * based on both the request's current status AND the signed-in user's role:
  *
- *   PENDING_TEAM_ALIGN + isTeamAligned  -> "Align" button
- *   PENDING_POC        + isCashPoc      -> "Approve" button
- *   APPROVED           + isAccounts     -> "Settle Now" (payment method picker)
+ *   PENDING            + isTeamAligned -> "Acknowledge" button
+ *   ACKNOWLEDGED        + isCashPoc     -> "Approve" button
+ *   APPROVED            + isAccounts    -> "Mark Ready to Settle" button
+ *   SETTLE_IN_PROCESS   + isAccounts    -> "Settle Now" (payment method picker)
  *   anything else                       -> no primary action, read-only
  *
- * Reject is available at PENDING_TEAM_ALIGN (Team Aligned) and PENDING_POC
- * (Cash POC) stages only — once POC has approved, rejecting no longer makes
- * sense (money is already earmarked; Accounts settles or the branch handles
- * it manually).
+ * Reject is available at PENDING (Team Aligned) and ACKNOWLEDGED (Cash POC)
+ * stages only. Once POC has approved, rejecting no longer makes sense —
+ * money is already earmarked; Accounts either settles it or handles it
+ * manually outside this flow.
+ *
+ * Edit/Delete: the request's own submitter (workerUid) can edit or delete
+ * it, but only while status == PENDING — before Team Aligned has even
+ * looked at it. Once acknowledged, the request is "in the system" and
+ * shouldn't be silently changed or removed out from under an approver.
  */
 class PettyCashSettlementDetailsFragment : Fragment() {
 
@@ -165,15 +172,16 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         val container = root.findViewById<LinearLayout>(R.id.layoutPcApprovalSteps)
         container.removeAllViews()
 
-        // Build the 4 canonical stages from the request's actual fields —
-        // a stage counts as "done" only if its timestamp is set, so a request
-        // still at PENDING_TEAM_ALIGN correctly shows only step 1 as done.
+        // Build the 5 canonical stages from the request's actual fields —
+        // a stage counts as "done" only if its timestamp is set, so a
+        // request still at PENDING correctly shows only step 1 as done.
         data class Stage(val title: String, val subtitle: String, val at: Long)
         val stages = listOf(
             Stage("Request Submitted", request.workerName, request.createdAt),
-            Stage("Team Aligned Approval", request.teamAlignedByName, request.teamAlignedAt),
+            Stage("Team Aligned Acknowledged", request.teamAlignedByName, request.teamAlignedAt),
             Stage("POC Approval", request.pocApprovedByName, request.pocApprovedAt),
-            Stage("Accounts Settlement", request.settledByName, request.settledAt)
+            Stage("Ready to Settle", request.settleInProcessByName, request.settleInProcessAt),
+            Stage("Settled", request.settledByName, request.settledAt)
         )
 
         stages.forEachIndexed { index, stage ->
@@ -218,25 +226,35 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         val btnPrimary = root.findViewById<Button>(R.id.btnPcDetailSettleNow)
         val btnReject = root.findViewById<Button>(R.id.btnPcDetailReject)
 
-        val canAlign = request.status == PC_STATUS_PENDING_TEAM_ALIGN && roles.isTeamAligned
-        val canApprove = request.status == PC_STATUS_PENDING_POC && roles.isCashPoc
-        val canSettle = request.status == PC_STATUS_APPROVED && roles.isAccounts
-        val canReject = (request.status == PC_STATUS_PENDING_TEAM_ALIGN && roles.isTeamAligned) ||
-            (request.status == PC_STATUS_PENDING_POC && roles.isCashPoc)
+        val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        val isOwner = request.workerUid == myUid
+
+        val canAcknowledge = request.status == PC_STATUS_PENDING && roles.isTeamAligned
+        val canApprove = request.status == PC_STATUS_ACKNOWLEDGED && roles.isCashPoc
+        val canMarkReady = request.status == PC_STATUS_APPROVED && roles.isAccounts
+        val canSettle = request.status == PC_STATUS_SETTLE_IN_PROCESS && roles.isAccounts
+        val canReject = (request.status == PC_STATUS_PENDING && roles.isTeamAligned) ||
+            (request.status == PC_STATUS_ACKNOWLEDGED && roles.isCashPoc)
+        val canEditOrDelete = isOwner && request.status == PC_STATUS_PENDING
 
         btnReject.isVisible = canReject
         btnReject.setOnClickListener { confirmReject() }
 
         when {
-            canAlign -> {
+            canAcknowledge -> {
                 btnPrimary.isVisible = true
-                btnPrimary.text = "Align Request"
-                btnPrimary.setOnClickListener { confirmAlign() }
+                btnPrimary.text = "Acknowledge Request"
+                btnPrimary.setOnClickListener { confirmAcknowledge() }
             }
             canApprove -> {
                 btnPrimary.isVisible = true
                 btnPrimary.text = "Approve Request"
                 btnPrimary.setOnClickListener { confirmApprove() }
+            }
+            canMarkReady -> {
+                btnPrimary.isVisible = true
+                btnPrimary.text = "Mark Ready to Settle"
+                btnPrimary.setOnClickListener { confirmMarkReady() }
             }
             canSettle -> {
                 btnPrimary.isVisible = true
@@ -247,13 +265,30 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 btnPrimary.isVisible = false
             }
         }
+
+        bindEditDeleteRow(root, request, canEditOrDelete)
     }
 
-    private fun confirmAlign() {
+    /** Owner-only Edit/Delete row, only while the request is still PENDING. */
+    private fun bindEditDeleteRow(root: View, request: PettyCashRequest, canEditOrDelete: Boolean) {
+        val layoutEditDelete = root.findViewById<View?>(R.id.layoutPcDetailEditDelete)
+        layoutEditDelete?.isVisible = canEditOrDelete
+        if (!canEditOrDelete) return
+
+        root.findViewById<View>(R.id.btnPcDetailEdit).setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashRequestCreateFragment.newInstance(branchId, editRequestId = request.id))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+        root.findViewById<View>(R.id.btnPcDetailDelete).setOnClickListener { confirmDelete() }
+    }
+
+    private fun confirmAcknowledge() {
         android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Align $requestCode?")
+            .setTitle("Acknowledge $requestCode?")
             .setMessage("This confirms the request is aligned with your team and sends it to Cash POC for approval.")
-            .setPositiveButton("Align") { _, _ -> runAction { viewModel.alignRequest(branchId, requestIdFor(requestCode)) } }
+            .setPositiveButton("Acknowledge") { _, _ -> runAction { viewModel.acknowledgeRequest(branchId, requestIdFor(requestCode)) } }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -261,8 +296,17 @@ class PettyCashSettlementDetailsFragment : Fragment() {
     private fun confirmApprove() {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Approve $requestCode?")
-            .setMessage("This approves the request for settlement by Accounts.")
+            .setMessage("This approves the request, queueing it for Accounts to settle.")
             .setPositiveButton("Approve") { _, _ -> runAction { viewModel.approveRequest(branchId, requestIdFor(requestCode)) } }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmMarkReady() {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Mark $requestCode ready to settle?")
+            .setMessage("This moves the request into your cash handover queue.")
+            .setPositiveButton("Mark Ready") { _, _ -> runAction { viewModel.markReadyToSettle(branchId, requestIdFor(requestCode)) } }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -303,6 +347,25 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                         parentFragmentManager.popBackStack()
                     } else {
                         Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Reject failed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmDelete() {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Delete $requestCode?")
+            .setMessage("This permanently removes the request. This can't be undone.")
+            .setPositiveButton("Delete") { _, _ ->
+                lifecycleScope.launch {
+                    val result = viewModel.deleteRequest(branchId, requestIdFor(requestCode))
+                    if (result.isSuccess) {
+                        Toast.makeText(requireContext(), "$requestCode deleted", Toast.LENGTH_SHORT).show()
+                        parentFragmentManager.popBackStack()
+                    } else {
+                        Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Delete failed", Toast.LENGTH_SHORT).show()
                     }
                 }
             }

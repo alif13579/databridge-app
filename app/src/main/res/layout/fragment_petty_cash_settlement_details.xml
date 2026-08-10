@@ -311,6 +311,42 @@
                     android:backgroundTint="#FEE2E2"
                     android:paddingVertical="12dp" />
 
+                <!-- Owner Edit/Delete row — only visible while status == pending -->
+                <LinearLayout
+                    android:id="@+id/layoutPcDetailEditDelete"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="10dp"
+                    android:visibility="gone">
+
+                    <Button
+                        android:id="@+id/btnPcDetailEdit"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:text="Edit"
+                        android:textAllCaps="false"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:backgroundTint="#F1F5F9"
+                        android:paddingVertical="12dp" />
+
+                    <Button
+                        android:id="@+id/btnPcDetailDelete"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="Delete"
+                        android:textAllCaps="false"
+                        android:textStyle="bold"
+                        android:textColor="#DC2626"
+                        android:backgroundTint="#FEE2E2"
+                        android:paddingVertical="12dp" />
+                </LinearLayout>
+
             </LinearLayout>
         </ScrollView>
     </LinearLayout>

@@ -55,22 +55,28 @@ above), not writable via client rules — branch data changes go through
 existing app flows w/ their own logic, kept locked down at the rules level.
 
 **`petty_cash/{branchId}/requests/{requestId}`** — the core state machine.
-Write is allowed only for one of these transitions, each checked against
-the corresponding role field on `branches/{branchId}`:
+Write is allowed for one of these transitions/actions, each checked
+against the corresponding role field on `branches/{branchId}`:
 
 | From status | To status | Allowed by |
 |---|---|---|
-| *(new)* | `pending_team_align` | the request's own `workerUid` (self-submit only), **and** the submitter's role must have `petty_cash_requester: true` under `roles/{role_id}/permissions` (checked by resolving `users/{uid}/profile/company_info/role_id` then looking up that role's permissions) |
-| `pending_team_align` | `pending_poc` | `branches/{branchId}/team_aligned_uid` |
-| `pending_poc` | `approved` | `branches/{branchId}/petty_cash_poc_uid` |
-| `approved` | `settled` | `branches/{branchId}/accountant_uid` |
-| `pending_team_align` | `rejected` | `branches/{branchId}/team_aligned_uid` |
-| `pending_poc` | `rejected` | `branches/{branchId}/petty_cash_poc_uid` |
+| *(new)* | `pending` | the request's own `workerUid` (self-submit only), **and** the submitter's role must have `petty_cash_requester: true` under `roles/{role_id}/permissions` (checked by resolving `users/{uid}/profile/company_info/role_id` then looking up that role's permissions) |
+| `pending` | *(deleted)* | the request's own `workerUid`, only while still `pending` |
+| `pending` | `pending` (edit) | the request's own `workerUid`, only while still `pending` — `workerUid`/`branchId` must stay the same; category/amount/purpose can change |
+| `pending` | `acknowledged` | `branches/{branchId}/team_aligned_uid` |
+| `acknowledged` | `approved` | `branches/{branchId}/petty_cash_poc_uid` |
+| `approved` | `settle_in_process` | `branches/{branchId}/accountant_uid` |
+| `settle_in_process` | `settled` | `branches/{branchId}/accountant_uid` |
+| `pending` | `rejected` | `branches/{branchId}/team_aligned_uid` |
+| `acknowledged` | `rejected` | `branches/{branchId}/petty_cash_poc_uid` |
 
-Every transition additionally requires `workerUid`, `branchId`, `amount`,
-and `category` to stay unchanged from the existing record — this stops a
+Every approval-chain transition (everything except the Requester's own
+edit) additionally requires `workerUid`, `branchId`, `amount`, and
+`category` to stay unchanged from the existing record — this stops a
 compromised or buggy client from smuggling in an amount change disguised
-as a status transition.
+as a status transition. The Requester's own edit is the one path allowed
+to change `amount`/`category`/`purpose`, but only while status is still
+`pending` and only by the original submitter.
 
 No rule permits `settled -> anything` or `rejected -> anything` — those
 are terminal states.
