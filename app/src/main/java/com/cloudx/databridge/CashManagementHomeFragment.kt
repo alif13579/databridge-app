@@ -793,6 +793,14 @@ class CashManagementHomeFragment : Fragment() {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
 
+        // Pre-select the branch's configured default provider (Cash Management ->
+        // default provider setting), if it's set and matches one of the options,
+        // instead of always landing on the "Select channel" placeholder.
+        val defaultProvider = lastSuccessState?.defaultProvider
+        val defaultIndex = defaultProvider?.let { channelOptions.indexOf(it) }?.takeIf { it >= 0 } ?: 0
+        spinner.setSelection(defaultIndex)
+        customNameInput.isVisible = channelOptions.getOrNull(defaultIndex) == "Other"
+
         val amountInput = EditText(requireContext()).apply {
             hint = "Amount"
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
