@@ -1,6 +1,7 @@
 package com.cloudx.databridge
 
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.text.InputType
@@ -15,6 +16,7 @@ import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
@@ -40,6 +42,7 @@ class CashLedgerListFragment : Fragment() {
     private lateinit var btnBack: ImageButton
     private lateinit var tvTitle: TextView
     private lateinit var btnExportCsv: ImageButton
+    private lateinit var layoutTabs: LinearLayout
     private lateinit var etSearch: EditText
     private lateinit var tvFilterDate: TextView
     private lateinit var tvFilterChannel: TextView
@@ -99,6 +102,7 @@ class CashLedgerListFragment : Fragment() {
         btnBack           = view.findViewById(R.id.btnListBack)
         tvTitle           = view.findViewById(R.id.tvListTitle)
         btnExportCsv      = view.findViewById(R.id.btnExportCsv)
+        layoutTabs        = view.findViewById(R.id.layoutCashModeTabs)
         etSearch          = view.findViewById(R.id.etListSearch)
         tvFilterDate      = view.findViewById(R.id.tvFilterDate)
         tvFilterChannel   = view.findViewById(R.id.tvFilterChannel)
@@ -109,12 +113,8 @@ class CashLedgerListFragment : Fragment() {
         btnPagePrev       = view.findViewById(R.id.btnPagePrev)
         btnPageNext       = view.findViewById(R.id.btnPageNext)
 
-        tvTitle.text = when (mode) {
-            CashListMode.COLLECTIONS -> "Collections"
-            CashListMode.DEPOSITS -> "Deposits"
-            CashListMode.PAYMENTS -> "Payments"
-        }
-        tvFilterChannel.isVisible = mode != CashListMode.COLLECTIONS
+        applyModeChrome()
+        buildTabs()
 
         btnBack.setOnClickListener { parentFragmentManager.popBackStack() }
         btnExportCsv.setOnClickListener { exportToCsv() }
@@ -147,6 +147,59 @@ class CashLedgerListFragment : Fragment() {
         } else {
             vm.load(branchId)
         }
+    }
+
+    // ── Mode tabs: Collections / Deposits / Payments, in one page ────────────────
+    // Was a popup that opened a separate single-mode screen per pick; now this one
+    // screen owns all three and switching is just a tab tap + re-render, since the
+    // ViewModel already loaded every mode's data together (see allRows()/render()).
+    private fun modeLabel(m: CashListMode): String = when (m) {
+        CashListMode.COLLECTIONS -> "Collections"
+        CashListMode.DEPOSITS -> "Deposits"
+        CashListMode.PAYMENTS -> "Payments"
+    }
+
+    private fun applyModeChrome() {
+        tvTitle.text = modeLabel(mode)
+        tvFilterChannel.isVisible = mode != CashListMode.COLLECTIONS
+    }
+
+    private fun buildTabs() {
+        layoutTabs.removeAllViews()
+        CashListMode.entries.forEach { m ->
+            val tab = layoutInflater.inflate(R.layout.item_petty_cash_filter_tab, layoutTabs, false) as TextView
+            tab.text = modeLabel(m)
+            tab.setOnClickListener { switchMode(m) }
+            styleTab(tab, m == mode)
+            layoutTabs.addView(tab)
+        }
+    }
+
+    private fun styleTab(tab: TextView, active: Boolean) {
+        if (active) {
+            tab.setTextColor(Color.parseColor("#0099b8"))
+            tab.background = ContextCompat.getDrawable(requireContext(), R.drawable.bg_cash_tab_active)
+        } else {
+            tab.setTextColor(Color.parseColor("#64748B"))
+            tab.background = ContextCompat.getDrawable(requireContext(), R.drawable.bg_cash_tab_inactive)
+        }
+    }
+
+    private fun switchMode(newMode: CashListMode) {
+        if (newMode == mode) return
+        mode = newMode
+        applyModeChrome()
+        // Search/channel are mode-specific (a TRX search or bKash filter from
+        // Deposits doesn't carry meaning on Collections), so those reset. Date
+        // range stays -- picking "This Month" once and checking all three tabs
+        // against it is the point of combining them into one page.
+        searchQuery = ""
+        etSearch.setText("")
+        channelFilter = null
+        tvFilterChannel.text = "Channel: All"
+        currentPage = 0
+        buildTabs()
+        lastSuccessState?.let { renderList(it) }
     }
 
     private fun render(state: CashManagementState) {

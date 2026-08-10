@@ -42,6 +42,22 @@
             android:contentDescription="Export CSV" />
     </LinearLayout>
 
+    <!-- Mode tabs: Collections / Deposits / Payments -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#FFFFFF"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/layoutCashModeTabs"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingHorizontal="12dp"
+            android:paddingBottom="10dp" />
+    </HorizontalScrollView>
+
     <!-- Search -->
     <EditText
         android:id="@+id/etListSearch"

@@ -132,7 +132,7 @@ class CashManagementHomeFragment : Fragment() {
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
-        tvViewAllActivity.setOnClickListener { showViewAllPicker() }
+        tvViewAllActivity.setOnClickListener { openLedgerList(CashListMode.COLLECTIONS) }
 
         setupBranchSwitcher()
         btnHomeExportCsv.setOnClickListener { exportCombinedCsv() }
@@ -144,15 +144,6 @@ class CashManagementHomeFragment : Fragment() {
         } else {
             vm.load(branchId)
         }
-    }
-
-    private fun showViewAllPicker() {
-        val options = arrayOf("Collections", "Deposits", "Payments")
-        val modes = arrayOf(CashListMode.COLLECTIONS, CashListMode.DEPOSITS, CashListMode.PAYMENTS)
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle("View all")
-            .setItems(options) { _, index -> openLedgerList(modes[index]) }
-            .show()
     }
 
     private fun openLedgerList(mode: CashListMode) {
