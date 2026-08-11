@@ -150,6 +150,18 @@
                         android:clickable="true"
                         android:focusable="true"
                         android:background="?attr/selectableItemBackgroundBorderless" />
+
+                    <TextView
+                        android:id="@+id/btnPdSetRemarks"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:text="✏️"
+                        android:textSize="15sp"
+                        android:gravity="center"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:contentDescription="Set Remarks"
+                        android:background="?attr/selectableItemBackgroundBorderless" />
                 </LinearLayout>
             </LinearLayout>
 
