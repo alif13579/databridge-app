@@ -4,12 +4,15 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import coil.load
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.imageview.ShapeableImageView
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
@@ -18,6 +21,7 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -50,6 +54,20 @@ class ParcelDetailFragment : Fragment() {
 
     private val parcelId by lazy { arguments?.getString("parcel_id") ?: "" }
     private val scope    by lazy { arguments?.getString("scope")     ?: "cc"  }
+    private val userId   by lazy { auth.currentUser?.uid ?: "" }
+
+    // Remark options for the "Set Remarks" sheet — loaded once from the scope-appropriate
+    // config path (config/remarks_call_center or config/remarks_worker, same admin-managed
+    // source CallCenterFragment/WorkerSpaceFragment already read), so options stay in sync
+    // with whichever screen the agent/worker started from.
+    private data class PdRemarkOption(
+        val icon: String,
+        val label: String,
+        val statusKey: String,
+        val statusPreview: String,
+        val statusColor: Int
+    )
+    private var pdRemarkOptions: List<PdRemarkOption> = emptyList()
 
     // Views
     private lateinit var tvParcelId:     TextView
@@ -116,13 +134,189 @@ class ParcelDetailFragment : Fragment() {
                 AutoDialHelper.dial(this, currentPhone)
             }
         }
+        view.findViewById<View>(R.id.btnPdSetRemarks).setOnClickListener {
+            showSetRemarksDialog()
+        }
 
+        loadPdRemarkOptions()
         loadParcelInfo()
     }
 
     override fun onDestroyView() {
         remarkListener?.let { remarkRef.removeEventListener(it) }
         super.onDestroyView()
+    }
+
+    // ── Set Remarks (reachable from a notification tap — same capability the
+    //    Call Center card / Worker card "✏️ Set Remarks" already have, so an
+    //    agent or worker landing here directly doesn't have to back out to set one) ──
+
+    private fun loadPdRemarkOptions() {
+        val configPath = if (scope == "worker") "config/remarks_worker" else "config/remarks_call_center"
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val remarksSnap = withContext(Dispatchers.IO) {
+                    StatusMetaCache.refresh()
+                    db.reference.child(configPath).get().await()
+                }
+                val fetched = mutableListOf<Pair<PdRemarkOption, Int>>()
+                remarksSnap.children.forEach { groupSnap ->
+                    groupSnap.children.forEach { r ->
+                        val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
+                        val textEn = r.child("text_en").getValue(String::class.java)?.trim().orEmpty()
+                        val label = textBn.ifBlank { textEn }
+                        if (label.isBlank()) return@forEach
+                        val target = r.child("target_status").getValue(String::class.java)?.trim()
+                            .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
+                        val priority = r.child("priority").getValue(Int::class.java) ?: 0
+                        val metaEntry = StatusMetaCache.entries[target]
+                        val preview = StatusMetaCache.labelOrNull(target, "bn") ?: target
+                        fetched.add(
+                            PdRemarkOption(
+                                icon = "💬",
+                                label = label,
+                                statusKey = target,
+                                statusPreview = preview,
+                                statusColor = metaEntry?.color ?: android.graphics.Color.GRAY
+                            ) to priority
+                        )
+                    }
+                }
+                if (isAdded) {
+                    pdRemarkOptions = fetched.sortedByDescending { it.second }.map { it.first }
+                }
+            } catch (e: Exception) {
+                FirebaseErrorLogger.log(
+                    screen = "ParcelDetailFragment", action = "load_remark_options",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("parcelId" to parcelId, "scope" to scope)
+                )
+            }
+        }
+    }
+
+    private fun showSetRemarksDialog() {
+        val dialog = BottomSheetDialog(requireContext())
+        val view   = layoutInflater.inflate(R.layout.bottom_sheet_remarks, null)
+        dialog.setContentView(view)
+
+        val tvTitle       = view.findViewById<TextView>(R.id.tvRemarksTitle)
+        val etRemarks     = view.findViewById<EditText>(R.id.etRemarksText)
+        val tvAutoStatus  = view.findViewById<TextView>(R.id.tvRemarksAutoStatus)
+        val layoutOptions = view.findViewById<LinearLayout>(R.id.layoutCcRemarkOptions)
+        val btnCancel     = view.findViewById<TextView>(R.id.btnRemarksCancel)
+        val btnSave       = view.findViewById<TextView>(R.id.btnRemarksSave)
+
+        tvTitle.text = "${tvCustomer.text} · $parcelId · $currentPhone"
+        btnCancel.setOnClickListener { dialog.dismiss() }
+
+        if (pdRemarkOptions.isEmpty()) {
+            val tv = TextView(requireContext())
+            val configName = if (scope == "worker") "config/remarks_worker" else "config/remarks_call_center"
+            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই।\nAdmin-কে $configName-এ remark যোগ করতে বলুন।"
+            tv.textSize = 13f
+            tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
+            tv.setPadding(0, 24, 0, 24)
+            layoutOptions.addView(tv)
+        }
+
+        var selectedStatus     = ""
+        var selectedRemarkText = ""
+        val optionViews = mutableListOf<View>()
+
+        btnSave.isEnabled = false
+        btnSave.alpha     = 0.5f
+        fun refreshSaveEnabled() {
+            val hasNote = etRemarks.text?.toString()?.trim().orEmpty().isNotBlank()
+            val enabled = selectedStatus.isNotBlank() || hasNote
+            btnSave.isEnabled = enabled
+            btnSave.alpha     = if (enabled) 1f else 0.5f
+        }
+        etRemarks.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { refreshSaveEnabled() }
+        })
+
+        for (opt in pdRemarkOptions) {
+            val optView = layoutInflater.inflate(R.layout.item_worker_remark_option, layoutOptions, false)
+            val tvIcon  = optView.findViewById<TextView>(R.id.twRemarkOptIcon)
+            val tvText  = optView.findViewById<TextView>(R.id.twRemarkOptText)
+            val tvTag   = optView.findViewById<TextView>(R.id.twRemarkOptAutoTag)
+            val dot     = optView.findViewById<View>(R.id.viewRemarkOptSelected)
+
+            tvIcon.text = opt.icon
+            tvText.text = opt.label
+            tvTag.text  = "→${opt.statusPreview.uppercase()}"
+            tvTag.visibility = View.VISIBLE
+
+            optView.setOnClickListener {
+                optionViews.forEach { v ->
+                    v.setBackgroundResource(R.drawable.bg_remark_opt_inactive)
+                    v.findViewById<TextView>(R.id.twRemarkOptText)
+                        .setTextColor(requireContext().getColor(R.color.theme_text_remark_opt))
+                    v.findViewById<View>(R.id.viewRemarkOptSelected).visibility = View.GONE
+                }
+                optView.setBackgroundResource(R.drawable.bg_remark_opt_active)
+                tvText.setTextColor(requireContext().getColor(R.color.theme_text_remark_opt_selected))
+                dot.visibility = View.VISIBLE
+
+                selectedStatus     = opt.statusKey
+                selectedRemarkText = opt.label
+                tvAutoStatus.text  = opt.statusPreview
+                tvAutoStatus.setTextColor(opt.statusColor)
+                refreshSaveEnabled()
+            }
+            optionViews.add(optView)
+            layoutOptions.addView(optView)
+        }
+
+        btnSave.setOnClickListener {
+            val noteText = etRemarks.text?.toString()?.trim().orEmpty()
+            if (selectedStatus.isBlank() && noteText.isBlank()) return@setOnClickListener
+
+            val timestamp    = System.currentTimeMillis()
+            val indexDateKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(timestamp))
+            val remarkedBy   = if (scope == "worker") "worker" else "support"
+
+            val remarkData = mapOf(
+                "userId"      to userId,
+                "remarks"     to selectedRemarkText.ifBlank { noteText },
+                "note"        to noteText,
+                "status"      to selectedStatus,
+                "remarked_by" to remarkedBy,
+                "createdAt"   to timestamp
+            )
+            db.reference.child("courier/remarks_by_consignment/$parcelId/remarks_$timestamp")
+                .setValue(remarkData)
+                .addOnFailureListener { e ->
+                    FirebaseErrorLogger.log(
+                        screen = "ParcelDetailFragment", action = "remark_write",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("consignmentId" to parcelId, "userId" to userId)
+                    )
+                    Toast.makeText(requireContext(), "⚠ Remark save হয়নি: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+
+            db.reference.child("courier/remarks_by_userId/$userId/push_${indexDateKey}_$parcelId")
+                .setValue(
+                    mapOf(
+                        "final_status" to selectedStatus,
+                        "remarks"      to selectedRemarkText.ifBlank { noteText },
+                        "created_at"   to timestamp,
+                        "updated_at"   to timestamp
+                    )
+                )
+            db.reference.child("courier/users_by_consignment/$parcelId/$indexDateKey/$userId")
+                .setValue(true)
+
+            EngagedStateManager.clearEngaged(parcelId, userId)
+
+            Toast.makeText(requireContext(), "✅ Remark saved", Toast.LENGTH_SHORT).show()
+            dialog.dismiss()
+        }
+
+        dialog.show()
     }
 
     // ── Parcel info ─────────────────────────────────────────────────────────────
