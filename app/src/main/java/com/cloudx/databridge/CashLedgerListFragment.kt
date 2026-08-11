@@ -22,6 +22,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.datepicker.MaterialDatePicker
+import java.io.File
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -117,7 +118,7 @@ class CashLedgerListFragment : Fragment() {
         buildTabs()
 
         btnBack.setOnClickListener { parentFragmentManager.popBackStack() }
-        btnExportCsv.setOnClickListener { exportToCsv() }
+        btnExportCsv.setOnClickListener { exportData() }
 
         etSearch.onSearchTextChanged {
             searchQuery = it
@@ -386,11 +387,26 @@ class CashLedgerListFragment : Fragment() {
     // renderList() applies -- so "export by date range" is just "set the date
     // filter, then export", reusing the filter UI that already exists above.
 
-    private fun exportToCsv() {
+    private enum class ExportFormat(val extension: String, val mimeType: String, val label: String) {
+        CSV("csv", "text/csv", "CSV"),
+        XLSX("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Excel (.xlsx)"),
+        PDF("pdf", "application/pdf", "PDF"),
+    }
+
+    private fun exportData() {
+        val formats = ExportFormat.entries.toTypedArray()
         android.app.AlertDialog.Builder(requireContext())
-            .setTitle("CSV Export")
+            .setTitle("Export format")
+            .setItems(formats.map { it.label }.toTypedArray()) { _, i -> showShareOrDownloadChooser(formats[i]) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showShareOrDownloadChooser(format: ExportFormat) {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("${format.label} Export")
             .setItems(arrayOf("📤 Share করুন", "⬇️ Download করুন")) { _, which ->
-                if (which == 0) saveCsvAndShare() else saveCsvAndDownload()
+                if (which == 0) exportAndShare(format) else exportAndDownload(format)
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -423,80 +439,137 @@ class CashLedgerListFragment : Fragment() {
     private fun amountForCsv(amount: Double): String =
         if (amount == Math.floor(amount)) amount.toLong().toString() else String.format(Locale.US, "%.2f", amount)
 
-    private fun csvFileName(): String {
-        val modeLabel = mode.name.lowercase().replaceFirstChar { it.uppercase() }
-        return "DataBridge_Cash_${modeLabel}_${System.currentTimeMillis()}.csv"
-    }
+    private val exportDateFmt = SimpleDateFormat("dd-MM-yyyy hh:mm a", Locale.getDefault())
 
-    /** Saves CSV to app-specific cache dir (for sharing via FileProvider) -- no storage permission needed. */
-    private fun saveCsvToCache(csvContent: String): android.net.Uri? {
-        return try {
-            val cacheDir = java.io.File(requireContext().cacheDir, "exports").apply { mkdirs() }
-            val file = java.io.File(cacheDir, csvFileName())
-            file.writeText(csvContent)
-            androidx.core.content.FileProvider.getUriForFile(
-                requireContext(),
-                "${requireContext().packageName}.fileprovider",
-                file
-            )
-        } catch (e: Exception) {
-            null
+    /** Same columns as buildCsvContent(), just as generic (headers, rows) for the Excel/PDF writer. */
+    private fun tableData(rows: List<Row>): Pair<List<String>, List<List<Any>>> {
+        return if (mode == CashListMode.COLLECTIONS) {
+            val headers = listOf("Date", "Amount", "Collected By", "Remarks")
+            val table = rows.map { listOf<Any>(exportDateFmt.format(Date(it.timestamp)), it.amount, it.enteredByName, it.remarks) }
+            headers to table
+        } else {
+            val headers = listOf("Date", "Amount", "Channel", "Transaction ID", "Entered By", "Remarks")
+            val table = rows.map {
+                listOf<Any>(exportDateFmt.format(Date(it.timestamp)), it.amount, it.channel.orEmpty(), it.trxId, it.enteredByName, it.remarks)
+            }
+            headers to table
         }
     }
 
-    private fun saveCsvAndShare() {
-        val (csvContent, count) = buildCsvContent() ?: run {
+    private fun xlsxColWidths(): List<Int> =
+        if (mode == CashListMode.COLLECTIONS) listOf(20, 13, 18, 34) else listOf(20, 12, 11, 16, 16, 34)
+
+    private fun pdfColWeights(): List<Float> =
+        if (mode == CashListMode.COLLECTIONS) listOf(2.2f, 1.1f, 1.8f, 3.2f) else listOf(2.0f, 1.0f, 1.0f, 1.5f, 1.5f, 2.8f)
+
+    private fun pdfSubtitle(): String {
+        val range = dateFilter?.let { "${exportDateFmt.format(Date(it.first))} \u2013 ${exportDateFmt.format(Date(it.second))}" } ?: "All time"
+        return "Range: $range  |  Generated: ${exportDateFmt.format(Date())}"
+    }
+
+    private fun exportFileName(extension: String): String {
+        val label = mode.name.lowercase().replaceFirstChar { it.uppercase() }
+        return "DataBridge_Cash_${label}_${System.currentTimeMillis()}.$extension"
+    }
+
+    /** Writes the export in [format] to the app cache dir. Null if there's nothing to export. */
+    private fun buildExportFile(format: ExportFormat): Pair<File, Int>? {
+        val state = lastSuccessState ?: return null
+        val rows = filteredRows(state)
+        if (rows.isEmpty()) return null
+
+        val cacheDir = File(requireContext().cacheDir, "exports").apply { mkdirs() }
+        val file = File(cacheDir, exportFileName(format.extension))
+
+        when (format) {
+            ExportFormat.CSV -> {
+                val (csvContent, _) = buildCsvContent() ?: return null
+                file.writeText(csvContent)
+            }
+            ExportFormat.XLSX -> {
+                val (headers, tableRows) = tableData(rows)
+                CashExportWriter.writeXlsx(file, modeLabel(mode), headers, tableRows, xlsxColWidths())
+            }
+            ExportFormat.PDF -> {
+                val (headers, tableRows) = tableData(rows)
+                val totalAmount = rows.sumOf { it.amount }
+                CashExportWriter.writePdf(
+                    outFile = file,
+                    title = "DataBridge \u2014 ${modeLabel(mode)}",
+                    subtitle = pdfSubtitle(),
+                    summaryCards = listOf(
+                        CashExportWriter.PdfSummaryCard(
+                            "Total ${modeLabel(mode)}",
+                            "Tk " + NumberFormat.getNumberInstance(Locale.US).format(totalAmount)
+                        )
+                    ),
+                    headers = headers,
+                    rows = tableRows,
+                    colWeights = pdfColWeights(),
+                )
+            }
+        }
+        return file to rows.size
+    }
+
+    private fun fileProviderUri(file: File): android.net.Uri? = try {
+        androidx.core.content.FileProvider.getUriForFile(requireContext(), "${requireContext().packageName}.fileprovider", file)
+    } catch (e: Exception) {
+        null
+    }
+
+    private fun exportAndShare(format: ExportFormat) {
+        val (file, count) = buildExportFile(format) ?: run {
             Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো entry নেই", Toast.LENGTH_SHORT).show()
             return
         }
-        val uri = saveCsvToCache(csvContent) ?: run {
+        val uri = fileProviderUri(file) ?: run {
             Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
             return
         }
         try {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/csv"
+                type = format.mimeType
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            val chooser = Intent.createChooser(shareIntent, "CSV শেয়ার করুন").apply {
+            val chooser = Intent.createChooser(shareIntent, "${format.label} শেয়ার করুন").apply {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             startActivity(chooser)
-            Toast.makeText(requireContext(), "📤 CSV পাঠানো হচ্ছে ($count rows)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "📤 ${format.label} পাঠানো হচ্ছে ($count rows)", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(requireContext(), "⚠ Share করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun saveCsvAndDownload() {
-        val (csvContent, count) = buildCsvContent() ?: run {
+    private fun exportAndDownload(format: ExportFormat) {
+        val (file, count) = buildExportFile(format) ?: run {
             Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো entry নেই", Toast.LENGTH_SHORT).show()
             return
         }
-        val fileName = csvFileName()
         try {
             val resolver = requireContext().contentResolver
             val uri: android.net.Uri?
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                 val values = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName)
-                    put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/csv")
+                    put(android.provider.MediaStore.Downloads.DISPLAY_NAME, file.name)
+                    put(android.provider.MediaStore.Downloads.MIME_TYPE, format.mimeType)
                     put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
                 }
                 uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
             } else {
                 @Suppress("DEPRECATION")
                 val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                val file = java.io.File(downloadsDir, fileName)
-                uri = android.net.Uri.fromFile(file)
+                val outFile = File(downloadsDir, file.name)
+                uri = android.net.Uri.fromFile(outFile)
             }
             if (uri == null) {
                 Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
                 return
             }
-            resolver.openOutputStream(uri)?.use { out -> out.write(csvContent.toByteArray()) }
-            Toast.makeText(requireContext(), "✅ CSV Downloads এ সেভ হয়েছে ($count rows)", Toast.LENGTH_LONG).show()
+            resolver.openOutputStream(uri)?.use { out -> file.inputStream().use { input -> input.copyTo(out) } }
+            Toast.makeText(requireContext(), "✅ ${format.label} Downloads এ সেভ হয়েছে ($count rows)", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(requireContext(), "⚠ Export failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
