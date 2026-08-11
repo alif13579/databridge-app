@@ -162,7 +162,31 @@
                         android:focusable="true"
                         android:contentDescription="Set Remarks"
                         android:background="?attr/selectableItemBackgroundBorderless" />
+
+                    <TextView
+                        android:id="@+id/btnPdWhatsapp"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:text="💬"
+                        android:textSize="15sp"
+                        android:gravity="center"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:contentDescription="Send parcel info to agent on WhatsApp"
+                        android:background="?attr/selectableItemBackgroundBorderless" />
                 </LinearLayout>
+
+                <!-- Compact age + attempt badge — same info/style the parcel card shows
+                     (WorkerParcelAdapter.formatAgeCompact + ageColorFor), color/bold set in
+                     loadParcelInfo(). -->
+                <TextView
+                    android:id="@+id/tvPdAgeAttempt"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🕐 2d  ·  A3"
+                    android:textSize="12sp"
+                    android:layout_marginTop="4dp"
+                    android:includeFontPadding="false" />
             </LinearLayout>
 
             <!-- ── Overview card (status / created / updated / age) ── -->
