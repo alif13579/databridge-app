@@ -121,6 +121,14 @@ class PettyCashSettlementHistoryFragment : Fragment() {
                 }
             }
             is PettyCashState.Success -> {
+                if (!state.roles.isAnyApprover) {
+                    pbLoading.isVisible = false
+                    scroll.isVisible = false
+                    layoutError.isVisible = true
+                    root.findViewById<TextView>(R.id.tvPcSetHistError).text = "Only approvers can view settlement history"
+                    root.findViewById<View>(R.id.btnPcSetHistRetry).isVisible = false
+                    return
+                }
                 pbLoading.isVisible = false
                 layoutError.isVisible = false
                 scroll.isVisible = true

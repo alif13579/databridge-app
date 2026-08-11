@@ -45,11 +45,15 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
+        private const val ARG_INITIAL_STATUS = "initial_status"
         private const val FILTER_ALL = "all"
 
-        fun newInstance(branchId: String): PettyCashPendingSettlementFragment {
+        fun newInstance(branchId: String, initialStatus: String = FILTER_ALL): PettyCashPendingSettlementFragment {
             val f = PettyCashPendingSettlementFragment()
-            f.arguments = Bundle().apply { putString(ARG_BRANCH_ID, branchId) }
+            f.arguments = Bundle().apply {
+                putString(ARG_BRANCH_ID, branchId)
+                putString(ARG_INITIAL_STATUS, initialStatus)
+            }
             return f
         }
     }
@@ -61,6 +65,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         branchId = arguments?.getString(ARG_BRANCH_ID).orEmpty()
+        selectedStatus = arguments?.getString(ARG_INITIAL_STATUS).orEmpty().ifBlank { FILTER_ALL }
 
         swipeRefresh = view.findViewById(R.id.swipeRefreshPcPending)
         layoutTabs   = view.findViewById(R.id.layoutPcPendingTabs)
@@ -131,6 +136,13 @@ class PettyCashPendingSettlementFragment : Fragment() {
                 }
             }
             is PettyCashState.Success -> {
+                if (!state.roles.isAnyApprover) {
+                    pbLoading.isVisible = false
+                    layoutError.isVisible = true
+                    view?.findViewById<TextView>(R.id.tvPcPendingError)?.text = "Only approvers can view this screen"
+                    view?.findViewById<View>(R.id.btnPcPendingRetry)?.isVisible = false
+                    return
+                }
                 pbLoading.isVisible = false
                 layoutError.isVisible = false
                 latestState = state

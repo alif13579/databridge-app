@@ -99,6 +99,15 @@ class PettyCashWalletSummaryFragment : Fragment() {
                 // failure is silently ignored — the last-known numbers stay up.
             }
             is PettyCashState.Success -> {
+                if (!state.roles.isAccounts) {
+                    refreshTimer?.cancel()
+                    pbLoading.isVisible = false
+                    scroll.isVisible = false
+                    layoutError.isVisible = true
+                    root.findViewById<TextView>(R.id.tvPcWalletError).text = "Only Accounts can view the wallet summary"
+                    root.findViewById<View>(R.id.btnPcWalletRetry).isVisible = false
+                    return
+                }
                 pbLoading.isVisible = false
                 layoutError.isVisible = false
                 scroll.isVisible = true
