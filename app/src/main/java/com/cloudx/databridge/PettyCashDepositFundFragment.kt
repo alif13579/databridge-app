@@ -97,6 +97,11 @@ class PettyCashDepositFundFragment : Fragment() {
 
         viewModel.state.observe(viewLifecycleOwner) { state ->
             if (state is PettyCashState.Success) {
+                if (!state.roles.isAccounts) {
+                    Toast.makeText(requireContext(), "Only Accounts can deposit funds", Toast.LENGTH_LONG).show()
+                    parentFragmentManager.popBackStack()
+                    return@observe
+                }
                 currentBalance = state.walletBalance
                 dataLoaded = true
                 btnDepositNow.isEnabled = true

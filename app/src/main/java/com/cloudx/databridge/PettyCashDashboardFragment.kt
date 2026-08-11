@@ -58,6 +58,17 @@ class PettyCashDashboardFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         branchId = arguments?.getString(ARG_BRANCH_ID).orEmpty()
 
+        // Defense-in-depth: MainActivity's drawer routing already sends
+        // Requester-only users to PettyCashMyRequestsFragment instead of
+        // here, but this guard covers anyone who reaches this fragment
+        // some other way (e.g. a stale back-stack entry after a permission
+        // change) without the full approver Dashboard permission.
+        if (!RbacManager.hasPermission("nav_petty_cash")) {
+            Toast.makeText(requireContext(), "You don't have access to this screen", Toast.LENGTH_LONG).show()
+            parentFragmentManager.popBackStack()
+            return
+        }
+
         swipeRefresh    = view.findViewById(R.id.swipeRefreshPcDashboard)
         layoutContent   = view.findViewById(R.id.layoutPcDashboardContent)
         tvAvailableBalance = view.findViewById(R.id.tvPcAvailableBalance)
@@ -96,8 +107,6 @@ class PettyCashDashboardFragment : Fragment() {
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
-
-        wireQuickActions(view)
 
         viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
         if (branchId.isBlank()) {
@@ -148,13 +157,30 @@ class PettyCashDashboardFragment : Fragment() {
         tvAvailableBalance.text = taka(state.walletBalance)
         tvTotalFund.text = taka(state.totalFund)
 
-        bindStatCard(root, R.id.statPcPendingApproval, "\u23F3", "Pending\nApproval", taka(state.pendingApprovalTotal), "#FFEDD5", "#C2410C")
-        bindStatCard(root, R.id.statPcApprovedSettlement, "\u23F3", "Approved\n(Settlement)", taka(state.approvedWaitingSettlementTotal), "#EDE9FE", "#6D28D9")
-        bindStatCard(root, R.id.statPcSettledMonth, "\u2705", "Settled\nThis Month", taka(state.settledThisMonthTotal), "#D1FAE5", "#059669")
+        bindStatCard(root, R.id.statPcPendingApproval, "\u23F3", "Pending\nApproval", taka(state.pendingApprovalTotal), "#FFEDD5", "#C2410C") {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, PC_STATUS_PENDING))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+        bindStatCard(root, R.id.statPcApprovedSettlement, "\u23F3", "Approved\n(Settlement)", taka(state.approvedWaitingSettlementTotal), "#EDE9FE", "#6D28D9") {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, PC_STATUS_APPROVED))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+        bindStatCard(root, R.id.statPcSettledMonth, "\u2705", "Settled\nThis Month", taka(state.settledThisMonthTotal), "#D1FAE5", "#059669") {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, PC_STATUS_SETTLED))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
 
         val queue = state.pendingSettlementQueue
         tvQueueTitle.text = "Settlement Queue (${queue.size})"
         buildQueueList(queue, canSettle = state.roles.isAccounts)
+
+        wireQuickActions(root, state.roles)
     }
 
     private fun buildQueueList(items: List<PettyCashRequest>, canSettle: Boolean) {
@@ -193,7 +219,7 @@ class PettyCashDashboardFragment : Fragment() {
         }
     }
 
-    private fun bindStatCard(root: View, includeId: Int, icon: String, label: String, value: String, bg: String, fg: String) {
+    private fun bindStatCard(root: View, includeId: Int, icon: String, label: String, value: String, bg: String, fg: String, onClick: () -> Unit) {
         val statRoot = root.findViewById<View>(includeId) ?: return
         val tvIcon = statRoot.findViewById<TextView>(R.id.tvStatCardIcon)
         val tvLabel = statRoot.findViewById<TextView>(R.id.tvStatCardLabel)
@@ -203,28 +229,48 @@ class PettyCashDashboardFragment : Fragment() {
         tvIcon.background = roundedDrawable(bg, dp(8))
         tvLabel.text = label
         tvValue.text = value
+        statRoot.isClickable = true
+        statRoot.isFocusable = true
+        statRoot.setOnClickListener { onClick() }
     }
 
-    private fun wireQuickActions(root: View) {
-        bindQuickAction(root.findViewById(R.id.actionPcDepositFund), "\uD83D\uDCB0", "Deposit\nFund") {
+    private fun wireQuickActions(root: View, roles: PettyCashUserRoles) {
+        val actionDeposit = root.findViewById<View>(R.id.actionPcDepositFund)
+        val actionRequests = root.findViewById<View>(R.id.actionPcPendingSettlement)
+        val actionAllRequests = root.findViewById<View>(R.id.actionPcAllRequests)
+        val actionReports = root.findViewById<View>(R.id.actionPcReports)
+
+        // Deposit Fund is Accounts-only — it moves money into the wallet,
+        // not something Team Aligned or Cash POC should be able to trigger.
+        actionDeposit.isVisible = roles.isAccounts
+        // Requests/All Requests are useful to any approver (Team Aligned,
+        // Cash POC, or Accounts) for triaging what's in the pipeline —
+        // gated to "any approver role" rather than a single specific one.
+        actionRequests.isVisible = roles.isAnyApprover
+        actionAllRequests.isVisible = roles.isAnyApprover
+        // Reports has no role-specific data yet (placeholder toast), left
+        // visible to everyone who can see this Dashboard at all.
+        actionReports.isVisible = true
+
+        bindQuickAction(actionDeposit, "\uD83D\uDCB0", "Deposit\nFund") {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashDepositFundFragment.newInstance(branchId))
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
-        bindQuickAction(root.findViewById(R.id.actionPcPendingSettlement), "\uD83D\uDCCB", "Requests\n(by status)") {
+        bindQuickAction(actionRequests, "\uD83D\uDCCB", "Requests\n(by status)") {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId))
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
-        bindQuickAction(root.findViewById(R.id.actionPcAllRequests), "\uD83D\uDC65", "All\nRequests") {
+        bindQuickAction(actionAllRequests, "\uD83D\uDC65", "All\nRequests") {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashAllRequestsFragment.newInstance(branchId))
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
-        bindQuickAction(root.findViewById(R.id.actionPcReports), "\uD83D\uDCCA", "Reports") {
+        bindQuickAction(actionReports, "\uD83D\uDCCA", "Reports") {
             Toast.makeText(requireContext(), "Reports coming soon", Toast.LENGTH_SHORT).show()
         }
     }

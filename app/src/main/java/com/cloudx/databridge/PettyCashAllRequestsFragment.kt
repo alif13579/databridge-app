@@ -134,6 +134,14 @@ class PettyCashAllRequestsFragment : Fragment() {
                 }
             }
             is PettyCashState.Success -> {
+                if (!state.roles.isAnyApprover) {
+                    pbLoading.isVisible = false
+                    scroll.isVisible = false
+                    layoutError.isVisible = true
+                    root.findViewById<TextView>(R.id.tvPcAllReqError).text = "Only approvers can view this screen"
+                    root.findViewById<View>(R.id.btnPcAllReqRetry).isVisible = false
+                    return
+                }
                 pbLoading.isVisible = false
                 layoutError.isVisible = false
                 scroll.isVisible = true

@@ -123,6 +123,14 @@ class PettyCashDepositHistoryFragment : Fragment() {
                 }
             }
             is PettyCashState.Success -> {
+                if (!state.roles.isAccounts) {
+                    pbLoading.isVisible = false
+                    scroll.isVisible = false
+                    layoutError.isVisible = true
+                    root.findViewById<TextView>(R.id.tvPcDepHistError).text = "Only Accounts can view deposit history"
+                    root.findViewById<View>(R.id.btnPcDepHistRetry).isVisible = false
+                    return
+                }
                 pbLoading.isVisible = false
                 layoutError.isVisible = false
                 scroll.isVisible = true
