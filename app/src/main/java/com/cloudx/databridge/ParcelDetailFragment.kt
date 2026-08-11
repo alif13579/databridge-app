@@ -75,6 +75,7 @@ class ParcelDetailFragment : Fragment() {
     private lateinit var tvCod:          TextView
     private lateinit var tvCustomer:     TextView
     private lateinit var tvMeta:         TextView
+    private lateinit var tvAgeAttempt:   TextView
     private lateinit var tvAddress:      TextView
     private lateinit var tvHub:          TextView
     private lateinit var tvDates:        TextView
@@ -92,6 +93,17 @@ class ParcelDetailFragment : Fragment() {
     private var currentPhone: String = ""
     private var currentCreatedAt: Long = 0L
     private var currentUpdatedAt: Long = 0L
+    private var currentAttemptCount: Int = 0
+
+    // Assigned worker's phone, for the WhatsApp-to-agent button. This page has no direct
+    // parcel->agent field to read (that link only exists via courier/runs_by_*, which
+    // would mean scanning runs just for one parcel) so it's derived from the remark
+    // timeline instead: the most recent remarked_by=="worker" entry's agentSystemId
+    // (written by WorkerSpaceFragment) resolved through users_by_systemId -> uid ->
+    // profile/phone, same targeted-lookup path ensureAgentNameMap() uses per-uid.
+    // Blank until a worker has touched this parcel at least once.
+    private var currentAgentPhone: String = ""
+    private var lastResolvedAgentSystemId: String = ""
 
     // Live remark listener
     private var remarkListener: ValueEventListener? = null
@@ -113,6 +125,7 @@ class ParcelDetailFragment : Fragment() {
         tvCod          = view.findViewById(R.id.tvPdCod)
         tvCustomer     = view.findViewById(R.id.tvPdCustomer)
         tvMeta         = view.findViewById(R.id.tvPdMeta)
+        tvAgeAttempt   = view.findViewById(R.id.tvPdAgeAttempt)
         tvAddress      = view.findViewById(R.id.tvPdAddress)
         tvHub          = view.findViewById(R.id.tvPdHub)
         tvDates        = view.findViewById(R.id.tvPdDates)
@@ -136,6 +149,32 @@ class ParcelDetailFragment : Fragment() {
         }
         view.findViewById<View>(R.id.btnPdSetRemarks).setOnClickListener {
             showSetRemarksDialog()
+        }
+        view.findViewById<View>(R.id.btnPdWhatsapp).setOnClickListener {
+            if (currentAgentPhone.isBlank()) {
+                Toast.makeText(
+                    requireContext(),
+                    "⚠ এই parcel-এ এখনো কোনো worker touch করেনি, তাই agent-এর number পাওয়া যায়নি",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                val message = WhatsAppHelper.fillTemplate(
+                    body = "📦 *Parcel Info*\n" +
+                        "ID: {consignmentId}\n" +
+                        "Customer: {name}\n" +
+                        "Phone: {phone}\n" +
+                        "Address: {address}\n" +
+                        "COD: ৳{cod}\n" +
+                        "Hub: {hub}",
+                    name = tvCustomer.text.toString(),
+                    phone = currentPhone,
+                    address = tvAddress.text.toString().removePrefix("📍 "),
+                    cod = tvCod.text.toString().removePrefix("৳"),
+                    consignmentId = parcelId,
+                    hub = tvHub.text.toString().removePrefix("🏢 ")
+                )
+                WhatsAppHelper.send(requireContext(), currentAgentPhone, message)
+            }
         }
 
         loadPdRemarkOptions()
@@ -344,6 +383,7 @@ class ParcelDetailFragment : Fragment() {
                         val status       = snap.child("status").getValue(String::class.java) ?: "pending"
                         val createdAt    = snap.child("createdAt").getValue(Long::class.java) ?: 0L
                         val updatedAt    = snap.child("updatedAt").getValue(Long::class.java) ?: 0L
+                        val attempt      = readAttempt(snap)
 
                         val cfg = WorkerParcelAdapter.getStatusConfig(ctx, status, lang)
                         tvStatus.text = cfg.label
@@ -356,9 +396,18 @@ class ParcelDetailFragment : Fragment() {
                         tvAddress.text  = "📍 $address"
                         tvHub.text      = "🏢 $hub"
 
-                        currentPhone     = phone.takeIf { it != "—" } ?: ""
-                        currentCreatedAt = createdAt
-                        currentUpdatedAt = updatedAt
+                        currentPhone        = phone.takeIf { it != "—" } ?: ""
+                        currentCreatedAt    = createdAt
+                        currentUpdatedAt    = updatedAt
+                        currentAttemptCount = attempt
+
+                        // Same compact "2d · A3" badge + urgency color/bold the parcel card
+                        // shows (WorkerParcelAdapter.formatAgeCompact/ageColorFor) — this page
+                        // only had the verbose Created/Updated/Age trio further down before.
+                        val (ageColor, ageBold) = WorkerParcelAdapter.ageColorFor(createdAt)
+                        tvAgeAttempt.text = "🕐 ${WorkerParcelAdapter.formatAgeCompact(createdAt)}  ·  A$attempt"
+                        tvAgeAttempt.setTextColor(ageColor)
+                        tvAgeAttempt.setTypeface(null, if (ageBold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
 
                         // Overview card — same fields shown in the long-press Journey Log dialog.
                         tvOverviewStatus.text = cfg.label
@@ -444,10 +493,61 @@ class ParcelDetailFragment : Fragment() {
                         }
                     }
                 }
+                // Independent of renderTimeline — doesn't block/get blocked by it. Re-resolves
+                // only when the latest worker-remark's agentSystemId actually changes (a new
+                // remark from the SAME worker, or the timeline reordering, is a no-op here).
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        resolveAgentPhoneIfNeeded(snap)
+                    } catch (e: Exception) {
+                        FirebaseErrorLogger.log(
+                            screen = "ParcelDetailFragment", action = "resolveAgentPhone",
+                            errorMessage = e.message ?: "unknown",
+                            extra = mapOf("parcelId" to parcelId)
+                        )
+                    }
+                }
             }
             override fun onCancelled(e: DatabaseError) {}
         }
         remarkRef.addValueEventListener(remarkListener!!)
+    }
+
+    /** Finds the most recent remarked_by=="worker" entry's agentSystemId and, if it's
+     *  different from the last one resolved, looks up that worker's phone (targeted
+     *  users_by_systemId/{id}/uid -> users/{uid}/profile/phone reads, not a full scan)
+     *  and caches it in currentAgentPhone for the WhatsApp button. */
+    private suspend fun resolveAgentPhoneIfNeeded(snap: DataSnapshot) {
+        val latestSystemId = snap.children
+            .mapNotNull { r ->
+                val remarkedBy = r.child("remarked_by").getValue(String::class.java)?.trim()
+                if (remarkedBy != "worker") return@mapNotNull null
+                val sysId = r.child("agentSystemId").getValue(String::class.java)?.trim()
+                if (sysId.isNullOrBlank()) return@mapNotNull null
+                val createdAt = r.child("createdAt").getValue(Long::class.java)
+                    ?: r.child("createdAt").getValue(Double::class.java)?.toLong()
+                    ?: r.child("createdAt").getValue(String::class.java)?.toLongOrNull()
+                    ?: 0L
+                sysId to createdAt
+            }
+            .maxByOrNull { it.second }
+            ?.first
+            .orEmpty()
+
+        if (latestSystemId.isBlank() || latestSystemId == lastResolvedAgentSystemId) return
+        lastResolvedAgentSystemId = latestSystemId
+
+        val phone = withContext(Dispatchers.IO) {
+            runCatching {
+                val uid = db.reference.child("users_by_systemId/$latestSystemId/uid")
+                    .get().await().getValue(String::class.java)?.trim().orEmpty()
+                if (uid.isBlank()) "" else {
+                    db.reference.child("users/$uid/profile/phone")
+                        .get().await().getValue(String::class.java)?.trim().orEmpty()
+                }
+            }.getOrDefault("")
+        }
+        if (isAdded) currentAgentPhone = phone
     }
 
     private suspend fun renderTimeline(snap: DataSnapshot) {
@@ -674,6 +774,13 @@ class ParcelDetailFragment : Fragment() {
             ?.toDoubleOrNull()?.toInt()
             ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt()
             ?: snap.child("collectableAmount").getValue(Double::class.java)?.toInt()
+            ?: 0
+    }
+
+    private fun readAttempt(snap: DataSnapshot): Int {
+        return snap.child("attempt").getValue(String::class.java)?.toDoubleOrNull()?.toInt()
+            ?: snap.child("attempt").getValue(Long::class.java)?.toInt()
+            ?: snap.child("attempt").getValue(Double::class.java)?.toInt()
             ?: 0
     }
 
