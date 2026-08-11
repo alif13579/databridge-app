@@ -21,6 +21,7 @@ import coil.transform.CircleCropTransformation
 class CallCenterAdapter(
     private val onCall: (CallCenterParcelItem) -> Unit,
     private val onSetRemarks: (CallCenterParcelItem) -> Unit,
+    private val onWhatsappToAgent: (CallCenterParcelItem) -> Unit,
     private val onLongPress: (CallCenterParcelItem) -> Unit,
     private val onGroupClick: ((WorkerGroup) -> Unit)? = null,
     /** Fired when a card transitions collapsed -> expanded — see WorkerParcelAdapter's
@@ -165,6 +166,7 @@ class CallCenterAdapter(
                 onToggleExpand = { toggleExpanded(row.parcel.id) },
                 onCall = onCall,
                 onSetRemarks = onSetRemarks,
+                onWhatsappToAgent = onWhatsappToAgent,
                 onLongPress = onLongPress
             )
         }
@@ -231,6 +233,7 @@ class CallCenterAdapter(
         private val layoutActions: LinearLayout = view.findViewById(R.id.layoutAgtActions)
         private val btnCall: TextView = view.findViewById(R.id.btnAgtCall)
         private val btnSetRemarks: TextView = view.findViewById(R.id.btnAgtSetRemarks)
+        private val btnWhatsapp: TextView = view.findViewById(R.id.btnAgtWhatsapp)
         private val tvCallCount: TextView = view.findViewById(R.id.tvAgtCallCount)
 
         fun bind(
@@ -242,6 +245,7 @@ class CallCenterAdapter(
             onToggleExpand: () -> Unit,
             onCall: (CallCenterParcelItem) -> Unit,
             onSetRemarks: (CallCenterParcelItem) -> Unit,
+            onWhatsappToAgent: (CallCenterParcelItem) -> Unit,
             onLongPress: (CallCenterParcelItem) -> Unit
         ) {
             tvCustomer.text = item.customer
@@ -357,6 +361,7 @@ class CallCenterAdapter(
             itemView.setOnLongClickListener { onLongPress(item); true }
             btnCall.setOnClickListener { onCall(item) }
             btnSetRemarks.setOnClickListener { onSetRemarks(item) }
+            btnWhatsapp.setOnClickListener { onWhatsappToAgent(item) }
         }
     }
 
