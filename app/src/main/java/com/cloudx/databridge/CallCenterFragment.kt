@@ -868,6 +868,26 @@ class CallCenterFragment : Fragment() {
                 pushCallStates()
             },
             onSetRemarks = { item -> showRemarksDialog(item) },
+            onWhatsappToAgent = { item ->
+                val message = WhatsAppHelper.fillTemplate(
+                    body = "📦 *Parcel Info*\n" +
+                        "ID: {consignmentId}\n" +
+                        "Customer: {name}\n" +
+                        "Phone: {phone}\n" +
+                        "Address: {address}\n" +
+                        "COD: ৳{cod}\n" +
+                        "Hub: {hub}",
+                    name = item.customer,
+                    phone = item.phone,
+                    address = item.address,
+                    cod = item.cod.toString(),
+                    consignmentId = item.id,
+                    hub = item.branch
+                )
+                // item.workerPhone is blank when the agent has none on file — send() already
+                // toasts "Phone number নেই" in that case, so no extra guard needed here.
+                WhatsAppHelper.send(requireContext(), item.workerPhone, message)
+            },
             onLongPress = { item -> showActionHistoryDialog(item) },
             onExpand = { item ->
                 val user = FirebaseAuth.getInstance().currentUser
