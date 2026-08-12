@@ -27,6 +27,9 @@ const val PC_STATUS_REJECTED = "rejected"
 const val PC_PRIORITY_HIGH = "high"
 const val PC_PRIORITY_NORMAL = "normal"
 
+const val PC_CATEGORY_BULK_DELIVERY = "Bulk Delivery"
+const val PC_CATEGORY_PICKUP = "Pickup"
+
 @IgnoreExtraProperties
 data class PettyCashApprovalStep(
     val stepName: String = "",      // "Request Submitted" | "Team Aligned Acknowledged" | "POC Approval" | "Ready to Settle" | "Settled"
@@ -46,6 +49,8 @@ data class PettyCashRequest(
     val workerName: String = "",
     val workerRole: String = "",           // e.g. "Delivery Agent"
     val category: String = "",             // Bulk Delivery, Pickup
+    val consignmentId: String = "",        // set when category == Bulk Delivery
+    val merchantName: String = "",         // set when category == Pickup
     val purpose: String = "",
     val amount: Double = 0.0,
     val priority: String = PC_PRIORITY_NORMAL,

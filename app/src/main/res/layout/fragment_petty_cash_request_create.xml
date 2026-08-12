@@ -93,6 +93,84 @@
                         android:textColor="#94A3B8" />
                 </LinearLayout>
 
+                <!-- Consignment ID — shown only when category == Bulk Delivery -->
+                <LinearLayout
+                    android:id="@+id/groupPcRequestConsignment"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Consignment ID"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:layout_marginTop="16dp" />
+
+                    <EditText
+                        android:id="@+id/etPcRequestConsignmentId"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_pc_input"
+                        android:hint="Enter consignment ID"
+                        android:textSize="14sp"
+                        android:textColor="#0F172A"
+                        android:paddingHorizontal="14dp"
+                        android:maxLines="1"
+                        android:inputType="text" />
+                </LinearLayout>
+
+                <!-- Merchant Name — shown only when category == Pickup -->
+                <LinearLayout
+                    android:id="@+id/groupPcRequestMerchant"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Merchant Name"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:layout_marginTop="16dp" />
+
+                    <LinearLayout
+                        android:id="@+id/layoutPcRequestMerchant"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_pc_input"
+                        android:paddingHorizontal="14dp"
+                        android:clickable="true"
+                        android:focusable="true">
+
+                        <TextView
+                            android:id="@+id/tvPcRequestMerchantSelected"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Select Merchant"
+                            android:textSize="14sp"
+                            android:textColor="#94A3B8" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="\u25BC"
+                            android:textSize="11sp"
+                            android:textColor="#94A3B8" />
+                    </LinearLayout>
+                </LinearLayout>
+
                 <!-- Amount -->
                 <TextView
                     android:layout_width="wrap_content"

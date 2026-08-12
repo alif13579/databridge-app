@@ -148,6 +148,19 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         bindRow(root, R.id.rowPcCategory, "Category", request.category)
         bindRow(root, R.id.rowPcAmount, "Amount", taka(request.amount))
 
+        val rowExtra = root.findViewById<View>(R.id.rowPcCategoryExtra)
+        when {
+            request.consignmentId.isNotBlank() -> {
+                rowExtra.isVisible = true
+                bindRow(root, R.id.rowPcCategoryExtra, "Consignment ID", request.consignmentId)
+            }
+            request.merchantName.isNotBlank() -> {
+                rowExtra.isVisible = true
+                bindRow(root, R.id.rowPcCategoryExtra, "Merchant Name", request.merchantName)
+            }
+            else -> rowExtra.isVisible = false
+        }
+
         root.findViewById<TextView>(R.id.tvPcDetailPurpose).text = request.purpose
         root.findViewById<TextView>(R.id.tvPcDetailAttachmentName).text =
             request.attachmentName.ifBlank { "No attachment" }
