@@ -416,7 +416,6 @@ class ParcelDetailFragment : Fragment() {
                         tvOverviewCreatedAt.text = if (createdAt > 0) fullFmt.format(Date(createdAt)) else "—"
                         tvOverviewUpdatedAt.text = if (updatedAt > 0) fullFmt.format(Date(updatedAt)) else "—"
                         tvOverviewAge.text = formatAge(createdAt, updatedAt)
-                        val (ageColor, _) = WorkerParcelAdapter.ageColorFor(createdAt)
                         tvOverviewAge.setTextColor(ageColor)
 
                         val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
