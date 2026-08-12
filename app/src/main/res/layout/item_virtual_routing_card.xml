@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_parcel_card"
+    android:padding="14dp"
+    android:layout_marginBottom="10dp">
+
+    <!-- Row 1: Consignment ID  ·  Area dropdown chip -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="top">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Consignment ID"
+                android:textSize="10sp"
+                android:textColor="@color/theme_text_muted"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:id="@+id/tvVrcConsignmentId"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="BD1234567890"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_text_primary"
+                android:layout_marginTop="2dp"
+                android:includeFontPadding="false" />
+        </LinearLayout>
+
+        <!-- Tap to open the Select Area bottom sheet -->
+        <LinearLayout
+            android:id="@+id/layoutVrcAreaDropdown"
+            android:layout_width="wrap_content"
+            android:layout_height="34dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_area_dropdown_chip"
+            android:paddingStart="12dp"
+            android:paddingEnd="8dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/tvVrcAreaChip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Dhanmondi"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_purple"
+                android:maxWidth="120dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:includeFontPadding="false" />
+
+            <ImageView
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@drawable/ic_arrow_drop_down_white"
+                app:tint="@color/theme_purple" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Row 2: Customer  ·  Current Status -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="12dp">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Customer"
+                android:textSize="10sp"
+                android:textColor="@color/theme_text_muted"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:id="@+id/tvVrcCustomer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Rafiq Ahmed"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_text_primary"
+                android:layout_marginTop="2dp"
+                android:includeFontPadding="false" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="end">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Current Status"
+                android:textSize="10sp"
+                android:textColor="@color/theme_text_muted"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:id="@+id/tvVrcStatusBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="In Transit"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:paddingStart="9dp"
+                android:paddingEnd="9dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:layout_marginTop="3dp"
+                android:includeFontPadding="false" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Row 3: Destination  ·  Selected Area -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="10dp">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Destination"
+                android:textSize="10sp"
+                android:textColor="@color/theme_text_muted"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:id="@+id/tvVrcDestination"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Mirpur, Dhaka"
+                android:textSize="12sp"
+                android:textColor="@color/theme_text_secondary"
+                android:layout_marginTop="2dp"
+                android:includeFontPadding="false" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="end">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Selected Area"
+                android:textSize="10sp"
+                android:textColor="@color/theme_text_muted"
+                android:includeFontPadding="false" />
+
+            <TextView
+                android:id="@+id/tvVrcSelectedArea"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Dhanmondi"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_purple"
+                android:layout_marginTop="2dp"
+                android:includeFontPadding="false" />
+        </LinearLayout>
+    </LinearLayout>
+
+</LinearLayout>

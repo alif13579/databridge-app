@@ -297,6 +297,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 R.id.nav_approvals -> loadFragment(ApprovalsFragment())
                 R.id.nav_space     -> loadFragment(WorkerSpaceFragment())
                 R.id.nav_call_center -> loadFragment(CallCenterFragment())
+                R.id.nav_virtual_routing -> loadFragment(VirtualRoutingFragment())
                 R.id.nav_scanner   -> loadFragment(ScannerFragment())
                 R.id.nav_memory    -> loadFragment(MemoryFragment())
                 R.id.nav_chat      -> loadFragment(ChatFragment())
@@ -556,6 +557,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         // Primary nav items – no role gating; only permission-based
         menu.findItem(R.id.nav_space)?.isVisible = RbacManager.hasPermission("nav_space")
         menu.findItem(R.id.nav_call_center)?.isVisible = RbacManager.hasPermission("nav_call_center")
+        menu.findItem(R.id.nav_virtual_routing)?.isVisible = RbacManager.hasPermission("nav_virtual_routing")
     }
 
     private fun applyBottomNavForRole(roleId: String) {

@@ -26,6 +26,11 @@
             android:title="Call Center"
             android:visible="false" />
         <item
+            android:id="@+id/nav_virtual_routing"
+            android:icon="@android:drawable/ic_menu_directions"
+            android:title="Virtual Routing"
+            android:visible="false" />
+        <item
             android:id="@+id/nav_scanner"
             android:icon="@android:drawable/ic_menu_camera"
             android:title="Scanner"

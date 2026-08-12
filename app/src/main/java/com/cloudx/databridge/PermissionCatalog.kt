@@ -13,6 +13,7 @@ object PermissionCatalog {
         Perm("nav_support",        "Support",         "View support/help"),
         Perm("nav_space",          "Space",           "Space module (Worker view)"),
         Perm("nav_call_center",    "Call Center",     "Call Center (Agent/Supervisor view)"),
+        Perm("nav_virtual_routing","Virtual Routing", "Manually assign a delivery area to a parcel (Call Center)"),
         Perm("nav_connect",        "Connect",         "Connect to extension/device"),
         Perm("nav_history",        "History",         "View history"),
         Perm("nav_scanner",        "Scanner",         "Parcel scanner feature"),
