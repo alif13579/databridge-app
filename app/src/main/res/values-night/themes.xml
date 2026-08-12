@@ -1,16 +1,22 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Theme.DataBridge" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
-        <!-- Primary brand color. -->
-        <item name="colorPrimary">@color/purple_200</item>
-        <item name="colorPrimaryVariant">@color/purple_700</item>
-        <item name="colorOnPrimary">@color/black</item>
-        <!-- Secondary brand color. -->
-        <item name="colorSecondary">@color/teal_200</item>
-        <item name="colorSecondaryVariant">@color/teal_200</item>
-        <item name="colorOnSecondary">@color/black</item>
-        <!-- Status bar color. -->
-        <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
-        <!-- Customize your theme here. -->
-    </style>
+<!-- Mirrors values/themes.xml exactly. This file used to be Android Studio's
+     unmodified "Empty Activity" template placeholder (purple_200/teal_200,
+     a different parent style than the real light theme) \u2014 it never got
+     updated to match the app's actual branding, so any screen rendered under
+     system dark mode used these mismatched colors, which is why popups/menus
+     could come out looking broken (e.g. Deposit list's Channel filter).
+     DataBridgeApplication now forces light mode app-wide either way, but this
+     stays in sync so there's no stale mismatched resource left behind. -->
+<style name="Theme.DataBridge" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <item name="colorPrimary">#00d4ff</item>
+    <item name="colorPrimaryVariant">#16213e</item>
+    <item name="colorOnPrimary">#ffffff</item>
+    <item name="colorSecondary">#00d4ff</item>
+    <item name="android:statusBarColor">#1a1a2e</item>
+</style>
+
+<style name="CircleImageStyle">
+    <item name="cornerFamily">rounded</item>
+    <item name="cornerSize">50%</item>
+</style>
 </resources>

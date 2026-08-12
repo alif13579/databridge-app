@@ -2,6 +2,7 @@ package com.cloudx.databridge
 
 import android.app.Application
 import android.util.Log
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.firebase.FirebaseApp
 
@@ -23,6 +24,14 @@ class DataBridgeApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // ✅ App-এর পুরো UI শুধু light theme ধরে ডিজাইন করা; values-night/themes.xml
+        // কখনো real branding-এর সাথে মেলানো হয়নি (এখনো Android Studio-র পুরনো
+        // template placeholder রং রয়ে গেছে)। ফলে device system dark mode-এ থাকলে
+        // popup/menu/dialog-এ mismatched, প্রায়-অদৃশ্য (dark-on-dark) UI দেখাচ্ছিল
+        // -- যেমন Deposit list-এর Channel filter popup। System setting যাই হোক,
+        // এখন সবসময় light theme force করা হচ্ছে।
+        AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
 
         // ✅ ১. ফায়ারবেস ইনিশিয়ালাইজেশন চেক (অটো হওয়ার কথা, তবুও সেফটি)
         try {
