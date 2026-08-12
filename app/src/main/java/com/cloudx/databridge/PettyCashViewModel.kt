@@ -174,7 +174,9 @@ class PettyCashViewModel : ViewModel() {
         priority: String,
         attachmentUrl: String,
         attachmentName: String,
-        workerRole: String = ""
+        workerRole: String = "",
+        consignmentId: String = "",
+        merchantName: String = ""
     ): Result<String> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Requester" }
@@ -191,6 +193,8 @@ class PettyCashViewModel : ViewModel() {
             workerName = name,
             workerRole = workerRole,
             category = category,
+            consignmentId = consignmentId,
+            merchantName = merchantName,
             purpose = purpose,
             amount = amount,
             priority = priority,
@@ -214,7 +218,9 @@ class PettyCashViewModel : ViewModel() {
         requestId: String,
         category: String,
         purpose: String,
-        amount: Double
+        amount: Double,
+        consignmentId: String = "",
+        merchantName: String = ""
     ): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
@@ -227,6 +233,8 @@ class PettyCashViewModel : ViewModel() {
         ref.updateChildren(
             mapOf(
                 "category" to category,
+                "consignmentId" to consignmentId,
+                "merchantName" to merchantName,
                 "purpose" to purpose,
                 "amount" to amount,
                 "updatedAt" to System.currentTimeMillis()
