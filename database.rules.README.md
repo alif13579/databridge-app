@@ -39,6 +39,29 @@ larger refactor touching every file that reads/writes it
 `BranchListFragment`, `DashboardViewModel`, `EmployeeFragment`,
 `EmployeeEditFragment`) — deliberately not bundled into this change.
 
+## Fixed bug: `enteredByUid` validate rules must distinguish create from edit
+
+`cash_management/{branchId}/collections`, `.../handovers`, and
+`.../hub_payments` each `.validate` that `enteredByUid` is present and
+numeric-amount-positive. It used to also require
+`newData.child('enteredByUid').val() === auth.uid` unconditionally --
+correct on *create* (stops spoofing someone else as the submitter), but
+wrong on *edit*: `CashManagementViewModel.updateCollection` /
+`updateLedgerEntry` intentionally use `updateChildren()` on just the
+changed fields, leaving the original `enteredByUid` alone so the audit
+trail still shows who originally entered it. That meant anyone editing
+an entry they didn't personally submit -- an admin correcting a
+branch's deposit, for instance -- got rejected by the rule, not the app.
+
+Fixed by branching on `data.exists()`: on create, `enteredByUid` must
+equal `auth.uid`; on edit, it just has to match whatever it already
+was (`data.child('enteredByUid').val()`), which also means an editor
+can't reassign attribution to themselves while changing other fields.
+Verified against the literal rule strings in this file (Node.js
+mini-evaluator standing in for the Firebase emulator, which needs
+`storage.googleapis.com` to fetch and wasn't reachable) -- both the
+create-spoof and attribution-tamper cases still correctly fail.
+
 ## Rule-by-rule
 
 **`users/{uid}`** — a user can only read/write their own profile node.
