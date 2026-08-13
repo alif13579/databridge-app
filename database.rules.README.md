@@ -132,6 +132,17 @@ the `roles/{role_id}/permissions/petty_cash_requester` lookup in the
 create-transition rule above) so a compromised or modified client can't
 bypass the app-side check.
 
+## `courier/merchants` — the Pickup category's merchant directory
+
+Petty Cash's Request Create screen shows a Merchant Name picker when the
+category is Pickup. That list is read from `courier/merchants/{merchantId}`
+(each entry just `{ name: "..." }`) rather than a Petty-Cash-specific
+node, since merchants are a courier-wide concept — the same list can be
+reused if merchant selection shows up elsewhere in the courier flow later.
+Read is open to any signed-in user (needed by the picker); write is
+restricted to admin/manager, since this is a shared reference list, not
+something every Requester should be able to add entries to.
+
 ## Deploying
 
 ```bash

@@ -32,9 +32,10 @@ import kotlinx.coroutines.launch
  *
  * Category-specific fields: Bulk Delivery shows a Consignment ID text
  * field; Pickup shows a Merchant Name picker. Merchant names are a
- * hardcoded demo list for now — where that list should actually come
- * from (a merchant directory? per-branch merchants?) is still an open
- * question, deliberately deferred.
+ * hardcoded demo list — that's been replaced with a real fetch from
+ * courier/merchants (see FirebasePaths.merchants()), a courier-wide
+ * directory shared with the rest of the courier flow, not Petty-Cash-
+ * specific.
  *
  * Attachment upload to Firebase Storage isn't wired yet — the picker just
  * captures a display name for now (attachmentUrl stays blank). Full file
@@ -50,9 +51,8 @@ class PettyCashRequestCreateFragment : Fragment() {
     private val isEditMode: Boolean get() = editRequestId.isNotBlank()
 
     private val categoryOptions = listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP)
-    // DEMO DATA — placeholder merchant list until the real source (merchant
-    // directory? per-branch merchants?) is defined.
-    private val merchantOptions = listOf("Aarong", "Daraz Mart", "Chaldal", "Pathao Food", "Shwapno", "Khaas Food")
+    private var merchants: List<Merchant> = emptyList()
+    private var merchantsLoaded = false
 
     private var selectedCategory: String = ""
     private var selectedMerchant: String = ""
@@ -130,6 +130,8 @@ class PettyCashRequestCreateFragment : Fragment() {
 
         btnSubmit.setOnClickListener { onSubmit() }
 
+        loadMerchants()
+
         if (isEditMode) {
             viewModel.state.observe(viewLifecycleOwner) { state -> prefillIfEditing(state) }
             if (branchId.isNotBlank()) viewModel.load(branchId)
@@ -186,14 +188,39 @@ class PettyCashRequestCreateFragment : Fragment() {
     }
 
     private fun showMerchantPicker() {
+        if (!merchantsLoaded) {
+            Toast.makeText(requireContext(), "Still loading merchant list, try again in a moment", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (merchants.isEmpty()) {
+            Toast.makeText(requireContext(), "No merchants available — contact your admin to add some", Toast.LENGTH_LONG).show()
+            return
+        }
+        val names = merchants.map { it.name }.toTypedArray()
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Select Merchant")
-            .setItems(merchantOptions.toTypedArray()) { _, index ->
-                selectedMerchant = merchantOptions[index]
+            .setItems(names) { _, index ->
+                selectedMerchant = names[index]
                 tvMerchantSelected.text = selectedMerchant
                 tvMerchantSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
             }
             .show()
+    }
+
+    private fun loadMerchants() {
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .reference.child(FirebasePaths.merchants())
+            .get()
+            .addOnSuccessListener { snap ->
+                merchants = snap.children
+                    .mapNotNull { it.getValue(Merchant::class.java)?.copy(id = it.key.orEmpty()) }
+                    .sortedBy { it.name }
+                merchantsLoaded = true
+            }
+            .addOnFailureListener {
+                merchantsLoaded = true // don't leave the picker stuck saying "still loading" forever
+                Toast.makeText(requireContext(), "Couldn't load merchant list: ${it.message}", Toast.LENGTH_SHORT).show()
+            }
     }
 
     private fun showAttachmentPicker(root: View) {

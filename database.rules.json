@@ -246,6 +246,13 @@
           ".read": "auth != null",
           ".write": "auth != null"
         }
+      },
+      "merchants": {
+        ".read": "auth != null",
+        ".write": "auth != null && (root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager')",
+        "$merchantId": {
+          ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length > 0"
+        }
       }
     }
   }

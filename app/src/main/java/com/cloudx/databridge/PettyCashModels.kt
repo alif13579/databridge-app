@@ -81,6 +81,12 @@ data class PettyCashRequest(
 )
 
 @IgnoreExtraProperties
+data class Merchant(
+    val id: String = "",
+    val name: String = ""
+)
+
+@IgnoreExtraProperties
 data class PettyCashDeposit(
     val id: String = "",
     val amount: Double = 0.0,
