@@ -870,13 +870,13 @@ class CallCenterFragment : Fragment() {
             onSetRemarks = { item -> showRemarksDialog(item) },
             onWhatsappToAgent = { item ->
                 val message = WhatsAppHelper.fillTemplate(
-                    body = "📦 *Parcel Info*\n" +
-                        "ID: {consignmentId}\n" +
-                        "Customer: {name}\n" +
-                        "Phone: {phone}\n" +
-                        "Address: {address}\n" +
-                        "COD: ৳{cod}\n" +
-                        "Hub: {hub}",
+                    body = "📦 Parcel Info\n" +
+                        "Consignment ID : {consignmentId}\n" +
+                        "Customer Name : {name}\n" +
+                        "Phone Number : {phone}\n" +
+                        "Address : {address}\n" +
+                        "COD Amount : ৳{cod}\n" +
+                        "Hub : {hub}",
                     name = item.customer,
                     phone = item.phone,
                     address = item.address,
