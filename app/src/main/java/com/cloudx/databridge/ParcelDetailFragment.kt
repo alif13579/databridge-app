@@ -159,13 +159,13 @@ class ParcelDetailFragment : Fragment() {
                 ).show()
             } else {
                 val message = WhatsAppHelper.fillTemplate(
-                    body = "📦 *Parcel Info*\n" +
-                        "ID: {consignmentId}\n" +
-                        "Customer: {name}\n" +
-                        "Phone: {phone}\n" +
-                        "Address: {address}\n" +
-                        "COD: ৳{cod}\n" +
-                        "Hub: {hub}",
+                    body = "📦 Parcel Info\n" +
+                        "Consignment ID : {consignmentId}\n" +
+                        "Customer Name : {name}\n" +
+                        "Phone Number : {phone}\n" +
+                        "Address : {address}\n" +
+                        "COD Amount : ৳{cod}\n" +
+                        "Hub : {hub}",
                     name = tvCustomer.text.toString(),
                     phone = currentPhone,
                     address = tvAddress.text.toString().removePrefix("📍 "),
@@ -416,6 +416,7 @@ class ParcelDetailFragment : Fragment() {
                         tvOverviewCreatedAt.text = if (createdAt > 0) fullFmt.format(Date(createdAt)) else "—"
                         tvOverviewUpdatedAt.text = if (updatedAt > 0) fullFmt.format(Date(updatedAt)) else "—"
                         tvOverviewAge.text = formatAge(createdAt, updatedAt)
+                        val (ageColor, _) = WorkerParcelAdapter.ageColorFor(createdAt)
                         tvOverviewAge.setTextColor(ageColor)
 
                         val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
