@@ -43,6 +43,10 @@ object FirebasePaths {
     /* ── Run Routes by Agent ───────────────────────────────────────── */
     fun runsByAgent(systemId: String) = "courier/runs_by_agent/$systemId"
 
+    /* ── Merchants (courier-wide directory, used by Petty Cash's Pickup category) ── */
+    fun merchants() = "courier/merchants"
+    fun merchant(merchantId: String) = "courier/merchants/$merchantId"
+
     /* ── Error Logs ────────────────────────────────────────────────── */
     fun errorLogs(uid: String) = "error_logs/$uid"
 
