@@ -30,7 +30,7 @@ import androidx.fragment.app.Fragment
 class ConfigFragment : Fragment() {
 
     // ── Tab ids ──────────────────────────────────────────────────────────────
-    private enum class Tab { REMARKS, LANGUAGE, STATUSES, SHEET, SCANNER_SHEET, WHATSAPP }
+    private enum class Tab { REMARKS, LANGUAGE, STATUSES, SHEET, SCANNER_SHEET, WHATSAPP, MERCHANTS }
     private var activeTab = Tab.REMARKS
 
     // ── Views ────────────────────────────────────────────────────────────────
@@ -40,6 +40,7 @@ class ConfigFragment : Fragment() {
     private lateinit var tabSheet:      TextView
     private lateinit var tabScannerSheet: TextView
     private lateinit var tabWhatsApp:   TextView
+    private lateinit var tabMerchants:  TextView
 
     private lateinit var indRemarks:    View
     private lateinit var indLanguage:   View
@@ -47,6 +48,7 @@ class ConfigFragment : Fragment() {
     private lateinit var indSheet:      View
     private lateinit var indScannerSheet: View
     private lateinit var indWhatsApp:   View
+    private lateinit var indMerchants:  View
 
     private lateinit var contentFrame:  ViewGroup
 
@@ -64,6 +66,7 @@ class ConfigFragment : Fragment() {
         tabSheet    = view.findViewById(R.id.tabSheet)
         tabScannerSheet = view.findViewById(R.id.tabScannerSheet)
         tabWhatsApp = view.findViewById(R.id.tabWhatsApp)
+        tabMerchants = view.findViewById(R.id.tabMerchants)
 
         indRemarks  = view.findViewById(R.id.indicatorRemarks)
         indLanguage = view.findViewById(R.id.indicatorLanguage)
@@ -71,6 +74,7 @@ class ConfigFragment : Fragment() {
         indSheet    = view.findViewById(R.id.indicatorSheet)
         indScannerSheet = view.findViewById(R.id.indicatorScannerSheet)
         indWhatsApp = view.findViewById(R.id.indicatorWhatsApp)
+        indMerchants = view.findViewById(R.id.indicatorMerchants)
 
         contentFrame = view.findViewById(R.id.configContentFrame)
 
@@ -92,6 +96,7 @@ class ConfigFragment : Fragment() {
         tabSheet   .setOnClickListener { switchTab(Tab.SHEET) }
         tabScannerSheet.setOnClickListener { switchTab(Tab.SCANNER_SHEET) }
         tabWhatsApp.setOnClickListener { switchTab(Tab.WHATSAPP) }
+        tabMerchants.setOnClickListener { switchTab(Tab.MERCHANTS) }
 
         switchTab(activeTab)
     }
@@ -110,6 +115,7 @@ class ConfigFragment : Fragment() {
         tabSheet   .setTextColor(if (tab == Tab.SHEET)     primary else secondary)
         tabScannerSheet.setTextColor(if (tab == Tab.SCANNER_SHEET) primary else secondary)
         tabWhatsApp.setTextColor(if (tab == Tab.WHATSAPP)  primary else secondary)
+        tabMerchants.setTextColor(if (tab == Tab.MERCHANTS) primary else secondary)
 
         // Update indicators
         indRemarks .visibility = if (tab == Tab.REMARKS)   View.VISIBLE else View.INVISIBLE
@@ -118,6 +124,7 @@ class ConfigFragment : Fragment() {
         indSheet   .visibility = if (tab == Tab.SHEET)     View.VISIBLE else View.INVISIBLE
         indScannerSheet.visibility = if (tab == Tab.SCANNER_SHEET) View.VISIBLE else View.INVISIBLE
         indWhatsApp.visibility = if (tab == Tab.WHATSAPP)  View.VISIBLE else View.INVISIBLE
+        indMerchants.visibility = if (tab == Tab.MERCHANTS) View.VISIBLE else View.INVISIBLE
 
         // Load child fragment into contentFrame
         val fragment: Fragment = when (tab) {
@@ -127,6 +134,7 @@ class ConfigFragment : Fragment() {
             Tab.SHEET     -> ConfigSheetFragment()
             Tab.SCANNER_SHEET -> ConfigConnectorsFragment()
             Tab.WHATSAPP  -> ConfigWhatsAppFragment()
+            Tab.MERCHANTS -> ConfigMerchantsFragment()
         }
 
         childFragmentManager.beginTransaction()

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="11dp"
+    android:background="@drawable/bg_card_rounded"
+    android:layout_marginBottom="8dp">
+
+    <TextView android:id="@+id/tvMerchantName" android:layout_width="0dp"
+        android:layout_height="wrap_content" android:layout_weight="1"
+        android:textSize="14sp" android:textStyle="bold"
+        android:textColor="?attr/colorOnSurface" />
+
+    <Button android:id="@+id/btnEditMerchant"
+        android:layout_width="wrap_content" android:layout_height="32dp"
+        android:text="Edit" android:textSize="11sp" android:textStyle="bold"
+        android:paddingStart="10dp" android:paddingEnd="10dp"
+        android:backgroundTint="#F9FAFB" android:textColor="#374151"
+        android:layout_marginEnd="6dp" />
+
+    <Button android:id="@+id/btnDeleteMerchant"
+        android:layout_width="wrap_content" android:layout_height="32dp"
+        android:text="Delete" android:textSize="11sp" android:textStyle="bold"
+        android:paddingStart="10dp" android:paddingEnd="10dp"
+        android:backgroundTint="#FFF5F5" android:textColor="#EF4444" />
+</LinearLayout>
