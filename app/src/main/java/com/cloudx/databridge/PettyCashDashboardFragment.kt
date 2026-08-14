@@ -74,6 +74,9 @@ class PettyCashDashboardFragment : Fragment() {
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
+        // Shared with PettyCashMyRequestsFragment so both screens remember
+        // the same last-picked branch.
+        private const val PREF_KEY_SELECTED_BRANCH = "pc_selected_branch_id"
         fun newInstance(branchId: String): PettyCashDashboardFragment {
             val f = PettyCashDashboardFragment()
             f.arguments = Bundle().apply { putString(ARG_BRANCH_ID, branchId) }
@@ -88,6 +91,14 @@ class PettyCashDashboardFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         branchId = arguments?.getString(ARG_BRANCH_ID).orEmpty()
+        // Restore the last branch this user picked here, so switching branches
+        // in setupBranchSwitcher() doesn't silently reset back to the default
+        // (MainActivity's branchId) every time this screen is reopened. Only
+        // trusted if it's still one of the user's currently assigned branches
+        // — access can change between sessions.
+        branchPrefs().getString(PREF_KEY_SELECTED_BRANCH, null)
+            ?.takeIf { it in RbacManager.current.branchIds }
+            ?.let { branchId = it }
 
         // Defense-in-depth: MainActivity's drawer routing already sends
         // Requester-only users to PettyCashMyRequestsFragment instead of
@@ -211,12 +222,19 @@ class PettyCashDashboardFragment : Fragment() {
                 val newBranchId = branchIds[index]
                 if (newBranchId != branchId) {
                     branchId = newBranchId
+                    branchPrefs().edit().putString(PREF_KEY_SELECTED_BRANCH, branchId).apply()
                     tvBranchName.text = branchNames[branchId] ?: branchId
                     viewModel.load(branchId)
                 }
             }
             .show()
     }
+
+    // Same "databridge_toggles" SharedPreferences file CallCenterFragment's
+    // filter persistence uses (see PettyCashMyRequestsFragment for the
+    // Requester-view counterpart of this same key).
+    private fun branchPrefs() =
+        requireContext().getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
 
     private fun render(state: PettyCashState) {
         val root = view ?: return

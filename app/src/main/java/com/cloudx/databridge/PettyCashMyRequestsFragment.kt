@@ -47,6 +47,9 @@ class PettyCashMyRequestsFragment : Fragment() {
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
+        // Same key PettyCashDashboardFragment uses, so both screens remember
+        // the same last-picked branch.
+        private const val PREF_KEY_SELECTED_BRANCH = "pc_selected_branch_id"
         fun newInstance(branchId: String): PettyCashMyRequestsFragment {
             val f = PettyCashMyRequestsFragment()
             f.arguments = Bundle().apply { putString(ARG_BRANCH_ID, branchId) }
@@ -61,6 +64,12 @@ class PettyCashMyRequestsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         branchId = arguments?.getString(ARG_BRANCH_ID).orEmpty()
+        // Restore the last branch picked on either Petty Cash screen, so it
+        // doesn't reset to the default every time this fragment reopens.
+        // Only trusted if still one of the user's currently assigned branches.
+        branchPrefs().getString(PREF_KEY_SELECTED_BRANCH, null)
+            ?.takeIf { it in RbacManager.current.branchIds }
+            ?.let { branchId = it }
         tvBranchName = view.findViewById(R.id.tvPcMyRequestsBranchName)
 
         view.findViewById<View>(R.id.btnPcMyRequestsBack).setOnClickListener {
@@ -141,12 +150,16 @@ class PettyCashMyRequestsFragment : Fragment() {
                 val newBranchId = branchIds[index]
                 if (newBranchId != branchId) {
                     branchId = newBranchId
+                    branchPrefs().edit().putString(PREF_KEY_SELECTED_BRANCH, branchId).apply()
                     tvBranchName.text = branchNames[branchId] ?: branchId
                     viewModel.load(branchId)
                 }
             }
             .show()
     }
+
+    private fun branchPrefs() =
+        requireContext().getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
 
     private fun formatDate(millis: Long): String {
         if (millis == 0L) return "—"

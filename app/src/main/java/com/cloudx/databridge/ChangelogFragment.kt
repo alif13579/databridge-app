@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.71",
+                releasedDate = "14 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Petty Cash: the branch you pick on Dashboard/My Requests is now remembered across sessions instead of resetting every time"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.70",
                 releasedDate = "14 Aug 2026",
                 entries = listOf(
