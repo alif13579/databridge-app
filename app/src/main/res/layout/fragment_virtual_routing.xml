@@ -47,36 +47,123 @@
         android:layout_height="1dp"
         android:background="@color/theme_border" />
 
-    <!-- Search bar — filters the list below by Consignment ID as you type. -->
+    <!-- Pending Queue / Routed — which queue a parcel is in follows purely from
+         whether it has a selectedArea (see VirtualRoutingParcel). Tapping either
+         tab just swaps which container below is visible; each side keeps its own
+         scroll position since neither is ever torn down. -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="44dp"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="@color/theme_bg_card"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp">
+        android:background="@color/theme_bg_card">
 
-        <ImageView
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:src="@android:drawable/ic_menu_search"
-            app:tint="@color/theme_text_secondary"
-            android:layout_marginEnd="8dp" />
-
-        <EditText
-            android:id="@+id/etVrSearch"
+        <LinearLayout
+            android:id="@+id/layoutTabPending"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:hint="Search by Consignment ID"
-            android:textColor="@color/theme_text_primary"
-            android:textColorHint="@color/theme_text_muted"
-            android:textSize="13sp"
-            android:background="@android:color/transparent"
-            android:inputType="text"
-            android:imeOptions="actionSearch"
-            android:singleLine="true" />
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
+            android:paddingTop="12dp"
+            android:paddingBottom="10dp">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tvTabPendingLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Pending Queue"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_purple" />
+
+                <TextView
+                    android:id="@+id/tvTabPendingBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="20dp"
+                    android:gravity="center"
+                    android:text="0"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_text_inverse"
+                    android:background="@drawable/bg_filter_chip_active_purple"
+                    android:paddingStart="7dp"
+                    android:paddingEnd="7dp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp"
+                    android:layout_marginStart="6dp" />
+            </LinearLayout>
+
+            <View
+                android:id="@+id/indicatorPending"
+                android:layout_width="match_parent"
+                android:layout_height="2dp"
+                android:background="@color/theme_purple"
+                android:layout_marginTop="10dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/layoutTabRouted"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackground"
+            android:paddingTop="12dp"
+            android:paddingBottom="10dp">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/tvTabRoutedLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Routed"
+                    android:textSize="13sp"
+                    android:textColor="@color/theme_text_secondary" />
+
+                <TextView
+                    android:id="@+id/tvTabRoutedBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="20dp"
+                    android:gravity="center"
+                    android:text="0"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_text_inverse"
+                    android:background="@drawable/bg_filter_chip_active_purple"
+                    android:paddingStart="7dp"
+                    android:paddingEnd="7dp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="2dp"
+                    android:layout_marginStart="6dp" />
+            </LinearLayout>
+
+            <View
+                android:id="@+id/indicatorRouted"
+                android:layout_width="match_parent"
+                android:layout_height="2dp"
+                android:background="@color/theme_purple"
+                android:layout_marginTop="10dp"
+                android:visibility="invisible" />
+        </LinearLayout>
 
     </LinearLayout>
 
@@ -85,25 +172,277 @@
         android:layout_height="1dp"
         android:background="@color/theme_border" />
 
-    <TextView
-        android:id="@+id/tvVrEmpty"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="📭  No parcels found"
-        android:textSize="13sp"
-        android:gravity="center"
-        android:textColor="@color/theme_text_secondary"
-        android:paddingTop="40dp"
-        android:visibility="gone" />
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rvVirtualRouting"
+    <!-- Only one of pendingContent / routedContent is visible at a time — both
+         fill this FrameLayout so switching tabs never re-measures the rest of
+         the screen. -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:clipToPadding="false"
-        android:paddingHorizontal="12dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="16dp" />
+        android:layout_weight="1">
+
+        <!-- ══════════════ PENDING QUEUE ══════════════ -->
+        <LinearLayout
+            android:id="@+id/pendingContent"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <!-- Search bar — filters the list below by Consignment ID as you type. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@color/theme_bg_card"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@android:drawable/ic_menu_search"
+                    app:tint="@color/theme_text_secondary"
+                    android:layout_marginEnd="8dp" />
+
+                <EditText
+                    android:id="@+id/etVrSearch"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="Search by Consignment ID"
+                    android:textColor="@color/theme_text_primary"
+                    android:textColorHint="@color/theme_text_muted"
+                    android:textSize="13sp"
+                    android:background="@android:color/transparent"
+                    android:inputType="text"
+                    android:imeOptions="actionSearch"
+                    android:singleLine="true" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/theme_border" />
+
+            <!-- "N Parcels in Pending Queue"  ·  Sort -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@color/theme_bg_card"
+                android:paddingStart="14dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:id="@+id/tvVrPendingCountLabel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="0 Parcels in Pending Queue"
+                    android:textSize="11sp"
+                    android:textColor="@color/theme_text_secondary" />
+
+                <TextView
+                    android:id="@+id/layoutVrSort"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Sort  ⇅"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_text_accent"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackground"
+                    android:padding="6dp" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/theme_border" />
+
+            <TextView
+                android:id="@+id/tvVrEmpty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📭  No parcels found"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:textColor="@color/theme_text_secondary"
+                android:paddingTop="40dp"
+                android:visibility="gone" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvVirtualRouting"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:clipToPadding="false"
+                android:paddingHorizontal="12dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="16dp" />
+
+        </LinearLayout>
+
+        <!-- ══════════════ ROUTED ══════════════ -->
+        <LinearLayout
+            android:id="@+id/routedContent"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <!-- By Area / By Status / All -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:background="@drawable/bg_segment_container"
+                android:layout_margin="10dp"
+                android:padding="3dp">
+
+                <TextView
+                    android:id="@+id/tvSegByArea"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="By Area"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_text_inverse"
+                    android:background="@drawable/bg_segment_active"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:padding="8dp" />
+
+                <TextView
+                    android:id="@+id/tvSegByStatus"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="By Status"
+                    android:textSize="12sp"
+                    android:textColor="@color/theme_text_secondary"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:padding="8dp" />
+
+                <TextView
+                    android:id="@+id/tvSegAll"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="All"
+                    android:textSize="12sp"
+                    android:textColor="@color/theme_text_secondary"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:padding="8dp" />
+            </LinearLayout>
+
+            <!-- Search — hint text switches with the segment above (area name /
+                 status name / Consignment ID); see updateRoutedSearchHint(). -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@color/theme_bg_card"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@android:drawable/ic_menu_search"
+                    app:tint="@color/theme_text_secondary"
+                    android:layout_marginEnd="8dp" />
+
+                <EditText
+                    android:id="@+id/etVrRoutedSearch"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="Search area"
+                    android:textColor="@color/theme_text_primary"
+                    android:textColorHint="@color/theme_text_muted"
+                    android:textSize="13sp"
+                    android:background="@android:color/transparent"
+                    android:inputType="text"
+                    android:imeOptions="actionSearch"
+                    android:singleLine="true" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/theme_border" />
+
+            <TextView
+                android:id="@+id/tvVrRoutedEmpty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📭  No routed parcels found"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:textColor="@color/theme_text_secondary"
+                android:paddingTop="40dp"
+                android:visibility="gone" />
+
+            <androidx.core.widget.NestedScrollView
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:clipToPadding="false">
+
+                <LinearLayout
+                    android:id="@+id/layoutRoutedRows"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="10dp" />
+
+            </androidx.core.widget.NestedScrollView>
+
+            <!-- Non-scrolling footer — always visible while on the Routed tab. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:background="@drawable/bg_hint_box_purple"
+                android:layout_margin="10dp"
+                android:padding="10dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ℹ"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_purple"
+                    android:layout_marginEnd="8dp"
+                    android:layout_marginTop="1dp" />
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Routed parcels are removed from Pending Queue and grouped under the selected Area."
+                    android:textSize="11sp"
+                    android:textColor="@color/theme_purple"
+                    android:lineSpacingExtra="2dp" />
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </FrameLayout>
 
 </LinearLayout>
