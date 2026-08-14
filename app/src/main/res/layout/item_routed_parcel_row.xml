@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="?attr/selectableItemBackground"
+    android:paddingStart="14dp"
+    android:paddingEnd="6dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvRprConsignmentId"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="BD1234567890"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_primary"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/tvRprCustomer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Rafiq Ahmed"
+            android:textSize="11sp"
+            android:textColor="@color/theme_text_secondary"
+            android:layout_marginTop="2dp"
+            android:includeFontPadding="false" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="end"
+        android:layout_marginEnd="4dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Routed At"
+            android:textSize="9sp"
+            android:textColor="@color/theme_text_muted"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/tvRprRoutedAt"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="10:25 AM"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_primary"
+            android:layout_marginTop="1dp"
+            android:includeFontPadding="false" />
+    </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/btnRprMenu"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:src="@android:drawable/ic_menu_more"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="4dp"
+        android:contentDescription="More options"
+        app:tint="@color/theme_text_secondary" />
+
+</LinearLayout>
