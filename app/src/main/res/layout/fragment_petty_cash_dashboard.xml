@@ -64,6 +64,27 @@
                             android:textColor="#64748B" />
                     </LinearLayout>
 
+                    <!-- Branch switcher chip: hidden by default, shown by
+                         PettyCashDashboardFragment only when the signed-in
+                         user has more than one assigned branch. -->
+                    <TextView
+                        android:id="@+id/tvPcDashboardBranchName"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_branch_switcher_chip"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="6dp"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#0F172A"
+                        android:drawablePadding="4dp"
+                        android:gravity="center_vertical"
+                        android:maxWidth="140dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:layout_marginEnd="6dp"
+                        android:visibility="gone" />
+
                     <ImageButton
                         android:id="@+id/btnPcDashboardNewRequest"
                         android:layout_width="36dp"

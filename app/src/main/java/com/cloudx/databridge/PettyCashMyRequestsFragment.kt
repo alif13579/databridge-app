@@ -6,10 +6,17 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -24,12 +31,19 @@ import java.util.Locale
  * UI would be meaningless (and confusing) to show them. This screen shows
  * only what a Requester actually needs: a way to submit a new request, and
  * their own request history with status.
+ *
+ * Also has a branch switcher (same pattern as CashManagementHomeFragment /
+ * PettyCashDashboardFragment) for a Requester assigned to more than one
+ * branch — e.g. a floating agent who isn't tied to a single branch.
  */
 class PettyCashMyRequestsFragment : Fragment() {
 
     private val viewModel: PettyCashViewModel by viewModels()
 
+    private lateinit var tvBranchName: TextView
     private var branchId: String = ""
+    private val db = FirebaseDatabase.getInstance()
+    private var branchNames: Map<String, String> = emptyMap()
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -47,6 +61,7 @@ class PettyCashMyRequestsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         branchId = arguments?.getString(ARG_BRANCH_ID).orEmpty()
+        tvBranchName = view.findViewById(R.id.tvPcMyRequestsBranchName)
 
         view.findViewById<View>(R.id.btnPcMyRequestsBack).setOnClickListener {
             parentFragmentManager.popBackStack()
@@ -62,6 +77,8 @@ class PettyCashMyRequestsFragment : Fragment() {
         view.findViewById<View>(R.id.btnPcMyRequestsRetry).setOnClickListener {
             if (branchId.isNotBlank()) viewModel.load(branchId)
         }
+
+        setupBranchSwitcher()
 
         viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
         if (branchId.isBlank()) {
@@ -81,6 +98,54 @@ class PettyCashMyRequestsFragment : Fragment() {
     private fun taka(amount: Double): String {
         val whole = Math.round(amount)
         return "\u09F3${NumberFormat.getNumberInstance(Locale.US).format(whole)}"
+    }
+
+    // ── Branch switcher ──────────────────────────────────────────────────────
+    // Same pattern as CashManagementHomeFragment / PettyCashDashboardFragment.
+    private fun setupBranchSwitcher() {
+        val branchIds = RbacManager.current.branchIds
+        if (branchIds.size <= 1) return
+
+        val arrow = ContextCompat.getDrawable(requireContext(), R.drawable.ic_arrow_drop_down_white)?.mutate()
+        arrow?.setTint(Color.parseColor("#0F172A"))
+        tvBranchName.setCompoundDrawablesWithIntrinsicBounds(null, null, arrow, null)
+        tvBranchName.isVisible = true
+        tvBranchName.setOnClickListener { showBranchPicker(branchIds) }
+
+        val primaryId = branchIds.first()
+        if (RbacManager.current.branchName.isNotBlank()) {
+            branchNames = mapOf(primaryId to RbacManager.current.branchName)
+        }
+        tvBranchName.text = branchNames[branchId] ?: "Branch"
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val resolved = coroutineScope {
+                branchIds.filter { it !in branchNames }.associateWith { id ->
+                    async {
+                        runCatching {
+                            db.reference.child("branches/$id/name").get().await().getValue(String::class.java)
+                        }.getOrNull()
+                    }
+                }.mapValues { (id, deferred) -> deferred.await()?.takeIf { it.isNotBlank() } ?: id }
+            }
+            branchNames = branchNames + resolved
+            tvBranchName.text = branchNames[branchId] ?: branchId
+        }
+    }
+
+    private fun showBranchPicker(branchIds: List<String>) {
+        val labels = branchIds.map { branchNames[it] ?: it }.toTypedArray()
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Switch branch")
+            .setItems(labels) { _, index ->
+                val newBranchId = branchIds[index]
+                if (newBranchId != branchId) {
+                    branchId = newBranchId
+                    tvBranchName.text = branchNames[branchId] ?: branchId
+                    viewModel.load(branchId)
+                }
+            }
+            .show()
     }
 
     private fun formatDate(millis: Long): String {

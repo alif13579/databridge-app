@@ -9,10 +9,17 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -44,6 +51,7 @@ class PettyCashDashboardFragment : Fragment() {
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var layoutContent: View
     private lateinit var tvDashboardTitle: TextView
+    private lateinit var tvBranchName: TextView
     private lateinit var layoutRoleToggle: LinearLayout
     private lateinit var cardAvailableBalanceHero: View
     private lateinit var cardSummaryHero: View
@@ -57,6 +65,8 @@ class PettyCashDashboardFragment : Fragment() {
     private lateinit var layoutQueueList: LinearLayout
 
     private var branchId: String = ""
+    private val db = FirebaseDatabase.getInstance()
+    private var branchNames: Map<String, String> = emptyMap()
 
     /** Which role's dashboard is currently on screen. */
     private enum class RoleView { ACCOUNTS, CASH_POC, TEAM_ALIGNED }
@@ -93,6 +103,7 @@ class PettyCashDashboardFragment : Fragment() {
         swipeRefresh    = view.findViewById(R.id.swipeRefreshPcDashboard)
         layoutContent   = view.findViewById(R.id.layoutPcDashboardContent)
         tvDashboardTitle = view.findViewById(R.id.tvPcDashboardTitle)
+        tvBranchName    = view.findViewById(R.id.tvPcDashboardBranchName)
         layoutRoleToggle = view.findViewById(R.id.layoutPcRoleToggle)
         cardAvailableBalanceHero = view.findViewById(R.id.cardPcAvailableBalanceHero)
         cardSummaryHero = view.findViewById(R.id.cardPcSummaryHero)
@@ -123,6 +134,8 @@ class PettyCashDashboardFragment : Fragment() {
 
         swipeRefresh.setOnRefreshListener { viewModel.load(branchId) }
 
+        setupBranchSwitcher()
+
         tvViewAllQueue.setOnClickListener {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId))
@@ -148,6 +161,61 @@ class PettyCashDashboardFragment : Fragment() {
         val whole = Math.round(amount)
         val formatted = NumberFormat.getNumberInstance(Locale.US).format(whole)
         return "\u09F3$formatted"
+    }
+
+    // ── Branch switcher ──────────────────────────────────────────────────────
+    // Lets a user with more than one assigned branch (RbacManager.current.branchIds)
+    // pick which branch's Petty Cash data to view — same pattern as
+    // CashManagementHomeFragment's switcher. Hidden entirely for the common
+    // single-branch case. Starts on branchIds.firstOrNull(), same branch
+    // MainActivity already passed into newInstance(); switching here just
+    // reloads this screen against the new branchId.
+    private fun setupBranchSwitcher() {
+        val branchIds = RbacManager.current.branchIds
+        if (branchIds.size <= 1) return
+
+        val arrow = ContextCompat.getDrawable(requireContext(), R.drawable.ic_arrow_drop_down_white)?.mutate()
+        arrow?.setTint(Color.parseColor("#0F172A"))
+        tvBranchName.setCompoundDrawablesWithIntrinsicBounds(null, null, arrow, null)
+        tvBranchName.isVisible = true
+        tvBranchName.setOnClickListener { showBranchPicker(branchIds) }
+
+        // Seed with the primary branch's name, already resolved by RbacManager at
+        // login, so there's no flash of a raw branch id while the rest load below.
+        val primaryId = branchIds.first()
+        if (RbacManager.current.branchName.isNotBlank()) {
+            branchNames = mapOf(primaryId to RbacManager.current.branchName)
+        }
+        tvBranchName.text = branchNames[branchId] ?: "Branch"
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val resolved = coroutineScope {
+                branchIds.filter { it !in branchNames }.associateWith { id ->
+                    async {
+                        runCatching {
+                            db.reference.child("branches/$id/name").get().await().getValue(String::class.java)
+                        }.getOrNull()
+                    }
+                }.mapValues { (id, deferred) -> deferred.await()?.takeIf { it.isNotBlank() } ?: id }
+            }
+            branchNames = branchNames + resolved
+            tvBranchName.text = branchNames[branchId] ?: branchId
+        }
+    }
+
+    private fun showBranchPicker(branchIds: List<String>) {
+        val labels = branchIds.map { branchNames[it] ?: it }.toTypedArray()
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Switch branch")
+            .setItems(labels) { _, index ->
+                val newBranchId = branchIds[index]
+                if (newBranchId != branchId) {
+                    branchId = newBranchId
+                    tvBranchName.text = branchNames[branchId] ?: branchId
+                    viewModel.load(branchId)
+                }
+            }
+            .show()
     }
 
     private fun render(state: PettyCashState) {
