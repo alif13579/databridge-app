@@ -62,6 +62,7 @@ class CashLedgerListFragment : Fragment() {
     private var searchQuery = ""
     private var dateFilter: Pair<Long, Long>? = null
     private var channelFilter: String? = null
+    private var statusFilter: String? = null
     private var currentPage = 0
     private val pageSize = 5
     private var lastSuccessState: CashManagementState.Success? = null
@@ -76,6 +77,7 @@ class CashLedgerListFragment : Fragment() {
         val trxId: String,
         val isEdited: Boolean,
         val enteredByName: String,
+        val type: String?,
     )
 
     companion object {
@@ -128,11 +130,7 @@ class CashLedgerListFragment : Fragment() {
 
         tvFilterDate.setOnClickListener { showDateFilterMenu() }
         tvFilterChannel.setOnClickListener { showChannelFilterMenu() }
-        tvFilterStatus.setOnClickListener {
-            // Every saved entry is inherently "completed" in this data model --
-            // there's no pending/failed state yet, so this is a label for now.
-            tvFilterStatus.text = "Status: All"
-        }
+        tvFilterStatus.setOnClickListener { showStatusFilterMenu() }
 
         btnPagePrev.setOnClickListener {
             if (currentPage > 0) { currentPage--; lastSuccessState?.let { renderList(it) } }
@@ -163,6 +161,7 @@ class CashLedgerListFragment : Fragment() {
     private fun applyModeChrome() {
         tvTitle.text = modeLabel(mode)
         tvFilterChannel.isVisible = mode != CashListMode.COLLECTIONS
+        tvFilterStatus.isVisible = mode == CashListMode.COLLECTIONS
     }
 
     private fun buildTabs() {
@@ -198,6 +197,8 @@ class CashLedgerListFragment : Fragment() {
         etSearch.setText("")
         channelFilter = null
         tvFilterChannel.text = "Channel: All"
+        statusFilter = null
+        tvFilterStatus.text = "Status: All"
         currentPage = 0
         buildTabs()
         lastSuccessState?.let { renderList(it) }
@@ -231,16 +232,16 @@ class CashLedgerListFragment : Fragment() {
 
     private fun allRows(state: CashManagementState.Success): List<Row> = when (mode) {
         CashListMode.COLLECTIONS -> state.collections.map {
-            Row(it.id, it.timestamp, it.amount, null, "Collected by ${it.enteredByName.ifBlank { "someone" }}", it.remarks, "", it.isEdited, it.enteredByName)
+            Row(it.id, it.timestamp, it.amount, null, "Collected by ${it.enteredByName.ifBlank { "someone" }}", it.remarks, "", it.isEdited, it.enteredByName, it.type)
         }
         CashListMode.DEPOSITS -> state.accounts.flatMap { acc ->
             acc.handovers.map {
-                Row(it.id, it.timestamp, it.amount, acc.provider, if (it.trxId.isBlank()) "TRX: \u2014" else "TRX: ${it.trxId}", it.remarks, it.trxId, it.isEdited, it.enteredByName)
+                Row(it.id, it.timestamp, it.amount, acc.provider, if (it.trxId.isBlank()) "TRX: \u2014" else "TRX: ${it.trxId}", it.remarks, it.trxId, it.isEdited, it.enteredByName, null)
             }
         }
         CashListMode.PAYMENTS -> state.accounts.flatMap { acc ->
             acc.hubPayments.map {
-                Row(it.id, it.timestamp, it.amount, acc.provider, if (it.trxId.isBlank()) "TRX: \u2014" else "TRX: ${it.trxId}", it.remarks, it.trxId, it.isEdited, it.enteredByName)
+                Row(it.id, it.timestamp, it.amount, acc.provider, if (it.trxId.isBlank()) "TRX: \u2014" else "TRX: ${it.trxId}", it.remarks, it.trxId, it.isEdited, it.enteredByName, null)
             }
         }
     }
@@ -249,6 +250,7 @@ class CashLedgerListFragment : Fragment() {
         var rows = allRows(state).sortedByDescending { it.timestamp }
         dateFilter?.let { range -> rows = rows.filter { it.timestamp in range.first..range.second } }
         channelFilter?.let { ch -> rows = rows.filter { it.channel == ch } }
+        statusFilter?.let { st -> rows = rows.filter { it.type == st } }
         if (searchQuery.isNotBlank()) {
             val q = searchQuery.trim().lowercase()
             rows = rows.filter { it.subDetail.lowercase().contains(q) || (it.channel?.lowercase()?.contains(q) == true) }
@@ -376,6 +378,22 @@ class CashLedgerListFragment : Fragment() {
             .setItems(options) { _, index ->
                 channelFilter = if (index == 0) null else options[index]
                 tvFilterChannel.text = "Channel: ${options[index]}"
+                currentPage = 0
+                lastSuccessState?.let { renderList(it) }
+            }
+            .show()
+    }
+
+    // Only meaningful for Collections -- Deposits/Payments (CashLedgerEntry) have no
+    // type field. tvFilterStatus is hidden for those modes (see applyModeChrome()).
+    private fun showStatusFilterMenu() {
+        val labels = arrayOf("All", "Cash", "Adjustment")
+        val values = arrayOf(null, COLLECTION_TYPE_CASH, COLLECTION_TYPE_ADJUSTMENT)
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Filter by status")
+            .setItems(labels) { _, index ->
+                statusFilter = values[index]
+                tvFilterStatus.text = "Status: ${labels[index]}"
                 currentPage = 0
                 lastSuccessState?.let { renderList(it) }
             }
