@@ -17,12 +17,22 @@ import java.text.NumberFormat
 import java.util.Locale
 
 /**
- * Petty Cash Management — Dashboard (Accounts view).
+ * Petty Cash Management — Dashboard.
  *
- * Wired to PettyCashViewModel: real requests/deposits/wallet balance for
- * the branch, live settlement queue (requests in PC_STATUS_APPROVED or
- * PC_STATUS_SETTLE_IN_PROCESS, ready for Accounts to act on).
- * waiting for Accounts to settle).
+ * Wired to PettyCashViewModel. Shows a different summary per petty-cash
+ * role instead of always rendering the Accounts view:
+ *   - Accounts:     Available Balance / Total Fund hero, Settlement Queue
+ *                    (requests in PC_STATUS_APPROVED or
+ *                    PC_STATUS_SETTLE_IN_PROCESS, ready to settle).
+ *   - Cash POC:      "POC Summary" hero (Total Requests + Pending/Approved/
+ *                    Rejected counts), Pending For Approval list of
+ *                    PC_STATUS_ACKNOWLEDGED requests awaiting their approval.
+ *   - Team Aligned:  Same shape as Cash POC, but Pending For Approval is
+ *                    PC_STATUS_PENDING requests awaiting their acknowledgement.
+ *
+ * Someone holding more than one of these roles (e.g. Cash POC + Accounts)
+ * gets a role-switcher toggle at the top rather than one role silently
+ * winning — see [RoleView] and [buildRoleToggle].
  *
  * Entry point: reached from the drawer's "Petty Cash" item (top-level, see
  * MainActivity), or from Cash Management's related-feature card.
@@ -33,13 +43,24 @@ class PettyCashDashboardFragment : Fragment() {
 
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var layoutContent: View
+    private lateinit var tvDashboardTitle: TextView
+    private lateinit var layoutRoleToggle: LinearLayout
+    private lateinit var cardAvailableBalanceHero: View
+    private lateinit var cardSummaryHero: View
+    private lateinit var tvSummaryRoleLabel: TextView
+    private lateinit var tvSummaryTotalRequests: TextView
     private lateinit var tvAvailableBalance: TextView
+    private lateinit var cardTotalFund: View
     private lateinit var tvTotalFund: TextView
     private lateinit var tvQueueTitle: TextView
     private lateinit var tvViewAllQueue: TextView
     private lateinit var layoutQueueList: LinearLayout
 
     private var branchId: String = ""
+
+    /** Which role's dashboard is currently on screen. */
+    private enum class RoleView { ACCOUNTS, CASH_POC, TEAM_ALIGNED }
+    private var selectedView: RoleView? = null
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -71,7 +92,14 @@ class PettyCashDashboardFragment : Fragment() {
 
         swipeRefresh    = view.findViewById(R.id.swipeRefreshPcDashboard)
         layoutContent   = view.findViewById(R.id.layoutPcDashboardContent)
+        tvDashboardTitle = view.findViewById(R.id.tvPcDashboardTitle)
+        layoutRoleToggle = view.findViewById(R.id.layoutPcRoleToggle)
+        cardAvailableBalanceHero = view.findViewById(R.id.cardPcAvailableBalanceHero)
+        cardSummaryHero = view.findViewById(R.id.cardPcSummaryHero)
+        tvSummaryRoleLabel = view.findViewById(R.id.tvPcSummaryRoleLabel)
+        tvSummaryTotalRequests = view.findViewById(R.id.tvPcSummaryTotalRequests)
         tvAvailableBalance = view.findViewById(R.id.tvPcAvailableBalance)
+        cardTotalFund   = view.findViewById(R.id.cardPcTotalFund)
         tvTotalFund     = view.findViewById(R.id.tvPcTotalFund)
         tvQueueTitle    = view.findViewById(R.id.tvPcQueueTitle)
         tvViewAllQueue  = view.findViewById(R.id.tvPcViewAllQueue)
@@ -153,7 +181,73 @@ class PettyCashDashboardFragment : Fragment() {
         }
     }
 
+    /** Which role dashboards this signed-in user can switch between, in display priority order. */
+    private fun availableViews(roles: PettyCashUserRoles): List<RoleView> = listOfNotNull(
+        RoleView.ACCOUNTS.takeIf { roles.isAccounts },
+        RoleView.CASH_POC.takeIf { roles.isCashPoc },
+        RoleView.TEAM_ALIGNED.takeIf { roles.isTeamAligned }
+    )
+
     private fun renderSuccess(root: View, state: PettyCashState.Success) {
+        val views = availableViews(state.roles)
+        if (views.isEmpty()) {
+            // Shouldn't normally happen — MainActivity only routes here when
+            // nav_petty_cash is granted — but fall back to Accounts' shape
+            // rather than showing a blank/broken screen.
+            selectedView = RoleView.ACCOUNTS
+        } else if (selectedView == null || selectedView !in views) {
+            selectedView = views.first()
+        }
+
+        buildRoleToggle(views)
+
+        when (selectedView) {
+            RoleView.CASH_POC -> renderApproverSummary(root, state, RoleView.CASH_POC)
+            RoleView.TEAM_ALIGNED -> renderApproverSummary(root, state, RoleView.TEAM_ALIGNED)
+            else -> renderAccountsSummary(root, state)
+        }
+
+        wireQuickActions(root, state.roles)
+    }
+
+    /** Horizontal role-switcher chips — only shown when the user holds more than one petty-cash role. */
+    private fun buildRoleToggle(views: List<RoleView>) {
+        layoutRoleToggle.removeAllViews()
+        if (views.size <= 1) {
+            layoutRoleToggle.isVisible = false
+            return
+        }
+        layoutRoleToggle.isVisible = true
+        views.forEach { roleView ->
+            val chip = layoutInflater.inflate(R.layout.item_petty_cash_filter_tab, layoutRoleToggle, false) as TextView
+            chip.text = roleLabel(roleView)
+            chip.setOnClickListener {
+                selectedView = roleView
+                viewModel.state.value?.let { s -> if (s is PettyCashState.Success) renderSuccess(requireView(), s) }
+            }
+            val active = roleView == selectedView
+            chip.setTextColor(Color.parseColor(if (active) "#059669" else "#64748B"))
+            chip.background = androidx.core.content.ContextCompat.getDrawable(
+                requireContext(), if (active) R.drawable.bg_pc_tab_active else R.drawable.bg_pc_tab_inactive
+            )
+            layoutRoleToggle.addView(chip)
+        }
+    }
+
+    private fun roleLabel(roleView: RoleView): String = when (roleView) {
+        RoleView.ACCOUNTS -> "Accounts"
+        RoleView.CASH_POC -> "Petty Cash POC"
+        RoleView.TEAM_ALIGNED -> "Team Aligned"
+    }
+
+    // ── Accounts summary: Available Balance / Total Fund / Settlement Queue ────
+
+    private fun renderAccountsSummary(root: View, state: PettyCashState.Success) {
+        tvDashboardTitle.text = "Accounts"
+        cardAvailableBalanceHero.isVisible = true
+        cardSummaryHero.isVisible = false
+        cardTotalFund.isVisible = true
+
         tvAvailableBalance.text = taka(state.walletBalance)
         tvTotalFund.text = taka(state.totalFund)
 
@@ -178,16 +272,63 @@ class PettyCashDashboardFragment : Fragment() {
 
         val queue = state.pendingSettlementQueue
         tvQueueTitle.text = "Settlement Queue (${queue.size})"
-        buildQueueList(queue, canSettle = state.roles.isAccounts)
-
-        wireQuickActions(root, state.roles)
+        buildQueueList(queue, canSettle = true, showSettleAction = true)
     }
 
-    private fun buildQueueList(items: List<PettyCashRequest>, canSettle: Boolean) {
+    // ── Cash POC / Team Aligned summary: request counts + Pending For Approval ─
+
+    private fun renderApproverSummary(root: View, state: PettyCashState.Success, roleView: RoleView) {
+        tvDashboardTitle.text = roleLabel(roleView)
+        cardAvailableBalanceHero.isVisible = false
+        cardSummaryHero.isVisible = true
+        cardTotalFund.isVisible = false
+
+        // What "awaiting your action" means differs by stage: Team Aligned acts
+        // on freshly-submitted (PENDING) requests, Cash POC acts on requests
+        // Team Aligned has already acknowledged (ACKNOWLEDGED).
+        val awaitingStatus = if (roleView == RoleView.TEAM_ALIGNED) PC_STATUS_PENDING else PC_STATUS_ACKNOWLEDGED
+        val all = state.requests
+        val pending = all.filter { it.status == awaitingStatus }
+        // "Approved" here means requests that made it past this role's stage
+        // (this role acted on them, or they're further along the chain).
+        val approved = all.filter { it.status !in setOf(PC_STATUS_PENDING, PC_STATUS_ACKNOWLEDGED, PC_STATUS_REJECTED) ||
+            (roleView == RoleView.TEAM_ALIGNED && it.status == PC_STATUS_ACKNOWLEDGED) }
+        val rejected = all.filter { it.status == PC_STATUS_REJECTED }
+
+        tvSummaryRoleLabel.text = if (roleView == RoleView.TEAM_ALIGNED) "Team Summary" else "POC Summary"
+        tvSummaryTotalRequests.text = all.size.toString()
+
+        bindStatCard(root, R.id.statPcPendingApproval, "\u23F3", "Pending\nApproval", pending.size.toString(), "#FFEDD5", "#C2410C") {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, awaitingStatus))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+        bindStatCard(root, R.id.statPcApprovedSettlement, "\u2705", "Approved", approved.size.toString(), "#D1FAE5", "#059669") {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+        bindStatCard(root, R.id.statPcSettledMonth, "\u274C", "Rejected", rejected.size.toString(), "#FEE2E2", "#B91C1C") {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, PC_STATUS_REJECTED))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+
+        tvQueueTitle.text = "Pending For Approval (${pending.size})"
+        // Approvers here can't settle cash (that's Accounts-only) — tapping a
+        // row just opens Settlement Details, where the Acknowledge/Approve
+        // action actually lives.
+        buildQueueList(pending.sortedByDescending { it.createdAt }, canSettle = false, showSettleAction = false)
+    }
+
+    private fun buildQueueList(items: List<PettyCashRequest>, canSettle: Boolean, showSettleAction: Boolean) {
         layoutQueueList.removeAllViews()
         if (items.isEmpty()) {
             layoutQueueList.addView(TextView(requireContext()).apply {
-                text = "No pending settlements."
+                text = "Nothing here right now."
                 textSize = 13f
                 setTextColor(0xFF94A3B8.toInt())
                 gravity = android.view.Gravity.CENTER
@@ -200,11 +341,16 @@ class PettyCashDashboardFragment : Fragment() {
             row.findViewById<TextView>(R.id.tvQueueRowCode).text = item.requestCode
             row.findViewById<TextView>(R.id.tvQueueRowSubtitle).text = "${item.workerName}\n${item.category}"
             row.findViewById<TextView>(R.id.tvQueueRowAmount).text = taka(item.amount)
-            row.findViewById<TextView>(R.id.tvQueueRowStatus).text =
-                if (item.status == PC_STATUS_SETTLE_IN_PROCESS) "Ready to Settle" else "Approved"
+            row.findViewById<TextView>(R.id.tvQueueRowStatus).text = when (item.status) {
+                PC_STATUS_PENDING -> "Pending"
+                PC_STATUS_ACKNOWLEDGED -> "Acknowledged"
+                PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle"
+                PC_STATUS_APPROVED -> "Approved"
+                else -> "Approved"
+            }
 
             val btnSettle = row.findViewById<TextView>(R.id.btnQueueRowSettle)
-            btnSettle.isVisible = canSettle
+            btnSettle.isVisible = showSettleAction && canSettle
             btnSettle.text = if (item.status == PC_STATUS_SETTLE_IN_PROCESS) "Settle" else "Mark Ready"
             val openDetails = View.OnClickListener {
                 parentFragmentManager.beginTransaction()
@@ -240,9 +386,12 @@ class PettyCashDashboardFragment : Fragment() {
         val actionAllRequests = root.findViewById<View>(R.id.actionPcAllRequests)
         val actionReports = root.findViewById<View>(R.id.actionPcReports)
 
-        // Deposit Fund is Accounts-only — it moves money into the wallet,
-        // not something Team Aligned or Cash POC should be able to trigger.
-        actionDeposit.isVisible = roles.isAccounts
+        // Deposit Fund is Accounts-only — it moves money into the wallet, not
+        // something Team Aligned or Cash POC should be able to trigger. Gated
+        // on the currently *viewed* role, not just whether the user holds the
+        // Accounts role anywhere — someone with both roles shouldn't see this
+        // while looking at their POC dashboard.
+        actionDeposit.isVisible = roles.isAccounts && selectedView == RoleView.ACCOUNTS
         // Requests/All Requests are useful to any approver (Team Aligned,
         // Cash POC, or Accounts) for triaging what's in the pipeline —
         // gated to "any approver role" rather than a single specific one.

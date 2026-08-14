@@ -48,6 +48,7 @@
                         android:layout_marginStart="8dp">
 
                         <TextView
+                            android:id="@+id/tvPcDashboardTitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Accounts"
@@ -79,6 +80,18 @@
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Notifications" />
                 </LinearLayout>
+
+                <!-- Role switcher — only shown when the signed-in user holds more
+                     than one petty-cash role (e.g. both Cash POC and Accounts),
+                     letting them toggle which role's dashboard they're viewing. -->
+                <LinearLayout
+                    android:id="@+id/layoutPcRoleToggle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="16dp"
+                    android:paddingBottom="8dp"
+                    android:visibility="gone" />
 
                 <ProgressBar
                     android:id="@+id/pbPcDashboardLoading"
@@ -120,8 +133,9 @@
                     android:orientation="vertical"
                     android:visibility="gone">
 
-                    <!-- Available Balance hero card -->
+                    <!-- Available Balance hero card (Accounts view only) -->
                     <androidx.cardview.widget.CardView
+                        android:id="@+id/cardPcAvailableBalanceHero"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginHorizontal="16dp"
@@ -174,6 +188,58 @@
                                 android:textSize="20sp"
                                 android:gravity="center"
                                 android:background="#1FFFFFFF" />
+                        </LinearLayout>
+                    </androidx.cardview.widget.CardView>
+
+                    <!-- Summary hero card (Team Aligned / Cash POC view) -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/cardPcSummaryHero"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginHorizontal="16dp"
+                        app:cardCornerRadius="16dp"
+                        app:cardElevation="2dp"
+                        app:cardBackgroundColor="#EA580C"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="18dp">
+
+                            <TextView
+                                android:id="@+id/tvPcSummaryRoleLabel"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Team Summary"
+                                android:textSize="12sp"
+                                android:textStyle="bold"
+                                android:textColor="#FFEDD5" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="This Month"
+                                android:textSize="11sp"
+                                android:textColor="#FFEDD5" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="10dp"
+                                android:text="Total Requests"
+                                android:textSize="12sp"
+                                android:textColor="#FFEDD5" />
+
+                            <TextView
+                                android:id="@+id/tvPcSummaryTotalRequests"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:fontFamily="monospace"
+                                android:textSize="28sp"
+                                android:textStyle="bold"
+                                android:textColor="#FFFFFF" />
                         </LinearLayout>
                     </androidx.cardview.widget.CardView>
 

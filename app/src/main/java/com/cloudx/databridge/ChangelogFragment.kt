@@ -37,6 +37,14 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.69",
+                releasedDate = "14 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash Dashboard now shows a summary suited to your role: Team Aligned and Cash POC see a Pending/Approved/Rejected request summary instead of Accounts' wallet balance"),
+                    ChangelogEntry("feature", "Petty Cash Dashboard: if you hold more than one petty cash role (e.g. Cash POC and Accounts), a switcher at the top lets you toggle between each role's view"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.56",
                 releasedDate = "08 Aug 2026",
                 entries = listOf(
