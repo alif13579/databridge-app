@@ -81,7 +81,7 @@
             android:visible="false" />
         <item
             android:id="@+id/nav_petty_cash"
-            android:icon="@android:drawable/ic_menu_gallery"
+            android:icon="@drawable/ic_wallet_24"
             android:title="Petty Cash"
             android:visible="false" />
     </group>

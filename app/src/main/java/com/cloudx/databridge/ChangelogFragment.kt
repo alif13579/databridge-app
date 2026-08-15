@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.74",
+                releasedDate = "15 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Drawer: Petty Cash menu item now shows an actual wallet icon instead of a generic gallery icon (was ic_menu_gallery, an unrelated stock Android icon)"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.73",
                 releasedDate = "15 Aug 2026",
                 entries = listOf(
