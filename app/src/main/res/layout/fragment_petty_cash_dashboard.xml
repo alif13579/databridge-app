@@ -57,6 +57,7 @@
                             android:textColor="#0F172A" />
 
                         <TextView
+                            android:id="@+id/tvPcDashboardSubtitle"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Petty Cash Management"

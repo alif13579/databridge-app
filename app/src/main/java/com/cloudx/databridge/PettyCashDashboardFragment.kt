@@ -51,6 +51,7 @@ class PettyCashDashboardFragment : Fragment() {
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var layoutContent: View
     private lateinit var tvDashboardTitle: TextView
+    private lateinit var tvDashboardSubtitle: TextView
     private lateinit var tvBranchName: TextView
     private lateinit var layoutRoleToggle: LinearLayout
     private lateinit var cardAvailableBalanceHero: View
@@ -115,6 +116,7 @@ class PettyCashDashboardFragment : Fragment() {
         swipeRefresh    = view.findViewById(R.id.swipeRefreshPcDashboard)
         layoutContent   = view.findViewById(R.id.layoutPcDashboardContent)
         tvDashboardTitle = view.findViewById(R.id.tvPcDashboardTitle)
+        tvDashboardSubtitle = view.findViewById(R.id.tvPcDashboardSubtitle)
         tvBranchName    = view.findViewById(R.id.tvPcDashboardBranchName)
         layoutRoleToggle = view.findViewById(R.id.layoutPcRoleToggle)
         cardAvailableBalanceHero = view.findViewById(R.id.cardPcAvailableBalanceHero)
@@ -302,6 +304,7 @@ class PettyCashDashboardFragment : Fragment() {
         }
 
         buildRoleToggle(views)
+        updateGreeting(selectedView!!)
 
         when (selectedView) {
             RoleView.CASH_POC -> renderApproverSummary(root, state, RoleView.CASH_POC)
@@ -340,6 +343,21 @@ class PettyCashDashboardFragment : Fragment() {
         RoleView.ACCOUNTS -> "Accounts"
         RoleView.CASH_POC -> "Petty Cash POC"
         RoleView.TEAM_ALIGNED -> "Team Aligned"
+    }
+
+    // "Hi Accountant, welcome back" style greeting keyed to the *detected*
+    // role rather than a generic label, so opening this screen doubles as a
+    // quick sanity check that role resolution picked up the right thing for
+    // this branch — if someone expected to land as Accounts but this reads
+    // "Hi Team Aligned, welcome back" instead, that's immediately visible
+    // instead of only showing up once they notice a missing action button.
+    private fun updateGreeting(roleView: RoleView) {
+        val greetingRole = when (roleView) {
+            RoleView.ACCOUNTS -> "Accountant"
+            RoleView.CASH_POC -> "Petty Cash POC"
+            RoleView.TEAM_ALIGNED -> "Team Aligned"
+        }
+        tvDashboardSubtitle.text = "Hi $greetingRole, welcome back"
     }
 
     // ── Accounts summary: Available Balance / Total Fund / Settlement Queue ────

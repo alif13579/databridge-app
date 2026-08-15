@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.73",
+                releasedDate = "15 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash Dashboard: added a role-based greeting (\"Hi Accountant, welcome back\" / \"Hi Petty Cash POC, welcome back\" / \"Hi Team Aligned, welcome back\") so you can confirm at a glance which role was detected for the current branch"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.72",
                 releasedDate = "14 Aug 2026",
                 entries = listOf(
