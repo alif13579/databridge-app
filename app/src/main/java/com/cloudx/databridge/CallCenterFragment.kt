@@ -2903,10 +2903,19 @@ class CallCenterFragment : Fragment() {
         // Update stats — same mode+branch+agent scope as the chips (not the raw,
         // unfiltered allParcels), so these numbers stay consistent with what's
         // actually visible below rather than always showing the global totals.
+        //
+        // "confirmed"/"pending"/"rejected" here used to be literal string comparisons
+        // against effectiveStatus, always 0 in practice: statuses in this app are
+        // admin-configured (config/statusMeta), not a fixed set, so a hardcoded literal
+        // essentially never matches real data -- the exact bug StatusMetaCache.kt
+        // documents already having been fixed once for validationRequest itself
+        // ("VERIFY_REQUEST" vs a hardcoded "verify_req"). These two now read
+        // validationRequest directly (Total Request) and whether a remark exists at all
+        // (Total Served) instead of guessing at another literal status key.
         val scoped = scopedParcels()
         val total = scoped.size
-        val confirmed = scoped.count { it.effectiveStatus == "confirmed" }
-        val pending = scoped.count { it.effectiveStatus == "pending" }
+        val confirmed = scoped.count { it.validationRequest }
+        val pending = scoped.count { it.remarks.isNotBlank() }
         val rejected = scoped.count { it.effectiveStatus == "rejected" }
         val validationCount = scoped.count { it.validationRequest }
 

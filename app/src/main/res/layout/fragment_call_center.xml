@@ -407,7 +407,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Confirmed"
+                            android:text="Total Request"
                             android:textSize="10sp"
                             android:textColor="@color/theme_text_secondary"
                             android:layout_marginTop="2dp" />
@@ -437,7 +437,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Pending"
+                            android:text="Total Served"
                             android:textSize="10sp"
                             android:textColor="@color/theme_text_secondary"
                             android:layout_marginTop="2dp" />
