@@ -620,7 +620,8 @@ class EmployeeFragment : Fragment() {
             (filterBranch.isEmpty() || user.branchIds.contains(filterBranch)) &&
             (q.isEmpty() || user.name.contains(q, ignoreCase = true)
                          || user.email.contains(q, ignoreCase = true)
-                         || user.branchName.contains(q, ignoreCase = true))
+                         || user.branchName.contains(q, ignoreCase = true)
+                         || user.uid.contains(q, ignoreCase = true))
         }
         adapter.submitList(filtered)
         rvUsers.visibility = if (filtered.isEmpty()) View.GONE else View.VISIBLE
