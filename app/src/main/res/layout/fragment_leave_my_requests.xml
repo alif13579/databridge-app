@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F1F5F9">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Toolbar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="12dp"
+            android:background="#FFFFFF">
+
+            <ImageButton
+                android:id="@+id/btnLmMyRequestsBack"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@android:drawable/ic_menu_revert"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Back" />
+
+            <TextView
+                android:id="@+id/tvLmMyRequestsTitle"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="My Leave Requests"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A"
+                android:layout_marginStart="8dp" />
+
+            <!-- Branch switcher chip: hidden by default, shown by
+                 LeaveMyRequestsFragment only when the signed-in user has
+                 more than one assigned branch. -->
+            <TextView
+                android:id="@+id/tvLmMyRequestsBranchName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_branch_switcher_chip"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A"
+                android:drawablePadding="4dp"
+                android:gravity="center_vertical"
+                android:maxWidth="140dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/pbLmMyRequestsLoading"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="60dp"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/layoutLmMyRequestsError"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="24dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvLmMyRequestsError"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#B91C1C"
+                android:gravity="center" />
+
+            <Button
+                android:id="@+id/btnLmMyRequestsRetry"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Retry"
+                android:textAllCaps="false" />
+        </LinearLayout>
+
+        <ScrollView
+            android:id="@+id/scrollLmMyRequests"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:clipToPadding="false"
+            android:paddingBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <!-- 4 mini stat tiles: My Requests / Pending / Acknowledged / Approved -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <include layout="@layout/item_petty_cash_stat_card" android:id="@+id/statLmMyRequestsTotal" />
+                    <include layout="@layout/item_petty_cash_stat_card" android:id="@+id/statLmMyRequestsPending" />
+                    <include layout="@layout/item_petty_cash_stat_card" android:id="@+id/statLmMyRequestsAcknowledged" />
+                    <include layout="@layout/item_petty_cash_stat_card" android:id="@+id/statLmMyRequestsApproved" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="20dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Request History"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:textColor="#0F172A" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/layoutLmMyRequestsList"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_pc_input" />
+
+                <!-- New Request -->
+                <Button
+                    android:id="@+id/btnLmMyRequestsNew"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="+ New Leave Request"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#059669"
+                    android:paddingVertical="12dp" />
+
+            </LinearLayout>
+        </ScrollView>
+    </LinearLayout>
+</FrameLayout>
