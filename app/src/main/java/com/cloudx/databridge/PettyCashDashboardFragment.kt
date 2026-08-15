@@ -468,6 +468,7 @@ class PettyCashDashboardFragment : Fragment() {
         }
         items.take(5).forEach { item ->
             val row = layoutInflater.inflate(R.layout.item_petty_cash_queue_row, layoutQueueList, false)
+            row.findViewById<TextView>(R.id.tvQueueRowAvatar).text = item.workerName.take(1).uppercase()
             row.findViewById<TextView>(R.id.tvQueueRowCode).text = item.requestCode
             row.findViewById<TextView>(R.id.tvQueueRowSubtitle).text = "${item.workerName}\n${item.category}"
             row.findViewById<TextView>(R.id.tvQueueRowAmount).text = taka(item.amount)
