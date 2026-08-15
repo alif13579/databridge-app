@@ -28,7 +28,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:hint="Search by name, email or branch..."
+            android:hint="Search by name, email, UID or branch..."
             android:textColor="@color/theme_text_primary"
             android:textColorHint="@color/theme_text_secondary"
             android:textSize="13sp"
