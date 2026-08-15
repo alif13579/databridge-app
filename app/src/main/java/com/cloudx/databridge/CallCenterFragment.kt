@@ -2865,8 +2865,13 @@ class CallCenterFragment : Fragment() {
         // Search filter — phone, ID, customer name, or COD amount
         if (searchQuery.isNotBlank()) {
             val q = searchQuery.lowercase()
+            // Phone search also matches on digits-only, so "+8801878221454", "8801878221454",
+            // and "01878221454" all find a phone stored in any of those formats -- the raw
+            // .contains(q) below alone fails whenever the typed "+" isn't in the stored value.
+            val qDigits = q.filter { it.isDigit() }
             filtered = filtered.filter {
                 it.phone.contains(q) ||
+                (qDigits.isNotEmpty() && it.phone.filter { c -> c.isDigit() }.contains(qDigits)) ||
                 it.id.lowercase().contains(q) ||
                 it.customer.lowercase().contains(q) ||
                 it.cod.toString().contains(q)
