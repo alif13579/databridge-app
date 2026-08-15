@@ -151,12 +151,6 @@ class PettyCashDashboardFragment : Fragment() {
 
         setupBranchSwitcher()
 
-        tvViewAllQueue.setOnClickListener {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
         view.findViewById<View>(R.id.cardPcTotalFund).setOnClickListener {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashWalletSummaryFragment.newInstance(branchId))
@@ -392,6 +386,12 @@ class PettyCashDashboardFragment : Fragment() {
 
         val queue = state.pendingSettlementQueue
         tvQueueTitle.text = "Settlement Queue (${queue.size})"
+        tvViewAllQueue.setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
         buildQueueList(queue, canSettle = true, showSettleAction = true)
     }
 
@@ -438,6 +438,16 @@ class PettyCashDashboardFragment : Fragment() {
         }
 
         tvQueueTitle.text = "Pending For Approval (${pending.size})"
+        // "View all" here means "the rest of what's awaiting me at this
+        // stage" -- same status filter as the stat card above, not a
+        // generic unfiltered browse-all (that's what made this a bug: it
+        // used to always open the unfiltered list regardless of role).
+        tvViewAllQueue.setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, awaitingStatus))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
         // Approvers here can't settle cash (that's Accounts-only) — tapping a
         // row just opens Settlement Details, where the Acknowledge/Approve
         // action actually lives.
