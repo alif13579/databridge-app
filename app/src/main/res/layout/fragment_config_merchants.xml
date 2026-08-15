@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Merchants"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" />
+
+            <TextView
+                android:id="@+id/btnOpenCreateMerchant"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:gravity="center"
+                android:text="+"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_bg_card"
+                android:backgroundTint="#E8380D"
+                android:background="@drawable/bg_card_rounded"
+                android:clickable="true"
+                android:focusable="true" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Used by Petty Cash's Pickup category — the merchant a Requester picks up cash for."
+            android:textSize="11sp"
+            android:textColor="@color/theme_text_muted"
+            android:layout_marginBottom="12dp" />
+
+        <LinearLayout
+            android:id="@+id/merchantListContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/tvMerchantEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="No merchants found yet, please add one."
+            android:gravity="center"
+            android:padding="20dp"
+            android:textColor="@color/theme_text_muted"
+            android:textSize="13sp"
+            android:background="@drawable/bg_card_rounded"
+            android:visibility="gone"
+            android:layout_marginBottom="16dp" />
+
+        <LinearLayout
+            android:id="@+id/inlineCreateMerchantPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card_rounded"
+            android:padding="14dp"
+            android:visibility="gone">
+
+            <TextView android:id="@+id/tvCreateMerchantTitle" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="+ New Merchant" android:textSize="12sp" android:textStyle="bold"
+                android:textColor="@color/theme_text_primary" android:layout_marginBottom="12dp" />
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="NAME" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:textStyle="bold" android:layout_marginBottom="4dp" />
+            <EditText android:id="@+id/etMerchantName" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="e.g. Aarong"
+                android:textSize="13sp" android:padding="8dp"
+                android:background="@drawable/bg_input_rounded"
+                android:inputType="textCapWords" android:layout_marginBottom="10dp" />
+
+            <TextView android:id="@+id/tvCreateMerchantError" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:textSize="12sp"
+                android:textColor="#EF4444" android:visibility="gone" android:layout_marginBottom="8dp" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <Button android:id="@+id/btnCancelCreateMerchant" android:layout_width="0dp" android:layout_weight="1"
+                    android:layout_height="40dp" android:text="Cancel"
+                    android:textSize="13sp" android:textStyle="bold"
+                    android:backgroundTint="#F3F4F6" android:textColor="#374151"
+                    android:layout_marginEnd="8dp" />
+                <Button android:id="@+id/btnSaveMerchant" android:layout_width="0dp" android:layout_weight="1"
+                    android:layout_height="40dp" android:text="Save"
+                    android:textSize="13sp" android:textStyle="bold"
+                    android:backgroundTint="#E8380D" android:textColor="@color/theme_bg_card" />
+            </LinearLayout>
+        </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <LinearLayout
+        android:id="@+id/merchantBusyOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@color/theme_overlay_bg"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:indeterminate="true" />
+
+        <TextView
+            android:id="@+id/tvMerchantBusy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Loading..."
+            android:textColor="@color/theme_bg_card"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginTop="12dp" />
+    </LinearLayout>
+</FrameLayout>
