@@ -87,4 +87,14 @@ object FirebasePaths {
     // petty_cash_roles/{branchId} — REMOVED: branch role assignment (Team
     // Aligned / Petty Cash POC / Accounts) lives on Branch.kt fields instead
     // (team_aligned_uid, petty_cash_poc_uid, accountant_uid), same as manager_uid.
+
+    /* ── Leave Management ─────────────────────────────────────────────
+     * Flow: Requester -> any Incharge (branch) acknowledges -> any Shift
+     * Lead (branch) approves. No per-branch fixed assignee field — see
+     * LEAVE_ACKNOWLEDGER_ROLE_NAME / LEAVE_APPROVER_ROLE_NAME in
+     * LeaveModels.kt for the role-based queue this resolves against.
+     */
+    // leave_management/{branchId}/requests/{requestId} -> LeaveRequest
+    fun leaveManagementRequests(branchId: String) = "leave_management/$branchId/requests"
+    fun leaveManagementRequest(branchId: String, requestId: String) = "leave_management/$branchId/requests/$requestId"
 }
