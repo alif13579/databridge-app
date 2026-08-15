@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.75",
+                releasedDate = "15 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash My Requests (Requester screen) redesigned to match the mockup: 'My Petty Cash Summary' hero card with this month's approved total, plus My Requests/Pending/Approved/Settled mini stat tiles, and a sticky '+ New Petty Cash Request' button pinned to the bottom"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.74",
                 releasedDate = "15 Aug 2026",
                 entries = listOf(

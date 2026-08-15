@@ -109,26 +109,76 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
-                <!-- New Request button -->
-                <Button
-                    android:id="@+id/btnPcMyRequestsNew"
+                <!-- My Petty Cash Summary hero card -->
+                <androidx.cardview.widget.CardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="+ New Request"
-                    android:textAllCaps="false"
-                    android:textStyle="bold"
-                    android:textColor="#FFFFFF"
-                    android:backgroundTint="#059669"
-                    android:paddingVertical="14dp" />
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="2dp"
+                    app:cardBackgroundColor="#059669">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="18dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="My Petty Cash Summary"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:textColor="#D1FAE5" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:text="Total Approved (This Month)"
+                            android:textSize="12sp"
+                            android:textColor="#D1FAE5" />
+
+                        <TextView
+                            android:id="@+id/tvPcMyRequestsApprovedTotal"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="monospace"
+                            android:textSize="26sp"
+                            android:textStyle="bold"
+                            android:textColor="#FFFFFF" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
+                <!-- 4 mini stat tiles: My Requests / Pending / Approved / Settled -->
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Your Requests"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:textColor="#64748B"
-                    android:layout_marginTop="20dp" />
+                    android:orientation="horizontal"
+                    android:layout_marginTop="12dp">
+
+                    <include layout="@layout/item_petty_cash_stat_card" android:id="@+id/statPcMyRequestsTotal" />
+                    <include layout="@layout/item_petty_cash_stat_card" android:id="@+id/statPcMyRequestsPending" />
+                    <include layout="@layout/item_petty_cash_stat_card" android:id="@+id/statPcMyRequestsApproved" />
+                    <include layout="@layout/item_petty_cash_stat_card" android:id="@+id/statPcMyRequestsSettled" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="20dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="My Requests"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#64748B" />
+                </LinearLayout>
 
                 <androidx.cardview.widget.CardView
                     android:layout_width="match_parent"
@@ -146,5 +196,19 @@
 
             </LinearLayout>
         </ScrollView>
+
+        <!-- New Request button — pinned at the bottom, outside the scroll
+             content, matching the mockup's sticky bottom action. -->
+        <Button
+            android:id="@+id/btnPcMyRequestsNew"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="16dp"
+            android:text="+ New Petty Cash Request"
+            android:textAllCaps="false"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:backgroundTint="#059669"
+            android:paddingVertical="14dp" />
     </LinearLayout>
 </FrameLayout>

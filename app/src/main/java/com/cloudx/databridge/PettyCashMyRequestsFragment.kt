@@ -1,6 +1,7 @@
 package com.cloudx.databridge
 
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -210,6 +211,33 @@ class PettyCashMyRequestsFragment : Fragment() {
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         val mine = state.requests.filter { it.workerUid == myUid }.sortedByDescending { it.createdAt }
 
+        // Hero card: this month's approved total, out of MY requests only
+        // (state.settledThisMonthTotal on the shared model is branch-wide,
+        // meant for Accounts — Requester needs their own number).
+        val cal = java.util.Calendar.getInstance()
+        val currentMonth = cal.get(java.util.Calendar.MONTH)
+        val currentYear = cal.get(java.util.Calendar.YEAR)
+        val approvedThisMonthTotal = mine.filter {
+            val approvedAt = when {
+                it.status == PC_STATUS_SETTLED && it.settledAt != 0L -> it.settledAt
+                it.pocApprovedAt != 0L -> it.pocApprovedAt
+                else -> 0L
+            }
+            if (approvedAt == 0L || it.status !in setOf(PC_STATUS_APPROVED, PC_STATUS_SETTLE_IN_PROCESS, PC_STATUS_SETTLED)) return@filter false
+            cal.timeInMillis = approvedAt
+            cal.get(java.util.Calendar.MONTH) == currentMonth && cal.get(java.util.Calendar.YEAR) == currentYear
+        }.sumOf { it.amount }
+        root.findViewById<TextView>(R.id.tvPcMyRequestsApprovedTotal).text = taka(approvedThisMonthTotal)
+
+        val pendingCount = mine.count { it.status == PC_STATUS_PENDING || it.status == PC_STATUS_ACKNOWLEDGED }
+        val approvedCount = mine.count { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
+        val settledCount = mine.count { it.status == PC_STATUS_SETTLED }
+
+        bindStatTile(root, R.id.statPcMyRequestsTotal, "\uD83D\uDCCB", "My\nRequests", mine.size.toString(), "#F1F5F9", "#0F172A")
+        bindStatTile(root, R.id.statPcMyRequestsPending, "\u23F3", "Pending", pendingCount.toString(), "#FFEDD5", "#C2410C")
+        bindStatTile(root, R.id.statPcMyRequestsApproved, "\u2705", "Approved", approvedCount.toString(), "#EDE9FE", "#6D28D9")
+        bindStatTile(root, R.id.statPcMyRequestsSettled, "\uD83D\uDCB0", "Settled", settledCount.toString(), "#D1FAE5", "#059669")
+
         val container = root.findViewById<android.widget.LinearLayout>(R.id.layoutPcMyRequestsList)
         container.removeAllViews()
 
@@ -248,6 +276,21 @@ class PettyCashMyRequestsFragment : Fragment() {
             }
             container.addView(row)
         }
+    }
+
+    private fun bindStatTile(root: View, includeId: Int, icon: String, label: String, value: String, bg: String, fg: String) {
+        val statRoot = root.findViewById<View>(includeId) ?: return
+        val tvIcon = statRoot.findViewById<TextView>(R.id.tvStatCardIcon)
+        val tvLabel = statRoot.findViewById<TextView>(R.id.tvStatCardLabel)
+        val tvValue = statRoot.findViewById<TextView>(R.id.tvStatCardValue)
+        tvIcon.text = icon
+        tvIcon.setTextColor(Color.parseColor(fg))
+        tvIcon.background = GradientDrawable().apply {
+            setColor(Color.parseColor(bg))
+            cornerRadius = dp(8).toFloat()
+        }
+        tvLabel.text = label
+        tvValue.text = value
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
