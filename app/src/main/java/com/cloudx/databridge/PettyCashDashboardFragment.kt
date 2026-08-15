@@ -365,19 +365,30 @@ class PettyCashDashboardFragment : Fragment() {
         tvAvailableBalance.text = taka(state.walletBalance)
         tvTotalFund.text = taka(state.totalFund)
 
-        bindStatCard(root, R.id.statPcPendingApproval, "\u23F3", "Pending\nApproval", taka(state.pendingApprovalTotal), "#FFEDD5", "#C2410C") {
+        val pendingCount = state.requests.count { it.status == PC_STATUS_PENDING || it.status == PC_STATUS_ACKNOWLEDGED }
+        val approvedWaitingCount = state.requests.count { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
+        val settledThisMonthCount = state.requests.count { req ->
+            if (req.status != PC_STATUS_SETTLED || req.settledAt == 0L) return@count false
+            val cal = java.util.Calendar.getInstance()
+            val nowMonth = cal.get(java.util.Calendar.MONTH)
+            val nowYear = cal.get(java.util.Calendar.YEAR)
+            cal.timeInMillis = req.settledAt
+            cal.get(java.util.Calendar.MONTH) == nowMonth && cal.get(java.util.Calendar.YEAR) == nowYear
+        }
+
+        bindStatCard(root, R.id.statPcPendingApproval, "\u23F3", "Pending\nApproval", taka(state.pendingApprovalTotal), "#FFEDD5", "#C2410C", count = pendingCount) {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, PC_STATUS_PENDING))
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
-        bindStatCard(root, R.id.statPcApprovedSettlement, "\u23F3", "Approved\n(Settlement)", taka(state.approvedWaitingSettlementTotal), "#EDE9FE", "#6D28D9") {
+        bindStatCard(root, R.id.statPcApprovedSettlement, "\u23F3", "Approved\n(Settlement)", taka(state.approvedWaitingSettlementTotal), "#EDE9FE", "#6D28D9", count = approvedWaitingCount) {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, PC_STATUS_APPROVED))
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
-        bindStatCard(root, R.id.statPcSettledMonth, "\u2705", "Settled\nThis Month", taka(state.settledThisMonthTotal), "#D1FAE5", "#059669") {
+        bindStatCard(root, R.id.statPcSettledMonth, "\u2705", "Settled\nThis Month", taka(state.settledThisMonthTotal), "#D1FAE5", "#059669", count = settledThisMonthCount) {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, PC_STATUS_SETTLED))
                 .addToBackStack(null)
@@ -496,16 +507,24 @@ class PettyCashDashboardFragment : Fragment() {
         }
     }
 
-    private fun bindStatCard(root: View, includeId: Int, icon: String, label: String, value: String, bg: String, fg: String, onClick: () -> Unit) {
+    private fun bindStatCard(root: View, includeId: Int, icon: String, label: String, value: String, bg: String, fg: String, count: Int? = null, onClick: () -> Unit) {
         val statRoot = root.findViewById<View>(includeId) ?: return
         val tvIcon = statRoot.findViewById<TextView>(R.id.tvStatCardIcon)
         val tvLabel = statRoot.findViewById<TextView>(R.id.tvStatCardLabel)
         val tvValue = statRoot.findViewById<TextView>(R.id.tvStatCardValue)
+        val tvCount = statRoot.findViewById<TextView>(R.id.tvStatCardCount)
         tvIcon.text = icon
         tvIcon.setTextColor(Color.parseColor(fg))
         tvIcon.background = roundedDrawable(bg, dp(8))
         tvLabel.text = label
         tvValue.text = value
+        // Mockup shows both a request count and a taka total on each Accounts
+        // stat tile (e.g. "10" and "৳21,350") -- the count line is optional
+        // since the Team Aligned/Cash POC tiles this same include is reused
+        // for already show a bare count as the main value and don't need a
+        // second one under it.
+        tvCount.isVisible = count != null
+        if (count != null) tvCount.text = "$count requests"
         statRoot.isClickable = true
         statRoot.isFocusable = true
         statRoot.setOnClickListener { onClick() }

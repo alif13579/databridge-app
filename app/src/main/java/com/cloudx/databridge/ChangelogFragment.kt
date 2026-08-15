@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.79",
+                releasedDate = "15 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash Accounts Dashboard: stat cards (Pending Approval / Approved (Settlement) / Settled This Month) now show the request count alongside the taka total, matching the mockup"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.77",
                 releasedDate = "15 Aug 2026",
                 entries = listOf(
