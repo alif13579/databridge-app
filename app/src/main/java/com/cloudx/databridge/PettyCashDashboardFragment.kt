@@ -63,6 +63,7 @@ class PettyCashDashboardFragment : Fragment() {
     private lateinit var tvQueueTitle: TextView
     private lateinit var tvViewAllQueue: TextView
     private lateinit var layoutQueueList: LinearLayout
+    private lateinit var layoutNoRoleState: View
 
     private var branchId: String = ""
     private val db = FirebaseDatabase.getInstance()
@@ -126,6 +127,7 @@ class PettyCashDashboardFragment : Fragment() {
         tvQueueTitle    = view.findViewById(R.id.tvPcQueueTitle)
         tvViewAllQueue  = view.findViewById(R.id.tvPcViewAllQueue)
         layoutQueueList = view.findViewById(R.id.layoutPcQueueList)
+        layoutNoRoleState = view.findViewById(R.id.layoutPcNoRoleState)
 
         view.findViewById<View>(R.id.btnPcDashboardBack).setOnClickListener {
             parentFragmentManager.popBackStack()
@@ -248,10 +250,12 @@ class PettyCashDashboardFragment : Fragment() {
                 pbLoading.isVisible = true
                 layoutError.isVisible = false
                 layoutContent.isVisible = false
+                layoutNoRoleState.isVisible = false
             }
             is PettyCashState.Error -> {
                 pbLoading.isVisible = false
                 layoutContent.isVisible = false
+                layoutNoRoleState.isVisible = false
                 layoutError.isVisible = true
                 root.findViewById<TextView>(R.id.tvPcDashboardError).text = state.message
                 root.findViewById<View>(R.id.btnPcDashboardRetry).setOnClickListener {
@@ -261,8 +265,26 @@ class PettyCashDashboardFragment : Fragment() {
             is PettyCashState.Success -> {
                 pbLoading.isVisible = false
                 layoutError.isVisible = false
-                layoutContent.isVisible = true
-                renderSuccess(root, state)
+                val views = availableViews(state.roles)
+                if (views.isEmpty()) {
+                    // The Requester (petty_cash_requester) permission that gates
+                    // "New Request" is separate from these three, and nav_petty_cash
+                    // itself is granted per-role rather than per-branch -- so someone
+                    // can legitimately reach this screen (e.g. via the branch
+                    // switcher) for a branch where they hold none of Team Aligned /
+                    // Cash POC / Accounts. Showing an explicit "no role here" state
+                    // instead of silently falling back to a fake Accounts view,
+                    // which used to render real balance numbers with the Deposit
+                    // action hidden -- looked like a broken Accounts dashboard
+                    // rather than what it actually was: wrong branch for this role.
+                    layoutContent.isVisible = false
+                    layoutNoRoleState.isVisible = true
+                    layoutRoleToggle.isVisible = false
+                } else {
+                    layoutContent.isVisible = true
+                    layoutNoRoleState.isVisible = false
+                    renderSuccess(root, state, views)
+                }
             }
         }
     }
@@ -274,14 +296,8 @@ class PettyCashDashboardFragment : Fragment() {
         RoleView.TEAM_ALIGNED.takeIf { roles.isTeamAligned }
     )
 
-    private fun renderSuccess(root: View, state: PettyCashState.Success) {
-        val views = availableViews(state.roles)
-        if (views.isEmpty()) {
-            // Shouldn't normally happen — MainActivity only routes here when
-            // nav_petty_cash is granted — but fall back to Accounts' shape
-            // rather than showing a blank/broken screen.
-            selectedView = RoleView.ACCOUNTS
-        } else if (selectedView == null || selectedView !in views) {
+    private fun renderSuccess(root: View, state: PettyCashState.Success, views: List<RoleView>) {
+        if (selectedView == null || selectedView !in views) {
             selectedView = views.first()
         }
 
@@ -309,7 +325,7 @@ class PettyCashDashboardFragment : Fragment() {
             chip.text = roleLabel(roleView)
             chip.setOnClickListener {
                 selectedView = roleView
-                viewModel.state.value?.let { s -> if (s is PettyCashState.Success) renderSuccess(requireView(), s) }
+                viewModel.state.value?.let { s -> if (s is PettyCashState.Success) renderSuccess(requireView(), s, views) }
             }
             val active = roleView == selectedView
             chip.setTextColor(Color.parseColor(if (active) "#059669" else "#64748B"))

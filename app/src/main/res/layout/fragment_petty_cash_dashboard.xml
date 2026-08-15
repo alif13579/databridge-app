@@ -148,6 +148,24 @@
                 </LinearLayout>
 
                 <LinearLayout
+                    android:id="@+id/layoutPcNoRoleState"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="24dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="You don't have a petty cash role assigned for this branch."
+                        android:textColor="#64748B"
+                        android:textSize="13sp"
+                        android:gravity="center" />
+                </LinearLayout>
+
+                <LinearLayout
                     android:id="@+id/layoutPcDashboardContent"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.72",
+                releasedDate = "14 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Petty Cash Dashboard: fixed Deposit Fund silently disappearing for Accounts when viewing a branch where they hold no petty cash role — now shows a clear \"no role for this branch\" message instead of a misleading fake Accounts view"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.71",
                 releasedDate = "14 Aug 2026",
                 entries = listOf(
