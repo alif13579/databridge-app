@@ -346,6 +346,29 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                         loadFragment(PettyCashMyRequestsFragment.newInstance(branchId))
                     }
                 }
+                R.id.nav_leave_management -> {
+                    // Role gating here is NOT permission-catalog-based like Petty
+                    // Cash's nav_petty_cash/petty_cash_requester split — Incharge/
+                    // Shift Lead are resolved by role NAME (see LeaveViewModel.
+                    // resolveRoles()), since they're meant to be role-wide queues,
+                    // not a permission toggle. RbacManager.current.roleName is the
+                    // same cached role name LeaveViewModel compares against, so
+                    // this routing check and that resolution can't disagree.
+                    // LeaveQueueFragment re-derives the authoritative answer from
+                    // Firebase itself (including branch membership) once loaded —
+                    // this is just picking which screen to open first.
+                    val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
+                    val roleName = RbacManager.current.roleName.trim()
+                    val isApprover = roleName.equals(LEAVE_ACKNOWLEDGER_ROLE_NAME, ignoreCase = true) ||
+                        roleName.equals(LEAVE_APPROVER_ROLE_NAME, ignoreCase = true)
+                    if (branchId.isBlank()) {
+                        Toast.makeText(this, "No branch assigned to this account", Toast.LENGTH_SHORT).show()
+                    } else if (isApprover) {
+                        loadFragment(LeaveQueueFragment.newInstance(branchId))
+                    } else {
+                        loadFragment(LeaveMyRequestsFragment.newInstance(branchId))
+                    }
+                }
                 R.id.nav_login     -> launchGoogleSignIn()
                 R.id.nav_logout    -> confirmLogout()
             }
@@ -552,6 +575,17 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             // just Requester access (petty_cash_requester) is granted — the
             // click handler above routes to the right screen for whichever it is.
             isVisible = RbacManager.hasPermission("nav_petty_cash") || RbacManager.hasPermission("petty_cash_requester")
+        }
+        menu.findItem(R.id.nav_leave_management)?.apply {
+            // Visible if the user can submit requests (leave_requester) OR is
+            // an Incharge/Shift Lead by role name — same either/or shape as
+            // Petty Cash's item above, just checked against role name instead
+            // of a second permission key. Someone with neither still shouldn't
+            // see the entry at all.
+            val roleName = RbacManager.current.roleName.trim()
+            val isApprover = roleName.equals(LEAVE_ACKNOWLEDGER_ROLE_NAME, ignoreCase = true) ||
+                roleName.equals(LEAVE_APPROVER_ROLE_NAME, ignoreCase = true)
+            isVisible = RbacManager.hasPermission("leave_requester") || isApprover
         }
 
         // Primary nav items – no role gating; only permission-based

@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F1F5F9">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Toolbar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="12dp"
+            android:background="#FFFFFF">
+
+            <ImageButton
+                android:id="@+id/btnLmQueueBack"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@android:drawable/ic_menu_revert"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Back" />
+
+            <TextView
+                android:id="@+id/tvLmQueueTitle"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Leave Approvals"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A"
+                android:layout_marginStart="8dp" />
+        </LinearLayout>
+
+        <!-- Role toggle — shown only if the signed-in user is both Incharge and Shift Lead -->
+        <LinearLayout
+            android:id="@+id/layoutLmQueueRoleToggle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="#FFFFFF"
+            android:paddingHorizontal="16dp"
+            android:paddingBottom="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/btnLmQueueRoleIncharge"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Incharge Queue"
+                android:textAlignment="center"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:paddingVertical="8dp"
+                android:background="@drawable/bg_pc_input"
+                android:layout_marginEnd="6dp" />
+
+            <TextView
+                android:id="@+id/btnLmQueueRoleShiftLead"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Shift Lead Queue"
+                android:textAlignment="center"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:paddingVertical="8dp"
+                android:background="@drawable/bg_pc_input" />
+        </LinearLayout>
+
+        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+            android:id="@+id/swipeRefreshLmQueue"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvLmQueue"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:paddingHorizontal="16dp"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="16dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutLmQueueEmpty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="\u2705"
+                        android:textSize="32sp" />
+
+                    <TextView
+                        android:id="@+id/tvLmQueueEmptyText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Nothing pending right now"
+                        android:textSize="13sp"
+                        android:textColor="#64748B" />
+                </LinearLayout>
+
+                <ProgressBar
+                    android:id="@+id/pbLmQueueLoading"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:visibility="gone" />
+            </FrameLayout>
+        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+    </LinearLayout>
+</FrameLayout>

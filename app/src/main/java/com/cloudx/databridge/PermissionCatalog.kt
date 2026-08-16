@@ -27,22 +27,32 @@ object PermissionCatalog {
         Perm("nav_cash_management","Cash Management", "Branch cash collection & MFS reconciliation"),
         Perm("nav_petty_cash",     "Petty Cash",      "Worker convenience bill requests & approval chain"),
         Perm("petty_cash_requester", "Requester", "Can submit new petty cash requests (e.g. Pickup Agent, Delivery Agent)"),
+        Perm("nav_leave_management","Leave Management","Leave requests & Incharge/Shift Lead approval chain"),
+        Perm("leave_requester", "Requester", "Can submit new leave requests (e.g. Pickup Agent, Delivery Agent)"),
     )
 
     /**
      * Sub-permissions shown nested under their parent in Access Manager,
      * only enabled/visible once the parent permission is checked.
      *
-     * Currently just Petty Cash: Requester lives under Petty Cash — the
-     * other petty cash roles (Team Aligned / Cash POC / Accountant) are
-     * deliberately NOT here, since those are per-branch individual
-     * assignments made from Branch Edit, not a role-wide permission. Making
-     * Team Aligned a role-wide permission here would mean every branch's
-     * holder of that role becomes Team Aligned everywhere, losing the
-     * per-branch distinction that assignment exists for.
+     * Petty Cash: Requester lives under Petty Cash — the other petty cash
+     * roles (Team Aligned / Cash POC / Accountant) are deliberately NOT
+     * here, since those are per-branch individual assignments made from
+     * Branch Edit, not a role-wide permission. Making Team Aligned a
+     * role-wide permission here would mean every branch's holder of that
+     * role becomes Team Aligned everywhere, losing the per-branch
+     * distinction that assignment exists for.
+     *
+     * Leave Management: Requester lives under Leave Management the same
+     * way. Its Incharge/Shift Lead queues are NOT permission-catalog
+     * entries either, but for the opposite reason from Petty Cash — they
+     * ARE meant to be role-wide (every Incharge/Shift Lead at a branch can
+     * act), so they're resolved purely by role NAME match in
+     * LeaveViewModel.resolveRoles(), no permission toggle needed at all.
      */
     val childrenOf: Map<String, List<Perm>> = mapOf(
-        "nav_petty_cash" to all.filter { it.key == "petty_cash_requester" }
+        "nav_petty_cash" to all.filter { it.key == "petty_cash_requester" },
+        "nav_leave_management" to all.filter { it.key == "leave_requester" }
     )
 
     private val childKeys: Set<String> = childrenOf.values.flatten().map { it.key }.toSet()

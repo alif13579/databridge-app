@@ -84,6 +84,11 @@
             android:icon="@drawable/ic_wallet_24"
             android:title="Petty Cash"
             android:visible="false" />
+        <item
+            android:id="@+id/nav_leave_management"
+            android:icon="@android:drawable/ic_menu_my_calendar"
+            android:title="Leave Management"
+            android:visible="false" />
     </group>
 
     <group android:id="@+id/group_settings" android:checkableBehavior="single">
