@@ -71,7 +71,7 @@ class PettyCashDashboardFragment : Fragment() {
     private var branchNames: Map<String, String> = emptyMap()
 
     /** Which role's dashboard is currently on screen. */
-    private enum class RoleView { ACCOUNTS, CASH_POC, TEAM_ALIGNED }
+    private enum class RoleView { ACCOUNTS, CASH_POC, STAFF }
     private var selectedView: RoleView? = null
 
     companion object {
@@ -343,7 +343,7 @@ class PettyCashDashboardFragment : Fragment() {
     private fun availableViews(roles: PettyCashUserRoles): List<RoleView> = listOfNotNull(
         RoleView.ACCOUNTS.takeIf { roles.isAccounts },
         RoleView.CASH_POC.takeIf { roles.isCashPoc },
-        RoleView.TEAM_ALIGNED.takeIf { roles.isTeamAligned }
+        RoleView.STAFF.takeIf { roles.isStaff }
     )
 
     private fun renderSuccess(root: View, state: PettyCashState.Success, views: List<RoleView>) {
@@ -356,7 +356,7 @@ class PettyCashDashboardFragment : Fragment() {
 
         when (selectedView) {
             RoleView.CASH_POC -> renderApproverSummary(root, state, RoleView.CASH_POC)
-            RoleView.TEAM_ALIGNED -> renderApproverSummary(root, state, RoleView.TEAM_ALIGNED)
+            RoleView.STAFF -> renderApproverSummary(root, state, RoleView.STAFF)
             else -> renderAccountsSummary(root, state)
         }
 
@@ -387,14 +387,15 @@ class PettyCashDashboardFragment : Fragment() {
         }
     }
 
-    // Display label is "Staff" (renamed from "Team Aligned"); the enum
-    // constant RoleView.TEAM_ALIGNED and every other internal name are
-    // unchanged on purpose — this is a UI-only rename, not a data-model
-    // or role-resolution change.
+    // Display label and internal name are both "Staff" now (renamed from
+    // "Team Aligned" -- includes RoleView.STAFF, isStaff, staff_uid,
+    // staff_role, staffByUid/staffByName/staffAt). No production data
+    // existed under the old names, so this was a full rename rather than
+    // a display-label-only change kept separate from the data model.
     private fun roleLabel(roleView: RoleView): String = when (roleView) {
         RoleView.ACCOUNTS -> "Accounts"
         RoleView.CASH_POC -> "Petty Cash POC"
-        RoleView.TEAM_ALIGNED -> "Staff"
+        RoleView.STAFF -> "Staff"
     }
 
     // "Hi Accountant, welcome back" style greeting keyed to the *detected*
@@ -407,7 +408,7 @@ class PettyCashDashboardFragment : Fragment() {
         val greetingRole = when (roleView) {
             RoleView.ACCOUNTS -> "Accountant"
             RoleView.CASH_POC -> "Petty Cash POC"
-            RoleView.TEAM_ALIGNED -> "Staff"
+            RoleView.STAFF -> "Staff"
         }
         tvDashboardSubtitle.text = "Hi $greetingRole, welcome back"
     }
@@ -475,16 +476,16 @@ class PettyCashDashboardFragment : Fragment() {
         // What "awaiting your action" means differs by stage: Team Aligned acts
         // on freshly-submitted (PENDING) requests, Cash POC acts on requests
         // Team Aligned has already acknowledged (ACKNOWLEDGED).
-        val awaitingStatus = if (roleView == RoleView.TEAM_ALIGNED) PC_STATUS_PENDING else PC_STATUS_ACKNOWLEDGED
+        val awaitingStatus = if (roleView == RoleView.STAFF) PC_STATUS_PENDING else PC_STATUS_ACKNOWLEDGED
         val all = state.requests
         val pending = all.filter { it.status == awaitingStatus }
         // "Approved" here means requests that made it past this role's stage
         // (this role acted on them, or they're further along the chain).
         val approved = all.filter { it.status !in setOf(PC_STATUS_PENDING, PC_STATUS_ACKNOWLEDGED, PC_STATUS_REJECTED) ||
-            (roleView == RoleView.TEAM_ALIGNED && it.status == PC_STATUS_ACKNOWLEDGED) }
+            (roleView == RoleView.STAFF && it.status == PC_STATUS_ACKNOWLEDGED) }
         val rejected = all.filter { it.status == PC_STATUS_REJECTED }
 
-        tvSummaryRoleLabel.text = if (roleView == RoleView.TEAM_ALIGNED) "Team Summary" else "POC Summary"
+        tvSummaryRoleLabel.text = if (roleView == RoleView.STAFF) "Team Summary" else "POC Summary"
         tvSummaryTotalRequests.text = all.size.toString()
 
         bindStatCard(root, R.id.statPcPendingApproval, "\u23F3", "Pending\nApproval", pending.size.toString(), "#FFEDD5", "#C2410C") {

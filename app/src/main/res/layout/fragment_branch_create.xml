@@ -265,14 +265,14 @@
             android:paddingStart="4dp"
             android:layout_marginBottom="12dp"/>
 
-        <!-- Petty Cash: Staff (formerly "Team Aligned" -- dropdown picker, role or individual; underlying team_aligned_uid/team_aligned_role fields unchanged, this is a display-label-only rename) -->
+        <!-- Petty Cash: Staff (formerly "Team Aligned" -- both display label and underlying staff_uid/staff_role fields fully renamed; no production data existed under the old names) -->
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="Petty Cash: Staff" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
         <RelativeLayout
             android:layout_width="match_parent" android:layout_height="48dp"
             android:layout_marginBottom="4dp">
             <TextView
-                android:id="@+id/btnSelectTeamAligned"
+                android:id="@+id/btnSelectStaff"
                 android:layout_width="match_parent" android:layout_height="match_parent"
                 android:text="Tap to select Staff ▾"
                 android:textColor="@color/theme_text_secondary"
@@ -280,7 +280,7 @@
                 android:gravity="center_vertical"
                 android:clickable="true" android:focusable="true"/>
             <TextView
-                android:id="@+id/btnClearTeamAligned"
+                android:id="@+id/btnClearStaff"
                 android:layout_width="44dp" android:layout_height="match_parent"
                 android:text="✕"
                 android:textColor="@color/theme_red" android:textSize="16sp"
@@ -291,7 +291,7 @@
                 android:visibility="gone"/>
         </RelativeLayout>
         <TextView
-            android:id="@+id/tvTeamAlignedSelected"
+            android:id="@+id/tvStaffSelected"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="None selected"
             android:textColor="@color/theme_text_secondary" android:textSize="12sp"

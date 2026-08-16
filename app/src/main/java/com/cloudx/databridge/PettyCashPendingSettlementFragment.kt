@@ -200,7 +200,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
     /** Status-appropriate secondary line — what to show instead of a hardcoded "POC Approved:" for every card. */
     private fun statusInfoLine(item: PettyCashRequest): Pair<String, String> = when (item.status) {
         PC_STATUS_PENDING -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.workerName}"
-        PC_STATUS_ACKNOWLEDGED -> "Acknowledged: ${formatDateTime(item.teamAlignedAt)}" to "By: ${item.teamAlignedByName.ifBlank { "—" }}"
+        PC_STATUS_ACKNOWLEDGED -> "Acknowledged: ${formatDateTime(item.staffAt)}" to "By: ${item.staffByName.ifBlank { "—" }}"
         PC_STATUS_APPROVED -> "Approved: ${formatDateTime(item.pocApprovedAt)}" to "By: ${item.pocApprovedByName.ifBlank { "—" }}"
         PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle: ${formatDateTime(item.settleInProcessAt)}" to "By: ${item.settleInProcessByName.ifBlank { "—" }}"
         PC_STATUS_SETTLED -> "Settled: ${formatDateTime(item.settledAt)}" to "By: ${item.settledByName.ifBlank { "—" }}"

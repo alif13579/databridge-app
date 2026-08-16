@@ -95,7 +95,7 @@ object FirebasePaths {
     fun pettyCashDeposits(branchId: String) = "petty_cash/$branchId/wallet/deposits"
     // petty_cash_roles/{branchId} — REMOVED: branch role assignment (Team
     // Aligned / Petty Cash POC / Accounts) lives on Branch.kt fields instead
-    // (team_aligned_uid, petty_cash_poc_uid, accountant_uid), same as manager_uid.
+    // (staff_uid, petty_cash_poc_uid, accountant_uid), same as manager_uid.
 
     /* ── Leave Management ─────────────────────────────────────────────
      * Flow: Requester -> any Incharge (branch) acknowledges -> any Shift

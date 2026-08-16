@@ -60,9 +60,9 @@ data class PettyCashRequest(
     val status: String = PC_STATUS_PENDING,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
-    val teamAlignedByUid: String = "",
-    val teamAlignedByName: String = "",
-    val teamAlignedAt: Long = 0L,
+    val staffByUid: String = "",
+    val staffByName: String = "",
+    val staffAt: Long = 0L,
     val pocApprovedByUid: String = "",
     val pocApprovedByName: String = "",
     val pocApprovedAt: Long = 0L,
@@ -176,8 +176,11 @@ data class PettyCashFilterState(
 }
 
 // NOTE: branch-wise role assignment for the petty cash approval chain
-// (Team Aligned / Petty Cash POC / Accounts) lives on Branch.kt as
-// team_aligned_uid/name/role, petty_cash_poc_uid/name, and the pre-existing
+// (Staff / Petty Cash POC / Accounts) lives on Branch.kt as
+// staff_uid/name/role, petty_cash_poc_uid/name, and the pre-existing
 // accountant_uid/name/role — NOT a separate petty_cash_roles/{branchId}
 // node. This follows the manager_uid/accountant_uid pattern so branch role
 // assignment stays in one place (BranchEditFragment/BranchCreateFragment).
+// "Staff" was formerly named "Team Aligned" -- fully renamed (both display
+// label and field names) since no production data existed under the old
+// names yet.

@@ -55,14 +55,14 @@ class BranchEditFragment : Fragment() {
     private var selectedAccountantRole = ""
     private var selectedPettyCashPocUid  = ""
     private var selectedPettyCashPocName = ""
-    private var selectedTeamAlignedUid  = ""
-    private var selectedTeamAlignedName = ""
-    private var selectedTeamAlignedRole = ""
+    private var selectedStaffUid  = ""
+    private var selectedStaffName = ""
+    private var selectedStaffRole = ""
     private var selectedParentId    = ""
     private var originalManagerUid  = ""
     private var originalAccountantUid  = ""
     private var originalPettyCashPocUid  = ""
-    private var originalTeamAlignedUid  = ""
+    private var originalStaffUid  = ""
     private var selectedImageUri: Uri? = null
     private var uploadedImageUrl      = ""
 
@@ -94,9 +94,9 @@ class BranchEditFragment : Fragment() {
     private lateinit var btnSelectPettyCashPoc: TextView
     private lateinit var btnClearPettyCashPoc: TextView
     private lateinit var tvPettyCashPocSelected: TextView
-    private lateinit var btnSelectTeamAligned: TextView
-    private lateinit var btnClearTeamAligned: TextView
-    private lateinit var tvTeamAlignedSelected: TextView
+    private lateinit var btnSelectStaff: TextView
+    private lateinit var btnClearStaff: TextView
+    private lateinit var tvStaffSelected: TextView
     private lateinit var btnSelectParentBranch: TextView
     private lateinit var btnClearParentBranch: TextView
     private lateinit var tvParentSelected: TextView
@@ -147,9 +147,9 @@ class BranchEditFragment : Fragment() {
         btnSelectPettyCashPoc  = v.findViewById(R.id.btnSelectPettyCashPoc)
         btnClearPettyCashPoc   = v.findViewById(R.id.btnClearPettyCashPoc)
         tvPettyCashPocSelected = v.findViewById(R.id.tvPettyCashPocSelected)
-        btnSelectTeamAligned  = v.findViewById(R.id.btnSelectTeamAligned)
-        btnClearTeamAligned   = v.findViewById(R.id.btnClearTeamAligned)
-        tvTeamAlignedSelected = v.findViewById(R.id.tvTeamAlignedSelected)
+        btnSelectStaff  = v.findViewById(R.id.btnSelectStaff)
+        btnClearStaff   = v.findViewById(R.id.btnClearStaff)
+        tvStaffSelected = v.findViewById(R.id.tvStaffSelected)
         btnSelectParentBranch = v.findViewById(R.id.btnSelectParentBranch)
         btnClearParentBranch  = v.findViewById(R.id.btnClearParentBranch)
         tvParentSelected      = v.findViewById(R.id.tvParentBranchSelected)
@@ -240,38 +240,38 @@ class BranchEditFragment : Fragment() {
             tvPettyCashPocSelected.setTextColor(0xFF555555.toInt())
             btnClearPettyCashPoc.visibility = View.GONE
         }
-        btnSelectTeamAligned.setOnClickListener {
-            // Display label is "Staff" (renamed from "Team Aligned"); the
-            // underlying field/variable names are unchanged on purpose --
-            // this is a UI-only rename, not a data-model change.
+        btnSelectStaff.setOnClickListener {
+            // Both display label and field/variable names are "Staff" now
+            // (renamed fully from "Team Aligned" -- no production data
+            // existed under the old names).
             val branchScopedEmployees = allEmployees.filter { it.id in branchEmployeeUids }
             val combined = allRoles + branchScopedEmployees
             showSearchPicker("Select Staff (role or person)", combined) { item ->
                 if (item.id.startsWith("role:")) {
-                    selectedTeamAlignedRole = item.id.removePrefix("role:")
-                    selectedTeamAlignedUid  = ""
-                    selectedTeamAlignedName = item.name
+                    selectedStaffRole = item.id.removePrefix("role:")
+                    selectedStaffUid  = ""
+                    selectedStaffName = item.name
                 } else {
-                    selectedTeamAlignedRole = ""
-                    selectedTeamAlignedUid  = item.id
-                    selectedTeamAlignedName = item.name
+                    selectedStaffRole = ""
+                    selectedStaffUid  = item.id
+                    selectedStaffName = item.name
                 }
-                btnSelectTeamAligned.text = item.name
-                btnSelectTeamAligned.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
-                tvTeamAlignedSelected.text = item.sub
-                tvTeamAlignedSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
-                btnClearTeamAligned.visibility = View.VISIBLE
+                btnSelectStaff.text = item.name
+                btnSelectStaff.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
+                tvStaffSelected.text = item.sub
+                tvStaffSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
+                btnClearStaff.visibility = View.VISIBLE
             }
         }
-        btnClearTeamAligned.setOnClickListener {
-            selectedTeamAlignedUid  = ""
-            selectedTeamAlignedName = ""
-            selectedTeamAlignedRole = ""
-            btnSelectTeamAligned.text = "Tap to select Staff ▾"
-            btnSelectTeamAligned.setTextColor(0xFF888888.toInt())
-            tvTeamAlignedSelected.text = "None selected"
-            tvTeamAlignedSelected.setTextColor(0xFF555555.toInt())
-            btnClearTeamAligned.visibility = View.GONE
+        btnClearStaff.setOnClickListener {
+            selectedStaffUid  = ""
+            selectedStaffName = ""
+            selectedStaffRole = ""
+            btnSelectStaff.text = "Tap to select Staff ▾"
+            btnSelectStaff.setTextColor(0xFF888888.toInt())
+            tvStaffSelected.text = "None selected"
+            tvStaffSelected.setTextColor(0xFF555555.toInt())
+            btnClearStaff.visibility = View.GONE
         }
         btnSelectParentBranch.setOnClickListener {
             val myId = arguments?.getString(ARG_ID) ?: ""
@@ -414,10 +414,10 @@ class BranchEditFragment : Fragment() {
         selectedPettyCashPocUid  = snap.child("petty_cash_poc_uid").getValue(String::class.java) ?: ""
         selectedPettyCashPocName = snap.child("petty_cash_poc_name").getValue(String::class.java) ?: ""
         originalPettyCashPocUid  = selectedPettyCashPocUid
-        selectedTeamAlignedUid  = snap.child("team_aligned_uid").getValue(String::class.java) ?: ""
-        selectedTeamAlignedName = snap.child("team_aligned_name").getValue(String::class.java) ?: ""
-        selectedTeamAlignedRole = snap.child("team_aligned_role").getValue(String::class.java) ?: ""
-        originalTeamAlignedUid  = selectedTeamAlignedUid
+        selectedStaffUid  = snap.child("staff_uid").getValue(String::class.java) ?: ""
+        selectedStaffName = snap.child("staff_name").getValue(String::class.java) ?: ""
+        selectedStaffRole = snap.child("staff_role").getValue(String::class.java) ?: ""
+        originalStaffUid  = selectedStaffUid
         uploadedImageUrl    = snap.child("image_url").getValue(String::class.java) ?: ""
         if (uploadedImageUrl.isNotBlank()) {
             ivBranchImage.load(uploadedImageUrl) {
@@ -449,15 +449,15 @@ class BranchEditFragment : Fragment() {
             tvPettyCashPocSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
             btnClearPettyCashPoc.visibility = View.VISIBLE
         }
-        if (selectedTeamAlignedName.isNotBlank()) {
-            btnSelectTeamAligned.text = selectedTeamAlignedName
-            btnSelectTeamAligned.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
-            tvTeamAlignedSelected.text = if (selectedTeamAlignedRole.isNotBlank())
+        if (selectedStaffName.isNotBlank()) {
+            btnSelectStaff.text = selectedStaffName
+            btnSelectStaff.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
+            tvStaffSelected.text = if (selectedStaffRole.isNotBlank())
                 "Role — everyone with this role at this branch"
             else
-                allEmployees.find { it.id == selectedTeamAlignedUid }?.sub ?: ""
-            tvTeamAlignedSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
-            btnClearTeamAligned.visibility = View.VISIBLE
+                allEmployees.find { it.id == selectedStaffUid }?.sub ?: ""
+            tvStaffSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
+            btnClearStaff.visibility = View.VISIBLE
         }
 
         selectedParentId = snap.child("parent_branch_id").getValue(String::class.java) ?: ""
@@ -504,9 +504,9 @@ class BranchEditFragment : Fragment() {
                     "branches/$branchId/accountant_role" to selectedAccountantRole,
                     "branches/$branchId/petty_cash_poc_uid"  to selectedPettyCashPocUid,
                     "branches/$branchId/petty_cash_poc_name" to selectedPettyCashPocName,
-                    "branches/$branchId/team_aligned_uid"  to selectedTeamAlignedUid,
-                    "branches/$branchId/team_aligned_name" to selectedTeamAlignedName,
-                    "branches/$branchId/team_aligned_role" to selectedTeamAlignedRole,
+                    "branches/$branchId/staff_uid"  to selectedStaffUid,
+                    "branches/$branchId/staff_name" to selectedStaffName,
+                    "branches/$branchId/staff_role" to selectedStaffRole,
                     "branches/$branchId/parent_branch_id" to selectedParentId,
                     "branches/$branchId/status"          to status,
                     "branches/$branchId/updated_at"      to now,
@@ -550,22 +550,22 @@ class BranchEditFragment : Fragment() {
                     updates["branches/$branchId/employees/$selectedPettyCashPocUid"] =
                         mapOf("user_id" to selectedPettyCashPocUid, "employee_id" to empId)
                 }
-                if (selectedTeamAlignedUid.isNotBlank()) {
+                if (selectedStaffUid.isNotBlank()) {
                     // Same as manager/accountant/POC: ensure Team Aligned has this branch in branch_ids and index entry exists
-                    val idsSnap = db.reference.child("users/$selectedTeamAlignedUid/profile/company_info/branch_ids").get().await()
+                    val idsSnap = db.reference.child("users/$selectedStaffUid/profile/company_info/branch_ids").get().await()
                     val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
                     val newIds = (currentIds + branchId).distinct()
-                    updates["users/$selectedTeamAlignedUid/profile/company_info/branch_ids"] = newIds
-                    val empId = allEmployees.find { it.id == selectedTeamAlignedUid }?.empId ?: ""
-                    updates["branches/$branchId/employees/$selectedTeamAlignedUid"] =
-                        mapOf("user_id" to selectedTeamAlignedUid, "employee_id" to empId)
+                    updates["users/$selectedStaffUid/profile/company_info/branch_ids"] = newIds
+                    val empId = allEmployees.find { it.id == selectedStaffUid }?.empId ?: ""
+                    updates["branches/$branchId/employees/$selectedStaffUid"] =
+                        mapOf("user_id" to selectedStaffUid, "employee_id" to empId)
                 }
                 db.reference.updateChildren(updates).await()
                 // Remove old manager from employees index and update their branch_ids —
                 // but only if they didn't just become the accountant, POC, or Team Aligned instead (still needs access)
                 if (originalManagerUid.isNotBlank() && originalManagerUid != selectedManagerUid &&
                     originalManagerUid != selectedAccountantUid && originalManagerUid != selectedPettyCashPocUid &&
-                    originalManagerUid != selectedTeamAlignedUid) {
+                    originalManagerUid != selectedStaffUid) {
                     db.reference.child("branches/$branchId/employees/$originalManagerUid").removeValue().await()
                     val oldIdsSnap = db.reference.child("users/$originalManagerUid/profile/company_info/branch_ids").get().await()
                     val oldIds = if (oldIdsSnap.exists()) oldIdsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
@@ -575,7 +575,7 @@ class BranchEditFragment : Fragment() {
                 // Same guarded cleanup for the old accountant
                 if (originalAccountantUid.isNotBlank() && originalAccountantUid != selectedAccountantUid &&
                     originalAccountantUid != selectedManagerUid && originalAccountantUid != selectedPettyCashPocUid &&
-                    originalAccountantUid != selectedTeamAlignedUid) {
+                    originalAccountantUid != selectedStaffUid) {
                     db.reference.child("branches/$branchId/employees/$originalAccountantUid").removeValue().await()
                     val oldIdsSnap = db.reference.child("users/$originalAccountantUid/profile/company_info/branch_ids").get().await()
                     val oldIds = if (oldIdsSnap.exists()) oldIdsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
@@ -585,7 +585,7 @@ class BranchEditFragment : Fragment() {
                 // Same guarded cleanup for the old Petty Cash POC
                 if (originalPettyCashPocUid.isNotBlank() && originalPettyCashPocUid != selectedPettyCashPocUid &&
                     originalPettyCashPocUid != selectedManagerUid && originalPettyCashPocUid != selectedAccountantUid &&
-                    originalPettyCashPocUid != selectedTeamAlignedUid) {
+                    originalPettyCashPocUid != selectedStaffUid) {
                     db.reference.child("branches/$branchId/employees/$originalPettyCashPocUid").removeValue().await()
                     val oldIdsSnap = db.reference.child("users/$originalPettyCashPocUid/profile/company_info/branch_ids").get().await()
                     val oldIds = if (oldIdsSnap.exists()) oldIdsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
@@ -593,14 +593,14 @@ class BranchEditFragment : Fragment() {
                     db.reference.child("users/$originalPettyCashPocUid/profile/company_info/branch_ids").setValue(filtered).await()
                 }
                 // Same guarded cleanup for the old Team Aligned
-                if (originalTeamAlignedUid.isNotBlank() && originalTeamAlignedUid != selectedTeamAlignedUid &&
-                    originalTeamAlignedUid != selectedManagerUid && originalTeamAlignedUid != selectedAccountantUid &&
-                    originalTeamAlignedUid != selectedPettyCashPocUid) {
-                    db.reference.child("branches/$branchId/employees/$originalTeamAlignedUid").removeValue().await()
-                    val oldIdsSnap = db.reference.child("users/$originalTeamAlignedUid/profile/company_info/branch_ids").get().await()
+                if (originalStaffUid.isNotBlank() && originalStaffUid != selectedStaffUid &&
+                    originalStaffUid != selectedManagerUid && originalStaffUid != selectedAccountantUid &&
+                    originalStaffUid != selectedPettyCashPocUid) {
+                    db.reference.child("branches/$branchId/employees/$originalStaffUid").removeValue().await()
+                    val oldIdsSnap = db.reference.child("users/$originalStaffUid/profile/company_info/branch_ids").get().await()
                     val oldIds = if (oldIdsSnap.exists()) oldIdsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
                     val filtered = oldIds.filter { it != branchId }
-                    db.reference.child("users/$originalTeamAlignedUid/profile/company_info/branch_ids").setValue(filtered).await()
+                    db.reference.child("users/$originalStaffUid/profile/company_info/branch_ids").setValue(filtered).await()
                 }
                 toast("Branch updated ✓")
                 parentFragmentManager.popBackStack()

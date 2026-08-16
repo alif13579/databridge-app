@@ -60,9 +60,9 @@ class BranchCreateFragment : Fragment() {
     private var selectedAccountantRole = ""
     private var selectedPettyCashPocUid  = ""
     private var selectedPettyCashPocName = ""
-    private var selectedTeamAlignedUid  = ""
-    private var selectedTeamAlignedName = ""
-    private var selectedTeamAlignedRole = ""
+    private var selectedStaffUid  = ""
+    private var selectedStaffName = ""
+    private var selectedStaffRole = ""
     private var selectedParentId    = ""
     private var selectedImageUri: Uri? = null
     private var uploadedImageUrl      = ""
@@ -86,9 +86,9 @@ class BranchCreateFragment : Fragment() {
     private lateinit var btnSelectPettyCashPoc: TextView
     private lateinit var btnClearPettyCashPoc: TextView
     private lateinit var tvPettyCashPocSelected: TextView
-    private lateinit var btnSelectTeamAligned: TextView
-    private lateinit var btnClearTeamAligned: TextView
-    private lateinit var tvTeamAlignedSelected: TextView
+    private lateinit var btnSelectStaff: TextView
+    private lateinit var btnClearStaff: TextView
+    private lateinit var tvStaffSelected: TextView
     private lateinit var btnSelectParentBranch: TextView
     private lateinit var btnClearParentBranch: TextView
     private lateinit var tvParentSelected: TextView
@@ -126,9 +126,9 @@ class BranchCreateFragment : Fragment() {
         btnSelectPettyCashPoc  = view.findViewById(R.id.btnSelectPettyCashPoc)
         btnClearPettyCashPoc   = view.findViewById(R.id.btnClearPettyCashPoc)
         tvPettyCashPocSelected = view.findViewById(R.id.tvPettyCashPocSelected)
-        btnSelectTeamAligned  = view.findViewById(R.id.btnSelectTeamAligned)
-        btnClearTeamAligned   = view.findViewById(R.id.btnClearTeamAligned)
-        tvTeamAlignedSelected = view.findViewById(R.id.tvTeamAlignedSelected)
+        btnSelectStaff  = view.findViewById(R.id.btnSelectStaff)
+        btnClearStaff   = view.findViewById(R.id.btnClearStaff)
+        tvStaffSelected = view.findViewById(R.id.tvStaffSelected)
         btnSelectParentBranch = view.findViewById(R.id.btnSelectParentBranch)
         btnClearParentBranch  = view.findViewById(R.id.btnClearParentBranch)
         tvParentSelected      = view.findViewById(R.id.tvParentBranchSelected)
@@ -224,37 +224,37 @@ class BranchCreateFragment : Fragment() {
             btnClearPettyCashPoc.visibility = View.GONE
         }
 
-        btnSelectTeamAligned.setOnClickListener {
-            // Display label is "Staff" (renamed from "Team Aligned"); the
-            // underlying field names (team_aligned_uid/team_aligned_role,
-            // selectedTeamAligned*) are unchanged on purpose -- this is a
-            // UI-only rename, not a data-model change.
+        btnSelectStaff.setOnClickListener {
+            // Both the display label and field/variable names are "Staff"
+            // now (staff_uid/staff_role, selectedStaff*) -- renamed from
+            // "Team Aligned" fully since no production data existed under
+            // the old names yet.
             showSearchPicker("Select Staff (role or person)", allRoles + allEmployees) { item ->
                 if (item.id.startsWith("role:")) {
-                    selectedTeamAlignedRole = item.id.removePrefix("role:")
-                    selectedTeamAlignedUid  = ""
-                    selectedTeamAlignedName = item.name
+                    selectedStaffRole = item.id.removePrefix("role:")
+                    selectedStaffUid  = ""
+                    selectedStaffName = item.name
                 } else {
-                    selectedTeamAlignedRole = ""
-                    selectedTeamAlignedUid  = item.id
-                    selectedTeamAlignedName = item.name
+                    selectedStaffRole = ""
+                    selectedStaffUid  = item.id
+                    selectedStaffName = item.name
                 }
-                btnSelectTeamAligned.text = item.name
-                btnSelectTeamAligned.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
-                tvTeamAlignedSelected.text = item.sub
-                tvTeamAlignedSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
-                btnClearTeamAligned.visibility = View.VISIBLE
+                btnSelectStaff.text = item.name
+                btnSelectStaff.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
+                tvStaffSelected.text = item.sub
+                tvStaffSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
+                btnClearStaff.visibility = View.VISIBLE
             }
         }
-        btnClearTeamAligned.setOnClickListener {
-            selectedTeamAlignedUid  = ""
-            selectedTeamAlignedName = ""
-            selectedTeamAlignedRole = ""
-            btnSelectTeamAligned.text = "Tap to select Staff ▾"
-            btnSelectTeamAligned.setTextColor(0xFF888888.toInt())
-            tvTeamAlignedSelected.text = "None selected"
-            tvTeamAlignedSelected.setTextColor(0xFF555555.toInt())
-            btnClearTeamAligned.visibility = View.GONE
+        btnClearStaff.setOnClickListener {
+            selectedStaffUid  = ""
+            selectedStaffName = ""
+            selectedStaffRole = ""
+            btnSelectStaff.text = "Tap to select Staff ▾"
+            btnSelectStaff.setTextColor(0xFF888888.toInt())
+            tvStaffSelected.text = "None selected"
+            tvStaffSelected.setTextColor(0xFF555555.toInt())
+            btnClearStaff.visibility = View.GONE
         }
 
         btnSelectParentBranch.setOnClickListener {
@@ -412,9 +412,9 @@ class BranchCreateFragment : Fragment() {
                     accountant_role = selectedAccountantRole,
                     petty_cash_poc_uid  = selectedPettyCashPocUid,
                     petty_cash_poc_name = selectedPettyCashPocName,
-                    team_aligned_uid  = selectedTeamAlignedUid,
-                    team_aligned_name = selectedTeamAlignedName,
-                    team_aligned_role = selectedTeamAlignedRole,
+                    staff_uid  = selectedStaffUid,
+                    staff_name = selectedStaffName,
+                    staff_role = selectedStaffRole,
                     parent_branch_id = selectedParentId,
                     status          = status,
                     image_url       = imageUrl,
@@ -458,15 +458,15 @@ class BranchCreateFragment : Fragment() {
                     db.reference.child("branches/$autoId/employees/$selectedPettyCashPocUid")
                         .setValue(mapOf("user_id" to selectedPettyCashPocUid, "employee_id" to empId)).await()
                 }
-                if (selectedTeamAlignedUid.isNotBlank()) {
+                if (selectedStaffUid.isNotBlank()) {
                     // Same as manager/accountant/POC: add branch to Team Aligned's branch_ids and ensure branch employees index
-                    val idsSnap = db.reference.child("users/$selectedTeamAlignedUid/profile/company_info/branch_ids").get().await()
+                    val idsSnap = db.reference.child("users/$selectedStaffUid/profile/company_info/branch_ids").get().await()
                     val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
                     val newIds = (currentIds + autoId).distinct()
-                    db.reference.child("users/$selectedTeamAlignedUid/profile/company_info/branch_ids").setValue(newIds).await()
-                    val empId = allEmployees.find { it.id == selectedTeamAlignedUid }?.empId ?: ""
-                    db.reference.child("branches/$autoId/employees/$selectedTeamAlignedUid")
-                        .setValue(mapOf("user_id" to selectedTeamAlignedUid, "employee_id" to empId)).await()
+                    db.reference.child("users/$selectedStaffUid/profile/company_info/branch_ids").setValue(newIds).await()
+                    val empId = allEmployees.find { it.id == selectedStaffUid }?.empId ?: ""
+                    db.reference.child("branches/$autoId/employees/$selectedStaffUid")
+                        .setValue(mapOf("user_id" to selectedStaffUid, "employee_id" to empId)).await()
                 }
 
                 toast("Branch created ✓")
