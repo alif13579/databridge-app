@@ -273,6 +273,21 @@ class PettyCashDashboardFragment : Fragment() {
                     // which used to render real balance numbers with the Deposit
                     // action hidden -- looked like a broken Accounts dashboard
                     // rather than what it actually was: wrong branch for this role.
+                    //
+                    // But if they DO hold petty_cash_requester, this Dashboard was
+                    // simply the wrong screen for them from the start (same case the
+                    // drawer's routing already avoids for a pure Requester -- see
+                    // MainActivity's nav_petty_cash handler) -- hand off to the
+                    // screen that's actually meaningful to them instead of leaving
+                    // them stuck on a dead end.
+                    if (RbacManager.hasPermission("petty_cash_requester")) {
+                        parentFragmentManager.popBackStack()
+                        parentFragmentManager.beginTransaction()
+                            .replace(R.id.container, PettyCashMyRequestsFragment.newInstance(branchId))
+                            .addToBackStack(null)
+                            .commitAllowingStateLoss()
+                        return
+                    }
                     layoutContent.isVisible = false
                     layoutNoRoleState.isVisible = true
                     layoutRoleToggle.isVisible = false
