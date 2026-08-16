@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.85",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash: Reports and More now open real screens (Reports: All Requests, Settlement History, Deposit History for Accounts; More: Wallet Summary for Accounts) instead of a 'coming soon' toast, on the Dashboard. My Requests (Requester) still shows the toast since those screens aren't scoped to a single user's own requests yet"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.84",
                 releasedDate = "16 Aug 2026",
                 entries = listOf(

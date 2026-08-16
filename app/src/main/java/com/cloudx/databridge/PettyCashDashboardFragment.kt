@@ -201,13 +201,17 @@ class PettyCashDashboardFragment : Fragment() {
         } else {
             navNew.isVisible = false
         }
-        // Reports and More: no destination screen exists anywhere in the app
-        // yet. Included for the mockup's shape, not silently faked -- says so.
         root.findViewById<View>(R.id.navPcReports).setOnClickListener {
-            Toast.makeText(requireContext(), "Reports — coming soon", Toast.LENGTH_SHORT).show()
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashReportsFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
         }
         root.findViewById<View>(R.id.navPcMore).setOnClickListener {
-            Toast.makeText(requireContext(), "More — coming soon", Toast.LENGTH_SHORT).show()
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashMoreFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
         }
     }
 
@@ -629,7 +633,10 @@ class PettyCashDashboardFragment : Fragment() {
                 .commitAllowingStateLoss()
         }
         bindQuickAction(actionReports, "\uD83D\uDCCA", "Reports") {
-            Toast.makeText(requireContext(), "Reports coming soon", Toast.LENGTH_SHORT).show()
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashReportsFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
         }
     }
 
