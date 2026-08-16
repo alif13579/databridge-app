@@ -37,6 +37,15 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.87",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash Settlement Details: Acknowledge/Approve now have an inline optional comment box (saved as Staff/POC comment, shown in the approval flow and, for POC, in a dedicated row Accounts sees before settling) instead of a plain confirm dialog"),
+                    ChangelogEntry("feature", "Petty Cash Settlement Details: Settle now shows an inline form (Payment Method, Settle Amount, Settlement Date, optional Transaction ID/Ref) matching the mockup, instead of a payment-method-only dialog"),
+                    ChangelogEntry("feature", "Petty Cash Settlement Details: added a 'Hold / Return' button at the settle stage matching the mockup's shape — not yet implemented, says so on tap"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.86",
                 releasedDate = "16 Aug 2026",
                 entries = listOf(
