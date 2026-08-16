@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+        <!-- Delivery / Pickup — one tab, two directories (see
+             ConfigAreasFragment's class doc for why this isn't two tabs). -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="@drawable/bg_area_segment_container"
+            android:padding="3dp"
+            android:layout_marginBottom="14dp">
+
+            <TextView
+                android:id="@+id/tvAreaSegDelivery"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="🚚 Delivery"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="9dp" />
+
+            <TextView
+                android:id="@+id/tvAreaSegPickup"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="📦 Pickup"
+                android:textSize="12sp"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="9dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="4dp">
+
+            <TextView
+                android:id="@+id/tvAreaListTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Delivery Areas"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnSurface" />
+
+            <TextView
+                android:id="@+id/btnOpenCreateArea"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:gravity="center"
+                android:text="+"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_bg_card"
+                android:backgroundTint="#E8380D"
+                android:background="@drawable/bg_card_rounded"
+                android:clickable="true"
+                android:focusable="true" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvAreaDescription"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Destinations a parcel can be routed to for delivery — read by Virtual Routing's Select Area picker."
+            android:textSize="11sp"
+            android:textColor="@color/theme_text_muted"
+            android:layout_marginBottom="12dp" />
+
+        <LinearLayout
+            android:id="@+id/areaListContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:id="@+id/tvAreaEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="No areas found yet, please add one."
+            android:gravity="center"
+            android:padding="20dp"
+            android:textColor="@color/theme_text_muted"
+            android:textSize="13sp"
+            android:background="@drawable/bg_card_rounded"
+            android:visibility="gone"
+            android:layout_marginBottom="16dp" />
+
+        <LinearLayout
+            android:id="@+id/inlineCreateAreaPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card_rounded"
+            android:padding="14dp"
+            android:visibility="gone">
+
+            <TextView android:id="@+id/tvCreateAreaTitle" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="+ New Area" android:textSize="12sp" android:textStyle="bold"
+                android:textColor="@color/theme_text_primary" android:layout_marginBottom="12dp" />
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="NAME" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:textStyle="bold" android:layout_marginBottom="4dp" />
+            <EditText android:id="@+id/etAreaName" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="e.g. Dhanmondi 27"
+                android:textSize="13sp" android:padding="8dp"
+                android:background="@drawable/bg_input_rounded"
+                android:inputType="textCapWords" android:layout_marginBottom="10dp" />
+
+            <TextView android:id="@+id/tvCreateAreaError" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:textSize="12sp"
+                android:textColor="#EF4444" android:visibility="gone" android:layout_marginBottom="8dp" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <Button android:id="@+id/btnCancelCreateArea" android:layout_width="0dp" android:layout_weight="1"
+                    android:layout_height="40dp" android:text="Cancel"
+                    android:textSize="13sp" android:textStyle="bold"
+                    android:backgroundTint="#F3F4F6" android:textColor="#374151"
+                    android:layout_marginEnd="8dp" />
+                <Button android:id="@+id/btnSaveArea" android:layout_width="0dp" android:layout_weight="1"
+                    android:layout_height="40dp" android:text="Save"
+                    android:textSize="13sp" android:textStyle="bold"
+                    android:backgroundTint="#E8380D" android:textColor="@color/theme_bg_card" />
+            </LinearLayout>
+        </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <LinearLayout
+        android:id="@+id/areaBusyOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@color/theme_overlay_bg"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:indeterminate="true" />
+
+        <TextView
+            android:id="@+id/tvAreaBusy"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Loading..."
+            android:textColor="@color/theme_bg_card"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:layout_marginTop="12dp" />
+    </LinearLayout>
+</FrameLayout>
