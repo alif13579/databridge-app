@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.88",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Build fix: fragment_branch_create.xml had a '--' inside an XML comment (from the Team Aligned→Staff rename), which XML disallows and broke the build"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.87",
                 releasedDate = "16 Aug 2026",
                 entries = listOf(
