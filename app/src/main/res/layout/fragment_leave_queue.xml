@@ -39,6 +39,26 @@
                 android:textStyle="bold"
                 android:textColor="#0F172A"
                 android:layout_marginStart="8dp" />
+
+            <!-- Branch switcher chip: hidden by default, shown by
+                 LeaveQueueFragment only when the signed-in Incharge/Shift
+                 Lead has more than one assigned branch. -->
+            <TextView
+                android:id="@+id/tvLmQueueBranchName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_branch_switcher_chip"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A"
+                android:drawablePadding="4dp"
+                android:gravity="center_vertical"
+                android:maxWidth="140dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:visibility="gone" />
         </LinearLayout>
 
         <!-- Role toggle — shown only if the signed-in user is both Incharge and Shift Lead -->

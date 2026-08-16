@@ -12,11 +12,6 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
-import com.google.firebase.database.FirebaseDatabase
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -39,15 +34,9 @@ class LeaveMyRequestsFragment : Fragment() {
 
     private lateinit var tvBranchName: TextView
     private var branchId: String = ""
-    private val db = FirebaseDatabase.getInstance()
-    private var branchNames: Map<String, String> = emptyMap()
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
-        // Distinct pref key from Petty Cash's — different feature, so
-        // switching branches here shouldn't move Petty Cash's remembered
-        // branch (and vice versa).
-        private const val PREF_KEY_SELECTED_BRANCH = "lm_selected_branch_id"
         fun newInstance(branchId: String): LeaveMyRequestsFragment {
             val f = LeaveMyRequestsFragment()
             f.arguments = Bundle().apply { putString(ARG_BRANCH_ID, branchId) }
@@ -61,10 +50,7 @@ class LeaveMyRequestsFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        branchId = arguments?.getString(ARG_BRANCH_ID).orEmpty()
-        branchPrefs().getString(PREF_KEY_SELECTED_BRANCH, null)
-            ?.takeIf { it in RbacManager.current.branchIds }
-            ?.let { branchId = it }
+        branchId = LeaveBranchSwitcher.resolveInitialBranchId(requireContext(), arguments?.getString(ARG_BRANCH_ID).orEmpty())
         tvBranchName = view.findViewById(R.id.tvLmMyRequestsBranchName)
 
         view.findViewById<View>(R.id.btnLmMyRequestsBack).setOnClickListener {
@@ -102,54 +88,18 @@ class LeaveMyRequestsFragment : Fragment() {
     // ── Branch switcher ──────────────────────────────────────────────────────
 
     private fun setupBranchSwitcher() {
-        val branchIds = RbacManager.current.branchIds
-        if (branchIds.size <= 1) return
-
-        val arrow = ContextCompat.getDrawable(requireContext(), R.drawable.ic_arrow_drop_down_white)?.mutate()
-        arrow?.setTint(Color.parseColor("#0F172A"))
-        tvBranchName.setCompoundDrawablesWithIntrinsicBounds(null, null, arrow, null)
-        tvBranchName.isVisible = true
-        tvBranchName.setOnClickListener { showBranchPicker(branchIds) }
-
-        val primaryId = branchIds.first()
-        if (RbacManager.current.branchName.isNotBlank()) {
-            branchNames = mapOf(primaryId to RbacManager.current.branchName)
-        }
-        tvBranchName.text = branchNames[branchId] ?: "Branch"
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            val resolved = coroutineScope {
-                branchIds.filter { it !in branchNames }.associateWith { id ->
-                    async {
-                        runCatching {
-                            db.reference.child("branches/$id/name").get().await().getValue(String::class.java)
-                        }.getOrNull()
-                    }
-                }.mapValues { (id, deferred) -> deferred.await()?.takeIf { it.isNotBlank() } ?: id }
+        LeaveBranchSwitcher.setup(
+            context = requireContext(),
+            scope = viewLifecycleOwner.lifecycleScope,
+            chip = tvBranchName,
+            currentBranchId = branchId
+        ) { newBranchId ->
+            if (newBranchId != branchId) {
+                branchId = newBranchId
+                viewModel.load(branchId)
             }
-            branchNames = branchNames + resolved
-            tvBranchName.text = branchNames[branchId] ?: branchId
         }
     }
-
-    private fun showBranchPicker(branchIds: List<String>) {
-        val labels = branchIds.map { branchNames[it] ?: it }.toTypedArray()
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Switch branch")
-            .setItems(labels) { _, index ->
-                val newBranchId = branchIds[index]
-                if (newBranchId != branchId) {
-                    branchId = newBranchId
-                    branchPrefs().edit().putString(PREF_KEY_SELECTED_BRANCH, branchId).apply()
-                    tvBranchName.text = branchNames[branchId] ?: branchId
-                    viewModel.load(branchId)
-                }
-            }
-            .show()
-    }
-
-    private fun branchPrefs() =
-        requireContext().getSharedPreferences("databridge_toggles", android.content.Context.MODE_PRIVATE)
 
     private fun formatDate(millis: Long): String {
         if (millis == 0L) return "—"

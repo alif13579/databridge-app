@@ -48,6 +48,7 @@ class LeaveQueueFragment : Fragment() {
     private lateinit var layoutRoleToggle: View
     private lateinit var btnRoleIncharge: TextView
     private lateinit var btnRoleShiftLead: TextView
+    private lateinit var tvBranchName: TextView
 
     private enum class RoleView { INCHARGE, SHIFT_LEAD }
     private var selectedView: RoleView? = null
@@ -80,7 +81,7 @@ class LeaveQueueFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        branchId = arguments?.getString(ARG_BRANCH_ID).orEmpty()
+        branchId = LeaveBranchSwitcher.resolveInitialBranchId(requireContext(), arguments?.getString(ARG_BRANCH_ID).orEmpty())
 
         swipeRefresh = view.findViewById(R.id.swipeRefreshLmQueue)
         rv = view.findViewById(R.id.rvLmQueue)
@@ -90,6 +91,7 @@ class LeaveQueueFragment : Fragment() {
         layoutRoleToggle = view.findViewById(R.id.layoutLmQueueRoleToggle)
         btnRoleIncharge = view.findViewById(R.id.btnLmQueueRoleIncharge)
         btnRoleShiftLead = view.findViewById(R.id.btnLmQueueRoleShiftLead)
+        tvBranchName = view.findViewById(R.id.tvLmQueueBranchName)
 
         rv.layoutManager = LinearLayoutManager(requireContext())
         rv.adapter = adapter
@@ -101,6 +103,20 @@ class LeaveQueueFragment : Fragment() {
         btnRoleShiftLead.setOnClickListener { selectedView = RoleView.SHIFT_LEAD; render() }
 
         swipeRefresh.setOnRefreshListener { viewModel.load(branchId) }
+
+        LeaveBranchSwitcher.setup(
+            context = requireContext(),
+            scope = viewLifecycleOwner.lifecycleScope,
+            chip = tvBranchName,
+            currentBranchId = branchId
+        ) { newBranchId ->
+            if (newBranchId != branchId) {
+                branchId = newBranchId
+                lastState = null
+                selectedView = null
+                viewModel.load(branchId)
+            }
+        }
 
         viewModel.state.observe(viewLifecycleOwner) { state -> onState(state) }
         if (branchId.isNotBlank()) viewModel.load(branchId)
