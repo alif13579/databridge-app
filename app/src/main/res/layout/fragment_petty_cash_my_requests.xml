@@ -197,8 +197,8 @@
             </LinearLayout>
         </ScrollView>
 
-        <!-- New Request button — pinned at the bottom, outside the scroll
-             content, matching the mockup's sticky bottom action. -->
+        <!-- New Request button — pinned above the bottom nav, matching the
+             mockup's sticky bottom action + separate icon row underneath. -->
         <Button
             android:id="@+id/btnPcMyRequestsNew"
             android:layout_width="match_parent"
@@ -210,5 +210,7 @@
             android:textColor="#FFFFFF"
             android:backgroundTint="#059669"
             android:paddingVertical="14dp" />
+
+        <include layout="@layout/layout_petty_cash_bottom_nav" />
     </LinearLayout>
 </FrameLayout>
