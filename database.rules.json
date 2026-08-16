@@ -96,6 +96,17 @@
         }
       }
     },
+    "leave_management": {
+      "$branchId": {
+        ".read": "auth != null",
+        "requests": {
+          "$requestId": {
+            ".read": "auth != null",
+            ".write": "auth != null && ( (!data.exists() && newData.child('workerUid').val() === auth.uid && newData.child('branchId').val() === $branchId && newData.child('status').val() === 'pending' && root.child('roles').child(root.child('users').child(auth.uid).child('profile/company_info/role_id').val()).child('permissions/leave_requester').val() === true) || (data.exists() && !newData.exists() && data.child('workerUid').val() === auth.uid && data.child('status').val() === 'pending') || (data.exists() && newData.exists() && data.child('workerUid').val() === auth.uid && data.child('status').val() === 'pending' && newData.child('status').val() === 'pending' && newData.child('workerUid').val() === data.child('workerUid').val() && newData.child('branchId').val() === data.child('branchId').val()) || (data.exists() && newData.exists() && newData.child('workerUid').val() === data.child('workerUid').val() && newData.child('branchId').val() === data.child('branchId').val() && ( (data.child('status').val() === 'pending' && newData.child('status').val() === 'acknowledged' && root.child('roles').child(root.child('users').child(auth.uid).child('profile/company_info/role_id').val()).child('name').val() === 'Incharge' && root.child('users').child(auth.uid).child('profile/company_info/branch_ids').hasChild($branchId)) || (data.child('status').val() === 'acknowledged' && newData.child('status').val() === 'approved' && root.child('roles').child(root.child('users').child(auth.uid).child('profile/company_info/role_id').val()).child('name').val() === 'Shift Lead' && root.child('users').child(auth.uid).child('profile/company_info/branch_ids').hasChild($branchId)) || (data.child('status').val() === 'pending' && newData.child('status').val() === 'rejected' && root.child('roles').child(root.child('users').child(auth.uid).child('profile/company_info/role_id').val()).child('name').val() === 'Incharge' && root.child('users').child(auth.uid).child('profile/company_info/branch_ids').hasChild($branchId)) || (data.child('status').val() === 'acknowledged' && newData.child('status').val() === 'rejected' && root.child('roles').child(root.child('users').child(auth.uid).child('profile/company_info/role_id').val()).child('name').val() === 'Shift Lead' && root.child('users').child(auth.uid).child('profile/company_info/branch_ids').hasChild($branchId)) )) )"
+          }
+        }
+      }
+    },
     "run-routes": {
       "scanned": {
         "$uid": {
