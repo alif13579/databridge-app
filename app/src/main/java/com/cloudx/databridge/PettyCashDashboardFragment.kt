@@ -158,6 +158,8 @@ class PettyCashDashboardFragment : Fragment() {
                 .commitAllowingStateLoss()
         }
 
+        setupBottomNav(view)
+
         viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
         if (branchId.isBlank()) {
             render(PettyCashState.Error("No branch selected"))
@@ -170,6 +172,43 @@ class PettyCashDashboardFragment : Fragment() {
         val whole = Math.round(amount)
         val formatted = NumberFormat.getNumberInstance(Locale.US).format(whole)
         return "\u09F3$formatted"
+    }
+
+    // ── Bottom nav ───────────────────────────────────────────────────────────
+    // See layout_petty_cash_bottom_nav.xml for why this is local to Petty Cash
+    // rather than added to the app-wide BottomNavigationView.
+    private fun setupBottomNav(root: View) {
+        // navPcHome intentionally left unwired — already on this screen.
+        root.findViewById<View>(R.id.navPcRequests).setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashAllRequestsFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+        // "+" opens New Request only if this user can actually submit one —
+        // Team Aligned/Cash POC/Accounts without petty_cash_requester have
+        // nothing to create here, so hide it rather than open a form that
+        // would just reject their submission.
+        val navNew = root.findViewById<View>(R.id.navPcNew)
+        if (RbacManager.hasPermission("petty_cash_requester")) {
+            navNew.isVisible = true
+            navNew.setOnClickListener {
+                parentFragmentManager.beginTransaction()
+                    .replace(R.id.container, PettyCashRequestCreateFragment.newInstance(branchId))
+                    .addToBackStack(null)
+                    .commitAllowingStateLoss()
+            }
+        } else {
+            navNew.isVisible = false
+        }
+        // Reports and More: no destination screen exists anywhere in the app
+        // yet. Included for the mockup's shape, not silently faked -- says so.
+        root.findViewById<View>(R.id.navPcReports).setOnClickListener {
+            Toast.makeText(requireContext(), "Reports — coming soon", Toast.LENGTH_SHORT).show()
+        }
+        root.findViewById<View>(R.id.navPcMore).setOnClickListener {
+            Toast.makeText(requireContext(), "More — coming soon", Toast.LENGTH_SHORT).show()
+        }
     }
 
     // ── Branch switcher ──────────────────────────────────────────────────────
@@ -273,6 +312,21 @@ class PettyCashDashboardFragment : Fragment() {
                     // which used to render real balance numbers with the Deposit
                     // action hidden -- looked like a broken Accounts dashboard
                     // rather than what it actually was: wrong branch for this role.
+                    //
+                    // But if they DO hold petty_cash_requester, this Dashboard was
+                    // simply the wrong screen for them from the start (same case the
+                    // drawer's routing already avoids for a pure Requester -- see
+                    // MainActivity's nav_petty_cash handler) -- hand off to the
+                    // screen that's actually meaningful to them instead of leaving
+                    // them stuck on a dead end.
+                    if (RbacManager.hasPermission("petty_cash_requester")) {
+                        parentFragmentManager.popBackStack()
+                        parentFragmentManager.beginTransaction()
+                            .replace(R.id.container, PettyCashMyRequestsFragment.newInstance(branchId))
+                            .addToBackStack(null)
+                            .commitAllowingStateLoss()
+                        return
+                    }
                     layoutContent.isVisible = false
                     layoutNoRoleState.isVisible = true
                     layoutRoleToggle.isVisible = false

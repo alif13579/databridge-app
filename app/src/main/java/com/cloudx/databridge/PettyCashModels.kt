@@ -56,6 +56,7 @@ data class PettyCashRequest(
     val priority: String = PC_PRIORITY_NORMAL,
     val attachmentUrl: String = "",
     val attachmentName: String = "",
+    val requestedDate: Long = 0L,           // date the expense was incurred, set by the Requester — separate from createdAt (submission time)
     val status: String = PC_STATUS_PENDING,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
@@ -131,8 +132,14 @@ data class PettyCashFilterState(
         (workerCategory.isNotBlank() && workerCategory != "All Categories")
 
     fun matches(request: PettyCashRequest): Boolean {
-        if (dateFromMillis != 0L && request.createdAt < dateFromMillis) return false
-        if (dateToMillis != 0L && request.createdAt > dateToMillis) return false
+        // requestedDate is when the expense actually happened; createdAt is
+        // just submission time. Filter (and the list showing it) by
+        // requestedDate so backdated requests filter/display consistently —
+        // falls back to createdAt for older requests submitted before this
+        // field existed (requestedDate == 0).
+        val reqDate = if (request.requestedDate != 0L) request.requestedDate else request.createdAt
+        if (dateFromMillis != 0L && reqDate < dateFromMillis) return false
+        if (dateToMillis != 0L && reqDate > dateToMillis) return false
         if (statuses.isNotEmpty() && request.status !in statuses) return false
         if (category.isNotBlank() && category != "All Categories" && request.category != category) return false
         if (workerCategory.isNotBlank() && workerCategory != "All Categories" && request.workerRole != workerCategory) return false

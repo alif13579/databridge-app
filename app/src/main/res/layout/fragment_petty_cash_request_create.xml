@@ -233,7 +233,7 @@
                     android:textColor="#0F172A"
                     android:padding="14dp"
                     android:gravity="top"
-                    android:maxLength="200"
+                    android:maxLength="300"
                     android:inputType="textMultiLine" />
 
                 <TextView
@@ -242,7 +242,7 @@
                     android:layout_height="wrap_content"
                     android:layout_gravity="end"
                     android:layout_marginTop="4dp"
-                    android:text="0/200"
+                    android:text="0/300"
                     android:textSize="11sp"
                     android:textColor="#94A3B8" />
 
@@ -282,6 +282,43 @@
                         android:layout_height="wrap_content"
                         android:text="\uD83D\uDCCE"
                         android:textSize="16sp" />
+                </LinearLayout>
+
+                <!-- Requested Date -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Requested Date"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#334155"
+                    android:layout_marginTop="16dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcRequestDate"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_pc_input"
+                    android:paddingHorizontal="14dp"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <TextView
+                        android:id="@+id/tvPcRequestDateSelected"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:textSize="14sp"
+                        android:textColor="#0F172A" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="\uD83D\uDCC5"
+                        android:textSize="14sp" />
                 </LinearLayout>
 
                 <!-- Submit -->

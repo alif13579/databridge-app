@@ -11,10 +11,16 @@ import androidx.recyclerview.widget.RecyclerView
 /**
  * Renders the flat + nested permission list. Permissions listed under
  * PermissionCatalog.childrenOf[parentKey] render indented directly below
- * their parent row, only visible while the parent is checked — unchecking
- * the parent hides and force-unchecks its children (a Requester permission
- * with no Petty Cash access wouldn't make sense to leave lingering true in
- * the saved state).
+ * their parent row, purely as visual grouping in this list — nesting does
+ * NOT gate a child's visibility or value on the parent's checked state.
+ * A child like petty_cash_requester is independently meaningful without
+ * its parent (nav_petty_cash): MainActivity routes petty_cash_requester
+ * -only users (e.g. Delivery Agent) to My Requests instead of the full
+ * approver Dashboard, so an earlier version of this adapter that hid the
+ * child until the parent was checked forced admins to also grant
+ * nav_petty_cash just to reach the checkbox — silently handing Requester
+ * -only roles the full Dashboard. Parent and child are saved and toggled
+ * independently; only their on-screen position is nested.
  */
 class PermissionsAdapter(
     private val onToggle: (String, Boolean) -> Unit
@@ -49,18 +55,18 @@ class PermissionsAdapter(
         holder.cb.isChecked = checked
         holder.cb.setOnCheckedChangeListener { _, isChecked ->
             state[item.key] = isChecked
-            if (!isChecked) {
-                // Unchecking a parent clears its children too, so the saved
-                // permission map never has e.g. petty_cash_requester=true
-                // sitting under a role that can't even see Petty Cash.
-                children.forEach { child -> state[child.key] = false }
-            }
+            // Deliberately no longer force-unchecks children here. A child
+            // like petty_cash_requester can be true while its parent
+            // nav_petty_cash is false — that's the "pure Requester" state
+            // MainActivity's nav_petty_cash handler routes to My Requests.
+            // Clearing it on parent-uncheck would silently revoke a grant
+            // the admin made on purpose.
             onToggle(item.key, isChecked)
             notifyItemChanged(holder.bindingAdapterPosition)
         }
 
         holder.layoutChildren.removeAllViews()
-        if (children.isNotEmpty() && checked) {
+        if (children.isNotEmpty()) {
             holder.layoutChildren.isVisible = true
             children.forEach { child ->
                 val childView = LayoutInflater.from(holder.itemView.context)

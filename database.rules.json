@@ -253,6 +253,22 @@
         "$merchantId": {
           ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length > 0"
         }
+      },
+      "areas": {
+        "delivery_area": {
+          ".read": "auth != null",
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager')",
+          "$areaId": {
+            ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length > 0"
+          }
+        },
+        "pickup_area": {
+          ".read": "auth != null",
+          ".write": "auth != null && (root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager')",
+          "$areaId": {
+            ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length > 0"
+          }
+        }
       }
     }
   }

@@ -37,6 +37,36 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.84",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash: request lists (All Requests, My Requests) and the date-range filter now use Requested Date instead of submission time, so backdated requests show and filter consistently"),
+                ),
+            ),
+            ChangelogVersion(
+                versionName = "5.22.83",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Petty Cash Settlement Details: Reject now actually captures the reason you type instead of always saving it blank"),
+                    ChangelogEntry("feature", "Petty Cash Settlement Details: added a 'Requested On' row showing the request's Requested Date, matching the mockup"),
+                ),
+            ),
+            ChangelogVersion(
+                versionName = "5.22.82",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash New Request form: added a 'Requested Date' field (defaults to today, backdate-only via a date picker) matching the mockup — kept the existing Category/Consignment/Merchant fields as-is since they map to real courier business logic, not the mockup's generic placeholders"),
+                    ChangelogEntry("feature", "Petty Cash New Request form: purpose character limit raised from 200 to 300 to match the mockup"),
+                ),
+            ),
+            ChangelogVersion(
+                versionName = "5.22.81",
+                releasedDate = "15 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash: added the mockup's bottom action bar (Dashboard/Requests/+/Reports/More) to the Dashboard and My Requests screens — local to Petty Cash, separate from the app's main bottom nav. Reports and More show a 'coming soon' toast since neither has a screen built yet"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.79",
                 releasedDate = "15 Aug 2026",
                 entries = listOf(

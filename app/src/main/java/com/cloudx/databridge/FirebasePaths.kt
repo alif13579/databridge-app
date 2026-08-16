@@ -47,6 +47,15 @@ object FirebasePaths {
     fun merchants() = "courier/merchants"
     fun merchant(merchantId: String) = "courier/merchants/$merchantId"
 
+    /* ── Areas — courier-wide directories, managed from Config's Areas tab
+     * (see ConfigAreasFragment). delivery_area is destinations a parcel can
+     * be routed to (Virtual Routing's Select Area picker reads this, once
+     * wired to real data); pickup_area is zones a pickup run collects from. ── */
+    fun deliveryAreas() = "courier/areas/delivery_area"
+    fun deliveryArea(areaId: String) = "courier/areas/delivery_area/$areaId"
+    fun pickupAreas() = "courier/areas/pickup_area"
+    fun pickupArea(areaId: String) = "courier/areas/pickup_area/$areaId"
+
     /* ── Error Logs ────────────────────────────────────────────────── */
     fun errorLogs(uid: String) = "error_logs/$uid"
 

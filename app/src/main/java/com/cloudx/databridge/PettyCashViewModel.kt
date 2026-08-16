@@ -176,7 +176,8 @@ class PettyCashViewModel : ViewModel() {
         attachmentName: String,
         workerRole: String = "",
         consignmentId: String = "",
-        merchantName: String = ""
+        merchantName: String = "",
+        requestedDate: Long = 0L
     ): Result<String> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Requester" }
@@ -200,6 +201,7 @@ class PettyCashViewModel : ViewModel() {
             priority = priority,
             attachmentUrl = attachmentUrl,
             attachmentName = attachmentName,
+            requestedDate = if (requestedDate != 0L) requestedDate else now,
             status = PC_STATUS_PENDING,
             createdAt = now,
             updatedAt = now,
@@ -220,7 +222,8 @@ class PettyCashViewModel : ViewModel() {
         purpose: String,
         amount: Double,
         consignmentId: String = "",
-        merchantName: String = ""
+        merchantName: String = "",
+        requestedDate: Long = 0L
     ): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
@@ -237,6 +240,7 @@ class PettyCashViewModel : ViewModel() {
                 "merchantName" to merchantName,
                 "purpose" to purpose,
                 "amount" to amount,
+                "requestedDate" to (if (requestedDate != 0L) requestedDate else existing.requestedDate),
                 "updatedAt" to System.currentTimeMillis()
             )
         ).await()

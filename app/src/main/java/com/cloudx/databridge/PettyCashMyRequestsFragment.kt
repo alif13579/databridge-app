@@ -89,6 +89,7 @@ class PettyCashMyRequestsFragment : Fragment() {
         }
 
         setupBranchSwitcher()
+        setupBottomNav(view)
 
         viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
         if (branchId.isBlank()) {
@@ -108,6 +109,32 @@ class PettyCashMyRequestsFragment : Fragment() {
     private fun taka(amount: Double): String {
         val whole = Math.round(amount)
         return "\u09F3${NumberFormat.getNumberInstance(Locale.US).format(whole)}"
+    }
+
+    // ── Bottom nav ───────────────────────────────────────────────────────────
+    // See layout_petty_cash_bottom_nav.xml for why this is local to Petty
+    // Cash rather than added to the app-wide BottomNavigationView.
+    //
+    // navPcHome / navPcRequests intentionally left unwired -- this screen
+    // already IS both "Dashboard" and "My Requests" for a pure Requester
+    // (there's no separate all-requests browse for them: PettyCashAllRequests
+    // Fragment isn't permission-scoped to just their own requests, so
+    // pointing this here would let a Requester browse everyone else's).
+    private fun setupBottomNav(root: View) {
+        root.findViewById<View>(R.id.navPcNew).setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashRequestCreateFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+        // Reports and More: no destination screen exists anywhere in the app
+        // yet. Included for the mockup's shape, not silently faked -- says so.
+        root.findViewById<View>(R.id.navPcReports).setOnClickListener {
+            android.widget.Toast.makeText(requireContext(), "Reports — coming soon", android.widget.Toast.LENGTH_SHORT).show()
+        }
+        root.findViewById<View>(R.id.navPcMore).setOnClickListener {
+            android.widget.Toast.makeText(requireContext(), "More — coming soon", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     // ── Branch switcher ──────────────────────────────────────────────────────
@@ -259,7 +286,8 @@ class PettyCashMyRequestsFragment : Fragment() {
             row.findViewById<TextView>(R.id.tvAllReqRowCode).text = item.requestCode
             row.findViewById<TextView>(R.id.tvAllReqRowSubtitle).text = item.category
             row.findViewById<TextView>(R.id.tvAllReqRowAmount).text = taka(item.amount)
-            row.findViewById<TextView>(R.id.tvAllReqRowDate).text = formatDate(item.createdAt)
+            row.findViewById<TextView>(R.id.tvAllReqRowDate).text =
+                formatDate(if (item.requestedDate != 0L) item.requestedDate else item.createdAt)
             row.findViewById<TextView>(R.id.tvAllReqRowStatus).apply {
                 text = label
                 setTextColor(Color.parseColor(badgeColor))
