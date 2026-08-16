@@ -489,7 +489,7 @@ class PettyCashDashboardFragment : Fragment() {
             (roleView == RoleView.STAFF && it.status == PC_STATUS_ACKNOWLEDGED) }
         val rejected = all.filter { it.status == PC_STATUS_REJECTED }
 
-        tvSummaryRoleLabel.text = if (roleView == RoleView.STAFF) "Team Summary" else "POC Summary"
+        tvSummaryRoleLabel.text = if (roleView == RoleView.STAFF) "Staff Summary" else "POC Summary"
         tvSummaryTotalRequests.text = all.size.toString()
 
         bindStatCard(root, R.id.statPcPendingApproval, "\u23F3", "Pending\nApproval", pending.size.toString(), "#FFEDD5", "#C2410C") {

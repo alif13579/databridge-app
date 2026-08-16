@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.86",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Petty Cash Dashboard: hero card label for Staff said 'Team Summary', a leftover from the Team Aligned→Staff rename — now says 'Staff Summary'"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.85",
                 releasedDate = "16 Aug 2026",
                 entries = listOf(
