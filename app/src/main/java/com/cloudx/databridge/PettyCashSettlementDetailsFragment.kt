@@ -26,26 +26,26 @@ import java.util.Locale
  * the approval chain passes through, so the primary action button changes
  * based on both the request's current status AND the signed-in user's role:
  *
- *   PENDING            + isTeamAligned -> "Acknowledge" button
+ *   PENDING            + isStaff -> "Acknowledge" button
  *   ACKNOWLEDGED        + isCashPoc     -> "Approve" button
  *   APPROVED            + isAccounts    -> "Mark Ready to Settle" button
  *   SETTLE_IN_PROCESS   + isAccounts    -> "Settle Now" (payment method picker)
  *   anything else                       -> no primary action, read-only
  *
- * Reject is available at PENDING (Staff, internally isTeamAligned) and
- * ACKNOWLEDGED (Cash POC) stages only. Once POC has approved, rejecting no
- * longer makes sense — money is already earmarked; Accounts either settles
- * it or handles it manually outside this flow.
+ * Reject is available at PENDING (Staff) and ACKNOWLEDGED (Cash POC) stages
+ * only. Once POC has approved, rejecting no longer makes sense — money is
+ * already earmarked; Accounts either settles it or handles it manually
+ * outside this flow.
  *
  * Edit/Delete: the request's own submitter (workerUid) can edit or delete
  * it, but only while status == PENDING — before Staff has even looked at
  * it. Once acknowledged, the request is "in the system" and shouldn't be
  * silently changed or removed out from under an approver.
  *
- * Note: "Staff" is the display label for what's internally still named
- * "Team Aligned" throughout the codebase (isTeamAligned, team_aligned_uid,
- * teamAlignedByName, etc.) — this was a UI-only rename, not a data-model
- * change, so those internal names are unchanged.
+ * Note: "Staff" (isStaff, staff_uid, staff_role, staffByName, staffAt) was
+ * formerly named "Team Aligned" throughout the codebase — fully renamed,
+ * both display label and internal names, since no production data existed
+ * under the old names yet.
  */
 class PettyCashSettlementDetailsFragment : Fragment() {
 
@@ -202,7 +202,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         data class Stage(val title: String, val subtitle: String, val at: Long)
         val stages = listOf(
             Stage("Request Submitted", request.workerName, request.createdAt),
-            Stage("Staff Acknowledged", request.teamAlignedByName, request.teamAlignedAt),
+            Stage("Staff Acknowledged", request.staffByName, request.staffAt),
             Stage("POC Approval", request.pocApprovedByName, request.pocApprovedAt),
             Stage("Ready to Settle", request.settleInProcessByName, request.settleInProcessAt),
             Stage("Settled", request.settledByName, request.settledAt)
@@ -253,11 +253,11 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         val isOwner = request.workerUid == myUid
 
-        val canAcknowledge = request.status == PC_STATUS_PENDING && roles.isTeamAligned
+        val canAcknowledge = request.status == PC_STATUS_PENDING && roles.isStaff
         val canApprove = request.status == PC_STATUS_ACKNOWLEDGED && roles.isCashPoc
         val canMarkReady = request.status == PC_STATUS_APPROVED && roles.isAccounts
         val canSettle = request.status == PC_STATUS_SETTLE_IN_PROCESS && roles.isAccounts
-        val canReject = (request.status == PC_STATUS_PENDING && roles.isTeamAligned) ||
+        val canReject = (request.status == PC_STATUS_PENDING && roles.isStaff) ||
             (request.status == PC_STATUS_ACKNOWLEDGED && roles.isCashPoc)
         val canEditOrDelete = isOwner && request.status == PC_STATUS_PENDING
 

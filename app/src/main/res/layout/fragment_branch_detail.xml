@@ -116,7 +116,7 @@
                     android:layout_marginBottom="2dp"/>
 
                 <TextView
-                    android:id="@+id/tvDetailBranchTeamAligned"
+                    android:id="@+id/tvDetailBranchStaff"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textColor="@color/theme_text_secondary"

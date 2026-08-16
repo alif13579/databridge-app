@@ -38,13 +38,13 @@ object PermissionCatalog {
      * Petty Cash: Requester lives under Petty Cash — the other petty cash
      * roles (Staff / Cash POC / Accountant) are deliberately NOT here,
      * since those are per-branch individual (or per-branch role) assignments
-     * made from Branch Edit, not a global role-wide permission toggle. Note
-     * "Staff" is a display-label rename of what's internally still named
-     * "Team Aligned" (team_aligned_uid/team_aligned_role, isTeamAligned,
-     * etc.) — Branch Edit already lets Staff be set to either a specific
-     * person OR a role (any active holder of that role can then act), so
-     * this permission catalog intentionally doesn't duplicate that choice
-     * as a third, global on/off switch.
+     * made from Branch Edit, not a global role-wide permission toggle.
+     * "Staff" (staff_uid/staff_role, isStaff, etc.) was formerly named
+     * "Team Aligned" -- fully renamed since no production data existed
+     * under the old names. Branch Edit lets Staff be set to either a
+     * specific person OR a role (any active holder of that role can then
+     * act), so this permission catalog intentionally doesn't duplicate
+     * that choice as a third, global on/off switch.
      *
      * Leave Management: Requester lives under Leave Management the same
      * way. Its Incharge/Shift Lead queues are NOT permission-catalog

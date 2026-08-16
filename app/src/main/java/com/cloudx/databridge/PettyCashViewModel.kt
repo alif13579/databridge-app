@@ -24,7 +24,7 @@ import kotlinx.coroutines.withContext
  *   petty_cash/{branchId}/requests/{requestId}       -> PettyCashRequest
  *   petty_cash/{branchId}/wallet/balance              -> Double
  *   petty_cash/{branchId}/wallet/deposits/{depositId} -> PettyCashDeposit
- *   branches/{branchId}/team_aligned_uid / petty_cash_poc_uid / accountant_uid
+ *   branches/{branchId}/staff_uid / petty_cash_poc_uid / accountant_uid
  *     -> branch-level role assignment (see Branch.kt), resolved against
  *        the signed-in user's uid or role_id (role_id assignment means
  *        "everyone with this role at this branch", same convention as
@@ -41,11 +41,11 @@ import kotlinx.coroutines.withContext
  */
 
 data class PettyCashUserRoles(
-    val isTeamAligned: Boolean = false,
+    val isStaff: Boolean = false,
     val isCashPoc: Boolean = false,
     val isAccounts: Boolean = false
 ) {
-    val isAnyApprover get() = isTeamAligned || isCashPoc || isAccounts
+    val isAnyApprover get() = isStaff || isCashPoc || isAccounts
 }
 
 sealed class PettyCashState {
@@ -147,7 +147,7 @@ class PettyCashViewModel : ViewModel() {
         }
 
         return PettyCashUserRoles(
-            isTeamAligned = matches(branch.team_aligned_uid, branch.team_aligned_role),
+            isStaff = matches(branch.staff_uid, branch.staff_role),
             isCashPoc = branch.petty_cash_poc_uid.isNotBlank() && branch.petty_cash_poc_uid == uid,
             isAccounts = matches(branch.accountant_uid, branch.accountant_role)
         )
@@ -260,11 +260,15 @@ class PettyCashViewModel : ViewModel() {
         ref.removeValue().await()
     }
 
-    // ── Staff (internally "Team Aligned"): acknowledge a request (1st approval) ──
-    // Display label is "Staff" as of the Branch Edit/Create rename; field
-    // names (teamAlignedByUid/teamAlignedByName, isTeamAligned) are
-    // unchanged. stepName below is what gets written to NEW requests going
-    // forward — pre-existing requests already have "Team Aligned
+    // ── Staff (formerly "Team Aligned"): acknowledge a request (1st approval) ──
+    // Both the display label AND the field/variable names are now "Staff"
+    // (staff_uid, staff_role, isStaff, staffByUid, staffByName, staffAt) --
+    // this was previously a UI-only rename with old field names kept for
+    // data compatibility, but since there was no production data yet, the
+    // underlying names were renamed too instead of staying permanently
+    // mismatched with the "Team Aligned" label. stepName below is what
+    // gets written to NEW requests going forward — pre-existing requests
+    // (if any survive from before this rename) may have "Team Aligned
     // Acknowledged" stored in their steps list and are left as-is, since
     // rewriting historical timeline text isn't something this function
     // touches (that history is an accurate record of what the screen said
@@ -284,9 +288,9 @@ class PettyCashViewModel : ViewModel() {
         ref.updateChildren(
             mapOf(
                 "status" to PC_STATUS_ACKNOWLEDGED,
-                "teamAlignedByUid" to uid,
-                "teamAlignedByName" to name,
-                "teamAlignedAt" to now,
+                "staffByUid" to uid,
+                "staffByName" to name,
+                "staffAt" to now,
                 "updatedAt" to now,
                 "steps" to updatedSteps
             )
