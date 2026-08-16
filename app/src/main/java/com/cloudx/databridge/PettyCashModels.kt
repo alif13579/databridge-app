@@ -56,6 +56,7 @@ data class PettyCashRequest(
     val priority: String = PC_PRIORITY_NORMAL,
     val attachmentUrl: String = "",
     val attachmentName: String = "",
+    val requestedDate: Long = 0L,           // date the expense was incurred, set by the Requester — separate from createdAt (submission time)
     val status: String = PC_STATUS_PENDING,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,

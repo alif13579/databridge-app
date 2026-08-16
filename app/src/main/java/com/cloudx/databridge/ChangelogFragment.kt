@@ -37,6 +37,14 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.82",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash New Request form: added a 'Requested Date' field (defaults to today, backdate-only via a date picker) matching the mockup — kept the existing Category/Consignment/Merchant fields as-is since they map to real courier business logic, not the mockup's generic placeholders"),
+                    ChangelogEntry("feature", "Petty Cash New Request form: purpose character limit raised from 200 to 300 to match the mockup"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.81",
                 releasedDate = "15 Aug 2026",
                 entries = listOf(
