@@ -265,6 +265,7 @@
                     android:layout_marginTop="12dp" />
 
                 <androidx.cardview.widget.CardView
+                    android:id="@+id/cardPcSettlementSummary"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -287,8 +288,10 @@
                             android:textColor="#166534"
                             android:layout_marginBottom="6dp" />
 
-                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryCurrentBalance" />
                         <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryRequestAmount" />
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryLifetimeClaimed" />
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryLifetimeSettled" />
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryCurrentBalance" />
                         <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryRemaining" />
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
