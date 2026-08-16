@@ -185,11 +185,56 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         root.findViewById<TextView>(R.id.tvPcDetailAttachmentName).text =
             request.attachmentName.ifBlank { "No attachment" }
 
-        val currentBalance = latestState?.walletBalance ?: 0.0
-        val remaining = currentBalance - request.amount
-        bindRow(root, R.id.rowPcSummaryCurrentBalance, "Current Balance", taka(currentBalance))
-        bindRow(root, R.id.rowPcSummaryRequestAmount, "Request Amount", taka(request.amount))
-        bindRow(root, R.id.rowPcSummaryRemaining, "Remaining After Settlement", taka(remaining))
+        // Settlement Summary: the branch's real wallet balance is sensitive financial
+        // info that only Accounts should see (every role in the approval chain passes
+        // through this same screen, including the Requester checking their own
+        // request). Accounts gets the real numbers unchanged; the request's own
+        // submitter gets a personalized lifetime summary instead of the branch's
+        // money; anyone else (Staff/Cash POC viewing someone else's request) sees
+        // neither — the whole card is hidden for them.
+        val cardSummary = root.findViewById<View>(R.id.cardPcSettlementSummary)
+        val rowLifetimeClaimed = root.findViewById<View>(R.id.rowPcSummaryLifetimeClaimed)
+        val rowLifetimeSettled = root.findViewById<View>(R.id.rowPcSummaryLifetimeSettled)
+        val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+
+        when {
+            roles.isAccounts -> {
+                cardSummary.isVisible = true
+                rowLifetimeClaimed.isVisible = false
+                rowLifetimeSettled.isVisible = false
+                val currentBalance = latestState?.walletBalance ?: 0.0
+                val remaining = currentBalance - request.amount
+                bindRow(root, R.id.rowPcSummaryRequestAmount, "Request Amount", taka(request.amount))
+                bindRow(root, R.id.rowPcSummaryCurrentBalance, "Current Balance", taka(currentBalance))
+                bindRow(root, R.id.rowPcSummaryRemaining, "Remaining After Settlement", taka(remaining))
+            }
+            request.workerUid == myUid -> {
+                cardSummary.isVisible = true
+                rowLifetimeClaimed.isVisible = true
+                rowLifetimeSettled.isVisible = true
+                // Rejected requests never entered the money flow, so they're excluded
+                // from all three lifetime figures rather than counting toward Claimed
+                // while never resolving into Settled or Unsettled.
+                val mine = (latestState?.requests ?: emptyList())
+                    .filter { it.workerUid == myUid && it.status != PC_STATUS_REJECTED }
+                val lifetimeClaimed = mine.sumOf { it.amount }
+                val lifetimeSettled = mine.filter { it.status == PC_STATUS_SETTLED }.sumOf { it.amount }
+                val lifetimeUnsettled = lifetimeClaimed - lifetimeSettled
+                // Per spec: Available Balance After Settlement = this specific
+                // request's amount + Current Balance (lifetime unsettled) — not
+                // lifetime Claimed, and this request's own amount is already
+                // counted once whether or not it's itself still unsettled.
+                val availableAfterSettlement = request.amount + lifetimeUnsettled
+                bindRow(root, R.id.rowPcSummaryRequestAmount, "Request Amount", taka(request.amount))
+                bindRow(root, R.id.rowPcSummaryLifetimeClaimed, "Lifetime Claimed", taka(lifetimeClaimed))
+                bindRow(root, R.id.rowPcSummaryLifetimeSettled, "Lifetime Settled", taka(lifetimeSettled))
+                bindRow(root, R.id.rowPcSummaryCurrentBalance, "Current Balance", taka(lifetimeUnsettled))
+                bindRow(root, R.id.rowPcSummaryRemaining, "Available Balance After Settlement", taka(availableAfterSettlement))
+            }
+            else -> {
+                cardSummary.isVisible = false
+            }
+        }
 
         // POC's approval comment, surfaced directly (not just buried in the
         // approval-flow subtitle) once it exists — this is what Accounts
