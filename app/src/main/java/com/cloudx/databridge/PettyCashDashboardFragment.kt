@@ -387,23 +387,27 @@ class PettyCashDashboardFragment : Fragment() {
         }
     }
 
+    // Display label is "Staff" (renamed from "Team Aligned"); the enum
+    // constant RoleView.TEAM_ALIGNED and every other internal name are
+    // unchanged on purpose — this is a UI-only rename, not a data-model
+    // or role-resolution change.
     private fun roleLabel(roleView: RoleView): String = when (roleView) {
         RoleView.ACCOUNTS -> "Accounts"
         RoleView.CASH_POC -> "Petty Cash POC"
-        RoleView.TEAM_ALIGNED -> "Team Aligned"
+        RoleView.TEAM_ALIGNED -> "Staff"
     }
 
     // "Hi Accountant, welcome back" style greeting keyed to the *detected*
     // role rather than a generic label, so opening this screen doubles as a
     // quick sanity check that role resolution picked up the right thing for
     // this branch — if someone expected to land as Accounts but this reads
-    // "Hi Team Aligned, welcome back" instead, that's immediately visible
-    // instead of only showing up once they notice a missing action button.
+    // "Hi Staff, welcome back" instead, that's immediately visible instead
+    // of only showing up once they notice a missing action button.
     private fun updateGreeting(roleView: RoleView) {
         val greetingRole = when (roleView) {
             RoleView.ACCOUNTS -> "Accountant"
             RoleView.CASH_POC -> "Petty Cash POC"
-            RoleView.TEAM_ALIGNED -> "Team Aligned"
+            RoleView.TEAM_ALIGNED -> "Staff"
         }
         tvDashboardSubtitle.text = "Hi $greetingRole, welcome back"
     }

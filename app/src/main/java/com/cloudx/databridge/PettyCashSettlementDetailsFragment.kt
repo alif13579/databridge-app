@@ -32,15 +32,20 @@ import java.util.Locale
  *   SETTLE_IN_PROCESS   + isAccounts    -> "Settle Now" (payment method picker)
  *   anything else                       -> no primary action, read-only
  *
- * Reject is available at PENDING (Team Aligned) and ACKNOWLEDGED (Cash POC)
- * stages only. Once POC has approved, rejecting no longer makes sense —
- * money is already earmarked; Accounts either settles it or handles it
- * manually outside this flow.
+ * Reject is available at PENDING (Staff, internally isTeamAligned) and
+ * ACKNOWLEDGED (Cash POC) stages only. Once POC has approved, rejecting no
+ * longer makes sense — money is already earmarked; Accounts either settles
+ * it or handles it manually outside this flow.
  *
  * Edit/Delete: the request's own submitter (workerUid) can edit or delete
- * it, but only while status == PENDING — before Team Aligned has even
- * looked at it. Once acknowledged, the request is "in the system" and
- * shouldn't be silently changed or removed out from under an approver.
+ * it, but only while status == PENDING — before Staff has even looked at
+ * it. Once acknowledged, the request is "in the system" and shouldn't be
+ * silently changed or removed out from under an approver.
+ *
+ * Note: "Staff" is the display label for what's internally still named
+ * "Team Aligned" throughout the codebase (isTeamAligned, team_aligned_uid,
+ * teamAlignedByName, etc.) — this was a UI-only rename, not a data-model
+ * change, so those internal names are unchanged.
  */
 class PettyCashSettlementDetailsFragment : Fragment() {
 
@@ -197,7 +202,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         data class Stage(val title: String, val subtitle: String, val at: Long)
         val stages = listOf(
             Stage("Request Submitted", request.workerName, request.createdAt),
-            Stage("Team Aligned Acknowledged", request.teamAlignedByName, request.teamAlignedAt),
+            Stage("Staff Acknowledged", request.teamAlignedByName, request.teamAlignedAt),
             Stage("POC Approval", request.pocApprovedByName, request.pocApprovedAt),
             Stage("Ready to Settle", request.settleInProcessByName, request.settleInProcessAt),
             Stage("Settled", request.settledByName, request.settledAt)

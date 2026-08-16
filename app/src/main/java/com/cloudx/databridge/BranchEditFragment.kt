@@ -241,9 +241,12 @@ class BranchEditFragment : Fragment() {
             btnClearPettyCashPoc.visibility = View.GONE
         }
         btnSelectTeamAligned.setOnClickListener {
+            // Display label is "Staff" (renamed from "Team Aligned"); the
+            // underlying field/variable names are unchanged on purpose --
+            // this is a UI-only rename, not a data-model change.
             val branchScopedEmployees = allEmployees.filter { it.id in branchEmployeeUids }
             val combined = allRoles + branchScopedEmployees
-            showSearchPicker("Select Team Aligned (role or person)", combined) { item ->
+            showSearchPicker("Select Staff (role or person)", combined) { item ->
                 if (item.id.startsWith("role:")) {
                     selectedTeamAlignedRole = item.id.removePrefix("role:")
                     selectedTeamAlignedUid  = ""
@@ -264,7 +267,7 @@ class BranchEditFragment : Fragment() {
             selectedTeamAlignedUid  = ""
             selectedTeamAlignedName = ""
             selectedTeamAlignedRole = ""
-            btnSelectTeamAligned.text = "Tap to select Team Aligned ▾"
+            btnSelectTeamAligned.text = "Tap to select Staff ▾"
             btnSelectTeamAligned.setTextColor(0xFF888888.toInt())
             tvTeamAlignedSelected.text = "None selected"
             tvTeamAlignedSelected.setTextColor(0xFF555555.toInt())
