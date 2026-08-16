@@ -95,6 +95,11 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         return SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
     }
 
+    private fun formatDate(millis: Long): String {
+        if (millis == 0L) return "—"
+        return SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(millis))
+    }
+
     private fun render(state: PettyCashState) {
         val root = view ?: return
         val pbLoading = root.findViewById<View>(R.id.pbPcDetailLoading)
@@ -147,6 +152,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
 
         bindRow(root, R.id.rowPcCategory, "Category", request.category)
         bindRow(root, R.id.rowPcAmount, "Amount", taka(request.amount))
+        bindRow(root, R.id.rowPcRequestedOn, "Requested On", formatDate(if (request.requestedDate != 0L) request.requestedDate else request.createdAt))
 
         val rowExtra = root.findViewById<View>(R.id.rowPcCategoryExtra)
         when {
@@ -349,12 +355,18 @@ class PettyCashSettlementDetailsFragment : Fragment() {
     }
 
     private fun confirmReject() {
+        val input = android.widget.EditText(requireContext()).apply {
+            hint = "Reason (optional)"
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+        }
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Reject $requestCode?")
             .setMessage("This request will be marked as rejected and removed from the queue.")
+            .setView(input)
             .setPositiveButton("Reject") { _, _ ->
+                val reason = input.text?.toString()?.trim().orEmpty()
                 lifecycleScope.launch {
-                    val result = viewModel.rejectRequest(branchId, requestIdFor(requestCode), "")
+                    val result = viewModel.rejectRequest(branchId, requestIdFor(requestCode), reason)
                     if (result.isSuccess) {
                         Toast.makeText(requireContext(), "$requestCode rejected", Toast.LENGTH_SHORT).show()
                         parentFragmentManager.popBackStack()
@@ -366,6 +378,8 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             .setNegativeButton("Cancel", null)
             .show()
     }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun confirmDelete() {
         android.app.AlertDialog.Builder(requireContext())

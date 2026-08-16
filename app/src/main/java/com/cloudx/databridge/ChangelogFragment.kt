@@ -37,6 +37,14 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.83",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Petty Cash Settlement Details: Reject now actually captures the reason you type instead of always saving it blank"),
+                    ChangelogEntry("feature", "Petty Cash Settlement Details: added a 'Requested On' row showing the request's Requested Date, matching the mockup"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.82",
                 releasedDate = "16 Aug 2026",
                 entries = listOf(
