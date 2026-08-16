@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.84",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash: request lists (All Requests, My Requests) and the date-range filter now use Requested Date instead of submission time, so backdated requests show and filter consistently"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.83",
                 releasedDate = "16 Aug 2026",
                 entries = listOf(

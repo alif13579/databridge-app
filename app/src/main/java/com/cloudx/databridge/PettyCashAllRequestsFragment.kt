@@ -236,7 +236,8 @@ class PettyCashAllRequestsFragment : Fragment() {
                 row.findViewById<TextView>(R.id.tvAllReqRowCode).text = item.requestCode
                 row.findViewById<TextView>(R.id.tvAllReqRowSubtitle).text = "${item.workerName}\n${item.category}"
                 row.findViewById<TextView>(R.id.tvAllReqRowAmount).text = taka(item.amount)
-                row.findViewById<TextView>(R.id.tvAllReqRowDate).text = formatDate(item.createdAt)
+                row.findViewById<TextView>(R.id.tvAllReqRowDate).text =
+                    formatDate(if (item.requestedDate != 0L) item.requestedDate else item.createdAt)
                 row.findViewById<TextView>(R.id.tvAllReqRowStatus).apply {
                     text = status.label
                     setTextColor(Color.parseColor(status.badgeColor))
