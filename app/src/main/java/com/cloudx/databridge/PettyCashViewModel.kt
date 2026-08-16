@@ -274,7 +274,7 @@ class PettyCashViewModel : ViewModel() {
     // touches (that history is an accurate record of what the screen said
     // at the time).
 
-    suspend fun acknowledgeRequest(branchId: String, requestId: String): Result<Unit> = runCatching {
+    suspend fun acknowledgeRequest(branchId: String, requestId: String, comment: String = ""): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Staff" }
         val now = System.currentTimeMillis()
@@ -283,7 +283,7 @@ class PettyCashViewModel : ViewModel() {
         val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
 
         val updatedSteps = existing.steps + PettyCashApprovalStep(
-            stepName = "Staff Acknowledged", status = "done", byUid = uid, byName = name, at = now
+            stepName = "Staff Acknowledged", status = "done", byUid = uid, byName = name, at = now, note = comment
         )
         ref.updateChildren(
             mapOf(
@@ -291,6 +291,7 @@ class PettyCashViewModel : ViewModel() {
                 "staffByUid" to uid,
                 "staffByName" to name,
                 "staffAt" to now,
+                "staffComment" to comment,
                 "updatedAt" to now,
                 "steps" to updatedSteps
             )
@@ -299,7 +300,7 @@ class PettyCashViewModel : ViewModel() {
 
     // ── Cash POC: approve a request (2nd approval) ──────────────────────────
 
-    suspend fun approveRequest(branchId: String, requestId: String): Result<Unit> = runCatching {
+    suspend fun approveRequest(branchId: String, requestId: String, comment: String = ""): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Cash POC" }
         val now = System.currentTimeMillis()
@@ -308,7 +309,7 @@ class PettyCashViewModel : ViewModel() {
         val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
 
         val updatedSteps = existing.steps + PettyCashApprovalStep(
-            stepName = "POC Approval", status = "done", byUid = uid, byName = name, at = now
+            stepName = "POC Approval", status = "done", byUid = uid, byName = name, at = now, note = comment
         )
         ref.updateChildren(
             mapOf(
@@ -316,6 +317,7 @@ class PettyCashViewModel : ViewModel() {
                 "pocApprovedByUid" to uid,
                 "pocApprovedByName" to name,
                 "pocApprovedAt" to now,
+                "pocComment" to comment,
                 "updatedAt" to now,
                 "steps" to updatedSteps
             )

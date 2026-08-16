@@ -259,6 +259,11 @@
                     android:layout_marginTop="8dp" />
 
                 <!-- Settlement Summary -->
+                <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcPocComment"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp" />
+
                 <androidx.cardview.widget.CardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -288,6 +293,102 @@
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 
+                <!-- Decision comment — Staff/Cash POC only, shown inline above
+                     Acknowledge/Approve instead of inside a confirmation dialog. -->
+                <LinearLayout
+                    android:id="@+id/layoutPcDetailComment"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="20dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Add Comment (Optional)"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:textColor="#64748B" />
+
+                    <EditText
+                        android:id="@+id/etPcDetailComment"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:minLines="2"
+                        android:gravity="top|start"
+                        android:layout_marginTop="6dp"
+                        android:padding="12dp"
+                        android:textSize="13sp"
+                        android:background="@drawable/bg_pc_input"
+                        android:hint="Write a comment…" />
+                </LinearLayout>
+
+                <!-- Settlement form — Accounts only, shown inline above Mark
+                     as Settled instead of inside a payment-method dialog. -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/cardPcDetailSettleForm"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    app:cardCornerRadius="14dp"
+                    app:cardElevation="1dp"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="14dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Settlement"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:textColor="#166534"
+                            android:layout_marginBottom="8dp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Payment Method"
+                            android:textSize="11sp"
+                            android:textColor="#64748B" />
+
+                        <Spinner
+                            android:id="@+id/spinnerPcSettlePaymentMethod"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:background="@drawable/bg_pc_input"
+                            android:paddingHorizontal="10dp" />
+
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSettleAmount" />
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSettleDate" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Transaction ID / Ref (Optional)"
+                            android:textSize="11sp"
+                            android:textColor="#64748B"
+                            android:layout_marginTop="10dp" />
+
+                        <EditText
+                            android:id="@+id/etPcSettleTrxId"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:paddingHorizontal="12dp"
+                            android:paddingVertical="10dp"
+                            android:textSize="13sp"
+                            android:background="@drawable/bg_pc_input"
+                            android:hint="Leave blank to auto-generate" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
                 <!-- Action buttons -->
                 <Button
                     android:id="@+id/btnPcDetailSettleNow"
@@ -312,6 +413,19 @@
                     android:textColor="#DC2626"
                     android:backgroundTint="#FEE2E2"
                     android:paddingVertical="12dp" />
+
+                <Button
+                    android:id="@+id/btnPcDetailHoldReturn"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Hold / Return"
+                    android:textAllCaps="false"
+                    android:textStyle="bold"
+                    android:textColor="#C2410C"
+                    android:backgroundTint="#FFF7ED"
+                    android:paddingVertical="12dp"
+                    android:visibility="gone" />
 
                 <!-- Owner Edit/Delete row — only visible while status == pending -->
                 <LinearLayout

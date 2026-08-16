@@ -37,6 +37,36 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.88",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Build fix: fragment_branch_create.xml had a '--' inside an XML comment (from the Team Aligned→Staff rename), which XML disallows and broke the build"),
+                ),
+            ),
+            ChangelogVersion(
+                versionName = "5.22.87",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash Settlement Details: Acknowledge/Approve now have an inline optional comment box (saved as Staff/POC comment, shown in the approval flow and, for POC, in a dedicated row Accounts sees before settling) instead of a plain confirm dialog"),
+                    ChangelogEntry("feature", "Petty Cash Settlement Details: Settle now shows an inline form (Payment Method, Settle Amount, Settlement Date, optional Transaction ID/Ref) matching the mockup, instead of a payment-method-only dialog"),
+                    ChangelogEntry("feature", "Petty Cash Settlement Details: added a 'Hold / Return' button at the settle stage matching the mockup's shape — not yet implemented, says so on tap"),
+                ),
+            ),
+            ChangelogVersion(
+                versionName = "5.22.86",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Petty Cash Dashboard: hero card label for Staff said 'Team Summary', a leftover from the Team Aligned→Staff rename — now says 'Staff Summary'"),
+                ),
+            ),
+            ChangelogVersion(
+                versionName = "5.22.85",
+                releasedDate = "16 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash: Reports and More now open real screens (Reports: All Requests, Settlement History, Deposit History for Accounts; More: Wallet Summary for Accounts) instead of a 'coming soon' toast, on the Dashboard. My Requests (Requester) still shows the toast since those screens aren't scoped to a single user's own requests yet"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.84",
                 releasedDate = "16 Aug 2026",
                 entries = listOf(

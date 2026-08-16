@@ -127,8 +127,13 @@ class PettyCashMyRequestsFragment : Fragment() {
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
-        // Reports and More: no destination screen exists anywhere in the app
-        // yet. Included for the mockup's shape, not silently faked -- says so.
+        // Reports and More: PettyCashReportsFragment/PettyCashMoreFragment
+        // (wired on the Dashboard for approver roles) surface All Requests
+        // and Settlement History, neither of which is scoped to just the
+        // current user's own requests -- same reason "Requests" isn't wired
+        // above. Rather than give a plain Requester a path to browse
+        // everyone else's requests, these stay a 'coming soon' toast here
+        // until a properly-scoped version exists.
         root.findViewById<View>(R.id.navPcReports).setOnClickListener {
             android.widget.Toast.makeText(requireContext(), "Reports — coming soon", android.widget.Toast.LENGTH_SHORT).show()
         }

@@ -26,11 +26,20 @@ import java.util.Locale
  * the approval chain passes through, so the primary action button changes
  * based on both the request's current status AND the signed-in user's role:
  *
- *   PENDING            + isStaff -> "Acknowledge" button
- *   ACKNOWLEDGED        + isCashPoc     -> "Approve" button
- *   APPROVED            + isAccounts    -> "Mark Ready to Settle" button
- *   SETTLE_IN_PROCESS   + isAccounts    -> "Settle Now" (payment method picker)
+ *   PENDING            + isStaff -> "Acknowledge Request" (inline comment box)
+ *   ACKNOWLEDGED        + isCashPoc     -> "Approve & Forward" (inline comment box)
+ *   APPROVED            + isAccounts    -> "Mark Ready to Settle" (confirm dialog)
+ *   SETTLE_IN_PROCESS   + isAccounts    -> "Mark as Settled" (inline settlement form:
+ *                                           Payment Method, Settle Amount, Settlement
+ *                                           Date, Transaction ID/Ref)
  *   anything else                       -> no primary action, read-only
+ *
+ * Matches the mockup's inline forms rather than AlertDialogs for the two
+ * decision stages and Settle -- Mark Ready to Settle and Reject stayed as
+ * confirm dialogs since the mockup doesn't show extra fields for either.
+ *
+ * "Hold / Return" (Accounts, at the settle stage) exists as a button to
+ * match the mockup's shape but isn't implemented -- says so on tap.
  *
  * Reject is available at PENDING (Staff) and ACKNOWLEDGED (Cash POC) stages
  * only. Once POC has approved, rejecting no longer makes sense — money is
@@ -182,6 +191,17 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         bindRow(root, R.id.rowPcSummaryRequestAmount, "Request Amount", taka(request.amount))
         bindRow(root, R.id.rowPcSummaryRemaining, "Remaining After Settlement", taka(remaining))
 
+        // POC's approval comment, surfaced directly (not just buried in the
+        // approval-flow subtitle) once it exists — this is what Accounts
+        // sees just before settling, matching the mockup's "POC Comment" row.
+        val rowPoc = root.findViewById<View>(R.id.rowPcPocComment)
+        if (request.pocApprovedAt != 0L && request.pocComment.isNotBlank()) {
+            rowPoc.isVisible = true
+            bindRow(root, R.id.rowPcPocComment, "POC Comment", request.pocComment)
+        } else {
+            rowPoc.isVisible = false
+        }
+
         buildApprovalSteps(root, request)
         bindActions(root, request, roles)
     }
@@ -191,6 +211,9 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         row.findViewById<TextView>(R.id.tvDetailRowLabel).text = label
         row.findViewById<TextView>(R.id.tvDetailRowValue).text = value
     }
+
+    private fun nameWithComment(name: String, comment: String): String =
+        if (comment.isBlank()) name else "$name — \"$comment\""
 
     private fun buildApprovalSteps(root: View, request: PettyCashRequest) {
         val container = root.findViewById<LinearLayout>(R.id.layoutPcApprovalSteps)
@@ -202,8 +225,8 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         data class Stage(val title: String, val subtitle: String, val at: Long)
         val stages = listOf(
             Stage("Request Submitted", request.workerName, request.createdAt),
-            Stage("Staff Acknowledged", request.staffByName, request.staffAt),
-            Stage("POC Approval", request.pocApprovedByName, request.pocApprovedAt),
+            Stage("Staff Acknowledged", nameWithComment(request.staffByName, request.staffComment), request.staffAt),
+            Stage("POC Approval", nameWithComment(request.pocApprovedByName, request.pocComment), request.pocApprovedAt),
             Stage("Ready to Settle", request.settleInProcessByName, request.settleInProcessAt),
             Stage("Settled", request.settledByName, request.settledAt)
         )
@@ -249,6 +272,9 @@ class PettyCashSettlementDetailsFragment : Fragment() {
     private fun bindActions(root: View, request: PettyCashRequest, roles: PettyCashUserRoles) {
         val btnPrimary = root.findViewById<Button>(R.id.btnPcDetailSettleNow)
         val btnReject = root.findViewById<Button>(R.id.btnPcDetailReject)
+        val btnHoldReturn = root.findViewById<Button>(R.id.btnPcDetailHoldReturn)
+        val layoutComment = root.findViewById<View>(R.id.layoutPcDetailComment)
+        val cardSettleForm = root.findViewById<View>(R.id.cardPcDetailSettleForm)
 
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         val isOwner = request.workerUid == myUid
@@ -264,16 +290,36 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         btnReject.isVisible = canReject
         btnReject.setOnClickListener { confirmReject() }
 
+        // "Hold / Return" only has a real destination at the settle stage —
+        // sending money back to the requester before that doesn't fit the
+        // model (nothing has been set aside yet). Not implemented beyond the
+        // button existing to match the mockup's shape; says so on tap rather
+        // than silently doing nothing.
+        btnHoldReturn.isVisible = canSettle
+        btnHoldReturn.setOnClickListener {
+            Toast.makeText(requireContext(), "Hold / Return isn't implemented yet", Toast.LENGTH_SHORT).show()
+        }
+
+        layoutComment.isVisible = canAcknowledge || canApprove
+        cardSettleForm.isVisible = canSettle
+        if (canSettle) prefillSettleForm(root, request)
+
         when {
             canAcknowledge -> {
                 btnPrimary.isVisible = true
                 btnPrimary.text = "Acknowledge Request"
-                btnPrimary.setOnClickListener { confirmAcknowledge() }
+                btnPrimary.setOnClickListener {
+                    val comment = root.findViewById<android.widget.EditText>(R.id.etPcDetailComment).text?.toString()?.trim().orEmpty()
+                    runAction { viewModel.acknowledgeRequest(branchId, requestIdFor(requestCode), comment) }
+                }
             }
             canApprove -> {
                 btnPrimary.isVisible = true
-                btnPrimary.text = "Approve Request"
-                btnPrimary.setOnClickListener { confirmApprove() }
+                btnPrimary.text = "Approve & Forward"
+                btnPrimary.setOnClickListener {
+                    val comment = root.findViewById<android.widget.EditText>(R.id.etPcDetailComment).text?.toString()?.trim().orEmpty()
+                    runAction { viewModel.approveRequest(branchId, requestIdFor(requestCode), comment) }
+                }
             }
             canMarkReady -> {
                 btnPrimary.isVisible = true
@@ -282,8 +328,8 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             }
             canSettle -> {
                 btnPrimary.isVisible = true
-                btnPrimary.text = "Settle Now"
-                btnPrimary.setOnClickListener { openSettleDialog() }
+                btnPrimary.text = "Mark as Settled"
+                btnPrimary.setOnClickListener { submitSettle(root, request) }
             }
             else -> {
                 btnPrimary.isVisible = false
@@ -291,6 +337,40 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         }
 
         bindEditDeleteRow(root, request, canEditOrDelete)
+    }
+
+    /** Payment Method spinner, Settle Amount / Settlement Date (read-only), Transaction ID (optional). */
+    private fun prefillSettleForm(root: View, request: PettyCashRequest) {
+        val spinner = root.findViewById<android.widget.Spinner>(R.id.spinnerPcSettlePaymentMethod)
+        if (spinner.adapter == null) {
+            spinner.adapter = android.widget.ArrayAdapter(
+                requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Cash", "Bank")
+            )
+        }
+        // Settle Amount matches the request amount — this screen settles one
+        // request in full, not a partial amount; kept read-only rather than
+        // implying partial settlement is supported.
+        bindRow(root, R.id.rowPcSettleAmount, "Settle Amount", taka(request.amount))
+        bindRow(root, R.id.rowPcSettleDate, "Settlement Date", formatDate(System.currentTimeMillis()))
+    }
+
+    private fun submitSettle(root: View, request: PettyCashRequest) {
+        val spinner = root.findViewById<android.widget.Spinner>(R.id.spinnerPcSettlePaymentMethod)
+        val paymentMethod = spinner.selectedItem?.toString() ?: "Cash"
+        val typedTrxId = root.findViewById<android.widget.EditText>(R.id.etPcSettleTrxId).text?.toString()?.trim().orEmpty()
+        val trxId = typedTrxId.ifBlank { "TXN-${System.currentTimeMillis().toString().takeLast(5)}" }
+
+        lifecycleScope.launch {
+            val result = viewModel.settleRequest(branchId, requestIdFor(requestCode), paymentMethod, trxId)
+            if (result.isSuccess) {
+                parentFragmentManager.beginTransaction()
+                    .replace(R.id.container, PettyCashSettlementSuccessFragment.newInstance(branchId, requestCode))
+                    .addToBackStack(null)
+                    .commitAllowingStateLoss()
+            } else {
+                Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Settlement failed", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     /** Owner-only Edit/Delete row, only while the request is still PENDING. */
@@ -308,53 +388,11 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         root.findViewById<View>(R.id.btnPcDetailDelete).setOnClickListener { confirmDelete() }
     }
 
-    private fun confirmAcknowledge() {
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Acknowledge $requestCode?")
-            .setMessage("This confirms the request is aligned with your team and sends it to Cash POC for approval.")
-            .setPositiveButton("Acknowledge") { _, _ -> runAction { viewModel.acknowledgeRequest(branchId, requestIdFor(requestCode)) } }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun confirmApprove() {
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Approve $requestCode?")
-            .setMessage("This approves the request, queueing it for Accounts to settle.")
-            .setPositiveButton("Approve") { _, _ -> runAction { viewModel.approveRequest(branchId, requestIdFor(requestCode)) } }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
     private fun confirmMarkReady() {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Mark $requestCode ready to settle?")
             .setMessage("This moves the request into your cash handover queue.")
             .setPositiveButton("Mark Ready") { _, _ -> runAction { viewModel.markReadyToSettle(branchId, requestIdFor(requestCode)) } }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun openSettleDialog() {
-        val methods = arrayOf("Cash", "Bank")
-        var selectedMethod = methods[0]
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Settle $requestCode")
-            .setSingleChoiceItems(methods, 0) { _, index -> selectedMethod = methods[index] }
-            .setPositiveButton("Settle") { _, _ ->
-                val trxId = "TXN-${System.currentTimeMillis().toString().takeLast(5)}"
-                lifecycleScope.launch {
-                    val result = viewModel.settleRequest(branchId, requestIdFor(requestCode), selectedMethod, trxId)
-                    if (result.isSuccess) {
-                        parentFragmentManager.beginTransaction()
-                            .replace(R.id.container, PettyCashSettlementSuccessFragment.newInstance(branchId, requestCode))
-                            .addToBackStack(null)
-                            .commitAllowingStateLoss()
-                    } else {
-                        Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Settlement failed", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
             .setNegativeButton("Cancel", null)
             .show()
     }

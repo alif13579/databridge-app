@@ -265,7 +265,7 @@
             android:paddingStart="4dp"
             android:layout_marginBottom="12dp"/>
 
-        <!-- Petty Cash: Staff (formerly "Team Aligned"; both display label and underlying staff_uid/staff_role fields fully renamed since no production data existed under the old names) -->
+        <!-- Petty Cash: Staff (formerly "Team Aligned", both display label and underlying staff_uid/staff_role fields fully renamed; no production data existed under the old names) -->
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="Petty Cash: Staff" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
         <RelativeLayout
