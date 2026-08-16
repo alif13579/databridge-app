@@ -32,7 +32,7 @@ const val PC_CATEGORY_PICKUP = "Pickup"
 
 @IgnoreExtraProperties
 data class PettyCashApprovalStep(
-    val stepName: String = "",      // "Request Submitted" | "Team Aligned Acknowledged" | "POC Approval" | "Ready to Settle" | "Settled"
+    val stepName: String = "",      // "Request Submitted" | "Staff Acknowledged" (older requests may have "Team Aligned Acknowledged" from before the Staff rename) | "POC Approval" | "Ready to Settle" | "Settled"
     val status: String = "",        // "done" | "pending" | "rejected"
     val byUid: String = "",
     val byName: String = "",

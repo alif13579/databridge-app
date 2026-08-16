@@ -225,7 +225,11 @@ class BranchCreateFragment : Fragment() {
         }
 
         btnSelectTeamAligned.setOnClickListener {
-            showSearchPicker("Select Team Aligned (role or person)", allRoles + allEmployees) { item ->
+            // Display label is "Staff" (renamed from "Team Aligned"); the
+            // underlying field names (team_aligned_uid/team_aligned_role,
+            // selectedTeamAligned*) are unchanged on purpose -- this is a
+            // UI-only rename, not a data-model change.
+            showSearchPicker("Select Staff (role or person)", allRoles + allEmployees) { item ->
                 if (item.id.startsWith("role:")) {
                     selectedTeamAlignedRole = item.id.removePrefix("role:")
                     selectedTeamAlignedUid  = ""
@@ -246,7 +250,7 @@ class BranchCreateFragment : Fragment() {
             selectedTeamAlignedUid  = ""
             selectedTeamAlignedName = ""
             selectedTeamAlignedRole = ""
-            btnSelectTeamAligned.text = "Tap to select Team Aligned ▾"
+            btnSelectTeamAligned.text = "Tap to select Staff ▾"
             btnSelectTeamAligned.setTextColor(0xFF888888.toInt())
             tvTeamAlignedSelected.text = "None selected"
             tvTeamAlignedSelected.setTextColor(0xFF555555.toInt())

@@ -260,18 +260,26 @@ class PettyCashViewModel : ViewModel() {
         ref.removeValue().await()
     }
 
-    // ── Team Aligned: acknowledge a request (1st approval) ──────────────────
+    // ── Staff (internally "Team Aligned"): acknowledge a request (1st approval) ──
+    // Display label is "Staff" as of the Branch Edit/Create rename; field
+    // names (teamAlignedByUid/teamAlignedByName, isTeamAligned) are
+    // unchanged. stepName below is what gets written to NEW requests going
+    // forward — pre-existing requests already have "Team Aligned
+    // Acknowledged" stored in their steps list and are left as-is, since
+    // rewriting historical timeline text isn't something this function
+    // touches (that history is an accurate record of what the screen said
+    // at the time).
 
     suspend fun acknowledgeRequest(branchId: String, requestId: String): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
-        val name = currentUserName().ifBlank { "Team Aligned" }
+        val name = currentUserName().ifBlank { "Staff" }
         val now = System.currentTimeMillis()
         val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
         val snap = ref.get().await()
         val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
 
         val updatedSteps = existing.steps + PettyCashApprovalStep(
-            stepName = "Team Aligned Acknowledged", status = "done", byUid = uid, byName = name, at = now
+            stepName = "Staff Acknowledged", status = "done", byUid = uid, byName = name, at = now
         )
         ref.updateChildren(
             mapOf(
