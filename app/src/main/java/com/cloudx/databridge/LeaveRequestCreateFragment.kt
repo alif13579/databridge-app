@@ -198,7 +198,7 @@ class LeaveRequestCreateFragment : Fragment() {
         val existing = if (isDutyDate) selectedDutyDateMillis else selectedLeaveDateMillis
         if (existing > 0L) cal.timeInMillis = existing
 
-        DatePickerDialog(
+        val dialog = DatePickerDialog(
             requireContext(),
             { _, year, month, day ->
                 val picked = Calendar.getInstance().apply {
@@ -208,8 +208,27 @@ class LeaveRequestCreateFragment : Fragment() {
                 if (isDutyDate) applyDutyDate(picked) else applyLeaveDate(picked)
             },
             cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
-        ).show()
+        )
+
+        // Leave Date can't be backdated — a request has to be for a day
+        // that hasn't happened yet. Duty Date has no such floor: for
+        // Exchange the duty day can fall before OR after the leave day
+        // (Alif's call — the two dates just need to be different days,
+        // not in any particular order), so only Leave Date gets a minDate.
+        if (!isDutyDate) {
+            dialog.datePicker.minDate = todayStartMillis()
+        }
+
+        dialog.show()
     }
+
+    /** Midnight today, in the device's local timezone — the floor for Leave Date. */
+    private fun todayStartMillis(): Long = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
 
     private fun applyLeaveDate(millis: Long) {
         selectedLeaveDateMillis = millis
@@ -281,6 +300,10 @@ class LeaveRequestCreateFragment : Fragment() {
         }
         if (selectedLeaveDateMillis <= 0L) {
             Toast.makeText(requireContext(), "Select the leave date", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (selectedLeaveDateMillis < todayStartMillis()) {
+            Toast.makeText(requireContext(), "Leave date can't be in the past", Toast.LENGTH_SHORT).show()
             return
         }
         if (selectedLeaveType == LEAVE_TYPE_EXCHANGE && selectedDutyDateMillis <= 0L) {
