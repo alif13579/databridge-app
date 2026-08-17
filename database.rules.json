@@ -262,7 +262,7 @@
         ".read": "auth != null",
         ".write": "auth != null && (root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager')",
         "$storeId": {
-          ".validate": "newData.hasChildren(['storeId', 'name', 'address', 'areaId', 'phone']) && newData.child('storeId').isString() && newData.child('storeId').val().length > 0 && newData.child('name').isString() && newData.child('name').val().length > 0"
+          ".validate": "newData.hasChildren(['storeId', 'name', 'address', 'areaId', 'phone']) && newData.child('storeId').isString() && newData.child('storeId').val().length > 0 && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('address').isString() && newData.child('address').val().length > 0 && newData.child('areaId').isString() && newData.child('areaId').val().length > 0 && newData.child('phone').isString() && newData.child('phone').val().length > 0"
         }
       },
       "areas": {
