@@ -8,10 +8,23 @@
     android:background="@drawable/bg_card_rounded"
     android:layout_marginBottom="8dp">
 
-    <TextView android:id="@+id/tvAreaName" android:layout_width="0dp"
-        android:layout_height="wrap_content" android:layout_weight="1"
-        android:textSize="14sp" android:textStyle="bold"
-        android:textColor="?attr/colorOnSurface" />
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView android:id="@+id/tvAreaName" android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="14sp" android:textStyle="bold"
+            android:textColor="?attr/colorOnSurface" />
+
+        <TextView android:id="@+id/tvAreaSubtitle" android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="11sp"
+            android:textColor="@color/theme_text_muted"
+            android:layout_marginTop="2dp" />
+    </LinearLayout>
 
     <Button android:id="@+id/btnEditArea"
         android:layout_width="wrap_content" android:layout_height="32dp"

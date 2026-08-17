@@ -124,7 +124,16 @@
                 android:textColor="@color/theme_text_primary" android:layout_marginBottom="12dp" />
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="NAME" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:text="AREA ID" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:textStyle="bold" android:layout_marginBottom="4dp" />
+            <EditText android:id="@+id/etAreaId" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="e.g. ARE-001"
+                android:textSize="13sp" android:padding="8dp"
+                android:background="@drawable/bg_input_rounded"
+                android:inputType="textCapCharacters" android:layout_marginBottom="10dp" />
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="AREA NAME" android:textSize="10sp" android:textColor="@color/theme_text_muted"
                 android:textStyle="bold" android:layout_marginBottom="4dp" />
             <EditText android:id="@+id/etAreaName" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:hint="e.g. Dhanmondi 27"
