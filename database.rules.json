@@ -270,14 +270,14 @@
           ".read": "auth != null",
           ".write": "auth != null && (root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager')",
           "$areaId": {
-            ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length > 0"
+            ".validate": "newData.hasChildren(['areaId', 'name']) && newData.child('areaId').isString() && newData.child('areaId').val().length > 0 && newData.child('name').isString() && newData.child('name').val().length > 0"
           }
         },
         "pickup_area": {
           ".read": "auth != null",
           ".write": "auth != null && (root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager')",
           "$areaId": {
-            ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length > 0"
+            ".validate": "newData.hasChildren(['areaId', 'name']) && newData.child('areaId').isString() && newData.child('areaId').val().length > 0 && newData.child('name').isString() && newData.child('name').val().length > 0"
           }
         }
       }
