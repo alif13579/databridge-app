@@ -24,13 +24,13 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Merchants"
+                android:text="Stores"
                 android:textSize="13sp"
                 android:textStyle="bold"
                 android:textColor="?attr/colorOnSurface" />
 
             <TextView
-                android:id="@+id/btnOpenCreateMerchant"
+                android:id="@+id/btnOpenCreateStore"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:gravity="center"
@@ -47,23 +47,23 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Used by Petty Cash's Pickup category — the merchant a Requester picks up cash for."
+            android:text="Used by Petty Cash's Pickup category — the store a Requester picks up cash for."
             android:textSize="11sp"
             android:textColor="@color/theme_text_muted"
             android:layout_marginBottom="12dp" />
 
         <LinearLayout
-            android:id="@+id/merchantListContainer"
+            android:id="@+id/storeListContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:layout_marginBottom="16dp" />
 
         <TextView
-            android:id="@+id/tvMerchantEmpty"
+            android:id="@+id/tvStoreEmpty"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="No merchants found yet, please add one."
+            android:text="No stores found yet, please add one."
             android:gravity="center"
             android:padding="20dp"
             android:textColor="@color/theme_text_muted"
@@ -73,7 +73,7 @@
             android:layout_marginBottom="16dp" />
 
         <LinearLayout
-            android:id="@+id/inlineCreateMerchantPanel"
+            android:id="@+id/inlineCreateStorePanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -81,30 +81,89 @@
             android:padding="14dp"
             android:visibility="gone">
 
-            <TextView android:id="@+id/tvCreateMerchantTitle" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="+ New Merchant" android:textSize="12sp" android:textStyle="bold"
+            <TextView android:id="@+id/tvCreateStoreTitle" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="+ New Store" android:textSize="12sp" android:textStyle="bold"
                 android:textColor="@color/theme_text_primary" android:layout_marginBottom="12dp" />
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="NAME" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:text="STORE ID" android:textSize="10sp" android:textColor="@color/theme_text_muted"
                 android:textStyle="bold" android:layout_marginBottom="4dp" />
-            <EditText android:id="@+id/etMerchantName" android:layout_width="match_parent"
+            <EditText android:id="@+id/etStoreId" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="e.g. STR-001"
+                android:textSize="13sp" android:padding="8dp"
+                android:background="@drawable/bg_input_rounded"
+                android:inputType="textCapCharacters" android:layout_marginBottom="10dp" />
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="STORE NAME" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:textStyle="bold" android:layout_marginBottom="4dp" />
+            <EditText android:id="@+id/etStoreName" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:hint="e.g. Aarong"
                 android:textSize="13sp" android:padding="8dp"
                 android:background="@drawable/bg_input_rounded"
                 android:inputType="textCapWords" android:layout_marginBottom="10dp" />
 
-            <TextView android:id="@+id/tvCreateMerchantError" android:layout_width="match_parent"
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="STORE ADDRESS" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:textStyle="bold" android:layout_marginBottom="4dp" />
+            <EditText android:id="@+id/etStoreAddress" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="e.g. House 12, Road 5, Banani"
+                android:textSize="13sp" android:padding="8dp"
+                android:background="@drawable/bg_input_rounded"
+                android:inputType="textCapSentences" android:layout_marginBottom="10dp" />
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="STORE AREA" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:textStyle="bold" android:layout_marginBottom="4dp" />
+            <LinearLayout
+                android:id="@+id/layoutStoreArea"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_input_rounded"
+                android:padding="8dp"
+                android:layout_marginBottom="10dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:id="@+id/tvStoreAreaSelected"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Select Area"
+                    android:textSize="13sp"
+                    android:textColor="@color/theme_text_muted" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="\u25BC"
+                    android:textSize="10sp"
+                    android:textColor="@color/theme_text_muted" />
+            </LinearLayout>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="STORE PHONE" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:textStyle="bold" android:layout_marginBottom="4dp" />
+            <EditText android:id="@+id/etStorePhone" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="e.g. 01712345678"
+                android:textSize="13sp" android:padding="8dp"
+                android:background="@drawable/bg_input_rounded"
+                android:inputType="phone" android:layout_marginBottom="10dp" />
+
+            <TextView android:id="@+id/tvCreateStoreError" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:textSize="12sp"
                 android:textColor="#EF4444" android:visibility="gone" android:layout_marginBottom="8dp" />
 
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-                <Button android:id="@+id/btnCancelCreateMerchant" android:layout_width="0dp" android:layout_weight="1"
+                <Button android:id="@+id/btnCancelCreateStore" android:layout_width="0dp" android:layout_weight="1"
                     android:layout_height="40dp" android:text="Cancel"
                     android:textSize="13sp" android:textStyle="bold"
                     android:backgroundTint="#F3F4F6" android:textColor="#374151"
                     android:layout_marginEnd="8dp" />
-                <Button android:id="@+id/btnSaveMerchant" android:layout_width="0dp" android:layout_weight="1"
+                <Button android:id="@+id/btnSaveStore" android:layout_width="0dp" android:layout_weight="1"
                     android:layout_height="40dp" android:text="Save"
                     android:textSize="13sp" android:textStyle="bold"
                     android:backgroundTint="#E8380D" android:textColor="@color/theme_bg_card" />
@@ -115,7 +174,7 @@
     </ScrollView>
 
     <LinearLayout
-        android:id="@+id/merchantBusyOverlay"
+        android:id="@+id/storeBusyOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
@@ -131,7 +190,7 @@
             android:indeterminate="true" />
 
         <TextView
-            android:id="@+id/tvMerchantBusy"
+            android:id="@+id/tvStoreBusy"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Loading..."

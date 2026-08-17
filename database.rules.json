@@ -258,11 +258,11 @@
           ".write": "auth != null"
         }
       },
-      "merchants": {
+      "stores": {
         ".read": "auth != null",
         ".write": "auth != null && (root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager')",
-        "$merchantId": {
-          ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length > 0"
+        "$storeId": {
+          ".validate": "newData.hasChildren(['storeId', 'name', 'address', 'areaId', 'phone']) && newData.child('storeId').isString() && newData.child('storeId').val().length > 0 && newData.child('name').isString() && newData.child('name').val().length > 0"
         }
       },
       "areas": {

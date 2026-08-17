@@ -50,7 +50,8 @@ data class PettyCashRequest(
     val workerRole: String = "",           // e.g. "Delivery Agent"
     val category: String = "",             // Bulk Delivery, Pickup
     val consignmentId: String = "",        // set when category == Bulk Delivery
-    val merchantName: String = "",         // set when category == Pickup
+    val storeId: String = "",              // set when category == Pickup
+    val storeName: String = "",            // set when category == Pickup
     val purpose: String = "",
     val amount: Double = 0.0,
     val priority: String = PC_PRIORITY_NORMAL,
@@ -84,9 +85,14 @@ data class PettyCashRequest(
 )
 
 @IgnoreExtraProperties
-data class Merchant(
+data class Store(
     val id: String = "",
-    val name: String = ""
+    val storeId: String = "",
+    val name: String = "",
+    val address: String = "",
+    val areaId: String = "",
+    val areaName: String = "",
+    val phone: String = ""
 )
 
 @IgnoreExtraProperties

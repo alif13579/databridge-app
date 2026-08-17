@@ -176,7 +176,8 @@ class PettyCashViewModel : ViewModel() {
         attachmentName: String,
         workerRole: String = "",
         consignmentId: String = "",
-        merchantName: String = "",
+        storeId: String = "",
+        storeName: String = "",
         requestedDate: Long = 0L
     ): Result<String> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
@@ -195,7 +196,8 @@ class PettyCashViewModel : ViewModel() {
             workerRole = workerRole,
             category = category,
             consignmentId = consignmentId,
-            merchantName = merchantName,
+            storeId = storeId,
+            storeName = storeName,
             purpose = purpose,
             amount = amount,
             priority = priority,
@@ -222,7 +224,8 @@ class PettyCashViewModel : ViewModel() {
         purpose: String,
         amount: Double,
         consignmentId: String = "",
-        merchantName: String = "",
+        storeId: String = "",
+        storeName: String = "",
         requestedDate: Long = 0L
     ): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
@@ -237,7 +240,8 @@ class PettyCashViewModel : ViewModel() {
             mapOf(
                 "category" to category,
                 "consignmentId" to consignmentId,
-                "merchantName" to merchantName,
+                "storeId" to storeId,
+                "storeName" to storeName,
                 "purpose" to purpose,
                 "amount" to amount,
                 "requestedDate" to (if (requestedDate != 0L) requestedDate else existing.requestedDate),
