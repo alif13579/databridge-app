@@ -30,7 +30,7 @@ import androidx.fragment.app.Fragment
 class ConfigFragment : Fragment() {
 
     // ── Tab ids ──────────────────────────────────────────────────────────────
-    private enum class Tab { REMARKS, LANGUAGE, STATUSES, SHEET, SCANNER_SHEET, WHATSAPP, MERCHANTS, AREAS }
+    private enum class Tab { REMARKS, LANGUAGE, STATUSES, SHEET, SCANNER_SHEET, WHATSAPP, STORES, AREAS }
     private var activeTab = Tab.REMARKS
 
     // ── Views ────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ class ConfigFragment : Fragment() {
     private lateinit var tabSheet:      TextView
     private lateinit var tabScannerSheet: TextView
     private lateinit var tabWhatsApp:   TextView
-    private lateinit var tabMerchants:  TextView
+    private lateinit var tabStores:  TextView
     private lateinit var tabAreas:      TextView
 
     private lateinit var indRemarks:    View
@@ -49,7 +49,7 @@ class ConfigFragment : Fragment() {
     private lateinit var indSheet:      View
     private lateinit var indScannerSheet: View
     private lateinit var indWhatsApp:   View
-    private lateinit var indMerchants:  View
+    private lateinit var indStores:  View
     private lateinit var indAreas:      View
 
     private lateinit var contentFrame:  ViewGroup
@@ -68,7 +68,7 @@ class ConfigFragment : Fragment() {
         tabSheet    = view.findViewById(R.id.tabSheet)
         tabScannerSheet = view.findViewById(R.id.tabScannerSheet)
         tabWhatsApp = view.findViewById(R.id.tabWhatsApp)
-        tabMerchants = view.findViewById(R.id.tabMerchants)
+        tabStores = view.findViewById(R.id.tabStores)
         tabAreas = view.findViewById(R.id.tabAreas)
 
         indRemarks  = view.findViewById(R.id.indicatorRemarks)
@@ -77,7 +77,7 @@ class ConfigFragment : Fragment() {
         indSheet    = view.findViewById(R.id.indicatorSheet)
         indScannerSheet = view.findViewById(R.id.indicatorScannerSheet)
         indWhatsApp = view.findViewById(R.id.indicatorWhatsApp)
-        indMerchants = view.findViewById(R.id.indicatorMerchants)
+        indStores = view.findViewById(R.id.indicatorStores)
         indAreas = view.findViewById(R.id.indicatorAreas)
 
         contentFrame = view.findViewById(R.id.configContentFrame)
@@ -100,7 +100,7 @@ class ConfigFragment : Fragment() {
         tabSheet   .setOnClickListener { switchTab(Tab.SHEET) }
         tabScannerSheet.setOnClickListener { switchTab(Tab.SCANNER_SHEET) }
         tabWhatsApp.setOnClickListener { switchTab(Tab.WHATSAPP) }
-        tabMerchants.setOnClickListener { switchTab(Tab.MERCHANTS) }
+        tabStores.setOnClickListener { switchTab(Tab.STORES) }
         tabAreas.setOnClickListener { switchTab(Tab.AREAS) }
 
         switchTab(activeTab)
@@ -120,7 +120,7 @@ class ConfigFragment : Fragment() {
         tabSheet   .setTextColor(if (tab == Tab.SHEET)     primary else secondary)
         tabScannerSheet.setTextColor(if (tab == Tab.SCANNER_SHEET) primary else secondary)
         tabWhatsApp.setTextColor(if (tab == Tab.WHATSAPP)  primary else secondary)
-        tabMerchants.setTextColor(if (tab == Tab.MERCHANTS) primary else secondary)
+        tabStores.setTextColor(if (tab == Tab.STORES) primary else secondary)
         tabAreas.setTextColor(if (tab == Tab.AREAS) primary else secondary)
 
         // Update indicators
@@ -130,7 +130,7 @@ class ConfigFragment : Fragment() {
         indSheet   .visibility = if (tab == Tab.SHEET)     View.VISIBLE else View.INVISIBLE
         indScannerSheet.visibility = if (tab == Tab.SCANNER_SHEET) View.VISIBLE else View.INVISIBLE
         indWhatsApp.visibility = if (tab == Tab.WHATSAPP)  View.VISIBLE else View.INVISIBLE
-        indMerchants.visibility = if (tab == Tab.MERCHANTS) View.VISIBLE else View.INVISIBLE
+        indStores.visibility = if (tab == Tab.STORES) View.VISIBLE else View.INVISIBLE
         indAreas.visibility = if (tab == Tab.AREAS) View.VISIBLE else View.INVISIBLE
 
         // Load child fragment into contentFrame
@@ -141,7 +141,7 @@ class ConfigFragment : Fragment() {
             Tab.SHEET     -> ConfigSheetFragment()
             Tab.SCANNER_SHEET -> ConfigConnectorsFragment()
             Tab.WHATSAPP  -> ConfigWhatsAppFragment()
-            Tab.MERCHANTS -> ConfigMerchantsFragment()
+            Tab.STORES -> ConfigStoresFragment()
             Tab.AREAS     -> ConfigAreasFragment()
         }
 

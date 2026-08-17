@@ -124,9 +124,9 @@
                         android:inputType="text" />
                 </LinearLayout>
 
-                <!-- Merchant Name — shown only when category == Pickup -->
+                <!-- Store — shown only when category == Pickup -->
                 <LinearLayout
-                    android:id="@+id/groupPcRequestMerchant"
+                    android:id="@+id/groupPcRequestStore"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
@@ -135,14 +135,14 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Merchant Name"
+                        android:text="Store"
                         android:textSize="12sp"
                         android:textStyle="bold"
                         android:textColor="#334155"
                         android:layout_marginTop="16dp" />
 
                     <LinearLayout
-                        android:id="@+id/layoutPcRequestMerchant"
+                        android:id="@+id/layoutPcRequestStore"
                         android:layout_width="match_parent"
                         android:layout_height="52dp"
                         android:orientation="horizontal"
@@ -154,11 +154,11 @@
                         android:focusable="true">
 
                         <TextView
-                            android:id="@+id/tvPcRequestMerchantSelected"
+                            android:id="@+id/tvPcRequestStoreSelected"
                             android:layout_width="0dp"
                             android:layout_weight="1"
                             android:layout_height="wrap_content"
-                            android:text="Select Merchant"
+                            android:text="Select Store"
                             android:textSize="14sp"
                             android:textColor="#94A3B8" />
 

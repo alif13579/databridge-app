@@ -44,8 +44,8 @@ object FirebasePaths {
     fun runsByAgent(systemId: String) = "courier/runs_by_agent/$systemId"
 
     /* ── Merchants (courier-wide directory, used by Petty Cash's Pickup category) ── */
-    fun merchants() = "courier/merchants"
-    fun merchant(merchantId: String) = "courier/merchants/$merchantId"
+    fun stores() = "courier/stores"
+    fun store(storeId: String) = "courier/stores/$storeId"
 
     /* ── Areas — courier-wide directories, managed from Config's Areas tab
      * (see ConfigAreasFragment). delivery_area is destinations a parcel can

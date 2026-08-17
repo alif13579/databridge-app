@@ -29,17 +29,20 @@ import java.util.Locale
  * editRequestId — edits an existing PENDING request via updateRequest().
  * Edit is only reachable from Settlement Details' Edit button, which
  * itself only shows for the request's own submitter while status is still
- * PENDING (before Team Aligned has acknowledged it) — this fragment
+ * PENDING (before Staff has acknowledged it) — this fragment
  * doesn't re-check that beyond trusting the caller, since
  * updateRequest()/deleteRequest() re-validate ownership and status
  * server-side (well, ViewModel-side) regardless.
  *
  * Category-specific fields: Bulk Delivery shows a Consignment ID text
- * field; Pickup shows a Merchant Name picker. Merchant names are a
- * hardcoded demo list — that's been replaced with a real fetch from
- * courier/merchants (see FirebasePaths.merchants()), a courier-wide
- * directory shared with the rest of the courier flow, not Petty-Cash-
- * specific.
+ * field; Pickup shows a Store picker (fetched from courier/stores, see
+ * FirebasePaths.stores() — a courier-wide directory shared with the rest
+ * of the courier flow, not Petty-Cash-specific; managed from Config's
+ * Stores tab, see ConfigStoresFragment). Formerly a bare "Merchant Name"
+ * text picker against courier/merchants — renamed and expanded to a full
+ * Store record (Store ID, name, address, area, phone) per Alif's request;
+ * only storeId + storeName get saved onto the petty cash request itself,
+ * same as the old merchantName field did.
  *
  * Attachment upload to Firebase Storage isn't wired yet — the picker just
  * captures a display name for now (attachmentUrl stays blank). Full file
@@ -59,11 +62,12 @@ class PettyCashRequestCreateFragment : Fragment() {
     private val isEditMode: Boolean get() = editRequestId.isNotBlank()
 
     private val categoryOptions = listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP)
-    private var merchants: List<Merchant> = emptyList()
-    private var merchantsLoaded = false
+    private var stores: List<Store> = emptyList()
+    private var storesLoaded = false
 
     private var selectedCategory: String = ""
-    private var selectedMerchant: String = ""
+    private var selectedStoreId: String = ""
+    private var selectedStoreName: String = ""
     private var attachmentName: String = ""
     private var selectedDateMillis: Long = System.currentTimeMillis()
 
@@ -71,8 +75,8 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var tvCategorySelected: TextView
     private lateinit var groupConsignment: View
     private lateinit var etConsignmentId: EditText
-    private lateinit var groupMerchant: View
-    private lateinit var tvMerchantSelected: TextView
+    private lateinit var groupStore: View
+    private lateinit var tvStoreSelected: TextView
     private lateinit var etAmount: EditText
     private lateinit var etPurpose: EditText
     private lateinit var tvPurposeCount: TextView
@@ -106,8 +110,8 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvCategorySelected = view.findViewById(R.id.tvPcRequestCategorySelected)
         groupConsignment = view.findViewById(R.id.groupPcRequestConsignment)
         etConsignmentId = view.findViewById(R.id.etPcRequestConsignmentId)
-        groupMerchant = view.findViewById(R.id.groupPcRequestMerchant)
-        tvMerchantSelected = view.findViewById(R.id.tvPcRequestMerchantSelected)
+        groupStore = view.findViewById(R.id.groupPcRequestStore)
+        tvStoreSelected = view.findViewById(R.id.tvPcRequestStoreSelected)
         etAmount = view.findViewById(R.id.etPcRequestAmount)
         etPurpose = view.findViewById(R.id.etPcRequestPurpose)
         tvPurposeCount = view.findViewById(R.id.tvPcRequestPurposeCount)
@@ -128,7 +132,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
 
         view.findViewById<View>(R.id.layoutPcRequestCategory).setOnClickListener { showCategoryPicker() }
-        view.findViewById<View>(R.id.layoutPcRequestMerchant).setOnClickListener { showMerchantPicker() }
+        view.findViewById<View>(R.id.layoutPcRequestStore).setOnClickListener { showStorePicker() }
         view.findViewById<View>(R.id.layoutPcRequestAttachment).setOnClickListener { showAttachmentPicker(view) }
         view.findViewById<View>(R.id.layoutPcRequestDate).setOnClickListener { showDatePicker() }
         applyDate(selectedDateMillis) // defaults to today until edited or prefilled
@@ -143,7 +147,7 @@ class PettyCashRequestCreateFragment : Fragment() {
 
         btnSubmit.setOnClickListener { onSubmit() }
 
-        loadMerchants()
+        loadStores()
 
         if (isEditMode) {
             viewModel.state.observe(viewLifecycleOwner) { state -> prefillIfEditing(state) }
@@ -166,10 +170,11 @@ class PettyCashRequestCreateFragment : Fragment() {
         etPurpose.setText(request.purpose)
         if (request.requestedDate != 0L) applyDate(request.requestedDate)
         if (request.consignmentId.isNotBlank()) etConsignmentId.setText(request.consignmentId)
-        if (request.merchantName.isNotBlank()) {
-            selectedMerchant = request.merchantName
-            tvMerchantSelected.text = request.merchantName
-            tvMerchantSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+        if (request.storeName.isNotBlank()) {
+            selectedStoreId = request.storeId
+            selectedStoreName = request.storeName
+            tvStoreSelected.text = request.storeName
+            tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
         }
         prefilled = true
     }
@@ -208,52 +213,54 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvCategorySelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
 
         groupConsignment.isVisible = category == PC_CATEGORY_BULK_DELIVERY
-        groupMerchant.isVisible = category == PC_CATEGORY_PICKUP
+        groupStore.isVisible = category == PC_CATEGORY_PICKUP
 
         // Switching category clears the other category's field so a
         // half-filled Consignment ID doesn't silently survive a switch to
         // Pickup (or vice versa) and get submitted anyway.
         if (category != PC_CATEGORY_BULK_DELIVERY) etConsignmentId.setText("")
         if (category != PC_CATEGORY_PICKUP) {
-            selectedMerchant = ""
-            tvMerchantSelected.text = "Select Merchant"
-            tvMerchantSelected.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+            selectedStoreId = ""
+            selectedStoreName = ""
+            tvStoreSelected.text = "Select Store"
+            tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
         }
     }
 
-    private fun showMerchantPicker() {
-        if (!merchantsLoaded) {
-            Toast.makeText(requireContext(), "Still loading merchant list, try again in a moment", Toast.LENGTH_SHORT).show()
+    private fun showStorePicker() {
+        if (!storesLoaded) {
+            Toast.makeText(requireContext(), "Still loading store list, try again in a moment", Toast.LENGTH_SHORT).show()
             return
         }
-        if (merchants.isEmpty()) {
-            Toast.makeText(requireContext(), "No merchants available — contact your admin to add some", Toast.LENGTH_LONG).show()
+        if (stores.isEmpty()) {
+            Toast.makeText(requireContext(), "No stores available — contact your admin to add some", Toast.LENGTH_LONG).show()
             return
         }
-        val names = merchants.map { it.name }.toTypedArray()
+        val names = stores.map { it.name }.toTypedArray()
         android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Select Merchant")
+            .setTitle("Select Store")
             .setItems(names) { _, index ->
-                selectedMerchant = names[index]
-                tvMerchantSelected.text = selectedMerchant
-                tvMerchantSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+                selectedStoreId = stores[index].storeId
+                selectedStoreName = stores[index].name
+                tvStoreSelected.text = selectedStoreName
+                tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
             }
             .show()
     }
 
-    private fun loadMerchants() {
+    private fun loadStores() {
         com.google.firebase.database.FirebaseDatabase.getInstance()
-            .reference.child(FirebasePaths.merchants())
+            .reference.child(FirebasePaths.stores())
             .get()
             .addOnSuccessListener { snap ->
-                merchants = snap.children
-                    .mapNotNull { it.getValue(Merchant::class.java)?.copy(id = it.key.orEmpty()) }
+                stores = snap.children
+                    .mapNotNull { it.getValue(Store::class.java)?.copy(id = it.key.orEmpty()) }
                     .sortedBy { it.name }
-                merchantsLoaded = true
+                storesLoaded = true
             }
             .addOnFailureListener {
-                merchantsLoaded = true // don't leave the picker stuck saying "still loading" forever
-                Toast.makeText(requireContext(), "Couldn't load merchant list: ${it.message}", Toast.LENGTH_SHORT).show()
+                storesLoaded = true // don't leave the picker stuck saying "still loading" forever
+                Toast.makeText(requireContext(), "Couldn't load store list: ${it.message}", Toast.LENGTH_SHORT).show()
             }
     }
 
@@ -285,8 +292,8 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "Enter the consignment ID", Toast.LENGTH_SHORT).show()
             return
         }
-        if (selectedCategory == PC_CATEGORY_PICKUP && selectedMerchant.isBlank()) {
-            Toast.makeText(requireContext(), "Select a merchant", Toast.LENGTH_SHORT).show()
+        if (selectedCategory == PC_CATEGORY_PICKUP && selectedStoreId.isBlank()) {
+            Toast.makeText(requireContext(), "Select a store", Toast.LENGTH_SHORT).show()
             return
         }
         if (amount <= 0.0) {
@@ -299,14 +306,15 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
 
         val finalConsignmentId = if (selectedCategory == PC_CATEGORY_BULK_DELIVERY) consignmentId else ""
-        val finalMerchant = if (selectedCategory == PC_CATEGORY_PICKUP) selectedMerchant else ""
+        val finalStoreId = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreId else ""
+        val finalStoreName = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreName else ""
 
         btnSubmit.isEnabled = false
         if (isEditMode) {
             lifecycleScope.launch {
                 val result = viewModel.updateRequest(
                     branchId, editRequestId, selectedCategory, purpose, amount,
-                    consignmentId = finalConsignmentId, merchantName = finalMerchant,
+                    consignmentId = finalConsignmentId, storeId = finalStoreId, storeName = finalStoreName,
                     requestedDate = selectedDateMillis
                 )
                 if (result.isSuccess) {
@@ -329,7 +337,8 @@ class PettyCashRequestCreateFragment : Fragment() {
                     attachmentName = attachmentName,
                     workerRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId },
                     consignmentId = finalConsignmentId,
-                    merchantName = finalMerchant,
+                    storeId = finalStoreId,
+                    storeName = finalStoreName,
                     requestedDate = selectedDateMillis
                 )
                 if (result.isSuccess) {

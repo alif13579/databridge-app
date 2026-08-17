@@ -174,9 +174,9 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 rowExtra.isVisible = true
                 bindRow(root, R.id.rowPcCategoryExtra, "Consignment ID", request.consignmentId)
             }
-            request.merchantName.isNotBlank() -> {
+            request.storeName.isNotBlank() -> {
                 rowExtra.isVisible = true
-                bindRow(root, R.id.rowPcCategoryExtra, "Merchant Name", request.merchantName)
+                bindRow(root, R.id.rowPcCategoryExtra, "Store", request.storeName)
             }
             else -> rowExtra.isVisible = false
         }
