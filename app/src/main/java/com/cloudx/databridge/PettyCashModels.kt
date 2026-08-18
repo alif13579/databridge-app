@@ -18,9 +18,9 @@ import com.google.firebase.database.IgnoreExtraProperties
 
 // Request lifecycle status
 const val PC_STATUS_PENDING = "pending"                       // just submitted by the Requester
-const val PC_STATUS_ACKNOWLEDGED = "acknowledged"              // Team Aligned has acknowledged it
+const val PC_STATUS_ACKNOWLEDGED = "verified"                 // Staff has verified it
 const val PC_STATUS_APPROVED = "approved"                      // Cash POC has approved it
-const val PC_STATUS_SETTLE_IN_PROCESS = "settle_in_process"    // Accounts has queued it for cash handover
+const val PC_STATUS_SETTLE_IN_PROCESS = "ready_to_settle"      // Accounts has queued it for cash handover
 const val PC_STATUS_SETTLED = "settled"                        // cash handed over, done
 const val PC_STATUS_REJECTED = "rejected"
 
@@ -86,12 +86,11 @@ data class PettyCashRequest(
 )
 
 /**
- * The amount settlement should actually move — the Cash POC's approved
- * amount, or the original request amount as a fallback for requests
- * approved before `approvedAmount` existed (where it reads as 0.0).
+ * The amount settlement should actually move -- the Cash POC's approved
+ * amount, set at the Approve step.
  */
 val PettyCashRequest.settlementAmount: Double
-    get() = if (approvedAmount > 0.0) approvedAmount else amount
+    get() = approvedAmount
 
 @IgnoreExtraProperties
 data class Store(
