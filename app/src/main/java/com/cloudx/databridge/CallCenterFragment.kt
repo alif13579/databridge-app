@@ -2049,17 +2049,27 @@ class CallCenterFragment : Fragment() {
                 async(Dispatchers.IO) {
                     try {
                         // Fire both independent reads together instead of sequentially —
-                        // remarksSnap only needs cId (known up-front), not any field from
-                        // snap. Same pattern WorkerSpaceFragment.loadParcelsForSelectedRunType()
-                        // already uses for its own detail+remarks pair. snap is awaited first
-                        // since the early-exists-check and every field below depends on it;
-                        // remarksSnap is awaited later, right where it's first used — by then
-                        // it's essentially always already done.
+                        // remarkRows only needs cId (known up-front), not any field from
+                        // snap. snap is awaited first since the early-exists-check and every
+                        // field below depends on it; remarkRows is awaited later, right where
+                        // it's first used — by then it's essentially always already done.
                         val snapDeferred = async(Dispatchers.IO) {
                             db.reference.child("courier/consignments/$cId").get().await()
                         }
-                        val remarksSnapDeferred = async(Dispatchers.IO) {
-                            db.reference.child("courier/remarks_by_consignment/$cId").get().await()
+                        // Remark history now lives in Supabase (see SupabaseRemarkValidationWriter's
+                        // doc comment) — courier/remarks_by_consignment/{cId} on the Firebase side
+                        // still exists but ONLY for engaged_at (real-time "who's on a call with
+                        // this consignment right now" presence), fetched separately below where
+                        // engagedAgents is built, not bundled into this remark fetch anymore.
+                        val remarkRowsDeferred = async(Dispatchers.IO) {
+                            val deferred = CompletableDeferred<List<org.json.JSONObject>>()
+                            SupabaseRemarkValidationWriter.fetchHistory(cId, "CallCenterFragment") { rows ->
+                                deferred.complete(rows)
+                            }
+                            deferred.await()
+                        }
+                        val engagedAtSnapDeferred = async(Dispatchers.IO) {
+                            db.reference.child("courier/remarks_by_consignment/$cId/engaged_at").get().await()
                         }
                         val snap = snapDeferred.await()
                         if (!snap.exists()) return@async null
@@ -2102,11 +2112,12 @@ class CallCenterFragment : Fragment() {
 
                         // Full remark history (not just the latest) — needed for the journey popup.
                         // Already fired above, alongside snap — just join it here.
-                        val remarksSnap = remarksSnapDeferred.await()
+                        val remarkRows = remarkRowsDeferred.await()
 
                         // Card badge (overview) — TODAY's TRUE latest remark, any author.
-                        // Parse this consignment's remarks_{timestamp} entries, keep only
-                        // TODAY's entries, pick the newest one regardless of who wrote it.
+                        // remark_validations rows are already newest-first (fetchHistory orders
+                        // by created_at.desc), so "today's latest" is just the first row whose
+                        // created_at falls on or after today's midnight.
                         //
                         // This same today-scoped entry ALSO drives remarkStatus/
                         // effectiveStatus/validationRequest below — a remark from a previous
@@ -2120,34 +2131,21 @@ class CallCenterFragment : Fragment() {
                         todayCal.set(java.util.Calendar.SECOND, 0)
                         todayCal.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStart = todayCal.timeInMillis
-                        val latestTodayEntry = remarksSnap.children
-                            .filter { (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStart }
-                            .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
-                        val remarkStatus = latestTodayEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        // Only surface the CARD BADGE TEXT if that newest-today entry wasn't
-                        // written by "support" (CC agent) — if the CC agent's own remark is
-                        // the latest one, they already know what they said, so the badge text
-                        // stays hidden instead of echoing it back. This "!= support" check is
-                        // ONLY for the badge TEXT, not for remarkStatus/validationRequest above
-                        // — a verify_req status should still count regardless of who set it.
-                        val latestTodayEntryIsFromSupport =
-                            latestTodayEntry?.child("remarked_by")?.getValue(String::class.java)?.trim() == "support"
-                        // Card badge + validation note: from this same latest entry —
-                        // remarks + note if both present, remarks alone if only remarks, note
-                        // alone if only note.
-                        val entryRemarksText = latestTodayEntry?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
-                        val entryNoteText = latestTodayEntry?.child("note")?.getValue(String::class.java)?.trim().orEmpty()
-                        val remarkLabelNote = when {
-                            entryRemarksText.isNotBlank() && entryNoteText.isNotBlank() -> "$entryRemarksText\nNote: $entryNoteText"
-                            entryRemarksText.isNotBlank() -> entryRemarksText
-                            entryNoteText.isNotBlank() -> entryNoteText
-                            else -> ""
-                        }
+                        fun rowCreatedAtMillis(row: org.json.JSONObject): Long =
+                            runCatching { java.time.Instant.parse(row.optString("created_at")).toEpochMilli() }.getOrDefault(0L)
+                        val latestTodayEntry = remarkRows.firstOrNull { rowCreatedAtMillis(it) >= todayStart }
+                        val remarkStatus = latestTodayEntry?.optString("status")?.trim().orEmpty()
+                        // Supabase rows don't carry a "who wrote this" role label the way
+                        // Firebase's remarked_by ("support" vs a worker uid) did — verifierId
+                        // is always a system_id now, for either a CC agent or a worker, with no
+                        // clean "is this row from support" check left to make. The old behavior
+                        // (hide the badge text when the CC agent's own remark is the latest) is
+                        // dropped: the badge always shows the latest remark's text now,
+                        // regardless of who wrote it.
+                        val entryRemarksText = latestTodayEntry?.optString("remarks")?.trim().orEmpty()
+                        val remarkLabelNote = entryRemarksText
                         val validationNoteText = remarkLabelNote
-                        // Card badge: only the note text, no status label (status is shown
-                        // separately by the card's own status badge). Hidden entirely when
-                        // the latest entry today is the CC agent's own (see comment above).
-                        val remarkLabel = if (latestTodayEntryIsFromSupport) "" else remarkLabelNote
+                        val remarkLabel = remarkLabelNote
 
                         val nameMap = nameMapDeferred.await()
                         Triple(
@@ -2169,69 +2167,64 @@ class CallCenterFragment : Fragment() {
                                 workerPhone       = systemIdToPhone[agentSystemId] ?: "",
                                 branch            = hubName,
                                 branchIds         = scopedBranchIds,
-                                remarksAt         = latestTodayEntry?.child("createdAt")?.getValue(Long::class.java) ?: 0L,
+                                remarksAt         = latestTodayEntry?.let { rowCreatedAtMillis(it) } ?: 0L,
                                 createdAt         = createdAtVal,
                                 updatedAt         = updatedAtVal,
-                                engagedAgents     = EngagedStateManager.parseEngagedAgents(remarksSnap.child("engaged_at")),
+                                engagedAgents     = EngagedStateManager.parseEngagedAgents(engagedAtSnapDeferred.await()),
                                 attemptCount      = attemptVal
                             ),
-                            remarksSnap,
+                            remarkRows,
                             agentSystemId
                         )
                     } catch (e: Exception) { null }
                 }
             }.mapNotNull { it.await() }
 
-            // Pre-resolve every distinct remark-author uid across ALL fetched parcels in one
-            // parallel batch (direct users/{uid} access — remark data already carries the uid).
-            val allUids = fetches.flatMap { (_, remarksSnap, _) -> remarksSnap.children }
-                .mapNotNull { it.child("userId").getValue(String::class.java)?.trim() }
-                .filter { it.isNotBlank() }
-                .distinct()
-            allUids.map { uid -> async(Dispatchers.IO) { UserNameResolver.resolveName(uid) } }.awaitAll()
-
+            // Pre-resolve every distinct remark-author system_id across ALL fetched parcels in
+            // one parallel batch — remark_validations rows carry verifier_id (a system_id), not
+            // a Firebase uid, so this resolves through the same agent-name-map path as
+            // delivery-agent names rather than UserNameResolver's uid-keyed lookup.
             val nameMap = nameMapDeferred.await()
-            fetches.map { (item, remarksSnap, agentSystemId) ->
-                val history = remarksSnap.children.mapNotNull { r ->
-                    val rStatus = r.child("status").getValue(String::class.java)?.trim().orEmpty()
-                    val rRemarksText = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
-                    val rNoteText = r.child("note").getValue(String::class.java)?.trim().orEmpty()
-                    if (rStatus.isBlank() && rRemarksText.isBlank() && rNoteText.isBlank()) return@mapNotNull null
+            fetches.map { (item, remarkRows, agentSystemId) ->
+                val history = remarkRows.mapNotNull { r ->
+                    val rStatus = r.optString("status")?.trim().orEmpty()
+                    val rRemarksText = r.optString("remarks")?.trim().orEmpty()
+                    if (rStatus.isBlank() && rRemarksText.isBlank()) return@mapNotNull null
                     val statusLabelHist = if (rStatus.isNotBlank())
                         context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus else ""
-                    // Journey log: remarks + note combined — remarks+note if both present,
-                    // remarks alone if only remarks, note alone if only note. Status is
-                    // already shown separately in the timeline entry's action field.
-                    val rLabel = when {
-                        rRemarksText.isNotBlank() && rNoteText.isNotBlank() -> "$rRemarksText\nNote: $rNoteText"
-                        rRemarksText.isNotBlank() -> rRemarksText
-                        rNoteText.isNotBlank() -> rNoteText
-                        else -> ""
-                    }
-                    val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
+                    // Journey log: just the remark text now — Supabase's remark_validations
+                    // has one `remarks` column, not Firebase's separate remarks+note pair, so
+                    // there's nothing left to combine here.
+                    val rLabel = rRemarksText
+                    val createdAt = runCatching {
+                        java.time.Instant.parse(r.optString("created_at")).toEpochMilli()
+                    }.getOrDefault(0L)
                     val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                         .format(java.util.Date(createdAt))
-                    val remarkedBy = r.child("remarked_by").getValue(String::class.java)?.trim().orEmpty()
-                    val rUserId = r.child("userId").getValue(String::class.java)?.trim().orEmpty()
-                    val resolvedName  = if (rUserId.isNotBlank()) UserNameResolver.resolveName(rUserId).takeIf { it != rUserId } else null
-                    val resolvedPhoto = if (rUserId.isNotBlank()) UserNameResolver.resolvePhotoUrl(rUserId) else null
-                    val authorRole = if (remarkedBy == "support") "cc" else "agent"
-                    val author = when {
-                        remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
-                        remarkedBy == "support"                                  -> "CC"
-                        !resolvedName.isNullOrBlank()                            -> resolvedName
-                        else                                                     -> nameMap[agentSystemId] ?: agentSystemId
-                    }
+                    val rVerifierId = r.optString("verifier_id")?.trim().orEmpty()
+                    // A remark is "from the delivery agent themself" (Worker fragment) when
+                    // verifier_id matches this parcel's own delivery agent system_id, vs "from
+                    // a CC agent" (Call Center) otherwise — the closest equivalent left to the
+                    // old remarked_by == "support" check now that both write through the same
+                    // Supabase writer with no role label of their own.
+                    val isFromDeliveryAgent = rVerifierId.isNotBlank() && rVerifierId == agentSystemId
+                    val authorRole = if (isFromDeliveryAgent) "agent" else "cc"
+                    val resolvedAuthorName = nameMap[rVerifierId] ?: rVerifierId
+                    val author = if (isFromDeliveryAgent) resolvedAuthorName else "$resolvedAuthorName · CC"
                     HistoryEntry(
                         action = rStatus.ifBlank { "NOTE" }.uppercase(),
                         remark = rLabel,
                         time = timeStr,
                         author = author,
                         authorRole = authorRole,
-                        authorPhotoUrl = resolvedPhoto.orEmpty(),
+                        authorPhotoUrl = systemIdToPhotoUrl[rVerifierId].orEmpty(),
                         createdAt = createdAt,
-                        callLogCount = r.child("call_logs/call_count").getValue(Long::class.java)?.toInt() ?: 0,
-                        callLogTotalDurationSec = r.child("call_logs/total_duration_sec").getValue(Long::class.java)?.toInt() ?: 0
+                        // call_logs (call count/duration) had no Supabase equivalent in the new
+                        // schema — dropped rather than carried forward as always-zero. If call
+                        // verification stats are still needed in the journey popup, that's a
+                        // schema addition to bring back, not something this migration can infer.
+                        callLogCount = 0,
+                        callLogTotalDurationSec = 0
                     )
                 }.sortedBy { it.createdAt }
                 item.copy(history = history)
