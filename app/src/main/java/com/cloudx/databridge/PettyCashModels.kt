@@ -24,6 +24,21 @@ const val PC_STATUS_SETTLE_IN_PROCESS = "ready_to_settle"      // Accounts has q
 const val PC_STATUS_SETTLED = "settled"                        // cash handed over, done
 const val PC_STATUS_REJECTED = "rejected"
 
+/** Single source of truth for a status's display label — screens should
+ *  derive from this instead of hardcoding the label, so a future rename
+ *  only needs to change one place. (PettyCashSettlementDetailsFragment's
+ *  approval-step titles were hardcoded and missed the acknowledged->verified
+ *  rename that every other screen picked up; this is the fix.) */
+fun pettyCashStatusLabel(status: String): String = when (status) {
+    PC_STATUS_PENDING -> "Pending"
+    PC_STATUS_ACKNOWLEDGED -> "Verified"
+    PC_STATUS_APPROVED -> "Approved"
+    PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle"
+    PC_STATUS_SETTLED -> "Settled"
+    PC_STATUS_REJECTED -> "Rejected"
+    else -> status
+}
+
 const val PC_PRIORITY_HIGH = "high"
 const val PC_PRIORITY_NORMAL = "normal"
 

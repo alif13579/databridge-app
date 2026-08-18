@@ -238,10 +238,10 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         data class Stage(val title: String, val subtitle: String, val at: Long)
         val stages = listOf(
             Stage("Request Submitted", request.workerName, request.createdAt),
-            Stage("Staff Acknowledged", nameWithComment(request.staffByName, request.staffComment), request.staffAt),
-            Stage("POC Approval", nameWithComment(request.pocApprovedByName, request.pocComment), request.pocApprovedAt),
-            Stage("Ready to Settle", request.settleInProcessByName, request.settleInProcessAt),
-            Stage("Settled", request.settledByName, request.settledAt)
+            Stage(pettyCashStatusLabel(PC_STATUS_ACKNOWLEDGED), nameWithComment(request.staffByName, request.staffComment), request.staffAt),
+            Stage(pettyCashStatusLabel(PC_STATUS_APPROVED), nameWithComment(request.pocApprovedByName, request.pocComment), request.pocApprovedAt),
+            Stage(pettyCashStatusLabel(PC_STATUS_SETTLE_IN_PROCESS), request.settleInProcessByName, request.settleInProcessAt),
+            Stage(pettyCashStatusLabel(PC_STATUS_SETTLED), request.settledByName, request.settledAt)
         )
 
         stages.forEachIndexed { index, stage ->
@@ -268,7 +268,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
 
         if (request.status == PC_STATUS_REJECTED) {
             val stepView = layoutInflater.inflate(R.layout.item_petty_cash_approval_step, container, false)
-            stepView.findViewById<TextView>(R.id.tvStepTitle).text = "Rejected"
+            stepView.findViewById<TextView>(R.id.tvStepTitle).text = pettyCashStatusLabel(PC_STATUS_REJECTED)
             stepView.findViewById<TextView>(R.id.tvStepSubtitle).text =
                 "${request.rejectedByName}${if (request.rejectReason.isNotBlank()) " — ${request.rejectReason}" else ""}"
             stepView.findViewById<TextView>(R.id.tvStepTime).text = formatDateTime(request.rejectedAt)
