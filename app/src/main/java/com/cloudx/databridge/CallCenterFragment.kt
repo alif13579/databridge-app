@@ -140,6 +140,12 @@ class CallCenterFragment : Fragment() {
     // Firebase UID of the current CC agent — used as userId in remark writes for users/{uid} lookup.
     private var userId = ""
 
+    // The current CC agent's own system_id (users/{uid}/profile/company_info/system_id) —
+    // resolved once per session (see resolveVerifierSystemId()), used as the "verifier_id"
+    // column in Supabase's remark_validations table. Deliberately NOT the Firebase uid —
+    // see SupabaseRemarkValidationWriter's doc comment for why.
+    private var verifierSystemId = ""
+
     // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
     // repeated remark authors (workers or other CC agents) across a session don't refetch.
     // Cleared on pull-to-refresh alongside systemIdToName.
@@ -356,7 +362,28 @@ class CallCenterFragment : Fragment() {
 
         user?.uid?.let { uid ->
             userId = uid
+            resolveVerifierSystemId(uid)
         }
+    }
+
+    /** Resolves this CC agent's own system_id once per session, for use as the
+     *  verifier_id column in Supabase's remark_validations table. Best-effort:
+     *  if it fails or comes back blank, verifierSystemId stays "" and
+     *  SupabaseRemarkValidationWriter.write() skips (and logs) rather than
+     *  writing a row with a missing/wrong identifier. */
+    private fun resolveVerifierSystemId(uid: String) {
+        com.google.firebase.database.FirebaseDatabase.getInstance()
+            .reference.child("users/$uid/profile/company_info/system_id")
+            .get()
+            .addOnSuccessListener { snap ->
+                verifierSystemId = snap.getValue(String::class.java)?.trim().orEmpty()
+            }
+            .addOnFailureListener {
+                FirebaseErrorLogger.log(
+                    screen = "CallCenterFragment", action = "resolve_verifier_system_id",
+                    errorMessage = it.message ?: "unknown"
+                )
+            }
     }
 
     private fun setupAutoCallControls() {
@@ -2682,56 +2709,17 @@ class CallCenterFragment : Fragment() {
      *  proper status/remark afterward; this just makes sure the parcel doesn't silently look
      *  untouched after a real, unanswered call attempt. Tagged "auto": true for traceability. */
     private fun saveAutoNoAnswerRemark(item: CallCenterParcelItem) {
-        val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
-        val timestamp = System.currentTimeMillis()
-        val indexDateKey = todayDateKeyYyyyMmDd()
         val noteText = AUTO_NO_ANSWER_REMARK_TEXT
 
-        val remarkData = mapOf(
-            "userId"      to userId,
-            "remarks"     to noteText,
-            "note"        to noteText,
-            "status"      to "",
-            "remarked_by" to "support",
-            "createdAt"   to timestamp,
-            "auto"        to true
+        SupabaseRemarkValidationWriter.write(
+            deliveryAgentId = item.workerSystemId,
+            verifierId = verifierSystemId,
+            branchId = item.branchIds.firstOrNull().orEmpty(),
+            consignmentId = item.id,
+            status = "",
+            remarksText = noteText,
+            screen = "CallCenterFragment"
         )
-        db.reference.child("courier/remarks_by_consignment/${item.id}/remarks_$timestamp")
-            .setValue(remarkData)
-            .addOnFailureListener { e ->
-                FirebaseErrorLogger.log(
-                    screen = "CallCenterFragment", action = "auto_no_answer_remark_write",
-                    errorMessage = e.message ?: "unknown",
-                    extra = mapOf("consignmentId" to item.id, "userId" to userId)
-                )
-            }
-
-        db.reference.child("courier/remarks_by_userId/$userId/push_${indexDateKey}_${item.id}")
-            .setValue(
-                mapOf(
-                    "final_status" to "",
-                    "remarks"      to noteText,
-                    "created_at"   to timestamp,
-                    "updated_at"   to timestamp
-                )
-            )
-            .addOnFailureListener { e ->
-                FirebaseErrorLogger.log(
-                    screen = "CallCenterFragment", action = "auto_no_answer_remarks_by_userId_write",
-                    errorMessage = e.message ?: "unknown",
-                    extra = mapOf("consignmentId" to item.id, "userId" to userId)
-                )
-            }
-
-        db.reference.child("courier/users_by_consignment/${item.id}/$indexDateKey/$userId")
-            .setValue(true)
-            .addOnFailureListener { e ->
-                FirebaseErrorLogger.log(
-                    screen = "CallCenterFragment", action = "auto_no_answer_users_by_consignment_write",
-                    errorMessage = e.message ?: "unknown",
-                    extra = mapOf("consignmentId" to item.id, "userId" to userId)
-                )
-            }
 
         allParcels = allParcels.map {
             if (it.id == item.id) it.copy(remarks = noteText) else it
@@ -2764,70 +2752,21 @@ class CallCenterFragment : Fragment() {
 
         // Write to Firebase — remark and status are written as SEPARATE operations
         // (not one atomic multi-path update) so the remark always gets saved even if
-        // the status/consignments write gets rejected by a role-restricted rule.
-        val db        = com.google.firebase.database.FirebaseDatabase.getInstance()
-        val timestamp = System.currentTimeMillis()
-        // Same-day key for the per-user secondary index below — computed once per batch,
-        // not per item, since it's identical for every target in this save.
-        val indexDateKey = todayDateKeyYyyyMmDd()
-
+        // Write to Supabase's remark_validations table — replaces the old
+        // Firebase courier/remarks_by_consignment + remarks_by_userId +
+        // users_by_consignment writes (see SupabaseRemarkValidationWriter's
+        // doc comment). One INSERT per target, no read-before-write needed
+        // since every remark is its own row.
         items.forEach { target ->
-            // remarks = status label only (clean, no note embedded)
-            // note    = free-text note separately
-            // This keeps the two pieces distinct so Worker card can show them on separate lines.
-            val remarkData = mapOf(
-                "userId"      to userId,
-                "remarks"     to selectedRemarkText.ifBlank { noteText },
-                "note"        to noteText,
-                "status"      to selectedStatus,
-                "remarked_by" to "support",
-                "createdAt"   to timestamp
+            SupabaseRemarkValidationWriter.write(
+                deliveryAgentId = target.workerSystemId,
+                verifierId = verifierSystemId,
+                branchId = target.branchIds.firstOrNull().orEmpty(),
+                consignmentId = target.id,
+                status = selectedStatus,
+                remarksText = selectedRemarkText.ifBlank { noteText },
+                screen = "CallCenterFragment"
             )
-            db.reference.child("courier/remarks_by_consignment/${target.id}/remarks_$timestamp")
-                .setValue(remarkData)
-                .addOnFailureListener { e ->
-                    FirebaseErrorLogger.log(
-                        screen = "CallCenterFragment", action = "remark_write",
-                        errorMessage = e.message ?: "unknown",
-                        extra = mapOf("consignmentId" to target.id, "userId" to userId)
-                    )
-                    Toast.makeText(requireContext(), "⚠ Remark save হয়নি (${target.id}): ${e.message}", Toast.LENGTH_LONG).show()
-                }
-
-            // ✅ Secondary per-user index — one entry per (user, day, consignment), last
-            // write for that combo wins. Lets a "my day" / date-range report for this agent
-            // be built from a single bounded read of courier/remarks_by_userId/{userId} instead of
-            // scanning every consignment's remark history and filtering by userId + date.
-            db.reference.child("courier/remarks_by_userId/$userId/push_${indexDateKey}_${target.id}")
-                .setValue(
-                    mapOf(
-                        "final_status" to selectedStatus,
-                        "remarks"      to selectedRemarkText.ifBlank { noteText },
-                        "created_at"   to timestamp,
-                        "updated_at"   to timestamp
-                    )
-                )
-                .addOnFailureListener { e ->
-                    FirebaseErrorLogger.log(
-                        screen = "CallCenterFragment", action = "remarks_by_userId_write",
-                        errorMessage = e.message ?: "unknown",
-                        extra = mapOf("consignmentId" to target.id, "userId" to userId)
-                    )
-                }
-
-            // ✅ Reverse index — which users touched this consignment on which day. Keyed by
-            // userId rather than a literal array, so concurrent remarks from different agents
-            // on the same consignment/day never race-overwrite each other, and repeat touches
-            // by the same user dedupe to one entry instead of piling up.
-            db.reference.child("courier/users_by_consignment/${target.id}/$indexDateKey/$userId")
-                .setValue(true)
-                .addOnFailureListener { e ->
-                    FirebaseErrorLogger.log(
-                        screen = "CallCenterFragment", action = "users_by_consignment_write",
-                        errorMessage = e.message ?: "unknown",
-                        extra = mapOf("consignmentId" to target.id, "userId" to userId)
-                    )
-                }
 
             EngagedStateManager.clearEngaged(target.id, userId)
         }
