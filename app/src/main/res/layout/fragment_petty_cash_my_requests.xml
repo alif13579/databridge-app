@@ -58,7 +58,21 @@
                 android:maxWidth="140dp"
                 android:ellipsize="end"
                 android:maxLines="1"
+                android:layout_marginEnd="6dp"
                 android:visibility="gone" />
+
+            <!-- Same New Request entry point as the Dashboard toolbar's
+                 plus icon (btnPcDashboardNewRequest); reuses the
+                 btnPcMyRequestsNew id that the removed bottom button/bar
+                 used, so PettyCashMyRequestsFragment's existing click
+                 listener needs no change. -->
+            <ImageButton
+                android:id="@+id/btnPcMyRequestsNew"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@android:drawable/ic_input_add"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="New Request" />
         </LinearLayout>
 
         <ProgressBar
@@ -196,21 +210,5 @@
 
             </LinearLayout>
         </ScrollView>
-
-        <!-- New Request button — pinned above the bottom nav, matching the
-             mockup's sticky bottom action + separate icon row underneath. -->
-        <Button
-            android:id="@+id/btnPcMyRequestsNew"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_margin="16dp"
-            android:text="+ New Petty Cash Request"
-            android:textAllCaps="false"
-            android:textStyle="bold"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#059669"
-            android:paddingVertical="14dp" />
-
-        <include layout="@layout/layout_petty_cash_bottom_nav" />
     </LinearLayout>
 </FrameLayout>

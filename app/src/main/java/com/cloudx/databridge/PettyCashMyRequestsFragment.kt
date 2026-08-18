@@ -89,7 +89,6 @@ class PettyCashMyRequestsFragment : Fragment() {
         }
 
         setupBranchSwitcher()
-        setupBottomNav(view)
 
         viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
         if (branchId.isBlank()) {
@@ -109,37 +108,6 @@ class PettyCashMyRequestsFragment : Fragment() {
     private fun taka(amount: Double): String {
         val whole = Math.round(amount)
         return "\u09F3${NumberFormat.getNumberInstance(Locale.US).format(whole)}"
-    }
-
-    // ── Bottom nav ───────────────────────────────────────────────────────────
-    // See layout_petty_cash_bottom_nav.xml for why this is local to Petty
-    // Cash rather than added to the app-wide BottomNavigationView.
-    //
-    // navPcHome / navPcRequests intentionally left unwired -- this screen
-    // already IS both "Dashboard" and "My Requests" for a pure Requester
-    // (there's no separate all-requests browse for them: PettyCashAllRequests
-    // Fragment isn't permission-scoped to just their own requests, so
-    // pointing this here would let a Requester browse everyone else's).
-    private fun setupBottomNav(root: View) {
-        root.findViewById<View>(R.id.navPcNew).setOnClickListener {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashRequestCreateFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
-        // Reports and More: PettyCashReportsFragment/PettyCashMoreFragment
-        // (wired on the Dashboard for approver roles) surface All Requests
-        // and Settlement History, neither of which is scoped to just the
-        // current user's own requests -- same reason "Requests" isn't wired
-        // above. Rather than give a plain Requester a path to browse
-        // everyone else's requests, these stay a 'coming soon' toast here
-        // until a properly-scoped version exists.
-        root.findViewById<View>(R.id.navPcReports).setOnClickListener {
-            android.widget.Toast.makeText(requireContext(), "Reports — coming soon", android.widget.Toast.LENGTH_SHORT).show()
-        }
-        root.findViewById<View>(R.id.navPcMore).setOnClickListener {
-            android.widget.Toast.makeText(requireContext(), "More — coming soon", android.widget.Toast.LENGTH_SHORT).show()
-        }
     }
 
     // ── Branch switcher ──────────────────────────────────────────────────────

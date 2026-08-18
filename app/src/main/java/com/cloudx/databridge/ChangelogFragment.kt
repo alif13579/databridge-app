@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.89",
+                releasedDate = "17 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("improvement", "Petty Cash My Requests (Requester screen): removed the bottom action bar and the large \"+ New Petty Cash Request\" button — both replaced by a single plus icon in the top toolbar, matching the Dashboard's existing pattern. Dashboard/Reports/More screens are for approver roles and aren't relevant here"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.88",
                 releasedDate = "16 Aug 2026",
                 entries = listOf(
