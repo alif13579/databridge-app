@@ -112,9 +112,9 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     private fun statusLabel(status: String): String = when (status) {
         PC_STATUS_PENDING -> "Pending"
-        PC_STATUS_ACKNOWLEDGED -> "Acknowledged"
+        PC_STATUS_ACKNOWLEDGED -> "Verified"
         PC_STATUS_APPROVED -> "Approved"
-        PC_STATUS_SETTLE_IN_PROCESS -> "Settle in Process"
+        PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle"
         PC_STATUS_SETTLED -> "Settled"
         PC_STATUS_REJECTED -> "Rejected"
         else -> status

@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.91",
+                releasedDate = "17 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("improvement", "Petty Cash: renamed status labels across Dashboard, All Requests, My Requests, and Pending Settlement — Acknowledged is now Verified, Settle in Process is now Ready to Settle. Pending, Approved, Settled, Rejected are unchanged. Only display text changed, not the underlying status values"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.90",
                 releasedDate = "17 Aug 2026",
                 entries = listOf(

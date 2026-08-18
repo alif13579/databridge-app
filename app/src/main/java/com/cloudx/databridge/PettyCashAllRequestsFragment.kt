@@ -189,9 +189,9 @@ class PettyCashAllRequestsFragment : Fragment() {
     /** Maps a request's raw status to (display label, filter bucket, badge drawable, badge text color). */
     private fun statusDisplay(request: PettyCashRequest): StatusDisplay = when (request.status) {
         PC_STATUS_PENDING -> StatusDisplay("Pending", FILTER_PENDING, R.drawable.bg_pc_status_pending, "#C2410C")
-        PC_STATUS_ACKNOWLEDGED -> StatusDisplay("Acknowledged", FILTER_PENDING, R.drawable.bg_pc_status_pending, "#C2410C")
+        PC_STATUS_ACKNOWLEDGED -> StatusDisplay("Verified", FILTER_PENDING, R.drawable.bg_pc_status_pending, "#C2410C")
         PC_STATUS_APPROVED -> StatusDisplay("Approved", FILTER_APPROVED, R.drawable.bg_pc_status_approved, "#6D28D9")
-        PC_STATUS_SETTLE_IN_PROCESS -> StatusDisplay("Settle in Process", FILTER_APPROVED, R.drawable.bg_pc_status_approved, "#6D28D9")
+        PC_STATUS_SETTLE_IN_PROCESS -> StatusDisplay("Ready to Settle", FILTER_APPROVED, R.drawable.bg_pc_status_approved, "#6D28D9")
         PC_STATUS_SETTLED -> StatusDisplay("Settled", FILTER_SETTLED, R.drawable.bg_pc_status_settled, "#059669")
         PC_STATUS_REJECTED -> StatusDisplay("Rejected", "rejected", R.drawable.bg_pc_status_pending, "#B91C1C")
         else -> StatusDisplay(request.status, "", R.drawable.bg_pc_status_pending, "#64748B")
