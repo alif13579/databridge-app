@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_card_rounded"
+    android:padding="16dp"
+    android:elevation="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="top">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tvOverlayName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <TextView
+                android:id="@+id/tvOverlayPhone"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:textColor="#64748B"
+                android:layout_marginTop="1dp" />
+        </LinearLayout>
+
+        <ImageButton
+            android:id="@+id/btnOverlayClose"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:background="@drawable/bg_icon_button_chip"
+            android:src="@drawable/ic_close_small"
+            android:contentDescription="Dismiss"
+            android:padding="6dp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="9dp">
+
+        <TextView
+            android:id="@+id/tvOverlayStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="10.5sp"
+            android:textStyle="bold"
+            android:textColor="#B45309"
+            android:background="@drawable/bg_overlay_badge_status"
+            android:paddingHorizontal="9dp"
+            android:paddingVertical="3dp"
+            android:layout_marginEnd="6dp" />
+
+        <TextView
+            android:id="@+id/tvOverlayCod"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="10.5sp"
+            android:textStyle="bold"
+            android:textColor="#0099B8"
+            android:background="@drawable/badge_bg_channel"
+            android:paddingHorizontal="9dp"
+            android:paddingVertical="3dp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvOverlayAddress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="11.5sp"
+        android:textColor="#475569"
+        android:layout_marginTop="8dp"
+        android:maxLines="2"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/tvOverlayMore"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:textColor="#0099B8"
+        android:layout_marginTop="6dp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/btnOverlayViewDetails"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="11dp"
+        android:background="@drawable/bg_overlay_cta"
+        android:text="View Full Details \u2192"
+        android:textColor="#FFFFFF"
+        android:textSize="12.5sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:paddingVertical="10dp" />
+
+</LinearLayout>

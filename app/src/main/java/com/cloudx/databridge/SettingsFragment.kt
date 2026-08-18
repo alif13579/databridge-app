@@ -1,10 +1,12 @@
 package com.cloudx.databridge
 
 import android.Manifest
+import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.LayoutInflater
@@ -16,6 +18,7 @@ import android.widget.ProgressBar
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
@@ -37,6 +40,8 @@ class SettingsFragment : Fragment() {
     private lateinit var switchSound: Switch
     private lateinit var switchAutoCopy: Switch
     private lateinit var switchRedial: Switch
+    private lateinit var switchCallerIdPopup: Switch
+    private val prefCallerIdPopup = "caller_id_popup"
     private lateinit var layoutRedialCount: View
     private lateinit var tvRedialCount: android.widget.TextView
     private lateinit var tvRedialMinus: android.widget.TextView
@@ -55,6 +60,21 @@ class SettingsFragment : Fragment() {
     private lateinit var repository: CallRepository
     private val togglePrefs by lazy {
         requireContext().getSharedPreferences("databridge_toggles", Context.MODE_PRIVATE)
+    }
+
+    // Result of the RoleManager.ROLE_CALL_SCREENING request (API 29+) triggered by
+    // enableCallerIdPopup() -- only one app can hold this role at a time, so granting it
+    // here replaces whatever was the previous call-screening/spam-ID app (e.g. Truecaller).
+    private val callScreeningRoleLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            togglePrefs.edit().putBoolean(prefCallerIdPopup, true).apply()
+            checkOverlayPermissionForCallerId()
+        } else {
+            Toast.makeText(requireContext(), "Caller ID role granted হয়নি", Toast.LENGTH_SHORT).show()
+            switchCallerIdPopup.isChecked = false
+        }
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -88,6 +108,7 @@ class SettingsFragment : Fragment() {
         switchSound          = binding.findViewById(R.id.switchSound)
         switchAutoCopy       = binding.findViewById(R.id.switchAutoCopy)
         switchRedial         = binding.findViewById(R.id.switchRedial)
+        switchCallerIdPopup  = binding.findViewById(R.id.switchCallerIdPopup)
         layoutRedialCount    = binding.findViewById(R.id.layoutRedialCount)
         tvRedialCount        = binding.findViewById(R.id.tvRedialCount)
         tvRedialMinus        = binding.findViewById(R.id.tvRedialMinus)
@@ -213,6 +234,24 @@ class SettingsFragment : Fragment() {
             togglePrefs.edit().putBoolean("auto_copy", isChecked).apply()
         }
 
+        // ── Caller ID popup ──
+        // Not a plain preference toggle: turning this on needs RoleManager.ROLE_CALL_SCREENING
+        // (API 29+) or a permission check (API 23-28) first, so switchCallerIdPopup.isChecked
+        // only gets set to true once that actually succeeds (see enableCallerIdPopup() and the
+        // callScreeningRoleLauncher result above) -- not immediately on tap like the others.
+        switchCallerIdPopup.setOnCheckedChangeListener(null)
+        switchCallerIdPopup.isChecked = togglePrefs.getBoolean(prefCallerIdPopup, false)
+        switchCallerIdPopup.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                enableCallerIdPopup()
+            } else {
+                togglePrefs.edit().putBoolean(prefCallerIdPopup, false).apply()
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    requireContext().stopService(Intent(requireContext(), IncomingCallLegacyWatcherService::class.java))
+                }
+            }
+        }
+
         layoutLogin.setOnClickListener {
             if (AuthManager.isLoggedIn()) {
                 showLogoutDialog()
@@ -247,6 +286,54 @@ class SettingsFragment : Fragment() {
             tvLoginSubtext.text = "Sign in to save data to cloud"
             tvLoginSubtext.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_secondary))
             tvLoginStatus.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
+        }
+    }
+
+    /**
+     * API 29+: request RoleManager.ROLE_CALL_SCREENING (result handled by
+     * callScreeningRoleLauncher above). API 23-28: RoleManager doesn't exist yet, so just
+     * verify READ_PHONE_STATE (requested during onboarding already) and start the legacy
+     * watcher service directly -- no special role needed on those older OS versions.
+     */
+    private fun enableCallerIdPopup() {
+        val ctx = requireContext()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = ctx.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+            if (roleManager == null || !roleManager.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)) {
+                Toast.makeText(ctx, "এই device এ Caller ID feature support করে না", Toast.LENGTH_LONG).show()
+                switchCallerIdPopup.isChecked = false
+                return
+            }
+            if (roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
+                togglePrefs.edit().putBoolean(prefCallerIdPopup, true).apply()
+                checkOverlayPermissionForCallerId()
+            } else {
+                callScreeningRoleLauncher.launch(roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING))
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(ctx, "Settings থেকে Phone permission enable করো আগে", Toast.LENGTH_LONG).show()
+                switchCallerIdPopup.isChecked = false
+                return
+            }
+            togglePrefs.edit().putBoolean(prefCallerIdPopup, true).apply()
+            checkOverlayPermissionForCallerId()
+            ContextCompat.startForegroundService(ctx, Intent(ctx, IncomingCallLegacyWatcherService::class.java))
+        }
+    }
+
+    /** The popup itself also needs "Display over other apps" -- already requested during
+     *  onboarding for the auto-dialer feature, but re-check here since a user could have
+     *  revoked it since, and this is the feature that actually needs it to render anything. */
+    private fun checkOverlayPermissionForCallerId() {
+        val ctx = requireContext()
+        if (!Settings.canDrawOverlays(ctx)) {
+            Toast.makeText(ctx, "Popup দেখানোর জন্য \"Display over other apps\" enable করো", Toast.LENGTH_LONG).show()
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}")))
+            } catch (_: Exception) {
+                // No settings screen to handle this on some OEM skins -- nothing more to do.
+            }
         }
     }
 

@@ -98,6 +98,31 @@
             android:foregroundServiceType="dataSync"
             tools:targetApi="29" />
 
+        <!-- Incoming-call popup: primary path, API 29+. Requires the user to grant
+             RoleManager.ROLE_CALL_SCREENING (requested from SettingsFragment, not
+             declared here); BIND_SCREENING_SERVICE is what lets the Telecom framework
+             bind to it once that role is granted. -->
+        <service
+            android:name=".IncomingCallScreeningService"
+            android:permission="android.permission.BIND_SCREENING_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService" />
+            </intent-filter>
+        </service>
+
+        <!-- Incoming-call popup: fallback for API 23-28, where ROLE_CALL_SCREENING
+             doesn't exist yet; see IncomingCallLegacyWatcherService's own comment for
+             why the plain PhoneStateListener path is only used pre-29. Never started on
+             newer devices (gated in SettingsFragment), but foregroundServiceType is
+             still declared correctly in case that ever changes. -->
+        <service
+            android:name=".IncomingCallLegacyWatcherService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall"
+            tools:targetApi="29" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
