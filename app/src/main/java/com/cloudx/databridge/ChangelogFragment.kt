@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.94",
+                releasedDate = "18 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash My Requests: tapping the 'My Requests' tile now opens a list with an All tab plus dynamic status tabs (Pending/Approved/Settled/etc.), scoped to just your own requests — reuses the approver Requests screen's tab pattern in a new Requester-scoped mode, with Settlement History hidden there since it isn't scoped to a single user"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.93",
                 releasedDate = "17 Aug 2026",
                 entries = listOf(

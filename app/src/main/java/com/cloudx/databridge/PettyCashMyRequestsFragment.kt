@@ -238,6 +238,16 @@ class PettyCashMyRequestsFragment : Fragment() {
         bindStatTile(root, R.id.statPcMyRequestsApproved, "\u2705", "Approved", approvedCount.toString(), "#EDE9FE", "#6D28D9")
         bindStatTile(root, R.id.statPcMyRequestsSettled, "\uD83D\uDCB0", "Settled", settledCount.toString(), "#D1FAE5", "#059669")
 
+        // "My Requests" opens the tabbed All/status-wise list, scoped to just
+        // this user's own requests (myRequestsOnly=true) -- not the branch-
+        // wide approver view PettyCashPendingSettlementFragment normally is.
+        root.findViewById<View>(R.id.statPcMyRequestsTotal).setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, myRequestsOnly = true))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
+
         val container = root.findViewById<android.widget.LinearLayout>(R.id.layoutPcMyRequestsList)
         container.removeAllViews()
 

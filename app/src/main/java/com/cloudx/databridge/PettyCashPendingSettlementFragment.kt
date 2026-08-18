@@ -27,6 +27,15 @@ import java.util.Locale
  * request is visible here too, not just PC_STATUS_APPROVED ones). "All"
  * always shows everything; each other tab is one status, labeled with a
  * human-readable name and a live count.
+ *
+ * myRequestsOnly (see newInstance): when true, this is a Requester's own
+ * "My Requests" list rather than the branch-wide approver view --
+ * requests are pre-filtered to workerUid == current user before tabs/counts
+ * are built (so tab counts reflect only their own requests), the
+ * approver-only access gate is skipped, the title reads "My Requests", and
+ * Settlement History is hidden (that screen is branch-wide/unscoped, same
+ * reason it's not linked from PettyCashMyRequestsFragment's Reports item —
+ * would let a Requester browse everyone else's settlement history).
  */
 class PettyCashPendingSettlementFragment : Fragment() {
 
@@ -40,19 +49,22 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     private var branchId: String = ""
     private var selectedStatus: String = FILTER_ALL // FILTER_ALL or one of the PC_STATUS_* constants
+    private var myRequestsOnly: Boolean = false
     private var latestState: PettyCashState.Success? = null
     private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
         private const val ARG_INITIAL_STATUS = "initial_status"
+        private const val ARG_MY_REQUESTS_ONLY = "my_requests_only"
         private const val FILTER_ALL = "all"
 
-        fun newInstance(branchId: String, initialStatus: String = FILTER_ALL): PettyCashPendingSettlementFragment {
+        fun newInstance(branchId: String, initialStatus: String = FILTER_ALL, myRequestsOnly: Boolean = false): PettyCashPendingSettlementFragment {
             val f = PettyCashPendingSettlementFragment()
             f.arguments = Bundle().apply {
                 putString(ARG_BRANCH_ID, branchId)
                 putString(ARG_INITIAL_STATUS, initialStatus)
+                putBoolean(ARG_MY_REQUESTS_ONLY, myRequestsOnly)
             }
             return f
         }
@@ -66,12 +78,21 @@ class PettyCashPendingSettlementFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         branchId = arguments?.getString(ARG_BRANCH_ID).orEmpty()
         selectedStatus = arguments?.getString(ARG_INITIAL_STATUS).orEmpty().ifBlank { FILTER_ALL }
+        myRequestsOnly = arguments?.getBoolean(ARG_MY_REQUESTS_ONLY) ?: false
 
         swipeRefresh = view.findViewById(R.id.swipeRefreshPcPending)
         layoutTabs   = view.findViewById(R.id.layoutPcPendingTabs)
         layoutList   = view.findViewById(R.id.layoutPcPendingList)
         pbLoading    = view.findViewById(R.id.pbPcPendingLoading)
         layoutError  = view.findViewById(R.id.layoutPcPendingError)
+
+        if (myRequestsOnly) {
+            view.findViewById<TextView>(R.id.tvPcPendingTitle).text = "My Requests"
+            // Settlement History is branch-wide, not scoped to this user's
+            // own requests -- hide it here for the same reason it stays a
+            // "coming soon" toast on the Requester's Reports item.
+            view.findViewById<View>(R.id.btnPcPendingHistory).isVisible = false
+        }
 
         view.findViewById<View>(R.id.btnPcPendingBack).setOnClickListener {
             parentFragmentManager.popBackStack()
@@ -136,7 +157,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
                 }
             }
             is PettyCashState.Success -> {
-                if (!state.roles.isAnyApprover) {
+                if (!myRequestsOnly && !state.roles.isAnyApprover) {
                     pbLoading.isVisible = false
                     layoutError.isVisible = true
                     view?.findViewById<TextView>(R.id.tvPcPendingError)?.text = "Only approvers can view this screen"
@@ -152,9 +173,17 @@ class PettyCashPendingSettlementFragment : Fragment() {
         }
     }
 
+    /** state.requests, or just this user's own when myRequestsOnly is set. */
+    private fun scopedRequests(): List<PettyCashRequest> {
+        val all = latestState?.requests.orEmpty()
+        if (!myRequestsOnly) return all
+        val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        return all.filter { it.workerUid == myUid }
+    }
+
     private fun buildTabs() {
         layoutTabs.removeAllViews()
-        val all = latestState?.requests.orEmpty()
+        val all = scopedRequests()
 
         // Dynamic tabs: one per unique status actually present, in a fixed
         // canonical order (rather than whatever order they happen to appear
@@ -210,7 +239,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     private fun renderList() {
         val state = latestState ?: return
-        val all = state.requests
+        val all = scopedRequests()
         val statusFiltered = if (selectedStatus == FILTER_ALL) all else all.filter { it.status == selectedStatus }
         val filtered = if (advancedFilter.isActive) statusFiltered.filter { advancedFilter.matches(it) } else statusFiltered
         val canSettle = state.roles.isAccounts
