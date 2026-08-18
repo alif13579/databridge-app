@@ -37,6 +37,14 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.90",
+                releasedDate = "17 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash: Cash POC can now approve a request for less than the requested amount — an editable Approved Amount field (prefilled with the request amount) appears alongside \"Approve & Forward\". Settlement now moves this approved amount, not the original request amount"),
+                    ChangelogEntry("improvement", "Petty Cash Settlement Details: Settlement Summary simplified to just Requested Amount and Approved Amount, for both Accounts and the requester — dropped Lifetime Claimed/Settled and Current/Remaining Balance"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.89",
                 releasedDate = "17 Aug 2026",
                 entries = listOf(

@@ -27,7 +27,10 @@ import java.util.Locale
  * based on both the request's current status AND the signed-in user's role:
  *
  *   PENDING            + isStaff -> "Acknowledge Request" (inline comment box)
- *   ACKNOWLEDGED        + isCashPoc     -> "Approve & Forward" (inline comment box)
+ *   ACKNOWLEDGED        + isCashPoc     -> "Approve & Forward" (inline comment box,
+ *                                           plus an editable Approved Amount field
+ *                                           prefilled with the requested amount --
+ *                                           lets Cash POC approve less than asked)
  *   APPROVED            + isAccounts    -> "Mark Ready to Settle" (confirm dialog)
  *   SETTLE_IN_PROCESS   + isAccounts    -> "Mark as Settled" (inline settlement form:
  *                                           Payment Method, Settle Amount, Settlement
@@ -103,6 +106,8 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         val whole = Math.round(amount)
         return "\u09F3${NumberFormat.getNumberInstance(Locale.US).format(whole)}"
     }
+
+    private fun formatAmountForInput(amount: Double): String = Math.round(amount).toString()
 
     private fun formatDateTime(millis: Long): String {
         if (millis == 0L) return "—"
@@ -185,55 +190,18 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         root.findViewById<TextView>(R.id.tvPcDetailAttachmentName).text =
             request.attachmentName.ifBlank { "No attachment" }
 
-        // Settlement Summary: the branch's real wallet balance is sensitive financial
-        // info that only Accounts should see (every role in the approval chain passes
-        // through this same screen, including the Requester checking their own
-        // request). Accounts gets the real numbers unchanged; the request's own
-        // submitter gets a personalized lifetime summary instead of the branch's
-        // money; anyone else (Staff/Cash POC viewing someone else's request) sees
-        // neither — the whole card is hidden for them.
+        // Settlement Summary: just the two figures that matter at a glance --
+        // what was requested, and what was actually approved (Cash POC can
+        // adjust this down from the requested amount, e.g. partial approval).
         val cardSummary = root.findViewById<View>(R.id.cardPcSettlementSummary)
-        val rowLifetimeClaimed = root.findViewById<View>(R.id.rowPcSummaryLifetimeClaimed)
-        val rowLifetimeSettled = root.findViewById<View>(R.id.rowPcSummaryLifetimeSettled)
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        val canSeeSummary = roles.isAccounts || request.workerUid == myUid
 
-        when {
-            roles.isAccounts -> {
-                cardSummary.isVisible = true
-                rowLifetimeClaimed.isVisible = false
-                rowLifetimeSettled.isVisible = false
-                val currentBalance = latestState?.walletBalance ?: 0.0
-                val remaining = currentBalance - request.amount
-                bindRow(root, R.id.rowPcSummaryRequestAmount, "Request Amount", taka(request.amount))
-                bindRow(root, R.id.rowPcSummaryCurrentBalance, "Current Balance", taka(currentBalance))
-                bindRow(root, R.id.rowPcSummaryRemaining, "Remaining After Settlement", taka(remaining))
-            }
-            request.workerUid == myUid -> {
-                cardSummary.isVisible = true
-                rowLifetimeClaimed.isVisible = true
-                rowLifetimeSettled.isVisible = true
-                // Rejected requests never entered the money flow, so they're excluded
-                // from all three lifetime figures rather than counting toward Claimed
-                // while never resolving into Settled or Unsettled.
-                val mine = (latestState?.requests ?: emptyList())
-                    .filter { it.workerUid == myUid && it.status != PC_STATUS_REJECTED }
-                val lifetimeClaimed = mine.sumOf { it.amount }
-                val lifetimeSettled = mine.filter { it.status == PC_STATUS_SETTLED }.sumOf { it.amount }
-                val lifetimeUnsettled = lifetimeClaimed - lifetimeSettled
-                // Per spec: Available Balance After Settlement = this specific
-                // request's amount + Current Balance (lifetime unsettled) — not
-                // lifetime Claimed, and this request's own amount is already
-                // counted once whether or not it's itself still unsettled.
-                val availableAfterSettlement = request.amount + lifetimeUnsettled
-                bindRow(root, R.id.rowPcSummaryRequestAmount, "Request Amount", taka(request.amount))
-                bindRow(root, R.id.rowPcSummaryLifetimeClaimed, "Lifetime Claimed", taka(lifetimeClaimed))
-                bindRow(root, R.id.rowPcSummaryLifetimeSettled, "Lifetime Settled", taka(lifetimeSettled))
-                bindRow(root, R.id.rowPcSummaryCurrentBalance, "Current Balance", taka(lifetimeUnsettled))
-                bindRow(root, R.id.rowPcSummaryRemaining, "Available Balance After Settlement", taka(availableAfterSettlement))
-            }
-            else -> {
-                cardSummary.isVisible = false
-            }
+        cardSummary.isVisible = canSeeSummary
+        if (canSeeSummary) {
+            val approvedAmountText = if (request.pocApprovedAt != 0L) taka(request.approvedAmount) else "—"
+            bindRow(root, R.id.rowPcSummaryRequestAmount, "Requested Amount", taka(request.amount))
+            bindRow(root, R.id.rowPcSummaryApprovedAmount, "Approved Amount", approvedAmountText)
         }
 
         // POC's approval comment, surfaced directly (not just buried in the
@@ -319,6 +287,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         val btnReject = root.findViewById<Button>(R.id.btnPcDetailReject)
         val btnHoldReturn = root.findViewById<Button>(R.id.btnPcDetailHoldReturn)
         val layoutComment = root.findViewById<View>(R.id.layoutPcDetailComment)
+        val layoutApprovedAmount = root.findViewById<View>(R.id.layoutPcDetailApprovedAmount)
         val cardSettleForm = root.findViewById<View>(R.id.cardPcDetailSettleForm)
 
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
@@ -346,6 +315,15 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         }
 
         layoutComment.isVisible = canAcknowledge || canApprove
+        layoutApprovedAmount.isVisible = canApprove
+        if (canApprove) {
+            val etAmount = root.findViewById<android.widget.EditText>(R.id.etPcDetailApprovedAmount)
+            // Only prefill when empty so re-binds (e.g. a Firebase update
+            // ticking in) don't clobber a value the POC is mid-typing.
+            if (etAmount.text.isNullOrBlank()) {
+                etAmount.setText(formatAmountForInput(request.amount))
+            }
+        }
         cardSettleForm.isVisible = canSettle
         if (canSettle) prefillSettleForm(root, request)
 
@@ -363,7 +341,9 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 btnPrimary.text = "Approve & Forward"
                 btnPrimary.setOnClickListener {
                     val comment = root.findViewById<android.widget.EditText>(R.id.etPcDetailComment).text?.toString()?.trim().orEmpty()
-                    runAction { viewModel.approveRequest(branchId, requestIdFor(requestCode), comment) }
+                    val amountText = root.findViewById<android.widget.EditText>(R.id.etPcDetailApprovedAmount).text?.toString()?.trim().orEmpty()
+                    val approvedAmount = amountText.toDoubleOrNull() ?: request.amount
+                    runAction { viewModel.approveRequest(branchId, requestIdFor(requestCode), comment, approvedAmount) }
                 }
             }
             canMarkReady -> {
@@ -392,10 +372,11 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Cash", "Bank")
             )
         }
-        // Settle Amount matches the request amount — this screen settles one
-        // request in full, not a partial amount; kept read-only rather than
-        // implying partial settlement is supported.
-        bindRow(root, R.id.rowPcSettleAmount, "Settle Amount", taka(request.amount))
+        // Settle Amount follows the approved amount (what the Cash POC actually
+        // authorized, which may be less than what was requested) — this screen
+        // settles one request in full at that amount, not a partial amount;
+        // kept read-only rather than implying a third, separately-editable figure.
+        bindRow(root, R.id.rowPcSettleAmount, "Settle Amount", taka(request.settlementAmount))
         bindRow(root, R.id.rowPcSettleDate, "Settlement Date", formatDate(System.currentTimeMillis()))
     }
 

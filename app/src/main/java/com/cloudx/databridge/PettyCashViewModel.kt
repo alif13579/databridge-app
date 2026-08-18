@@ -304,13 +304,16 @@ class PettyCashViewModel : ViewModel() {
 
     // ── Cash POC: approve a request (2nd approval) ──────────────────────────
 
-    suspend fun approveRequest(branchId: String, requestId: String, comment: String = ""): Result<Unit> = runCatching {
+    suspend fun approveRequest(branchId: String, requestId: String, comment: String = "", approvedAmount: Double? = null): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Cash POC" }
         val now = System.currentTimeMillis()
         val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
         val snap = ref.get().await()
         val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
+        // Defaults to the originally requested amount when the caller doesn't
+        // specify one, e.g. approving in full without touching the amount field.
+        val finalApprovedAmount = approvedAmount ?: existing.amount
 
         val updatedSteps = existing.steps + PettyCashApprovalStep(
             stepName = "POC Approval", status = "done", byUid = uid, byName = name, at = now, note = comment
@@ -322,6 +325,7 @@ class PettyCashViewModel : ViewModel() {
                 "pocApprovedByName" to name,
                 "pocApprovedAt" to now,
                 "pocComment" to comment,
+                "approvedAmount" to finalApprovedAmount,
                 "updatedAt" to now,
                 "steps" to updatedSteps
             )
@@ -379,7 +383,7 @@ class PettyCashViewModel : ViewModel() {
         balanceRef.runTransaction(object : Transaction.Handler {
             override fun doTransaction(currentData: MutableData): Transaction.Result {
                 val current = currentData.getValue(Double::class.java) ?: 0.0
-                currentData.value = current - existing.amount
+                currentData.value = current - existing.settlementAmount
                 return Transaction.success(currentData)
             }
             override fun onComplete(error: DatabaseError?, committed: Boolean, snapshot: DataSnapshot?) {}

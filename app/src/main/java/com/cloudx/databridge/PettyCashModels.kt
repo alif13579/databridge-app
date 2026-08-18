@@ -69,6 +69,7 @@ data class PettyCashRequest(
     val pocApprovedByName: String = "",
     val pocApprovedAt: Long = 0L,
     val pocComment: String = "",
+    val approvedAmount: Double = 0.0,        // set by Cash POC at approval time; may differ from `amount` (partial approval) — 0.0 until approved
     val settleInProcessByUid: String = "",
     val settleInProcessByName: String = "",
     val settleInProcessAt: Long = 0L,
@@ -83,6 +84,14 @@ data class PettyCashRequest(
     val rejectReason: String = "",
     val steps: List<PettyCashApprovalStep> = emptyList()
 )
+
+/**
+ * The amount settlement should actually move — the Cash POC's approved
+ * amount, or the original request amount as a fallback for requests
+ * approved before `approvedAmount` existed (where it reads as 0.0).
+ */
+val PettyCashRequest.settlementAmount: Double
+    get() = if (approvedAmount > 0.0) approvedAmount else amount
 
 @IgnoreExtraProperties
 data class Store(

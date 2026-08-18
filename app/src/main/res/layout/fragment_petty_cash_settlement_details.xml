@@ -289,12 +289,42 @@
                             android:layout_marginBottom="6dp" />
 
                         <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryRequestAmount" />
-                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryLifetimeClaimed" />
-                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryLifetimeSettled" />
-                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryCurrentBalance" />
-                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryRemaining" />
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSummaryApprovedAmount" />
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
+
+                <!-- Approved Amount — Cash POC only, shown above the comment
+                     box at the Approve step. Prefilled with the requested
+                     amount; editable so POC can approve a lesser amount
+                     (partial approval) instead of always matching the ask. -->
+                <LinearLayout
+                    android:id="@+id/layoutPcDetailApprovedAmount"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="20dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Approved Amount"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:textColor="#64748B" />
+
+                    <EditText
+                        android:id="@+id/etPcDetailApprovedAmount"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="numberDecimal"
+                        android:layout_marginTop="6dp"
+                        android:paddingHorizontal="12dp"
+                        android:paddingVertical="10dp"
+                        android:textSize="13sp"
+                        android:background="@drawable/bg_pc_input"
+                        android:hint="Amount" />
+                </LinearLayout>
 
                 <!-- Decision comment — Staff/Cash POC only, shown inline above
                      Acknowledge/Approve instead of inside a confirmation dialog. -->
