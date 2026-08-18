@@ -535,51 +535,12 @@ class WorkerSpaceFragment : Fragment() {
 
                 // Call-log lookup on IO first (same as saveRemarkForItems()), then write.
                 viewLifecycleOwner.lifecycleScope.launch {
-                    val logs = withContext(Dispatchers.IO) {
-                        CallLogHelper.getTodaysCallLogs(requireContext(), item.phone)
-                    }
-                    val remarkData = buildMap<String, Any> {
-                        put("agentSystemId", systemId)
-                        put("userId", userId)
-                        put("remarks", noteText)
-                        put("note", noteText)
-                        put("status", "")
-                        put("remarked_by", "worker")
-                        put("createdAt", timestamp)
-                        put("runId", "run_${todayDateKey}_${systemId}")
-                        // ✅ call_logs — see saveRemarkForItems() for the full rationale.
-                        if (logs.isNotEmpty()) {
-                            put(
-                                "call_logs", mapOf(
-                                    "call_count" to logs.size,
-                                    "total_duration_sec" to logs.sumOf { it.second },
-                                    "calls" to logs.map { (callTs, dur) -> mapOf("ts" to callTs, "duration" to dur) }
-                                )
-                            )
-                        }
-                    }
-                    db.reference.child("courier/remarks_by_consignment/${item.id}/remarks_$timestamp")
-                        .setValue(remarkData)
-
-                    // ✅ Secondary per-user index — see saveRemarkForItems() for the full
-                    // rationale. status is "" here (no configured remark options to pick a
-                    // status from), so final_status is written as "" too, same as the
-                    // primary remark above.
-                    db.reference.child("courier/remarks_by_userId/$userId/push_${todayDateKey}_${item.id}")
-                        .setValue(
-                            mapOf(
-                                "final_status" to "",
-                                "remarks"      to noteText,
-                                "created_at"   to timestamp,
-                                "updated_at"   to timestamp
-                            )
-                        )
-
-                    // ✅ Reverse index — see saveRemarkForItems() for the full rationale
-                    // (userId-keyed, not a literal array, so concurrent writes/repeat touches
-                    // never race or duplicate).
-                    db.reference.child("courier/users_by_consignment/${item.id}/$todayDateKey/$userId")
-                        .setValue(true)
+                    writeWorkerRemarkToSupabase(
+                        consignmentId = item.id,
+                        branchId = RbacManager.current.branchIds.firstOrNull().orEmpty(),
+                        status = "",
+                        remarksText = noteText
+                    )
 
                     EngagedStateManager.clearEngaged(item.id, userId)
                     loadTodayRemarksStats()
@@ -766,86 +727,21 @@ class WorkerSpaceFragment : Fragment() {
         // first, so the writes below stay exactly as fire-and-forget as before — nothing here
         // blocks the main thread waiting on call log I/O.
         viewLifecycleOwner.lifecycleScope.launch {
-            val callLogsByParcelId: Map<String, List<Pair<Long, Int>>> = withContext(Dispatchers.IO) {
-                items.associate { p -> p.id to CallLogHelper.getTodaysCallLogs(requireContext(), p.phone) }
-            }
-
+            // call_logs (call count/duration) had no Supabase equivalent in the new schema
+            // (see SupabaseRemarkValidationWriter's doc comment) — the CallLogHelper lookup
+            // that used to feed it is dropped too, since computing it now would be wasted
+            // work with nowhere to put the result.
+            val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
             items.forEach { p ->
-                // Use a unique timestamp per parcel so keys don't collide in Firebase.
-                val ts = timestamp + items.indexOf(p)
-                val logs = callLogsByParcelId[p.id].orEmpty()
-                val remarkData = buildMap<String, Any> {
-                    put("agentSystemId", systemId)
-                    put("userId", userId)
-                    put("remarks", selectedLabel)
-                    put("status", statusKey)
-                    put("remarked_by", "worker")
-                    put("createdAt", ts)
-                    put("runId", runId)
-                    // ✅ call_logs — today's calls to this parcel's number (count, total talk
-                    // time, and each call's own timestamp+duration), so call-center can verify
-                    // this remark against actual call activity instead of taking it on faith.
-                    if (logs.isNotEmpty()) {
-                        put(
-                            "call_logs", mapOf(
-                                "call_count" to logs.size,
-                                "total_duration_sec" to logs.sumOf { it.second },
-                                "calls" to logs.map { (callTs, dur) -> mapOf("ts" to callTs, "duration" to dur) }
-                            )
-                        )
-                    }
-                }
-                db.reference.child("courier/remarks_by_consignment/${p.id}/remarks_$ts")
-                .setValue(remarkData)
-                .addOnFailureListener { e ->
-                    FirebaseErrorLogger.log(
-                        screen = "WorkerSpaceFragment", action = "remark_write",
-                        errorMessage = e.message ?: "unknown",
-                        extra = mapOf("consignmentId" to p.id, "userId" to userId)
-                    )
-                    android.widget.Toast.makeText(
-                        requireContext(), "⚠ ${p.id} — Remark save হয়নি: ${e.message}",
-                        android.widget.Toast.LENGTH_LONG
-                    ).show()
-                }
-
-            // ✅ Secondary per-user index — one entry per (user, day, consignment), last
-            // write for that combo wins. Lets a "my day" / date-range report for this worker
-            // be built from a single bounded read of courier/remarks_by_userId/{userId} instead of
-            // scanning every consignment's remark history and filtering by userId + date.
-            db.reference.child("courier/remarks_by_userId/$userId/push_${todayDateKey}_${p.id}")
-                .setValue(
-                    mapOf(
-                        "final_status" to statusKey,
-                        "remarks"      to selectedLabel,
-                        "created_at"   to ts,
-                        "updated_at"   to ts
-                    )
+                writeWorkerRemarkToSupabase(
+                    consignmentId = p.id,
+                    branchId = branchId,
+                    status = statusKey,
+                    remarksText = selectedLabel
                 )
-                .addOnFailureListener { e ->
-                    FirebaseErrorLogger.log(
-                        screen = "WorkerSpaceFragment", action = "remarks_by_userId_write",
-                        errorMessage = e.message ?: "unknown",
-                        extra = mapOf("consignmentId" to p.id, "userId" to userId)
-                    )
-                }
-
-            // ✅ Reverse index — which users touched this consignment on which day. Keyed by
-            // userId rather than a literal array, so concurrent remarks from different workers
-            // on the same consignment/day never race-overwrite each other, and repeat touches
-            // by the same user dedupe to one entry instead of piling up.
-            db.reference.child("courier/users_by_consignment/${p.id}/$todayDateKey/$userId")
-                .setValue(true)
-                .addOnFailureListener { e ->
-                    FirebaseErrorLogger.log(
-                        screen = "WorkerSpaceFragment", action = "users_by_consignment_write",
-                        errorMessage = e.message ?: "unknown",
-                        extra = mapOf("consignmentId" to p.id, "userId" to userId)
-                    )
-                }
-            EngagedStateManager.clearEngaged(p.id, userId)
-        }
-        loadTodayRemarksStats()
+                EngagedStateManager.clearEngaged(p.id, userId)
+            }
+            loadTodayRemarksStats()
 
         // Local state update for all affected parcels.
         val updatedIds = items.map { it.id }.toSet()
@@ -900,10 +796,58 @@ class WorkerSpaceFragment : Fragment() {
         } // end viewLifecycleOwner.lifecycleScope.launch
     }
 
+    /** Writes a Worker-side remark to Supabase's remark_validations table, per Alif's rule:
+     *  a worker's remark is only recorded there if a verifier (typically a CC agent) has
+     *  ALREADY left a remark on this exact consignment — "worker save korle verifier id age
+     *  na thakle kichui add hbena". If no prior remark from anyone other than this worker
+     *  themself exists yet, this is a silent no-op (no Supabase write, no error) — the
+     *  worker's own remark UI (status badge, "today's remarks" stats, etc.) still updates
+     *  normally either way, since none of that reads from Supabase; only the
+     *  cross-system reporting table is being gated here.
+     *
+     *  Verifier resolution: fetches this consignment's full remark history from Supabase
+     *  and looks for the most recent row whose verifier_id is NOT this worker's own
+     *  system_id — if found, that verifier_id is reused for this write (so a repeat remark
+     *  from the same worker on the same consignment keeps attributing to whichever CC agent
+     *  most recently verified it, not overwriting with the worker's own id). If every row
+     *  so far belongs to the worker themself (or there's no history at all), there's no
+     *  established verifier yet, and the write is skipped.
+     */
+    private suspend fun writeWorkerRemarkToSupabase(
+        consignmentId: String,
+        branchId: String,
+        status: String,
+        remarksText: String
+    ) {
+        if (systemId.isBlank() || branchId.isBlank()) return
+
+        val history = run {
+            val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
+            SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
+                deferred.complete(rows)
+            }
+            deferred.await()
+        }
+        val existingVerifierId = history
+            .mapNotNull { it.optString("verifier_id")?.trim() }
+            .firstOrNull { it.isNotBlank() && it != systemId }
+            ?: return // no established verifier yet — per Alif, skip entirely
+
+        SupabaseRemarkValidationWriter.write(
+            deliveryAgentId = systemId,
+            verifierId = existingVerifierId,
+            branchId = branchId,
+            consignmentId = consignmentId,
+            status = status,
+            remarksText = remarksText,
+            screen = "WorkerSpaceFragment"
+        )
+    }
+
     /** Today's date as yyyyMMdd (e.g. "20260725") — year-first so plain string/key ordering
-     *  sorts chronologically. Used for runId construction and the courier/remarks_by_userId secondary
-     *  index key — both now share this one format. Used by both remark-save sites (the
-     *  configured-options flow and the no-config-options note fallback). */
+     *  sorts chronologically. Used for runId construction. (Formerly also used for the
+     *  courier/remarks_by_userId secondary index key, retired along with that path — see
+     *  SupabaseRemarkValidationWriter's doc comment.) */
     private fun todayDateKeyYyyyMmDd(): String =
         java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date())
 
