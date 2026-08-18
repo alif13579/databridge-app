@@ -1,6 +1,5 @@
 package com.cloudx.databridge
 
-import android.app.DatePickerDialog
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -15,9 +14,6 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Locale
 
 /**
  * Petty Cash Management — New/Edit Request (Requester screen).
@@ -48,10 +44,6 @@ import java.util.Locale
  * captures a display name for now (attachmentUrl stays blank). Full file
  * upload can follow the same pattern as Branch's image upload
  * (uploadImageIfNeeded in BranchCreateFragment) when needed.
- *
- * Requested Date defaults to today and can be backdated (not postdated —
- * this is when the expense happened, not a future plan) via a date picker,
- * matching the mockup's field. Separate from createdAt (submission time).
  */
 class PettyCashRequestCreateFragment : Fragment() {
 
@@ -69,7 +61,6 @@ class PettyCashRequestCreateFragment : Fragment() {
     private var selectedStoreId: String = ""
     private var selectedStoreName: String = ""
     private var attachmentName: String = ""
-    private var selectedDateMillis: Long = System.currentTimeMillis()
 
     private lateinit var tvTitle: TextView
     private lateinit var tvCategorySelected: TextView
@@ -80,7 +71,6 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var etAmount: EditText
     private lateinit var etPurpose: EditText
     private lateinit var tvPurposeCount: TextView
-    private lateinit var tvDateSelected: TextView
     private lateinit var btnSubmit: android.widget.Button
 
     companion object {
@@ -115,7 +105,6 @@ class PettyCashRequestCreateFragment : Fragment() {
         etAmount = view.findViewById(R.id.etPcRequestAmount)
         etPurpose = view.findViewById(R.id.etPcRequestPurpose)
         tvPurposeCount = view.findViewById(R.id.tvPcRequestPurposeCount)
-        tvDateSelected = view.findViewById(R.id.tvPcRequestDateSelected)
         btnSubmit = view.findViewById(R.id.btnPcRequestSubmit)
 
         if (!isEditMode && !RbacManager.hasPermission("petty_cash_requester")) {
@@ -134,8 +123,6 @@ class PettyCashRequestCreateFragment : Fragment() {
         view.findViewById<View>(R.id.layoutPcRequestCategory).setOnClickListener { showCategoryPicker() }
         view.findViewById<View>(R.id.layoutPcRequestStore).setOnClickListener { showStorePicker() }
         view.findViewById<View>(R.id.layoutPcRequestAttachment).setOnClickListener { showAttachmentPicker(view) }
-        view.findViewById<View>(R.id.layoutPcRequestDate).setOnClickListener { showDatePicker() }
-        applyDate(selectedDateMillis) // defaults to today until edited or prefilled
 
         etPurpose.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -168,7 +155,6 @@ class PettyCashRequestCreateFragment : Fragment() {
         applyCategory(request.category)
         etAmount.setText(if (request.amount > 0) request.amount.toInt().toString() else "")
         etPurpose.setText(request.purpose)
-        if (request.requestedDate != 0L) applyDate(request.requestedDate)
         if (request.consignmentId.isNotBlank()) etConsignmentId.setText(request.consignmentId)
         if (request.storeName.isNotBlank()) {
             selectedStoreId = request.storeId
@@ -177,26 +163,6 @@ class PettyCashRequestCreateFragment : Fragment() {
             tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
         }
         prefilled = true
-    }
-
-    private fun showDatePicker() {
-        val cal = Calendar.getInstance().apply { timeInMillis = selectedDateMillis }
-        DatePickerDialog(
-            requireContext(),
-            { _, year, month, day ->
-                val picked = Calendar.getInstance().apply { set(year, month, day, 0, 0, 0) }
-                applyDate(picked.timeInMillis)
-            },
-            cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
-        ).apply {
-            // Requested Date is when the expense happened, not a future plan.
-            datePicker.maxDate = System.currentTimeMillis()
-        }.show()
-    }
-
-    private fun applyDate(millis: Long) {
-        selectedDateMillis = millis
-        tvDateSelected.text = SimpleDateFormat("dd MMM yyyy", Locale.US).format(java.util.Date(millis))
     }
 
     private fun showCategoryPicker() {
@@ -314,8 +280,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             lifecycleScope.launch {
                 val result = viewModel.updateRequest(
                     branchId, editRequestId, selectedCategory, purpose, amount,
-                    consignmentId = finalConsignmentId, storeId = finalStoreId, storeName = finalStoreName,
-                    requestedDate = selectedDateMillis
+                    consignmentId = finalConsignmentId, storeId = finalStoreId, storeName = finalStoreName
                 )
                 if (result.isSuccess) {
                     Toast.makeText(requireContext(), "Request updated", Toast.LENGTH_SHORT).show()
@@ -338,8 +303,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                     workerRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId },
                     consignmentId = finalConsignmentId,
                     storeId = finalStoreId,
-                    storeName = finalStoreName,
-                    requestedDate = selectedDateMillis
+                    storeName = finalStoreName
                 )
                 if (result.isSuccess) {
                     Toast.makeText(requireContext(), "Request ${result.getOrNull()} submitted", Toast.LENGTH_SHORT).show()
