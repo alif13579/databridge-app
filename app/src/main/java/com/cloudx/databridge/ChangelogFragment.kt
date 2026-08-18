@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.95",
+                releasedDate = "18 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash My Requests: Pending/Approved/Settled tiles now open the same My Requests list as the 'My Requests' tile, landing on the matching status tab instead of doing nothing"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.94",
                 releasedDate = "18 Aug 2026",
                 entries = listOf(

@@ -105,6 +105,13 @@ class PettyCashMyRequestsFragment : Fragment() {
         if (branchId.isNotBlank()) viewModel.load(branchId)
     }
 
+    private fun openMyRequestsList(initialStatus: String = "all") {
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, initialStatus, myRequestsOnly = true))
+            .addToBackStack(null)
+            .commitAllowingStateLoss()
+    }
+
     private fun taka(amount: Double): String {
         val whole = Math.round(amount)
         return "\u09F3${NumberFormat.getNumberInstance(Locale.US).format(whole)}"
@@ -241,12 +248,20 @@ class PettyCashMyRequestsFragment : Fragment() {
         // "My Requests" opens the tabbed All/status-wise list, scoped to just
         // this user's own requests (myRequestsOnly=true) -- not the branch-
         // wide approver view PettyCashPendingSettlementFragment normally is.
-        root.findViewById<View>(R.id.statPcMyRequestsTotal).setOnClickListener {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId, myRequestsOnly = true))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
+        // Each of the other three tiles opens the same screen landed on the
+        // matching tab, so switching claims are made at a glance instead of
+        // starting back at "All" every time.
+        //
+        // Pending/Approved here are each a combined count across two
+        // statuses (PENDING+ACKNOWLEDGED, APPROVED+SETTLE_IN_PROCESS) but
+        // the target screen's tabs are one status each -- landing on the
+        // first/primary one (PENDING, APPROVED) rather than trying to open
+        // on a combined view that doesn't exist there. The other status is
+        // one tab away.
+        root.findViewById<View>(R.id.statPcMyRequestsTotal).setOnClickListener { openMyRequestsList() }
+        root.findViewById<View>(R.id.statPcMyRequestsPending).setOnClickListener { openMyRequestsList(PC_STATUS_PENDING) }
+        root.findViewById<View>(R.id.statPcMyRequestsApproved).setOnClickListener { openMyRequestsList(PC_STATUS_APPROVED) }
+        root.findViewById<View>(R.id.statPcMyRequestsSettled).setOnClickListener { openMyRequestsList(PC_STATUS_SETTLED) }
 
         val container = root.findViewById<android.widget.LinearLayout>(R.id.layoutPcMyRequestsList)
         container.removeAllViews()
