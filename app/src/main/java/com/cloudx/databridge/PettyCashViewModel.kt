@@ -363,7 +363,8 @@ class PettyCashViewModel : ViewModel() {
         branchId: String,
         requestId: String,
         paymentMethod: String,
-        trxId: String
+        trxId: String,
+        settledAmount: Double? = null
     ): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Accounts" }
@@ -371,6 +372,9 @@ class PettyCashViewModel : ViewModel() {
         val requestRef = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
         val snap = requestRef.get().await()
         val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
+        // Defaults to what Cash POC approved (itself already defaulted to the original
+        // claim if POC didn't touch it) when Accounts settles as-is without adjusting.
+        val finalSettledAmount = settledAmount ?: existing.approvedAmount.takeIf { it > 0 } ?: existing.amount
 
         val updatedSteps = existing.steps + PettyCashApprovalStep(
             stepName = "Settled", status = "done", byUid = uid, byName = name, at = now
@@ -383,7 +387,7 @@ class PettyCashViewModel : ViewModel() {
         balanceRef.runTransaction(object : Transaction.Handler {
             override fun doTransaction(currentData: MutableData): Transaction.Result {
                 val current = currentData.getValue(Double::class.java) ?: 0.0
-                currentData.value = current - existing.settlementAmount
+                currentData.value = current - finalSettledAmount
                 return Transaction.success(currentData)
             }
             override fun onComplete(error: DatabaseError?, committed: Boolean, snapshot: DataSnapshot?) {}
@@ -395,6 +399,7 @@ class PettyCashViewModel : ViewModel() {
                 "settledByUid" to uid,
                 "settledByName" to name,
                 "settledAt" to now,
+                "settledAmount" to finalSettledAmount,
                 "settledPaymentMethod" to paymentMethod,
                 "settledTrxId" to trxId,
                 "updatedAt" to now,
