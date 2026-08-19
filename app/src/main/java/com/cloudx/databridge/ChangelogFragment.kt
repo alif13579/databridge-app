@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "5.22.96",
+                releasedDate = "18 Aug 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash New/Edit Request: Pickup category now has a required 'Number of Pickups' field, shown on Settlement Details too"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.95",
                 releasedDate = "18 Aug 2026",
                 entries = listOf(

@@ -68,6 +68,7 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var etConsignmentId: EditText
     private lateinit var groupStore: View
     private lateinit var tvStoreSelected: TextView
+    private lateinit var etPickupCount: EditText
     private lateinit var etAmount: EditText
     private lateinit var etPurpose: EditText
     private lateinit var tvPurposeCount: TextView
@@ -102,6 +103,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         etConsignmentId = view.findViewById(R.id.etPcRequestConsignmentId)
         groupStore = view.findViewById(R.id.groupPcRequestStore)
         tvStoreSelected = view.findViewById(R.id.tvPcRequestStoreSelected)
+        etPickupCount = view.findViewById(R.id.etPcRequestPickupCount)
         etAmount = view.findViewById(R.id.etPcRequestAmount)
         etPurpose = view.findViewById(R.id.etPcRequestPurpose)
         tvPurposeCount = view.findViewById(R.id.tvPcRequestPurposeCount)
@@ -162,6 +164,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             tvStoreSelected.text = request.storeName
             tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
         }
+        if (request.pickupCount > 0) etPickupCount.setText(request.pickupCount.toString())
         prefilled = true
     }
 
@@ -190,6 +193,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             selectedStoreName = ""
             tvStoreSelected.text = "Select Store"
             tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+            etPickupCount.setText("")
         }
     }
 
@@ -245,6 +249,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         val amount = etAmount.text?.toString()?.toDoubleOrNull() ?: 0.0
         val purpose = etPurpose.text?.toString().orEmpty().trim()
         val consignmentId = etConsignmentId.text?.toString().orEmpty().trim()
+        val pickupCount = etPickupCount.text?.toString()?.trim()?.toIntOrNull() ?: 0
 
         if (branchId.isBlank()) {
             Toast.makeText(requireContext(), "No branch selected", Toast.LENGTH_SHORT).show()
@@ -262,6 +267,10 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "Select a store", Toast.LENGTH_SHORT).show()
             return
         }
+        if (selectedCategory == PC_CATEGORY_PICKUP && pickupCount <= 0) {
+            Toast.makeText(requireContext(), "Enter how many pickups", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (amount <= 0.0) {
             Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
             return
@@ -274,13 +283,15 @@ class PettyCashRequestCreateFragment : Fragment() {
         val finalConsignmentId = if (selectedCategory == PC_CATEGORY_BULK_DELIVERY) consignmentId else ""
         val finalStoreId = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreId else ""
         val finalStoreName = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreName else ""
+        val finalPickupCount = if (selectedCategory == PC_CATEGORY_PICKUP) pickupCount else 0
 
         btnSubmit.isEnabled = false
         if (isEditMode) {
             lifecycleScope.launch {
                 val result = viewModel.updateRequest(
                     branchId, editRequestId, selectedCategory, purpose, amount,
-                    consignmentId = finalConsignmentId, storeId = finalStoreId, storeName = finalStoreName
+                    consignmentId = finalConsignmentId, storeId = finalStoreId, storeName = finalStoreName,
+                    pickupCount = finalPickupCount
                 )
                 if (result.isSuccess) {
                     Toast.makeText(requireContext(), "Request updated", Toast.LENGTH_SHORT).show()
@@ -303,7 +314,8 @@ class PettyCashRequestCreateFragment : Fragment() {
                     workerRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId },
                     consignmentId = finalConsignmentId,
                     storeId = finalStoreId,
-                    storeName = finalStoreName
+                    storeName = finalStoreName,
+                    pickupCount = finalPickupCount
                 )
                 if (result.isSuccess) {
                     Toast.makeText(requireContext(), "Request ${result.getOrNull()} submitted", Toast.LENGTH_SHORT).show()

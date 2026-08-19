@@ -169,6 +169,27 @@
                             android:textSize="11sp"
                             android:textColor="#94A3B8" />
                     </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Number of Pickups"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:layout_marginTop="14dp" />
+
+                    <EditText
+                        android:id="@+id/etPcRequestPickupCount"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_pc_input"
+                        android:paddingHorizontal="14dp"
+                        android:inputType="number"
+                        android:maxLength="3"
+                        android:textSize="14sp"
+                        android:hint="e.g. 3" />
                 </LinearLayout>
 
                 <!-- Amount -->

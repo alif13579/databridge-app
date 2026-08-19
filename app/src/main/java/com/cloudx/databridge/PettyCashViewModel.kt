@@ -178,6 +178,7 @@ class PettyCashViewModel : ViewModel() {
         consignmentId: String = "",
         storeId: String = "",
         storeName: String = "",
+        pickupCount: Int = 0,
         requestedDate: Long = 0L
     ): Result<String> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
@@ -198,6 +199,7 @@ class PettyCashViewModel : ViewModel() {
             consignmentId = consignmentId,
             storeId = storeId,
             storeName = storeName,
+            pickupCount = pickupCount,
             purpose = purpose,
             amount = amount,
             priority = priority,
@@ -226,6 +228,7 @@ class PettyCashViewModel : ViewModel() {
         consignmentId: String = "",
         storeId: String = "",
         storeName: String = "",
+        pickupCount: Int = 0,
         requestedDate: Long = 0L
     ): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
@@ -242,6 +245,7 @@ class PettyCashViewModel : ViewModel() {
                 "consignmentId" to consignmentId,
                 "storeId" to storeId,
                 "storeName" to storeName,
+                "pickupCount" to pickupCount,
                 "purpose" to purpose,
                 "amount" to amount,
                 "requestedDate" to (if (requestedDate != 0L) requestedDate else existing.requestedDate),

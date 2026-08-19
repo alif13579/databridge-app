@@ -67,6 +67,7 @@ data class PettyCashRequest(
     val consignmentId: String = "",        // set when category == Bulk Delivery
     val storeId: String = "",              // set when category == Pickup
     val storeName: String = "",            // set when category == Pickup
+    val pickupCount: Int = 0,              // set when category == Pickup — how many pickups this claim covers
     val purpose: String = "",
     val amount: Double = 0.0,
     val priority: String = PC_PRIORITY_NORMAL,

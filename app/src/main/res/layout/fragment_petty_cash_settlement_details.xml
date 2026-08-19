@@ -177,6 +177,7 @@
                         <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcAmount" />
                         <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcRequestedOn" />
                         <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcCategoryExtra" />
+                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcPickupCount" />
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 

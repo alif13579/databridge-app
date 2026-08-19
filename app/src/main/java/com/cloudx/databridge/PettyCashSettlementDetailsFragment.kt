@@ -186,6 +186,14 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             else -> rowExtra.isVisible = false
         }
 
+        val rowPickupCount = root.findViewById<View>(R.id.rowPcPickupCount)
+        if (request.pickupCount > 0) {
+            rowPickupCount.isVisible = true
+            bindRow(root, R.id.rowPcPickupCount, "Number of Pickups", request.pickupCount.toString())
+        } else {
+            rowPickupCount.isVisible = false
+        }
+
         root.findViewById<TextView>(R.id.tvPcDetailPurpose).text = request.purpose
         root.findViewById<TextView>(R.id.tvPcDetailAttachmentName).text =
             request.attachmentName.ifBlank { "No attachment" }
