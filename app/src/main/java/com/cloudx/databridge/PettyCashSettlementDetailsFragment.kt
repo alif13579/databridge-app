@@ -190,18 +190,21 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         root.findViewById<TextView>(R.id.tvPcDetailAttachmentName).text =
             request.attachmentName.ifBlank { "No attachment" }
 
-        // Settlement Summary: just the two figures that matter at a glance --
-        // what was requested, and what was actually approved (Cash POC can
-        // adjust this down from the requested amount, e.g. partial approval).
+        // Settlement Summary: Claimed Amount (the original ask, permanent record —
+        // never overwritten by edits along the approval chain) vs Settled Amount
+        // (the actual final figure paid out, set by Accounts at the Settle step,
+        // defaulting to what Cash POC approved but adjustable once more there).
+        // "—" until it's actually reached settled, so it doesn't look like 0 was
+        // paid for a still-in-flight request.
         val cardSummary = root.findViewById<View>(R.id.cardPcSettlementSummary)
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         val canSeeSummary = roles.isAccounts || request.workerUid == myUid
 
         cardSummary.isVisible = canSeeSummary
         if (canSeeSummary) {
-            val approvedAmountText = if (request.pocApprovedAt != 0L) taka(request.approvedAmount) else "—"
-            bindRow(root, R.id.rowPcSummaryRequestAmount, "Requested Amount", taka(request.amount))
-            bindRow(root, R.id.rowPcSummaryApprovedAmount, "Approved Amount", approvedAmountText)
+            val settledAmountText = if (request.status == PC_STATUS_SETTLED) taka(request.settledAmount) else "—"
+            bindRow(root, R.id.rowPcSummaryRequestAmount, "Claimed Amount", taka(request.amount))
+            bindRow(root, R.id.rowPcSummaryApprovedAmount, "Settled Amount", settledAmountText)
         }
 
         // POC's approval comment, surfaced directly (not just buried in the
@@ -364,7 +367,9 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         bindEditDeleteRow(root, request, canEditOrDelete)
     }
 
-    /** Payment Method spinner, Settle Amount / Settlement Date (read-only), Transaction ID (optional). */
+    /** Payment Method spinner, editable Settle Amount (pre-filled from approved amount,
+     *  Accounts can adjust it down/up once more before settling), Settlement Date
+     *  (read-only), Transaction ID (optional). */
     private fun prefillSettleForm(root: View, request: PettyCashRequest) {
         val spinner = root.findViewById<android.widget.Spinner>(R.id.spinnerPcSettlePaymentMethod)
         if (spinner.adapter == null) {
@@ -372,11 +377,12 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Cash", "Bank")
             )
         }
-        // Settle Amount follows the approved amount (what the Cash POC actually
-        // authorized, which may be less than what was requested) — this screen
-        // settles one request in full at that amount, not a partial amount;
-        // kept read-only rather than implying a third, separately-editable figure.
-        bindRow(root, R.id.rowPcSettleAmount, "Settle Amount", taka(request.settlementAmount))
+        val etSettleAmount = root.findViewById<android.widget.EditText>(R.id.etPcSettleAmount)
+        val defaultAmount = request.approvedAmount.takeIf { it > 0 } ?: request.amount
+        if (etSettleAmount.text.isNullOrBlank()) {
+            etSettleAmount.setText(if (defaultAmount == defaultAmount.toLong().toDouble())
+                defaultAmount.toLong().toString() else defaultAmount.toString())
+        }
         bindRow(root, R.id.rowPcSettleDate, "Settlement Date", formatDate(System.currentTimeMillis()))
     }
 
@@ -385,9 +391,15 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         val paymentMethod = spinner.selectedItem?.toString() ?: "Cash"
         val typedTrxId = root.findViewById<android.widget.EditText>(R.id.etPcSettleTrxId).text?.toString()?.trim().orEmpty()
         val trxId = typedTrxId.ifBlank { "TXN-${System.currentTimeMillis().toString().takeLast(5)}" }
+        val typedAmount = root.findViewById<android.widget.EditText>(R.id.etPcSettleAmount)
+            .text?.toString()?.trim()?.toDoubleOrNull()
+        if (typedAmount == null || typedAmount <= 0) {
+            Toast.makeText(requireContext(), "Enter a valid settle amount", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         lifecycleScope.launch {
-            val result = viewModel.settleRequest(branchId, requestIdFor(requestCode), paymentMethod, trxId)
+            val result = viewModel.settleRequest(branchId, requestIdFor(requestCode), paymentMethod, trxId, typedAmount)
             if (result.isSuccess) {
                 parentFragmentManager.beginTransaction()
                     .replace(R.id.container, PettyCashSettlementSuccessFragment.newInstance(branchId, requestCode))
