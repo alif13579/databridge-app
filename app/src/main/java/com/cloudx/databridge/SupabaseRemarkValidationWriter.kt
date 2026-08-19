@@ -202,4 +202,83 @@ object SupabaseRemarkValidationWriter {
             }
         })
     }
+
+    /**
+     * Fetches today's remark rows for one delivery agent (a worker's own system_id) —
+     * used by WorkerSpaceFragment.loadTodayRemarksStats() for the "today's remarks"
+     * total + per-status breakdown chips, replacing the Firebase
+     * courier/remarks_by_userId/{uid} range read those chips previously used.
+     *
+     * No server-side GROUP BY / count aggregation — this returns the raw matching
+     * rows and leaves counting-by-status to the caller (a plain in-memory loop is
+     * plenty fast for one worker's one-day row count; a Postgres view/RPC for
+     * server-side aggregation is a possible future optimization, not needed yet).
+     *
+     * @param deliveryAgentId system_id of the worker whose today's remarks to fetch.
+     * @param onResult called on a background thread with the matching rows (each a
+     *   JSONObject with the same shape as fetchHistory()'s rows), or an empty list
+     *   on any failure (logged, not surfaced as an exception — same "treat no-data
+     *   and fetch-failed the same way" contract as fetchHistory()).
+     */
+    fun fetchTodayForDeliveryAgent(deliveryAgentId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
+        if (deliveryAgentId.isBlank() || !SupabaseConfig.isConfigured) {
+            onResult(emptyList())
+            return
+        }
+
+        val todayStartIso = java.time.LocalDate.now()
+            .atStartOfDay(java.time.ZoneId.systemDefault())
+            .toInstant()
+            .toString()
+
+        val request = Request.Builder()
+            .url(
+                "${SupabaseConfig.PROJECT_URL}/rest/v1/remark_validations" +
+                    "?delivery_agent_id=eq.$deliveryAgentId" +
+                    "&created_at=gte.$todayStartIso" +
+                    "&order=created_at.desc"
+            )
+            .addHeader("apikey", SupabaseConfig.ANON_KEY)
+            .addHeader("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
+            .get()
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                FirebaseErrorLogger.log(
+                    screen = screen, action = "supabase_validation_fetch_today_network_error",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("deliveryAgentId" to deliveryAgentId)
+                )
+                onResult(emptyList())
+            }
+
+            override fun onResponse(call: Call, response: okhttp3.Response) {
+                response.use {
+                    if (!it.isSuccessful) {
+                        FirebaseErrorLogger.log(
+                            screen = screen, action = "supabase_validation_fetch_today_http_error",
+                            errorMessage = "HTTP ${it.code}: ${it.body?.string().orEmpty().take(500)}",
+                            extra = mapOf("deliveryAgentId" to deliveryAgentId)
+                        )
+                        onResult(emptyList())
+                        return
+                    }
+                    val text = it.body?.string().orEmpty()
+                    try {
+                        val arr = org.json.JSONArray(text)
+                        val list = (0 until arr.length()).map { i -> arr.getJSONObject(i) }
+                        onResult(list)
+                    } catch (e: Exception) {
+                        FirebaseErrorLogger.log(
+                            screen = screen, action = "supabase_validation_fetch_today_parse_error",
+                            errorMessage = e.message ?: "unknown",
+                            extra = mapOf("deliveryAgentId" to deliveryAgentId)
+                        )
+                        onResult(emptyList())
+                    }
+                }
+            }
+        })
+    }
 }

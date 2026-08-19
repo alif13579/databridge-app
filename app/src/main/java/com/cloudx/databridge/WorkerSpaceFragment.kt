@@ -1802,38 +1802,30 @@ class WorkerSpaceFragment : Fragment() {
         tvTodayCod.text = "৳$totalCod"
     }
 
-    /** Total + per-status breakdown chips — "today's everything", sourced from
-     *  courier/remarks_by_userId/{uid} (today's yyyyMMdd range) instead of the live allParcels
-     *  list, so it reflects everything actioned today rather than just what's in the
-     *  currently-assigned run. Mirrors DashboardViewModel.loadAgentStat()'s exact query shape
-     *  (same path, same startAt/endAt range) so there's no path/format mismatch between the
-     *  two screens. Call this on load and again right after a remark save, not from
-     *  updateCounts()'s cadence — a single bounded read per call, not worth re-querying on
-     *  every minor live-list update. */
+    /** Total + per-status breakdown chips — "today's everything", sourced from Supabase's
+     *  remark_validations table (delivery_agent_id = this worker's own systemId, created_at
+     *  at/after today's midnight) instead of the live allParcels list, so it reflects
+     *  everything actioned today rather than just what's in the currently-assigned run.
+     *  (Formerly sourced from courier/remarks_by_userId/{uid} — retired along with that path;
+     *  DashboardViewModel.loadAgentStat() still reads that old path and is NOT migrated here,
+     *  left as a separate task per Alif.) Call this on load and again right after a remark
+     *  save, not from updateCounts()'s cadence — a single bounded read per call, not worth
+     *  re-querying on every minor live-list update. */
     private fun loadTodayRemarksStats() {
-        val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
-        val todayKey = todayDateKeyYyyyMmDd()
+        if (systemId.isBlank()) return
         viewLifecycleOwner.lifecycleScope.launch {
-            val snap = withContext(Dispatchers.IO) {
-                runCatching {
-                    db.reference.child("courier/remarks_by_userId/$uid")
-                        .orderByKey()
-                        .startAt("push_$todayKey")
-                        .endAt("push_$todayKey~")
-                        .get().await()
-                }.onFailure { e ->
-                    FirebaseErrorLogger.log(
-                        screen = "WorkerSpaceFragment", action = "today_remarks_stats_read",
-                        errorMessage = e.message ?: "unknown", extra = mapOf("uid" to uid)
-                    )
-                }.getOrNull()
+            val rows = withContext(Dispatchers.IO) {
+                val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
+                SupabaseRemarkValidationWriter.fetchTodayForDeliveryAgent(systemId, "WorkerSpaceFragment") { result ->
+                    deferred.complete(result)
+                }
+                deferred.await()
             }
             if (!isAdded) return@launch
 
             val counts = mutableMapOf<String, Int>()
-            snap?.children?.forEach { entry ->
-                val status = entry.child("final_status").getValue(String::class.java)
-                    ?.trim()?.ifBlank { "(no status)" } ?: "(no status)"
+            rows.forEach { row ->
+                val status = row.optString("status")?.trim()?.ifBlank { "(no status)" } ?: "(no status)"
                 counts[status] = (counts[status] ?: 0) + 1
             }
 
