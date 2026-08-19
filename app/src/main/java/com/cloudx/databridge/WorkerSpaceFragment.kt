@@ -870,7 +870,7 @@ class WorkerSpaceFragment : Fragment() {
             deferred.await()
         }
         val existingVerifierId = history
-            .mapNotNull { it.optString("verifier_id")?.trim() }
+            .mapNotNull { it.optString("verifier_system_id")?.trim() }
             .firstOrNull { it.isNotBlank() && it != systemId }
             ?: return // no established verifier yet — per Alif, skip entirely
 
@@ -1530,7 +1530,7 @@ class WorkerSpaceFragment : Fragment() {
         // path CallCenterFragment's ensureAgentNameMap() uses, rather than UserNameResolver's
         // uid-keyed lookup.
         val distinctVerifierSystemIds = fetches.flatMap { it.remarkRows }
-            .mapNotNull { it.optString("verifier_id")?.trim() }
+            .mapNotNull { it.optString("verifier_system_id")?.trim() }
             .filter { it.isNotBlank() }
             .distinct()
         val (nameMapBulk, photoMapBulk) = resolveSystemIdNamesAndPhotos(distinctVerifierSystemIds)
@@ -1572,7 +1572,7 @@ class WorkerSpaceFragment : Fragment() {
                 val createdAt = rowCreatedAtMillisBulk(r)
                 val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
-                val rVerifierId = r.optString("verifier_id")?.trim().orEmpty()
+                val rVerifierId = r.optString("verifier_system_id")?.trim().orEmpty()
                 // A remark is "from the delivery agent themself" (this worker) when
                 // verifier_id matches THIS consignment's own delivery agent (this worker's
                 // systemId), vs "from a CC agent" otherwise — the closest equivalent left to

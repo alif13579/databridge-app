@@ -34,7 +34,7 @@ object SupabaseRemarkValidationWriter {
         }
         invoke(JSONObject().put("action", "write").put("row", JSONObject()
             .put("consignment_id", consignmentId).put("branch_id", branchId)
-            .put("delivery_agent_id", deliveryAgentId).put("verifier_id", verifierId)
+            .put("agent_system_id", deliveryAgentId).put("verifier_system_id", verifierId)
             .put("status", status).put("remarks", remarksText)), screen, "supabase_validation_write", consignmentId) { }
     }
 
@@ -47,14 +47,14 @@ object SupabaseRemarkValidationWriter {
     fun fetchTodayForDeliveryAgent(deliveryAgentId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
         if (deliveryAgentId.isBlank()) return onResult(emptyList())
         val start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
-        invoke(JSONObject().put("action", "today").put("delivery_agent_id", deliveryAgentId).put("start_iso", start),
+        invoke(JSONObject().put("action", "today").put("agent_system_id", deliveryAgentId).put("start_iso", start),
             screen, "supabase_validation_fetch_today", deliveryAgentId) { onResult(rows(it)) }
     }
 
     fun fetchForDeliveryAgentInRange(deliveryAgentId: String, rangeStartMs: Long, rangeEndMs: Long,
                                      screen: String, onResult: (List<JSONObject>) -> Unit) {
         if (deliveryAgentId.isBlank()) return onResult(emptyList())
-        invoke(JSONObject().put("action", "agent_range").put("delivery_agent_id", deliveryAgentId)
+        invoke(JSONObject().put("action", "agent_range").put("agent_system_id", deliveryAgentId)
             .put("start_iso", Instant.ofEpochMilli(rangeStartMs).toString())
             .put("end_iso", Instant.ofEpochMilli(rangeEndMs).toString()), screen,
             "supabase_validation_fetch_range", deliveryAgentId) { onResult(rows(it)) }

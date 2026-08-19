@@ -58,15 +58,15 @@ Deno.serve(async (request) => {
 
     if (action === 'write') {
       const row = body.row
-      if (!row || !['consignment_id', 'branch_id', 'delivery_agent_id', 'verifier_id'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
+      if (!row || !['consignment_id', 'branch_id', 'agent_system_id', 'verifier_system_id'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
         return reply({ error: 'Missing required row fields' }, 400)
       }
-      if (row.verifier_id !== await firebaseSystemId(identity)) {
-        return reply({ error: 'verifier_id does not belong to the signed-in user' }, 403)
+      if (row.verifier_system_id !== await firebaseSystemId(identity)) {
+        return reply({ error: 'verifier_system_id does not belong to the signed-in user' }, 403)
       }
       const { error } = await admin.from('remark_validations').insert({
         consignment_id: row.consignment_id, branch_id: row.branch_id,
-        delivery_agent_id: row.delivery_agent_id, verifier_id: row.verifier_id,
+        agent_system_id: row.agent_system_id, verifier_system_id: row.verifier_system_id,
         status: typeof row.status === 'string' ? row.status : '',
         remarks: typeof row.remarks === 'string' ? row.remarks : '',
       })
@@ -75,10 +75,10 @@ Deno.serve(async (request) => {
     }
 
     let query = admin.from('remark_validations')
-      .select('consignment_id,branch_id,delivery_agent_id,verifier_id,status,remarks,created_at')
+      .select('consignment_id,branch_id,agent_system_id,verifier_system_id,status,remarks,created_at')
     if (action === 'history') query = query.eq('consignment_id', body.consignment_id)
-    else if (action === 'today') query = query.eq('delivery_agent_id', body.delivery_agent_id).gte('created_at', body.start_iso)
-    else if (action === 'agent_range') query = query.eq('delivery_agent_id', body.delivery_agent_id).gte('created_at', body.start_iso).lte('created_at', body.end_iso)
+    else if (action === 'today') query = query.eq('agent_system_id', body.agent_system_id).gte('created_at', body.start_iso)
+    else if (action === 'agent_range') query = query.eq('agent_system_id', body.agent_system_id).gte('created_at', body.start_iso).lte('created_at', body.end_iso)
     else if (action === 'new_since') query = query.in('consignment_id', body.consignment_ids).gt('created_at', body.since_iso)
     else return reply({ error: 'Unknown action' }, 400)
     const { data, error } = await query.order('created_at', { ascending: false })

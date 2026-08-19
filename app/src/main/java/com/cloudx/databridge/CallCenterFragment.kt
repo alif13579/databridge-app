@@ -2201,7 +2201,7 @@ class CallCenterFragment : Fragment() {
                     }.getOrDefault(0L)
                     val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                         .format(java.util.Date(createdAt))
-                    val rVerifierId = r.optString("verifier_id")?.trim().orEmpty()
+                    val rVerifierId = r.optString("verifier_system_id")?.trim().orEmpty()
                     // A remark is "from the delivery agent themself" (Worker fragment) when
                     // verifier_id matches this parcel's own delivery agent system_id, vs "from
                     // a CC agent" (Call Center) otherwise — the closest equivalent left to the
@@ -2322,7 +2322,7 @@ class CallCenterFragment : Fragment() {
                     // remarked_by != "support" check: a CC agent should only be notified
                     // about remarks the WORKER wrote, not their own CC-side submissions.
                     val parcel = allParcels.firstOrNull { it.id == cId }
-                    val isFromWorker = latest.optString("verifier_id")?.trim().orEmpty()
+                    val isFromWorker = latest.optString("verifier_system_id")?.trim().orEmpty()
                         .let { it.isNotBlank() && it == parcel?.workerSystemId }
 
                     if (hadAttachedBefore && latestCreatedAt > prevAt && isFromWorker) {
@@ -2407,7 +2407,7 @@ class CallCenterFragment : Fragment() {
                 val createdAt = rowCreatedAtMillisLive(r)
                 val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
-                val rVerifierId = r.optString("verifier_id")?.trim().orEmpty()
+                val rVerifierId = r.optString("verifier_system_id")?.trim().orEmpty()
                 val isFromDeliveryAgent = rVerifierId.isNotBlank() && rVerifierId == agentSystemId
                 val authorRole = if (isFromDeliveryAgent) "agent" else "cc"
                 val resolvedAuthorName = nameMap[rVerifierId] ?: rVerifierId
@@ -2489,6 +2489,7 @@ class CallCenterFragment : Fragment() {
                         val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
                         val textEn = r.child("text_en").getValue(String::class.java)?.trim().orEmpty()
                         val label = (if (remarkLang == "en") textEn.ifBlank { textBn } else textBn.ifBlank { textEn })
+                        val englishLabel = textEn.ifBlank { textBn }
                         if (label.isBlank()) return@forEach
                         val target = r.child("target_status").getValue(String::class.java)?.trim()
                             .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
@@ -2500,6 +2501,7 @@ class CallCenterFragment : Fragment() {
                             CcRemarkOption(
                                 icon = "💬",
                                 label = label,
+                                englishLabel = englishLabel,
                                 statusKey = target,
                                 statusPreview = preview,
                                 statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
@@ -2552,7 +2554,8 @@ class CallCenterFragment : Fragment() {
         }
 
         var selectedStatus      = ""
-        var selectedRemarkText  = ""
+        var selectedRemarkText  = "" // Display text in the configured CC language.
+        var selectedStoredRemarkText = "" // Canonical English text for reporting.
         var selectedTemplateId  = ""
         val optionViews         = mutableListOf<android.view.View>()
 
@@ -2602,6 +2605,7 @@ class CallCenterFragment : Fragment() {
                 // Update auto-status preview
                 selectedStatus     = opt.statusKey
                 selectedRemarkText = opt.label
+                selectedStoredRemarkText = opt.englishLabel
                 selectedTemplateId = opt.templateId
                 tvAutoStatus.text  = opt.statusPreview
                 tvAutoStatus.setTextColor(opt.statusColor)
@@ -2644,6 +2648,7 @@ class CallCenterFragment : Fragment() {
                             items = listOf(item) + samePhoneParcels,
                             selectedStatus = selectedStatus,
                             selectedRemarkText = selectedRemarkText,
+                            selectedStoredRemarkText = selectedStoredRemarkText,
                             noteText = noteText,
                             selectedTemplateId = selectedTemplateId,
                             triggerItem = item
@@ -2654,6 +2659,7 @@ class CallCenterFragment : Fragment() {
                             items = listOf(item),
                             selectedStatus = selectedStatus,
                             selectedRemarkText = selectedRemarkText,
+                            selectedStoredRemarkText = selectedStoredRemarkText,
                             noteText = noteText,
                             selectedTemplateId = selectedTemplateId,
                             triggerItem = item
@@ -2668,6 +2674,7 @@ class CallCenterFragment : Fragment() {
                 items = listOf(item),
                 selectedStatus = selectedStatus,
                 selectedRemarkText = selectedRemarkText,
+                selectedStoredRemarkText = selectedStoredRemarkText,
                 noteText = noteText,
                 selectedTemplateId = selectedTemplateId,
                 triggerItem = item
@@ -2728,6 +2735,7 @@ class CallCenterFragment : Fragment() {
         items: List<CallCenterParcelItem>,
         selectedStatus: String,
         selectedRemarkText: String,
+        selectedStoredRemarkText: String,
         noteText: String,
         selectedTemplateId: String,
         triggerItem: CallCenterParcelItem
@@ -2762,7 +2770,7 @@ class CallCenterFragment : Fragment() {
                 branchId = target.branchIds.firstOrNull().orEmpty(),
                 consignmentId = target.id,
                 status = selectedStatus,
-                remarksText = selectedRemarkText.ifBlank { noteText },
+                remarksText = selectedStoredRemarkText.ifBlank { noteText },
                 screen = "CallCenterFragment"
             )
 
@@ -2932,6 +2940,7 @@ class CallCenterFragment : Fragment() {
     data class CcRemarkOption(
         val icon: String,
         val label: String,
+        val englishLabel: String,
         val statusKey: String,
         val statusPreview: String,
         val statusColor: Int,

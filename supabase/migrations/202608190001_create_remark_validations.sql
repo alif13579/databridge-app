@@ -5,8 +5,8 @@ create table if not exists public.remark_validations (
   id bigint generated always as identity primary key,
   consignment_id text not null check (length(trim(consignment_id)) > 0),
   branch_id text not null check (length(trim(branch_id)) > 0),
-  delivery_agent_id text not null check (length(trim(delivery_agent_id)) > 0),
-  verifier_id text not null check (length(trim(verifier_id)) > 0),
+  agent_system_id text not null check (length(trim(agent_system_id)) > 0),
+  verifier_system_id text not null check (length(trim(verifier_system_id)) > 0),
   status text not null default '',
   remarks text not null default '',
   created_at timestamptz not null default now()
@@ -15,7 +15,7 @@ create table if not exists public.remark_validations (
 create index if not exists remark_validations_consignment_created_at_idx
   on public.remark_validations (consignment_id, created_at desc);
 create index if not exists remark_validations_agent_created_at_idx
-  on public.remark_validations (delivery_agent_id, created_at desc);
+  on public.remark_validations (agent_system_id, created_at desc);
 create index if not exists remark_validations_created_at_idx
   on public.remark_validations (created_at desc);
 

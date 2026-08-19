@@ -1,7 +1,7 @@
 # Supabase deployment: remark validations
 
 The Android app calls the `remark-validations` Edge Function with a Firebase ID
-token. The function verifies the token, confirms that a write's `verifier_id`
+token. The function verifies the token, confirms that a write's `verifier_system_id`
 matches that signed-in user's Firebase profile, then accesses Postgres with its
 server-only Supabase key. Mobile clients have no direct table permissions.
 
