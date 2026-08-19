@@ -84,7 +84,7 @@ class ClaimsReportFragment : Fragment() {
         data.claims.forEach { claim ->
             val row = TextView(requireContext()).apply {
                 setPadding(dp(14), dp(12), dp(14), dp(12)); setTextColor(0xFF0F172A.toInt()); textSize = 13f
-                setBackgroundResource(R.drawable/bg_card_rounded)
+                setBackgroundResource(R.drawable.bg_card_rounded)
                 text = "${claim.claimCode}  •  ${dateFormat.format(Date(claim.requestedAt))}\n${claim.employeeName} (${claim.employeeId})\n${claim.type} · ${claim.category} · ${claim.status}\nRequested ৳${money.format(claim.requestedAmount)} | Approved ৳${money.format(claim.approvedAmount)} | Settled ৳${money.format(claim.settledAmount)}"
             }
             rows.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
@@ -105,10 +105,28 @@ class ClaimsReportFragment : Fragment() {
     }
 
     private fun pickDate(initial: Long, done: (Long) -> Unit) { MaterialDatePicker.Builder.datePicker().setSelection(initial).build().also { it.addOnPositiveButtonClickListener { utc -> done(localDay(utc)) }; it.show(childFragmentManager, "claims_date") } }
-    private fun localDay(utc: Long): Long = Calendar.getInstance(TimeZone.getTimeZone("UTC")).run { timeInMillis = utc; Calendar.getInstance().apply { set(get(YEAR), get(MONTH), get(DAY_OF_MONTH), 0, 0, 0); set(MILLISECOND, 0) }.timeInMillis }
-    private fun startOfMonth(): Long = Calendar.getInstance().apply { set(DAY_OF_MONTH, 1); set(HOUR_OF_DAY, 0); set(MINUTE, 0); set(SECOND, 0); set(MILLISECOND, 0) }.timeInMillis
-    private fun startOfDay(t: Long): Long = Calendar.getInstance().apply { timeInMillis = t; set(HOUR_OF_DAY, 0); set(MINUTE, 0); set(SECOND, 0); set(MILLISECOND, 0) }.timeInMillis
-    private fun endOfDay(t: Long): Long = Calendar.getInstance().apply { timeInMillis = t; set(HOUR_OF_DAY, 23); set(MINUTE, 59); set(SECOND, 59); set(MILLISECOND, 999) }.timeInMillis
+    private fun localDay(utc: Long): Long = Calendar.getInstance(TimeZone.getTimeZone("UTC")).run {
+        timeInMillis = utc
+        Calendar.getInstance().apply {
+            set(get(Calendar.YEAR), get(Calendar.MONTH), get(Calendar.DAY_OF_MONTH), 0, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
+    private fun startOfMonth(): Long = Calendar.getInstance().apply {
+        set(Calendar.DAY_OF_MONTH, 1); set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    private fun startOfDay(t: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = t; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    private fun endOfDay(t: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = t; set(Calendar.HOUR_OF_DAY, 23); set(Calendar.MINUTE, 59)
+        set(Calendar.SECOND, 59); set(Calendar.MILLISECOND, 999)
+    }.timeInMillis
     private fun endOfToday() = endOfDay(System.currentTimeMillis())
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun toast(s: String) = Toast.makeText(requireContext(), s, Toast.LENGTH_LONG).show()
