@@ -69,6 +69,7 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var groupStore: View
     private lateinit var tvStoreSelected: TextView
     private lateinit var etPickupCount: EditText
+    private lateinit var groupAmount: View
     private lateinit var etAmount: EditText
     private lateinit var etPurpose: EditText
     private lateinit var tvPurposeCount: TextView
@@ -104,6 +105,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         groupStore = view.findViewById(R.id.groupPcRequestStore)
         tvStoreSelected = view.findViewById(R.id.tvPcRequestStoreSelected)
         etPickupCount = view.findViewById(R.id.etPcRequestPickupCount)
+        groupAmount = view.findViewById(R.id.groupPcAmount)
         etAmount = view.findViewById(R.id.etPcRequestAmount)
         etPurpose = view.findViewById(R.id.etPcRequestPurpose)
         tvPurposeCount = view.findViewById(R.id.tvPcRequestPurposeCount)
@@ -183,6 +185,11 @@ class PettyCashRequestCreateFragment : Fragment() {
 
         groupConsignment.isVisible = category == PC_CATEGORY_BULK_DELIVERY
         groupStore.isVisible = category == PC_CATEGORY_PICKUP
+        // Pickup: the Requester submits without knowing the final cost yet (that comes
+        // back from the store), so Staff fills the amount in after the fact instead —
+        // see the "next role edits amount" step. Hidden here, not just unrequired, so
+        // it can't look like a forgotten/blank field on the Requester's own screen.
+        groupAmount.isVisible = category != PC_CATEGORY_PICKUP
 
         // Switching category clears the other category's field so a
         // half-filled Consignment ID doesn't silently survive a switch to
@@ -194,6 +201,8 @@ class PettyCashRequestCreateFragment : Fragment() {
             tvStoreSelected.text = "Select Store"
             tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
             etPickupCount.setText("")
+        } else {
+            etAmount.setText("")
         }
     }
 
@@ -271,7 +280,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "Enter how many pickups", Toast.LENGTH_SHORT).show()
             return
         }
-        if (amount <= 0.0) {
+        if (selectedCategory != PC_CATEGORY_PICKUP && amount <= 0.0) {
             Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
             return
         }
@@ -284,12 +293,13 @@ class PettyCashRequestCreateFragment : Fragment() {
         val finalStoreId = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreId else ""
         val finalStoreName = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreName else ""
         val finalPickupCount = if (selectedCategory == PC_CATEGORY_PICKUP) pickupCount else 0
+        val finalAmount = if (selectedCategory == PC_CATEGORY_PICKUP) 0.0 else amount
 
         btnSubmit.isEnabled = false
         if (isEditMode) {
             lifecycleScope.launch {
                 val result = viewModel.updateRequest(
-                    branchId, editRequestId, selectedCategory, purpose, amount,
+                    branchId, editRequestId, selectedCategory, purpose, finalAmount,
                     consignmentId = finalConsignmentId, storeId = finalStoreId, storeName = finalStoreName,
                     pickupCount = finalPickupCount
                 )
@@ -307,7 +317,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                     branchId = branchId,
                     category = selectedCategory,
                     purpose = purpose,
-                    amount = amount,
+                    amount = finalAmount,
                     priority = PC_PRIORITY_NORMAL,
                     attachmentUrl = "",
                     attachmentName = attachmentName,
