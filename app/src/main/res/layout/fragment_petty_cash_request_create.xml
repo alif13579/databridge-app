@@ -192,45 +192,54 @@
                         android:hint="e.g. 3" />
                 </LinearLayout>
 
-                <!-- Amount -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Amount"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:textColor="#334155"
-                    android:layout_marginTop="16dp" />
-
+                <!-- Amount — hidden for Pickup: the Requester doesn't know the actual
+                     cost yet (that comes back from the store), so Staff fills it in
+                     after this claim is submitted, not the Requester. -->
                 <LinearLayout
+                    android:id="@+id/groupPcAmount"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="6dp"
-                    android:background="@drawable/bg_pc_input"
-                    android:paddingHorizontal="14dp">
+                    android:orientation="vertical">
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="\u09F3"
-                        android:textSize="16sp"
+                        android:text="Amount"
+                        android:textSize="12sp"
                         android:textStyle="bold"
-                        android:textColor="#64748B" />
+                        android:textColor="#334155"
+                        android:layout_marginTop="16dp" />
 
-                    <EditText
-                        android:id="@+id/etPcRequestAmount"
-                        android:layout_width="0dp"
-                        android:layout_weight="1"
-                        android:layout_height="52dp"
-                        android:background="@android:color/transparent"
-                        android:inputType="numberDecimal"
-                        android:hint="0"
-                        android:textSize="16sp"
-                        android:textColor="#0F172A"
-                        android:paddingStart="8dp"
-                        android:maxLines="1" />
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_pc_input"
+                        android:paddingHorizontal="14dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="\u09F3"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:textColor="#64748B" />
+
+                        <EditText
+                            android:id="@+id/etPcRequestAmount"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="52dp"
+                            android:background="@android:color/transparent"
+                            android:inputType="numberDecimal"
+                            android:hint="0"
+                            android:textSize="16sp"
+                            android:textColor="#0F172A"
+                            android:paddingStart="8dp"
+                            android:maxLines="1" />
+                    </LinearLayout>
                 </LinearLayout>
 
                 <!-- Purpose -->
