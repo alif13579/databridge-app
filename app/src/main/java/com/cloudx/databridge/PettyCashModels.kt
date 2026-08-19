@@ -48,16 +48,6 @@ const val PC_CATEGORY_BULK_DELIVERY = "Bulk Delivery"
 const val PC_CATEGORY_PICKUP = "Pickup"
 
 @IgnoreExtraProperties
-data class PettyCashApprovalStep(
-    val stepName: String = "",      // "Request Submitted" | "Staff Acknowledged" (older requests may have "Team Aligned Acknowledged" from before the Staff rename) | "POC Approval" | "Ready to Settle" | "Settled"
-    val status: String = "",        // "done" | "pending" | "rejected"
-    val byUid: String = "",
-    val byName: String = "",
-    val at: Long = 0L,
-    val note: String = ""
-)
-
-@IgnoreExtraProperties
 data class PettyCashRequest(
     val id: String = "",
     val branchId: String = "",
@@ -102,8 +92,7 @@ data class PettyCashRequest(
     val rejectedByUid: String = "",
     val rejectedByName: String = "",
     val rejectedAt: Long = 0L,
-    val rejectReason: String = "",
-    val steps: List<PettyCashApprovalStep> = emptyList()
+    val rejectReason: String = ""
 )
 
 /**

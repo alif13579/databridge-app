@@ -21,7 +21,7 @@ import kotlinx.coroutines.withContext
  * Petty Cash Management — central Firebase read/write + role resolution.
  *
  * Firebase structure:
- *   petty_cash/{branchId}/requests/{requestId}       -> PettyCashRequest
+ *   claims/{claimId}/info                             -> ClaimInfo
  *   petty_cash/{branchId}/wallet/balance              -> Double
  *   petty_cash/{branchId}/wallet/deposits/{depositId} -> PettyCashDeposit
  *   branches/{branchId}/staff_uid / petty_cash_poc_uid / accountant_uid

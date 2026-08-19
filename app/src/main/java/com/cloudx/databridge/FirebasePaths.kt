@@ -83,12 +83,7 @@ object FirebasePaths {
     // cash_management/{branchId}/defaultProvider -> provider name string
     fun cashManagementDefaultProvider(branchId: String) = "cash_management/$branchId/defaultProvider"
 
-    /* ── Petty Cash / Convenience Bill Management ────────────────────
-     * Flow: Worker request -> Team Aligned -> Cash POC -> Accounts settlement
-     */
-    // petty_cash/{branchId}/requests/{requestId} -> PettyCashRequest
-    fun pettyCashRequests(branchId: String) = "petty_cash/$branchId/requests"
-    fun pettyCashRequest(branchId: String, requestId: String) = "petty_cash/$branchId/requests/$requestId"
+    /* ── Petty Cash wallet ─────────────────────────────────────────── */
     // petty_cash/{branchId}/wallet/balance -> Double
     fun pettyCashWalletBalance(branchId: String) = "petty_cash/$branchId/wallet/balance"
     // petty_cash/{branchId}/wallet/deposits/{depositId} -> PettyCashDeposit
@@ -97,7 +92,7 @@ object FirebasePaths {
     // Aligned / Petty Cash POC / Accounts) lives on Branch.kt fields instead
     // (staff_uid, petty_cash_poc_uid, accountant_uid), same as manager_uid.
 
-    /* ── Claims (Petty Cash v2) ──────────────────────────────────────
+    /* ── Claims (Petty Cash requests) ────────────────────────────────
      * Claim data is deliberately stored once at claims/{claimId}/info.  The
      * two lookup trees only contain {claimId}: true, so reporting can use a
      * server-side orderByKey()/startAt()/endAt() range without duplicating a
