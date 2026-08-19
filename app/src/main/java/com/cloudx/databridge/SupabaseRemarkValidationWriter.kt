@@ -24,7 +24,13 @@ object SupabaseRemarkValidationWriter {
     fun write(deliveryAgentId: String, verifierId: String, branchId: String, consignmentId: String,
               status: String, remarksText: String, screen: String) {
         if (deliveryAgentId.isBlank() || verifierId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
-            log(screen, "supabase_validation_skip_missing_ids", "A required ID was blank", consignmentId); return
+            val missing = buildList {
+                if (deliveryAgentId.isBlank()) add("deliveryAgentId")
+                if (verifierId.isBlank()) add("verifierId")
+                if (branchId.isBlank()) add("branchId")
+                if (consignmentId.isBlank()) add("consignmentId")
+            }.joinToString(",")
+            log(screen, "supabase_validation_skip_missing_ids", "Missing required IDs: $missing", consignmentId); return
         }
         invoke(JSONObject().put("action", "write").put("row", JSONObject()
             .put("consignment_id", consignmentId).put("branch_id", branchId)
