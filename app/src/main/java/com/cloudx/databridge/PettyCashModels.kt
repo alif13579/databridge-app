@@ -10,8 +10,8 @@ import com.google.firebase.database.IgnoreExtraProperties
  * Cash POC approves it -> Accounts marks it ready to settle -> Accounts
  * hands over cash and marks it settled.
  *
- * Firebase structure (see FirebasePaths.pettyCash*):
- *   petty_cash/{branchId}/requests/{requestId} -> PettyCashRequest
+ * Firebase structure (see FirebasePaths.claim*):
+ *   claims/{claimId}/info -> ClaimInfo (rendered into this legacy UI model)
  *   petty_cash/{branchId}/wallet/balance        -> Double
  *   petty_cash/{branchId}/wallet/deposits/{id}  -> PettyCashDeposit
  */
@@ -23,6 +23,7 @@ const val PC_STATUS_APPROVED = "approved"                      // Cash POC has a
 const val PC_STATUS_SETTLE_IN_PROCESS = "ready_to_settle"      // Accounts has queued it for cash handover
 const val PC_STATUS_SETTLED = "settled"                        // cash handed over, done
 const val PC_STATUS_REJECTED = "rejected"
+const val PC_STATUS_CANCELLED = "cancelled"
 
 /** Single source of truth for a status's display label — screens should
  *  derive from this instead of hardcoding the label, so a future rename
@@ -36,6 +37,7 @@ fun pettyCashStatusLabel(status: String): String = when (status) {
     PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle"
     PC_STATUS_SETTLED -> "Settled"
     PC_STATUS_REJECTED -> "Rejected"
+    PC_STATUS_CANCELLED -> "Cancelled"
     else -> status
 }
 

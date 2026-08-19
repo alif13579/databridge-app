@@ -1,0 +1,90 @@
+package com.cloudx.databridge
+
+import com.google.firebase.database.IgnoreExtraProperties
+
+/** Canonical, reportable claim document.  It intentionally lives only once. */
+@IgnoreExtraProperties
+data class ClaimInfo(
+    val claimId: String = "",
+    val claimCode: String = "",
+    val branchId: String = "",
+    val branchName: String = "",
+    val employeeId: String = "",
+    val employeeName: String = "",
+    val type: String = "",
+    val category: String = "",
+    val purpose: String = "",
+    val consignmentId: String = "",
+    val storeName: String = "",
+    val requestedAmount: Double = 0.0,
+    val approvedAmount: Double = 0.0,
+    val settledAmount: Double = 0.0,
+    val paymentMethod: String = "",
+    val transactionId: String = "",
+    val status: String = PC_STATUS_PENDING,
+    val requestedAt: Long = 0L,
+    val approvedAt: Long = 0L,
+    val settledAt: Long = 0L,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
+    // Detail/audit fields are not copied to indexes; they remain part of the
+    // single canonical info document.
+    val workerUid: String = "",
+    val workerRole: String = "",
+    val storeId: String = "",
+    val pickupCount: Int = 0,
+    val priority: String = PC_PRIORITY_NORMAL,
+    val attachmentUrl: String = "",
+    val attachmentName: String = "",
+    val staffByUid: String = "", val staffByName: String = "", val staffAt: Long = 0L, val staffComment: String = "",
+    val pocApprovedByUid: String = "", val pocApprovedByName: String = "", val pocComment: String = "",
+    val settleInProcessByUid: String = "", val settleInProcessByName: String = "", val settleInProcessAt: Long = 0L,
+    val settledByUid: String = "", val settledByName: String = "",
+    val rejectedByUid: String = "", val rejectedByName: String = "", val rejectedAt: Long = 0L, val rejectReason: String = ""
+)
+
+data class ClaimsReportFilter(
+    val branchIds: Set<String>,
+    val employeeIds: Set<String> = emptySet(),
+    val fromMillis: Long,
+    val toMillis: Long,
+    val types: Set<String> = emptySet(),
+    val categories: Set<String> = emptySet(),
+    val statuses: Set<String> = emptySet(),
+    val newestFirst: Boolean = true
+)
+
+data class ClaimsReport(
+    val claims: List<ClaimInfo>,
+    val filter: ClaimsReportFilter
+) {
+    val totalRequests get() = claims.size
+    val totalRequested get() = claims.sumOf { it.requestedAmount }
+    val totalApproved get() = claims.sumOf { it.approvedAmount }
+    val totalSettled get() = claims.sumOf { it.settledAmount }
+    val totalPending get() = claims.count { it.status == PC_STATUS_PENDING || it.status == PC_STATUS_ACKNOWLEDGED || it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
+    val totalRejected get() = claims.count { it.status == PC_STATUS_REJECTED }
+    val totalCancelled get() = claims.count { it.status == PC_STATUS_CANCELLED }
+    val byType get() = claims.groupBy { it.type.ifBlank { "Other" } }
+    val byCategory get() = claims.groupBy { it.category.ifBlank { "Other" } }
+}
+
+/** Temporary presentation adapter: existing Petty Cash screens can consume
+ * v2 claims while the report UI is introduced incrementally. */
+fun ClaimInfo.asPettyCashRequest(): PettyCashRequest = PettyCashRequest(
+    id = claimId, branchId = branchId, requestCode = claimCode, workerUid = workerUid,
+    workerName = employeeName, workerRole = workerRole, category = category,
+    consignmentId = consignmentId, storeId = storeId, storeName = storeName,
+    pickupCount = pickupCount, purpose = purpose, amount = requestedAmount, priority = priority,
+    attachmentUrl = attachmentUrl, attachmentName = attachmentName, requestedDate = requestedAt,
+    status = status, createdAt = createdAt, updatedAt = updatedAt,
+    staffByUid = staffByUid, staffByName = staffByName, staffAt = staffAt, staffComment = staffComment,
+    pocApprovedByUid = pocApprovedByUid, pocApprovedByName = pocApprovedByName,
+    pocApprovedAt = approvedAt, pocComment = pocComment, approvedAmount = approvedAmount,
+    settleInProcessByUid = settleInProcessByUid, settleInProcessByName = settleInProcessByName,
+    settleInProcessAt = settleInProcessAt, settledAmount = settledAmount,
+    settledByUid = settledByUid, settledByName = settledByName, settledAt = settledAt,
+    settledPaymentMethod = paymentMethod, settledTrxId = transactionId,
+    rejectedByUid = rejectedByUid, rejectedByName = rejectedByName, rejectedAt = rejectedAt,
+    rejectReason = rejectReason
+)

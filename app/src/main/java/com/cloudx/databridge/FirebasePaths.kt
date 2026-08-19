@@ -97,6 +97,17 @@ object FirebasePaths {
     // Aligned / Petty Cash POC / Accounts) lives on Branch.kt fields instead
     // (staff_uid, petty_cash_poc_uid, accountant_uid), same as manager_uid.
 
+    /* ── Claims (Petty Cash v2) ──────────────────────────────────────
+     * Claim data is deliberately stored once at claims/{claimId}/info.  The
+     * two lookup trees only contain {claimId}: true, so reporting can use a
+     * server-side orderByKey()/startAt()/endAt() range without duplicating a
+     * complete claim document. */
+    fun claims() = "claims"
+    fun claim(claimId: String) = "claims/$claimId"
+    fun claimInfo(claimId: String) = "claims/$claimId/info"
+    fun claimsByBranch(branchId: String) = "claims/indexes/claims_by_branchId/$branchId"
+    fun claimsByEmployee(employeeId: String) = "claims/indexes/claims_by_employeeId/$employeeId"
+
     /* ── Leave Management ─────────────────────────────────────────────
      * Flow: Requester -> any Incharge (branch) acknowledges -> any Shift
      * Lead (branch) approves. No per-branch fixed assignee field — see

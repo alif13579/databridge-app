@@ -84,8 +84,16 @@ sealed class PettyCashState {
 
 class PettyCashViewModel : ViewModel() {
 
+    private data class LoadResult(
+        val report: ClaimsReport,
+        val deposits: DataSnapshot,
+        val balance: DataSnapshot,
+        val branch: DataSnapshot
+    )
+
     private val db = FirebaseDatabase.getInstance()
     private val auth = FirebaseAuth.getInstance()
+    private val claims = ClaimsRepository(db)
 
     private val _state = MutableLiveData<PettyCashState>(PettyCashState.Loading)
     val state: LiveData<PettyCashState> = _state
@@ -99,19 +107,30 @@ class PettyCashViewModel : ViewModel() {
         _state.value = PettyCashState.Loading
         viewModelScope.launch {
             try {
-                val (requestsSnap, depositsSnap, balanceSnap, branchSnap) = withContext(Dispatchers.IO) {
+                val loaded = withContext(Dispatchers.IO) {
                     coroutineScope {
-                        val requestsDeferred = async { db.reference.child(FirebasePaths.pettyCashRequests(branchId)).get().await() }
+                        // Requests now come from the branch index. The index is
+                        // key-range queried by the server, not read wholesale.
+                        val requestsDeferred = async {
+                            claims.search(ClaimsReportFilter(
+                                branchIds = setOf(branchId),
+                                fromMillis = 1_000_000_000_000L,
+                                toMillis = 9_999_999_999_999L
+                            ))
+                        }
                         val depositsDeferred = async { db.reference.child(FirebasePaths.pettyCashDeposits(branchId)).get().await() }
                         val balanceDeferred  = async { db.reference.child(FirebasePaths.pettyCashWalletBalance(branchId)).get().await() }
                         val branchDeferred   = async { db.reference.child("branches/$branchId").get().await() }
-                        listOf(requestsDeferred.await(), depositsDeferred.await(), balanceDeferred.await(), branchDeferred.await())
+                        LoadResult(requestsDeferred.await(), depositsDeferred.await(), balanceDeferred.await(), branchDeferred.await())
                     }
                 }
 
-                val requests = requestsSnap.children
-                    .mapNotNull { snap -> snap.getValue(PettyCashRequest::class.java)?.copy(id = snap.key.orEmpty()) }
-                    .sortedByDescending { it.createdAt }
+                val claimReport = loaded.report
+                val depositsSnap = loaded.deposits
+                val balanceSnap = loaded.balance
+                val branchSnap = loaded.branch
+
+                val requests = claimReport.claims.map { it.asPettyCashRequest() }
 
                 val deposits = depositsSnap.children
                     .mapNotNull { snap -> snap.getValue(PettyCashDeposit::class.java)?.copy(id = snap.key.orEmpty()) }
@@ -164,6 +183,16 @@ class PettyCashViewModel : ViewModel() {
         }.getOrNull()?.takeIf { it.isNotBlank() } ?: auth.currentUser?.displayName.orEmpty()
     }
 
+    private suspend fun currentEmployeeId(): String {
+        val uid = auth.currentUser?.uid.orEmpty()
+        return db.reference.child("users/$uid/profile/company_info/employee_id").get().await()
+            .getValue(String::class.java).orEmpty().trim()
+    }
+
+    private suspend fun branchName(branchId: String): String =
+        db.reference.child(FirebasePaths.branchName(branchId)).get().await()
+            .getValue(String::class.java).orEmpty()
+
     // ── Requester: submit a new request ─────────────────────────────────────
 
     suspend fun submitRequest(
@@ -183,38 +212,26 @@ class PettyCashViewModel : ViewModel() {
     ): Result<String> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Requester" }
-        val ref = db.reference.child(FirebasePaths.pettyCashRequests(branchId)).push()
-        val requestId = ref.key ?: throw IllegalStateException("Could not generate request id")
         val now = System.currentTimeMillis()
-        val requestCode = "REQ-${now.toString().takeLast(4)}"
-
-        val request = PettyCashRequest(
-            id = requestId,
+        val employeeId = currentEmployeeId()
+        require(employeeId.isNotBlank()) { "Your employee ID is missing. Please contact an administrator." }
+        val claim = claims.create(ClaimInfo(
             branchId = branchId,
-            requestCode = requestCode,
-            workerUid = uid,
-            workerName = name,
-            workerRole = workerRole,
+            branchName = branchName(branchId), employeeId = employeeId, employeeName = name,
+            workerUid = uid, workerRole = workerRole, type = category,
             category = category,
             consignmentId = consignmentId,
             storeId = storeId,
             storeName = storeName,
             pickupCount = pickupCount,
             purpose = purpose,
-            amount = amount,
+            requestedAmount = amount,
             priority = priority,
             attachmentUrl = attachmentUrl,
             attachmentName = attachmentName,
-            requestedDate = if (requestedDate != 0L) requestedDate else now,
-            status = PC_STATUS_PENDING,
-            createdAt = now,
-            updatedAt = now,
-            steps = listOf(
-                PettyCashApprovalStep(stepName = "Request Submitted", status = "done", byUid = uid, byName = name, at = now)
-            )
-        )
-        ref.setValue(request).await()
-        requestCode
+            status = PC_STATUS_PENDING, requestedAt = if (requestedDate != 0L) requestedDate else now
+        ))
+        claim.claimCode
     }
 
     // ── Requester: edit a request (only while status == pending) ────────────
@@ -232,40 +249,34 @@ class PettyCashViewModel : ViewModel() {
         requestedDate: Long = 0L
     ): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
-        val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
-        val snap = ref.get().await()
-        val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
+        val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
 
         if (existing.workerUid != uid) throw IllegalStateException("You can only edit your own requests")
         if (existing.status != PC_STATUS_PENDING) throw IllegalStateException("This request can no longer be edited")
 
-        ref.updateChildren(
-            mapOf(
+        claims.update(requestId, mapOf(
                 "category" to category,
                 "consignmentId" to consignmentId,
                 "storeId" to storeId,
                 "storeName" to storeName,
                 "pickupCount" to pickupCount,
                 "purpose" to purpose,
-                "amount" to amount,
-                "requestedDate" to (if (requestedDate != 0L) requestedDate else existing.requestedDate),
-                "updatedAt" to System.currentTimeMillis()
-            )
-        ).await()
+                "requestedAmount" to amount,
+                "requestedAt" to (if (requestedDate != 0L) requestedDate else existing.requestedDate)
+            ))
     }
 
     // ── Requester: delete a request (only while status == pending) ──────────
 
     suspend fun deleteRequest(branchId: String, requestId: String): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
-        val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
-        val snap = ref.get().await()
-        val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
+        val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
 
         if (existing.workerUid != uid) throw IllegalStateException("You can only delete your own requests")
         if (existing.status != PC_STATUS_PENDING) throw IllegalStateException("This request can no longer be deleted")
 
-        ref.removeValue().await()
+        // Claims are never deleted: cancellation keeps audit and reporting intact.
+        claims.update(requestId, mapOf("status" to PC_STATUS_CANCELLED))
     }
 
     // ── Staff (formerly "Team Aligned"): acknowledge a request (1st approval) ──
@@ -286,24 +297,15 @@ class PettyCashViewModel : ViewModel() {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Staff" }
         val now = System.currentTimeMillis()
-        val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
-        val snap = ref.get().await()
-        val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
-
-        val updatedSteps = existing.steps + PettyCashApprovalStep(
-            stepName = "Staff Acknowledged", status = "done", byUid = uid, byName = name, at = now, note = comment
-        )
-        ref.updateChildren(
-            mapOf(
+        claims.get(requestId) ?: throw IllegalStateException("Request not found")
+        claims.update(requestId, mapOf(
                 "status" to PC_STATUS_ACKNOWLEDGED,
                 "staffByUid" to uid,
                 "staffByName" to name,
                 "staffAt" to now,
                 "staffComment" to comment,
-                "updatedAt" to now,
-                "steps" to updatedSteps
-            )
-        ).await()
+                "updatedAt" to now
+            ))
     }
 
     // ── Cash POC: approve a request (2nd approval) ──────────────────────────
@@ -312,28 +314,20 @@ class PettyCashViewModel : ViewModel() {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Cash POC" }
         val now = System.currentTimeMillis()
-        val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
-        val snap = ref.get().await()
-        val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
+        val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
         // Defaults to the originally requested amount when the caller doesn't
         // specify one, e.g. approving in full without touching the amount field.
         val finalApprovedAmount = approvedAmount ?: existing.amount
 
-        val updatedSteps = existing.steps + PettyCashApprovalStep(
-            stepName = "POC Approval", status = "done", byUid = uid, byName = name, at = now, note = comment
-        )
-        ref.updateChildren(
-            mapOf(
+        claims.update(requestId, mapOf(
                 "status" to PC_STATUS_APPROVED,
                 "pocApprovedByUid" to uid,
                 "pocApprovedByName" to name,
-                "pocApprovedAt" to now,
+                "approvedAt" to now,
                 "pocComment" to comment,
                 "approvedAmount" to finalApprovedAmount,
-                "updatedAt" to now,
-                "steps" to updatedSteps
-            )
-        ).await()
+                "updatedAt" to now
+            ))
     }
 
     // ── Accounts: mark a request ready to settle (queues it for cash handover) ──
@@ -342,23 +336,14 @@ class PettyCashViewModel : ViewModel() {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Accounts" }
         val now = System.currentTimeMillis()
-        val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
-        val snap = ref.get().await()
-        val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
-
-        val updatedSteps = existing.steps + PettyCashApprovalStep(
-            stepName = "Ready to Settle", status = "done", byUid = uid, byName = name, at = now
-        )
-        ref.updateChildren(
-            mapOf(
+        claims.get(requestId) ?: throw IllegalStateException("Request not found")
+        claims.update(requestId, mapOf(
                 "status" to PC_STATUS_SETTLE_IN_PROCESS,
                 "settleInProcessByUid" to uid,
                 "settleInProcessByName" to name,
                 "settleInProcessAt" to now,
-                "updatedAt" to now,
-                "steps" to updatedSteps
-            )
-        ).await()
+                "updatedAt" to now
+            ))
     }
 
     // ── Accounts: settle a request (final step, deducts wallet balance) ─────
@@ -373,16 +358,10 @@ class PettyCashViewModel : ViewModel() {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Accounts" }
         val now = System.currentTimeMillis()
-        val requestRef = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
-        val snap = requestRef.get().await()
-        val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
+        val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
         // Defaults to what Cash POC approved (itself already defaulted to the original
         // claim if POC didn't touch it) when Accounts settles as-is without adjusting.
         val finalSettledAmount = settledAmount ?: existing.approvedAmount.takeIf { it > 0 } ?: existing.amount
-
-        val updatedSteps = existing.steps + PettyCashApprovalStep(
-            stepName = "Settled", status = "done", byUid = uid, byName = name, at = now
-        )
 
         // Deduct from wallet balance via a transaction so concurrent settlements
         // (e.g. two Accounts users settling different requests at once) don't
@@ -397,19 +376,16 @@ class PettyCashViewModel : ViewModel() {
             override fun onComplete(error: DatabaseError?, committed: Boolean, snapshot: DataSnapshot?) {}
         })
 
-        requestRef.updateChildren(
-            mapOf(
+        claims.update(requestId, mapOf(
                 "status" to PC_STATUS_SETTLED,
                 "settledByUid" to uid,
                 "settledByName" to name,
                 "settledAt" to now,
                 "settledAmount" to finalSettledAmount,
-                "settledPaymentMethod" to paymentMethod,
-                "settledTrxId" to trxId,
-                "updatedAt" to now,
-                "steps" to updatedSteps
-            )
-        ).await()
+                "paymentMethod" to paymentMethod,
+                "transactionId" to trxId,
+                "updatedAt" to now
+            ))
     }
 
     // ── Reject (can happen at Pending or Acknowledged stage only) ───────────
@@ -418,24 +394,15 @@ class PettyCashViewModel : ViewModel() {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName()
         val now = System.currentTimeMillis()
-        val ref = db.reference.child(FirebasePaths.pettyCashRequest(branchId, requestId))
-        val snap = ref.get().await()
-        val existing = snap.getValue(PettyCashRequest::class.java) ?: throw IllegalStateException("Request not found")
-
-        val updatedSteps = existing.steps + PettyCashApprovalStep(
-            stepName = "Rejected", status = "rejected", byUid = uid, byName = name, at = now, note = reason
-        )
-        ref.updateChildren(
-            mapOf(
+        claims.get(requestId) ?: throw IllegalStateException("Request not found")
+        claims.update(requestId, mapOf(
                 "status" to PC_STATUS_REJECTED,
                 "rejectedByUid" to uid,
                 "rejectedByName" to name,
                 "rejectedAt" to now,
                 "rejectReason" to reason,
-                "updatedAt" to now,
-                "steps" to updatedSteps
-            )
-        ).await()
+                "updatedAt" to now
+            ))
     }
 
     // ── Accounts: deposit fund into the branch wallet ────────────────────────
