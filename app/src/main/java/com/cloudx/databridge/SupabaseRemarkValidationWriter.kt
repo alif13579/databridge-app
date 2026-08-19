@@ -1,463 +1,113 @@
 package com.cloudx.databridge
 
+import com.google.firebase.auth.FirebaseAuth
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
-/**
- * Writes remarks to Supabase's remark_validations table (see
- * supabase_remark_validations_schema.sql for the full schema).
- *
- * Replaces the earlier Firebase-based courier/remarks_by_consignment +
- * courier/remarks_by_userId paths — per Alif's decision, JSON-tree storage
- * made branch+date-range reporting and export too hard (no real
- * filtering/aggregation without scanning and reshaping client-side), so
- * this data now lives in Supabase/Postgres instead, where a report is
- * just a SQL query.
- *
- * Alif is deleting the old Firebase remark data separately with no
- * backfill, so as of this migration those two Firebase paths are no
- * longer written to by the app at all (existing historical data there is
- * simply orphaned, not migrated).
- *
- * Standard append-only table: every remark is its own row (plain INSERT,
- * no upsert/dedup). First status, final status, per-agent counts, and full
- * per-consignment timelines are all just SQL queries against this table on
- * the reporting side — nothing is pre-aggregated at write time, per
- * Alif's explicit call (an earlier first/last-columns-with-upsert design
- * was reconsidered as working against the whole point of moving to SQL).
- *
- * IDs are always system_id (users/{uid}/profile/company_info/system_id),
- * never the Firebase Auth uid — per Alif, system_id is mandatory on every
- * profile. Missing/blank IDs skip the write entirely (logged via
- * FirebaseErrorLogger, kept as the error-logging destination since that
- * part of the data model didn't change) rather than sending a
- * partial/"unknown" row that would violate the table's NOT NULL columns
- * anyway.
- */
+/** Accesses the remark audit log only through the Firebase-authenticated Edge Function. */
 object SupabaseRemarkValidationWriter {
-
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .writeTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
-        .build()
-
+    private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).build()
     private val jsonMediaType = "application/json".toMediaType()
 
-    /**
-     * Inserts one remark_validations row.
-     *
-     * @param deliveryAgentId system_id of the agent the parcel is currently
-     *   assigned to (CallCenterParcelItem.workerSystemId on the CC side;
-     *   the signed-in worker's own system_id on the Worker side).
-     * @param verifierId system_id of the person saving this remark.
-     * @param branchId the branch the delivery agent is working out of TODAY.
-     * @param consignmentId the parcel this remark is for.
-     * @param status the status being recorded.
-     * @param remarksText the remark text (status label, or note if blank).
-     * @param screen caller identity for FirebaseErrorLogger context only.
-     */
-    fun write(
-        deliveryAgentId: String,
-        verifierId: String,
-        branchId: String,
-        consignmentId: String,
-        status: String,
-        remarksText: String,
-        screen: String
-    ) {
+    fun write(deliveryAgentId: String, verifierId: String, branchId: String, consignmentId: String,
+              status: String, remarksText: String, screen: String) {
         if (deliveryAgentId.isBlank() || verifierId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
-            FirebaseErrorLogger.log(
-                screen = screen,
-                action = "supabase_validation_skip_missing_ids",
-                errorMessage = "deliveryAgentId=$deliveryAgentId verifierId=$verifierId branchId=$branchId consignmentId=$consignmentId",
-                extra = mapOf("consignmentId" to consignmentId)
-            )
-            return
+            log(screen, "supabase_validation_skip_missing_ids", "A required ID was blank", consignmentId); return
         }
-        if (!SupabaseConfig.isConfigured) {
-            FirebaseErrorLogger.log(
-                screen = screen,
-                action = "supabase_validation_skip_not_configured",
-            errorMessage = "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured",
-                extra = mapOf("consignmentId" to consignmentId)
-            )
-            return
-        }
-
-        val row = JSONObject().apply {
-            put("consignment_id", consignmentId)
-            put("branch_id", branchId)
-            put("delivery_agent_id", deliveryAgentId)
-            put("verifier_id", verifierId)
-            put("status", status)
-            put("remarks", remarksText)
-        }
-        val body = row.toString().toRequestBody(jsonMediaType)
-
-        val request = Request.Builder()
-            .url("${SupabaseConfig.PROJECT_URL}/rest/v1/remark_validations")
-            .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
-            .addHeader("Authorization", "Bearer ${SupabaseConfig.PUBLISHABLE_KEY}")
-            .addHeader("Content-Type", "application/json")
-            .addHeader("Prefer", "return=minimal")
-            .post(body)
-            .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                FirebaseErrorLogger.log(
-                    screen = screen, action = "supabase_validation_write_network_error",
-                    errorMessage = e.message ?: "unknown",
-                    extra = mapOf("consignmentId" to consignmentId)
-                )
-            }
-
-            override fun onResponse(call: Call, response: okhttp3.Response) {
-                response.use {
-                    if (!it.isSuccessful) {
-                        FirebaseErrorLogger.log(
-                            screen = screen, action = "supabase_validation_write_http_error",
-                            errorMessage = "HTTP ${it.code}: ${it.body?.string().orEmpty().take(500)}",
-                            extra = mapOf("consignmentId" to consignmentId)
-                        )
-                    }
-                }
-            }
-        })
+        invoke(JSONObject().put("action", "write").put("row", JSONObject()
+            .put("consignment_id", consignmentId).put("branch_id", branchId)
+            .put("delivery_agent_id", deliveryAgentId).put("verifier_id", verifierId)
+            .put("status", status).put("remarks", remarksText)), screen, "supabase_validation_write", consignmentId) { }
     }
 
-    /**
-     * Fetches the full remark timeline for one consignment, newest first —
-     * used to render remark history in the Call Center / Worker parcel
-     * card UI, which previously read this from Firebase's
-     * courier/remarks_by_consignment (no longer written to, see class doc).
-     *
-     * @param onResult called on a background thread with the list of remark
-     *   rows (each a JSONObject with consignment_id/branch_id/
-     *   delivery_agent_id/verifier_id/status/remarks/created_at), or an
-     *   empty list on any failure (failures are logged, not surfaced to
-     *   the caller as an exception — callers should treat "no history"
-     *   and "fetch failed" the same way in the UI: show nothing rather
-     *   than block on a retry).
-     */
     fun fetchHistory(consignmentId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
-        if (consignmentId.isBlank() || !SupabaseConfig.isConfigured) {
-            onResult(emptyList())
-            return
-        }
-
-        val request = Request.Builder()
-            .url(
-                "${SupabaseConfig.PROJECT_URL}/rest/v1/remark_validations" +
-                    "?consignment_id=eq.$consignmentId&order=created_at.desc"
-            )
-            .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
-            .addHeader("Authorization", "Bearer ${SupabaseConfig.PUBLISHABLE_KEY}")
-            .get()
-            .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                FirebaseErrorLogger.log(
-                    screen = screen, action = "supabase_validation_fetch_history_network_error",
-                    errorMessage = e.message ?: "unknown",
-                    extra = mapOf("consignmentId" to consignmentId)
-                )
-                onResult(emptyList())
-            }
-
-            override fun onResponse(call: Call, response: okhttp3.Response) {
-                response.use {
-                    if (!it.isSuccessful) {
-                        FirebaseErrorLogger.log(
-                            screen = screen, action = "supabase_validation_fetch_history_http_error",
-                            errorMessage = "HTTP ${it.code}: ${it.body?.string().orEmpty().take(500)}",
-                            extra = mapOf("consignmentId" to consignmentId)
-                        )
-                        onResult(emptyList())
-                        return
-                    }
-                    val text = it.body?.string().orEmpty()
-                    try {
-                        val arr = org.json.JSONArray(text)
-                        val list = (0 until arr.length()).map { i -> arr.getJSONObject(i) }
-                        onResult(list)
-                    } catch (e: Exception) {
-                        FirebaseErrorLogger.log(
-                            screen = screen, action = "supabase_validation_fetch_history_parse_error",
-                            errorMessage = e.message ?: "unknown",
-                            extra = mapOf("consignmentId" to consignmentId)
-                        )
-                        onResult(emptyList())
-                    }
-                }
-            }
-        })
+        if (consignmentId.isBlank()) return onResult(emptyList())
+        invoke(JSONObject().put("action", "history").put("consignment_id", consignmentId), screen,
+            "supabase_validation_fetch_history", consignmentId) { onResult(rows(it)) }
     }
 
-    /**
-     * Fetches today's remark rows for one delivery agent (a worker's own system_id) —
-     * used by WorkerSpaceFragment.loadTodayRemarksStats() for the "today's remarks"
-     * total + per-status breakdown chips, replacing the Firebase
-     * courier/remarks_by_userId/{uid} range read those chips previously used.
-     *
-     * No server-side GROUP BY / count aggregation — this returns the raw matching
-     * rows and leaves counting-by-status to the caller (a plain in-memory loop is
-     * plenty fast for one worker's one-day row count; a Postgres view/RPC for
-     * server-side aggregation is a possible future optimization, not needed yet).
-     *
-     * @param deliveryAgentId system_id of the worker whose today's remarks to fetch.
-     * @param onResult called on a background thread with the matching rows (each a
-     *   JSONObject with the same shape as fetchHistory()'s rows), or an empty list
-     *   on any failure (logged, not surfaced as an exception — same "treat no-data
-     *   and fetch-failed the same way" contract as fetchHistory()).
-     */
     fun fetchTodayForDeliveryAgent(deliveryAgentId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
-        if (deliveryAgentId.isBlank() || !SupabaseConfig.isConfigured) {
-            onResult(emptyList())
-            return
-        }
-
-        val todayStartIso = java.time.LocalDate.now()
-            .atStartOfDay(java.time.ZoneId.systemDefault())
-            .toInstant()
-            .toString()
-
-        val request = Request.Builder()
-            .url(
-                "${SupabaseConfig.PROJECT_URL}/rest/v1/remark_validations" +
-                    "?delivery_agent_id=eq.$deliveryAgentId" +
-                    "&created_at=gte.$todayStartIso" +
-                    "&order=created_at.desc"
-            )
-            .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
-            .addHeader("Authorization", "Bearer ${SupabaseConfig.PUBLISHABLE_KEY}")
-            .get()
-            .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                FirebaseErrorLogger.log(
-                    screen = screen, action = "supabase_validation_fetch_today_network_error",
-                    errorMessage = e.message ?: "unknown",
-                    extra = mapOf("deliveryAgentId" to deliveryAgentId)
-                )
-                onResult(emptyList())
-            }
-
-            override fun onResponse(call: Call, response: okhttp3.Response) {
-                response.use {
-                    if (!it.isSuccessful) {
-                        FirebaseErrorLogger.log(
-                            screen = screen, action = "supabase_validation_fetch_today_http_error",
-                            errorMessage = "HTTP ${it.code}: ${it.body?.string().orEmpty().take(500)}",
-                            extra = mapOf("deliveryAgentId" to deliveryAgentId)
-                        )
-                        onResult(emptyList())
-                        return
-                    }
-                    val text = it.body?.string().orEmpty()
-                    try {
-                        val arr = org.json.JSONArray(text)
-                        val list = (0 until arr.length()).map { i -> arr.getJSONObject(i) }
-                        onResult(list)
-                    } catch (e: Exception) {
-                        FirebaseErrorLogger.log(
-                            screen = screen, action = "supabase_validation_fetch_today_parse_error",
-                            errorMessage = e.message ?: "unknown",
-                            extra = mapOf("deliveryAgentId" to deliveryAgentId)
-                        )
-                        onResult(emptyList())
-                    }
-                }
-            }
-        })
+        if (deliveryAgentId.isBlank()) return onResult(emptyList())
+        val start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
+        invoke(JSONObject().put("action", "today").put("delivery_agent_id", deliveryAgentId).put("start_iso", start),
+            screen, "supabase_validation_fetch_today", deliveryAgentId) { onResult(rows(it)) }
     }
 
-    /**
-     * Fetches remark rows for one delivery agent within an arbitrary [rangeStartMs,
-     * rangeEndMs] millis range (inclusive) — used by
-     * DashboardViewModel.loadAgentStat() for its date-range-selectable KPI/breakdown
-     * view, replacing the Firebase courier/remarks_by_userId/{uid} orderByKey()
-     * startAt/endAt range read that function previously used.
-     *
-     * Same no-server-side-aggregation contract as fetchTodayForDeliveryAgent(): returns
-     * raw matching rows, leaves bucketing/counting to the caller.
-     *
-     * @param deliveryAgentId system_id of the agent whose remarks to fetch (NOT their
-     *   Firebase uid — callers resolve uid -> system_id via
-     *   users/{uid}/profile/company_info/system_id before calling this, same as every
-     *   other caller in this class).
-     * @param rangeStartMs / rangeEndMs milliseconds since epoch, inclusive on both ends.
-     * @param onResult called on a background thread with the matching rows, or an empty
-     *   list on any failure (logged, not surfaced as an exception).
-     */
-    fun fetchForDeliveryAgentInRange(
-        deliveryAgentId: String,
-        rangeStartMs: Long,
-        rangeEndMs: Long,
-        screen: String,
-        onResult: (List<JSONObject>) -> Unit
-    ) {
-        if (deliveryAgentId.isBlank() || !SupabaseConfig.isConfigured) {
-            onResult(emptyList())
-            return
-        }
-
-        val startIso = java.time.Instant.ofEpochMilli(rangeStartMs).toString()
-        // endMs is inclusive per this function's contract, but created_at=lte.<iso> in
-        // PostgREST is also inclusive, so no +1ms adjustment is needed here.
-        val endIso = java.time.Instant.ofEpochMilli(rangeEndMs).toString()
-
-        val request = Request.Builder()
-            .url(
-                "${SupabaseConfig.PROJECT_URL}/rest/v1/remark_validations" +
-                    "?delivery_agent_id=eq.$deliveryAgentId" +
-                    "&created_at=gte.$startIso" +
-                    "&created_at=lte.$endIso" +
-                    "&order=created_at.desc"
-            )
-            .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
-            .addHeader("Authorization", "Bearer ${SupabaseConfig.PUBLISHABLE_KEY}")
-            .get()
-            .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                FirebaseErrorLogger.log(
-                    screen = screen, action = "supabase_validation_fetch_range_network_error",
-                    errorMessage = e.message ?: "unknown",
-                    extra = mapOf("deliveryAgentId" to deliveryAgentId)
-                )
-                onResult(emptyList())
-            }
-
-            override fun onResponse(call: Call, response: okhttp3.Response) {
-                response.use {
-                    if (!it.isSuccessful) {
-                        FirebaseErrorLogger.log(
-                            screen = screen, action = "supabase_validation_fetch_range_http_error",
-                            errorMessage = "HTTP ${it.code}: ${it.body?.string().orEmpty().take(500)}",
-                            extra = mapOf("deliveryAgentId" to deliveryAgentId)
-                        )
-                        onResult(emptyList())
-                        return
-                    }
-                    val text = it.body?.string().orEmpty()
-                    try {
-                        val arr = org.json.JSONArray(text)
-                        val list = (0 until arr.length()).map { i -> arr.getJSONObject(i) }
-                        onResult(list)
-                    } catch (e: Exception) {
-                        FirebaseErrorLogger.log(
-                            screen = screen, action = "supabase_validation_fetch_range_parse_error",
-                            errorMessage = e.message ?: "unknown",
-                            extra = mapOf("deliveryAgentId" to deliveryAgentId)
-                        )
-                        onResult(emptyList())
-                    }
-                }
-            }
-        })
+    fun fetchForDeliveryAgentInRange(deliveryAgentId: String, rangeStartMs: Long, rangeEndMs: Long,
+                                     screen: String, onResult: (List<JSONObject>) -> Unit) {
+        if (deliveryAgentId.isBlank()) return onResult(emptyList())
+        invoke(JSONObject().put("action", "agent_range").put("delivery_agent_id", deliveryAgentId)
+            .put("start_iso", Instant.ofEpochMilli(rangeStartMs).toString())
+            .put("end_iso", Instant.ofEpochMilli(rangeEndMs).toString()), screen,
+            "supabase_validation_fetch_range", deliveryAgentId) { onResult(rows(it)) }
     }
 
-    /**
-     * Polling-based replacement for the old Firebase real-time ValueEventListener
-     * approach to "new remark" in-app notifications (CallCenterFragment's
-     * syncCcRemarkListeners() / WorkerSpaceFragment's syncRemarkListeners()).
-     *
-     * Rather than one live listener per visible consignment (which doesn't have a
-     * direct Supabase equivalent without adding a WebSocket/Realtime SDK dependency —
-     * a call Alif deferred), this does ONE batched query per poll: "any
-     * remark_validations row for any of these consignment IDs, created after
-     * [sinceEpochMs]". Callers are expected to call this periodically (e.g. every
-     * 15-30s via a Handler loop) while their screen is visible, and to update their
-     * own "last seen" timestamp bookkeeping from the returned rows' created_at values
-     * — this function is stateless and doesn't track what's "new" itself.
-     *
-     * @param consignmentIds the currently-visible parcel IDs to check for new remarks.
-     *   Chunked into batches of 200 (PostgREST's `in.()` filter has no hard documented
-     *   limit, but very long URLs risk hitting proxy/server URL-length limits — 200 is
-     *   a conservative, comfortably-under-any-limit batch size). Multiple chunks are
-     *   fetched in parallel-ish fashion (fired sequentially here since this uses the
-     *   callback API, not coroutines, but each chunk is an independent request) and
-     *   their results merged before onResult is called once with the combined list.
-     * @param sinceEpochMs only rows with created_at strictly after this are returned.
-     * @param onResult called on a background thread with the combined new-rows list
-     *   (unsorted across chunks — sort by created_at again if a specific order
-     *   matters), or an empty list if consignmentIds is empty or every chunk fails.
-     */
-    fun fetchNewRemarksSince(
-        consignmentIds: List<String>,
-        sinceEpochMs: Long,
-        screen: String,
-        onResult: (List<JSONObject>) -> Unit
-    ) {
-        if (consignmentIds.isEmpty() || !SupabaseConfig.isConfigured) {
-            onResult(emptyList())
-            return
-        }
-
-        val sinceIso = java.time.Instant.ofEpochMilli(sinceEpochMs).toString()
+    fun fetchNewRemarksSince(consignmentIds: List<String>, sinceEpochMs: Long, screen: String,
+                             onResult: (List<JSONObject>) -> Unit) {
+        if (consignmentIds.isEmpty()) return onResult(emptyList())
+        val allRows = java.util.Collections.synchronizedList(mutableListOf<JSONObject>())
         val chunks = consignmentIds.distinct().chunked(200)
-        val combined = java.util.Collections.synchronizedList(mutableListOf<JSONObject>())
         val remaining = java.util.concurrent.atomic.AtomicInteger(chunks.size)
-
         chunks.forEach { chunk ->
-            val idsParam = chunk.joinToString(",") { it.replace(",", "") } // consignment IDs shouldn't contain commas, but strip defensively — a stray comma would corrupt the in.() filter syntax
-            val request = Request.Builder()
-                .url(
-                    "${SupabaseConfig.PROJECT_URL}/rest/v1/remark_validations" +
-                        "?consignment_id=in.($idsParam)" +
-                        "&created_at=gt.$sinceIso" +
-                        "&order=created_at.desc"
-                )
-                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
-                .addHeader("Authorization", "Bearer ${SupabaseConfig.PUBLISHABLE_KEY}")
-                .get()
-                .build()
+            invoke(JSONObject().put("action", "new_since").put("consignment_ids", JSONArray(chunk))
+                .put("since_iso", Instant.ofEpochMilli(sinceEpochMs).toString()), screen,
+                "supabase_validation_fetch_new_since", "") {
+                allRows.addAll(rows(it)); if (remaining.decrementAndGet() == 0) onResult(allRows.toList())
+            }
+        }
+    }
 
+    private fun invoke(payload: JSONObject, screen: String, action: String, reference: String,
+                       onResult: (String?) -> Unit) {
+        if (!SupabaseConfig.isConfigured) {
+            log(screen, "${action}_skip_not_configured", "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured", reference)
+            onResult(null); return
+        }
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) { log(screen, "${action}_skip_not_signed_in", "No Firebase user", reference); onResult(null); return }
+        user.getIdToken(false).addOnCompleteListener { tokenTask ->
+            val token = tokenTask.result?.token
+            if (!tokenTask.isSuccessful || token.isNullOrBlank()) {
+                log(screen, "${action}_token_error", tokenTask.exception?.message ?: "No Firebase ID token", reference)
+                onResult(null); return@addOnCompleteListener
+            }
+            val request = Request.Builder().url("${SupabaseConfig.PROJECT_URL}/functions/v1/remark-validations")
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY).addHeader("Authorization", "Bearer $token")
+                .addHeader("Content-Type", "application/json").post(payload.toString().toRequestBody(jsonMediaType)).build()
             client.newCall(request).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    FirebaseErrorLogger.log(
-                        screen = screen, action = "supabase_validation_fetch_new_since_network_error",
-                        errorMessage = e.message ?: "unknown",
-                        extra = mapOf("chunkSize" to chunk.size)
-                    )
-                    if (remaining.decrementAndGet() == 0) onResult(combined.toList())
+                    log(screen, "${action}_network_error", e.message ?: "Network error", reference); onResult(null)
                 }
-
                 override fun onResponse(call: Call, response: okhttp3.Response) {
                     response.use {
-                        if (it.isSuccessful) {
-                            val text = it.body?.string().orEmpty()
-                            try {
-                                val arr = org.json.JSONArray(text)
-                                for (i in 0 until arr.length()) combined.add(arr.getJSONObject(i))
-                            } catch (e: Exception) {
-                                FirebaseErrorLogger.log(
-                                    screen = screen, action = "supabase_validation_fetch_new_since_parse_error",
-                                    errorMessage = e.message ?: "unknown"
-                                )
-                            }
-                        } else {
-                            FirebaseErrorLogger.log(
-                                screen = screen, action = "supabase_validation_fetch_new_since_http_error",
-                                errorMessage = "HTTP ${it.code}: ${it.body?.string().orEmpty().take(500)}"
-                            )
+                        val text = it.body?.string().orEmpty()
+                        if (it.isSuccessful) onResult(text) else {
+                            log(screen, "${action}_http_error", "HTTP ${it.code}: ${text.take(500)}", reference); onResult(null)
                         }
                     }
-                    if (remaining.decrementAndGet() == 0) onResult(combined.toList())
                 }
             })
         }
     }
+
+    private fun rows(json: String?): List<JSONObject> = try {
+        val array = JSONArray(json ?: "[]"); List(array.length()) { array.getJSONObject(it) }
+    } catch (_: Exception) { emptyList() }
+
+    private fun log(screen: String, action: String, error: String, reference: String) = FirebaseErrorLogger.log(
+        screen = screen, action = action, errorMessage = error,
+        extra = if (reference.isBlank()) emptyMap() else mapOf("reference" to reference)
+    )
 }
