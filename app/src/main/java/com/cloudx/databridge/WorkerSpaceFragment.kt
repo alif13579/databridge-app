@@ -1550,7 +1550,7 @@ class WorkerSpaceFragment : Fragment() {
                     deferred.await()
                 }
                 val engagedAtDeferred = async(Dispatchers.IO) {
-                    db.reference.child("courier/remarks_by_consignment/$cId/engaged_at").get().await()
+                    db.reference.child("courier/consignments/$cId/engaged_at").get().await()
                 }
                 ItemFetch(cId, runRef, detailDeferred.await(), remarkRowsDeferred.await(), engagedAtDeferred.await())
             }
