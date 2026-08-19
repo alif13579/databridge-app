@@ -31,6 +31,8 @@ class ClaimsReportFragment : Fragment() {
     private var to = endOfToday()
     private var report: ClaimsReport? = null
     private val lockedToBranch get() = arguments?.getBoolean(ARG_LOCK_TO_BRANCH, false) == true
+    private val allowedBranchIds get() = arguments?.getStringArrayList(ARG_ALLOWED_BRANCH_IDS)?.filter { it.isNotBlank() }.orEmpty()
+    private var allowedBranchNames: Map<String, String> = emptyMap()
 
     override fun onCreateView(i: LayoutInflater, c: ViewGroup?, s: Bundle?): View = i.inflate(R.layout.fragment_claims_report, c, false)
 
@@ -42,15 +44,20 @@ class ClaimsReportFragment : Fragment() {
         val toView = v.findViewById<TextView>(R.id.btnClaimsTo)
         fun dates() { fromView.text = "From: ${dateFormat.format(Date(from))}"; toView.text = "To: ${dateFormat.format(Date(to))}" }
         dates(); refreshBranches(branch)
-        if (lockedToBranch) {
-            // A dashboard report must stay within the branch currently being
-            // viewed. This prevents a POC/Accounts user from accidentally
-            // changing the scope while keeping the reusable report screen's
-            // multi-branch mode available elsewhere in the app.
+        if (lockedToBranch && allowedBranchIds.size <= 1) {
+            // A dashboard report must stay within the eligible branch scope.
+            // With only one eligible branch there is nothing to pick, so keep
+            // the selector out of the way.
             v.findViewById<View>(R.id.layoutClaimsBranchSelector).isVisible = false
         }
         v.findViewById<View>(R.id.btnClaimsReportBack).setOnClickListener { parentFragmentManager.popBackStack() }
-        if (!lockedToBranch) branch.setOnClickListener { chooseBranches(branch) }
+        when {
+            lockedToBranch && allowedBranchIds.size > 1 -> {
+                loadAllowedBranchNames(branch)
+                branch.setOnClickListener { chooseAllowedBranch(branch, v) }
+            }
+            !lockedToBranch -> branch.setOnClickListener { chooseBranches(branch) }
+        }
         fromView.setOnClickListener { pickDate(from) { from = it; if (to < from) to = endOfDay(it); dates() } }
         toView.setOnClickListener { pickDate(to) { to = endOfDay(it); if (from > to) from = startOfDay(it); dates() } }
         v.findViewById<Button>(R.id.btnClaimsSearch).setOnClickListener { search(v) }
@@ -59,6 +66,35 @@ class ClaimsReportFragment : Fragment() {
         // Open with a useful current-month report immediately; changing either
         // date still requires an explicit Search so the user controls refreshes.
         if (lockedToBranch && selectedBranches.isNotEmpty()) search(v)
+    }
+
+    /** Picker for a dashboard user's eligible branches. Unlike the generic
+     * multi-branch report picker, this is deliberately single-select: a report
+     * and its exports always represent one branch at a time. */
+    private fun loadAllowedBranchNames(label: TextView) = lifecycleScope.launch {
+        allowedBranchNames = allowedBranchIds.associateWith { id ->
+            runCatching { db.reference.child("branches/$id/name").get().await().getValue(String::class.java) }
+                .getOrNull().orEmpty().ifBlank { id }
+        }
+        refreshBranches(label)
+    }
+
+    private fun chooseAllowedBranch(label: TextView, root: View) {
+        if (allowedBranchIds.isEmpty()) return
+        val current = selectedBranches.firstOrNull()
+        val selected = allowedBranchIds.indexOf(current).coerceAtLeast(0)
+        AlertDialog.Builder(requireContext())
+            .setTitle("Report branch")
+            .setSingleChoiceItems(allowedBranchIds.map { allowedBranchNames[it] ?: it }.toTypedArray(), selected) { dialog, which ->
+                selectedBranches.clear()
+                selectedBranches += allowedBranchIds[which]
+                report = null
+                refreshBranches(label)
+                dialog.dismiss()
+                search(root)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun chooseBranches(label: TextView) = lifecycleScope.launch {
@@ -70,7 +106,13 @@ class ClaimsReportFragment : Fragment() {
             .setPositiveButton("Done") { _, _ -> refreshBranches(label) }.show()
     }
 
-    private fun refreshBranches(label: TextView) { label.text = if (selectedBranches.isEmpty()) "Select branches" else "${selectedBranches.size} branch${if (selectedBranches.size == 1) "" else "es"} selected" }
+    private fun refreshBranches(label: TextView) {
+        label.text = when {
+            selectedBranches.isEmpty() -> "Select branches"
+            lockedToBranch && selectedBranches.size == 1 -> "Branch: ${allowedBranchNames[selectedBranches.first()] ?: selectedBranches.first()}"
+            else -> "${selectedBranches.size} branch${if (selectedBranches.size == 1) "" else "es"} selected"
+        }
+    }
 
     private fun search(v: View) {
         if (selectedBranches.isEmpty()) return toast("Select at least one branch")
@@ -149,10 +191,12 @@ class ClaimsReportFragment : Fragment() {
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
         private const val ARG_LOCK_TO_BRANCH = "lock_to_branch"
-        fun newInstance(branchId: String, lockToBranch: Boolean = false) = ClaimsReportFragment().apply {
+        private const val ARG_ALLOWED_BRANCH_IDS = "allowed_branch_ids"
+        fun newInstance(branchId: String, lockToBranch: Boolean = false, allowedBranchIds: List<String> = emptyList()) = ClaimsReportFragment().apply {
             arguments = Bundle().apply {
                 putString(ARG_BRANCH_ID, branchId)
                 putBoolean(ARG_LOCK_TO_BRANCH, lockToBranch)
+                putStringArrayList(ARG_ALLOWED_BRANCH_IDS, ArrayList(allowedBranchIds))
             }
         }
     }

@@ -635,7 +635,9 @@ class PettyCashDashboardFragment : Fragment() {
         }
         bindQuickAction(actionReports, "\uD83D\uDCCA", "Reports") {
             parentFragmentManager.beginTransaction()
-                .replace(R.id.container, ClaimsReportFragment.newInstance(branchId, lockToBranch = true))
+                .replace(R.id.container, ClaimsReportFragment.newInstance(
+                    branchId, lockToBranch = true, allowedBranchIds = RbacManager.current.branchIds
+                ))
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
