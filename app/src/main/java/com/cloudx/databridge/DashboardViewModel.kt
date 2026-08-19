@@ -290,19 +290,22 @@ class DashboardViewModel : ViewModel() {
 
     // ── Core load ─────────────────────────────────────────────────────────────
     //
-    // Sourced from courier/remarks_by_userId/{uid}/push_{yyyyMMdd}_{consignmentId} — the secondary
-    // per-user index WorkerSpaceFragment/CallCenterFragment write alongside every
-    // courier/remarks_by_consignment entry. This sidesteps the three problems the old
-    // (removed) loadBranchView()/loadWorkerView() had:
+    // Sourced from Supabase's remark_validations table (delivery_agent_id = the agent's
+    // system_id, created_at within [rangeStartTs, rangeEndTs]) — formerly Firebase's
+    // courier/remarks_by_userId/{uid}/push_{yyyyMMdd}_{consignmentId}, retired along with
+    // that path (see SupabaseRemarkValidationWriter's doc comment). This sidesteps the
+    // three problems the old (removed) loadBranchView()/loadWorkerView() had:
     //   1. Branch scoping: candidate agents are filtered by branch_ids BEFORE any per-agent
     //      read (loadWorkerAgentStats), instead of pulling every branch first.
     //   2. Agent names: resolved from the same users/ read used to find the candidates,
     //      not a separate indexed query per agent.
-    //   3. Bounded reads: orderByKey().startAt/endAt on the yyyyMMdd-prefixed key restricts
-    //      each per-agent read to the selected date range, not "every run ever".
+    //   3. Bounded reads: created_at range filter on the Supabase query restricts each
+    //      per-agent read to the selected date range, not "every remark ever".
     //
-    // ⚠️ Known limitations of courier/remarks_by_userId as a data source (flagging, not guessing):
-    //   - An entry only exists once an agent saves a remark on a consignment — there's no
+    // ⚠️ Known limitations of remark_validations as a data source (flagging, not guessing) —
+    //   same limitations the old Firebase courier/remarks_by_userId source had, unchanged by
+    //   this migration:
+    //   - A row only exists once an agent saves a remark on a consignment — there's no
     //     "assigned but not yet actioned" entry, so "totalParcels" means "actioned in range",
     //     not "assigned". DashboardStats.pending / AgentStat.pending do NOT mean that though —
     //     they're derived (entryCount - delivered - onHold - returned in loadAgentStat), i.e.
@@ -480,7 +483,8 @@ class DashboardViewModel : ViewModel() {
     }
 
     /** One agent's delivered/onHold/returned counts for [startKey]..[endKey] (both yyyyMMdd,
-     *  inclusive) from a single bounded read of courier/remarks_by_userId/{uid}, plus a raw
+     *  inclusive) from a single bounded query against Supabase's remark_validations table
+     *  (formerly courier/remarks_by_userId/{uid}), plus a raw
      *  final_status -> count tally from that same read (see AgentLoadResult). pending is
      *  derived (entryCount - delivered - onHold - returned), and runId/runStatus are always
      *  blank — see the limitations note above load(). */
@@ -490,55 +494,57 @@ class DashboardViewModel : ViewModel() {
         level: Int = RoleLevelCache.DEFAULT_LEVEL, roleId: String = "", branchIds: List<String> = emptyList(),
     ): AgentLoadResult {
         var readError: String? = null
-        val snap = withContext(Dispatchers.IO) {
+
+        // courier/runs_by_agentSystemId lookup (below) already resolves uid -> system_id, but
+        // remark_validations needs it FIRST (it's what delivery_agent_id is keyed on) — so this
+        // read is pulled up ahead of the old remarks_by_userId position rather than duplicated.
+        val systemIdEarly = withContext(Dispatchers.IO) {
             runCatching {
-                db.reference.child("courier/remarks_by_userId/$uid")
-                    .orderByKey()
-                    .startAt("push_$startKey")
-                    .endAt("push_$endKey~") // '~' sorts after any consignmentId suffix that day
-                    .get().await()
+                db.reference.child("users/$uid/profile/company_info/system_id")
+                    .get().await().getValue(String::class.java)?.trim()
             }.onFailure { e ->
-                // A failed read here silently becomes an empty result below (agentStat shows
-                // 0 for everything, no error surfaced anywhere) — that's the right degrade
-                // for one agent's read failing inside a multi-agent branch view, but it means
-                // a genuine cause (e.g. a security-rules permission denial on this specific
-                // path) is otherwise invisible. Logging it here doesn't change that graceful
-                // degrade; it just makes the real reason checkable via error_logs/{uid} — and
-                // readError below also surfaces it as a visible toast via load()'s refreshError.
-                readError = "courier/remarks_by_userId/$uid ($startKey-$endKey): ${e.message ?: "read failed"}"
+                readError = e.message ?: "system_id read failed"
                 FirebaseErrorLogger.log(
-                    screen = "DashboardViewModel", action = "remarks_by_userId_read",
-                    errorMessage = e.message ?: "unknown",
-                    extra = mapOf("uid" to uid, "startKey" to startKey, "endKey" to endKey)
+                    screen = "DashboardViewModel", action = "system_id_read",
+                    errorMessage = e.message ?: "unknown", extra = mapOf("uid" to uid)
                 )
             }.getOrNull()
-        }
+        }?.takeIf { it.isNotBlank() }
 
         var delivered = 0
         var onHold = 0
         var returned = 0
         var entryCount = 0
         val rawCounts = mutableMapOf<String, Int>()
-        snap?.children?.forEach { entry ->
-            entryCount++
-            val statusKey = entry.child("final_status").getValue(String::class.java).orEmpty()
-            when (bucketForStatus(statusKey)) {
-                "delivered" -> delivered++
-                "on_hold"   -> onHold++
-                "returned"  -> returned++
-                else        -> {} // verify_request / blank / unrecognized — not a final
-                                   // delivery outcome, so left out of these 3 fixed KPI
-                                   // buckets. Still counted in `pending` below and in the
-                                   // dynamic breakdown, so it's never invisible to the totals.
+        if (systemIdEarly != null) {
+            val rows = withContext(Dispatchers.IO) {
+                val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
+                SupabaseRemarkValidationWriter.fetchForDeliveryAgentInRange(
+                    systemIdEarly, rangeStartTs, rangeEndTs, "DashboardViewModel"
+                ) { result -> deferred.complete(result) }
+                deferred.await()
             }
-            // Dynamic breakdown: EVERY entry counts under its own raw status value, with no
-            // exclusions — this intentionally differs from the delivered/on_hold/returned
-            // bucketing above, which only cares about final delivery outcomes. Every unique
-            // status found in range (verify_request included) gets its own count+percentage
-            // slice; blank status groups under an explicit label rather than being dropped.
-            val trimmed = statusKey.trim()
-            val breakdownKey = trimmed.ifBlank { "(no status)" }
-            rawCounts[breakdownKey] = (rawCounts[breakdownKey] ?: 0) + 1
+            rows.forEach { entry ->
+                entryCount++
+                val statusKey = entry.optString("status")?.trim().orEmpty()
+                when (bucketForStatus(statusKey)) {
+                    "delivered" -> delivered++
+                    "on_hold"   -> onHold++
+                    "returned"  -> returned++
+                    else        -> {} // verify_request / blank / unrecognized — not a final
+                                       // delivery outcome, so left out of these 3 fixed KPI
+                                       // buckets. Still counted in `pending` below and in the
+                                       // dynamic breakdown, so it's never invisible to the totals.
+                }
+                // Dynamic breakdown: EVERY entry counts under its own raw status value, with no
+                // exclusions — this intentionally differs from the delivered/on_hold/returned
+                // bucketing above, which only cares about final delivery outcomes. Every unique
+                // status found in range (verify_request included) gets its own count+percentage
+                // slice; blank status groups under an explicit label rather than being dropped.
+                val trimmed = statusKey.trim()
+                val breakdownKey = trimmed.ifBlank { "(no status)" }
+                rawCounts[breakdownKey] = (rawCounts[breakdownKey] ?: 0) + 1
+            }
         }
 
         // memory/{uid}/earnings/earning_{savedAtMs} — the key's own timestamp is just when
@@ -570,21 +576,12 @@ class DashboardViewModel : ViewModel() {
 
         // courier/runs_by_agentSystemId/{systemId}/{runType}/{runKey} = status — keyed by
         // company_info/system_id, NOT the Firebase uid (WorkerSpaceFragment.loadData()
-        // resolves the same field before calling attachRunsListener()).
+        // resolves the same field before calling attachRunsListener()). Reuses systemIdEarly
+        // (resolved above for the remark_validations query) instead of re-reading the same
+        // Firebase path a second time.
         var openRuns = 0
         var closedRuns = 0
-        val systemId = withContext(Dispatchers.IO) {
-            runCatching {
-                db.reference.child("users/$uid/profile/company_info/system_id")
-                    .get().await().getValue(String::class.java)?.trim()
-            }.onFailure { e ->
-                readError = e.message ?: "system_id read failed"
-                FirebaseErrorLogger.log(
-                    screen = "DashboardViewModel", action = "system_id_read",
-                    errorMessage = e.message ?: "unknown", extra = mapOf("uid" to uid)
-                )
-            }.getOrNull()
-        }?.takeIf { it.isNotBlank() }
+        val systemId = systemIdEarly
         if (systemId != null) {
             val runsSnap = withContext(Dispatchers.IO) {
                 runCatching { db.reference.child("courier/runs_by_agentSystemId/$systemId").get().await() }
@@ -601,8 +598,11 @@ class DashboardViewModel : ViewModel() {
             // range filtering has to go by the date the run key itself encodes, not by when
             // it was last written. runKey format per the current sheet-sync config:
             // "run_{yyyyMMdd}_{systemId}" — the yyyyMMdd is compared as a string against the
-            // same startKey/endKey bounds used for courier/remarks_by_userId above, since
-            // same-length zero-padded date strings sort identically to their numeric value.
+            // same startKey/endKey bounds this function receives as parameters (formerly also
+            // used directly against courier/remarks_by_userId's key range; that call site is
+            // now a Supabase created_at range query instead, but startKey/endKey themselves
+            // are unchanged), since same-length zero-padded date strings sort identically to
+            // their numeric value.
             // A runType whose keys don't match this shape is silently skipped, not crashed on.
             runsSnap?.children?.forEach { runTypeSnap ->
                 runTypeSnap.children.forEach { runEntry ->
@@ -855,7 +855,8 @@ class DashboardViewModel : ViewModel() {
     private fun dateKey(ts: Long): String =
         java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date(ts))
 
-    /** Buckets a courier/remarks_by_userId final_status into delivered/on_hold/returned. Status keys
+    /** Buckets a remark_validations status (formerly courier/remarks_by_userId's final_status)
+     *  into delivered/on_hold/returned. Status keys
      *  are admin-configurable (config/statusMeta), so this matches by keyword rather than a
      *  fixed key list — same approach the DataBridge Chrome extension's reconciliation
      *  highlighter uses for the Hermes status badges (HOLD/RETURN/DRTO/PARTIAL/EXCHANGE).
