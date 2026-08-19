@@ -368,4 +368,96 @@ object SupabaseRemarkValidationWriter {
             }
         })
     }
+
+    /**
+     * Polling-based replacement for the old Firebase real-time ValueEventListener
+     * approach to "new remark" in-app notifications (CallCenterFragment's
+     * syncCcRemarkListeners() / WorkerSpaceFragment's syncRemarkListeners()).
+     *
+     * Rather than one live listener per visible consignment (which doesn't have a
+     * direct Supabase equivalent without adding a WebSocket/Realtime SDK dependency —
+     * a call Alif deferred), this does ONE batched query per poll: "any
+     * remark_validations row for any of these consignment IDs, created after
+     * [sinceEpochMs]". Callers are expected to call this periodically (e.g. every
+     * 15-30s via a Handler loop) while their screen is visible, and to update their
+     * own "last seen" timestamp bookkeeping from the returned rows' created_at values
+     * — this function is stateless and doesn't track what's "new" itself.
+     *
+     * @param consignmentIds the currently-visible parcel IDs to check for new remarks.
+     *   Chunked into batches of 200 (PostgREST's `in.()` filter has no hard documented
+     *   limit, but very long URLs risk hitting proxy/server URL-length limits — 200 is
+     *   a conservative, comfortably-under-any-limit batch size). Multiple chunks are
+     *   fetched in parallel-ish fashion (fired sequentially here since this uses the
+     *   callback API, not coroutines, but each chunk is an independent request) and
+     *   their results merged before onResult is called once with the combined list.
+     * @param sinceEpochMs only rows with created_at strictly after this are returned.
+     * @param onResult called on a background thread with the combined new-rows list
+     *   (unsorted across chunks — sort by created_at again if a specific order
+     *   matters), or an empty list if consignmentIds is empty or every chunk fails.
+     */
+    fun fetchNewRemarksSince(
+        consignmentIds: List<String>,
+        sinceEpochMs: Long,
+        screen: String,
+        onResult: (List<JSONObject>) -> Unit
+    ) {
+        if (consignmentIds.isEmpty() || !SupabaseConfig.isConfigured) {
+            onResult(emptyList())
+            return
+        }
+
+        val sinceIso = java.time.Instant.ofEpochMilli(sinceEpochMs).toString()
+        val chunks = consignmentIds.distinct().chunked(200)
+        val combined = java.util.Collections.synchronizedList(mutableListOf<JSONObject>())
+        val remaining = java.util.concurrent.atomic.AtomicInteger(chunks.size)
+
+        chunks.forEach { chunk ->
+            val idsParam = chunk.joinToString(",") { it.replace(",", "") } // consignment IDs shouldn't contain commas, but strip defensively — a stray comma would corrupt the in.() filter syntax
+            val request = Request.Builder()
+                .url(
+                    "${SupabaseConfig.PROJECT_URL}/rest/v1/remark_validations" +
+                        "?consignment_id=in.($idsParam)" +
+                        "&created_at=gt.$sinceIso" +
+                        "&order=created_at.desc"
+                )
+                .addHeader("apikey", SupabaseConfig.ANON_KEY)
+                .addHeader("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
+                .get()
+                .build()
+
+            client.newCall(request).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    FirebaseErrorLogger.log(
+                        screen = screen, action = "supabase_validation_fetch_new_since_network_error",
+                        errorMessage = e.message ?: "unknown",
+                        extra = mapOf("chunkSize" to chunk.size)
+                    )
+                    if (remaining.decrementAndGet() == 0) onResult(combined.toList())
+                }
+
+                override fun onResponse(call: Call, response: okhttp3.Response) {
+                    response.use {
+                        if (it.isSuccessful) {
+                            val text = it.body?.string().orEmpty()
+                            try {
+                                val arr = org.json.JSONArray(text)
+                                for (i in 0 until arr.length()) combined.add(arr.getJSONObject(i))
+                            } catch (e: Exception) {
+                                FirebaseErrorLogger.log(
+                                    screen = screen, action = "supabase_validation_fetch_new_since_parse_error",
+                                    errorMessage = e.message ?: "unknown"
+                                )
+                            }
+                        } else {
+                            FirebaseErrorLogger.log(
+                                screen = screen, action = "supabase_validation_fetch_new_since_http_error",
+                                errorMessage = "HTTP ${it.code}: ${it.body?.string().orEmpty().take(500)}"
+                            )
+                        }
+                    }
+                    if (remaining.decrementAndGet() == 0) onResult(combined.toList())
+                }
+            })
+        }
+    }
 }
