@@ -88,6 +88,9 @@ data class PettyCashRequest(
     val settleInProcessByUid: String = "",
     val settleInProcessByName: String = "",
     val settleInProcessAt: Long = 0L,
+    val settledAmount: Double = 0.0,        // set by Accounts at the Settle step; defaults to
+                                             // approvedAmount but Accounts can adjust it once more —
+                                             // the true final figure actually paid out. 0.0 until settled.
     val settledByUid: String = "",
     val settledByName: String = "",
     val settledAt: Long = 0L,
