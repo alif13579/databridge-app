@@ -86,7 +86,7 @@ object SupabaseRemarkValidationWriter {
             FirebaseErrorLogger.log(
                 screen = screen,
                 action = "supabase_validation_skip_not_configured",
-                errorMessage = "SupabaseConfig.PROJECT_URL/ANON_KEY are still placeholders",
+            errorMessage = "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured",
                 extra = mapOf("consignmentId" to consignmentId)
             )
             return
@@ -104,8 +104,8 @@ object SupabaseRemarkValidationWriter {
 
         val request = Request.Builder()
             .url("${SupabaseConfig.PROJECT_URL}/rest/v1/remark_validations")
-            .addHeader("apikey", SupabaseConfig.ANON_KEY)
-            .addHeader("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
+            .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+            .addHeader("Authorization", "Bearer ${SupabaseConfig.PUBLISHABLE_KEY}")
             .addHeader("Content-Type", "application/json")
             .addHeader("Prefer", "return=minimal")
             .post(body)
@@ -159,8 +159,8 @@ object SupabaseRemarkValidationWriter {
                 "${SupabaseConfig.PROJECT_URL}/rest/v1/remark_validations" +
                     "?consignment_id=eq.$consignmentId&order=created_at.desc"
             )
-            .addHeader("apikey", SupabaseConfig.ANON_KEY)
-            .addHeader("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
+            .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+            .addHeader("Authorization", "Bearer ${SupabaseConfig.PUBLISHABLE_KEY}")
             .get()
             .build()
 
@@ -238,8 +238,8 @@ object SupabaseRemarkValidationWriter {
                     "&created_at=gte.$todayStartIso" +
                     "&order=created_at.desc"
             )
-            .addHeader("apikey", SupabaseConfig.ANON_KEY)
-            .addHeader("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
+            .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+            .addHeader("Authorization", "Bearer ${SupabaseConfig.PUBLISHABLE_KEY}")
             .get()
             .build()
 
@@ -325,8 +325,8 @@ object SupabaseRemarkValidationWriter {
                     "&created_at=lte.$endIso" +
                     "&order=created_at.desc"
             )
-            .addHeader("apikey", SupabaseConfig.ANON_KEY)
-            .addHeader("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
+            .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+            .addHeader("Authorization", "Bearer ${SupabaseConfig.PUBLISHABLE_KEY}")
             .get()
             .build()
 
@@ -420,8 +420,8 @@ object SupabaseRemarkValidationWriter {
                         "&created_at=gt.$sinceIso" +
                         "&order=created_at.desc"
                 )
-                .addHeader("apikey", SupabaseConfig.ANON_KEY)
-                .addHeader("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                .addHeader("Authorization", "Bearer ${SupabaseConfig.PUBLISHABLE_KEY}")
                 .get()
                 .build()
 

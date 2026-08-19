@@ -1,0 +1,6 @@
+# Copy these entries into your ignored local.properties for local builds.
+# CI/release may instead pass -PSUPABASE_URL and -PSUPABASE_PUBLISHABLE_KEY.
+# This is a public client key; do NOT put SUPABASE_SERVICE_ROLE_KEY or any
+# sb_secret_ key in this file, Android source, Gradle, or GitHub.
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_replace_me

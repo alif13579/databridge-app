@@ -3,24 +3,19 @@ package com.cloudx.databridge
 /**
  * Supabase project configuration for the remark_validations table.
  *
- * PLACEHOLDER VALUES — Alif needs to fill these in with the real project
- * URL and anon (public) key from Supabase Dashboard → Project Settings →
- * API, after running supabase_remark_validations_schema.sql there.
+ * Values are generated from ignored local.properties (development) or Gradle
+ * properties (CI/release), rather than being hard-coded in source control.
+ * See local.properties.example in the repository root.
  *
- * Deliberately uses the anon key, not the service_role key: the app
- * authenticates via Firebase Auth, not Supabase Auth, so Supabase's own
- * "authenticated" role is never populated for this app's traffic. Per
- * Alif's decision, remark_validations' RLS policy grants full access to
- * the `anon` role with no per-user restriction — protection lives in the
- * app itself (Firebase login gates whether the remark-save screens are
- * reachable at all), not in a Supabase-side identity check. The
- * service_role key must NEVER go in client app code (it bypasses RLS
- * entirely) — only the anon key belongs here.
+ * Only the low-privilege publishable key belongs in an Android APK. It is
+ * public by design, so RLS/Edge Functions must enforce data access. The
+ * service/secret key must NEVER go in client app code: it bypasses RLS and
+ * belongs only in the Supabase Edge Function's secrets.
  */
 object SupabaseConfig {
-    const val PROJECT_URL = "https://YOUR_PROJECT_REF.supabase.co"
-    const val ANON_KEY = "YOUR_ANON_KEY_HERE"
+    val PROJECT_URL: String get() = BuildConfig.SUPABASE_URL.trimEnd('/')
+    val PUBLISHABLE_KEY: String get() = BuildConfig.SUPABASE_PUBLISHABLE_KEY
 
     val isConfigured: Boolean
-        get() = PROJECT_URL != "https://YOUR_PROJECT_REF.supabase.co" && ANON_KEY != "YOUR_ANON_KEY_HERE"
+        get() = PROJECT_URL.startsWith("https://") && PUBLISHABLE_KEY.isNotBlank()
 }

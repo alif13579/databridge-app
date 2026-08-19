@@ -13,6 +13,21 @@ val keystoreProperties = Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(keystorePropertiesFile.inputStream())
 }
+
+// Public Supabase client configuration. These values intentionally come from
+// local.properties (developer machines) or -P Gradle properties (CI/release),
+// never from a checked-in Kotlin source file. A publishable key is bundled in
+// the APK by design; it is not a secret. The service/secret key must never be
+// supplied here or used by Android code.
+val localPropertiesFile = rootProject.file("local.properties")
+val localProperties = Properties()
+if (localPropertiesFile.exists()) {
+    localProperties.load(localPropertiesFile.inputStream())
+}
+fun publicBuildConfigValue(name: String): String =
+    providers.gradleProperty(name).orNull ?: localProperties.getProperty(name).orEmpty()
+fun escapedBuildConfigValue(value: String): String =
+    value.replace("\\", "\\\\").replace("\"", "\\\"")
 // ✅ release keystore আছে কিনা দেখা (storeFile নেই) — না থাকলে debug signing এ fallback
 val hasReleaseKeystore = keystorePropertiesFile.exists() &&
     (keystoreProperties["storeFile"] as? String)?.let { rootProject.file(it).exists() } == true
@@ -29,6 +44,8 @@ android {
         versionName = "5.22.92"
         multiDexEnabled = true                                         // ✅ Large app support
         vectorDrawables.useSupportLibrary = true       // ✅ Vector drawable on API 21+
+        buildConfigField("String", "SUPABASE_URL", "\"${escapedBuildConfigValue(publicBuildConfigValue("SUPABASE_URL"))}\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"${escapedBuildConfigValue(publicBuildConfigValue("SUPABASE_PUBLISHABLE_KEY"))}\"")
     }
 
     // 🔐 Release Signing Config (only configured if keystore is present)
@@ -65,6 +82,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "11"
+    }
+    buildFeatures {
+        buildConfig = true
     }
 }
 
