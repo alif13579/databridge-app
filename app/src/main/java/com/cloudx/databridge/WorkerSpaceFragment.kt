@@ -146,6 +146,8 @@ class WorkerSpaceFragment : Fragment() {
         searchJob?.cancel()
         searchJob = null
         detachRunsListener()
+        workerRemarkPollHandler?.removeCallbacksAndMessages(null)
+        workerRemarkPollHandler = null
         super.onDestroyView()
     }
 
@@ -837,23 +839,7 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
-    /** Writes a Worker-side remark to Supabase's remark_validations table, per Alif's rule:
-     *  a worker's remark is only recorded there if a verifier (typically a CC agent) has
-     *  ALREADY left a remark on this exact consignment — "worker save korle verifier id age
-     *  na thakle kichui add hbena". If no prior remark from anyone other than this worker
-     *  themself exists yet, this is a silent no-op (no Supabase write, no error) — the
-     *  worker's own remark UI (status badge, "today's remarks" stats, etc.) still updates
-     *  normally either way, since none of that reads from Supabase; only the
-     *  cross-system reporting table is being gated here.
-     *
-     *  Verifier resolution: fetches this consignment's full remark history from Supabase
-     *  and looks for the most recent row whose verifier_id is NOT this worker's own
-     *  system_id — if found, that verifier_id is reused for this write (so a repeat remark
-     *  from the same worker on the same consignment keeps attributing to whichever CC agent
-     *  most recently verified it, not overwriting with the worker's own id). If every row
-     *  so far belongs to the worker themself (or there's no history at all), there's no
-     *  established verifier yet, and the write is skipped.
-     */
+    /** Writes a Worker-side remark with the signed-in worker as its actual author. */
     private suspend fun writeWorkerRemarkToSupabase(
         consignmentId: String,
         branchId: String,
@@ -862,21 +848,9 @@ class WorkerSpaceFragment : Fragment() {
     ) {
         if (systemId.isBlank() || branchId.isBlank()) return
 
-        val history = run {
-            val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
-            SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
-                deferred.complete(rows)
-            }
-            deferred.await()
-        }
-        val existingVerifierId = history
-            .mapNotNull { it.optString("verifier_system_id")?.trim() }
-            .firstOrNull { it.isNotBlank() && it != systemId }
-            ?: return // no established verifier yet — per Alif, skip entirely
-
         SupabaseRemarkValidationWriter.write(
             deliveryAgentId = systemId,
-            verifierId = existingVerifierId,
+            verifierId = systemId,
             branchId = branchId,
             consignmentId = consignmentId,
             status = status,
@@ -1124,6 +1098,14 @@ class WorkerSpaceFragment : Fragment() {
     private val remarkNodeListeners = mutableMapOf<String, Pair<DatabaseReference, ValueEventListener>>()
     // Tracks last-seen remark timestamp per consignment to detect genuinely new CC remarks
     private val workerLastSeenRemarkAt = mutableMapOf<String, Long>()
+    private var workerRemarkPollHandler: android.os.Handler? = null
+    private var workerRemarkPollIds: Set<String> = emptySet()
+    private val workerRemarkPollRunnable = object : Runnable {
+        override fun run() {
+            pollForNewWorkerRemarks()
+            workerRemarkPollHandler?.postDelayed(this, WORKER_REMARK_POLL_INTERVAL_MS)
+        }
+    }
     // Parcel ID to expand after data loads (set when navigating from a notification tap).
     private var pendingExpandParcelId: String? = null
 
@@ -1133,6 +1115,16 @@ class WorkerSpaceFragment : Fragment() {
      * parcel's history in allParcels and re-apply filters — no full Firebase round-trip needed.
      */
     private fun syncRemarkListeners(currentIds: Set<String>) {
+        // Remarks now live only in Supabase. Poll the shared audit log rather than
+        // attaching Firebase listeners to the retired remarks_by_consignment tree.
+        workerRemarkPollIds = currentIds
+        workerLastSeenRemarkAt.keys.retainAll(currentIds)
+        if (workerRemarkPollHandler == null) {
+            workerRemarkPollHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            workerRemarkPollHandler?.postDelayed(workerRemarkPollRunnable, WORKER_REMARK_POLL_INTERVAL_MS)
+        }
+        return
+
         // Drop listeners for parcels no longer in the current run.
         val stale = remarkNodeListeners.keys - currentIds
         stale.forEach { cId ->
@@ -1333,6 +1325,47 @@ class WorkerSpaceFragment : Fragment() {
             }
             ref.addValueEventListener(listener)
             remarkNodeListeners[cId] = ref to listener
+        }
+    }
+
+    private fun pollForNewWorkerRemarks() {
+        if (!isAdded) return
+        val ids = workerRemarkPollIds
+        if (ids.isEmpty()) return
+        val floor = ids.mapNotNull { workerLastSeenRemarkAt[it] }.minOrNull() ?: 0L
+        SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), floor, "WorkerSpaceFragment") { rows ->
+            if (rows.isEmpty()) return@fetchNewRemarksSince
+            viewLifecycleOwner.lifecycleScope.launch {
+                val ctx = context ?: return@launch
+                var hasNewRow = false
+                rows.groupBy { it.optString("consignment_id") }.forEach { (consignmentId, group) ->
+                    val latest = group.maxByOrNull {
+                        runCatching { java.time.Instant.parse(it.optString("created_at")).toEpochMilli() }.getOrDefault(0L)
+                    } ?: return@forEach
+                    val createdAt = runCatching {
+                        java.time.Instant.parse(latest.optString("created_at")).toEpochMilli()
+                    }.getOrDefault(0L)
+                    val previous = workerLastSeenRemarkAt[consignmentId] ?: 0L
+                    val hadBaseline = previous > 0L
+                    workerLastSeenRemarkAt[consignmentId] = createdAt
+                    if (hadBaseline && createdAt > previous) {
+                        val parcel = allParcels.firstOrNull { it.id == consignmentId }
+                        val fromCc = latest.optString("verifier_system_id").trim() != systemId
+                        if (fromCc) {
+                            val text = latest.optString("remarks").trim()
+                            val status = latest.optString("status").trim()
+                            AppNotificationManager.add(ctx, AppNotificationManager.NotifItem(
+                                title = "Call Center — ${parcel?.customer?.ifBlank { consignmentId } ?: consignmentId}",
+                                message = text.ifBlank { status.ifBlank { "নতুন রিমার্ক এসেছে" } },
+                                type = "remark", parcelId = consignmentId, scope = "worker"
+                            ))
+                        }
+                        hasNewRow = true
+                    }
+                }
+                // The full reload rebuilds card badges and journey history from Supabase.
+                if (hasNewRow) loadData()
+            }
         }
     }
 
@@ -1882,6 +1915,7 @@ class WorkerSpaceFragment : Fragment() {
     )
 
     companion object {
+        private const val WORKER_REMARK_POLL_INTERVAL_MS = 20_000L
         private const val RUN_TYPE_ALL = "all"
         private val RUN_TYPE_ORDER = listOf("delivery_run", "pickup_run", "return_run")
         // Run ID shape: run_{yyyyMMdd}_{employeeId} — yyyyMMdd is always exactly 8 zero-padded
