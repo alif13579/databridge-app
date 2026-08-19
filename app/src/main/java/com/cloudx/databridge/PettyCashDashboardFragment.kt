@@ -610,9 +610,10 @@ class PettyCashDashboardFragment : Fragment() {
         // gated to "any approver role" rather than a single specific one.
         actionRequests.isVisible = roles.isAnyApprover
         actionAllRequests.isVisible = roles.isAnyApprover
-        // Reports has no role-specific data yet (placeholder toast), left
-        // visible to everyone who can see this Dashboard at all.
-        actionReports.isVisible = true
+        // Financial reports are for the people who make/settle financial
+        // decisions. Staff can verify requests but does not get the branch
+        // financial export entry point.
+        actionReports.isVisible = roles.isAccounts || roles.isCashPoc
 
         bindQuickAction(actionDeposit, "\uD83D\uDCB0", "Deposit\nFund") {
             parentFragmentManager.beginTransaction()
@@ -634,7 +635,7 @@ class PettyCashDashboardFragment : Fragment() {
         }
         bindQuickAction(actionReports, "\uD83D\uDCCA", "Reports") {
             parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashReportsFragment.newInstance(branchId))
+                .replace(R.id.container, ClaimsReportFragment.newInstance(branchId, lockToBranch = true))
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }

@@ -27,7 +27,11 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
         }
         val claim = info.copy(
             claimId = id,
-            claimCode = info.claimCode.ifBlank { "CLM-${java.text.SimpleDateFormat("yyyyMM", java.util.Locale.US).format(java.util.Date(timestamp))}-${id.takeLast(5)}" },
+            // The date here is the submission timestamp, not requestedAt: a
+            // requester may submit an expense for an earlier day, while the
+            // claim code should make it obvious when this claim was placed.
+            // Example: CLM-20260819-a1B2c.
+            claimCode = info.claimCode.ifBlank { "CLM-${java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date(timestamp))}-${id.takeLast(5)}" },
             createdAt = timestamp,
             updatedAt = timestamp,
             requestedAt = info.requestedAt.takeIf { it > 0 } ?: timestamp

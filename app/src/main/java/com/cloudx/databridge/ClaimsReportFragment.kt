@@ -30,23 +30,35 @@ class ClaimsReportFragment : Fragment() {
     private var from = startOfMonth()
     private var to = endOfToday()
     private var report: ClaimsReport? = null
+    private val lockedToBranch get() = arguments?.getBoolean(ARG_LOCK_TO_BRANCH, false) == true
 
     override fun onCreateView(i: LayoutInflater, c: ViewGroup?, s: Bundle?): View = i.inflate(R.layout.fragment_claims_report, c, false)
 
     override fun onViewCreated(v: View, s: Bundle?) {
-        selectedBranches += arguments?.getString(ARG_BRANCH_ID).orEmpty().takeIf { it.isNotBlank() }.orEmpty()
+        val suppliedBranchId = arguments?.getString(ARG_BRANCH_ID).orEmpty()
+        selectedBranches += suppliedBranchId.takeIf { it.isNotBlank() }.orEmpty()
         val branch = v.findViewById<TextView>(R.id.btnClaimsBranches)
         val fromView = v.findViewById<TextView>(R.id.btnClaimsFrom)
         val toView = v.findViewById<TextView>(R.id.btnClaimsTo)
         fun dates() { fromView.text = "From: ${dateFormat.format(Date(from))}"; toView.text = "To: ${dateFormat.format(Date(to))}" }
         dates(); refreshBranches(branch)
+        if (lockedToBranch) {
+            // A dashboard report must stay within the branch currently being
+            // viewed. This prevents a POC/Accounts user from accidentally
+            // changing the scope while keeping the reusable report screen's
+            // multi-branch mode available elsewhere in the app.
+            v.findViewById<View>(R.id.layoutClaimsBranchSelector).isVisible = false
+        }
         v.findViewById<View>(R.id.btnClaimsReportBack).setOnClickListener { parentFragmentManager.popBackStack() }
-        branch.setOnClickListener { chooseBranches(branch) }
+        if (!lockedToBranch) branch.setOnClickListener { chooseBranches(branch) }
         fromView.setOnClickListener { pickDate(from) { from = it; if (to < from) to = endOfDay(it); dates() } }
         toView.setOnClickListener { pickDate(to) { to = endOfDay(it); if (from > to) from = startOfDay(it); dates() } }
         v.findViewById<Button>(R.id.btnClaimsSearch).setOnClickListener { search(v) }
         v.findViewById<Button>(R.id.btnClaimsExcel).setOnClickListener { export("xlsx") }
         v.findViewById<Button>(R.id.btnClaimsPdf).setOnClickListener { export("pdf") }
+        // Open with a useful current-month report immediately; changing either
+        // date still requires an explicit Search so the user controls refreshes.
+        if (lockedToBranch && selectedBranches.isNotEmpty()) search(v)
     }
 
     private fun chooseBranches(label: TextView) = lifecycleScope.launch {
@@ -78,14 +90,16 @@ class ClaimsReportFragment : Fragment() {
             isVisible = true
             val types = data.byType.entries.joinToString(" · ") { "${it.key}: ${it.value.size}" }
             val categories = data.byCategory.entries.joinToString(" · ") { "${it.key}: ${it.value.size}" }
-            text = "Total Claims  ${data.totalRequests}\nRequested  ৳${money.format(data.totalRequested)}   Approved  ৳${money.format(data.totalApproved)}\nSettled  ৳${money.format(data.totalSettled)}   Pending ${data.totalPending}   Rejected ${data.totalRejected}   Cancelled ${data.totalCancelled}\n\nType-wise: $types\nCategory-wise: $categories"
+            val statusSummary = data.claims.groupingBy { pettyCashStatusLabel(it.status) }
+                .eachCount().entries.joinToString(" · ") { "${it.key}: ${it.value}" }
+            text = "Total Claims  ${data.totalRequests}\nRequested  ৳${money.format(data.totalRequested)}   Approved  ৳${money.format(data.totalApproved)}\nSettled  ৳${money.format(data.totalSettled)}\n\nStatus: $statusSummary\nType-wise: $types\nCategory-wise: $categories"
         }
         val rows = v.findViewById<LinearLayout>(R.id.layoutClaimsRows); rows.removeAllViews()
         data.claims.forEach { claim ->
             val row = TextView(requireContext()).apply {
                 setPadding(dp(14), dp(12), dp(14), dp(12)); setTextColor(0xFF0F172A.toInt()); textSize = 13f
                 setBackgroundResource(R.drawable.bg_card_rounded)
-                text = "${claim.claimCode}  •  ${dateFormat.format(Date(claim.requestedAt))}\n${claim.employeeName} (${claim.employeeId})\n${claim.type} · ${claim.category} · ${claim.status}\nRequested ৳${money.format(claim.requestedAmount)} | Approved ৳${money.format(claim.approvedAmount)} | Settled ৳${money.format(claim.settledAmount)}"
+                text = "${claim.claimCode}  •  Placed ${dateFormat.format(Date(claim.placedAt))}\n${claim.employeeName} (${claim.employeeId})\n${claim.type} · ${claim.category} · ${pettyCashStatusLabel(claim.status)}\nRequested ৳${money.format(claim.requestedAmount)} | Approved ৳${money.format(claim.approvedAmount)} | Settled ৳${money.format(claim.settledAmount)}"
             }
             rows.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
         }
@@ -95,11 +109,11 @@ class ClaimsReportFragment : Fragment() {
     private fun export(format: String) {
         val data = report ?: return toast("Search a report first")
         if (data.claims.isEmpty()) return toast("No claims to export")
-        val headers = listOf("Claim Code", "Date", "Employee", "Type", "Category", "Purpose", "Consignment", "Store", "Requested", "Approved", "Settled", "Payment", "Transaction", "Status")
-        val rows = data.claims.map { c -> listOf<Any>(c.claimCode, dateFormat.format(Date(c.requestedAt)), "${c.employeeName} (${c.employeeId})", c.type, c.category, c.purpose, c.consignmentId, c.storeName, c.requestedAmount, c.approvedAmount, c.settledAmount, c.paymentMethod, c.transactionId, c.status) }
+        val headers = listOf("Claim Code", "Placed Date", "Employee", "Type", "Category", "Purpose", "Consignment", "Store", "Requested", "Approved", "Settled", "Verified By", "POC Approved By", "Settled By", "Payment", "Transaction", "Status")
+        val rows = data.claims.map { c -> listOf<Any>(c.claimCode, dateFormat.format(Date(c.placedAt)), "${c.employeeName} (${c.employeeId})", c.type, c.category, c.purpose, c.consignmentId, c.storeName, c.requestedAmount, c.approvedAmount, c.settledAmount, c.staffByName, c.pocApprovedByName, c.settledByName, c.paymentMethod, c.transactionId, pettyCashStatusLabel(c.status)) }
         val file = File(File(requireContext().cacheDir, "exports").apply { mkdirs() }, "Claims_${System.currentTimeMillis()}.$format")
-        if (format == "xlsx") CashExportWriter.writeXlsx(file, "Claims", headers, rows, listOf(16,15,23,14,18,28,16,18,12,12,12,13,16,13))
-        else CashExportWriter.writePdf(file, "DataBridge — Claims Report", "Branches: ${selectedBranches.joinToString()} | ${dateFormat.format(Date(from))} – ${dateFormat.format(Date(to))} | Generated: ${SimpleDateFormat("dd MMM yyyy HH:mm", Locale.getDefault()).format(Date())}", listOf(CashExportWriter.PdfSummaryCard("Claims", data.totalRequests.toString()), CashExportWriter.PdfSummaryCard("Requested", "৳${data.totalRequested}"), CashExportWriter.PdfSummaryCard("Settled", "৳${data.totalSettled}")), headers, rows, List(headers.size) { 1f })
+        if (format == "xlsx") CashExportWriter.writeXlsx(file, "Claims", headers, rows, listOf(16,15,23,14,18,28,16,18,12,12,12,18,18,18,13,16,13))
+        else CashExportWriter.writePdf(file, "DataBridge — Petty Cash Report", "Branches: ${selectedBranches.joinToString()} | Placed ${dateFormat.format(Date(from))} – ${dateFormat.format(Date(to))} | Generated: ${SimpleDateFormat("dd MMM yyyy HH:mm", Locale.getDefault()).format(Date())}", listOf(CashExportWriter.PdfSummaryCard("Claims", data.totalRequests.toString()), CashExportWriter.PdfSummaryCard("Requested", "৳${data.totalRequested}"), CashExportWriter.PdfSummaryCard("Approved", "৳${data.totalApproved}"), CashExportWriter.PdfSummaryCard("Settled", "৳${data.totalSettled}")), headers, rows, List(headers.size) { 1f })
         val uri = FileProvider.getUriForFile(requireContext(), "${requireContext().packageName}.fileprovider", file)
         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType(if (format == "xlsx") "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" else "application/pdf").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Export Claims"))
     }
@@ -130,5 +144,16 @@ class ClaimsReportFragment : Fragment() {
     private fun endOfToday() = endOfDay(System.currentTimeMillis())
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun toast(s: String) = Toast.makeText(requireContext(), s, Toast.LENGTH_LONG).show()
-    companion object { private const val ARG_BRANCH_ID = "branch_id"; fun newInstance(branchId: String) = ClaimsReportFragment().apply { arguments = Bundle().apply { putString(ARG_BRANCH_ID, branchId) } } }
+    private val ClaimInfo.placedAt: Long get() = createdAt.takeIf { it > 0L } ?: requestedAt
+
+    companion object {
+        private const val ARG_BRANCH_ID = "branch_id"
+        private const val ARG_LOCK_TO_BRANCH = "lock_to_branch"
+        fun newInstance(branchId: String, lockToBranch: Boolean = false) = ClaimsReportFragment().apply {
+            arguments = Bundle().apply {
+                putString(ARG_BRANCH_ID, branchId)
+                putBoolean(ARG_LOCK_TO_BRANCH, lockToBranch)
+            }
+        }
+    }
 }

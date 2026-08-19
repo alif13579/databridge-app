@@ -39,8 +39,8 @@ class PettyCashReportsFragment : Fragment() {
         }
 
         val menu = view.findViewById<LinearLayout>(R.id.layoutPcReportsMenu)
-        addMenuRow(menu, "📊", "Claims Report", "Branch, employee and date-range reporting") {
-            open(ClaimsReportFragment.newInstance(branchId))
+        addMenuRow(menu, "📊", "Claims Report", "Date-range summary with Excel and PDF export") {
+            open(ClaimsReportFragment.newInstance(branchId, lockToBranch = true))
         }
         addMenuRow(menu, "\uD83D\uDCCB", "All Requests", "Browse and filter every request") {
             open(PettyCashAllRequestsFragment.newInstance(branchId))

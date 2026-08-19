@@ -8,8 +8,10 @@
     </LinearLayout>
     <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true">
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="16dp">
-            <TextView android:text="Branch" android:textStyle="bold" android:textColor="#334155" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-            <TextView android:id="@+id/btnClaimsBranches" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:padding="12dp" android:background="@drawable/bg_input_rounded" android:text="Select branches" android:textColor="#0F172A"/>
+            <LinearLayout android:id="@+id/layoutClaimsBranchSelector" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView android:text="Branch" android:textStyle="bold" android:textColor="#334155" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                <TextView android:id="@+id/btnClaimsBranches" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:padding="12dp" android:background="@drawable/bg_input_rounded" android:text="Select branches" android:textColor="#0F172A"/>
+            </LinearLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Employees (all, or comma-separated IDs)" android:textStyle="bold" android:textColor="#334155"/>
             <EditText android:id="@+id/etClaimsEmployees" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:hint="All Employees" android:background="@drawable/bg_input_rounded" android:padding="12dp" android:singleLine="true"/>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="12dp">
