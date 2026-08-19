@@ -26,10 +26,15 @@ data class EngagedAgent(
  * engaged with several shared parcels simultaneously. Each agent gets their own keyed entry
  * instead of one agent's mark overwriting another's.
  *
- * Path: courier/remarks_by_consignment/{consignmentId}/engaged_at/{agentUid}
+ * Path: courier/consignments/{consignmentId}/engaged_at/{agentUid}
  *   timestamp : Long   — epoch millis when this agent's card was expanded
  *   agentName : String
  *   agentRole : "worker" | "cc"
+ *
+ * Moved here from courier/remarks_by_consignment/{consignmentId}/engaged_at — that parent
+ * node's sibling remark data (remarks_{timestamp} entries) moved to Supabase (see
+ * SupabaseRemarkValidationWriter's doc comment), so engaged_at now lives directly under the
+ * consignment's own Firebase node instead of a node that otherwise has nothing left under it.
  *
  * Lifecycle (per explicit product decision — revised, collapse now clears too):
  *   START : card is expanded — writes/refreshes this agent's own entry only.
@@ -38,7 +43,10 @@ data class EngagedAgent(
  *           Submitting remarks collapses the card in practice, but both paths clear
  *           independently so neither depends on the other actually firing. Only removes
  *           the calling agent's own entry — other agents engaged with the same parcel
- *           (e.g. via the same-phone-group fan-out) are untouched.
+ *           (e.g. via the same-phone-group fan-out) are untouched. Once the LAST engaged
+ *           agent's entry is removed, engaged_at itself disappears automatically — Firebase
+ *           Realtime Database has no concept of an "empty" node, so no explicit cleanup
+ *           call is needed here beyond removing the one entry that was actually cleared.
  *   SAFETY NET : a 5-minute staleness window, checked at DISPLAY time (isFresh()) — covers
  *           the case where an agent expands a card, then the app crashes or is killed
  *           before either clear path runs, which would otherwise leave that agent's avatar
@@ -51,7 +59,7 @@ object EngagedStateManager {
     fun markEngaged(consignmentId: String, agentUid: String, agentName: String, agentRole: String) {
         if (consignmentId.isBlank() || agentUid.isBlank()) return
         val ref = FirebaseDatabase.getInstance()
-            .reference.child("courier/remarks_by_consignment/$consignmentId/engaged_at/$agentUid")
+            .reference.child("courier/consignments/$consignmentId/engaged_at/$agentUid")
         val payload = mapOf(
             "timestamp" to System.currentTimeMillis(),
             "agentName" to agentName,
@@ -62,13 +70,16 @@ object EngagedStateManager {
 
     /** Called when that parcel's remarks are submitted, or the card collapses — from either
      *  the Worker or Call Center flow. Removes only [agentUid]'s own entry; other agents
-     *  engaged with the same parcel are untouched. Fire-and-forget; a failed clear here just
-     *  means that agent's avatar keeps showing until the 5-minute staleness window passes,
-     *  not a broken feature. */
+     *  engaged with the same parcel are untouched. If this was the last remaining entry
+     *  under engaged_at, the now-empty engaged_at node itself disappears automatically as
+     *  part of the same removeValue() call — Firebase Realtime Database prunes empty parent
+     *  nodes on write, no separate cleanup step needed. Fire-and-forget; a failed clear here
+     *  just means that agent's avatar keeps showing until the 5-minute staleness window
+     *  passes, not a broken feature. */
     fun clearEngaged(consignmentId: String, agentUid: String) {
         if (consignmentId.isBlank() || agentUid.isBlank()) return
         FirebaseDatabase.getInstance()
-            .reference.child("courier/remarks_by_consignment/$consignmentId/engaged_at/$agentUid")
+            .reference.child("courier/consignments/$consignmentId/engaged_at/$agentUid")
             .removeValue()
     }
 
