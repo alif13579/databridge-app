@@ -1089,13 +1089,8 @@ class WorkerSpaceFragment : Fragment() {
         runNodeListeners.clear()
         runStatusByType.clear()
         lastRunsSnapshot = null
-
-        remarkNodeListeners.values.forEach { (ref, listener) -> ref.removeEventListener(listener) }
-        remarkNodeListeners.clear()
     }
 
-    // Per-parcel remark listeners — keyed by consignmentId, replaced on every full reload.
-    private val remarkNodeListeners = mutableMapOf<String, Pair<DatabaseReference, ValueEventListener>>()
     // Tracks last-seen remark timestamp per consignment to detect genuinely new CC remarks
     private val workerLastSeenRemarkAt = mutableMapOf<String, Long>()
     private var workerRemarkPollHandler: android.os.Handler? = null
@@ -1110,221 +1105,21 @@ class WorkerSpaceFragment : Fragment() {
     private var pendingExpandParcelId: String? = null
 
     /**
-     * Attaches a ValueEventListener on courier/remarks_by_consignment/{cId} for every loaded
-     * parcel. When a new remark arrives (from CC or another worker), we update that single
-     * parcel's history in allParcels and re-apply filters — no full Firebase round-trip needed.
+     * Starts (or updates the tracked ID set for) the new-remark polling loop for every
+     * loaded parcel. When a new CC remark arrives, updates that single parcel's history
+     * in allParcels and re-applies filters — no full Firebase round-trip needed.
+     *
+     * Remarks now live only in Supabase (see SupabaseRemarkValidationWriter's doc
+     * comment) — this polls the shared remark_validations table via
+     * pollForNewWorkerRemarks() rather than attaching a Firebase ValueEventListener per
+     * consignment, mirroring CallCenterFragment's equivalent poll loop.
      */
     private fun syncRemarkListeners(currentIds: Set<String>) {
-        // Remarks now live only in Supabase. Poll the shared audit log rather than
-        // attaching Firebase listeners to the retired remarks_by_consignment tree.
         workerRemarkPollIds = currentIds
         workerLastSeenRemarkAt.keys.retainAll(currentIds)
         if (workerRemarkPollHandler == null) {
             workerRemarkPollHandler = android.os.Handler(android.os.Looper.getMainLooper())
             workerRemarkPollHandler?.postDelayed(workerRemarkPollRunnable, WORKER_REMARK_POLL_INTERVAL_MS)
-        }
-        return
-
-        // Drop listeners for parcels no longer in the current run.
-        val stale = remarkNodeListeners.keys - currentIds
-        stale.forEach { cId ->
-            remarkNodeListeners.remove(cId)?.let { (ref, listener) -> ref.removeEventListener(listener) }
-        }
-
-        // Attach a listener for every parcel not already being watched.
-        currentIds.forEach { cId ->
-            if (remarkNodeListeners.containsKey(cId)) return@forEach
-            val ref = db.reference.child("courier/remarks_by_consignment/$cId")
-            val listener = object : ValueEventListener {
-                override fun onDataChange(snapshot: DataSnapshot) {
-                    if (!isAdded) return
-                    val ctx = context ?: return
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        data class RawEntry(
-                            val rStatus: String, val rLabel: String, val rNote: String, val timeStr: String,
-                            val remarkedBy: String, val rUserId: String, val createdAt: Long
-                        )
-
-                        // ── New CC-remark notification ────────────────────────────
-                        // Find the latest remark overall (by createdAt); notify only
-                        // if it's from a CC agent (remarkedBy == "support") and is
-                        // genuinely new (not the initial listener fire).
-                        val sortedByTime = snapshot.children.sortedByDescending {
-                            it.child("createdAt").getValue(Long::class.java) ?: 0L
-                        }
-                        val latestSnap = sortedByTime.firstOrNull()
-                        val latestCreatedAt = latestSnap?.child("createdAt")?.getValue(Long::class.java) ?: 0L
-                        val prevAt = workerLastSeenRemarkAt[cId] ?: 0L
-                        if (latestCreatedAt > prevAt && prevAt > 0L) {
-                            val remarkedBy = latestSnap?.child("remarked_by")?.getValue(String::class.java)?.trim().orEmpty()
-                            if (remarkedBy == "support") {
-                                val parcel = allParcels.firstOrNull { it.id == cId }
-                                val customer = parcel?.customer?.takeIf { it.isNotBlank() } ?: cId
-                                val remarkText = latestSnap?.child("remarks")?.getValue(String::class.java)?.trim().orEmpty()
-                                val remarkStatus = latestSnap?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                                // Who actually wrote it — same resolver + fallback chain as the
-                                // Journey Log dialogs/ParcelDetailFragment, so the name shown here
-                                // always matches what you'd see if you opened the parcel.
-                                val remarkUid = latestSnap?.child("userId")?.getValue(String::class.java)?.trim().orEmpty()
-                                val resolvedName = if (remarkUid.isNotBlank())
-                                    UserNameResolver.resolveName(remarkUid).takeIf { it.isNotBlank() && it != remarkUid } else null
-                                val authorName = resolvedName ?: "CC Agent"
-                                val baseMessage = when {
-                                    remarkText.isNotBlank() -> remarkText
-                                    remarkStatus.isNotBlank() -> WorkerParcelAdapter.getStatusConfig(ctx, remarkStatus, workerStatusLang).label
-                                    else -> "CC থেকে নতুন রিমার্ক এসেছে"
-                                }
-                                // Age + delivery attempt count — same formatAge() and
-                                // attemptCount ("A{n}" badge) the parcel card already shows.
-                                val ageStr = formatAge(parcel?.createdAt ?: 0L, parcel?.updatedAt ?: 0L)
-                                val attempts = parcel?.attemptCount ?: 0
-                                val infoLine = "📅 $ageStr  •  🔁 $attempts attempt${if (attempts == 1) "" else "s"}"
-                                val message = "$baseMessage\n$infoLine"
-                                AppNotificationManager.add(
-                                    ctx,
-                                    AppNotificationManager.NotifItem(
-                                        title = "$authorName — $customer",
-                                        message = message,
-                                        type = "remark",
-                                        parcelId = cId,
-                                        scope = "worker"
-                                    )
-                                )
-                            }
-                        }
-                        workerLastSeenRemarkAt[cId] = latestCreatedAt
-                        // ─────────────────────────────────────────────────────────
-                        val raw = snapshot.children.mapNotNull { r ->
-                            val rStatus   = readString(r, "status")
-                            val rRemarks  = readString(r, "remarks")  // full remark text
-                            val rNoteOnly = readString(r, "note")     // note-only field
-                            if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
-                            val statusLabel = if (rStatus.isNotBlank())
-                                WorkerParcelAdapter.getStatusConfig(ctx, rStatus, workerStatusLang).label else ""
-                            // Journey log: remarks + note combined — remarks+note if both
-                            // present, remarks alone if only remarks, note alone if only note.
-                            // Status is already shown separately in the timeline entry's
-                            // action/header field, so it's intentionally not repeated here.
-                            // Same combining rule as the card badge (rBadge) below, and
-                            // matches CallCenterFragment's journey-log rLabel.
-                            val rLabel = when {
-                                rRemarks.isNotBlank() && rNoteOnly.isNotBlank() -> "$rRemarks\nNote: $rNoteOnly"
-                                rRemarks.isNotBlank() -> rRemarks
-                                rNoteOnly.isNotBlank() -> rNoteOnly
-                                else -> ""
-                            }
-                            // Card badge: remarks text on line 1, "Note: {note}" on line 2
-                            // (statusLabel is intentionally NOT used here — it's already shown
-                            // by the card's own status badge; repeating it in the remarks box
-                            // would duplicate information. The badge should show what the CC
-                            // agent actually wrote, i.e. the Firebase `remarks` field.)
-                            val rBadge = when {
-                                rRemarks.isNotBlank() && rNoteOnly.isNotBlank() -> "$rRemarks\nNote: $rNoteOnly"
-                                rRemarks.isNotBlank() -> rRemarks
-                                rNoteOnly.isNotBlank() -> rNoteOnly
-                                else -> ""
-                            }
-                            val createdAt = r.child("createdAt").getValue(Long::class.java) ?: 0L
-                            val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
-                                .format(java.util.Date(createdAt))
-                            val remarkedBy = readString(r, "remarked_by")
-                            val rUserId = readString(r, "userId")
-                            RawEntry(rStatus, rLabel, rBadge, timeStr, remarkedBy, rUserId, createdAt)
-                        }
-                        // Resolve every distinct uid to a name+photo in parallel (direct
-                        // users/{uid} access — no full-tree scan, no reverse-index needed).
-                        val distinctUids = raw.map { it.rUserId }.filter { it.isNotBlank() }.distinct()
-                        coroutineScope {
-                            distinctUids.map { uid -> async(Dispatchers.IO) { UserNameResolver.resolveName(uid) } }.awaitAll()
-                        }
-                        val history = raw.map { e ->
-                            val authorRole = if (e.remarkedBy == "support") "cc" else "agent"
-                            val resolvedName = if (e.rUserId.isNotBlank()) UserNameResolver.resolveName(e.rUserId).takeIf { it != e.rUserId } else null
-                            val resolvedPhoto = if (e.rUserId.isNotBlank()) UserNameResolver.resolvePhotoUrl(e.rUserId) else null
-                            val author = when {
-                                e.remarkedBy == "support" && !resolvedName.isNullOrBlank() -> "$resolvedName · CC"
-                                e.remarkedBy == "support" -> "CC"
-                                !resolvedName.isNullOrBlank() -> resolvedName
-                                else -> "Agent"
-                            }
-                            HistoryEntry(
-                                action = e.rStatus.ifBlank { "NOTE" }.uppercase(),
-                                remark = e.rLabel,
-                                time = e.timeStr,
-                                author = author,
-                                authorRole = authorRole,
-                                authorPhotoUrl = resolvedPhoto.orEmpty(),
-                                createdAt = e.createdAt,
-                                cardBadgeText = e.rNote
-                            )
-                        }.sortedBy { it.time }
-
-                        if (!isAdded) return@launch
-                        // Card badge shows only TODAY's remark text — a remark from yesterday
-                        // (or earlier) is no longer actionable for today's work, so it shouldn't
-                        // linger on the card. The full multi-day history (journey log) is
-                        // unaffected — this only narrows what feeds the card's `remarks` field.
-                        val todayCal = java.util.Calendar.getInstance()
-                        todayCal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-                        todayCal.set(java.util.Calendar.MINUTE, 0)
-                        todayCal.set(java.util.Calendar.SECOND, 0)
-                        todayCal.set(java.util.Calendar.MILLISECOND, 0)
-                        val todayStart = todayCal.timeInMillis
-                        // TRUE latest entry for TODAY only (any author) — drives
-                        // effectiveStatus/validationRequest below, same reasoning as the
-                        // bulk-load path: a remark from a previous day must not keep
-                        // overriding today's status once no one has left a newer one since.
-                        val latestTodayRawEntry = snapshot.children
-                            .filter { (it.child("createdAt").getValue(Long::class.java) ?: 0L) >= todayStart }
-                            .maxByOrNull { it.child("createdAt").getValue(Long::class.java) ?: 0L }
-                        val lastRemarkStatus = latestTodayRawEntry?.child("status")?.getValue(String::class.java)?.trim().orEmpty()
-                        // Card badge: TODAY's TRUE latest entry (any author) — only surfaced on
-                        // the card when that latest entry is from CC ("cc"/support). If the
-                        // worker's own remark is the most recent thing today, they already know
-                        // what they wrote, so the box stays hidden instead of falling back to an
-                        // older CC remark that's no longer the current state. Mirrors the CC-side
-                        // card fix (there: hide if latest == support; here: show only if latest == cc).
-                        val latestTodayEntry = history.filter { it.createdAt >= todayStart }.maxByOrNull { it.createdAt }
-                        val lastRemark = if (latestTodayEntry?.authorRole == "cc") latestTodayEntry.cardBadgeText else ""
-                        val idx = allParcels.indexOfFirst { it.id == cId }
-                        if (idx != -1) {
-                            val effectiveStatus = if (lastRemarkStatus.isNotBlank()) lastRemarkStatus else allParcels[idx].status
-                            val engagedAgentsVal = EngagedStateManager.parseEngagedAgents(snapshot.child("engaged_at"))
-                            allParcels = allParcels.toMutableList().also {
-                                it[idx] = it[idx].copy(
-                                    status  = effectiveStatus,
-                                    remarks = lastRemark,
-                                    remarkStatus = lastRemarkStatus,
-                                    validationRequest = isVerifyRequestStatus(lastRemarkStatus),
-                                    validationNote = if (isVerifyRequestStatus(lastRemarkStatus)) lastRemark else "",
-                                    remarksAt = latestTodayEntry?.createdAt ?: 0L,
-                                    engagedAgents = engagedAgentsVal,
-                                    history = history
-                                )
-                            }
-                            // Auto-activate Priority sort when a live remark causes a
-                            // status whose configured sortOrder > 0 to become effective.
-                            // Only switches when the user hasn't already chosen priority mode.
-                            val newStatusSortOrder = StatusMetaCache.entries[effectiveStatus]?.sortOrder ?: 0
-                            if (newStatusSortOrder > 0 && sortMode != "priority") {
-                                sortMode = "priority"
-                                saveSortPref()
-                                updateSortByLabel()
-                            }
-                            // Re-sort whenever priority mode is active so the updated
-                            // remarkStatus sortOrder is immediately reflected in card order.
-                            if (sortMode == "priority") {
-                                allParcels = WorkerParcelAdapter.sortByPriority(allParcels)
-                            }
-                            setupFilterTabs()
-                            applyFilters()
-                        }
-                    }
-                }
-                override fun onCancelled(error: DatabaseError) {}
-            }
-            ref.addValueEventListener(listener)
-            remarkNodeListeners[cId] = ref to listener
         }
     }
 
