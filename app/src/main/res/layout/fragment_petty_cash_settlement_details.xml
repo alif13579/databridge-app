@@ -398,7 +398,25 @@
                             android:background="@drawable/bg_pc_input"
                             android:paddingHorizontal="10dp" />
 
-                        <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSettleAmount" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Settle Amount"
+                            android:textSize="11sp"
+                            android:textColor="#64748B"
+                            android:layout_marginTop="10dp" />
+
+                        <EditText
+                            android:id="@+id/etPcSettleAmount"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:paddingHorizontal="12dp"
+                            android:paddingVertical="10dp"
+                            android:textSize="13sp"
+                            android:inputType="numberDecimal"
+                            android:background="@drawable/bg_pc_input" />
+
                         <include layout="@layout/item_petty_cash_detail_row" android:id="@+id/rowPcSettleDate" />
 
                         <TextView
