@@ -281,4 +281,91 @@ object SupabaseRemarkValidationWriter {
             }
         })
     }
+
+    /**
+     * Fetches remark rows for one delivery agent within an arbitrary [rangeStartMs,
+     * rangeEndMs] millis range (inclusive) — used by
+     * DashboardViewModel.loadAgentStat() for its date-range-selectable KPI/breakdown
+     * view, replacing the Firebase courier/remarks_by_userId/{uid} orderByKey()
+     * startAt/endAt range read that function previously used.
+     *
+     * Same no-server-side-aggregation contract as fetchTodayForDeliveryAgent(): returns
+     * raw matching rows, leaves bucketing/counting to the caller.
+     *
+     * @param deliveryAgentId system_id of the agent whose remarks to fetch (NOT their
+     *   Firebase uid — callers resolve uid -> system_id via
+     *   users/{uid}/profile/company_info/system_id before calling this, same as every
+     *   other caller in this class).
+     * @param rangeStartMs / rangeEndMs milliseconds since epoch, inclusive on both ends.
+     * @param onResult called on a background thread with the matching rows, or an empty
+     *   list on any failure (logged, not surfaced as an exception).
+     */
+    fun fetchForDeliveryAgentInRange(
+        deliveryAgentId: String,
+        rangeStartMs: Long,
+        rangeEndMs: Long,
+        screen: String,
+        onResult: (List<JSONObject>) -> Unit
+    ) {
+        if (deliveryAgentId.isBlank() || !SupabaseConfig.isConfigured) {
+            onResult(emptyList())
+            return
+        }
+
+        val startIso = java.time.Instant.ofEpochMilli(rangeStartMs).toString()
+        // endMs is inclusive per this function's contract, but created_at=lte.<iso> in
+        // PostgREST is also inclusive, so no +1ms adjustment is needed here.
+        val endIso = java.time.Instant.ofEpochMilli(rangeEndMs).toString()
+
+        val request = Request.Builder()
+            .url(
+                "${SupabaseConfig.PROJECT_URL}/rest/v1/remark_validations" +
+                    "?delivery_agent_id=eq.$deliveryAgentId" +
+                    "&created_at=gte.$startIso" +
+                    "&created_at=lte.$endIso" +
+                    "&order=created_at.desc"
+            )
+            .addHeader("apikey", SupabaseConfig.ANON_KEY)
+            .addHeader("Authorization", "Bearer ${SupabaseConfig.ANON_KEY}")
+            .get()
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                FirebaseErrorLogger.log(
+                    screen = screen, action = "supabase_validation_fetch_range_network_error",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("deliveryAgentId" to deliveryAgentId)
+                )
+                onResult(emptyList())
+            }
+
+            override fun onResponse(call: Call, response: okhttp3.Response) {
+                response.use {
+                    if (!it.isSuccessful) {
+                        FirebaseErrorLogger.log(
+                            screen = screen, action = "supabase_validation_fetch_range_http_error",
+                            errorMessage = "HTTP ${it.code}: ${it.body?.string().orEmpty().take(500)}",
+                            extra = mapOf("deliveryAgentId" to deliveryAgentId)
+                        )
+                        onResult(emptyList())
+                        return
+                    }
+                    val text = it.body?.string().orEmpty()
+                    try {
+                        val arr = org.json.JSONArray(text)
+                        val list = (0 until arr.length()).map { i -> arr.getJSONObject(i) }
+                        onResult(list)
+                    } catch (e: Exception) {
+                        FirebaseErrorLogger.log(
+                            screen = screen, action = "supabase_validation_fetch_range_parse_error",
+                            errorMessage = e.message ?: "unknown",
+                            extra = mapOf("deliveryAgentId" to deliveryAgentId)
+                        )
+                        onResult(emptyList())
+                    }
+                }
+            }
+        })
+    }
 }
