@@ -2639,7 +2639,7 @@ class CallCenterFragment : Fragment() {
             status = "",
             remarksText = "",
             noteText = noteText,
-            from = "validator",
+            source = "validator",
             screen = "CallCenterFragment"
         )
 
@@ -2688,7 +2688,7 @@ class CallCenterFragment : Fragment() {
                 status = selectedStatus,
                 remarksText = selectedStoredRemarkText,
                 noteText = noteText,
-                from = "validator",
+                source = "validator",
                 screen = "CallCenterFragment"
             )
 

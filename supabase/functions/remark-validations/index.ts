@@ -225,10 +225,10 @@ Deno.serve(async (request) => {
 
     if (action === 'write') {
       const row = body.row
-      if (!row || !['consignment_id', 'branch_id', 'assigned_agent_system_id', 'from'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
+      if (!row || !['consignment_id', 'branch_id', 'assigned_agent_system_id', 'source'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
         return reply({ error: 'Missing required row fields' }, 400)
       }
-      if (row.from !== 'validator' && row.from !== 'verification_request') {
+      if (row.source !== 'validator' && row.source !== 'verification_request') {
         return reply({ error: 'Invalid remark source' }, 400)
       }
       // Author fields come exclusively from the verified Firebase identity; Android
@@ -243,7 +243,7 @@ Deno.serve(async (request) => {
       const savedRow = {
         consignment_id: row.consignment_id, branch_id: row.branch_id,
         assigned_agent_system_id: row.assigned_agent_system_id,
-        from: row.from,
+        source: row.source,
         author_system_id: authorProfile.systemId,
         author_firebase_uid: identity.uid,
         author_name: authorProfile.name,
@@ -260,7 +260,7 @@ Deno.serve(async (request) => {
     }
 
     let query = admin.from('remark_validations')
-      .select('consignment_id,branch_id,assigned_agent_system_id,author_system_id,author_firebase_uid,author_name,author_employee_id,from,status,remarks,note,customer_phone,created_at')
+      .select('consignment_id,branch_id,assigned_agent_system_id,author_system_id,author_firebase_uid,author_name,author_employee_id,source,status,remarks,note,customer_phone,created_at')
     if (action === 'history') query = query.eq('consignment_id', body.consignment_id)
     else if (action === 'today') query = query.eq('assigned_agent_system_id', body.assigned_agent_system_id).gte('created_at', body.start_iso)
     else if (action === 'agent_range') query = query.eq('assigned_agent_system_id', body.assigned_agent_system_id).gte('created_at', body.start_iso).lte('created_at', body.end_iso)

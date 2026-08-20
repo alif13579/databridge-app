@@ -25,7 +25,7 @@ object SupabaseRemarkValidationWriter {
     private val jsonMediaType = "application/json".toMediaType()
 
     fun write(assignedAgentSystemId: String, branchId: String, consignmentId: String,
-              status: String, remarksText: String, noteText: String = "", from: String,
+              status: String, remarksText: String, noteText: String = "", source: String,
               screen: String) {
         if (assignedAgentSystemId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
             val missing = buildList {
@@ -38,7 +38,7 @@ object SupabaseRemarkValidationWriter {
         invoke(JSONObject().put("action", "write").put("row", JSONObject()
             .put("consignment_id", consignmentId).put("branch_id", branchId)
             .put("assigned_agent_system_id", assignedAgentSystemId)
-            .put("from", from)
+            .put("source", source)
             .put("status", status).put("remarks", remarksText).put("note", noteText)), screen,
             "supabase_validation_write", consignmentId) { }
     }
