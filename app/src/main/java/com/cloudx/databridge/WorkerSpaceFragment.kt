@@ -96,6 +96,14 @@ class WorkerSpaceFragment : Fragment() {
     private val runStatusByType = mutableMapOf<String, String>()
     private var lastRunsSnapshot: DataSnapshot? = null
 
+    // A CC remark for this worker arrives through FCM before the periodic Supabase poll.
+    // Refresh just that visible parcel immediately; polling remains the missed-push fallback.
+    private val remarkNotificationListener: (AppNotificationManager.NotifItem) -> Unit = { notification ->
+        if (notification.scope == "worker" && notification.parcelId.isNotBlank()) {
+            refreshWorkerParcelFromPush(notification.parcelId)
+        }
+    }
+
     // Scan result launcher — trim, crop before pipe (|)
     private val scanLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -129,6 +137,7 @@ class WorkerSpaceFragment : Fragment() {
         }
 
         initViews(view)
+        AppNotificationManager.addRemarkListener(remarkNotificationListener)
         updateSortByLabel()
         setupCollapseToggle()
         setupSearch()
@@ -145,6 +154,7 @@ class WorkerSpaceFragment : Fragment() {
         // ✅ Fix #7: Cancel pending search debounce job
         searchJob?.cancel()
         searchJob = null
+        AppNotificationManager.removeRemarkListener(remarkNotificationListener)
         detachRunsListener()
         workerRemarkPollHandler?.removeCallbacksAndMessages(null)
         workerRemarkPollHandler = null
@@ -1158,6 +1168,46 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
+    /**
+     * FCM supplies the affected consignment ID but not the sensitive remark body. Fetch its
+     * history and update the one in-memory row, so its card, status chip and filtered list
+     * change immediately without waiting for the 60-second fallback poll or reloading a run.
+     */
+    private fun refreshWorkerParcelFromPush(consignmentId: String) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (!isAdded || allParcels.none { it.id == consignmentId }) return@launch
+            val rows = withContext(Dispatchers.IO) {
+                val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
+                SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") {
+                    deferred.complete(it)
+                }
+                deferred.await()
+            }
+            if (!isAdded) return@launch
+            val latest = rows.maxByOrNull {
+                SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+            } ?: return@launch
+            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(latest.optString("created_at"))
+            val remarkText = listOf(
+                latest.optString("remarks").trim(), latest.optString("note").trim()
+            ).filter { it.isNotBlank() }.joinToString("\n")
+            val remarkStatus = latest.optString("status").trim()
+            workerLastSeenRemarkAt[consignmentId] = createdAt
+            allParcels = allParcels.map { parcel ->
+                if (parcel.id != consignmentId) parcel else parcel.copy(
+                    remarks = remarkText,
+                    remarkStatus = remarkStatus,
+                    validationRequest = isVerifyRequestStatus(remarkStatus),
+                    validationNote = if (isVerifyRequestStatus(remarkStatus)) remarkText else "",
+                    remarksAt = createdAt
+                )
+            }
+            setupFilterTabs()
+            applyFilters()
+            loadTodayRemarksStats()
+        }
+    }
+
     private fun handleRunsSnapshot(runSnap: DataSnapshot) {
         if (!isAdded) return
         lastRunsSnapshot = runSnap
@@ -1318,7 +1368,7 @@ class WorkerSpaceFragment : Fragment() {
 
         // Step 3: fetch consignment details + remarks history for EVERY consignment IN PARALLEL.
         // remarkRows (Supabase) carries all remark history now — engagedAtSnap (Firebase) is
-        // fetched separately, since engaged_at (real-time presence) stays on Firebase (see
+        // fetched separately, since engagedat (real-time presence) stays on Firebase (see
         // SupabaseRemarkValidationWriter's doc comment).
         data class ItemFetch(
             val cId: String, val runRef: ConsignmentRunRef, val detailSnap: DataSnapshot,
@@ -1339,7 +1389,7 @@ class WorkerSpaceFragment : Fragment() {
                     deferred.await()
                 }
                 val engagedAtDeferred = async(Dispatchers.IO) {
-                    db.reference.child("courier/consignments/$cId/engaged_at").get().await()
+                    db.reference.child("courier/consignments/$cId/engagedat").get().await()
                 }
                 ItemFetch(cId, runRef, detailDeferred.await(), remarkRowsDeferred.await(), engagedAtDeferred.await())
             }

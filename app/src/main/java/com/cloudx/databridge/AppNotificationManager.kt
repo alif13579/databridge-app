@@ -12,6 +12,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * In-app notification manager — holds a list of app-generated notifications
@@ -54,6 +55,21 @@ object AppNotificationManager {
     /** Called by MainActivity to update the badge whenever count changes. */
     private var badgeListener: ((Int) -> Unit)? = null
 
+    /**
+     * Process-local signal for an open parcel screen.  FCM is received before the
+     * 60-second Supabase polling cycle, so the active screen can refresh the changed
+     * card immediately instead of waiting for its next poll.
+     */
+    private val remarkListeners = CopyOnWriteArraySet<(NotifItem) -> Unit>()
+
+    fun addRemarkListener(listener: (NotifItem) -> Unit) {
+        remarkListeners.add(listener)
+    }
+
+    fun removeRemarkListener(listener: (NotifItem) -> Unit) {
+        remarkListeners.remove(listener)
+    }
+
     fun setBadgeListener(listener: (Int) -> Unit) {
         badgeListener = listener
         listener(unreadCount) // deliver current count immediately
@@ -70,6 +86,9 @@ object AppNotificationManager {
             _notifications.removeAt(_notifications.lastIndex)
         }
         badgeListener?.invoke(unreadCount)
+        if (item.type == "remark") {
+            remarkListeners.forEach { it(item) }
+        }
         playSound(context)
         showSystemNotification(context, item)
     }

@@ -124,6 +124,15 @@ class CallCenterFragment : Fragment() {
     // Parcel ID to expand after data loads (set when navigating from a notification tap).
     private var pendingExpandParcelId: String? = null
 
+    // FCM is the immediate path; the regular batch poll remains the fallback for a missed
+    // push.  Keep this listener scoped to the Fragment view so a destroyed screen is never
+    // refreshed from a process-wide notification callback.
+    private val remarkNotificationListener: (AppNotificationManager.NotifItem) -> Unit = { notification ->
+        if (notification.scope == "cc" && notification.parcelId.isNotBlank()) {
+            refreshCcParcelFromPush(notification.parcelId)
+        }
+    }
+
     // Per-parcel call-progress glow: id -> color. Persists across pause/stop (done stays green).
     private val callCardStates = mutableMapOf<String, Int>()
     private val colorCallDone = android.graphics.Color.parseColor("#16A34A")
@@ -228,6 +237,7 @@ class CallCenterFragment : Fragment() {
         searchJob = null
         reprocessJob?.cancel()
         reprocessJob = null
+        AppNotificationManager.removeRemarkListener(remarkNotificationListener)
         super.onDestroyView()
         stopAutoCall()
         detachRunsListener()
@@ -248,6 +258,7 @@ class CallCenterFragment : Fragment() {
         }
 
         initViews(view)
+        AppNotificationManager.addRemarkListener(remarkNotificationListener)
         loadFilterPreferences()
         updateModeDropdownLabel()
         updateCcSortByLabel()
@@ -2110,7 +2121,7 @@ class CallCenterFragment : Fragment() {
                             db.reference.child("courier/consignments/$cId").get().await()
                         }
                         val engagedAtSnapDeferred = async(Dispatchers.IO) {
-                            db.reference.child("courier/consignments/$cId/engaged_at").get().await()
+                            db.reference.child("courier/consignments/$cId/engagedat").get().await()
                         }
                         val snap = snapDeferred.await()
                         if (!snap.exists()) return@async null
@@ -2304,6 +2315,37 @@ class CallCenterFragment : Fragment() {
                     refreshOneCcParcelFromSupabase(cId, latest)
                 }
             }
+        }
+    }
+
+    /**
+     * FCM only identifies the changed consignment; it intentionally does not put a remark's
+     * contents into the push payload. Fetch that one history on receipt, then reuse the same
+     * card-update path as polling. This keeps the card text, effective-status filters and
+     * summary counts in sync without reloading every parcel.
+     */
+    private fun refreshCcParcelFromPush(consignmentId: String) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (!isAdded || allParcels.none { it.id == consignmentId }) return@launch
+            val rows = withContext(Dispatchers.IO) {
+                val deferred = CompletableDeferred<List<org.json.JSONObject>>()
+                SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "CallCenterFragment") {
+                    deferred.complete(it)
+                }
+                deferred.await()
+            }
+            if (!isAdded) return@launch
+            val latest = rows.maxByOrNull {
+                SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+            } ?: return@launch
+            // Avoid a just-received row being rediscovered as a second UI update on the next
+            // fallback poll. Moving the cursor forward is safe: the poll itself uses its
+            // request-start timestamp, so rows written during an in-flight request stay safe.
+            ccRemarkPollCursorMs = maxOf(
+                ccRemarkPollCursorMs,
+                SupabaseRemarkValidationWriter.parseCreatedAtMillis(latest.optString("created_at"))
+            )
+            refreshOneCcParcelFromSupabase(consignmentId, latest)
         }
     }
 
