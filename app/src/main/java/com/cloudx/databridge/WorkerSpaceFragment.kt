@@ -470,6 +470,7 @@ class WorkerSpaceFragment : Fragment() {
                             WorkerRemarkOption(
                                 icon = "💬",
                                 label = label,
+                                englishLabel = textEn.ifBlank { textBn.ifBlank { label } },
                                 statusKey = target,
                                 statusPreview = preview,
                                 statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
@@ -740,7 +741,7 @@ class WorkerSpaceFragment : Fragment() {
                     consignmentId = p.id,
                     branchId = branchId,
                     status = statusKey,
-                    remarksText = selectedLabel,
+                    remarksText = selectedOption?.englishLabel?.ifBlank { selectedLabel } ?: selectedLabel,
                     noteText = ""
                 )
                 EngagedStateManager.clearEngaged(p.id, userId)
@@ -1689,6 +1690,7 @@ class WorkerSpaceFragment : Fragment() {
     data class WorkerRemarkOption(
         val icon: String,
         val label: String,
+        val englishLabel: String = label,
         val statusKey: String,
         val statusPreview: String,
         val statusColor: Int,
