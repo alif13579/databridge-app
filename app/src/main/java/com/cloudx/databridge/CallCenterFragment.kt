@@ -875,24 +875,49 @@ class CallCenterFragment : Fragment() {
             },
             onSetRemarks = { item -> showRemarksDialog(item) },
             onWhatsappToAgent = { item ->
-                val message = WhatsAppHelper.fillTemplate(
-                    body = "📦 Parcel Info\n" +
-                        "Consignment ID : {consignmentId}\n" +
-                        "Customer Name : {name}\n" +
-                        "Phone Number : {phone}\n" +
-                        "Address : {address}\n" +
-                        "COD Amount : ৳{cod}\n" +
-                        "Hub : {hub}",
-                    name = item.customer,
-                    phone = item.phone,
-                    address = item.address,
-                    cod = item.cod.toString(),
-                    consignmentId = item.id,
-                    hub = item.branch
-                )
-                // item.workerPhone is blank when the agent has none on file — send() already
-                // toasts "Phone number নেই" in that case, so no extra guard needed here.
-                WhatsAppHelper.send(requireContext(), item.workerPhone, message)
+                // Today's remarks need a fresh fetch (not the list's cached data, which can be
+                // stale by the time this button is actually tapped) -- reuses the same
+                // fetchHistory + buildHistoryEntries pair showActionHistoryDialog already uses,
+                // just filtered to today instead of showing the full journey.
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val todaysRemarksText = withContext(Dispatchers.IO) {
+                        val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
+                        SupabaseRemarkValidationWriter.fetchHistory(item.id, "CallCenterFragment") { fetched ->
+                            deferred.complete(fetched)
+                        }
+                        val rows = deferred.await()
+                        val todayStart = bangladeshTodayStartMillis()
+                        buildHistoryEntries(item, rows)
+                            .filter { it.createdAt >= todayStart }
+                            .joinToString("\n") { entry ->
+                                "\u2022 [${entry.time}] ${entry.author}: ${entry.action}" +
+                                    if (entry.remark.isNotBlank()) " - ${entry.remark}" else ""
+                            }
+                    }
+                    if (!isAdded) return@launch
+
+                    val remarksSection = "\n\n📝 Today's Remarks\n" +
+                        todaysRemarksText.ifBlank { "No remarks yet today" }
+
+                    val message = WhatsAppHelper.fillTemplate(
+                        body = "📦 Parcel Info\n" +
+                            "Consignment ID : {consignmentId}\n" +
+                            "Customer Name : {name}\n" +
+                            "Phone Number : {phone}\n" +
+                            "Address : {address}\n" +
+                            "COD Amount : ৳{cod}\n" +
+                            "Hub : {hub}" + remarksSection,
+                        name = item.customer,
+                        phone = item.phone,
+                        address = item.address,
+                        cod = item.cod.toString(),
+                        consignmentId = item.id,
+                        hub = item.branch
+                    )
+                    // item.workerPhone is blank when the agent has none on file -- send() already
+                    // toasts "Phone number নেই" in that case, so no extra guard needed here.
+                    WhatsAppHelper.send(requireContext(), item.workerPhone, message)
+                }
             },
             onLongPress = { item -> showActionHistoryDialog(item) },
             onExpand = { item ->
