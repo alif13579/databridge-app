@@ -203,6 +203,7 @@ class CallCenterFragment : Fragment() {
     // the full set lets the branch filter match all valid branches instead of only the first
     // resolvedBranchIds value stored on the run node.
     private val ccRunKeyBranchIds = mutableMapOf<String, MutableSet<String>>()
+    private val ccEngagedAtListeners = mutableMapOf<String, Pair<com.google.firebase.database.DatabaseReference, com.google.firebase.database.ValueEventListener>>()
 
     // Run ID shape: run_{yyyyMMdd}_{employeeId} — yyyyMMdd is always exactly 8 zero-padded
     // digits (4-digit year first, so plain string ordering sorts chronologically).
@@ -235,6 +236,7 @@ class CallCenterFragment : Fragment() {
         super.onDestroyView()
         stopAutoCall()
         detachRunsListener()
+        detachCcEngagedAtListeners()
     }
 
     override fun onCreateView(
@@ -895,18 +897,29 @@ class CallCenterFragment : Fragment() {
             onLongPress = { item -> showActionHistoryDialog(item) },
             onExpand = { item ->
                 val user = FirebaseAuth.getInstance().currentUser
-                samePhoneGroup(item).forEach { p ->
+                val uid = user?.uid.orEmpty()
+                val group = samePhoneGroup(item)
+                val agent = EngagedAgent(
+                    uid = uid,
+                    name = user?.displayName.orEmpty().ifBlank { "CC Agent" },
+                    timestamp = System.currentTimeMillis(),
+                    photoUrl = user?.photoUrl?.toString().orEmpty()
+                )
+                applyLocalCcEngagement(group.map { it.id }.toSet(), agent)
+                group.forEach { p ->
                     EngagedStateManager.markEngaged(
                         consignmentId = p.id,
-                        agentUid = user?.uid.orEmpty(),
-                        agentName = user?.displayName.orEmpty().ifBlank { "CC Agent" },
+                        agentUid = uid,
+                        agentName = agent.name,
                         agentRole = "cc"
                     )
                 }
             },
             onCollapse = { item ->
                 val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-                samePhoneGroup(item).forEach { p -> EngagedStateManager.clearEngaged(p.id, uid) }
+                val group = samePhoneGroup(item)
+                removeLocalCcEngagement(group.map { it.id }.toSet(), uid)
+                group.forEach { p -> EngagedStateManager.clearEngaged(p.id, uid) }
             }
         )
         adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()
@@ -1798,6 +1811,7 @@ class CallCenterFragment : Fragment() {
             tvLoadingPercent.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nকোনো run নেই"
+            syncCcEngagedAtListeners(emptySet())
             return
         }
 
@@ -1834,6 +1848,7 @@ class CallCenterFragment : Fragment() {
             tvLoadingPercent.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
+            syncCcEngagedAtListeners(emptySet())
             return
         }
 
@@ -1942,6 +1957,7 @@ class CallCenterFragment : Fragment() {
     private fun detachRunsListener() {
         ccActiveListeners.forEach { (ref, l) -> ref.removeEventListener(l) }
         ccActiveListeners.clear()
+        detachCcEngagedAtListeners()
         ccRunNodeSnapshots.clear()
         ccRunKeyBranchIds.clear()
         ccAttachedRunKeys.clear()
@@ -1953,6 +1969,68 @@ class CallCenterFragment : Fragment() {
 
         ccRemarkPollHandler?.removeCallbacks(ccRemarkPollRunnable)
         ccRemarkPollHandler = null
+    }
+
+    private fun syncCcEngagedAtListeners(currentIds: Set<String>) {
+        val stale = ccEngagedAtListeners.keys - currentIds
+        stale.forEach { id ->
+            ccEngagedAtListeners.remove(id)?.let { (ref, listener) -> ref.removeEventListener(listener) }
+        }
+
+        currentIds.forEach { id ->
+            if (ccEngagedAtListeners.containsKey(id)) return@forEach
+            val ref = com.google.firebase.database.FirebaseDatabase.getInstance()
+                .reference.child("courier/consignments/$id/engagedat")
+            val listener = object : com.google.firebase.database.ValueEventListener {
+                override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        if (!isAdded) return@launch
+                        val agents = withContext(Dispatchers.IO) {
+                            EngagedStateManager.parseEngagedAgents(snapshot)
+                        }
+                        replaceCcEngagedAgents(id, agents)
+                    }
+                }
+
+                override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
+                    android.util.Log.w("CallCenterFragment", "engagedat listener cancelled for $id: ${error.message}")
+                }
+            }
+            ref.addValueEventListener(listener)
+            ccEngagedAtListeners[id] = ref to listener
+        }
+    }
+
+    private fun detachCcEngagedAtListeners() {
+        ccEngagedAtListeners.values.forEach { (ref, listener) -> ref.removeEventListener(listener) }
+        ccEngagedAtListeners.clear()
+    }
+
+    private fun replaceCcEngagedAgents(consignmentId: String, agents: List<EngagedAgent>) {
+        allParcels = allParcels.map { item ->
+            if (item.id == consignmentId) item.copy(engagedAgents = agents) else item
+        }
+        applyFilters()
+    }
+
+    private fun applyLocalCcEngagement(consignmentIds: Set<String>, agent: EngagedAgent) {
+        if (agent.uid.isBlank() || consignmentIds.isEmpty()) return
+        allParcels = allParcels.map { item ->
+            if (item.id !in consignmentIds) item else item.copy(
+                engagedAgents = item.engagedAgents.filterNot { it.uid == agent.uid } + agent
+            )
+        }
+        applyFilters()
+    }
+
+    private fun removeLocalCcEngagement(consignmentIds: Set<String>, uid: String) {
+        if (uid.isBlank() || consignmentIds.isEmpty()) return
+        allParcels = allParcels.map { item ->
+            if (item.id !in consignmentIds) item else item.copy(
+                engagedAgents = item.engagedAgents.filterNot { it.uid == uid }
+            )
+        }
+        applyFilters()
     }
 
     /**
@@ -2223,6 +2301,7 @@ class CallCenterFragment : Fragment() {
         pbProgress.visibility = View.GONE
         tvLoadingPercent.visibility = View.GONE
         syncCcRemarkListeners(allParcels.map { it.id }.toSet())
+        syncCcEngagedAtListeners(allParcels.map { it.id }.toSet())
     }
 
     // Polling handle for the new-remark notification/badge-refresh loop — replaces the old
