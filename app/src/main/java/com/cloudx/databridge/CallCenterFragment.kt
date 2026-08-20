@@ -2517,6 +2517,7 @@ class CallCenterFragment : Fragment() {
                         val textEn = r.child("text_en").getValue(String::class.java)?.trim().orEmpty()
                         val label = (if (remarkLang == "en") textEn.ifBlank { textBn } else textBn.ifBlank { textEn })
                         val englishLabel = textEn.ifBlank { textBn }
+                        val bnLabel = textBn.ifBlank { textEn }
                         if (label.isBlank()) return@forEach
                         val target = r.child("target_status").getValue(String::class.java)?.trim()
                             .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
@@ -2529,6 +2530,7 @@ class CallCenterFragment : Fragment() {
                                 icon = "💬",
                                 label = label,
                                 englishLabel = englishLabel,
+                                bnLabel = bnLabel,
                                 statusKey = target,
                                 statusPreview = preview,
                                 statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
@@ -2632,7 +2634,7 @@ class CallCenterFragment : Fragment() {
                 // Update auto-status preview
                 selectedStatus     = opt.statusKey
                 selectedRemarkText = opt.label
-                selectedStoredRemarkText = opt.englishLabel
+                selectedStoredRemarkText = opt.bnLabel
                 selectedTemplateId = opt.templateId
                 tvAutoStatus.text  = opt.statusPreview
                 tvAutoStatus.setTextColor(opt.statusColor)
@@ -2970,6 +2972,7 @@ class CallCenterFragment : Fragment() {
         val icon: String,
         val label: String,
         val englishLabel: String,
+        val bnLabel: String,
         val statusKey: String,
         val statusPreview: String,
         val statusColor: Int,
