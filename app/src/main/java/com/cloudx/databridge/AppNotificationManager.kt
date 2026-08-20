@@ -88,6 +88,13 @@ object AppNotificationManager {
 
     private var channelCreated = false
 
+    /** Create the high-importance channel at app startup as well as on the first alert.
+     * FCM can render a background notification without starting our Activity, so the
+     * channel must already exist for the requested heads-up behavior to apply. */
+    fun initialize(context: Context) {
+        ensureChannel(context.applicationContext)
+    }
+
     private fun ensureChannel(context: Context) {
         if (channelCreated || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(

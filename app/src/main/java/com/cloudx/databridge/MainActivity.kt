@@ -124,6 +124,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         supportActionBar?.hide()
+        AppNotificationManager.initialize(this)
         appPrefs = AppPreferences(this)
         setupGoogleSignIn()
         DataBridgeService.start(this)
