@@ -238,8 +238,9 @@ Deno.serve(async (request) => {
       if (row.verifier_system_id !== verifierProfile.systemId) {
         return reply({ error: 'verifier_system_id does not belong to the signed-in user' }, 403)
       }
-      const parcelPromise = firebaseRead(identity, `courier/consignments/${encodeURIComponent(row.consignment_id)}`)
-        as Promise<Record<string, unknown> | null>
+      const parcelPromise = firebaseRead(
+        identity, `courier/consignments/${encodeURIComponent(row.consignment_id)}`
+      ) as Promise<Record<string, unknown> | null>
       // Worker writes have the same agent and verifier; reuse the verified profile instead
       // of doing another Firebase profile lookup for the same person.
       const agentProfile = row.agent_system_id === verifierProfile.systemId
