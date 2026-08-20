@@ -999,7 +999,8 @@ class CallCenterFragment : Fragment() {
         val nameMap = systemIdToName
         return rows.mapNotNull { r ->
             val status = r.optString("status").trim()
-            val remarks = r.optString("remarks").trim()
+            val remarks = listOf(r.optString("remarks").trim(), r.optString("note").trim())
+                .filter { it.isNotBlank() }.joinToString("\n")
             if (status.isBlank() && remarks.isBlank()) return@mapNotNull null
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
             val verifierId = r.optString("verifier_system_id").trim()
@@ -2176,7 +2177,10 @@ class CallCenterFragment : Fragment() {
                         // (hide the badge text when the CC agent's own remark is the latest) is
                         // dropped: the badge always shows the latest remark's text now,
                         // regardless of who wrote it.
-                        val entryRemarksText = latestTodayEntry?.optString("remarks")?.trim().orEmpty()
+                        val entryRemarksText = latestTodayEntry?.let { row ->
+                            listOf(row.optString("remarks").trim(), row.optString("note").trim())
+                                .filter { it.isNotBlank() }.joinToString("\n")
+                        }.orEmpty()
                         val remarkLabelNote = entryRemarksText
                         val validationNoteText = remarkLabelNote
                         val remarkLabel = remarkLabelNote
@@ -2313,7 +2317,9 @@ class CallCenterFragment : Fragment() {
                 val createdAt = SupabaseRemarkValidationWriter
                     .parseCreatedAtMillis(latestRemarkRow.optString("created_at"))
                 val liveRemarkStatus = latestRemarkRow.optString("status").trim()
-                val latestRemark = latestRemarkRow.optString("remarks").trim()
+                val latestRemark = listOf(
+                    latestRemarkRow.optString("remarks").trim(), latestRemarkRow.optString("note").trim()
+                ).filter { it.isNotBlank() }.joinToString("\n")
                 allParcels = allParcels.toMutableList().also {
                     it[idx] = it[idx].copy(
                         remarks = latestRemark,
@@ -2613,7 +2619,8 @@ class CallCenterFragment : Fragment() {
             branchId = item.branchIds.firstOrNull().orEmpty(),
             consignmentId = item.id,
             status = "",
-            remarksText = noteText,
+            remarksText = "",
+            noteText = noteText,
             screen = "CallCenterFragment"
         )
 
@@ -2661,7 +2668,8 @@ class CallCenterFragment : Fragment() {
                 branchId = target.branchIds.firstOrNull().orEmpty(),
                 consignmentId = target.id,
                 status = selectedStatus,
-                remarksText = selectedStoredRemarkText.ifBlank { noteText },
+                remarksText = selectedStoredRemarkText,
+                noteText = noteText,
                 screen = "CallCenterFragment"
             )
 

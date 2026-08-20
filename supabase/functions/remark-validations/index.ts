@@ -39,11 +39,10 @@ async function firebaseIdentity(request: Request): Promise<{ uid: string; token:
   return { uid: payload.sub, token }
 }
 
-async function firebaseSystemId(identity: { uid: string; token: string }): Promise<string> {
-  return (await firebaseProfile(identity)).systemId
+type FirebaseProfile = {
+  systemId: string; roleId: string; branchIds: string[]; canAccessCallCenter: boolean
+  name: string; employeeId: string
 }
-
-type FirebaseProfile = { systemId: string; roleId: string; branchIds: string[]; canAccessCallCenter: boolean }
 
 function permissionEnabled(node: unknown, permission: string): boolean {
   if (Array.isArray(node)) return node.includes(permission)
@@ -53,14 +52,15 @@ function permissionEnabled(node: unknown, permission: string): boolean {
 /** Reads only the caller's profile, using their verified Firebase ID token. */
 async function firebaseProfile(identity: { uid: string; token: string }): Promise<FirebaseProfile> {
   const response = await fetch(
-    `${firebaseDatabaseUrl}/users/${encodeURIComponent(identity.uid)}/profile/company_info.json?auth=${encodeURIComponent(identity.token)}`,
+    `${firebaseDatabaseUrl}/users/${encodeURIComponent(identity.uid)}/profile.json?auth=${encodeURIComponent(identity.token)}`,
   )
   if (!response.ok) throw new Error('Unable to resolve the signed-in user profile')
   const profile = await response.json()
-  const systemId = typeof profile?.system_id === 'string' ? profile.system_id.trim() : ''
+  const companyInfo = profile?.company_info
+  const systemId = typeof companyInfo?.system_id === 'string' ? companyInfo.system_id.trim() : ''
   if (!systemId) throw new Error('Signed-in user has no system_id')
-  let roleId = typeof profile?.role_id === 'string' ? profile.role_id.trim()
-    : typeof profile?.role === 'string' ? profile.role.trim() : ''
+  let roleId = typeof companyInfo?.role_id === 'string' ? companyInfo.role_id.trim()
+    : typeof companyInfo?.role === 'string' ? companyInfo.role.trim() : ''
   if (!roleId) {
     const roleResponse = await fetch(
       `${firebaseDatabaseUrl}/users/${encodeURIComponent(identity.uid)}/role.json?auth=${encodeURIComponent(identity.token)}`,
@@ -70,12 +70,12 @@ async function firebaseProfile(identity: { uid: string; token: string }): Promis
       if (typeof legacyRole === 'string') roleId = legacyRole.trim()
     }
   }
-  const rawBranchIds = profile?.branch_ids
+  const rawBranchIds = companyInfo?.branch_ids
   const branchIds = Array.isArray(rawBranchIds) ? rawBranchIds
     : rawBranchIds && typeof rawBranchIds === 'object' ? Object.values(rawBranchIds) : []
   // This mirrors RbacManager.hasPermission("nav_call_center"): a per-user
   // override, when present, takes precedence over the role permission.
-  const overridePermissions = profile?.access_overrides?.permissions
+  const overridePermissions = companyInfo?.access_overrides?.permissions
   const overrideActive = overridePermissions !== null && overridePermissions !== undefined
   let rolePermissions: unknown = null
   if (!overrideActive && roleId) {
@@ -88,6 +88,8 @@ async function firebaseProfile(identity: { uid: string; token: string }): Promis
     systemId, roleId,
     branchIds: branchIds.filter((id): id is string => typeof id === 'string' && id.trim()).map((id) => id.trim()),
     canAccessCallCenter: permissionEnabled(overrideActive ? overridePermissions : rolePermissions, 'nav_call_center'),
+    name: typeof profile?.name === 'string' ? profile.name.trim() : '',
+    employeeId: typeof companyInfo?.employee_id === 'string' ? companyInfo.employee_id.trim() : '',
   }
 }
 
@@ -96,6 +98,22 @@ type ServiceAccount = { client_email: string; private_key: string; project_id?: 
 async function firebaseRead(identity: { uid: string; token: string }, path: string): Promise<unknown> {
   const response = await fetch(`${firebaseDatabaseUrl}/${path}.json?auth=${encodeURIComponent(identity.token)}`)
   return response.ok ? response.json() : null
+}
+
+async function profileForSystemId(identity: { uid: string; token: string }, systemId: string): Promise<{ name: string; employeeId: string }> {
+  const index = await firebaseRead(identity, `users_by_systemId/${encodeURIComponent(systemId)}`) as { uid?: unknown } | null
+  if (typeof index?.uid !== 'string' || !index.uid) return { name: '', employeeId: '' }
+  const profile = await firebaseRead(identity, `users/${encodeURIComponent(index.uid)}/profile`) as Record<string, unknown> | null
+  const companyInfo = profile?.company_info as Record<string, unknown> | undefined
+  return {
+    name: typeof profile?.name === 'string' ? profile.name.trim() : '',
+    employeeId: typeof companyInfo?.employee_id === 'string' ? companyInfo.employee_id.trim() : '',
+  }
+}
+
+function auditActorName(name: string, employeeId: string, fallbackSystemId: string): string {
+  const displayName = name || fallbackSystemId
+  return employeeId ? `${displayName} (${employeeId})` : displayName
 }
 
 function asMillis(value: unknown): number {
@@ -216,14 +234,27 @@ Deno.serve(async (request) => {
       if (!row || !['consignment_id', 'branch_id', 'agent_system_id', 'verifier_system_id'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
         return reply({ error: 'Missing required row fields' }, 400)
       }
-      if (row.verifier_system_id !== await firebaseSystemId(identity)) {
+      const verifierProfile = await firebaseProfile(identity)
+      if (row.verifier_system_id !== verifierProfile.systemId) {
         return reply({ error: 'verifier_system_id does not belong to the signed-in user' }, 403)
       }
+      const parcelPromise = firebaseRead(identity, `courier/consignments/${encodeURIComponent(row.consignment_id)}`)
+        as Promise<Record<string, unknown> | null>
+      // Worker writes have the same agent and verifier; reuse the verified profile instead
+      // of doing another Firebase profile lookup for the same person.
+      const agentProfile = row.agent_system_id === verifierProfile.systemId
+        ? verifierProfile
+        : await profileForSystemId(identity, row.agent_system_id)
+      const parcel = await parcelPromise
       const savedRow = {
         consignment_id: row.consignment_id, branch_id: row.branch_id,
         agent_system_id: row.agent_system_id, verifier_system_id: row.verifier_system_id,
         status: typeof row.status === 'string' ? row.status : '',
         remarks: typeof row.remarks === 'string' ? row.remarks : '',
+        note: typeof row.note === 'string' ? row.note : '',
+        customer_phone: typeof parcel?.recipientPhone === 'string' ? parcel.recipientPhone.trim() : '',
+        agent_name: auditActorName(agentProfile.name, agentProfile.employeeId, row.agent_system_id),
+        verifier_name: auditActorName(verifierProfile.name, verifierProfile.employeeId, row.verifier_system_id),
       }
       const { error } = await admin.from('remark_validations').insert(savedRow)
       if (error) throw error
@@ -232,7 +263,7 @@ Deno.serve(async (request) => {
     }
 
     let query = admin.from('remark_validations')
-      .select('consignment_id,branch_id,agent_system_id,verifier_system_id,status,remarks,created_at')
+      .select('consignment_id,branch_id,agent_system_id,verifier_system_id,status,remarks,note,customer_phone,agent_name,verifier_name,created_at')
     if (action === 'history') query = query.eq('consignment_id', body.consignment_id)
     else if (action === 'today') query = query.eq('agent_system_id', body.agent_system_id).gte('created_at', body.start_iso)
     else if (action === 'agent_range') query = query.eq('agent_system_id', body.agent_system_id).gte('created_at', body.start_iso).lte('created_at', body.end_iso)

@@ -541,7 +541,8 @@ class WorkerSpaceFragment : Fragment() {
                         consignmentId = item.id,
                         branchId = RbacManager.current.branchIds.firstOrNull().orEmpty(),
                         status = "",
-                        remarksText = noteText
+                        remarksText = "",
+                        noteText = noteText
                     )
 
                     EngagedStateManager.clearEngaged(item.id, userId)
@@ -739,7 +740,8 @@ class WorkerSpaceFragment : Fragment() {
                     consignmentId = p.id,
                     branchId = branchId,
                     status = statusKey,
-                    remarksText = selectedLabel
+                    remarksText = selectedLabel,
+                    noteText = ""
                 )
                 EngagedStateManager.clearEngaged(p.id, userId)
             }
@@ -844,7 +846,8 @@ class WorkerSpaceFragment : Fragment() {
         consignmentId: String,
         branchId: String,
         status: String,
-        remarksText: String
+        remarksText: String,
+        noteText: String = ""
     ) {
         if (systemId.isBlank() || branchId.isBlank()) return
 
@@ -855,6 +858,7 @@ class WorkerSpaceFragment : Fragment() {
             consignmentId = consignmentId,
             status = status,
             remarksText = remarksText,
+            noteText = noteText,
             screen = "WorkerSpaceFragment"
         )
     }
@@ -1377,13 +1381,13 @@ class WorkerSpaceFragment : Fragment() {
 
             val history = remarkRows.mapNotNull { r ->
                 val rStatus = r.optString("status")?.trim().orEmpty()
-                val rRemarks = r.optString("remarks")?.trim().orEmpty()
+                val rRemarks = listOf(
+                    r.optString("remarks").trim(), r.optString("note").trim()
+                ).filter { it.isNotBlank() }.joinToString("\n")
                 if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
                 val statusLabelBulk = if (rStatus.isNotBlank())
                     context?.let { WorkerParcelAdapter.getStatusConfig(it, rStatus, "bn").label } ?: rStatus else ""
-                // Journey log + card badge: just the remark text now — Supabase's
-                // remark_validations has one `remarks` column, not Firebase's separate
-                // remarks+note pair, so there's nothing left to combine here.
+                // Journey log + card badge show the predefined remark and optional note.
                 val rLabel = rRemarks
                 val rBadge = rRemarks
                 val createdAt = rowCreatedAtMillisBulk(r)

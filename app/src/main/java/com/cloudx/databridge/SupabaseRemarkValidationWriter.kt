@@ -25,7 +25,7 @@ object SupabaseRemarkValidationWriter {
     private val jsonMediaType = "application/json".toMediaType()
 
     fun write(deliveryAgentId: String, verifierId: String, branchId: String, consignmentId: String,
-              status: String, remarksText: String, screen: String) {
+              status: String, remarksText: String, noteText: String = "", screen: String) {
         if (deliveryAgentId.isBlank() || verifierId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
             val missing = buildList {
                 if (deliveryAgentId.isBlank()) add("deliveryAgentId")
@@ -38,7 +38,8 @@ object SupabaseRemarkValidationWriter {
         invoke(JSONObject().put("action", "write").put("row", JSONObject()
             .put("consignment_id", consignmentId).put("branch_id", branchId)
             .put("agent_system_id", deliveryAgentId).put("verifier_system_id", verifierId)
-            .put("status", status).put("remarks", remarksText)), screen, "supabase_validation_write", consignmentId) { }
+            .put("status", status).put("remarks", remarksText).put("note", noteText)), screen,
+            "supabase_validation_write", consignmentId) { }
     }
 
     /** Associates the current signed-in user and this app installation's FCM token server-side. */
