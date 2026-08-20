@@ -1,15 +1,17 @@
-# Supabase deployment: remark validations
+# Supabase deployment: users and validations
 
 The Android app calls the `remark-validations` Edge Function with a Firebase ID
-token. The function derives every `author_*` field from that verified Firebase
-identity, then accesses Postgres with its
-server-only Supabase key. Mobile clients have no direct table permissions.
+token. The function derives the canonical `author_system_id` from that verified
+identity, upserts the master `users` record, and writes the activity to
+`validations`. Names and employee IDs are joined from `users`; they are never
+duplicated in validation rows. Mobile clients have no direct table permissions.
 
 ## One-time dashboard setup
 
 1. Apply every file in `migrations/` in filename order. Existing deployments
-   must also apply `202608200002_replace_remark_verifier_with_author.sql` before
-   deploying the updated function/app.
+   must apply `202608200006_normalize_users_and_validations.sql` before deploying
+   the updated function/app. It starts the normalized `users` and
+   `validations` architecture without importing legacy records.
 2. In **Edge Functions**, create a function named `remark-validations`, replace
    its source with `functions/remark-validations/index.ts`, and deploy it.
 3. In **Edge Functions → Secrets**, add these values:
@@ -47,6 +49,10 @@ supabase secrets set FIREBASE_PROJECT_ID=databridgebd FIREBASE_DATABASE_URL=http
 supabase db push
 supabase functions deploy remark-validations
 ```
+
+The Edge Function supports bounded, server-side `report` queries using a
+required branch and half-open date range (`start_iso` inclusive, `end_iso`
+exclusive), optional validation filters, and a maximum page size of 100.
 
 Set `FCM_SERVICE_ACCOUNT_JSON` in the Supabase Dashboard rather than placing a
 private key in a shell command or repository file.

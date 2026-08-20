@@ -982,17 +982,17 @@ class CallCenterFragment : Fragment() {
         val agentSystemId = item.workerSystemId
         val nameMap = systemIdToName
         return rows.mapNotNull { r ->
-            val status = r.optString("status").trim()
+            val status = r.optString("remarks_status").trim()
             val remarks = listOf(r.optString("remarks").trim(), r.optString("note").trim())
                 .filter { it.isNotBlank() }.joinToString("\n")
             if (status.isBlank() && remarks.isBlank()) return@mapNotNull null
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
             val authorSystemId = r.optString("author_system_id").trim()
             val fromWorker = authorSystemId.isNotBlank() && authorSystemId == agentSystemId
-            val savedAuthorName = r.optString("author_name").trim()
-            val savedAuthorEmployeeId = r.optString("author_employee_id").trim()
-            val resolvedAuthorName = savedAuthorName.ifBlank { nameMap[authorSystemId] ?: authorSystemId }
-            val authorLabel = if (savedAuthorEmployeeId.isBlank()) resolvedAuthorName else "$resolvedAuthorName ($savedAuthorEmployeeId)"
+            val authorUser = r.optJSONObject("author")
+            val authorName = authorUser?.optString("name")?.trim().orEmpty().ifBlank { authorSystemId }
+            val authorEmployeeId = authorUser?.optString("employee_id")?.trim().orEmpty()
+            val authorLabel = if (authorEmployeeId.isBlank()) authorName else "$authorName ($authorEmployeeId)"
             HistoryEntry(
                 action = status.ifBlank { "NOTE" }.uppercase(),
                 remark = remarks,
@@ -1000,7 +1000,7 @@ class CallCenterFragment : Fragment() {
                     .format(java.util.Date(createdAt)),
                 author = authorLabel + if (fromWorker) "" else " · CC",
                 authorRole = if (fromWorker) "agent" else "cc",
-                authorPhotoUrl = systemIdToPhotoUrl[authorSystemId].orEmpty(),
+                authorPhotoUrl = "",
                 createdAt = createdAt,
                 callLogCount = 0,
                 callLogTotalDurationSec = 0
@@ -2067,7 +2067,7 @@ class CallCenterFragment : Fragment() {
             ) { rows -> deferred.complete(rows) }
             deferred.await()
         }
-        val todayRowsByConsignment = todayRemarkRows.groupBy { it.optString("consignment_id") }
+        val todayRowsByConsignment = todayRemarkRows.groupBy { it.optString("consignment") }
         // The initial batch is the baseline. Later polls ask only for rows written after this
         // point, rather than fetching all historical rows again.
         ccRemarkPollCursorMs = todayBatchRequestedAtMs
@@ -2157,7 +2157,7 @@ class CallCenterFragment : Fragment() {
                         fun rowCreatedAtMillis(row: org.json.JSONObject): Long =
                             SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
                         val latestTodayEntry = remarkRows.firstOrNull { rowCreatedAtMillis(it) >= todayStartForBadges }
-                        val remarkStatus = latestTodayEntry?.optString("status")?.trim().orEmpty()
+                        val remarkStatus = latestTodayEntry?.optString("remarks_status")?.trim().orEmpty()
                         // Supabase rows don't carry a "who wrote this" role label the way
                         // Firebase's remarked_by ("support" vs a worker uid) did — authorSystemId
                         // is always a system_id now, for either a CC agent or a worker, with no
@@ -2277,7 +2277,7 @@ class CallCenterFragment : Fragment() {
             // Group by consignment, keep only the latest row per consignment for the
             // notification decision (a consignment could have gotten more than one remark
             // between polls — only the newest one matters for "what changed").
-            val latestByConsignment = rows.groupBy { it.optString("consignment_id") }
+            val latestByConsignment = rows.groupBy { it.optString("consignment") }
                 .mapValues { (_, group) -> group.maxByOrNull { r ->
                     SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
                 } }
@@ -2335,7 +2335,7 @@ class CallCenterFragment : Fragment() {
                 val oldStatus = allParcels[idx].effectiveStatus
                 val createdAt = SupabaseRemarkValidationWriter
                     .parseCreatedAtMillis(latestRemarkRow.optString("created_at"))
-                val liveRemarkStatus = latestRemarkRow.optString("status").trim()
+                val liveRemarkStatus = latestRemarkRow.optString("remarks_status").trim()
                 val latestRemark = listOf(
                     latestRemarkRow.optString("remarks").trim(), latestRemarkRow.optString("note").trim()
                 ).filter { it.isNotBlank() }.joinToString("\n")

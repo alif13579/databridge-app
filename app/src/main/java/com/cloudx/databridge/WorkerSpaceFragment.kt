@@ -1148,7 +1148,7 @@ class WorkerSpaceFragment : Fragment() {
             viewLifecycleOwner.lifecycleScope.launch {
                 if (!isAdded) return@launch
                 var hasNewRow = false
-                rows.groupBy { it.optString("consignment_id") }.forEach { (consignmentId, group) ->
+                rows.groupBy { it.optString("consignment") }.forEach { (consignmentId, group) ->
                     val latest = group.maxByOrNull {
                         SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
                     } ?: return@forEach
@@ -1191,7 +1191,7 @@ class WorkerSpaceFragment : Fragment() {
             val remarkText = listOf(
                 latest.optString("remarks").trim(), latest.optString("note").trim()
             ).filter { it.isNotBlank() }.joinToString("\n")
-            val remarkStatus = latest.optString("status").trim()
+            val remarkStatus = latest.optString("remarks_status").trim()
             workerLastSeenRemarkAt[consignmentId] = createdAt
             allParcels = allParcels.map { parcel ->
                 if (parcel.id != consignmentId) parcel else parcel.copy(
@@ -1396,17 +1396,6 @@ class WorkerSpaceFragment : Fragment() {
         }
         val fetches = itemFetches.awaitAll()
 
-        // Pre-resolve every distinct remark-author system_id across ALL parcels in one
-        // parallel batch — remark_validations rows carry author_system_id, not a
-        // Firebase uid, so this resolves through the same users_by_systemId reverse-index
-        // path CallCenterFragment's ensureAgentNameMap() uses, rather than UserNameResolver's
-        // uid-keyed lookup.
-        val distinctAuthorSystemIds = fetches.flatMap { it.remarkRows }
-            .mapNotNull { it.optString("author_system_id")?.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
-        val (nameMapBulk, photoMapBulk) = resolveSystemIdNamesAndPhotos(distinctAuthorSystemIds)
-
         val parcels = mutableListOf<WorkerParcelItem>()
         val statusBackfills = mutableMapOf<String, Any?>()
         fetches.forEach { fetch ->
@@ -1431,7 +1420,7 @@ class WorkerSpaceFragment : Fragment() {
                 SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
 
             val history = remarkRows.mapNotNull { r ->
-                val rStatus = r.optString("status")?.trim().orEmpty()
+                val rStatus = r.optString("remarks_status")?.trim().orEmpty()
                 val rRemarks = listOf(
                     r.optString("remarks").trim(), r.optString("note").trim()
                 ).filter { it.isNotBlank() }.joinToString("\n")
@@ -1452,10 +1441,10 @@ class WorkerSpaceFragment : Fragment() {
                 // same Supabase writer with no role label of their own.
                 val isFromDeliveryAgent = authorSystemId.isNotBlank() && authorSystemId == systemId
                 val authorRole = if (isFromDeliveryAgent) "agent" else "cc"
-                val savedAuthorName = r.optString("author_name").trim()
-                val savedAuthorEmployeeId = r.optString("author_employee_id").trim()
-                val resolvedAuthorName = savedAuthorName.ifBlank { nameMapBulk[authorSystemId] ?: authorSystemId }
-                val authorLabel = if (savedAuthorEmployeeId.isBlank()) resolvedAuthorName else "$resolvedAuthorName ($savedAuthorEmployeeId)"
+                val authorUser = r.optJSONObject("author")
+                val resolvedAuthorName = authorUser?.optString("name")?.trim().orEmpty().ifBlank { authorSystemId }
+                val authorEmployeeId = authorUser?.optString("employee_id")?.trim().orEmpty()
+                val authorLabel = if (authorEmployeeId.isBlank()) resolvedAuthorName else "$resolvedAuthorName ($authorEmployeeId)"
                 val author = if (isFromDeliveryAgent) authorLabel else "$authorLabel · CC"
                 HistoryEntry(
                     action = rStatus.ifBlank { "NOTE" }.uppercase(),
@@ -1463,7 +1452,7 @@ class WorkerSpaceFragment : Fragment() {
                     time = timeStr,
                     author = author,
                     authorRole = authorRole,
-                    authorPhotoUrl = photoMapBulk[authorSystemId].orEmpty(),
+                    authorPhotoUrl = "",
                     createdAt = createdAt,
                     cardBadgeText = rBadge
                 )
@@ -1482,7 +1471,7 @@ class WorkerSpaceFragment : Fragment() {
             // keep overriding today's status once no one has left a newer one since — each
             // day is effectively a fresh attempt (new run_id).
             val latestTodayRawEntry = remarkRows.firstOrNull { rowCreatedAtMillisBulk(it) >= todayStartBulk }
-            val lastRemarkStatus = latestTodayRawEntry?.optString("status")?.trim().orEmpty()
+            val lastRemarkStatus = latestTodayRawEntry?.optString("remarks_status")?.trim().orEmpty()
             // Card badge: TODAY's TRUE latest entry, any author — Supabase rows carry no role
             // label (see history-building comment above), so the old "only show if from CC"
             // gate has no equivalent left; the badge always shows the latest remark's text now.
@@ -1700,7 +1689,7 @@ class WorkerSpaceFragment : Fragment() {
 
             val counts = mutableMapOf<String, Int>()
             rows.forEach { row ->
-                val status = row.optString("status")?.trim()?.ifBlank { "(no status)" } ?: "(no status)"
+                val status = row.optString("remarks_status")?.trim()?.ifBlank { "(no status)" } ?: "(no status)"
                 counts[status] = (counts[status] ?: 0) + 1
             }
 

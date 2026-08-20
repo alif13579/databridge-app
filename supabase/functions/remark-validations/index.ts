@@ -93,6 +93,43 @@ async function firebaseProfile(identity: { uid: string; token: string }): Promis
   }
 }
 
+/** Resolve a known system id only when a write needs to create its master row. */
+async function firebaseProfileForSystemId(systemId: string, identity: { uid: string; token: string }): Promise<FirebaseProfile | null> {
+  const index = await firebaseRead(identity, `users_by_systemId/${encodeURIComponent(systemId)}`) as { uid?: unknown } | null
+  if (typeof index?.uid !== 'string' || !index.uid) return null
+  // The assigned user need not be the caller, so read only the public profile
+  // fields required to maintain the master `users` row.
+  const response = await fetch(`${firebaseDatabaseUrl}/users/${encodeURIComponent(index.uid)}/profile.json?auth=${encodeURIComponent(identity.token)}`)
+  if (!response.ok) return null
+  const profile = await response.json()
+  const info = profile?.company_info
+  const resolvedId = typeof info?.system_id === 'string' ? info.system_id.trim() : ''
+  if (resolvedId !== systemId) return null
+  const branches = info?.branch_ids
+  const branchIds = Array.isArray(branches) ? branches : branches && typeof branches === 'object' ? Object.values(branches) : []
+  return {
+    systemId: resolvedId,
+    roleId: typeof info?.role_id === 'string' ? info.role_id.trim() : '',
+    branchIds: branchIds.filter((id): id is string => typeof id === 'string' && id.trim()).map((id) => id.trim()),
+    canAccessCallCenter: false,
+    name: typeof profile?.name === 'string' ? profile.name.trim() : '',
+    employeeId: typeof info?.employee_id === 'string' ? info.employee_id.trim() : '',
+  }
+}
+
+async function upsertUser(profile: FirebaseProfile, firebaseId?: string) {
+  const { error } = await admin.from('users').upsert({
+    system_id: profile.systemId,
+    employee_id: profile.employeeId || null,
+    name: profile.name || profile.systemId,
+    branch_id: profile.branchIds[0] || null,
+    role: profile.roleId || null,
+    firebase_id: firebaseId || null,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'system_id' })
+  if (error) throw error
+}
+
 type ServiceAccount = { client_email: string; private_key: string; project_id?: string }
 
 async function firebaseRead(identity: { uid: string; token: string }, path: string): Promise<unknown> {
@@ -118,23 +155,23 @@ function ageLabel(createdAt: unknown, updatedAt: unknown): string {
   return 'Just now'
 }
 
-async function notificationDetails(row: { consignment_id: string; author_system_id: string; status: string; remarks: string }, identity: { uid: string; token: string }) {
-  const parcel = await firebaseRead(identity, `courier/consignments/${encodeURIComponent(row.consignment_id)}`) as Record<string, unknown> | null
+async function notificationDetails(row: { consignment: string; author_system_id: string; remarks_status: string; remarks: string }, identity: { uid: string; token: string }) {
+  const parcel = await firebaseRead(identity, `courier/consignments/${encodeURIComponent(row.consignment)}`) as Record<string, unknown> | null
   const index = await firebaseRead(identity, `users_by_systemId/${encodeURIComponent(row.author_system_id)}`) as { uid?: unknown } | null
   const authorProfile = typeof index?.uid === 'string'
     ? await firebaseRead(identity, `users/${encodeURIComponent(index.uid)}/profile`) as Record<string, unknown> | null
     : null
   const author = typeof authorProfile?.name === 'string' && authorProfile.name.trim() ? authorProfile.name.trim() : 'Agent'
-  const customer = typeof parcel?.recipientName === 'string' && parcel.recipientName.trim() ? parcel.recipientName.trim() : row.consignment_id
+  const customer = typeof parcel?.recipientName === 'string' && parcel.recipientName.trim() ? parcel.recipientName.trim() : row.consignment
   const attempt = Number(parcel?.attempt) || 0
-  const base = [row.status, row.remarks].filter(Boolean).join(' — ') || 'নতুন রিমার্ক এসেছে'
+  const base = [row.remarks_status, row.remarks].filter(Boolean).join(' — ') || 'নতুন রিমার্ক এসেছে'
   return {
     title: `${author} — ${customer}`,
     body: `${base}\n📅 ${ageLabel(parcel?.createdAt, parcel?.updatedAt)}  •  🔁 ${attempt} attempt${attempt === 1 ? '' : 's'}`,
   }
 }
 
-async function sendRemarkPush(row: { consignment_id: string; branch_id: string; assigned_agent_system_id: string; author_system_id: string; status: string; remarks: string }, identity: { uid: string; token: string }) {
+async function sendRemarkPush(row: { consignment: string; branch_id: string; assigned_to_system_id: string; author_system_id: string; remarks_status: string; remarks: string }, identity: { uid: string; token: string }) {
   // A failed or not-yet-configured push must never prevent the audit record from saving.
   const serviceAccountJson = Deno.env.get('FCM_SERVICE_ACCOUNT_JSON')
   if (!serviceAccountJson) {
@@ -147,12 +184,12 @@ async function sendRemarkPush(row: { consignment_id: string; branch_id: string; 
 
     // CC -> worker: send only to that worker. Worker -> CC: notify only users
     // whose Firebase RBAC permission grants access to the Call Center fragment.
-    const fromWorker = row.assigned_agent_system_id === row.author_system_id
+    const fromWorker = row.assigned_to_system_id === row.author_system_id
     let tokenQuery = admin.from('fcm_device_tokens').select('token')
     if (fromWorker) {
       tokenQuery = tokenQuery.eq('can_access_call_center', true).overlaps('branch_ids', [row.branch_id])
     } else {
-      tokenQuery = tokenQuery.eq('system_id', row.assigned_agent_system_id)
+      tokenQuery = tokenQuery.eq('system_id', row.assigned_to_system_id)
     }
     const { data: devices, error: deviceError } = await tokenQuery
     if (deviceError) throw deviceError
@@ -180,9 +217,9 @@ async function sendRemarkPush(row: { consignment_id: string; branch_id: string; 
           notification: { title, body },
           data: {
             type: 'remark', title, body,
-            consignment_id: row.consignment_id,
+            consignment_id: row.consignment,
             scope: recipientScope,
-            notif_parcel_id: row.consignment_id,
+            notif_parcel_id: row.consignment,
             notif_scope: recipientScope,
           },
           android: {
@@ -225,7 +262,7 @@ Deno.serve(async (request) => {
 
     if (action === 'write') {
       const row = body.row
-      if (!row || !['consignment_id', 'branch_id', 'assigned_agent_system_id', 'source'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
+      if (!row || !['consignment', 'branch_id', 'assigned_to_system_id', 'source'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
         return reply({ error: 'Missing required row fields' }, 400)
       }
       if (row.source !== 'validator' && row.source !== 'verification_request') {
@@ -234,37 +271,57 @@ Deno.serve(async (request) => {
       // Author fields come exclusively from the verified Firebase identity; Android
       // never supplies them, so a caller cannot impersonate another employee.
       const authorProfile = await firebaseProfile(identity)
+      await upsertUser(authorProfile, identity.uid)
+      if (row.assigned_to_system_id === authorProfile.systemId) {
+        // Already upserted above; avoids a duplicate Firebase profile request.
+      } else {
+        const assignedProfile = await firebaseProfileForSystemId(row.assigned_to_system_id, identity)
+        if (!assignedProfile) return reply({ error: 'Assigned user was not found' }, 400)
+        await upsertUser(assignedProfile)
+      }
       const parcelPromise = firebaseRead(
-        identity, `courier/consignments/${encodeURIComponent(row.consignment_id)}`
+        identity, `courier/consignments/${encodeURIComponent(row.consignment)}`
       ) as Promise<Record<string, unknown> | null>
       // Worker writes have the same assigned agent and author; reuse the verified profile instead
       // of doing another Firebase profile lookup for the same person.
       const parcel = await parcelPromise
       const savedRow = {
-        consignment_id: row.consignment_id, branch_id: row.branch_id,
-        assigned_agent_system_id: row.assigned_agent_system_id,
+        consignment: row.consignment, branch_id: row.branch_id,
+        assigned_to_system_id: row.assigned_to_system_id,
         source: row.source,
         author_system_id: authorProfile.systemId,
-        author_firebase_uid: identity.uid,
-        author_name: authorProfile.name,
-        author_employee_id: authorProfile.employeeId,
-        status: typeof row.status === 'string' ? row.status : '',
+        remarks_status: typeof row.remarks_status === 'string' ? row.remarks_status : '',
+        consignment_status: typeof parcel?.status === 'string' ? parcel.status.trim() : '',
         remarks: typeof row.remarks === 'string' ? row.remarks : '',
         note: typeof row.note === 'string' ? row.note : '',
         customer_phone: typeof parcel?.recipientPhone === 'string' ? parcel.recipientPhone.trim() : '',
       }
-      const { error } = await admin.from('remark_validations').insert(savedRow)
+      const { error } = await admin.from('validations').insert(savedRow)
       if (error) throw error
       await sendRemarkPush(savedRow, identity)
       return reply({ ok: true })
     }
 
-    let query = admin.from('remark_validations')
-      .select('consignment_id,branch_id,assigned_agent_system_id,author_system_id,author_firebase_uid,author_name,author_employee_id,source,status,remarks,note,customer_phone,created_at')
-    if (action === 'history') query = query.eq('consignment_id', body.consignment_id)
-    else if (action === 'today') query = query.eq('assigned_agent_system_id', body.assigned_agent_system_id).gte('created_at', body.start_iso)
-    else if (action === 'agent_range') query = query.eq('assigned_agent_system_id', body.assigned_agent_system_id).gte('created_at', body.start_iso).lte('created_at', body.end_iso)
-    else if (action === 'new_since') query = query.in('consignment_id', body.consignment_ids).gt('created_at', body.since_iso)
+    let query = admin.from('validations')
+      .select('id,consignment,branch_id,assigned_to_system_id,author_system_id,source,remarks_status,consignment_status,remarks,note,customer_phone,created_at,author:users!validations_author_system_id_fkey(name,employee_id,role),assigned:users!validations_assigned_to_system_id_fkey(name,employee_id,role)')
+    if (action === 'history') query = query.eq('consignment', body.consignment)
+    else if (action === 'today') query = query.eq('assigned_to_system_id', body.assigned_to_system_id).gte('created_at', body.start_iso)
+    else if (action === 'agent_range') query = query.eq('assigned_to_system_id', body.assigned_to_system_id).gte('created_at', body.start_iso).lt('created_at', body.end_iso)
+    else if (action === 'new_since') query = query.in('consignment', body.consignments).gt('created_at', body.since_iso)
+    else if (action === 'report') {
+      if (typeof body.branch_id !== 'string' || typeof body.start_iso !== 'string' || typeof body.end_iso !== 'string') {
+        return reply({ error: 'branch_id, start_iso and end_iso are required' }, 400)
+      }
+      const page = Math.max(0, Number(body.page) || 0)
+      const pageSize = Math.min(100, Math.max(1, Number(body.page_size) || 50))
+      query = query.eq('branch_id', body.branch_id).gte('created_at', body.start_iso).lt('created_at', body.end_iso)
+      for (const field of ['consignment', 'assigned_to_system_id', 'author_system_id', 'remarks_status', 'consignment_status', 'source'] as const) {
+        if (typeof body[field] === 'string' && body[field].trim()) query = query.eq(field, body[field].trim())
+      }
+      const { data, error } = await query.order('created_at', { ascending: false }).range(page * pageSize, (page + 1) * pageSize - 1)
+      if (error) throw error
+      return reply(data ?? [])
+    }
     else return reply({ error: 'Unknown action' }, 400)
     const { data, error } = await query.order('created_at', { ascending: false })
     if (error) throw error

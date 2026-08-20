@@ -290,7 +290,7 @@ class DashboardViewModel : ViewModel() {
 
     // ── Core load ─────────────────────────────────────────────────────────────
     //
-    // Sourced from Supabase's remark_validations table (delivery_agent_id = the agent's
+    // Sourced from Supabase's validations table (assigned_to_system_id = the agent's
     // system_id, created_at within [rangeStartTs, rangeEndTs]) — formerly Firebase's
     // courier/remarks_by_userId/{uid}/push_{yyyyMMdd}_{consignmentId}, retired along with
     // that path (see SupabaseRemarkValidationWriter's doc comment). This sidesteps the
@@ -302,7 +302,7 @@ class DashboardViewModel : ViewModel() {
     //   3. Bounded reads: created_at range filter on the Supabase query restricts each
     //      per-agent read to the selected date range, not "every remark ever".
     //
-    // ⚠️ Known limitations of remark_validations as a data source (flagging, not guessing) —
+    // ⚠️ Known limitations of validations as a data source (flagging, not guessing) —
     //   same limitations the old Firebase courier/remarks_by_userId source had, unchanged by
     //   this migration:
     //   - A row only exists once an agent saves a remark on a consignment — there's no
@@ -526,7 +526,7 @@ class DashboardViewModel : ViewModel() {
             }
             rows.forEach { entry ->
                 entryCount++
-                val statusKey = entry.optString("status")?.trim().orEmpty()
+                val statusKey = entry.optString("remarks_status")?.trim().orEmpty()
                 when (bucketForStatus(statusKey)) {
                     "delivered" -> delivered++
                     "on_hold"   -> onHold++

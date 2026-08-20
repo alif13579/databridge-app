@@ -36,10 +36,10 @@ object SupabaseRemarkValidationWriter {
             log(screen, "supabase_validation_skip_missing_ids", "Missing required IDs: $missing", consignmentId); return
         }
         invoke(JSONObject().put("action", "write").put("row", JSONObject()
-            .put("consignment_id", consignmentId).put("branch_id", branchId)
-            .put("assigned_agent_system_id", assignedAgentSystemId)
+            .put("consignment", consignmentId).put("branch_id", branchId)
+            .put("assigned_to_system_id", assignedAgentSystemId)
             .put("source", source)
-            .put("status", status).put("remarks", remarksText).put("note", noteText)), screen,
+            .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)), screen,
             "supabase_validation_write", consignmentId) { }
     }
 
@@ -69,21 +69,21 @@ object SupabaseRemarkValidationWriter {
 
     fun fetchHistory(consignmentId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
         if (consignmentId.isBlank()) return onResult(emptyList())
-        invoke(JSONObject().put("action", "history").put("consignment_id", consignmentId), screen,
+        invoke(JSONObject().put("action", "history").put("consignment", consignmentId), screen,
             "supabase_validation_fetch_history", consignmentId) { onResult(rows(it)) }
     }
 
     fun fetchTodayForDeliveryAgent(assignedAgentSystemId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
         if (assignedAgentSystemId.isBlank()) return onResult(emptyList())
         val start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
-        invoke(JSONObject().put("action", "today").put("assigned_agent_system_id", assignedAgentSystemId).put("start_iso", start),
+        invoke(JSONObject().put("action", "today").put("assigned_to_system_id", assignedAgentSystemId).put("start_iso", start),
             screen, "supabase_validation_fetch_today", assignedAgentSystemId) { onResult(rows(it)) }
     }
 
     fun fetchForDeliveryAgentInRange(assignedAgentSystemId: String, rangeStartMs: Long, rangeEndMs: Long,
                                      screen: String, onResult: (List<JSONObject>) -> Unit) {
         if (assignedAgentSystemId.isBlank()) return onResult(emptyList())
-        invoke(JSONObject().put("action", "agent_range").put("assigned_agent_system_id", assignedAgentSystemId)
+        invoke(JSONObject().put("action", "agent_range").put("assigned_to_system_id", assignedAgentSystemId)
             .put("start_iso", Instant.ofEpochMilli(rangeStartMs).toString())
             .put("end_iso", Instant.ofEpochMilli(rangeEndMs).toString()), screen,
             "supabase_validation_fetch_range", assignedAgentSystemId) { onResult(rows(it)) }
@@ -96,7 +96,7 @@ object SupabaseRemarkValidationWriter {
         val chunks = consignmentIds.distinct().chunked(200)
         val remaining = java.util.concurrent.atomic.AtomicInteger(chunks.size)
         chunks.forEach { chunk ->
-            invoke(JSONObject().put("action", "new_since").put("consignment_ids", JSONArray(chunk))
+            invoke(JSONObject().put("action", "new_since").put("consignments", JSONArray(chunk))
                 .put("since_iso", Instant.ofEpochMilli(sinceEpochMs).toString()), screen,
                 "supabase_validation_fetch_new_since", "") {
                 allRows.addAll(rows(it)); if (remaining.decrementAndGet() == 0) onResult(allRows.toList())
