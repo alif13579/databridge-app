@@ -152,9 +152,15 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
      *  lands here with the parcel it's about — navigate straight to it, same as tapping
      *  the entry in the in-app bell's NotificationListBottomSheet. */
     private fun handleNotificationIntent(intent: Intent?) {
+        // FCM's system-rendered background notification carries the raw data keys;
+        // AppNotificationManager's in-process notification uses its namespaced keys.
         val parcelId = intent?.getStringExtra(AppNotificationManager.EXTRA_PARCEL_ID)
+            ?: intent?.getStringExtra("notif_parcel_id")
+            ?: intent?.getStringExtra("consignment_id")
         if (parcelId.isNullOrBlank()) return
-        when (intent.getStringExtra(AppNotificationManager.EXTRA_SCOPE)) {
+        when (intent?.getStringExtra(AppNotificationManager.EXTRA_SCOPE)
+            ?: intent?.getStringExtra("notif_scope")
+            ?: intent?.getStringExtra("scope")) {
             "worker" -> navigateToWorkerSpaceWithParcel(parcelId)
             else     -> navigateToCallCenterWithParcel(parcelId)
         }

@@ -26,7 +26,8 @@ import androidx.core.content.ContextCompat
  */
 object AppNotificationManager {
 
-    private const val CHANNEL_ID = "databridge_alerts_channel"
+    // New channel ID resets an older device's previously low/silent channel setting.
+    private const val CHANNEL_ID = "databridge_alerts_channel_v2"
     const val EXTRA_PARCEL_ID = "notif_parcel_id"
     const val EXTRA_SCOPE = "notif_scope"
 
@@ -97,6 +98,12 @@ object AppNotificationManager {
             description = "New remarks and alerts on parcels"
             enableLights(true)
             enableVibration(true)
+            val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val audioAttributes = android.media.AudioAttributes.Builder()
+                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            setSound(sound, audioAttributes)
         }
         context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         channelCreated = true
@@ -140,6 +147,9 @@ object AppNotificationManager {
                 .setSmallIcon(android.R.drawable.ic_dialog_email)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setTicker(item.title)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
                 .build()

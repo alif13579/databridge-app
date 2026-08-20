@@ -192,12 +192,23 @@ async function sendRemarkPush(row: { consignment_id: string; branch_id: string; 
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: {
           token,
+          // Include a notification payload so Android can render the heads-up/system-tray
+          // notification even when the app process is fully backgrounded or reclaimed.
+          notification: { title, body },
           data: {
             type: 'remark', title, body,
             consignment_id: row.consignment_id,
             scope: recipientScope,
+            notif_parcel_id: row.consignment_id,
+            notif_scope: recipientScope,
           },
-          android: { priority: 'high' },
+          android: {
+            priority: 'high',
+            notification: {
+              channel_id: 'databridge_alerts_channel_v2',
+              sound: 'default',
+            },
+          },
         } }),
       })
       if (!response.ok) console.error(`FCM send failed (${response.status}): ${await response.text()}`)
