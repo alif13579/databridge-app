@@ -1023,7 +1023,7 @@ class CallCenterFragment : Fragment() {
         val nameMap = systemIdToName
         return rows.mapNotNull { r ->
             val status = r.optString("remarks_status").trim()
-            val remarks = listOf(r.optString("remarks").trim(), r.optString("note").trim())
+            val remarks = listOf(resolveRemarkBn(r.optString("remarks").trim()), r.optString("note").trim())
                 .filter { it.isNotBlank() }.joinToString("\n")
             if (status.isBlank() && remarks.isBlank()) return@mapNotNull null
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
@@ -2276,7 +2276,7 @@ class CallCenterFragment : Fragment() {
                         // dropped: the badge always shows the latest remark's text now,
                         // regardless of who wrote it.
                         val entryRemarksText = latestTodayEntry?.let { row ->
-                            listOf(row.optString("remarks").trim(), row.optString("note").trim())
+                            listOf(resolveRemarkBn(row.optString("remarks").trim()), row.optString("note").trim())
                                 .filter { it.isNotBlank() }.joinToString("\n")
                         }.orEmpty()
                         val remarkLabelNote = entryRemarksText
@@ -2448,7 +2448,7 @@ class CallCenterFragment : Fragment() {
                     .parseCreatedAtMillis(latestRemarkRow.optString("created_at"))
                 val liveRemarkStatus = latestRemarkRow.optString("remarks_status").trim()
                 val latestRemark = listOf(
-                    latestRemarkRow.optString("remarks").trim(), latestRemarkRow.optString("note").trim()
+                    resolveRemarkBn(latestRemarkRow.optString("remarks").trim()), latestRemarkRow.optString("note").trim()
                 ).filter { it.isNotBlank() }.joinToString("\n")
                 allParcels = allParcels.toMutableList().also {
                     it[idx] = it[idx].copy(
@@ -2551,6 +2551,16 @@ class CallCenterFragment : Fragment() {
                 android.util.Log.e("CallCenter", "Failed to load remark options from config, using defaults", e)
             }
         }
+    }
+
+    /**
+     * Resolves a stored English remark text back to its display label for the CC card badge.
+     * Supabase stores englishLabel for reporting; the card shows the language-configured label.
+     * Falls back to raw unchanged for free-text notes or unmatched entries.
+     */
+    private fun resolveRemarkBn(raw: String): String {
+        if (raw.isBlank()) return raw
+        return ccRemarkOptions.find { it.englishLabel == raw }?.label ?: raw
     }
 
     private fun showRemarksDialog(item: CallCenterParcelItem) {
