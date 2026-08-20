@@ -8,7 +8,10 @@ server-only Supabase key. Mobile clients have no direct table permissions.
 ## One-time dashboard setup
 
 1. In **SQL Editor**, run the contents of
-   `migrations/202608190001_create_remark_validations.sql`.
+   `migrations/202608190001_create_remark_validations.sql`,
+   `migrations/202608190003_create_fcm_device_tokens.sql`, and
+   `migrations/202608190004_add_fcm_call_center_permission.sql` (also run the
+   `202608190002` rename migration if upgrading from the older schema).
 2. In **Edge Functions**, create a function named `remark-validations`, replace
    its source with `functions/remark-validations/index.ts`, and deploy it.
 3. In **Edge Functions → Secrets**, add these values:
@@ -17,6 +20,17 @@ server-only Supabase key. Mobile clients have no direct table permissions.
    FIREBASE_PROJECT_ID=databridgebd
    FIREBASE_DATABASE_URL=https://databridgebd-default-rtdb.asia-southeast1.firebasedatabase.app
    ```
+
+   For instant background notifications, also create a private key in Firebase
+   Console → Project settings → Service accounts and store the complete JSON
+   **only** as this Supabase Edge Function secret:
+
+   ```text
+   FCM_SERVICE_ACCOUNT_JSON={...complete service-account JSON...}
+   ```
+
+   Enable **Firebase Cloud Messaging API (V1)** in the Firebase/Google Cloud
+   project. Never add this JSON to Android, Git, or `local.properties`.
 
 4. Set **Verify JWT** to off for this function. This is required because the
    request carries a Firebase JWT, not a Supabase Auth JWT; the function
@@ -35,3 +49,6 @@ supabase secrets set FIREBASE_PROJECT_ID=databridgebd FIREBASE_DATABASE_URL=http
 supabase db push
 supabase functions deploy remark-validations
 ```
+
+Set `FCM_SERVICE_ACCOUNT_JSON` in the Supabase Dashboard rather than placing a
+private key in a shell command or repository file.

@@ -12,7 +12,10 @@ import org.json.JSONObject
 import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
 
 /** Accesses the remark audit log only through the Firebase-authenticated Edge Function. */
@@ -36,6 +39,30 @@ object SupabaseRemarkValidationWriter {
             .put("consignment_id", consignmentId).put("branch_id", branchId)
             .put("agent_system_id", deliveryAgentId).put("verifier_system_id", verifierId)
             .put("status", status).put("remarks", remarksText)), screen, "supabase_validation_write", consignmentId) { }
+    }
+
+    /** Associates the current signed-in user and this app installation's FCM token server-side. */
+    fun registerPushToken(token: String) {
+        if (token.isBlank()) return
+        invoke(
+            JSONObject().put("action", "register_push_token").put("token", token),
+            screen = "PushNotifications",
+            action = "push_token_register",
+            reference = ""
+        ) { }
+    }
+
+    /** Parses Supabase/PostgREST timestamp output without turning a parse failure into 1970. */
+    fun parseCreatedAtMillis(value: String?): Long {
+        val raw = value?.trim().orEmpty()
+        if (raw.isBlank()) return 0L
+        raw.toLongOrNull()?.let { number ->
+            return if (kotlin.math.abs(number) < 100_000_000_000L) number * 1000L else number
+        }
+        return runCatching { Instant.parse(raw).toEpochMilli() }
+            .recoverCatching { OffsetDateTime.parse(raw).toInstant().toEpochMilli() }
+            .recoverCatching { LocalDateTime.parse(raw).toInstant(ZoneOffset.UTC).toEpochMilli() }
+            .getOrDefault(0L)
     }
 
     fun fetchHistory(consignmentId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {

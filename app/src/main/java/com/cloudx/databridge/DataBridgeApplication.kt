@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.messaging.FirebaseMessaging
 
 /**
  * 🔹 DataBridgeApplication.kt (Production-Ready v2.0)
@@ -37,6 +39,14 @@ class DataBridgeApplication : Application() {
         try {
             FirebaseApp.initializeApp(this)
             Log.d(TAG, "✅ Firebase initialized")
+            // A token is per app-installation and can rotate at any time. Register it
+            // after every auth-state change so the Edge Function can target this device.
+            FirebaseAuth.getInstance().addAuthStateListener { firebaseAuth ->
+                if (firebaseAuth.currentUser == null) return@addAuthStateListener
+                FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+                    SupabaseRemarkValidationWriter.registerPushToken(token)
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Firebase init failed: ${e.message}")
         }

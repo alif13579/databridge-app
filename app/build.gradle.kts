@@ -118,6 +118,8 @@ dependencies {
     implementation("com.google.firebase:firebase-database-ktx")
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-storage-ktx")
+    // Firebase Cloud Messaging — receives background remark notifications.
+    implementation("com.google.firebase:firebase-messaging-ktx")
 
     // রুম ডেটাবেস লাইব্রেরি (Room DB)
     implementation("androidx.room:room-runtime:2.6.1")

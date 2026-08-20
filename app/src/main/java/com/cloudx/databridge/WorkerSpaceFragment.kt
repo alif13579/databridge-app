@@ -1131,30 +1131,19 @@ class WorkerSpaceFragment : Fragment() {
         SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), floor, "WorkerSpaceFragment") { rows ->
             if (rows.isEmpty()) return@fetchNewRemarksSince
             viewLifecycleOwner.lifecycleScope.launch {
-                val ctx = context ?: return@launch
+                if (!isAdded) return@launch
                 var hasNewRow = false
                 rows.groupBy { it.optString("consignment_id") }.forEach { (consignmentId, group) ->
                     val latest = group.maxByOrNull {
-                        runCatching { java.time.Instant.parse(it.optString("created_at")).toEpochMilli() }.getOrDefault(0L)
+                        SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
                     } ?: return@forEach
-                    val createdAt = runCatching {
-                        java.time.Instant.parse(latest.optString("created_at")).toEpochMilli()
-                    }.getOrDefault(0L)
+                    val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(latest.optString("created_at"))
                     val previous = workerLastSeenRemarkAt[consignmentId] ?: 0L
                     val hadBaseline = previous > 0L
                     workerLastSeenRemarkAt[consignmentId] = createdAt
                     if (hadBaseline && createdAt > previous) {
-                        val parcel = allParcels.firstOrNull { it.id == consignmentId }
-                        val fromCc = latest.optString("verifier_system_id").trim() != systemId
-                        if (fromCc) {
-                            val text = latest.optString("remarks").trim()
-                            val status = latest.optString("status").trim()
-                            AppNotificationManager.add(ctx, AppNotificationManager.NotifItem(
-                                title = "Call Center — ${parcel?.customer?.ifBlank { consignmentId } ?: consignmentId}",
-                                message = text.ifBlank { status.ifBlank { "নতুন রিমার্ক এসেছে" } },
-                                type = "remark", parcelId = consignmentId, scope = "worker"
-                            ))
-                        }
+                        // FCM delivers the single detailed system notification. Polling is kept
+                        // only to refresh this open screen's card and history data.
                         hasNewRow = true
                     }
                 }
@@ -1384,7 +1373,7 @@ class WorkerSpaceFragment : Fragment() {
             }
 
             fun rowCreatedAtMillisBulk(row: org.json.JSONObject): Long =
-                runCatching { java.time.Instant.parse(row.optString("created_at")).toEpochMilli() }.getOrDefault(0L)
+                SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
 
             val history = remarkRows.mapNotNull { r ->
                 val rStatus = r.optString("status")?.trim().orEmpty()

@@ -2132,7 +2132,7 @@ class CallCenterFragment : Fragment() {
                         todayCal.set(java.util.Calendar.MILLISECOND, 0)
                         val todayStart = todayCal.timeInMillis
                         fun rowCreatedAtMillis(row: org.json.JSONObject): Long =
-                            runCatching { java.time.Instant.parse(row.optString("created_at")).toEpochMilli() }.getOrDefault(0L)
+                            SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
                         val latestTodayEntry = remarkRows.firstOrNull { rowCreatedAtMillis(it) >= todayStart }
                         val remarkStatus = latestTodayEntry?.optString("status")?.trim().orEmpty()
                         // Supabase rows don't carry a "who wrote this" role label the way
@@ -2196,9 +2196,7 @@ class CallCenterFragment : Fragment() {
                     // has one `remarks` column, not Firebase's separate remarks+note pair, so
                     // there's nothing left to combine here.
                     val rLabel = rRemarksText
-                    val createdAt = runCatching {
-                        java.time.Instant.parse(r.optString("created_at")).toEpochMilli()
-                    }.getOrDefault(0L)
+                    val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
                     val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                         .format(java.util.Date(createdAt))
                     val rVerifierId = r.optString("verifier_system_id")?.trim().orEmpty()
@@ -2305,54 +2303,17 @@ class CallCenterFragment : Fragment() {
             // between polls — only the newest one matters for "what changed").
             val latestByConsignment = rows.groupBy { it.optString("consignment_id") }
                 .mapValues { (_, group) -> group.maxByOrNull { r ->
-                    runCatching { java.time.Instant.parse(r.optString("created_at")).toEpochMilli() }.getOrDefault(0L)
+                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
                 } }
 
             viewLifecycleOwner.lifecycleScope.launch {
-                val ctx = context ?: return@launch
+                if (!isAdded) return@launch
                 latestByConsignment.forEach { (cId, latest) ->
                     if (cId.isNullOrBlank() || latest == null) return@forEach
-                    val latestCreatedAt = runCatching {
-                        java.time.Instant.parse(latest.optString("created_at")).toEpochMilli()
-                    }.getOrDefault(0L)
-                    val prevAt = ccLastSeenRemarkAt[cId] ?: 0L
-                    val hadAttachedBefore = cId in ccRemarkListenerAttached
-                    // Skip remarks whose verifier is this same consignment's own delivery
-                    // agent (i.e. authored by the Worker, not CC) — mirrors the old
-                    // remarked_by != "support" check: a CC agent should only be notified
-                    // about remarks the WORKER wrote, not their own CC-side submissions.
-                    val parcel = allParcels.firstOrNull { it.id == cId }
-                    val isFromWorker = latest.optString("verifier_system_id")?.trim().orEmpty()
-                        .let { it.isNotBlank() && it == parcel?.workerSystemId }
-
-                    if (hadAttachedBefore && latestCreatedAt > prevAt && isFromWorker) {
-                        val customer = parcel?.customer?.takeIf { it.isNotBlank() } ?: cId
-                        val remarkText = latest.optString("remarks")?.trim().orEmpty()
-                        val remarkStatus = latest.optString("status")?.trim().orEmpty()
-                        val statusLabelForNotif = if (remarkStatus.isNotBlank())
-                            WorkerParcelAdapter.getStatusConfig(ctx, remarkStatus, ccStatusLang).label else ""
-                        val authorName = parcel?.worker?.takeIf { it.isNotBlank() } ?: "Delivery Agent"
-                        val baseMessage = when {
-                            statusLabelForNotif.isNotBlank() && remarkText.isNotBlank() -> "$statusLabelForNotif — $remarkText"
-                            statusLabelForNotif.isNotBlank() -> statusLabelForNotif
-                            remarkText.isNotBlank() -> remarkText
-                            else -> "নতুন রিমার্ক এসেছে"
-                        }
-                        val ageStr = formatAge(parcel?.createdAt ?: 0L, parcel?.updatedAt ?: 0L)
-                        val attempts = parcel?.attemptCount ?: 0
-                        val infoLine = "📅 $ageStr  •  🔁 $attempts attempt${if (attempts == 1) "" else "s"}"
-                        val message = "$baseMessage\n$infoLine"
-                        AppNotificationManager.add(
-                            ctx,
-                            AppNotificationManager.NotifItem(
-                                title = "$authorName — $customer",
-                                message = message,
-                                type = "remark",
-                                parcelId = cId,
-                                scope = "cc"
-                            )
-                        )
-                    }
+                    val latestCreatedAt = SupabaseRemarkValidationWriter
+                        .parseCreatedAtMillis(latest.optString("created_at"))
+                    // FCM delivers the single detailed system notification. Polling is kept
+                    // only to refresh this open screen's card and history data.
                     ccRemarkListenerAttached.add(cId)
                     ccLastSeenRemarkAt[cId] = latestCreatedAt
 
@@ -2393,7 +2354,7 @@ class CallCenterFragment : Fragment() {
             todayCalLive.set(java.util.Calendar.MILLISECOND, 0)
             val todayStartLive = todayCalLive.timeInMillis
             fun rowCreatedAtMillisLive(row: org.json.JSONObject): Long =
-                runCatching { java.time.Instant.parse(row.optString("created_at")).toEpochMilli() }.getOrDefault(0L)
+                SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
             val latestTodayForBadge = remarkRows.firstOrNull { rowCreatedAtMillisLive(it) >= todayStartLive }
             val liveRemarkStatus = latestTodayForBadge?.optString("status")?.trim().orEmpty()
             val latestRemark = latestTodayForBadge?.optString("remarks")?.trim().orEmpty()

@@ -98,6 +98,15 @@
             android:foregroundServiceType="dataSync"
             tools:targetApi="29" />
 
+        <!-- Receives high-priority FCM data messages even while no screen is open. -->
+        <service
+            android:name=".DataBridgeMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- Incoming-call popup: primary path, API 29+. Requires the user to grant
              RoleManager.ROLE_CALL_SCREENING (requested from SettingsFragment, not
              declared here); BIND_SCREENING_SERVICE is what lets the Telecom framework
