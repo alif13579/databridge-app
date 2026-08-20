@@ -12,11 +12,11 @@ import androidx.fragment.app.viewModels
 /**
  * Petty Cash — Reports.
  *
- * Reached from the bottom action bar's "Reports" item on the Dashboard and
- * My Requests screens (see layout_petty_cash_bottom_nav.xml). The mockup
- * shows this as a bottom-nav destination without specifying its content, so
- * this is a menu into the report-style screens that already exist elsewhere
- * in the app rather than a new report-building feature:
+ * Reached from the Reports icon in the Dashboard toolbar (previously the
+ * bottom action bar's "Reports" item, removed for being a redundant extra
+ * bar — see git history for layout_petty_cash_bottom_nav.xml). This is a
+ * menu into the report-style screens that already exist elsewhere in the
+ * app rather than a new report-building feature:
  *   - All Requests (filterable, already supports date/status/category)
  *   - Settlement History (everyone — shows what's been settled)
  *   - Deposit History (Accounts only — deposits are an Accounts-only action)

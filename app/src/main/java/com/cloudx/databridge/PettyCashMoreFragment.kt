@@ -13,10 +13,15 @@ import androidx.fragment.app.viewModels
 /**
  * Petty Cash — More.
  *
- * Reached from the bottom action bar's "More" item (see
- * layout_petty_cash_bottom_nav.xml). Like PettyCashReportsFragment, this is
- * intentionally just a menu into what already exists in the app, not a new
- * settings/notifications feature — those already live in MainActivity's
+ * NOT CURRENTLY REACHABLE: was opened from the bottom action bar's "More"
+ * item, which has been removed (was a redundant extra bar — Dashboard's
+ * "Total Fund" card already opens the same Wallet Summary this menu's only
+ * item pointed to). No other screen links here. Kept as-is pending a call
+ * on whether to delete it outright; wire up a new entry point instead if
+ * this ever grows a second item.
+ *
+ * Was intentionally just a menu into what already exists in the app, not a
+ * new settings/notifications feature — those already live in MainActivity's
  * drawer and aren't duplicated here.
  *
  * Currently just Wallet Summary (Accounts-only — the wallet balance

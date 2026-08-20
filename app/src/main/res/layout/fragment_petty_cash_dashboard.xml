@@ -16,7 +16,7 @@
             android:layout_height="match_parent"
             android:fillViewport="true"
             android:clipToPadding="false"
-            android:paddingBottom="90dp">
+            android:paddingBottom="16dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -93,6 +93,14 @@
                         android:src="@android:drawable/ic_input_add"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="New Request" />
+
+                    <ImageButton
+                        android:id="@+id/btnPcDashboardReports"
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:src="@android:drawable/ic_menu_recent_history"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Reports" />
 
                     <ImageButton
                         android:id="@+id/btnPcDashboardNotif"
@@ -420,12 +428,6 @@
                 </LinearLayout>
             </LinearLayout>
         </ScrollView>
-
-        <include
-            layout="@layout/layout_petty_cash_bottom_nav"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom" />
 
     </FrameLayout>
 </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
