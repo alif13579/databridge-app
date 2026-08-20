@@ -142,12 +142,6 @@ class CallCenterFragment : Fragment() {
     // Firebase UID of the current CC agent — used as userId in remark writes for users/{uid} lookup.
     private var userId = ""
 
-    // The current CC agent's own system_id (users/{uid}/profile/company_info/system_id) —
-    // resolved once per session (see resolveVerifierSystemId()), used as the "verifier_id"
-    // column in Supabase's remark_validations table. Deliberately NOT the Firebase uid —
-    // see SupabaseRemarkValidationWriter's doc comment for why.
-    private var verifierSystemId = ""
-
     // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
     // repeated remark authors (workers or other CC agents) across a session don't refetch.
     // Cleared on pull-to-refresh alongside systemIdToName.
@@ -366,28 +360,7 @@ class CallCenterFragment : Fragment() {
 
         user?.uid?.let { uid ->
             userId = uid
-            resolveVerifierSystemId(uid)
         }
-    }
-
-    /** Resolves this CC agent's own system_id once per session, for use as the
-     *  verifier_id column in Supabase's remark_validations table. Best-effort:
-     *  if it fails or comes back blank, verifierSystemId stays "" and
-     *  SupabaseRemarkValidationWriter.write() skips (and logs) rather than
-     *  writing a row with a missing/wrong identifier. */
-    private fun resolveVerifierSystemId(uid: String) {
-        com.google.firebase.database.FirebaseDatabase.getInstance()
-            .reference.child("users/$uid/profile/company_info/system_id")
-            .get()
-            .addOnSuccessListener { snap ->
-                verifierSystemId = snap.getValue(String::class.java)?.trim().orEmpty()
-            }
-            .addOnFailureListener {
-                FirebaseErrorLogger.log(
-                    screen = "CallCenterFragment", action = "resolve_verifier_system_id",
-                    errorMessage = it.message ?: "unknown"
-                )
-            }
     }
 
     private fun setupAutoCallControls() {
@@ -1014,16 +987,20 @@ class CallCenterFragment : Fragment() {
                 .filter { it.isNotBlank() }.joinToString("\n")
             if (status.isBlank() && remarks.isBlank()) return@mapNotNull null
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
-            val verifierId = r.optString("verifier_system_id").trim()
-            val fromWorker = verifierId.isNotBlank() && verifierId == agentSystemId
+            val authorSystemId = r.optString("author_system_id").trim()
+            val fromWorker = authorSystemId.isNotBlank() && authorSystemId == agentSystemId
+            val savedAuthorName = r.optString("author_name").trim()
+            val savedAuthorEmployeeId = r.optString("author_employee_id").trim()
+            val resolvedAuthorName = savedAuthorName.ifBlank { nameMap[authorSystemId] ?: authorSystemId }
+            val authorLabel = if (savedAuthorEmployeeId.isBlank()) resolvedAuthorName else "$resolvedAuthorName ($savedAuthorEmployeeId)"
             HistoryEntry(
                 action = status.ifBlank { "NOTE" }.uppercase(),
                 remark = remarks,
                 time = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt)),
-                author = (nameMap[verifierId] ?: verifierId) + if (fromWorker) "" else " · CC",
+                author = authorLabel + if (fromWorker) "" else " · CC",
                 authorRole = if (fromWorker) "agent" else "cc",
-                authorPhotoUrl = systemIdToPhotoUrl[verifierId].orEmpty(),
+                authorPhotoUrl = systemIdToPhotoUrl[authorSystemId].orEmpty(),
                 createdAt = createdAt,
                 callLogCount = 0,
                 callLogTotalDurationSec = 0
@@ -2182,7 +2159,7 @@ class CallCenterFragment : Fragment() {
                         val latestTodayEntry = remarkRows.firstOrNull { rowCreatedAtMillis(it) >= todayStartForBadges }
                         val remarkStatus = latestTodayEntry?.optString("status")?.trim().orEmpty()
                         // Supabase rows don't carry a "who wrote this" role label the way
-                        // Firebase's remarked_by ("support" vs a worker uid) did — verifierId
+                        // Firebase's remarked_by ("support" vs a worker uid) did — authorSystemId
                         // is always a system_id now, for either a CC agent or a worker, with no
                         // clean "is this row from support" check left to make. The old behavior
                         // (hide the badge text when the CC agent's own remark is the latest) is
@@ -2656,8 +2633,7 @@ class CallCenterFragment : Fragment() {
         val noteText = AUTO_NO_ANSWER_REMARK_TEXT
 
         SupabaseRemarkValidationWriter.write(
-            deliveryAgentId = item.workerSystemId,
-            verifierId = verifierSystemId,
+            assignedAgentSystemId = item.workerSystemId,
             branchId = item.branchIds.firstOrNull().orEmpty(),
             consignmentId = item.id,
             status = "",
@@ -2705,8 +2681,7 @@ class CallCenterFragment : Fragment() {
         // since every remark is its own row.
         items.forEach { target ->
             SupabaseRemarkValidationWriter.write(
-                deliveryAgentId = target.workerSystemId,
-                verifierId = verifierSystemId,
+                assignedAgentSystemId = target.workerSystemId,
                 branchId = target.branchIds.firstOrNull().orEmpty(),
                 consignmentId = target.id,
                 status = selectedStatus,

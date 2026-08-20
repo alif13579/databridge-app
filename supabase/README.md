@@ -1,17 +1,15 @@
 # Supabase deployment: remark validations
 
 The Android app calls the `remark-validations` Edge Function with a Firebase ID
-token. The function verifies the token, confirms that a write's `verifier_system_id`
-matches that signed-in user's Firebase profile, then accesses Postgres with its
+token. The function derives every `author_*` field from that verified Firebase
+identity, then accesses Postgres with its
 server-only Supabase key. Mobile clients have no direct table permissions.
 
 ## One-time dashboard setup
 
-1. In **SQL Editor**, run the contents of
-   `migrations/202608190001_create_remark_validations.sql`,
-   `migrations/202608190003_create_fcm_device_tokens.sql`, and
-   `migrations/202608190004_add_fcm_call_center_permission.sql` (also run the
-   `202608190002` rename migration if upgrading from the older schema).
+1. Apply every file in `migrations/` in filename order. Existing deployments
+   must also apply `202608200002_replace_remark_verifier_with_author.sql` before
+   deploying the updated function/app.
 2. In **Edge Functions**, create a function named `remark-validations`, replace
    its source with `functions/remark-validations/index.ts`, and deploy it.
 3. In **Edge Functions → Secrets**, add these values:

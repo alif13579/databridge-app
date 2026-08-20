@@ -863,8 +863,7 @@ class WorkerSpaceFragment : Fragment() {
         if (systemId.isBlank() || branchId.isBlank()) return
 
         SupabaseRemarkValidationWriter.write(
-            deliveryAgentId = systemId,
-            verifierId = systemId,
+            assignedAgentSystemId = systemId,
             branchId = branchId,
             consignmentId = consignmentId,
             status = status,
@@ -1397,15 +1396,15 @@ class WorkerSpaceFragment : Fragment() {
         val fetches = itemFetches.awaitAll()
 
         // Pre-resolve every distinct remark-author system_id across ALL parcels in one
-        // parallel batch — remark_validations rows carry verifier_id (a system_id), not a
+        // parallel batch — remark_validations rows carry author_system_id, not a
         // Firebase uid, so this resolves through the same users_by_systemId reverse-index
         // path CallCenterFragment's ensureAgentNameMap() uses, rather than UserNameResolver's
         // uid-keyed lookup.
-        val distinctVerifierSystemIds = fetches.flatMap { it.remarkRows }
-            .mapNotNull { it.optString("verifier_system_id")?.trim() }
+        val distinctAuthorSystemIds = fetches.flatMap { it.remarkRows }
+            .mapNotNull { it.optString("author_system_id")?.trim() }
             .filter { it.isNotBlank() }
             .distinct()
-        val (nameMapBulk, photoMapBulk) = resolveSystemIdNamesAndPhotos(distinctVerifierSystemIds)
+        val (nameMapBulk, photoMapBulk) = resolveSystemIdNamesAndPhotos(distinctAuthorSystemIds)
 
         val parcels = mutableListOf<WorkerParcelItem>()
         val statusBackfills = mutableMapOf<String, Any?>()
@@ -1444,23 +1443,26 @@ class WorkerSpaceFragment : Fragment() {
                 val createdAt = rowCreatedAtMillisBulk(r)
                 val timeStr = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
                     .format(java.util.Date(createdAt))
-                val rVerifierId = r.optString("verifier_system_id")?.trim().orEmpty()
+                val authorSystemId = r.optString("author_system_id")?.trim().orEmpty()
                 // A remark is "from the delivery agent themself" (this worker) when
-                // verifier_id matches THIS consignment's own delivery agent (this worker's
+                // author_system_id matches THIS consignment's own delivery agent (this worker's
                 // systemId), vs "from a CC agent" otherwise — the closest equivalent left to
                 // the old remarked_by == "support" check now that both write through the
                 // same Supabase writer with no role label of their own.
-                val isFromDeliveryAgent = rVerifierId.isNotBlank() && rVerifierId == systemId
+                val isFromDeliveryAgent = authorSystemId.isNotBlank() && authorSystemId == systemId
                 val authorRole = if (isFromDeliveryAgent) "agent" else "cc"
-                val resolvedAuthorName = nameMapBulk[rVerifierId] ?: rVerifierId
-                val author = if (isFromDeliveryAgent) resolvedAuthorName else "$resolvedAuthorName · CC"
+                val savedAuthorName = r.optString("author_name").trim()
+                val savedAuthorEmployeeId = r.optString("author_employee_id").trim()
+                val resolvedAuthorName = savedAuthorName.ifBlank { nameMapBulk[authorSystemId] ?: authorSystemId }
+                val authorLabel = if (savedAuthorEmployeeId.isBlank()) resolvedAuthorName else "$resolvedAuthorName ($savedAuthorEmployeeId)"
+                val author = if (isFromDeliveryAgent) authorLabel else "$authorLabel · CC"
                 HistoryEntry(
                     action = rStatus.ifBlank { "NOTE" }.uppercase(),
                     remark = rLabel,
                     time = timeStr,
                     author = author,
                     authorRole = authorRole,
-                    authorPhotoUrl = photoMapBulk[rVerifierId].orEmpty(),
+                    authorPhotoUrl = photoMapBulk[authorSystemId].orEmpty(),
                     createdAt = createdAt,
                     cardBadgeText = rBadge
                 )
