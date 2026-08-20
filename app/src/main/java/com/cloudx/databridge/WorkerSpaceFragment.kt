@@ -912,6 +912,7 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     private fun showActionHistoryDialog(item: WorkerParcelItem) {
+        val loadingDialog = renderActionHistoryDialog(item, isLoading = true)
         viewLifecycleOwner.lifecycleScope.launch {
             val rows = withContext(Dispatchers.IO) {
                 val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
@@ -921,16 +922,19 @@ class WorkerSpaceFragment : Fragment() {
                 deferred.await()
             }
             if (!isAdded) return@launch
-            renderActionHistoryDialog(item.copy(history = buildHistoryEntries(item.id, rows)))
+            if (loadingDialog.isShowing) loadingDialog.dismiss()
+            renderActionHistoryDialog(item.copy(history = buildHistoryEntries(item.id, rows)), isLoading = false)
         }
     }
 
-    private fun renderActionHistoryDialog(item: WorkerParcelItem) {
+    private fun renderActionHistoryDialog(item: WorkerParcelItem, isLoading: Boolean = false): BottomSheetDialog {
         val dialog = BottomSheetDialog(requireContext())
         val view = layoutInflater.inflate(R.layout.bottom_sheet_action_history, null)
         val tvTitle = view.findViewById<TextView>(R.id.twHistoryTitle)
         val tvSub = view.findViewById<TextView>(R.id.twHistorySub)
         val layoutTimeline = view.findViewById<LinearLayout>(R.id.layoutTimeline)
+        val layoutLoading = view.findViewById<View>(R.id.layoutHistoryLoading)
+        val scrollTimeline = view.findViewById<View>(R.id.scrollHistoryTimeline)
         val tvOvStatus = view.findViewById<TextView>(R.id.twOverviewStatus)
         val tvOvCreatedAt = view.findViewById<TextView>(R.id.twOverviewCreatedAt)
         val tvOvUpdatedAt = view.findViewById<TextView>(R.id.twOverviewUpdatedAt)
@@ -951,6 +955,8 @@ class WorkerSpaceFragment : Fragment() {
         tvOvAge.setTextColor(ovAgeColor)
 
         layoutTimeline.removeAllViews()
+        layoutLoading.visibility = if (isLoading) View.VISIBLE else View.GONE
+        scrollTimeline.visibility = if (isLoading) View.GONE else View.VISIBLE
 
         val historyEntries = mutableListOf<HistoryEntry>()
 
@@ -1058,6 +1064,7 @@ class WorkerSpaceFragment : Fragment() {
 
         dialog.setContentView(view)
         dialog.show()
+        return dialog
     }
 
     private fun buildHistoryEntries(
@@ -1177,7 +1184,7 @@ class WorkerSpaceFragment : Fragment() {
 
         currentIds.forEach { id ->
             if (engagedAtListeners.containsKey(id)) return@forEach
-            val ref = db.reference.child("courier/consignments/$id/engagedat")
+            val ref = db.reference.child(EngagedStateManager.nodePath(id))
             val listener = object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
                     viewLifecycleOwner.lifecycleScope.launch {
@@ -1190,7 +1197,7 @@ class WorkerSpaceFragment : Fragment() {
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    Log.w("WorkerSpaceFragment", "engagedat listener cancelled for $id: ${error.message}")
+                    Log.w("WorkerSpaceFragment", "engaged_at listener cancelled for $id: ${error.message}")
                 }
             }
             ref.addValueEventListener(listener)
@@ -1512,7 +1519,7 @@ class WorkerSpaceFragment : Fragment() {
 
         // Step 3: fetch consignment details for EVERY consignment IN PARALLEL. Full Supabase
         // history is intentionally not fetched here; the journey sheet loads it on demand.
-        // engagedat (real-time presence) stays on Firebase.
+        // engaged_at (real-time presence) stays on Firebase.
         data class ItemFetch(
             val cId: String, val runRef: ConsignmentRunRef, val detailSnap: DataSnapshot,
             val engagedAtSnap: DataSnapshot
@@ -1524,7 +1531,7 @@ class WorkerSpaceFragment : Fragment() {
                     db.reference.child("courier/consignments/$cId").get().await()
                 }
                 val engagedAtDeferred = async(Dispatchers.IO) {
-                    db.reference.child("courier/consignments/$cId/engagedat").get().await()
+                    db.reference.child(EngagedStateManager.nodePath(cId)).get().await()
                 }
                 ItemFetch(cId, runRef, detailDeferred.await(), engagedAtDeferred.await())
             }

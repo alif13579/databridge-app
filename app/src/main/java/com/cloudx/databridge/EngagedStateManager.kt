@@ -3,7 +3,7 @@ package com.cloudx.databridge
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.FirebaseDatabase
 
-/** One agent's engagement entry — mirrors one child of engagedat/{agentUid}. photoUrl is
+/** One agent's engagement entry — mirrors one child of engaged_at/{agentUid}. photoUrl is
  *  resolved separately (via UserNameResolver, cached) since it isn't stored in the entry
  *  itself. */
 data class EngagedAgent(
@@ -26,14 +26,14 @@ data class EngagedAgent(
  * engaged with several shared parcels simultaneously. Each agent gets their own keyed entry
  * instead of one agent's mark overwriting another's.
  *
- * Path: courier/consignments/{consignmentId}/engagedat/{agentUid}
+ * Path: courier/consignments/{consignmentId}/engaged_at/{agentUid}
  *   timestamp : Long   — epoch millis when this agent's card was expanded
  *   agentName : String
  *   agentRole : "worker" | "cc"
  *
  * Moved here from courier/remarks_by_consignment/{consignmentId}/engaged_at — that parent
  * node's sibling remark data (remarks_{timestamp} entries) moved to Supabase (see
- * SupabaseRemarkValidationWriter's doc comment), so engagedat now lives directly under the
+ * SupabaseRemarkValidationWriter's doc comment), so engaged_at now lives directly under the
  * consignment's own Firebase node instead of a node that otherwise has nothing left under it.
  *
  * Lifecycle (per explicit product decision — revised, collapse now clears too):
@@ -44,7 +44,7 @@ data class EngagedAgent(
  *           independently so neither depends on the other actually firing. Only removes
  *           the calling agent's own entry — other agents engaged with the same parcel
  *           (e.g. via the same-phone-group fan-out) are untouched. Once the LAST engaged
- *           agent's entry is removed, engagedat itself disappears automatically — Firebase
+ *           agent's entry is removed, engaged_at itself disappears automatically — Firebase
  *           Realtime Database has no concept of an "empty" node, so no explicit cleanup
  *           call is needed here beyond removing the one entry that was actually cleared.
  *   SAFETY NET : a 5-minute staleness window, checked at DISPLAY time (isFresh()) — covers
@@ -54,12 +54,15 @@ data class EngagedAgent(
  */
 object EngagedStateManager {
 
+    private const val ENGAGED_NODE = "engaged_at"
     private const val STALE_AFTER_MS = 5 * 60 * 1000L // 5 minutes
+
+    fun nodePath(consignmentId: String): String = "courier/consignments/$consignmentId/$ENGAGED_NODE"
 
     fun markEngaged(consignmentId: String, agentUid: String, agentName: String, agentRole: String) {
         if (consignmentId.isBlank() || agentUid.isBlank()) return
         val ref = FirebaseDatabase.getInstance()
-            .reference.child("courier/consignments/$consignmentId/engagedat/$agentUid")
+            .reference.child("${nodePath(consignmentId)}/$agentUid")
         val payload = mapOf(
             "timestamp" to System.currentTimeMillis(),
             "agentName" to agentName,
@@ -71,7 +74,7 @@ object EngagedStateManager {
     /** Called when that parcel's remarks are submitted, or the card collapses — from either
      *  the Worker or Call Center flow. Removes only [agentUid]'s own entry; other agents
      *  engaged with the same parcel are untouched. If this was the last remaining entry
-     *  under engagedat, the now-empty engagedat node itself disappears automatically as
+     *  under engaged_at, the now-empty engaged_at node itself disappears automatically as
      *  part of the same removeValue() call — Firebase Realtime Database prunes empty parent
      *  nodes on write, no separate cleanup step needed. Fire-and-forget; a failed clear here
      *  just means that agent's avatar keeps showing until the 5-minute staleness window
@@ -79,7 +82,7 @@ object EngagedStateManager {
     fun clearEngaged(consignmentId: String, agentUid: String) {
         if (consignmentId.isBlank() || agentUid.isBlank()) return
         FirebaseDatabase.getInstance()
-            .reference.child("courier/consignments/$consignmentId/engagedat/$agentUid")
+            .reference.child("${nodePath(consignmentId)}/$agentUid")
             .removeValue()
     }
 
@@ -92,7 +95,7 @@ object EngagedStateManager {
         return (System.currentTimeMillis() - timestamp) < STALE_AFTER_MS
     }
 
-    /** Parses an engagedat snapshot (the node containing one child per engaged agentUid)
+    /** Parses an engaged_at snapshot (the node containing one child per engaged agentUid)
      *  into a list of EngagedAgent, resolving each one's photo via UserNameResolver's cache.
      *  Shared by both fragments' batch-load and live-listener parsing paths so there's one
      *  place that knows this shape, instead of four copies. Does NOT filter by isFresh() —

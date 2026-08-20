@@ -978,6 +978,7 @@ class CallCenterFragment : Fragment() {
 
     private fun showActionHistoryDialog(item: CallCenterParcelItem) {
         // Full history is intentionally loaded only when the journey log is opened.
+        val loadingDialog = renderActionHistoryDialog(item, isLoading = true)
         viewLifecycleOwner.lifecycleScope.launch {
             val rows = withContext(Dispatchers.IO) {
                 val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
@@ -987,7 +988,8 @@ class CallCenterFragment : Fragment() {
                 deferred.await()
             }
             if (!isAdded) return@launch
-            renderActionHistoryDialog(item.copy(history = buildHistoryEntries(item, rows)))
+            if (loadingDialog.isShowing) loadingDialog.dismiss()
+            renderActionHistoryDialog(item.copy(history = buildHistoryEntries(item, rows)), isLoading = false)
         }
     }
 
@@ -1021,12 +1023,14 @@ class CallCenterFragment : Fragment() {
         }.sortedBy { it.createdAt }
     }
 
-    private fun renderActionHistoryDialog(item: CallCenterParcelItem) {
+    private fun renderActionHistoryDialog(item: CallCenterParcelItem, isLoading: Boolean = false): BottomSheetDialog {
         val dialog = BottomSheetDialog(requireContext())
         val view = layoutInflater.inflate(R.layout.bottom_sheet_action_history, null)
         val tvTitle = view.findViewById<TextView>(R.id.twHistoryTitle)
         val tvSub = view.findViewById<TextView>(R.id.twHistorySub)
         val layoutTimeline = view.findViewById<LinearLayout>(R.id.layoutTimeline)
+        val layoutLoading = view.findViewById<View>(R.id.layoutHistoryLoading)
+        val scrollTimeline = view.findViewById<View>(R.id.scrollHistoryTimeline)
         val tvOvStatus = view.findViewById<TextView>(R.id.twOverviewStatus)
         val tvOvCreatedAt = view.findViewById<TextView>(R.id.twOverviewCreatedAt)
         val tvOvUpdatedAt = view.findViewById<TextView>(R.id.twOverviewUpdatedAt)
@@ -1047,6 +1051,8 @@ class CallCenterFragment : Fragment() {
         tvOvAge.setTextColor(ovAgeColor)
 
         layoutTimeline.removeAllViews()
+        layoutLoading.visibility = if (isLoading) View.VISIBLE else View.GONE
+        scrollTimeline.visibility = if (isLoading) View.GONE else View.VISIBLE
 
         val historyEntries = mutableListOf<HistoryEntry>()
         if (item.createdAt > 0) {
@@ -1136,6 +1142,7 @@ class CallCenterFragment : Fragment() {
 
         dialog.setContentView(view)
         dialog.show()
+        return dialog
     }
 
     private fun updateModeDropdownLabel() {
@@ -1980,7 +1987,7 @@ class CallCenterFragment : Fragment() {
         currentIds.forEach { id ->
             if (ccEngagedAtListeners.containsKey(id)) return@forEach
             val ref = com.google.firebase.database.FirebaseDatabase.getInstance()
-                .reference.child("courier/consignments/$id/engagedat")
+                .reference.child(EngagedStateManager.nodePath(id))
             val listener = object : com.google.firebase.database.ValueEventListener {
                 override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
                     viewLifecycleOwner.lifecycleScope.launch {
@@ -1993,7 +2000,7 @@ class CallCenterFragment : Fragment() {
                 }
 
                 override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
-                    android.util.Log.w("CallCenterFragment", "engagedat listener cancelled for $id: ${error.message}")
+                    android.util.Log.w("CallCenterFragment", "engaged_at listener cancelled for $id: ${error.message}")
                 }
             }
             ref.addValueEventListener(listener)
@@ -2176,7 +2183,7 @@ class CallCenterFragment : Fragment() {
                             db.reference.child("courier/consignments/$cId").get().await()
                         }
                         val engagedAtSnapDeferred = async(Dispatchers.IO) {
-                            db.reference.child("courier/consignments/$cId/engagedat").get().await()
+                            db.reference.child(EngagedStateManager.nodePath(cId)).get().await()
                         }
                         val snap = snapDeferred.await()
                         if (!snap.exists()) return@async null

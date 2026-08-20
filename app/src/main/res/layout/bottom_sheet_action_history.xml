@@ -172,7 +172,31 @@
         </LinearLayout>
     </LinearLayout>
 
+    <LinearLayout
+        android:id="@+id/layoutHistoryLoading"
+        android:layout_width="match_parent"
+        android:layout_height="96dp"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:indeterminate="true" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Loading history..."
+            android:textColor="@color/theme_text_secondary"
+            android:textSize="12sp"
+            android:includeFontPadding="false" />
+    </LinearLayout>
+
     <ScrollView
+        android:id="@+id/scrollHistoryTimeline"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:fillViewport="true">
