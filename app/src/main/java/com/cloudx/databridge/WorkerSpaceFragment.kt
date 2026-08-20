@@ -494,7 +494,6 @@ class WorkerSpaceFragment : Fragment() {
                                 icon = "💬",
                                 label = label,
                                 englishLabel = textEn.ifBlank { textBn.ifBlank { label } },
-                                bnLabel = textBn.ifBlank { textEn.ifBlank { label } },
                                 statusKey = target,
                                 statusPreview = preview,
                                 statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
@@ -517,6 +516,17 @@ class WorkerSpaceFragment : Fragment() {
                 Log.e("WorkerSpace", "Failed to load remark options from config, using defaults", e)
             }
         }
+    }
+
+    /**
+     * Resolves a stored English remark text back to its Bangla label for display.
+     * Supabase stores englishLabel for reporting; the Worker card shows Bangla.
+     * Falls back to raw unchanged when it's a free-text note, remarkOptions haven't
+     * loaded yet, or the config entry was edited/deleted since the remark was saved.
+     */
+    private fun resolveRemarkBn(raw: String): String {
+        if (raw.isBlank()) return raw
+        return remarkOptions.find { it.englishLabel == raw }?.label ?: raw
     }
 
     private fun showWorkerRemarksDialog(item: WorkerParcelItem) {
@@ -765,7 +775,7 @@ class WorkerSpaceFragment : Fragment() {
                     consignmentId = p.id,
                     branchId = branchId,
                     status = statusKey,
-                    remarksText = selectedOption?.bnLabel?.ifBlank { selectedLabel } ?: selectedLabel,
+                    remarksText = selectedOption?.englishLabel?.ifBlank { selectedLabel } ?: selectedLabel,
                     noteText = ""
                 )
                 EngagedStateManager.clearEngaged(p.id, userId)
@@ -1321,7 +1331,7 @@ class WorkerSpaceFragment : Fragment() {
             } ?: return@launch
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(latest.optString("created_at"))
             val remarkText = listOf(
-                latest.optString("remarks").trim(), latest.optString("note").trim()
+                resolveRemarkBn(latest.optString("remarks").trim()), latest.optString("note").trim()
             ).filter { it.isNotBlank() }.joinToString("\n")
             val remarkStatus = latest.optString("remarks_status").trim()
             workerLastSeenRemarkAt[consignmentId] = createdAt
@@ -1578,7 +1588,7 @@ class WorkerSpaceFragment : Fragment() {
             // gate has no equivalent left; the badge always shows the latest remark's text now.
             val latestTodayCreatedAt = latestTodayRawEntry?.let { rowCreatedAtMillisBulk(it) } ?: 0L
             val lastRemark = latestTodayRawEntry?.let { row ->
-                listOf(row.optString("remarks").trim(), row.optString("note").trim())
+                listOf(resolveRemarkBn(row.optString("remarks").trim()), row.optString("note").trim())
                     .filter { it.isNotBlank() }.joinToString("\n")
             }.orEmpty()
             workerLastSeenRemarkAt[cId] = maxOf(latestTodayCreatedAt, todayBatchRequestedAtMs)
@@ -1838,7 +1848,6 @@ class WorkerSpaceFragment : Fragment() {
         val icon: String,
         val label: String,
         val englishLabel: String = label,
-        val bnLabel: String = label,
         val statusKey: String,
         val statusPreview: String,
         val statusColor: Int,
