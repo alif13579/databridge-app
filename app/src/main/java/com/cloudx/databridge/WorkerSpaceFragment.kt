@@ -572,9 +572,16 @@ class WorkerSpaceFragment : Fragment() {
 
                 // Call-log lookup on IO first (same as saveRemarkForItems()), then write.
                 viewLifecycleOwner.lifecycleScope.launch {
+                    // item.time holds deliveryHub (see the WorkerParcelItem construction site)
+                    // -- the PARCEL's own branch, not RbacManager.current.branchIds (the ACTING
+                    // worker's own branches). Using the worker's branch here was the bug behind
+                    // Worker-authored remarks never reaching Call Center: the Edge Function
+                    // targets CC agents via .overlaps('branch_ids', [row.branch_id]), so a
+                    // wrong branch_id (e.g. a multi-branch worker's first-listed branch not
+                    // being this specific parcel's branch) can silently match zero CC agents.
                     writeWorkerRemarkToSupabase(
                         consignmentId = item.id,
-                        branchId = RbacManager.current.branchIds.firstOrNull().orEmpty(),
+                        branchId = item.time,
                         status = "",
                         remarksText = "",
                         noteText = noteText
@@ -769,11 +776,16 @@ class WorkerSpaceFragment : Fragment() {
             // (see SupabaseRemarkValidationWriter's doc comment) — the CallLogHelper lookup
             // that used to feed it is dropped too, since computing it now would be wasted
             // work with nowhere to put the result.
-            val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
+            //
+            // branchId now comes from each parcel's own p.time (deliveryHub) rather than a
+            // single RbacManager.current.branchIds value shared across the whole batch --
+            // same fix as the single-item Note path above, and more clearly wrong here
+            // specifically, since a batch of parcels from the queue can span more than one
+            // branch even when the acting worker only has one branch listed themselves.
             items.forEach { p ->
                 writeWorkerRemarkToSupabase(
                     consignmentId = p.id,
-                    branchId = branchId,
+                    branchId = p.time,
                     status = statusKey,
                     remarksText = selectedOption?.englishLabel?.ifBlank { selectedLabel } ?: selectedLabel,
                     noteText = ""
