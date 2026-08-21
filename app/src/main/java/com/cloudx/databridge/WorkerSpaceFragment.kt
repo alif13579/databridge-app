@@ -158,8 +158,8 @@ class WorkerSpaceFragment : Fragment() {
         AppNotificationManager.removeRemarkListener(remarkNotificationListener)
         detachRunsListener()
         detachEngagedAtListeners()
-        workerRemarkPollHandler?.removeCallbacksAndMessages(null)
-        workerRemarkPollHandler = null
+        workerRealtimeJob?.cancel()
+        workerRealtimeJob = null
         super.onDestroyView()
     }
 
@@ -294,7 +294,7 @@ class WorkerSpaceFragment : Fragment() {
     private fun setupFilterTabs() {
         layoutFilterTabs.removeAllViews()
         val total       = allParcels.size
-        val statusCounts = allParcels.groupingBy { it.effectiveStatus }.eachCount()
+        val statusCounts = allParcels.groupingBy { it.status }.eachCount()
 
         // Reset active filter if it no longer exists in data
         if (activeFilter != "all" && !statusCounts.containsKey(activeFilter)) {
@@ -572,16 +572,9 @@ class WorkerSpaceFragment : Fragment() {
 
                 // Call-log lookup on IO first (same as saveRemarkForItems()), then write.
                 viewLifecycleOwner.lifecycleScope.launch {
-                    // item.time holds deliveryHub (see the WorkerParcelItem construction site)
-                    // -- the PARCEL's own branch, not RbacManager.current.branchIds (the ACTING
-                    // worker's own branches). Using the worker's branch here was the bug behind
-                    // Worker-authored remarks never reaching Call Center: the Edge Function
-                    // targets CC agents via .overlaps('branch_ids', [row.branch_id]), so a
-                    // wrong branch_id (e.g. a multi-branch worker's first-listed branch not
-                    // being this specific parcel's branch) can silently match zero CC agents.
                     writeWorkerRemarkToSupabase(
                         consignmentId = item.id,
-                        branchId = item.time,
+                        branchId = RbacManager.current.branchIds.firstOrNull().orEmpty(),
                         status = "",
                         remarksText = "",
                         noteText = noteText
@@ -776,16 +769,11 @@ class WorkerSpaceFragment : Fragment() {
             // (see SupabaseRemarkValidationWriter's doc comment) — the CallLogHelper lookup
             // that used to feed it is dropped too, since computing it now would be wasted
             // work with nowhere to put the result.
-            //
-            // branchId now comes from each parcel's own p.time (deliveryHub) rather than a
-            // single RbacManager.current.branchIds value shared across the whole batch --
-            // same fix as the single-item Note path above, and more clearly wrong here
-            // specifically, since a batch of parcels from the queue can span more than one
-            // branch even when the acting worker only has one branch listed themselves.
+            val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
             items.forEach { p ->
                 writeWorkerRemarkToSupabase(
                     consignmentId = p.id,
-                    branchId = p.time,
+                    branchId = branchId,
                     status = statusKey,
                     remarksText = selectedOption?.englishLabel?.ifBlank { selectedLabel } ?: selectedLabel,
                     noteText = ""
@@ -821,7 +809,6 @@ class WorkerSpaceFragment : Fragment() {
         if (adapter.expandedItemId in updatedIds) {
             adapter.expandedItemId = null
         }
-        setupFilterTabs()
         applyFilters()
 
         val savedCount = items.size
@@ -906,7 +893,7 @@ class WorkerSpaceFragment : Fragment() {
             status = status,
             remarksText = remarksText,
             noteText = noteText,
-            source = "WORKER",
+            source = "verification_request",
             screen = "WorkerSpaceFragment"
         )
     }
@@ -968,7 +955,7 @@ class WorkerSpaceFragment : Fragment() {
         tvSub.text = "${item.id} · ${item.customer}"
 
         // Overview
-        val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.effectiveStatus, "bn")
+        val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.status, "bn")
         tvOvStatus.text = cfg.label
         tvOvStatus.setTextColor(cfg.color)
         val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
@@ -1263,36 +1250,37 @@ class WorkerSpaceFragment : Fragment() {
 
     // Tracks last-seen remark timestamp per consignment to detect genuinely new CC remarks
     private val workerLastSeenRemarkAt = mutableMapOf<String, Long>()
-    private var workerRemarkPollHandler: android.os.Handler? = null
+    private var workerRealtimeJob: kotlinx.coroutines.Job? = null
     private var workerRemarkPollIds: Set<String> = emptySet()
-    private val workerRemarkPollRunnable = object : Runnable {
-        override fun run() {
-            pollForNewWorkerRemarks()
-            workerRemarkPollHandler?.postDelayed(this, WORKER_REMARK_POLL_INTERVAL_MS)
-        }
-    }
     // Parcel ID to expand after data loads (set when navigating from a notification tap).
     private var pendingExpandParcelId: String? = null
 
     /**
-     * Starts (or updates the tracked ID set for) the new-remark polling loop for every
-     * loaded parcel. When a new CC remark arrives, updates that single parcel's history
-     * in allParcels and re-applies filters — no full Firebase round-trip needed.
-     *
-     * Remarks now live only in Supabase (see SupabaseRemarkValidationWriter's doc
-     * comment) — this polls the shared remark_validations table via
-     * pollForNewWorkerRemarks() rather than attaching a Firebase ValueEventListener per
-     * consignment, mirroring CallCenterFragment's equivalent poll loop.
+     * Starts a Supabase Realtime subscription filtered by assigned_to_system_id.
+     * INSERT events on validations arrive instantly — no polling, no invocations consumed.
      */
     private fun syncRemarkListeners(currentIds: Set<String>) {
         workerRemarkPollIds = currentIds
         workerLastSeenRemarkAt.keys.retainAll(currentIds)
-        if (workerRemarkPollHandler == null) {
-            workerRemarkPollHandler = android.os.Handler(android.os.Looper.getMainLooper())
-            workerRemarkPollHandler?.postDelayed(workerRemarkPollRunnable, WORKER_REMARK_POLL_INTERVAL_MS)
+        if (systemId.isBlank()) return
+        workerRealtimeJob?.cancel()
+        workerRealtimeJob = SupabaseRealtimeManager.subscribeValidations(
+            channelKey = "worker_agent_$systemId",
+            filter     = "assigned_to_system_id" to systemId,
+            scope      = viewLifecycleOwner.lifecycleScope,
+        ) { row ->
+            val cId = row.optString("consignment")
+            if (cId.isBlank() || cId !in workerRemarkPollIds) return@subscribeValidations
+            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
+            val previous = workerLastSeenRemarkAt[cId] ?: 0L
+            workerLastSeenRemarkAt[cId] = maxOf(createdAt, previous)
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (isAdded) loadData()
+            }
         }
     }
 
+    /** Kept as push-triggered fallback when Realtime reconnects. */
     private fun pollForNewWorkerRemarks() {
         if (!isAdded) return
         val ids = workerRemarkPollIds
@@ -1302,23 +1290,14 @@ class WorkerSpaceFragment : Fragment() {
             if (rows.isEmpty()) return@fetchNewRemarksSince
             viewLifecycleOwner.lifecycleScope.launch {
                 if (!isAdded) return@launch
-                var hasNewRow = false
-                rows.groupBy { it.optString("consignment") }.forEach { (consignmentId, group) ->
+                rows.groupBy { it.optString("consignment") }.forEach { (cId, group) ->
                     val latest = group.maxByOrNull {
                         SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
                     } ?: return@forEach
                     val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(latest.optString("created_at"))
-                    val previous = workerLastSeenRemarkAt[consignmentId] ?: 0L
-                    val hadBaseline = previous > 0L
-                    workerLastSeenRemarkAt[consignmentId] = createdAt
-                    if (hadBaseline && createdAt > previous) {
-                        // FCM delivers the single detailed system notification. Polling is kept
-                        // only to refresh this open screen's card and history data.
-                        hasNewRow = true
-                    }
+                    workerLastSeenRemarkAt[cId] = createdAt
                 }
-                // The reload rebuilds card badges from Supabase; full journey history stays lazy.
-                if (hasNewRow) loadData()
+                loadData()
             }
         }
     }
@@ -1725,7 +1704,7 @@ class WorkerSpaceFragment : Fragment() {
 
         // Status filter — dynamic exact match
         filtered = if (activeFilter == "all") filtered
-                   else filtered.filter { it.effectiveStatus == activeFilter }
+                   else filtered.filter { it.status == activeFilter }
 
         // No re-sort needed here: allParcels is already ordered by sortByGroupAge()
         // (same-phone parcels adjacent, oldest group/parcel first), and filtering
@@ -1849,7 +1828,6 @@ class WorkerSpaceFragment : Fragment() {
     )
 
     companion object {
-        private const val WORKER_REMARK_POLL_INTERVAL_MS = 20_000L
         private const val RUN_TYPE_ALL = "all"
         private val RUN_TYPE_ORDER = listOf("delivery_run", "pickup_run", "return_run")
         // Run ID shape: run_{yyyyMMdd}_{employeeId} — yyyyMMdd is always exactly 8 zero-padded
