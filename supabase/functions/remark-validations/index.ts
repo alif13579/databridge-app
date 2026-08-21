@@ -212,9 +212,14 @@ async function sendRemarkPush(row: { consignment: string; branch_id: string; ass
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: {
           token,
-          // Include a notification payload so Android can render the heads-up/system-tray
-          // notification even when the app process is fully backgrounded or reclaimed.
-          notification: { title, body },
+          // Data-only (no `notification` block): Android always calls
+          // onMessageReceived() regardless of foreground/background state.
+          // With a `notification` block present, FCM auto-handles the message
+          // when the app is backgrounded and onMessageReceived() is NOT called,
+          // so AppNotificationManager.add() never fires and the in-app drawer
+          // never receives the event.
+          // AppNotificationManager.add() calls showSystemNotification() itself,
+          // so the system tray notification still appears in all cases.
           data: {
             type: 'remark', title, body,
             consignment_id: row.consignment,
@@ -224,10 +229,6 @@ async function sendRemarkPush(row: { consignment: string; branch_id: string; ass
           },
           android: {
             priority: 'high',
-            notification: {
-              channel_id: 'databridge_alerts_channel_v2',
-              sound: 'default',
-            },
           },
         } }),
       })
