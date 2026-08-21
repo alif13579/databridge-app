@@ -1334,6 +1334,10 @@ class WorkerSpaceFragment : Fragment() {
         if (sortMode == "priority") {
             allParcels = WorkerParcelAdapter.sortByPriority(allParcels)
         }
+        // setupFilterTabs() must run before applyFilters() so the status chips
+        // reflect the updated effectiveStatus distribution after a Realtime INSERT.
+        // applyFilters() only filters the list — it does not rebuild chip counts.
+        setupFilterTabs()
         applyFilters()
     }
 
