@@ -294,7 +294,7 @@ class WorkerSpaceFragment : Fragment() {
     private fun setupFilterTabs() {
         layoutFilterTabs.removeAllViews()
         val total       = allParcels.size
-        val statusCounts = allParcels.groupingBy { it.status }.eachCount()
+        val statusCounts = allParcels.groupingBy { it.effectiveStatus }.eachCount()
 
         // Reset active filter if it no longer exists in data
         if (activeFilter != "all" && !statusCounts.containsKey(activeFilter)) {
@@ -809,6 +809,7 @@ class WorkerSpaceFragment : Fragment() {
         if (adapter.expandedItemId in updatedIds) {
             adapter.expandedItemId = null
         }
+        setupFilterTabs()
         applyFilters()
 
         val savedCount = items.size
@@ -955,7 +956,7 @@ class WorkerSpaceFragment : Fragment() {
         tvSub.text = "${item.id} · ${item.customer}"
 
         // Overview
-        val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.status, "bn")
+        val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.effectiveStatus, "bn")
         tvOvStatus.text = cfg.label
         tvOvStatus.setTextColor(cfg.color)
         val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
@@ -1712,7 +1713,7 @@ class WorkerSpaceFragment : Fragment() {
 
         // Status filter — dynamic exact match
         filtered = if (activeFilter == "all") filtered
-                   else filtered.filter { it.status == activeFilter }
+                   else filtered.filter { it.effectiveStatus == activeFilter }
 
         // No re-sort needed here: allParcels is already ordered by sortByGroupAge()
         // (same-phone parcels adjacent, oldest group/parcel first), and filtering

@@ -40,7 +40,12 @@ data class WorkerParcelItem(
     val engagedAgents: List<EngagedAgent> = emptyList(),
     val attemptCount: Int = 0,
     val history: List<HistoryEntry> = emptyList()
-)
+) {
+    /** remarkStatus (if set) always takes priority over the raw parcel status — this is
+     *  what the card's status chip shows and what filters/tabs match against. Same pattern
+     *  as CallCenterParcelItem.effectiveStatus. */
+    val effectiveStatus: String get() = remarkStatus.ifBlank { status }
+}
 
 data class HistoryEntry(
     val action: String,
@@ -175,7 +180,7 @@ class WorkerParcelAdapter(
         holder.tvAddress.text = "\uD83D\uDCCD ${item.address}"
         holder.tvCod.text = "৳${item.cod}"
 
-        val cfg = getStatusConfig(ctx, item.status, statusLang)
+        val cfg = getStatusConfig(ctx, item.effectiveStatus, statusLang)
         holder.tvStatusBadge.text = cfg.label
         holder.tvStatusBadge.setTextColor(cfg.color)
         holder.tvStatusBadge.setBackgroundColor(cfg.bg)
@@ -431,7 +436,7 @@ class WorkerParcelAdapter(
         /**
          * Priority sort — same phone-number grouping as the other sorts.
          *
-         * Each parcel's rank is driven by its *effective status* (p.status — already
+         * Each parcel's rank is driven by its *effective status* (p.effectiveStatus — already
          * resolved to today's remarkStatus when a remark exists, or the parcel's own
          * courier/consignments status otherwise) looked up in StatusMetaCache.
          * Higher configured sortOrder → comes first. sortOrder 0 / unconfigured → last.
@@ -448,7 +453,7 @@ class WorkerParcelAdapter(
         fun sortByPriority(parcels: List<WorkerParcelItem>): List<WorkerParcelItem> {
             fun effectiveAge(p: WorkerParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
             fun statusPriority(p: WorkerParcelItem): Int =
-                StatusMetaCache.entries[p.status]?.sortOrder ?: 0
+                StatusMetaCache.entries[p.effectiveStatus]?.sortOrder ?: 0
             val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
             return groups.values
                 .sortedWith(
