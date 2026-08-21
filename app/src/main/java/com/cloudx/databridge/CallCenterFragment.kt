@@ -1002,13 +1002,8 @@ class CallCenterFragment : Fragment() {
     }
 
     private fun showActionHistoryDialog(item: CallCenterParcelItem) {
-        // Title/subtitle/overview all come from `item` directly and don't need
-        // the fetch below, so show the sheet with those right away — only the
-        // timeline is behind the network call. Long-press now opens the same
-        // sheet instantly instead of pausing with no feedback and then having
-        // it appear only once the fetch resolves.
-        val sheetView = renderActionHistoryDialog(item)
-
+        // Full history is intentionally loaded only when the journey log is opened.
+        val loadingDialog = renderActionHistoryDialog(item, isLoading = true)
         viewLifecycleOwner.lifecycleScope.launch {
             val rows = withContext(Dispatchers.IO) {
                 val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
@@ -1018,12 +1013,14 @@ class CallCenterFragment : Fragment() {
                 deferred.await()
             }
             if (!isAdded) return@launch
-            renderHistoryTimeline(sheetView, item.createdAt, buildHistoryEntries(item, rows))
+            if (loadingDialog.isShowing) loadingDialog.dismiss()
+            renderActionHistoryDialog(item.copy(history = buildHistoryEntries(item, rows)), isLoading = false)
         }
     }
 
     private fun buildHistoryEntries(item: CallCenterParcelItem, rows: List<org.json.JSONObject>): List<HistoryEntry> {
         val agentSystemId = item.workerSystemId
+        val nameMap = systemIdToName
         return rows.mapNotNull { r ->
             val status = r.optString("remarks_status").trim()
             val remarks = listOf(resolveRemarkBn(r.optString("remarks").trim()), r.optString("note").trim())
@@ -1051,11 +1048,14 @@ class CallCenterFragment : Fragment() {
         }.sortedBy { it.createdAt }
     }
 
-    private fun renderActionHistoryDialog(item: CallCenterParcelItem): View {
+    private fun renderActionHistoryDialog(item: CallCenterParcelItem, isLoading: Boolean = false): BottomSheetDialog {
         val dialog = BottomSheetDialog(requireContext())
         val view = layoutInflater.inflate(R.layout.bottom_sheet_action_history, null)
         val tvTitle = view.findViewById<TextView>(R.id.twHistoryTitle)
         val tvSub = view.findViewById<TextView>(R.id.twHistorySub)
+        val layoutTimeline = view.findViewById<LinearLayout>(R.id.layoutTimeline)
+        val layoutLoading = view.findViewById<View>(R.id.layoutHistoryLoading)
+        val scrollTimeline = view.findViewById<View>(R.id.scrollHistoryTimeline)
         val tvOvStatus = view.findViewById<TextView>(R.id.twOverviewStatus)
         val tvOvCreatedAt = view.findViewById<TextView>(R.id.twOverviewCreatedAt)
         val tvOvUpdatedAt = view.findViewById<TextView>(R.id.twOverviewUpdatedAt)
@@ -1075,42 +1075,23 @@ class CallCenterFragment : Fragment() {
         val (ovAgeColor, _) = WorkerParcelAdapter.ageColorFor(item.createdAt)
         tvOvAge.setTextColor(ovAgeColor)
 
-        // Timeline is filled in by renderHistoryTimeline() once the history
-        // fetch completes — show the loading state in its place until then.
-        view.findViewById<View>(R.id.layoutHistoryLoading).visibility = View.VISIBLE
-        view.findViewById<View>(R.id.scrollHistoryTimeline).visibility = View.GONE
-
-        view.findViewById<TextView>(R.id.btnHistoryClose).setOnClickListener {
-            dialog.dismiss()
-        }
-
-        dialog.setContentView(view)
-        dialog.show()
-        return view
-    }
-
-    /** Fills in the timeline on an already-open journey sheet (see
-     *  renderActionHistoryDialog()) once the history fetch resolves — swaps
-     *  the loading state for the populated timeline in place, rather than
-     *  closing and reopening the sheet. */
-    private fun renderHistoryTimeline(sheetView: View, itemCreatedAt: Long, history: List<HistoryEntry>) {
-        val layoutTimeline = sheetView.findViewById<LinearLayout>(R.id.layoutTimeline)
-        val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
         layoutTimeline.removeAllViews()
+        layoutLoading.visibility = if (isLoading) View.VISIBLE else View.GONE
+        scrollTimeline.visibility = if (isLoading) View.GONE else View.VISIBLE
 
         val historyEntries = mutableListOf<HistoryEntry>()
-        if (itemCreatedAt > 0) {
+        if (item.createdAt > 0) {
             historyEntries.add(
                 HistoryEntry(
                     action = "CREATED",
                     remark = "Parcel তৈরি হয়েছে",
-                    time = fullFmt.format(java.util.Date(itemCreatedAt)),
+                    time = fullFmt.format(java.util.Date(item.createdAt)),
                     author = "System",
                     authorRole = "system"
                 )
             )
         }
-        historyEntries.addAll(history)
+        historyEntries.addAll(item.history)
 
         // Annotate consecutive entries with worker↔CC handoff response times.
         val entriesWithGaps = WorkerParcelAdapter.withResponseGaps(historyEntries)
@@ -1180,10 +1161,14 @@ class CallCenterFragment : Fragment() {
             }
         }
 
-        sheetView.findViewById<View>(R.id.layoutHistoryLoading).visibility = View.GONE
-        sheetView.findViewById<View>(R.id.scrollHistoryTimeline).visibility = View.VISIBLE
-    }
+        view.findViewById<TextView>(R.id.btnHistoryClose).setOnClickListener {
+            dialog.dismiss()
+        }
 
+        dialog.setContentView(view)
+        dialog.show()
+        return dialog
+    }
 
     private fun updateModeDropdownLabel() {
         val ctx = context ?: return
@@ -2432,7 +2417,7 @@ class CallCenterFragment : Fragment() {
             if (!isAdded || allParcels.none { it.id == consignmentId }) return@launch
             val rows = withContext(Dispatchers.IO) {
                 val deferred = CompletableDeferred<List<org.json.JSONObject>>()
-                SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "CallCenterFragment") {
+                SupabaseRemarkValidationWriter.fetchTodayForConsignment(consignmentId, "CallCenterFragment") {
                     deferred.complete(it)
                 }
                 deferred.await()
