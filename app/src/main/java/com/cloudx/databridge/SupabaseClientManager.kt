@@ -3,8 +3,6 @@ package com.cloudx.databridge
 import com.google.firebase.auth.FirebaseAuth
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
-import io.github.jan.supabase.auth.providers.ExternalAuthAction
-import io.github.jan.supabase.auth.providers.builtin.IDToken
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.realtime.Realtime
@@ -67,17 +65,51 @@ object SupabaseClientManager {
         return try {
             val token = FirebaseAuth.getInstance().currentUser
                 ?.getIdToken(false)?.await()?.token ?: return false
-            client.auth.signInWith(IDToken) {
-                idToken = token
-                provider = ExternalAuthAction.FIREBASE
-            }
-            true
+            importFirebaseIdTokenSession(client, token)
         } catch (e: Exception) {
             FirebaseErrorLogger.log("SupabaseClientManager", "exchange_firebase_token",
-                e.message ?: "Exchange failed", "")
+                e.message ?: "Exchange failed")
             false
         }
     }
+
+    private suspend fun importFirebaseIdTokenSession(client: SupabaseClient, firebaseToken: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val body = JSONObject()
+                .put("provider", "firebase")
+                .put("id_token", firebaseToken)
+            val request = Request.Builder()
+                .url("${SupabaseConfig.PROJECT_URL}/auth/v1/token?grant_type=id_token")
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                .addHeader("Content-Type", "application/json")
+                .post(body.toString().toRequestBody(json))
+                .build()
+            val response = httpClient.newCall(request).execute()
+            response.use {
+                val text = it.body?.string().orEmpty()
+                if (!it.isSuccessful) {
+                    FirebaseErrorLogger.log(
+                        "SupabaseClientManager",
+                        "exchange_firebase_token_http_error",
+                        "HTTP ${it.code}: ${text.take(300)}"
+                    )
+                    return@withContext false
+                }
+                val json = JSONObject(text)
+                val accessToken = json.optString("access_token")
+                val refreshToken = json.optString("refresh_token")
+                if (accessToken.isBlank() || refreshToken.isBlank()) {
+                    FirebaseErrorLogger.log(
+                        "SupabaseClientManager",
+                        "exchange_firebase_token_bad_response",
+                        "Missing access_token or refresh_token"
+                    )
+                    return@withContext false
+                }
+                client.auth.importAuthToken(accessToken, refreshToken, retrieveUser = true, autoRefresh = true)
+                true
+            }
+        }
 
     /** Returns a valid Supabase access token, refreshing if needed. */
     suspend fun getAccessToken(): String? {
@@ -132,7 +164,7 @@ object SupabaseClientManager {
                 httpClient.newCall(request).execute().use { /* fire-and-forget */ }
             } catch (e: Exception) {
                 FirebaseErrorLogger.log("SupabaseClientManager", "sync_user",
-                    e.message ?: "Sync failed", systemId)
+                    e.message ?: "Sync failed", mapOf("systemId" to systemId))
             }
         }
     }
@@ -154,7 +186,7 @@ object SupabaseClientManager {
     ): List<JSONObject> = withContext(Dispatchers.IO) {
         val token = getAccessToken()
         if (token == null) {
-            FirebaseErrorLogger.log(screen, "${action}_no_token", "No Supabase token", "")
+            FirebaseErrorLogger.log(screen, "${action}_no_token", "No Supabase token")
             return@withContext emptyList()
         }
         val query = params.joinToString("&") { (k, v) ->
@@ -175,14 +207,14 @@ object SupabaseClientManager {
                 val text = it.body?.string().orEmpty()
                 if (!it.isSuccessful) {
                     FirebaseErrorLogger.log(screen, "${action}_http_error",
-                        "HTTP ${it.code}: ${text.take(300)}", "")
+                        "HTTP ${it.code}: ${text.take(300)}")
                     return@withContext emptyList()
                 }
                 val arr = JSONArray(text)
                 List(arr.length()) { i -> arr.getJSONObject(i) }
             }
         } catch (e: Exception) {
-            FirebaseErrorLogger.log(screen, "${action}_error", e.message ?: "Request failed", "")
+            FirebaseErrorLogger.log(screen, "${action}_error", e.message ?: "Request failed")
             emptyList()
         }
     }

@@ -56,9 +56,8 @@ object AppNotificationManager {
     private var badgeListener: ((Int) -> Unit)? = null
 
     /**
-     * Process-local signal for an open parcel screen.  FCM is received before the
-     * 60-second Supabase polling cycle, so the active screen can refresh the changed
-     * card immediately instead of waiting for its next poll.
+     * Process-local signal for an open parcel screen. Realtime is the primary live path;
+     * FCM gives the active screen an event-triggered fallback without any periodic poll.
      */
     private val remarkListeners = CopyOnWriteArraySet<(NotifItem) -> Unit>()
 

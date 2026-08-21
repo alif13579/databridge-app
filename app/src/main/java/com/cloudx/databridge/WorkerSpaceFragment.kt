@@ -97,8 +97,8 @@ class WorkerSpaceFragment : Fragment() {
     private var lastRunsSnapshot: DataSnapshot? = null
     private val engagedAtListeners = mutableMapOf<String, Pair<DatabaseReference, ValueEventListener>>()
 
-    // A CC remark for this worker arrives through FCM before the periodic Supabase poll.
-    // Refresh just that visible parcel immediately; polling remains the missed-push fallback.
+    // FCM is only an event-triggered fallback if the Realtime socket has not delivered yet.
+    // There is no periodic Supabase polling loop.
     private val remarkNotificationListener: (AppNotificationManager.NotifItem) -> Unit = { notification ->
         if (notification.scope == "worker" && notification.parcelId.isNotBlank()) {
             refreshWorkerParcelFromPush(notification.parcelId)
@@ -160,6 +160,7 @@ class WorkerSpaceFragment : Fragment() {
         detachEngagedAtListeners()
         workerRealtimeJob?.cancel()
         workerRealtimeJob = null
+        workerRealtimeChannelKey = null
         super.onDestroyView()
     }
 
@@ -1251,7 +1252,8 @@ class WorkerSpaceFragment : Fragment() {
     // Tracks last-seen remark timestamp per consignment to detect genuinely new CC remarks
     private val workerLastSeenRemarkAt = mutableMapOf<String, Long>()
     private var workerRealtimeJob: kotlinx.coroutines.Job? = null
-    private var workerRemarkPollIds: Set<String> = emptySet()
+    private var workerRealtimeChannelKey: String? = null
+    private var workerTrackedRemarkIds: Set<String> = emptySet()
     // Parcel ID to expand after data loads (set when navigating from a notification tap).
     private var pendingExpandParcelId: String? = null
 
@@ -1260,17 +1262,20 @@ class WorkerSpaceFragment : Fragment() {
      * INSERT events on validations arrive instantly — no polling, no invocations consumed.
      */
     private fun syncRemarkListeners(currentIds: Set<String>) {
-        workerRemarkPollIds = currentIds
+        workerTrackedRemarkIds = currentIds
         workerLastSeenRemarkAt.keys.retainAll(currentIds)
         if (systemId.isBlank()) return
+        val channelKey = "worker_agent_$systemId"
+        if (workerRealtimeChannelKey == channelKey && workerRealtimeJob != null) return
         workerRealtimeJob?.cancel()
+        workerRealtimeChannelKey = channelKey
         workerRealtimeJob = SupabaseRealtimeManager.subscribeValidations(
-            channelKey = "worker_agent_$systemId",
+            channelKey = channelKey,
             filter     = "assigned_to_system_id" to systemId,
             scope      = viewLifecycleOwner.lifecycleScope,
         ) { row ->
             val cId = row.optString("consignment")
-            if (cId.isBlank() || cId !in workerRemarkPollIds) return@subscribeValidations
+            if (cId.isBlank() || cId !in workerTrackedRemarkIds) return@subscribeValidations
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
             val previous = workerLastSeenRemarkAt[cId] ?: 0L
             workerLastSeenRemarkAt[cId] = maxOf(createdAt, previous)
@@ -1280,10 +1285,10 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
-    /** Kept as push-triggered fallback when Realtime reconnects. */
-    private fun pollForNewWorkerRemarks() {
+    /** Event-triggered REST fallback only; never scheduled on an interval. */
+    private fun fetchNewWorkerRemarksFromPush() {
         if (!isAdded) return
-        val ids = workerRemarkPollIds
+        val ids = workerTrackedRemarkIds
         if (ids.isEmpty()) return
         val floor = ids.mapNotNull { workerLastSeenRemarkAt[it] }.minOrNull() ?: 0L
         SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), floor, "WorkerSpaceFragment") { rows ->
@@ -1305,15 +1310,13 @@ class WorkerSpaceFragment : Fragment() {
     /**
      * FCM supplies the affected consignment ID but not the sensitive remark body. Fetch its
      * history and update the one in-memory row, so its card, status chip and filtered list
-     * change immediately without waiting for the 60-second fallback poll or reloading a run.
+     * change immediately without reloading a run.
      */
     private fun refreshWorkerParcelFromPush(consignmentId: String) {
-        // Trigger the existing batch poll immediately instead of a per-consignment fetch.
-        // pollForNewWorkerRemarks() issues one fetchNewRemarksSince(allIds, floor) call
-        // covering every loaded parcel. Multiple pushes arriving together still produce
-        // only one batched Supabase call.
+        // Trigger a one-off REST fetch only when a push arrives. This does not invoke the
+        // Edge Function and is not scheduled periodically.
         if (!isAdded || allParcels.none { it.id == consignmentId }) return
-        pollForNewWorkerRemarks()
+        fetchNewWorkerRemarksFromPush()
     }
 
     private fun handleRunsSnapshot(runSnap: DataSnapshot) {

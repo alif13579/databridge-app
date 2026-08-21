@@ -117,16 +117,17 @@ class CallCenterFragment : Fragment() {
     private var autoCallQueueItems: List<CallCenterParcelItem> = emptyList() // full item, for rich popup
     private var autoCallIndex = 0
 
-    // One cursor covers the whole visible consignment set. It is advanced after every
-    // batched poll, so polling never re-reads a day's complete history for every parcel.
-    private var ccRemarkPollCursorMs = 0L  // kept for push-triggered fallback fetch
+    // Cursor for the event-triggered FCM fallback fetch. Realtime is the normal live path;
+    // this is never advanced by a timer.
+    private var ccRemarkFallbackCursorMs = 0L
     private var ccRealtimeJob: kotlinx.coroutines.Job? = null
+    private var ccRealtimeChannelKey: String? = null
 
     // Parcel ID to expand after data loads (set when navigating from a notification tap).
     private var pendingExpandParcelId: String? = null
 
-    // FCM is the immediate path; the regular batch poll remains the fallback for a missed
-    // push.  Keep this listener scoped to the Fragment view so a destroyed screen is never
+    // FCM is an event-triggered fallback if Realtime has not delivered yet.
+    // Keep this listener scoped to the Fragment view so a destroyed screen is never
     // refreshed from a process-wide notification callback.
     private val remarkNotificationListener: (AppNotificationManager.NotifItem) -> Unit = { notification ->
         if (notification.scope == "cc" && notification.parcelId.isNotBlank()) {
@@ -233,6 +234,9 @@ class CallCenterFragment : Fragment() {
         searchJob = null
         reprocessJob?.cancel()
         reprocessJob = null
+        ccRealtimeJob?.cancel()
+        ccRealtimeJob = null
+        ccRealtimeChannelKey = null
         AppNotificationManager.removeRemarkListener(remarkNotificationListener)
         super.onDestroyView()
         stopAutoCall()
@@ -918,6 +922,14 @@ class CallCenterFragment : Fragment() {
                     // item.workerPhone is blank when the agent has none on file -- send() already
                     // toasts "Phone number নেই" in that case, so no extra guard needed here.
                     WhatsAppHelper.send(requireContext(), item.workerPhone, message)
+                }
+            },
+            onSendToDesktop = { item ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    SendToDesktopHelper.sendToConnectedExtensions(
+                        requireContext().applicationContext,
+                        SendToDesktopHelper.buildParcelInfoText(item)
+                    )
                 }
             },
             onLongPress = { item -> showActionHistoryDialog(item) },
@@ -2131,9 +2143,9 @@ class CallCenterFragment : Fragment() {
         // loadGeneration) makes sure only the NEWEST call's results ever get applied below,
         // so a slower-finishing older call can't clobber fresher data with stale results.
         val generation = ++ccLoadGeneration
-        // Do not let an older polling cycle update cards while this fresh batch is rebuilding
+        // Do not let an older fallback fetch update cards while this fresh batch is rebuilding
         // the list. syncCcRemarkListeners() restores the IDs after the new list is applied.
-        ccRemarkPollIds = emptySet()
+        ccRemarkTrackedIds = emptySet()
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
 
         // Collect consignment ids + statuses + which agent's run + which branch they came from.
@@ -2179,9 +2191,9 @@ class CallCenterFragment : Fragment() {
             deferred.await()
         }
         val todayRowsByConsignment = todayRemarkRows.groupBy { it.optString("consignment") }
-        // The initial batch is the baseline. Later polls ask only for rows written after this
-        // point, rather than fetching all historical rows again.
-        ccRemarkPollCursorMs = todayBatchRequestedAtMs
+        // The initial batch is the baseline. Later push-triggered fallback fetches ask only
+        // for rows written after this point, rather than fetching all historical rows again.
+        ccRemarkFallbackCursorMs = todayBatchRequestedAtMs
 
         // Parallel fetch consignment details (remark history is intentionally omitted here).
         val parcels = coroutineScope {
@@ -2337,8 +2349,7 @@ class CallCenterFragment : Fragment() {
         syncCcEngagedAtListeners(allParcels.map { it.id }.toSet())
     }
 
-    // Polling handle for the new-remark notification/badge-refresh loop — replaces the old
-    private var ccRemarkPollIds: Set<String> = emptySet()
+    private var ccRemarkTrackedIds: Set<String> = emptySet()
 
     /**
      * Starts a Supabase Realtime subscription for this branch.
@@ -2347,31 +2358,34 @@ class CallCenterFragment : Fragment() {
      * Previous job is cancelled before starting a new one.
      */
     private fun syncCcRemarkListeners(currentIds: Set<String>) {
-        ccRemarkPollIds = currentIds
+        ccRemarkTrackedIds = currentIds
         val branchId = RbacManager.current.branchIds.firstOrNull() ?: return
+        val channelKey = "cc_branch_$branchId"
+        if (ccRealtimeChannelKey == channelKey && ccRealtimeJob != null) return
         ccRealtimeJob?.cancel()
+        ccRealtimeChannelKey = channelKey
         ccRealtimeJob = SupabaseRealtimeManager.subscribeValidations(
-            channelKey = "cc_branch_$branchId",
+            channelKey = channelKey,
             filter     = "branch_id" to branchId,
             scope      = viewLifecycleOwner.lifecycleScope,
         ) { row ->
             val cId = row.optString("consignment")
-            if (cId.isBlank() || cId !in ccRemarkPollIds) return@subscribeValidations
+            if (cId.isBlank() || cId !in ccRemarkTrackedIds) return@subscribeValidations
             viewLifecycleOwner.lifecycleScope.launch {
                 if (isAdded) refreshOneCcParcelFromSupabase(cId, row)
             }
         }
     }
 
-    /** Kept for push-triggered fallback (FCM arrives while Realtime reconnects). */
-    private fun pollForNewCcRemarks() {
+    /** Event-triggered REST fallback only; never scheduled on an interval. */
+    private fun fetchNewCcRemarksFromPush() {
         if (!isAdded) return
-        val ids = ccRemarkPollIds
+        val ids = ccRemarkTrackedIds
         if (ids.isEmpty()) return
         val requestedAtMs = System.currentTimeMillis()
-        val cursorMs = ccRemarkPollCursorMs.takeIf { it > 0L } ?: requestedAtMs
+        val cursorMs = ccRemarkFallbackCursorMs.takeIf { it > 0L } ?: requestedAtMs
         SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), cursorMs, "CallCenterFragment") { rows ->
-            ccRemarkPollCursorMs = requestedAtMs
+            ccRemarkFallbackCursorMs = requestedAtMs
             if (rows.isEmpty()) return@fetchNewRemarksSince
             val latestByConsignment = rows.groupBy { it.optString("consignment") }
                 .mapValues { (_, g) -> g.maxByOrNull { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) } }
@@ -2386,21 +2400,18 @@ class CallCenterFragment : Fragment() {
 
     /**
      * FCM only identifies the changed consignment; it intentionally does not put a remark's
-     * contents into the push payload. Fetch that one history on receipt, then reuse the same
-     * card-update path as polling. This keeps the card text, effective-status filters and
+     * contents into the push payload. Fetch only on receipt, then reuse the same
+     * card-update path as Realtime. This keeps the card text, effective-status filters and
      * summary counts in sync without reloading every parcel.
      */
     private fun refreshCcParcelFromPush(consignmentId: String) {
-        // Trigger the existing batch poll immediately instead of a per-consignment fetch.
-        // pollForNewCcRemarks() issues one fetchNewRemarksSince(allIds, cursor) call that
-        // covers every visible parcel. The push-triggered remark is always newer than the
-        // cursor, so it will be included. Multiple simultaneous pushes still produce only
-        // one batched Supabase call.
+        // Trigger a one-off REST fetch only when a push arrives. This does not invoke the
+        // Edge Function and is not scheduled periodically.
         if (!isAdded || allParcels.none { it.id == consignmentId }) return
-        pollForNewCcRemarks()
+        fetchNewCcRemarksFromPush()
     }
 
-    /** Updates one card directly from a row already returned by the batch poll. */
+    /** Updates one card directly from a Supabase validation row. */
     private fun refreshOneCcParcelFromSupabase(cId: String, latestRemarkRow: org.json.JSONObject) {
         viewLifecycleOwner.lifecycleScope.launch {
             if (!isAdded) return@launch

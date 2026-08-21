@@ -4,6 +4,7 @@ import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
@@ -52,7 +53,7 @@ object SupabaseRealtimeManager {
                 val channel = client.realtime.channel(channelKey)
                 channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
                     table = "validations"
-                    this.filter = "${filter.first}=eq.${filter.second}"
+                    filter(filter.first, FilterOperator.EQ, filter.second)
                 }.onEach { event ->
                     try {
                         val row = JSONObject(event.record.toString())
@@ -63,7 +64,7 @@ object SupabaseRealtimeManager {
             } catch (e: Exception) {
                 FirebaseErrorLogger.log(
                     "SupabaseRealtimeManager", "subscribe_error",
-                    e.message ?: "Subscription failed", channelKey
+                    e.message ?: "Subscription failed", mapOf("channelKey" to channelKey)
                 )
             }
         }
