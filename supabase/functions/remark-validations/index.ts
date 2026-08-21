@@ -305,7 +305,6 @@ Deno.serve(async (request) => {
     let query = admin.from('validations')
       .select('id,consignment,branch_id,assigned_to_system_id,author_system_id,source,remarks_status,consignment_status,remarks,note,customer_phone,created_at,author:users!validations_author_system_id_fkey(name,employee_id,role),assigned:users!validations_assigned_to_system_id_fkey(name,employee_id,role)')
     if (action === 'history') query = query.eq('consignment', body.consignment)
-    else if (action === 'today_consignment') query = query.eq('consignment', body.consignment).gte('created_at', body.start_iso)
     else if (action === 'today') query = query.eq('assigned_to_system_id', body.assigned_to_system_id).gte('created_at', body.start_iso)
     else if (action === 'agent_range') query = query.eq('assigned_to_system_id', body.assigned_to_system_id).gte('created_at', body.start_iso).lt('created_at', body.end_iso)
     else if (action === 'new_since') query = query.in('consignment', body.consignments).gt('created_at', body.since_iso)

@@ -1316,38 +1316,12 @@ class WorkerSpaceFragment : Fragment() {
      * change immediately without waiting for the 60-second fallback poll or reloading a run.
      */
     private fun refreshWorkerParcelFromPush(consignmentId: String) {
-        viewLifecycleOwner.lifecycleScope.launch {
-            if (!isAdded || allParcels.none { it.id == consignmentId }) return@launch
-            val rows = withContext(Dispatchers.IO) {
-                val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
-                SupabaseRemarkValidationWriter.fetchTodayForConsignment(consignmentId, "WorkerSpaceFragment") {
-                    deferred.complete(it)
-                }
-                deferred.await()
-            }
-            if (!isAdded) return@launch
-            val latest = rows.maxByOrNull {
-                SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
-            } ?: return@launch
-            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(latest.optString("created_at"))
-            val remarkText = listOf(
-                resolveRemarkBn(latest.optString("remarks").trim()), latest.optString("note").trim()
-            ).filter { it.isNotBlank() }.joinToString("\n")
-            val remarkStatus = latest.optString("remarks_status").trim()
-            workerLastSeenRemarkAt[consignmentId] = createdAt
-            allParcels = allParcels.map { parcel ->
-                if (parcel.id != consignmentId) parcel else parcel.copy(
-                    remarks = remarkText,
-                    remarkStatus = remarkStatus,
-                    validationRequest = isVerifyRequestStatus(remarkStatus),
-                    validationNote = if (isVerifyRequestStatus(remarkStatus)) remarkText else "",
-                    remarksAt = createdAt
-                )
-            }
-            setupFilterTabs()
-            applyFilters()
-            loadTodayRemarksStats()
-        }
+        // Trigger the existing batch poll immediately instead of a per-consignment fetch.
+        // pollForNewWorkerRemarks() issues one fetchNewRemarksSince(allIds, floor) call
+        // covering every loaded parcel. Multiple pushes arriving together still produce
+        // only one batched Supabase call.
+        if (!isAdded || allParcels.none { it.id == consignmentId }) return
+        pollForNewWorkerRemarks()
     }
 
     private fun handleRunsSnapshot(runSnap: DataSnapshot) {

@@ -2413,28 +2413,13 @@ class CallCenterFragment : Fragment() {
      * summary counts in sync without reloading every parcel.
      */
     private fun refreshCcParcelFromPush(consignmentId: String) {
-        viewLifecycleOwner.lifecycleScope.launch {
-            if (!isAdded || allParcels.none { it.id == consignmentId }) return@launch
-            val rows = withContext(Dispatchers.IO) {
-                val deferred = CompletableDeferred<List<org.json.JSONObject>>()
-                SupabaseRemarkValidationWriter.fetchTodayForConsignment(consignmentId, "CallCenterFragment") {
-                    deferred.complete(it)
-                }
-                deferred.await()
-            }
-            if (!isAdded) return@launch
-            val latest = rows.maxByOrNull {
-                SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
-            } ?: return@launch
-            // Avoid a just-received row being rediscovered as a second UI update on the next
-            // fallback poll. Moving the cursor forward is safe: the poll itself uses its
-            // request-start timestamp, so rows written during an in-flight request stay safe.
-            ccRemarkPollCursorMs = maxOf(
-                ccRemarkPollCursorMs,
-                SupabaseRemarkValidationWriter.parseCreatedAtMillis(latest.optString("created_at"))
-            )
-            refreshOneCcParcelFromSupabase(consignmentId, latest)
-        }
+        // Trigger the existing batch poll immediately instead of a per-consignment fetch.
+        // pollForNewCcRemarks() issues one fetchNewRemarksSince(allIds, cursor) call that
+        // covers every visible parcel. The push-triggered remark is always newer than the
+        // cursor, so it will be included. Multiple simultaneous pushes still produce only
+        // one batched Supabase call.
+        if (!isAdded || allParcels.none { it.id == consignmentId }) return
+        pollForNewCcRemarks()
     }
 
     /** Updates one card directly from a row already returned by the batch poll. */

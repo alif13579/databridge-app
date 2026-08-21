@@ -73,14 +73,6 @@ object SupabaseRemarkValidationWriter {
             "supabase_validation_fetch_history", consignmentId) { onResult(rows(it)) }
     }
 
-    fun fetchTodayForConsignment(consignmentId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
-        if (consignmentId.isBlank()) return onResult(emptyList())
-        val start = LocalDate.now(ZoneId.of("Asia/Dhaka"))
-            .atStartOfDay(ZoneId.of("Asia/Dhaka")).toInstant().toString()
-        invoke(JSONObject().put("action", "today_consignment").put("consignment", consignmentId).put("start_iso", start),
-            screen, "supabase_validation_fetch_today_consignment", consignmentId) { onResult(rows(it)) }
-    }
-
     fun fetchTodayForDeliveryAgent(assignedAgentSystemId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
         if (assignedAgentSystemId.isBlank()) return onResult(emptyList())
         val start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
