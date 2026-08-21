@@ -119,7 +119,8 @@ class CallCenterFragment : Fragment() {
 
     // One cursor covers the whole visible consignment set. It is advanced after every
     // batched poll, so polling never re-reads a day's complete history for every parcel.
-    private var ccRemarkPollCursorMs = 0L
+    private var ccRemarkPollCursorMs = 0L  // kept for push-triggered fallback fetch
+    private var ccRealtimeJob: kotlinx.coroutines.Job? = null
 
     // Parcel ID to expand after data loads (set when navigating from a notification tap).
     private var pendingExpandParcelId: String? = null
@@ -917,14 +918,6 @@ class CallCenterFragment : Fragment() {
                     // item.workerPhone is blank when the agent has none on file -- send() already
                     // toasts "Phone number নেই" in that case, so no extra guard needed here.
                     WhatsAppHelper.send(requireContext(), item.workerPhone, message)
-                }
-            },
-            onSendToDesktop = { item ->
-                viewLifecycleOwner.lifecycleScope.launch {
-                    SendToDesktopHelper.sendToConnectedExtensions(
-                        requireContext(),
-                        SendToDesktopHelper.buildParcelInfoText(item)
-                    )
                 }
             },
             onLongPress = { item -> showActionHistoryDialog(item) },
@@ -2007,8 +2000,8 @@ class CallCenterFragment : Fragment() {
         // before the filter changed would still be merged into the candidate set.
         ccBranchRangeSnapshots.clear()
 
-        ccRemarkPollHandler?.removeCallbacks(ccRemarkPollRunnable)
-        ccRemarkPollHandler = null
+        ccRealtimeJob?.cancel()
+        ccRealtimeJob = null
     }
 
     private fun syncCcEngagedAtListeners(currentIds: Set<String>) {
@@ -2345,70 +2338,47 @@ class CallCenterFragment : Fragment() {
     }
 
     // Polling handle for the new-remark notification/badge-refresh loop — replaces the old
-    // per-consignment Firebase ValueEventListener approach (see syncCcRemarkListeners()'s
-    // doc comment for why: Supabase Realtime/WebSocket integration was deferred, polling
-    // was chosen instead).
-    private var ccRemarkPollHandler: android.os.Handler? = null
     private var ccRemarkPollIds: Set<String> = emptySet()
-    private val ccRemarkPollRunnable = object : Runnable {
-        override fun run() {
-            pollForNewCcRemarks()
-            ccRemarkPollHandler?.postDelayed(this, CC_REMARK_POLL_INTERVAL_MS)
-        }
-    }
 
     /**
-     * Starts (or updates the tracked ID set for) the new-remark polling loop.
-     *
-     * Was syncCcRemarkListeners() — one Firebase ValueEventListener attached per visible
-     * consignment, live-updating on every remark write. That has no direct Supabase
-     * equivalent without a Realtime/WebSocket SDK (deferred per Alif — see
-     * SupabaseRemarkValidationWriter.fetchNewRemarksSince()'s doc comment), so this now
-     * polls instead: every CC_REMARK_POLL_INTERVAL_MS, ONE batched query asks "any new
-     * remark for any of these consignment IDs since I last checked", and only the
-     * consignments that actually got a new remark get their visible card updated from that
-     * same batched response. Journey histories remain lazy-loaded.
-     *
-     * currentIds is stored (ccRemarkPollIds) and re-read fresh on each poll tick, so a
-     * changing parcel list (e.g. after a filter change) doesn't require restarting the
-     * loop — just updates which IDs the next tick checks.
+     * Starts a Supabase Realtime subscription for this branch.
+     * INSERT events on validations arrive instantly via WebSocket — no polling,
+     * no Edge Function invocation consumed.
+     * Previous job is cancelled before starting a new one.
      */
     private fun syncCcRemarkListeners(currentIds: Set<String>) {
         ccRemarkPollIds = currentIds
-        if (ccRemarkPollHandler == null) {
-            ccRemarkPollHandler = android.os.Handler(android.os.Looper.getMainLooper())
-            ccRemarkPollHandler?.postDelayed(ccRemarkPollRunnable, CC_REMARK_POLL_INTERVAL_MS)
+        val branchId = RbacManager.current.branchIds.firstOrNull() ?: return
+        ccRealtimeJob?.cancel()
+        ccRealtimeJob = SupabaseRealtimeManager.subscribeValidations(
+            channelKey = "cc_branch_$branchId",
+            filter     = "branch_id" to branchId,
+            scope      = viewLifecycleOwner.lifecycleScope,
+        ) { row ->
+            val cId = row.optString("consignment")
+            if (cId.isBlank() || cId !in ccRemarkPollIds) return@subscribeValidations
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (isAdded) refreshOneCcParcelFromSupabase(cId, row)
+            }
         }
     }
 
+    /** Kept for push-triggered fallback (FCM arrives while Realtime reconnects). */
     private fun pollForNewCcRemarks() {
         if (!isAdded) return
         val ids = ccRemarkPollIds
         if (ids.isEmpty()) return
-
         val requestedAtMs = System.currentTimeMillis()
         val cursorMs = ccRemarkPollCursorMs.takeIf { it > 0L } ?: requestedAtMs
         SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), cursorMs, "CallCenterFragment") { rows ->
-            // Advance to when this request started. Rows written while it was in flight are
-            // therefore picked up by the next poll instead of being skipped.
             ccRemarkPollCursorMs = requestedAtMs
             if (rows.isEmpty()) return@fetchNewRemarksSince
-            // Group by consignment, keep only the latest row per consignment for the
-            // notification decision (a consignment could have gotten more than one remark
-            // between polls — only the newest one matters for "what changed").
             val latestByConsignment = rows.groupBy { it.optString("consignment") }
-                .mapValues { (_, group) -> group.maxByOrNull { r ->
-                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
-                } }
-
+                .mapValues { (_, g) -> g.maxByOrNull { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) } }
             viewLifecycleOwner.lifecycleScope.launch {
                 if (!isAdded) return@launch
                 latestByConsignment.forEach { (cId, latest) ->
-                    if (cId.isNullOrBlank() || latest == null) return@forEach
-                    // FCM delivers the detailed notification. Polling only updates this open
-                    // screen's card from the batch row; it must not trigger another history
-                    // request for every changed consignment.
-                    refreshOneCcParcelFromSupabase(cId, latest)
+                    if (!cId.isNullOrBlank() && latest != null) refreshOneCcParcelFromSupabase(cId, latest)
                 }
             }
         }
@@ -2753,7 +2723,7 @@ class CallCenterFragment : Fragment() {
             status = "",
             remarksText = "",
             noteText = noteText,
-            source = "CC",
+            source = "validator",
             screen = "CallCenterFragment"
         )
 
@@ -2802,7 +2772,7 @@ class CallCenterFragment : Fragment() {
                 status = selectedStatus,
                 remarksText = selectedStoredRemarkText,
                 noteText = noteText,
-                source = "CC",
+                source = "validator",
                 screen = "CallCenterFragment"
             )
 
@@ -2992,6 +2962,5 @@ class CallCenterFragment : Fragment() {
 
         /** Poll interval for the new-remark badge refresh. One minute keeps the free-tier
          *  request volume modest while FCM remains the immediate notification channel. */
-        private const val CC_REMARK_POLL_INTERVAL_MS = 60_000L
     }
 }
