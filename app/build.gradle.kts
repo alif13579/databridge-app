@@ -40,8 +40,8 @@ android {
         applicationId = "com.cloudx.databridge"
         minSdk = 23
         targetSdk = 34
-        versionCode = 254
-        versionName = "5.22.101"
+        versionCode = 251
+        versionName = "5.22.98"
         multiDexEnabled = true                                         // ✅ Large app support
         vectorDrawables.useSupportLibrary = true       // ✅ Vector drawable on API 21+
         buildConfigField("String", "SUPABASE_URL", "\"${escapedBuildConfigValue(publicBuildConfigValue("SUPABASE_URL"))}\"")
@@ -156,6 +156,19 @@ dependencies {
 
     // ইমেজ লোডিং লাইব্রেরি
     implementation("io.coil-kt:coil:2.5.0")
+
+    // ── Supabase Kotlin SDK ───────────────────────────────────────────────────
+    // Auth   : Firebase→Supabase token exchange, session management
+    // Realtime: WebSocket subscriptions (replaces polling — free tier unlimited)
+    // Postgrest: type-safe REST queries (fallback / history reads)
+    // Check latest version: github.com/supabase-community/supabase-kt/releases
+    val supabaseVersion = "3.0.2"
+    implementation(platform("io.github.jan-tennert.supabase:bom:$supabaseVersion"))
+    implementation("io.github.jan-tennert.supabase:auth-kt")
+    implementation("io.github.jan-tennert.supabase:realtime-kt")
+    implementation("io.github.jan-tennert.supabase:postgrest-kt")
+    // Ktor HTTP engine that supabase-kt uses on Android
+    implementation("io.ktor:ktor-client-okhttp:2.3.12")
 
     // টেস্টিং
     testImplementation(libs.junit)

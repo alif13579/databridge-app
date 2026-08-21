@@ -57,6 +57,7 @@ object AuthManager {
         }
         auth.signOut()
         googleSignInClient?.signOut()?.await()
+        SupabaseClientManager.signOut()
         appPrefs.clearUid()
         appPrefs.clearAuthState()
         appPrefs.clearExtensionId()
@@ -118,6 +119,10 @@ object AuthManager {
             ).await()
         }
         appPrefs.saveAuthState(uid)
+
+        // Exchange Firebase token for a Supabase session so REST API + Realtime work.
+        // User sync (branch_id, system_id) happens in DashboardViewModel after RBAC loads.
+        SupabaseClientManager.exchangeFirebaseToken()
     }
 }
 

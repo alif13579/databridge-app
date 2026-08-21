@@ -26,6 +26,8 @@ class DataBridgeApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Supabase client — must init before any Fragment uses it
+        SupabaseClientManager.init()
 
         // ✅ App-এর পুরো UI শুধু light theme ধরে ডিজাইন করা; values-night/themes.xml
         // কখনো real branding-এর সাথে মেলানো হয়নি (এখনো Android Studio-র পুরনো

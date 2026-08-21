@@ -67,39 +67,62 @@ object SupabaseRemarkValidationWriter {
             .getOrDefault(0L)
     }
 
+    // ── Read functions — direct PostgREST REST API (unlimited, zero invocations) ──
+
     fun fetchHistory(consignmentId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
         if (consignmentId.isBlank()) return onResult(emptyList())
-        invoke(JSONObject().put("action", "history").put("consignment", consignmentId), screen,
-            "supabase_validation_fetch_history", consignmentId) { onResult(rows(it)) }
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            onResult(SupabaseClientManager.fetchValidations(screen, "fetch_history", listOf(
+                "consignment" to "eq.$consignmentId",
+                "order" to "created_at.desc"
+            )))
+        }
     }
 
     fun fetchTodayForDeliveryAgent(assignedAgentSystemId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
         if (assignedAgentSystemId.isBlank()) return onResult(emptyList())
-        val start = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toString()
-        invoke(JSONObject().put("action", "today").put("assigned_to_system_id", assignedAgentSystemId).put("start_iso", start),
-            screen, "supabase_validation_fetch_today", assignedAgentSystemId) { onResult(rows(it)) }
+        val start = LocalDate.now(ZoneId.of("Asia/Dhaka")).atStartOfDay(ZoneId.of("Asia/Dhaka")).toInstant().toString()
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            onResult(SupabaseClientManager.fetchValidations(screen, "fetch_today", listOf(
+                "assigned_to_system_id" to "eq.$assignedAgentSystemId",
+                "created_at" to "gte.$start",
+                "order" to "created_at.desc"
+            )))
+        }
     }
 
     fun fetchForDeliveryAgentInRange(assignedAgentSystemId: String, rangeStartMs: Long, rangeEndMs: Long,
                                      screen: String, onResult: (List<JSONObject>) -> Unit) {
         if (assignedAgentSystemId.isBlank()) return onResult(emptyList())
-        invoke(JSONObject().put("action", "agent_range").put("assigned_to_system_id", assignedAgentSystemId)
-            .put("start_iso", Instant.ofEpochMilli(rangeStartMs).toString())
-            .put("end_iso", Instant.ofEpochMilli(rangeEndMs).toString()), screen,
-            "supabase_validation_fetch_range", assignedAgentSystemId) { onResult(rows(it)) }
+        val start = Instant.ofEpochMilli(rangeStartMs).toString()
+        val end   = Instant.ofEpochMilli(rangeEndMs).toString()
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            onResult(SupabaseClientManager.fetchValidations(screen, "fetch_range", listOf(
+                "assigned_to_system_id" to "eq.$assignedAgentSystemId",
+                "created_at" to "gte.$start",
+                "created_at" to "lte.$end",
+                "order" to "created_at.desc"
+            )))
+        }
     }
 
     fun fetchNewRemarksSince(consignmentIds: List<String>, sinceEpochMs: Long, screen: String,
                              onResult: (List<JSONObject>) -> Unit) {
         if (consignmentIds.isEmpty()) return onResult(emptyList())
+        val since = Instant.ofEpochMilli(sinceEpochMs).toString()
         val allRows = java.util.Collections.synchronizedList(mutableListOf<JSONObject>())
+        // PostgREST supports `in.(A,B,C)` for up to ~1000 items; chunk at 200 for safety.
         val chunks = consignmentIds.distinct().chunked(200)
         val remaining = java.util.concurrent.atomic.AtomicInteger(chunks.size)
         chunks.forEach { chunk ->
-            invoke(JSONObject().put("action", "new_since").put("consignments", JSONArray(chunk))
-                .put("since_iso", Instant.ofEpochMilli(sinceEpochMs).toString()), screen,
-                "supabase_validation_fetch_new_since", "") {
-                allRows.addAll(rows(it)); if (remaining.decrementAndGet() == 0) onResult(allRows.toList())
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                val rows = SupabaseClientManager.fetchValidations(screen, "fetch_new_since", listOf(
+                    "consignment" to "in.(${chunk.joinToString(",")})",
+                    "created_at" to "gte.$since",
+                    "order" to "created_at.desc"
+                ))
+                allRows.addAll(rows)
+                if (remaining.decrementAndGet() == 0) onResult(allRows.toList())
             }
         }
     }
