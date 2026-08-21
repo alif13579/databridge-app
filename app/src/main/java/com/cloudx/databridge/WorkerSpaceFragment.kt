@@ -894,7 +894,7 @@ class WorkerSpaceFragment : Fragment() {
             status = status,
             remarksText = remarksText,
             noteText = noteText,
-            source = "verification_request",
+            source = "WORKER",
             screen = "WorkerSpaceFragment"
         )
     }

@@ -265,7 +265,7 @@ Deno.serve(async (request) => {
       if (!row || !['consignment', 'branch_id', 'assigned_to_system_id', 'source'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
         return reply({ error: 'Missing required row fields' }, 400)
       }
-      if (row.source !== 'validator' && row.source !== 'verification_request') {
+      if (row.source !== 'CC' && row.source !== 'WORKER') {
         return reply({ error: 'Invalid remark source' }, 400)
       }
       // Author fields come exclusively from the verified Firebase identity; Android
