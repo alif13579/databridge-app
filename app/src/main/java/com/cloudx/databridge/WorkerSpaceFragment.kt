@@ -1320,7 +1320,7 @@ class WorkerSpaceFragment : Fragment() {
             if (!isAdded || allParcels.none { it.id == consignmentId }) return@launch
             val rows = withContext(Dispatchers.IO) {
                 val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
-                SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") {
+                SupabaseRemarkValidationWriter.fetchTodayForConsignment(consignmentId, "WorkerSpaceFragment") {
                     deferred.complete(it)
                 }
                 deferred.await()
