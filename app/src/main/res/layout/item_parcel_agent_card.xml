@@ -315,6 +315,18 @@
             android:contentDescription="Send parcel info to agent on WhatsApp"
             android:includeFontPadding="false" />
 
+        <TextView
+            android:id="@+id/btnAgtSendToDesktop"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:text="🖥️"
+            android:textSize="16sp"
+            android:gravity="center"
+            android:background="@drawable/btn_action_cyan"
+            android:layout_marginStart="4dp"
+            android:contentDescription="Send parcel info to desktop"
+            android:includeFontPadding="false" />
+
     </LinearLayout>
 
     </LinearLayout>

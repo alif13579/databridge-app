@@ -919,6 +919,14 @@ class CallCenterFragment : Fragment() {
                     WhatsAppHelper.send(requireContext(), item.workerPhone, message)
                 }
             },
+            onSendToDesktop = { item ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    SendToDesktopHelper.sendToConnectedExtensions(
+                        requireContext(),
+                        SendToDesktopHelper.buildParcelInfoText(item)
+                    )
+                }
+            },
             onLongPress = { item -> showActionHistoryDialog(item) },
             onExpand = { item ->
                 val user = FirebaseAuth.getInstance().currentUser

@@ -22,6 +22,7 @@ class CallCenterAdapter(
     private val onCall: (CallCenterParcelItem) -> Unit,
     private val onSetRemarks: (CallCenterParcelItem) -> Unit,
     private val onWhatsappToAgent: (CallCenterParcelItem) -> Unit,
+    private val onSendToDesktop: (CallCenterParcelItem) -> Unit,
     private val onLongPress: (CallCenterParcelItem) -> Unit,
     private val onGroupClick: ((WorkerGroup) -> Unit)? = null,
     /** Fired when a card transitions collapsed -> expanded — see WorkerParcelAdapter's
@@ -167,6 +168,7 @@ class CallCenterAdapter(
                 onCall = onCall,
                 onSetRemarks = onSetRemarks,
                 onWhatsappToAgent = onWhatsappToAgent,
+                onSendToDesktop = onSendToDesktop,
                 onLongPress = onLongPress
             )
         }
@@ -234,6 +236,7 @@ class CallCenterAdapter(
         private val btnCall: TextView = view.findViewById(R.id.btnAgtCall)
         private val btnSetRemarks: TextView = view.findViewById(R.id.btnAgtSetRemarks)
         private val btnWhatsapp: TextView = view.findViewById(R.id.btnAgtWhatsapp)
+        private val btnSendToDesktop: TextView = view.findViewById(R.id.btnAgtSendToDesktop)
         private val tvCallCount: TextView = view.findViewById(R.id.tvAgtCallCount)
 
         fun bind(
@@ -246,6 +249,7 @@ class CallCenterAdapter(
             onCall: (CallCenterParcelItem) -> Unit,
             onSetRemarks: (CallCenterParcelItem) -> Unit,
             onWhatsappToAgent: (CallCenterParcelItem) -> Unit,
+            onSendToDesktop: (CallCenterParcelItem) -> Unit,
             onLongPress: (CallCenterParcelItem) -> Unit
         ) {
             tvCustomer.text = item.customer
@@ -362,6 +366,7 @@ class CallCenterAdapter(
             btnCall.setOnClickListener { onCall(item) }
             btnSetRemarks.setOnClickListener { onSetRemarks(item) }
             btnWhatsapp.setOnClickListener { onWhatsappToAgent(item) }
+            btnSendToDesktop.setOnClickListener { onSendToDesktop(item) }
         }
     }
 

@@ -198,6 +198,9 @@
           "$rid": {
             ".indexOn": ["type", "received_at"]
           }
+        },
+        "commands": {
+          ".indexOn": ["status", "created_at"]
         }
       }
     },
