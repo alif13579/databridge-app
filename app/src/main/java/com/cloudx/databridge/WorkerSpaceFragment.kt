@@ -1280,7 +1280,7 @@ class WorkerSpaceFragment : Fragment() {
             val previous = workerLastSeenRemarkAt[cId] ?: 0L
             workerLastSeenRemarkAt[cId] = maxOf(createdAt, previous)
             viewLifecycleOwner.lifecycleScope.launch {
-                if (isAdded) loadData()
+                if (isAdded) refreshOneWorkerParcelFromSupabase(cId, row)
             }
         }
     }
@@ -1299,12 +1299,52 @@ class WorkerSpaceFragment : Fragment() {
                     val latest = group.maxByOrNull {
                         SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
                     } ?: return@forEach
-                    val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(latest.optString("created_at"))
-                    workerLastSeenRemarkAt[cId] = createdAt
+                    refreshOneWorkerParcelFromSupabase(cId, latest)
                 }
-                loadData()
             }
         }
+    }
+
+    /** Updates one visible worker card from a Supabase validation row without reloading the run. */
+    private fun refreshOneWorkerParcelFromSupabase(cId: String, latestRemarkRow: org.json.JSONObject) {
+        if (!isAdded || allParcels.none { it.id == cId }) return
+        val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(
+            latestRemarkRow.optString("created_at")
+        )
+        val status = latestRemarkRow.optString("remarks_status").trim()
+        val remarkText = listOf(
+            resolveRemarkBn(latestRemarkRow.optString("remarks").trim()),
+            latestRemarkRow.optString("note").trim()
+        ).filter { it.isNotBlank() }.joinToString("\n")
+        if (status.isBlank() && remarkText.isBlank()) return
+
+        workerLastSeenRemarkAt[cId] = maxOf(createdAt, workerLastSeenRemarkAt[cId] ?: 0L)
+        val newHistory = buildHistoryEntries(cId, listOf(latestRemarkRow))
+        allParcels = allParcels.map { item ->
+            if (item.id != cId) return@map item
+            item.copy(
+                remarks = remarkText,
+                remarkStatus = status,
+                validationRequest = isVerifyRequestStatus(status),
+                validationNote = if (isVerifyRequestStatus(status)) remarkText else "",
+                remarksAt = createdAt,
+                history = mergeHistoryEntries(item.history, newHistory)
+            )
+        }
+        if (sortMode == "priority") {
+            allParcels = WorkerParcelAdapter.sortByPriority(allParcels)
+        }
+        applyFilters()
+    }
+
+    private fun mergeHistoryEntries(
+        existing: List<HistoryEntry>,
+        incoming: List<HistoryEntry>
+    ): List<HistoryEntry> {
+        if (incoming.isEmpty()) return existing
+        return (existing + incoming)
+            .distinctBy { "${it.createdAt}:${it.authorRole}:${it.action}:${it.cardBadgeText}:${it.remark}" }
+            .sortedBy { it.createdAt }
     }
 
     /**
