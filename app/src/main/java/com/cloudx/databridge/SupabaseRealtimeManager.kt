@@ -49,6 +49,13 @@ object SupabaseRealtimeManager {
         val client = SupabaseClientManager.client
         return scope.launch {
             try {
+                // Ensure a valid Supabase auth session exists before connecting.
+                // On app restart, Firebase auth is restored automatically but the
+                // Supabase session is not persisted — connect() would succeed
+                // anonymously and RLS would silently block all Realtime events.
+                // getAccessToken() re-exchanges the Firebase token if the session
+                // is missing, so the subsequent connect() is always authenticated.
+                SupabaseClientManager.getAccessToken()
                 client.realtime.connect()
                 val channel = client.realtime.channel(channelKey)
                 channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
