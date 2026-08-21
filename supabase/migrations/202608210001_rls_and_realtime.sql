@@ -9,13 +9,13 @@
 -- ── Helper: current user's branch_id ─────────────────────────────────────────
 create or replace function public.my_branch_id()
 returns text language sql stable security definer as $$
-  select branch_id from public.users where firebase_id = auth.uid() limit 1;
+  select branch_id from public.users where firebase_id = auth.uid()::text limit 1;
 $$;
 
 -- ── Helper: current user's system_id ─────────────────────────────────────────
 create or replace function public.my_system_id()
 returns text language sql stable security definer as $$
-  select system_id from public.users where firebase_id = auth.uid() limit 1;
+  select system_id from public.users where firebase_id = auth.uid()::text limit 1;
 $$;
 
 -- ── validations: read ─────────────────────────────────────────────────────────
