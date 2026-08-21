@@ -265,7 +265,7 @@ Deno.serve(async (request) => {
       if (!row || !['consignment', 'branch_id', 'assigned_to_system_id', 'source'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
         return reply({ error: 'Missing required row fields' }, 400)
       }
-      if (row.source !== 'CC' && row.source !== 'WORKER') {
+      if (row.source !== 'validator' && row.source !== 'verification_request') {
         return reply({ error: 'Invalid remark source' }, 400)
       }
       // Author fields come exclusively from the verified Firebase identity; Android
@@ -304,11 +304,9 @@ Deno.serve(async (request) => {
 
     let query = admin.from('validations')
       .select('id,consignment,branch_id,assigned_to_system_id,author_system_id,source,remarks_status,consignment_status,remarks,note,customer_phone,created_at,author:users!validations_author_system_id_fkey(name,employee_id,role),assigned:users!validations_assigned_to_system_id_fkey(name,employee_id,role)')
-    if (action === 'history') query = query.eq('consignment', body.consignment)
-    else if (action === 'today') query = query.eq('assigned_to_system_id', body.assigned_to_system_id).gte('created_at', body.start_iso)
-    else if (action === 'agent_range') query = query.eq('assigned_to_system_id', body.assigned_to_system_id).gte('created_at', body.start_iso).lt('created_at', body.end_iso)
-    else if (action === 'new_since') query = query.in('consignment', body.consignments).gt('created_at', body.since_iso)
-    else if (action === 'report') {
+    // history, today, agent_range, new_since — removed: Android now calls the
+    // PostgREST REST API directly (unlimited free tier, no invocation consumed).
+    if (action === 'report') {
       if (typeof body.branch_id !== 'string' || typeof body.start_iso !== 'string' || typeof body.end_iso !== 'string') {
         return reply({ error: 'branch_id, start_iso and end_iso are required' }, 400)
       }
