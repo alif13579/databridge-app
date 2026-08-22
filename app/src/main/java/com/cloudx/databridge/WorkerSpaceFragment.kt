@@ -1383,7 +1383,12 @@ class WorkerSpaceFragment : Fragment() {
             resolveRemarkBn(latestRemarkRow.optString("remarks").trim()),
             latestRemarkRow.optString("note").trim()
         ).filter { it.isNotBlank() }.joinToString("\n")
-        if (status.isBlank() && remarkText.isBlank()) return
+        if (status.isBlank() && remarkText.isBlank()) {
+            android.util.Log.w("WorkerSpaceFragment",
+                "refreshOneWorkerParcelFromSupabase: skipping $cId — both remarks_status and " +
+                "remark text are blank (source=${latestRemarkRow.optString("source")})")
+            return
+        }
 
         workerLastSeenRemarkAt[cId] = maxOf(createdAt, workerLastSeenRemarkAt[cId] ?: 0L)
         val newHistory = buildHistoryEntries(cId, listOf(latestRemarkRow))
@@ -1430,6 +1435,12 @@ class WorkerSpaceFragment : Fragment() {
         // event-triggered, one-off REST read — it neither polls nor invokes the Edge Function.
         if (!isAdded || allParcels.none { it.id == consignmentId }) return
         SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
+            if (rows.isEmpty()) {
+                android.util.Log.e("WorkerSpaceFragment",
+                    "refreshWorkerParcelFromPush: fetchHistory returned 0 rows for $consignmentId — " +
+                    "likely RLS block; check public.users.branch_ids for this agent")
+                return@fetchHistory
+            }
             val latest = rows.maxByOrNull {
                 SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
             } ?: return@fetchHistory

@@ -225,7 +225,17 @@ object SupabaseClientManager {
                     .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
                     .post(body.toString().toRequestBody(json))
                     .build()
-                httpClient.newCall(request).execute().use { /* fire-and-forget */ }
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        Log.i(TAG, "syncUser OK — firebase_id=$firebaseId system_id=$systemId " +
+                            "branch_id=$branchId branch_ids=[$branchId]")
+                    } else {
+                        val body = response.body?.string().orEmpty().take(300)
+                        Log.e(TAG, "syncUser HTTP ${response.code} — $body")
+                        FirebaseErrorLogger.log(TAG, "sync_user_http_error",
+                            "HTTP ${response.code}: $body", mapOf("systemId" to systemId))
+                    }
+                }
             } catch (e: Exception) {
                 FirebaseErrorLogger.log("SupabaseClientManager", "sync_user",
                     e.message ?: "Sync failed", mapOf("systemId" to systemId))
@@ -277,7 +287,13 @@ object SupabaseClientManager {
                     return@withContext emptyList()
                 }
                 val arr = JSONArray(text)
-                Log.d(TAG, "Validation read succeeded ($screen/$action): ${arr.length()} row(s)")
+                if (arr.length() == 0) {
+                    Log.w(TAG, "Validation read returned 0 rows ($screen/$action) — " +
+                        "possible RLS block: check branch_ids in public.users for this Firebase UID. " +
+                        "URL: $url")
+                } else {
+                    Log.d(TAG, "Validation read OK ($screen/$action): ${arr.length()} row(s)")
+                }
                 List(arr.length()) { i -> arr.getJSONObject(i) }
             }
         } catch (e: Exception) {

@@ -1,5 +1,6 @@
 package com.cloudx.databridge
 
+import android.util.Log
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
@@ -30,6 +31,8 @@ import org.json.JSONObject
  */
 object SupabaseRealtimeManager {
 
+    private const val TAG = "SupabaseRealtime"
+
     /**
      * Subscribes to INSERT events on public.validations filtered by one column.
      *
@@ -49,17 +52,16 @@ object SupabaseRealtimeManager {
         val client = SupabaseClientManager.client
         return scope.launch {
             try {
-                // Supabase REST calls pass the Firebase JWT directly as
-                // Authorization: Bearer. Realtime needs the same token set via
-                // setAuth() so the channel JOIN message includes
-                //   user_token = <firebase-jwt>
-                // Without setAuth(), the WebSocket connects with the anon key
-                // only — RLS evaluates current_firebase_id() as null,
-                // my_branch_ids() returns {}, and every INSERT is silently
-                // dropped before the onInsert callback fires.
                 val token = SupabaseClientManager.getAccessToken()
-                if (token != null) client.realtime.setAuth(token)
+                if (token != null) {
+                    client.realtime.setAuth(token)
+                    Log.d(TAG, "[$channelKey] setAuth OK — Firebase JWT set on Realtime")
+                } else {
+                    Log.e(TAG, "[$channelKey] setAuth SKIPPED — getAccessToken() returned null; " +
+                        "Realtime will connect with anon key only and RLS will block all events")
+                }
                 client.realtime.connect()
+                Log.i(TAG, "[$channelKey] connect() called — filter: ${filter.first}=${filter.second}")
                 val channel = client.realtime.channel(channelKey)
                 channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
                     table = "validations"
@@ -67,11 +69,17 @@ object SupabaseRealtimeManager {
                 }.onEach { event ->
                     try {
                         val row = JSONObject(event.record.toString())
+                        Log.d(TAG, "[$channelKey] INSERT received — consignment=${row.optString("consignment")} " +
+                            "source=${row.optString("source")} status=${row.optString("remarks_status")}")
                         onInsert(row)
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        Log.e(TAG, "[$channelKey] Failed to parse INSERT event: ${e.message}")
+                    }
                 }.launchIn(scope)
                 channel.subscribe()
+                Log.i(TAG, "[$channelKey] subscribe() called")
             } catch (e: Exception) {
+                Log.e(TAG, "[$channelKey] Subscription failed: ${e.message}", e)
                 FirebaseErrorLogger.log(
                     "SupabaseRealtimeManager", "subscribe_error",
                     e.message ?: "Subscription failed", mapOf("channelKey" to channelKey)
