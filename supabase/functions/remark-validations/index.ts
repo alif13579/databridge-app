@@ -49,6 +49,21 @@ function permissionEnabled(node: unknown, permission: string): boolean {
   return !!node && typeof node === 'object' && (node as Record<string, unknown>)[permission] === true
 }
 
+function readBranchIds(companyInfo: Record<string, unknown> | null | undefined): string[] {
+  const raw = companyInfo?.branch_ids
+  const values = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === 'object' ? Object.values(raw) : []
+  const ids = values.filter((id): id is string => typeof id === 'string' && id.trim())
+    .map((id) => id.trim())
+  if (ids.length) return [...new Set(ids)]
+  // Legacy profiles may still have only a singular branch_id/branch field.
+  return [companyInfo?.branch_id, companyInfo?.branch]
+    .filter((id): id is string => typeof id === 'string' && id.trim())
+    .map((id) => id.trim())
+    .filter((id, index, all) => all.indexOf(id) === index)
+}
+
 /** Reads only the caller's profile, using their verified Firebase ID token. */
 async function firebaseProfile(identity: { uid: string; token: string }): Promise<FirebaseProfile> {
   const response = await fetch(
@@ -70,9 +85,7 @@ async function firebaseProfile(identity: { uid: string; token: string }): Promis
       if (typeof legacyRole === 'string') roleId = legacyRole.trim()
     }
   }
-  const rawBranchIds = companyInfo?.branch_ids
-  const branchIds = Array.isArray(rawBranchIds) ? rawBranchIds
-    : rawBranchIds && typeof rawBranchIds === 'object' ? Object.values(rawBranchIds) : []
+  const branchIds = readBranchIds(companyInfo)
   // This mirrors RbacManager.hasPermission("nav_call_center"): a per-user
   // override, when present, takes precedence over the role permission.
   const overridePermissions = companyInfo?.access_overrides?.permissions
@@ -86,7 +99,7 @@ async function firebaseProfile(identity: { uid: string; token: string }): Promis
   }
   return {
     systemId, roleId,
-    branchIds: branchIds.filter((id): id is string => typeof id === 'string' && id.trim()).map((id) => id.trim()),
+    branchIds,
     canAccessCallCenter: permissionEnabled(overrideActive ? overridePermissions : rolePermissions, 'nav_call_center'),
     name: typeof profile?.name === 'string' ? profile.name.trim() : '',
     employeeId: typeof companyInfo?.employee_id === 'string' ? companyInfo.employee_id.trim() : '',
@@ -105,12 +118,11 @@ async function firebaseProfileForSystemId(systemId: string, identity: { uid: str
   const info = profile?.company_info
   const resolvedId = typeof info?.system_id === 'string' ? info.system_id.trim() : ''
   if (resolvedId !== systemId) return null
-  const branches = info?.branch_ids
-  const branchIds = Array.isArray(branches) ? branches : branches && typeof branches === 'object' ? Object.values(branches) : []
+  const branchIds = readBranchIds(info)
   return {
     systemId: resolvedId,
     roleId: typeof info?.role_id === 'string' ? info.role_id.trim() : '',
-    branchIds: branchIds.filter((id): id is string => typeof id === 'string' && id.trim()).map((id) => id.trim()),
+    branchIds,
     canAccessCallCenter: false,
     name: typeof profile?.name === 'string' ? profile.name.trim() : '',
     employeeId: typeof info?.employee_id === 'string' ? info.employee_id.trim() : '',
@@ -280,7 +292,8 @@ Deno.serve(async (request) => {
     if (action === 'sync_profile') {
       const profile = await firebaseProfile(identity)
       await upsertUser(profile, identity.uid)
-      return reply({ ok: true })
+      console.info(`sync_profile ok: system_id=${profile.systemId}, branches=${profile.branchIds.length}`)
+      return reply({ ok: true, system_id: profile.systemId, branch_count: profile.branchIds.length })
     }
 
     if (action === 'register_push_token') {

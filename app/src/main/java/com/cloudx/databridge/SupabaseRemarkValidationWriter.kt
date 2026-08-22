@@ -1,5 +1,6 @@
 package com.cloudx.databridge
 
+import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import okhttp3.Call
 import okhttp3.Callback
@@ -60,13 +61,16 @@ object SupabaseRemarkValidationWriter {
      * A worker may receive a Call Center remark before writing their own; without this,
      * validations RLS has no Firebase UID/branch mapping and correctly returns no rows.
      */
-    fun syncCurrentUserProfile(onComplete: () -> Unit = {}) {
+    fun syncCurrentUserProfile(onComplete: (String?) -> Unit = {}) {
         invoke(
             JSONObject().put("action", "sync_profile"),
             screen = "SupabaseProfileSync",
             action = "supabase_profile_sync",
             reference = ""
-        ) { onComplete() }
+        ) { response ->
+            Log.i("SupabaseProfileSync", "sync_profile response=${response?.take(300) ?: "FAILED"}")
+            onComplete(response)
+        }
     }
 
     /** Parses Supabase/PostgREST timestamp output without turning a parse failure into 1970. */
