@@ -1023,7 +1023,12 @@ class CallCenterFragment : Fragment() {
                 SupabaseRemarkValidationWriter.fetchHistory(item.id, "CallCenterFragment") { fetched ->
                     deferred.complete(fetched)
                 }
-                deferred.await()
+                val fetched = deferred.await()
+                // Supabase validation rows contain author_system_id, not the nested
+                // Firebase profile object used by the old history response. Ensure the
+                // existing system-id -> Firebase profile cache is ready before rendering.
+                ensureAgentNameMap()
+                fetched
             }
             if (!isAdded) return@launch
             if (loadingDialog.isShowing) loadingDialog.dismiss()
@@ -1043,8 +1048,11 @@ class CallCenterFragment : Fragment() {
             val authorSystemId = r.optString("author_system_id").trim()
             val fromWorker = authorSystemId.isNotBlank() && authorSystemId == agentSystemId
             val authorUser = r.optJSONObject("author")
-            val authorName = authorUser?.optString("name")?.trim().orEmpty().ifBlank { authorSystemId }
+            val authorName = authorUser?.optString("name")?.trim().orEmpty()
+                .ifBlank { nameMap[authorSystemId].orEmpty() }
+                .ifBlank { authorSystemId }
             val authorEmployeeId = authorUser?.optString("employee_id")?.trim().orEmpty()
+                .ifBlank { systemIdToEmployeeId[authorSystemId].orEmpty() }
             val authorLabel = if (authorEmployeeId.isBlank()) authorName else "$authorName ($authorEmployeeId)"
             HistoryEntry(
                 action = status.ifBlank { "NOTE" }.uppercase(),
@@ -1053,7 +1061,8 @@ class CallCenterFragment : Fragment() {
                     .format(java.util.Date(createdAt)),
                 author = authorLabel + if (fromWorker) "" else " · CC",
                 authorRole = if (fromWorker) "agent" else "cc",
-                authorPhotoUrl = "",
+                authorPhotoUrl = authorUser?.optString("photo_url")?.trim().orEmpty()
+                    .ifBlank { systemIdToPhotoUrl[authorSystemId].orEmpty() },
                 createdAt = createdAt,
                 callLogCount = 0,
                 callLogTotalDurationSec = 0
