@@ -1037,7 +1037,6 @@ class CallCenterFragment : Fragment() {
     }
 
     private fun buildHistoryEntries(item: CallCenterParcelItem, rows: List<org.json.JSONObject>): List<HistoryEntry> {
-        val agentSystemId = item.workerSystemId
         val nameMap = systemIdToName
         return rows.mapNotNull { r ->
             val status = r.optString("remarks_status").trim()
@@ -1046,7 +1045,10 @@ class CallCenterFragment : Fragment() {
             if (status.isBlank() && remarks.isBlank()) return@mapNotNull null
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
             val authorSystemId = r.optString("author_system_id").trim()
-            val fromWorker = authorSystemId.isNotBlank() && authorSystemId == agentSystemId
+            // The writer stores the authoritative actor type in `source`. The assigned
+            // worker can also submit a CC-originated note, so comparing system IDs here
+            // mislabels those entries as WORKER actions.
+            val fromWorker = r.optString("source").trim().equals("WORKER", ignoreCase = true)
             val authorUser = r.optJSONObject("author")
             val authorName = authorUser?.optString("name")?.trim().orEmpty()
                 .ifBlank { nameMap[authorSystemId].orEmpty() }
