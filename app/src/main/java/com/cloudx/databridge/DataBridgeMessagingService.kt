@@ -29,7 +29,7 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
                 message = body,
                 type = "remark",
                 parcelId = data["consignment_id"].orEmpty(),
-                scope = data["scope"].orEmpty().ifBlank { "cc" }
+                scope = data["scope"].orEmpty()
             )
         )
     }
