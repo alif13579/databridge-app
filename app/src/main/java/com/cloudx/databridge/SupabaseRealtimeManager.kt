@@ -54,10 +54,9 @@ object SupabaseRealtimeManager {
             try {
                 val token = SupabaseClientManager.getAccessToken()
                 if (token != null) {
-                    client.realtime.setAuth(token)
-                    Log.d(TAG, "[$channelKey] setAuth OK — Firebase JWT set on Realtime")
+                    Log.d(TAG, "[$channelKey] Firebase JWT available for the channel")
                 } else {
-                    Log.e(TAG, "[$channelKey] setAuth SKIPPED — getAccessToken() returned null; " +
+                    Log.e(TAG, "[$channelKey] auth update SKIPPED — getAccessToken() returned null; " +
                         "Realtime will connect with anon key only and RLS will block all events")
                 }
                 client.realtime.connect()
@@ -77,6 +76,9 @@ object SupabaseRealtimeManager {
                     }
                 }.launchIn(scope)
                 channel.subscribe()
+                // supabase-kt 3.x exposes JWT updates on each channel, not on the
+                // Realtime client (the old client.realtime.setAuth API was removed).
+                token?.let { channel.updateAuth(it) }
                 Log.i(TAG, "[$channelKey] subscribe() called")
             } catch (e: Exception) {
                 Log.e(TAG, "[$channelKey] Subscription failed: ${e.message}", e)
