@@ -1,5 +1,7 @@
 package com.cloudx.databridge
 
+import android.util.Base64
+import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
@@ -23,7 +25,7 @@ import org.json.JSONObject
  *
  * Responsibilities:
  *  • Create and hold the SupabaseClient (Auth + Realtime + Postgrest).
- *  • Exchange a Firebase ID token for a Supabase session on login.
+ *  • Use Firebase ID tokens directly with Supabase Third-party Auth.
  *  • Sync the signed-in user's profile row to public.users so RLS works.
  *  • Expose [getAccessToken] for direct PostgREST / Realtime calls.
  *  • Provide [fetchRest] — a drop-in for the former Edge Function read calls
@@ -31,6 +33,7 @@ import org.json.JSONObject
  */
 object SupabaseClientManager {
 
+    private const val TAG = "SupabaseClientManager"
     private val httpClient = OkHttpClient()
     private val json = "application/json".toMediaType()
 
@@ -42,7 +45,16 @@ object SupabaseClientManager {
 
     /** Call once from [DataBridgeApplication.onCreate]. */
     fun init() {
-        if (!SupabaseConfig.isConfigured) return
+        Log.i(
+            TAG,
+            "Supabase config: configured=${SupabaseConfig.isConfigured}, " +
+                "url=${SupabaseConfig.PROJECT_URL.ifBlank { "<missing>" }}, " +
+                "publishableKeyPresent=${SupabaseConfig.PUBLISHABLE_KEY.isNotBlank()}"
+        )
+        if (!SupabaseConfig.isConfigured) {
+            Log.e(TAG, "Supabase client was not initialized because configuration is invalid")
+            return
+        }
         _client = createSupabaseClient(
             supabaseUrl = SupabaseConfig.PROJECT_URL,
             supabaseKey = SupabaseConfig.PUBLISHABLE_KEY,
@@ -53,20 +65,34 @@ object SupabaseClientManager {
         }
     }
 
-    // ── Auth exchange ─────────────────────────────────────────────────────────
+    // ── Legacy Auth exchange diagnostics ───────────────────────────────────────
 
     /**
-     * Exchanges the current Firebase ID token for a Supabase session.
-     * Call this after a successful Firebase sign-in and after RBAC data is
-     * loaded (so that [syncUser] can be called immediately after).
+     * Legacy diagnostic for the former Supabase Auth token-exchange flow.
+     *
+     * Firebase Third-party Auth uses the Firebase JWT directly, so application
+     * reads do not call this method. It is intentionally retained during the
+     * migration to make a failed legacy endpoint response observable in Logcat.
      */
     suspend fun exchangeFirebaseToken(): Boolean {
-        val client = _client ?: return false
+        val client = _client
+        if (client == null) {
+            Log.e(TAG, "Firebase token exchange skipped: Supabase client is not initialized")
+            return false
+        }
         return try {
             val token = FirebaseAuth.getInstance().currentUser
-                ?.getIdToken(false)?.await()?.token ?: return false
+                ?.getIdToken(false)?.await()?.token
+            if (token.isNullOrBlank()) {
+                Log.e(TAG, "Firebase token exchange skipped: no Firebase ID token")
+                FirebaseErrorLogger.log(TAG, "exchange_firebase_token_no_id_token", "No Firebase ID token")
+                return false
+            }
+            logFirebaseTokenClaims(token)
+            Log.d(TAG, "Starting legacy Firebase ID-token exchange")
             importFirebaseIdTokenSession(client, token)
         } catch (e: Exception) {
+            Log.e(TAG, "Firebase token exchange failed", e)
             FirebaseErrorLogger.log("SupabaseClientManager", "exchange_firebase_token",
                 e.message ?: "Exchange failed")
             false
@@ -88,6 +114,7 @@ object SupabaseClientManager {
             response.use {
                 val text = it.body?.string().orEmpty()
                 if (!it.isSuccessful) {
+                    Log.e(TAG, "Firebase token exchange HTTP ${it.code}: ${text.take(1_000)}")
                     FirebaseErrorLogger.log(
                         "SupabaseClientManager",
                         "exchange_firebase_token_http_error",
@@ -99,6 +126,7 @@ object SupabaseClientManager {
                 val accessToken = json.optString("access_token")
                 val refreshToken = json.optString("refresh_token")
                 if (accessToken.isBlank() || refreshToken.isBlank()) {
+                    Log.e(TAG, "Firebase token exchange response was missing access_token or refresh_token")
                     FirebaseErrorLogger.log(
                         "SupabaseClientManager",
                         "exchange_firebase_token_bad_response",
@@ -107,22 +135,39 @@ object SupabaseClientManager {
                     return@withContext false
                 }
                 client.auth.importAuthToken(accessToken, refreshToken, retrieveUser = true, autoRefresh = true)
+                Log.i(TAG, "Firebase token exchange succeeded")
                 true
             }
         }
 
-    /** Returns a valid Supabase access token, refreshing if needed. */
+    /**
+     * Returns the current Firebase ID token for Supabase Third-party Auth.
+     *
+     * Supabase's Firebase integration validates this token directly for REST,
+     * Realtime and Storage. It does not require a Supabase Auth session created
+     * through /auth/v1/token.
+     */
     suspend fun getAccessToken(): String? {
-        val client = _client ?: return null
-        // supabase-kt automatically refreshes the session when expired
         return try {
-            client.auth.currentSessionOrNull()?.accessToken
-                ?: run {
-                    // Session missing — re-exchange
-                    if (exchangeFirebaseToken()) client.auth.currentSessionOrNull()?.accessToken
-                    else null
-                }
-        } catch (_: Exception) { null }
+            if (_client == null) {
+                Log.e(TAG, "Firebase token unavailable: Supabase client is not initialized")
+                return null
+            }
+            val token = FirebaseAuth.getInstance().currentUser
+                ?.getIdToken(false)?.await()?.token
+            if (token.isNullOrBlank()) {
+                Log.e(TAG, "Firebase token unavailable: no signed-in Firebase user or ID token")
+                FirebaseErrorLogger.log(TAG, "firebase_access_token_missing", "No Firebase ID token")
+                null
+            } else {
+                logFirebaseTokenClaims(token)
+                token
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Unable to obtain Firebase ID token", e)
+            FirebaseErrorLogger.log(TAG, "firebase_access_token_error", e.message ?: "ID token request failed")
+            null
+        }
     }
 
     /** Sign out of Supabase (call alongside Firebase sign-out). */
@@ -186,6 +231,7 @@ object SupabaseClientManager {
     ): List<JSONObject> = withContext(Dispatchers.IO) {
         val token = getAccessToken()
         if (token == null) {
+            Log.e(TAG, "Validation read skipped: Firebase bearer token is unavailable ($screen/$action)")
             FirebaseErrorLogger.log(screen, "${action}_no_token", "No Supabase token")
             return@withContext emptyList()
         }
@@ -206,16 +252,37 @@ object SupabaseClientManager {
             response.use {
                 val text = it.body?.string().orEmpty()
                 if (!it.isSuccessful) {
+                    Log.e(TAG, "Validation read HTTP ${it.code} ($screen/$action): ${text.take(1_000)}")
                     FirebaseErrorLogger.log(screen, "${action}_http_error",
                         "HTTP ${it.code}: ${text.take(300)}")
                     return@withContext emptyList()
                 }
                 val arr = JSONArray(text)
+                Log.d(TAG, "Validation read succeeded ($screen/$action): ${arr.length()} row(s)")
                 List(arr.length()) { i -> arr.getJSONObject(i) }
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Validation read failed ($screen/$action)", e)
             FirebaseErrorLogger.log(screen, "${action}_error", e.message ?: "Request failed")
             emptyList()
+        }
+    }
+
+    /** Logs only non-secret JWT claims needed to diagnose Third-party Auth/RLS. */
+    private fun logFirebaseTokenClaims(token: String) {
+        try {
+            val payload = token.split('.').getOrNull(1) ?: return
+            val decoded = String(Base64.decode(payload, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING))
+            val claims = JSONObject(decoded)
+            Log.d(
+                TAG,
+                "Firebase token claims: uid=${claims.optString("sub", "<missing>")}, " +
+                    "aud=${claims.optString("aud", "<missing>")}, " +
+                    "iss=${claims.optString("iss", "<missing>")}, " +
+                    "role=${claims.optString("role", "<missing>")}"
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not decode Firebase token claims for diagnostics: ${e.message}")
         }
     }
 

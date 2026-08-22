@@ -120,9 +120,10 @@ object AuthManager {
         }
         appPrefs.saveAuthState(uid)
 
-        // Exchange Firebase token for a Supabase session so REST API + Realtime work.
+        // REST reads use Firebase Third-party Auth tokens directly. Keep the legacy
+        // exchange for this SDK's Realtime plugin, which currently requires an Auth
+        // session; a failed exchange no longer prevents REST history reads.
         // User sync (branch_id, system_id) happens in DashboardViewModel after RBAC loads.
         SupabaseClientManager.exchangeFirebaseToken()
     }
 }
-
