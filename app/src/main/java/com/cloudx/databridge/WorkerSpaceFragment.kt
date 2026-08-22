@@ -929,16 +929,22 @@ class WorkerSpaceFragment : Fragment() {
         // visible flicker (the sheet appeared to open twice).
         val (dialog, dialogView) = renderActionHistoryDialog(item, isLoading = true)
         viewLifecycleOwner.lifecycleScope.launch {
-            val rows = withContext(Dispatchers.IO) {
+            val (rows, nameMap, photoMap) = withContext(Dispatchers.IO) {
                 val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
                 SupabaseRemarkValidationWriter.fetchHistory(item.id, "WorkerSpaceFragment") { fetched ->
                     deferred.complete(fetched)
                 }
-                deferred.await()
+                val fetched = deferred.await()
+                // Supabase validation rows contain author_system_id, not a nested Firebase
+                // profile object — resolve it against users_by_systemId the same way
+                // CallCenterFragment.buildHistoryEntries() does, instead of showing the raw id.
+                val authorIds = fetched.mapNotNull { it.optString("author_system_id")?.trim()?.takeIf { id -> id.isNotBlank() } }.distinct()
+                val (names, photos) = resolveSystemIdNamesAndPhotos(authorIds)
+                Triple(fetched, names, photos)
             }
             if (!isAdded || !dialog.isShowing) return@launch
             renderActionHistoryDialog(
-                item.copy(history = buildHistoryEntries(item.id, rows)),
+                item.copy(history = buildHistoryEntries(item.id, rows, nameMap, photoMap)),
                 isLoading = false,
                 existing = dialog to dialogView
             )
@@ -1092,7 +1098,9 @@ class WorkerSpaceFragment : Fragment() {
 
     private fun buildHistoryEntries(
         consignmentId: String,
-        remarkRows: List<org.json.JSONObject>
+        remarkRows: List<org.json.JSONObject>,
+        nameMap: Map<String, String> = emptyMap(),
+        photoMap: Map<String, String> = emptyMap()
     ): List<HistoryEntry> {
         val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
         return remarkRows.mapNotNull { r ->
@@ -1108,7 +1116,9 @@ class WorkerSpaceFragment : Fragment() {
             val isFromDeliveryAgent = authorSystemId.isNotBlank() && authorSystemId == systemId
             val authorRole = if (isFromDeliveryAgent) "agent" else "cc"
             val authorUser = r.optJSONObject("author")
-            val resolvedAuthorName = authorUser?.optString("name")?.trim().orEmpty().ifBlank { authorSystemId }
+            val resolvedAuthorName = authorUser?.optString("name")?.trim().orEmpty()
+                .ifBlank { nameMap[authorSystemId].orEmpty() }
+                .ifBlank { authorSystemId }
             val authorEmployeeId = authorUser?.optString("employee_id")?.trim().orEmpty()
             val authorLabel = if (authorEmployeeId.isBlank()) resolvedAuthorName else "$resolvedAuthorName ($authorEmployeeId)"
             val author = if (isFromDeliveryAgent) authorLabel else "$authorLabel · CC"
@@ -1119,7 +1129,8 @@ class WorkerSpaceFragment : Fragment() {
                 time = timeStr,
                 author = author,
                 authorRole = authorRole,
-                authorPhotoUrl = "",
+                authorPhotoUrl = authorUser?.optString("photo_url")?.trim().orEmpty()
+                    .ifBlank { photoMap[authorSystemId].orEmpty() },
                 createdAt = createdAt,
                 cardBadgeText = rRemarks
             )
