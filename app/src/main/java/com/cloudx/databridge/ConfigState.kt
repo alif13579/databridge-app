@@ -39,7 +39,32 @@ object ConfigState {
         val target_status: String = "",
         val template_id:   String = "", // optional — linked WhatsApp template, blank = no auto-message
         val priority:      Int    = 0,  // higher = shown first in the remark picker
+        // Instruction: tells the DELIVERY AGENT what to actually do, separate from
+        // target_status (which just changes the consignment's status). E.g. a remark
+        // like "Customer isn't answering calls" might carry instruction_type = "on_hold"
+        // with instruction_text = "Try again after 3pm, don't return yet" -- the agent
+        // sees that text alongside the CC remark once it's applied, not just a bare
+        // status change. instruction_type is a fixed dropdown (see INSTRUCTION_TYPES
+        // below); instruction_text is free text the admin writes per-remark, not derived
+        // from the type. Both blank = no instruction attached (the common case).
+        val instruction_type: String = "",
+        val instruction_text: String = "",
     )
+
+    /** Fixed instruction-type options for the Remarks config's Instruction dropdown —
+     *  hardcoded per Alif's decision (not admin-configurable), though the value set
+     *  could grow later (e.g. an attempt/aging-driven dynamic instruction system was
+     *  discussed and explicitly deferred, not built here). Empty string means "no
+     *  instruction" and isn't itself a dropdown entry — it's the default/unset state. */
+    const val INSTRUCTION_TYPE_ON_HOLD = "on_hold"
+    const val INSTRUCTION_TYPE_RETURN = "return"
+    val INSTRUCTION_TYPES = listOf(INSTRUCTION_TYPE_ON_HOLD, INSTRUCTION_TYPE_RETURN)
+
+    fun instructionTypeLabel(type: String): String = when (type) {
+        INSTRUCTION_TYPE_ON_HOLD -> "On Hold"
+        INSTRUCTION_TYPE_RETURN -> "Return"
+        else -> type
+    }
 
     data class WhatsAppTemplate(
         val id:   String = "",

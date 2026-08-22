@@ -188,6 +188,36 @@
                     android:layout_height="wrap_content" />
             </LinearLayout>
 
+            <!-- Instruction: tells the DELIVERY AGENT what to actually do, separate from
+                 the target-status group above (which just moves the consignment to a
+                 different status). Blank/None = no instruction attached, the common case. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="8dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Instruction:" android:textSize="12sp" android:textColor="@color/theme_text_secondary"
+                    android:layout_marginEnd="8dp" />
+                <Spinner
+                    android:id="@+id/spinnerInstructionType"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <EditText
+                android:id="@+id/etInstructionText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Instruction for the delivery agent (e.g. Try again after 3pm)..."
+                android:textSize="13sp"
+                android:padding="8dp"
+                android:background="@drawable/bg_input_rounded"
+                android:inputType="text"
+                android:layout_marginBottom="10dp"
+                android:visibility="gone" />
+
             <Button
                 android:id="@+id/btnAddRemark"
                 android:layout_width="match_parent"

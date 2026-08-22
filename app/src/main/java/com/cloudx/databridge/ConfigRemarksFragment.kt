@@ -53,6 +53,8 @@ class ConfigRemarksFragment : Fragment() {
     private lateinit var etBn:           EditText
     private lateinit var etEn:           EditText
     private lateinit var spinnerTarget:  Spinner
+    private lateinit var spinnerInstructionType: Spinner
+    private lateinit var etInstructionText: EditText
     private lateinit var btnAdd:         Button
     private lateinit var btnOpenCreate:  TextView
     private lateinit var tabWorker:      TextView
@@ -72,6 +74,8 @@ class ConfigRemarksFragment : Fragment() {
         etBn          = view.findViewById(R.id.etRemarkBn)
         etEn          = view.findViewById(R.id.etRemarkEn)
         spinnerTarget = view.findViewById(R.id.spinnerTargetStatus)
+        spinnerInstructionType = view.findViewById(R.id.spinnerInstructionType)
+        etInstructionText = view.findViewById(R.id.etInstructionText)
         btnAdd        = view.findViewById(R.id.btnAddRemark)
         btnOpenCreate = view.findViewById(R.id.btnOpenCreateRemark)
         tabWorker     = view.findViewById(R.id.tabRemarksWorker)
@@ -82,6 +86,8 @@ class ConfigRemarksFragment : Fragment() {
         updateScopeTabStyles()
         tabWorker.setOnClickListener { switchScope(RemarkScope.WORKER) }
         tabCallCenter.setOnClickListener { switchScope(RemarkScope.CALL_CENTER) }
+
+        setupInstructionTypeSpinner()
 
         // Load from Firebase then bind
         loadFromFirebase()
@@ -165,7 +171,9 @@ class ConfigRemarksFragment : Fragment() {
                     val targetStatus = r.child("target_status").getValue(String::class.java) ?: key
                     val templateId   = r.child("template_id").getValue(String::class.java) ?: ""
                     val priority     = r.child("priority").getValue(Int::class.java) ?: 0
-                    list.add(ConfigState.Remark(id, textBn, textEn, targetStatus, templateId, priority))
+                    val instructionType = r.child("instruction_type").getValue(String::class.java) ?: ""
+                    val instructionText = r.child("instruction_text").getValue(String::class.java) ?: ""
+                    list.add(ConfigState.Remark(id, textBn, textEn, targetStatus, templateId, priority, instructionType, instructionText))
                 }
                 if (list.isNotEmpty()) loaded[key] = list
             }
@@ -244,6 +252,31 @@ class ConfigRemarksFragment : Fragment() {
         spinnerTarget.adapter = adapter
         val idx = sorted.indexOf(activeStatus).coerceAtLeast(0)
         spinnerTarget.setSelection(idx)
+    }
+
+    /** Static "None / On Hold / Return" instruction-type dropdown for the main add form —
+     *  set up once (not re-bound in bindAll(), unlike spinnerTarget, since its option list
+     *  never changes and re-binding would reset whatever the admin had selected mid-entry).
+     *  Index 0 ("None") means no instruction attached; showing/hiding etInstructionText
+     *  tracks whether anything other than None is selected. */
+    private fun setupInstructionTypeSpinner() {
+        val labels = listOf("None") + ConfigState.INSTRUCTION_TYPES.map { ConfigState.instructionTypeLabel(it) }
+        spinnerInstructionType.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, labels)
+        spinnerInstructionType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                etInstructionText.visibility = if (position == 0) View.GONE else View.VISIBLE
+                if (position == 0) etInstructionText.setText("")
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    /** selectedInstructionType(): "" for the "None" entry (index 0), else the
+     *  ConfigState.INSTRUCTION_TYPES value at (position - 1). */
+    private fun selectedInstructionType(): String {
+        val position = spinnerInstructionType.selectedItemPosition
+        if (position <= 0) return ""
+        return ConfigState.INSTRUCTION_TYPES.getOrElse(position - 1) { "" }
     }
 
     private fun bindRemarksList() {
@@ -357,8 +390,12 @@ class ConfigRemarksFragment : Fragment() {
         val sorted    = sortedStatuses()
         val targetIdx = spinnerTarget.selectedItemPosition
         val target    = sorted.getOrElse(targetIdx) { activeStatus }
-        addRemark(bn, en, target)
+        val instructionType = selectedInstructionType()
+        val instructionText = if (instructionType.isNotBlank()) etInstructionText.text.toString().trim() else ""
+        addRemark(bn, en, target, instructionType = instructionType, instructionText = instructionText)
         etBn.setText(""); etEn.setText("")
+        etInstructionText.setText("")
+        spinnerInstructionType.setSelection(0)
     }
 
     private fun openEditDialog(group: String, remark: com.cloudx.databridge.ConfigState.Remark) {
@@ -438,6 +475,46 @@ class ConfigRemarksFragment : Fragment() {
         layout.addView(tvTemplateLabel)
         layout.addView(templateSpinner)
 
+        // Instruction: same "None / On Hold / Return" fixed dropdown as the main add
+        // form, plus a free-text field the admin writes per-remark — see ConfigState.Remark's
+        // instruction_type/instruction_text doc comment for the full rationale.
+        val instructionLabels = listOf("None") + ConfigState.INSTRUCTION_TYPES.map { ConfigState.instructionTypeLabel(it) }
+        val currentInstructionIdx = ConfigState.INSTRUCTION_TYPES.indexOf(remark.instruction_type)
+        val instructionSpinnerEdit = Spinner(ctx).apply {
+            minimumHeight = dp(46)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(dp(8), 0, dp(8), 0)
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, instructionLabels)
+            setSelection(if (currentInstructionIdx >= 0) currentInstructionIdx + 1 else 0)
+        }
+        val etInstructionEdit = android.widget.EditText(ctx).apply {
+            hint = "Instruction for the delivery agent..."
+            setText(remark.instruction_text)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            textSize = 13f
+            visibility = if (currentInstructionIdx >= 0) View.VISIBLE else View.GONE
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        instructionSpinnerEdit.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                etInstructionEdit.visibility = if (position == 0) View.GONE else View.VISIBLE
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        layout.addView(android.widget.TextView(ctx).apply {
+            text = "Instruction"
+            textSize = 10f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, dp(10), 0, dp(5))
+        })
+        layout.addView(instructionSpinnerEdit)
+        layout.addView(etInstructionEdit)
+
         android.app.AlertDialog.Builder(ctx)
             .setTitle("Remark Edit করুন")
             .setView(layout)
@@ -450,17 +527,26 @@ class ConfigRemarksFragment : Fragment() {
                 }
                 val newTemplateId = templates.getOrNull(templateSpinner.selectedItemPosition - 1)?.id ?: ""
                 val newPriority = etPriorityEdit.text.toString().trim().toIntOrNull() ?: 0
-                handleEdit(group, remark.id, newBn, newEn, newTemplateId, newPriority)
+                val newInstructionPos = instructionSpinnerEdit.selectedItemPosition
+                val newInstructionType = if (newInstructionPos <= 0) "" else ConfigState.INSTRUCTION_TYPES.getOrElse(newInstructionPos - 1) { "" }
+                val newInstructionText = if (newInstructionType.isNotBlank()) etInstructionEdit.text.toString().trim() else ""
+                handleEdit(group, remark.id, newBn, newEn, newTemplateId, newPriority, newInstructionType, newInstructionText)
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun handleEdit(group: String, id: String, newBn: String, newEn: String, newTemplateId: String, newPriority: Int = 0) {
+    private fun handleEdit(
+        group: String, id: String, newBn: String, newEn: String, newTemplateId: String, newPriority: Int = 0,
+        newInstructionType: String = "", newInstructionText: String = "",
+    ) {
         val list = remarks[group] ?: return
         val idx = list.indexOfFirst { it.id == id }
         if (idx < 0) return
-        list[idx] = list[idx].copy(text_bn = newBn, text_en = newEn, template_id = newTemplateId, priority = newPriority)
+        list[idx] = list[idx].copy(
+            text_bn = newBn, text_en = newEn, template_id = newTemplateId, priority = newPriority,
+            instruction_type = newInstructionType, instruction_text = newInstructionText,
+        )
         ConfigState.remarks = remarks
         bindAll()
         viewLifecycleOwner.lifecycleScope.launch {
@@ -570,6 +656,31 @@ class ConfigRemarksFragment : Fragment() {
         content.addView(label("WhatsApp Template (ঐচ্ছিক)"))
         content.addView(templateSpinner)
 
+        // Instruction: same "None / On Hold / Return" fixed dropdown as the main add
+        // form and the edit dialog — see ConfigState.Remark's instruction_type/
+        // instruction_text doc comment for the full rationale.
+        val instructionLabels = listOf("None") + ConfigState.INSTRUCTION_TYPES.map { ConfigState.instructionTypeLabel(it) }
+        val instructionSpinnerCreate = Spinner(ctx).apply {
+            minimumHeight = dp(46)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
+            setPadding(dp(8), 0, dp(8), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, instructionLabels)
+        }
+        val instructionInputCreate = input("Instruction for the delivery agent...").apply { visibility = View.GONE }
+        instructionSpinnerCreate.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                instructionInputCreate.visibility = if (position == 0) View.GONE else View.VISIBLE
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        content.addView(label("Instruction"))
+        content.addView(instructionSpinnerCreate)
+        content.addView(instructionInputCreate)
+
         val dialog = AlertDialog.Builder(ctx)
             .setTitle("নতুন Remark")
             .setView(content)
@@ -589,7 +700,10 @@ class ConfigRemarksFragment : Fragment() {
                     dialog.dismiss()
                     val selectedTemplateId = templates.getOrNull(templateSpinner.selectedItemPosition - 1)?.id ?: ""
                     val priority = priorityInput.text.toString().trim().toIntOrNull() ?: 0
-                    addRemark(bn, en, target, selectedTemplateId, priority)
+                    val instructionPos = instructionSpinnerCreate.selectedItemPosition
+                    val instructionType = if (instructionPos <= 0) "" else ConfigState.INSTRUCTION_TYPES.getOrElse(instructionPos - 1) { "" }
+                    val instructionText = if (instructionType.isNotBlank()) instructionInputCreate.text.toString().trim() else ""
+                    addRemark(bn, en, target, selectedTemplateId, priority, instructionType, instructionText)
                 }
             }
         }
@@ -606,6 +720,8 @@ class ConfigRemarksFragment : Fragment() {
         target: String,
         templateId: String = "",
         priority: Int = 0,
+        instructionType: String = "",
+        instructionText: String = "",
         onSuccess: () -> Unit = {},
     ) {
         val remark = ConfigState.Remark(
@@ -615,6 +731,8 @@ class ConfigRemarksFragment : Fragment() {
             target_status = target,
             template_id = templateId,
             priority = priority,
+            instruction_type = instructionType,
+            instruction_text = instructionText,
         )
         remarks.getOrPut(target) { mutableListOf() }.add(remark)
         ConfigState.remarks = remarks
@@ -674,6 +792,8 @@ class ConfigRemarksFragment : Fragment() {
                             "target_status" to r.target_status,
                             "template_id"   to r.template_id,
                             "priority"      to r.priority,
+                            "instruction_type" to r.instruction_type,
+                            "instruction_text" to r.instruction_text,
                         )
                     }
                     payload[statusKey] = rows
