@@ -206,6 +206,14 @@ object SupabaseClientManager {
             put("name", name)
             put("employee_id", employeeId.ifBlank { JSONObject.NULL })
             put("branch_id", branchId)
+            // branch_ids (text[]) was added in migration 202608220001 for
+            // multi-branch RLS. syncUser only has a single branchId parameter,
+            // so keep branch_ids in sync with branch_id. Without this, new
+            // users get branch_ids='{}' (column default), my_branch_ids()
+            // returns an empty array, and every RLS-gated SELECT (fetchHistory,
+            // Realtime) silently returns nothing — this is why CC→Worker remark
+            // updates were not appearing after the migration.
+            put("branch_ids", org.json.JSONArray().put(branchId))
         }
         withContext(Dispatchers.IO) {
             try {
