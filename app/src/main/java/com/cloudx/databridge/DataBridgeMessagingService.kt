@@ -27,7 +27,7 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
         val title = data["title"]?.takeIf { it.isNotBlank() } ?: "নতুন রিমার্ক"
         val body = data["body"]?.takeIf { it.isNotBlank() } ?: "একটি নতুন রিমার্ক এসেছে"
         val parcelId = data["consignment_id"].orEmpty()
-        val scope = data["scope"].orEmpty().ifBlank { "cc" }
+        val scope = data["scope"].orEmpty()
         RemarkPushChainLog.log("RemarkPushChain", "onMessageReceived: parcelId=$parcelId scope=$scope " +
             "-> AppNotificationManager.add()")
         AppNotificationManager.add(
