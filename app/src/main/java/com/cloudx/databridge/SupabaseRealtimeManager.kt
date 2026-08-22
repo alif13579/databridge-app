@@ -49,13 +49,16 @@ object SupabaseRealtimeManager {
         val client = SupabaseClientManager.client
         return scope.launch {
             try {
-                // Ensure a valid Supabase auth session exists before connecting.
-                // On app restart, Firebase auth is restored automatically but the
-                // Supabase session is not persisted — connect() would succeed
-                // anonymously and RLS would silently block all Realtime events.
-                // getAccessToken() re-exchanges the Firebase token if the session
-                // is missing, so the subsequent connect() is always authenticated.
-                SupabaseClientManager.getAccessToken()
+                // Supabase REST calls pass the Firebase JWT directly as
+                // Authorization: Bearer. Realtime needs the same token set via
+                // setAuth() so the channel JOIN message includes
+                //   user_token = <firebase-jwt>
+                // Without setAuth(), the WebSocket connects with the anon key
+                // only — RLS evaluates current_firebase_id() as null,
+                // my_branch_ids() returns {}, and every INSERT is silently
+                // dropped before the onInsert callback fires.
+                val token = SupabaseClientManager.getAccessToken()
+                if (token != null) client.realtime.setAuth(token)
                 client.realtime.connect()
                 val channel = client.realtime.channel(channelKey)
                 channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
