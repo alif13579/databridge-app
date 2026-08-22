@@ -810,6 +810,12 @@ class WorkerSpaceFragment : Fragment() {
         if (adapter.expandedItemId in updatedIds) {
             adapter.expandedItemId = null
         }
+        // setupFilterTabs() must run before applyFilters() so the status chips reflect the
+        // updated effectiveStatus distribution right after this manual save — same as
+        // CallCenterFragment.saveCcRemarkForItems(). Without this, the chip labels/counts
+        // stayed stale until the later Supabase Realtime echo of this same write arrived
+        // (see refreshOneWorkerParcelFromSupabase(), which already had this ordering).
+        setupFilterTabs()
         applyFilters()
 
         val savedCount = items.size
