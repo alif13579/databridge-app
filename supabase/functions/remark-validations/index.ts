@@ -141,6 +141,28 @@ async function firebaseRead(identity: { uid: string; token: string }, path: stri
   return response.ok ? response.json() : null
 }
 
+/** Mirrors CallCenterFragment.resolveRemarkBn() / WorkerSpaceFragment.resolveRemarkBn():
+ *  matches the raw remark text saved by the app against text_en in the matching
+ *  config node — config/remarks_worker for a WORKER-sourced remark, config/remarks_call_center
+ *  for a CC-sourced one — and returns the paired text_bn. Falls back to the raw text when no
+ *  match is found (a free-typed remark, or the config entry was edited/removed since). */
+async function resolveRemarkBn(remarksText: string, source: string, identity: { uid: string; token: string }): Promise<string> {
+  if (!remarksText.trim()) return remarksText
+  const configPath = source === 'WORKER' ? 'config/remarks_worker' : 'config/remarks_call_center'
+  const groups = await firebaseRead(identity, configPath) as Record<string, Record<string, unknown>> | null
+  if (!groups) return remarksText
+  for (const group of Object.values(groups)) {
+    if (!group || typeof group !== 'object') continue
+    for (const entry of Object.values(group as Record<string, unknown>)) {
+      const e = entry as Record<string, unknown> | null
+      const textEn = typeof e?.text_en === 'string' ? e.text_en.trim() : ''
+      const textBn = typeof e?.text_bn === 'string' ? e.text_bn.trim() : ''
+      if (textEn && textEn === remarksText.trim() && textBn) return textBn
+    }
+  }
+  return remarksText
+}
+
 function asMillis(value: unknown): number {
   const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : 0
   return Number.isFinite(number) ? (number > 0 && number < 100_000_000_000 ? number * 1000 : number) : 0
@@ -159,7 +181,7 @@ function ageLabel(createdAt: unknown, updatedAt: unknown): string {
   return 'Just now'
 }
 
-async function notificationDetails(row: { consignment: string; author_system_id: string; remarks_status: string; remarks: string }, identity: { uid: string; token: string }) {
+async function notificationDetails(row: { consignment: string; author_system_id: string; remarks_status: string; remarks: string; source: string }, identity: { uid: string; token: string }) {
   const parcel = await firebaseRead(identity, `courier/consignments/${encodeURIComponent(row.consignment)}`) as Record<string, unknown> | null
   const index = await firebaseRead(identity, `users_by_systemId/${encodeURIComponent(row.author_system_id)}`) as { uid?: unknown } | null
   const authorProfile = typeof index?.uid === 'string'
@@ -168,14 +190,14 @@ async function notificationDetails(row: { consignment: string; author_system_id:
   const author = typeof authorProfile?.name === 'string' && authorProfile.name.trim() ? authorProfile.name.trim() : 'Agent'
   const customer = typeof parcel?.recipientName === 'string' && parcel.recipientName.trim() ? parcel.recipientName.trim() : row.consignment
   const attempt = Number(parcel?.attempt) || 0
-  const base = row.remarks || 'নতুন রিমার্ক এসেছে'
+  const base = (await resolveRemarkBn(row.remarks, row.source, identity)) || 'নতুন রিমার্ক এসেছে'
   return {
     title: `${author} — ${customer}`,
     body: `${base}\n📅 ${ageLabel(parcel?.createdAt, parcel?.updatedAt)}  •  🔁 ${attempt} attempt${attempt === 1 ? '' : 's'}`,
   }
 }
 
-async function sendRemarkPush(row: { consignment: string; branch_id: string; assigned_to_system_id: string; author_system_id: string; remarks_status: string; remarks: string }, identity: { uid: string; token: string }) {
+async function sendRemarkPush(row: { consignment: string; branch_id: string; assigned_to_system_id: string; author_system_id: string; remarks_status: string; remarks: string; source: string }, identity: { uid: string; token: string }) {
   // A failed or not-yet-configured push must never prevent the audit record from saving.
   const serviceAccountJson = Deno.env.get('FCM_SERVICE_ACCOUNT_JSON')
   if (!serviceAccountJson) {
