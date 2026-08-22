@@ -2456,7 +2456,12 @@ class CallCenterFragment : Fragment() {
         val cursorMs = ccRemarkFallbackCursorMs.takeIf { it > 0L } ?: requestedAtMs
         SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), cursorMs, "CallCenterFragment") { rows ->
             ccRemarkFallbackCursorMs = requestedAtMs
-            if (rows.isEmpty()) return@fetchNewRemarksSince
+            if (rows.isEmpty()) {
+                android.util.Log.w("CallCenterFragment",
+                    "fetchNewCcRemarksFromPush: 0 rows returned for ${ids.size} tracked consignment(s) " +
+                    "since cursor=${cursorMs} — possible RLS block or no new remarks yet")
+                return@fetchNewRemarksSince
+            }
             val latestByConsignment = rows.groupBy { it.optString("consignment") }
                 .mapValues { (_, g) -> g.maxByOrNull { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) } }
             viewLifecycleOwner.lifecycleScope.launch {
