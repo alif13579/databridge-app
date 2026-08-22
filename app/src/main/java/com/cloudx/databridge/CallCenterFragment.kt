@@ -1016,7 +1016,10 @@ class CallCenterFragment : Fragment() {
 
     private fun showActionHistoryDialog(item: CallCenterParcelItem) {
         // Full history is intentionally loaded only when the journey log is opened.
-        val loadingDialog = renderActionHistoryDialog(item, isLoading = true)
+        // Keep the SAME dialog+view instance across the loading -> loaded transition:
+        // dismissing the loading dialog and opening a second, brand-new one for the
+        // content caused a visible flicker (the sheet appeared to open twice).
+        val (dialog, dialogView) = renderActionHistoryDialog(item, isLoading = true)
         viewLifecycleOwner.lifecycleScope.launch {
             val rows = withContext(Dispatchers.IO) {
                 val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
@@ -1030,9 +1033,12 @@ class CallCenterFragment : Fragment() {
                 ensureAgentNameMap()
                 fetched
             }
-            if (!isAdded) return@launch
-            if (loadingDialog.isShowing) loadingDialog.dismiss()
-            renderActionHistoryDialog(item.copy(history = buildHistoryEntries(item, rows)), isLoading = false)
+            if (!isAdded || !dialog.isShowing) return@launch
+            renderActionHistoryDialog(
+                item.copy(history = buildHistoryEntries(item, rows)),
+                isLoading = false,
+                existing = dialog to dialogView
+            )
         }
     }
 
@@ -1072,9 +1078,13 @@ class CallCenterFragment : Fragment() {
         }.sortedBy { it.createdAt }
     }
 
-    private fun renderActionHistoryDialog(item: CallCenterParcelItem, isLoading: Boolean = false): BottomSheetDialog {
-        val dialog = BottomSheetDialog(requireContext())
-        val view = layoutInflater.inflate(R.layout.bottom_sheet_action_history, null)
+    private fun renderActionHistoryDialog(
+        item: CallCenterParcelItem,
+        isLoading: Boolean = false,
+        existing: Pair<BottomSheetDialog, View>? = null
+    ): Pair<BottomSheetDialog, View> {
+        val dialog = existing?.first ?: BottomSheetDialog(requireContext())
+        val view = existing?.second ?: layoutInflater.inflate(R.layout.bottom_sheet_action_history, null)
         val tvTitle = view.findViewById<TextView>(R.id.twHistoryTitle)
         val tvSub = view.findViewById<TextView>(R.id.twHistorySub)
         val layoutTimeline = view.findViewById<LinearLayout>(R.id.layoutTimeline)
@@ -1185,13 +1195,14 @@ class CallCenterFragment : Fragment() {
             }
         }
 
-        view.findViewById<TextView>(R.id.btnHistoryClose).setOnClickListener {
-            dialog.dismiss()
+        if (existing == null) {
+            view.findViewById<TextView>(R.id.btnHistoryClose).setOnClickListener {
+                dialog.dismiss()
+            }
+            dialog.setContentView(view)
+            dialog.show()
         }
-
-        dialog.setContentView(view)
-        dialog.show()
-        return dialog
+        return dialog to view
     }
 
     private fun updateModeDropdownLabel() {
