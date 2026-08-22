@@ -295,7 +295,7 @@ class WorkerSpaceFragment : Fragment() {
     private fun setupFilterTabs() {
         layoutFilterTabs.removeAllViews()
         val total       = allParcels.size
-        val statusCounts = allParcels.groupingBy { it.status }.eachCount()
+        val statusCounts = allParcels.groupingBy { it.effectiveStatus }.eachCount()
 
         // Reset active filter if it no longer exists in data
         if (activeFilter != "all" && !statusCounts.containsKey(activeFilter)) {
@@ -1749,9 +1749,11 @@ class WorkerSpaceFragment : Fragment() {
             tvSearchCount.visibility = View.GONE
         }
 
-        // Status filter — dynamic exact match
+        // Status filter — dynamic exact match against effectiveStatus (remarkStatus takes
+        // priority over raw status), same rule setupFilterTabs() uses to build the chips —
+        // otherwise a parcel's chip-count bucket and its actual filtered bucket disagree.
         filtered = if (activeFilter == "all") filtered
-                   else filtered.filter { it.status == activeFilter }
+                   else filtered.filter { it.effectiveStatus == activeFilter }
 
         // No re-sort needed here: allParcels is already ordered by sortByGroupAge()
         // (same-phone parcels adjacent, oldest group/parcel first), and filtering
