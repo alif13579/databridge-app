@@ -100,8 +100,13 @@ class WorkerSpaceFragment : Fragment() {
     // FCM is only an event-triggered fallback if the Realtime socket has not delivered yet.
     // There is no periodic Supabase polling loop.
     private val remarkNotificationListener: (AppNotificationManager.NotifItem) -> Unit = { notification ->
+        android.util.Log.d("RemarkPushChain", "WorkerSpaceFragment listener: scope=${notification.scope} " +
+            "parcelId=${notification.parcelId}")
         if (notification.scope == "worker" && notification.parcelId.isNotBlank()) {
             refreshWorkerParcelFromPush(notification.parcelId)
+        } else {
+            android.util.Log.d("RemarkPushChain", "WorkerSpaceFragment listener: skipped " +
+                "(scope must be 'worker' and parcelId non-blank)")
         }
     }
 
@@ -1362,7 +1367,11 @@ class WorkerSpaceFragment : Fragment() {
             scope      = viewLifecycleOwner.lifecycleScope,
         ) { row ->
             val cId = row.optString("consignment")
-            if (cId.isBlank() || cId !in workerTrackedRemarkIds) return@subscribeValidations
+            if (cId.isBlank() || cId !in workerTrackedRemarkIds) {
+                android.util.Log.w("RemarkPushChain", "syncRemarkListeners: Realtime INSERT for " +
+                    "'$cId' skipped — not in workerTrackedRemarkIds (size=${workerTrackedRemarkIds.size})")
+                return@subscribeValidations
+            }
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
             val previous = workerLastSeenRemarkAt[cId] ?: 0L
             workerLastSeenRemarkAt[cId] = maxOf(createdAt, previous)
@@ -1374,7 +1383,15 @@ class WorkerSpaceFragment : Fragment() {
 
     /** Updates one visible worker card from a Supabase validation row without reloading the run. */
     private fun refreshOneWorkerParcelFromSupabase(cId: String, latestRemarkRow: org.json.JSONObject) {
-        if (!isAdded || allParcels.none { it.id == cId }) return
+        if (!isAdded) {
+            android.util.Log.d("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: skipped, fragment not attached")
+            return
+        }
+        if (allParcels.none { it.id == cId }) {
+            android.util.Log.w("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: skipped, $cId " +
+                "not in allParcels (size=${allParcels.size})")
+            return
+        }
         val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(
             latestRemarkRow.optString("created_at")
         )
@@ -1411,6 +1428,7 @@ class WorkerSpaceFragment : Fragment() {
         // applyFilters() only filters the list — it does not rebuild chip counts.
         setupFilterTabs()
         applyFilters()
+        android.util.Log.d("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: applied to $cId — status=$status remark=$remarkText")
     }
 
     private fun mergeHistoryEntries(
@@ -1433,8 +1451,18 @@ class WorkerSpaceFragment : Fragment() {
         // while the run loads, so a CC write that races that load can be excluded even
         // though FCM has already told us precisely which parcel changed. This remains an
         // event-triggered, one-off REST read — it neither polls nor invokes the Edge Function.
-        if (!isAdded || allParcels.none { it.id == consignmentId }) return
+        if (!isAdded) {
+            android.util.Log.d("RemarkPushChain", "refreshWorkerParcelFromPush: skipped, fragment not attached")
+            return
+        }
+        if (allParcels.none { it.id == consignmentId }) {
+            android.util.Log.w("RemarkPushChain", "refreshWorkerParcelFromPush: skipped, $consignmentId " +
+                "not in allParcels (size=${allParcels.size}) — not in today's run/list, or list not loaded yet")
+            return
+        }
+        android.util.Log.d("RemarkPushChain", "refreshWorkerParcelFromPush: fetching history for $consignmentId")
         SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
+            android.util.Log.d("RemarkPushChain", "refreshWorkerParcelFromPush: fetchHistory returned ${rows.size} rows for $consignmentId")
             if (rows.isEmpty()) {
                 android.util.Log.e("WorkerSpaceFragment",
                     "refreshWorkerParcelFromPush: fetchHistory returned 0 rows for $consignmentId — " +

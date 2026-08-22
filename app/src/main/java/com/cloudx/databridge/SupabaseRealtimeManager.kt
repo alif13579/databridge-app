@@ -75,10 +75,14 @@ object SupabaseRealtimeManager {
                         Log.e(TAG, "[$channelKey] Failed to parse INSERT event: ${e.message}")
                     }
                 }.launchIn(scope)
-                channel.subscribe()
                 // supabase-kt 3.x exposes JWT updates on each channel, not on the
                 // Realtime client (the old client.realtime.setAuth API was removed).
+                // MUST run before subscribe(): postgres_changes RLS is evaluated against
+                // the channel's auth state at the time it subscribes, so subscribing first
+                // (with only the anon key attached) meant my_branch_ids() saw no authenticated
+                // uid and every RLS-protected INSERT was silently dropped for that channel.
                 token?.let { channel.updateAuth(it) }
+                channel.subscribe()
                 Log.i(TAG, "[$channelKey] subscribe() called")
             } catch (e: Exception) {
                 Log.e(TAG, "[$channelKey] Subscription failed: ${e.message}", e)
