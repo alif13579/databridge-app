@@ -122,7 +122,11 @@ async function upsertUser(profile: FirebaseProfile, firebaseId?: string) {
     system_id: profile.systemId,
     employee_id: profile.employeeId || null,
     name: profile.name || profile.systemId,
+    // branch_id (singular) kept in sync for any other code still reading it;
+    // branch_ids (array) is what RLS's my_branch_ids() actually checks against —
+    // a single value silently dropped every branch after an agent's first one.
     branch_id: profile.branchIds[0] || null,
+    branch_ids: profile.branchIds,
     role: profile.roleId || null,
     firebase_id: firebaseId || null,
     updated_at: new Date().toISOString(),
