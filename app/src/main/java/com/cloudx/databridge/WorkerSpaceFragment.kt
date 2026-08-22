@@ -934,33 +934,60 @@ class WorkerSpaceFragment : Fragment() {
         // dismissing the loading dialog and opening a second, brand-new one caused a
         // visible flicker (the sheet appeared to open twice).
         val (dialog, dialogView) = renderActionHistoryDialog(item, isLoading = true)
-        viewLifecycleOwner.lifecycleScope.launch {
-            val (rows, nameMap, photoMap) = withContext(Dispatchers.IO) {
-                val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
-                SupabaseRemarkValidationWriter.fetchHistory(item.id, "WorkerSpaceFragment") { fetched ->
-                    deferred.complete(fetched)
+
+        fun load() {
+            renderActionHistoryDialog(item, isLoading = true, existing = dialog to dialogView)
+            viewLifecycleOwner.lifecycleScope.launch {
+                // withTimeoutOrNull is a safety net on top of SupabaseClientManager's own
+                // httpClient timeouts (connect/read/write 10s, overall callTimeout 15s) —
+                // between the two, this coroutine can never hang indefinitely even if a
+                // future change to the client's timeout config regresses. A timeout or any
+                // exception here surfaces as a normal "load failed, tap to retry" state
+                // instead of an unbounded spinner, which is what the user was hitting on a
+                // slow/flaky connection.
+                val result = kotlin.runCatching {
+                    kotlinx.coroutines.withTimeoutOrNull(20_000) {
+                        withContext(Dispatchers.IO) {
+                            val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
+                            SupabaseRemarkValidationWriter.fetchHistory(item.id, "WorkerSpaceFragment") { fetched ->
+                                deferred.complete(fetched)
+                            }
+                            val fetched = deferred.await()
+                            // Supabase validation rows contain author_system_id, not a nested Firebase
+                            // profile object — resolve it against users_by_systemId the same way
+                            // CallCenterFragment.buildHistoryEntries() does, instead of showing the raw id.
+                            val authorIds = fetched.mapNotNull { it.optString("author_system_id")?.trim()?.takeIf { id -> id.isNotBlank() } }.distinct()
+                            val (names, photos) = resolveSystemIdNamesAndPhotos(authorIds)
+                            Triple(fetched, names, photos)
+                        }
+                    }
+                }.getOrNull()
+
+                if (!isAdded || !dialog.isShowing) return@launch
+                if (result == null) {
+                    renderActionHistoryDialog(
+                        item, isLoading = false, hasFailed = true,
+                        existing = dialog to dialogView, onRetry = { load() }
+                    )
+                    return@launch
                 }
-                val fetched = deferred.await()
-                // Supabase validation rows contain author_system_id, not a nested Firebase
-                // profile object — resolve it against users_by_systemId the same way
-                // CallCenterFragment.buildHistoryEntries() does, instead of showing the raw id.
-                val authorIds = fetched.mapNotNull { it.optString("author_system_id")?.trim()?.takeIf { id -> id.isNotBlank() } }.distinct()
-                val (names, photos) = resolveSystemIdNamesAndPhotos(authorIds)
-                Triple(fetched, names, photos)
+                val (rows, nameMap, photoMap) = result
+                renderActionHistoryDialog(
+                    item.copy(history = buildHistoryEntries(item.id, rows, nameMap, photoMap)),
+                    isLoading = false,
+                    existing = dialog to dialogView
+                )
             }
-            if (!isAdded || !dialog.isShowing) return@launch
-            renderActionHistoryDialog(
-                item.copy(history = buildHistoryEntries(item.id, rows, nameMap, photoMap)),
-                isLoading = false,
-                existing = dialog to dialogView
-            )
         }
+        load()
     }
 
     private fun renderActionHistoryDialog(
         item: WorkerParcelItem,
         isLoading: Boolean = false,
-        existing: Pair<BottomSheetDialog, View>? = null
+        hasFailed: Boolean = false,
+        existing: Pair<BottomSheetDialog, View>? = null,
+        onRetry: (() -> Unit)? = null
     ): Pair<BottomSheetDialog, View> {
         val dialog = existing?.first ?: BottomSheetDialog(requireContext())
         val view = existing?.second ?: layoutInflater.inflate(R.layout.bottom_sheet_action_history, null)
@@ -969,6 +996,9 @@ class WorkerSpaceFragment : Fragment() {
         val layoutTimeline = view.findViewById<LinearLayout>(R.id.layoutTimeline)
         val layoutLoading = view.findViewById<View>(R.id.layoutHistoryLoading)
         val scrollTimeline = view.findViewById<View>(R.id.scrollHistoryTimeline)
+        val pbLoading = view.findViewById<android.widget.ProgressBar>(R.id.pbHistoryLoading)
+        val tvLoadingLabel = view.findViewById<TextView>(R.id.twHistoryLoadingLabel)
+        val btnRetry = view.findViewById<TextView>(R.id.btnHistoryRetry)
         val tvOvStatus = view.findViewById<TextView>(R.id.twOverviewStatus)
         val tvOvCreatedAt = view.findViewById<TextView>(R.id.twOverviewCreatedAt)
         val tvOvUpdatedAt = view.findViewById<TextView>(R.id.twOverviewUpdatedAt)
@@ -989,8 +1019,28 @@ class WorkerSpaceFragment : Fragment() {
         tvOvAge.setTextColor(ovAgeColor)
 
         layoutTimeline.removeAllViews()
-        layoutLoading.visibility = if (isLoading) View.VISIBLE else View.GONE
-        scrollTimeline.visibility = if (isLoading) View.GONE else View.VISIBLE
+        // Three states share layoutHistoryLoading's space: spinner-only (isLoading, not
+        // failed), retry-only (failed), or hidden entirely (loaded) — scrollTimeline is
+        // visible only in the loaded state.
+        layoutLoading.visibility = if (isLoading || hasFailed) View.VISIBLE else View.GONE
+        scrollTimeline.visibility = if (isLoading || hasFailed) View.GONE else View.VISIBLE
+        pbLoading.visibility = if (isLoading && !hasFailed) View.VISIBLE else View.GONE
+        tvLoadingLabel.visibility = if (isLoading && !hasFailed) View.VISIBLE else View.GONE
+        if (hasFailed) {
+            btnRetry.visibility = View.VISIBLE
+            btnRetry.setOnClickListener { onRetry?.invoke() }
+        } else {
+            btnRetry.visibility = View.GONE
+            btnRetry.setOnClickListener(null)
+        }
+        if (isLoading || hasFailed) {
+            if (existing == null) {
+                view.findViewById<TextView>(R.id.btnHistoryClose).setOnClickListener { dialog.dismiss() }
+                dialog.setContentView(view)
+                dialog.show()
+            }
+            return dialog to view
+        }
 
         val historyEntries = mutableListOf<HistoryEntry>()
 

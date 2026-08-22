@@ -34,7 +34,18 @@ import org.json.JSONObject
 object SupabaseClientManager {
 
     private const val TAG = "SupabaseClientManager"
-    private val httpClient = OkHttpClient()
+    // Bare OkHttpClient() has NO call timeout — on a slow/flaky mobile connection a stuck
+    // request here left fetchValidations() (and callers like fetchHistory's
+    // deferred.await()) hanging forever, which is why the Action History / Journey Log
+    // dialog could sometimes sit in its loading state indefinitely. Bounding both the
+    // per-phase timeouts and the overall call time guarantees fetchValidations() always
+    // returns (emptyList() on failure) within a fixed window.
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
     private val json = "application/json".toMediaType()
 
     private var _client: SupabaseClient? = null

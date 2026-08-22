@@ -181,17 +181,38 @@
         android:visibility="gone">
 
         <ProgressBar
+            android:id="@+id/pbHistoryLoading"
             android:layout_width="32dp"
             android:layout_height="32dp"
             android:indeterminate="true" />
 
         <TextView
+            android:id="@+id/twHistoryLoadingLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:text="Loading history..."
             android:textColor="@color/theme_text_secondary"
             android:textSize="12sp"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/btnHistoryRetry"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="6dp"
+            android:text="↻ Tap to retry"
+            android:textColor="@color/theme_accent"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:background="@drawable/bg_close_button_red"
+            android:clickable="true"
+            android:focusable="true"
+            android:visibility="gone"
             android:includeFontPadding="false" />
     </LinearLayout>
 
