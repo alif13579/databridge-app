@@ -1162,7 +1162,7 @@ class WorkerSpaceFragment : Fragment() {
         return remarkRows.mapNotNull { r ->
             val rStatus = r.optString("remarks_status")?.trim().orEmpty()
             val rRemarks = listOf(
-                r.optString("remarks").trim(), r.optString("note").trim()
+                resolveRemarkBn(r.optString("remarks").trim()), r.optString("note").trim()
             ).filter { it.isNotBlank() }.joinToString("\n")
             if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
 
