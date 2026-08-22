@@ -273,11 +273,25 @@ Deno.serve(async (request) => {
     const body = await request.json()
     const action = body.action
 
+    // The app must be able to read validations before this user has ever saved a
+    // remark. In particular, a worker can receive a CC remark as their first
+    // interaction. Upserting through the trusted function establishes the
+    // Firebase UID + branch_ids mapping used by validations RLS.
+    if (action === 'sync_profile') {
+      const profile = await firebaseProfile(identity)
+      await upsertUser(profile, identity.uid)
+      return reply({ ok: true })
+    }
+
     if (action === 'register_push_token') {
       if (typeof body.token !== 'string' || body.token.trim().length < 20) {
         return reply({ error: 'Invalid push token' }, 400)
       }
       const profile = await firebaseProfile(identity)
+      // Push registration is normally the earliest authenticated app action.
+      // Keep the RLS identity mapping current here too, rather than waiting for
+      // the user's first remark save.
+      await upsertUser(profile, identity.uid)
       const { error } = await admin.from('fcm_device_tokens').upsert({
         token: body.token.trim(), firebase_uid: identity.uid, system_id: profile.systemId,
         role_id: profile.roleId, branch_ids: profile.branchIds,

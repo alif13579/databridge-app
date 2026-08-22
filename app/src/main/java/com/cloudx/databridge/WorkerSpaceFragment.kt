@@ -1202,6 +1202,15 @@ class WorkerSpaceFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
+                // A CC remark can be the worker's first interaction with Supabase. Wait
+                // briefly for the trusted profile sync so validations RLS can resolve this
+                // Firebase UID's branch_ids before the initial card-badge query runs.
+                val profileSynced = kotlinx.coroutines.CompletableDeferred<Unit>()
+                SupabaseRemarkValidationWriter.syncCurrentUserProfile {
+                    profileSynced.complete(Unit)
+                }
+                kotlinx.coroutines.withTimeoutOrNull(12_000L) { profileSynced.await() }
+
                 systemId = withContext(Dispatchers.IO) {
                     db.reference.child("users/$uid/profile/company_info/system_id")
                         .get().await().getValue(String::class.java)?.trim()
@@ -1363,26 +1372,6 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
-    /** Event-triggered REST fallback only; never scheduled on an interval. */
-    private fun fetchNewWorkerRemarksFromPush() {
-        if (!isAdded) return
-        val ids = workerTrackedRemarkIds
-        if (ids.isEmpty()) return
-        val floor = ids.mapNotNull { workerLastSeenRemarkAt[it] }.minOrNull() ?: 0L
-        SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), floor, "WorkerSpaceFragment") { rows ->
-            if (rows.isEmpty()) return@fetchNewRemarksSince
-            viewLifecycleOwner.lifecycleScope.launch {
-                if (!isAdded) return@launch
-                rows.groupBy { it.optString("consignment") }.forEach { (cId, group) ->
-                    val latest = group.maxByOrNull {
-                        SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
-                    } ?: return@forEach
-                    refreshOneWorkerParcelFromSupabase(cId, latest)
-                }
-            }
-        }
-    }
-
     /** Updates one visible worker card from a Supabase validation row without reloading the run. */
     private fun refreshOneWorkerParcelFromSupabase(cId: String, latestRemarkRow: org.json.JSONObject) {
         if (!isAdded || allParcels.none { it.id == cId }) return
@@ -1435,10 +1424,19 @@ class WorkerSpaceFragment : Fragment() {
      * change immediately without reloading a run.
      */
     private fun refreshWorkerParcelFromPush(consignmentId: String) {
-        // Trigger a one-off REST fetch only when a push arrives. This does not invoke the
-        // Edge Function and is not scheduled periodically.
+        // Read this exact parcel rather than using the batch cursor. The cursor is seeded
+        // while the run loads, so a CC write that races that load can be excluded even
+        // though FCM has already told us precisely which parcel changed. This remains an
+        // event-triggered, one-off REST read — it neither polls nor invokes the Edge Function.
         if (!isAdded || allParcels.none { it.id == consignmentId }) return
-        fetchNewWorkerRemarksFromPush()
+        SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
+            val latest = rows.maxByOrNull {
+                SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+            } ?: return@fetchHistory
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (isAdded) refreshOneWorkerParcelFromSupabase(consignmentId, latest)
+            }
+        }
     }
 
     private fun handleRunsSnapshot(runSnap: DataSnapshot) {
@@ -1562,15 +1560,19 @@ class WorkerSpaceFragment : Fragment() {
 
     /** Deterministic today's run ID: run_{yyyyMMdd}_{systemId} — same formula used everywhere a run ID is needed. */
     private fun computeTodayRunId(): String {
-        val today = java.util.Calendar.getInstance()
+        val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
         val yyyyMMdd = String.format(
-            "%04d%02d%02d",
-            today.get(java.util.Calendar.YEAR),
-            today.get(java.util.Calendar.MONTH) + 1,
-            today.get(java.util.Calendar.DAY_OF_MONTH)
+            java.util.Locale.US, "%04d%02d%02d", today.year, today.monthValue, today.dayOfMonth
         )
         return "run_${yyyyMMdd}_${systemId}"
     }
+
+    /** The delivery operation date is always Bangladesh time, not the handset's timezone. */
+    private fun bangladeshTodayStartMillis(): Long = java.time.LocalDate
+        .now(java.time.ZoneId.of("Asia/Dhaka"))
+        .atStartOfDay(java.time.ZoneId.of("Asia/Dhaka"))
+        .toInstant()
+        .toEpochMilli()
 
     private suspend fun loadParcelsForSelectedRunType(runSnap: DataSnapshot): List<WorkerParcelItem> = coroutineScope {
         val todayRunId = computeTodayRunId()
@@ -1601,12 +1603,10 @@ class WorkerSpaceFragment : Fragment() {
 
         if (consignmentRefs.isEmpty()) return@coroutineScope emptyList()
 
-        val todayCalBulk = java.util.Calendar.getInstance()
-        todayCalBulk.set(java.util.Calendar.HOUR_OF_DAY, 0)
-        todayCalBulk.set(java.util.Calendar.MINUTE, 0)
-        todayCalBulk.set(java.util.Calendar.SECOND, 0)
-        todayCalBulk.set(java.util.Calendar.MILLISECOND, 0)
-        val todayStartBulk = todayCalBulk.timeInMillis
+        // Must match CallCenterFragment exactly. Using the device's local Calendar here
+        // made a worker on another timezone query from the wrong midnight and discard
+        // otherwise-valid CC remarks as not belonging to today's delivery run.
+        val todayStartBulk = bangladeshTodayStartMillis()
         val todayBatchRequestedAtMs = System.currentTimeMillis()
         val todayRemarkRows = withContext(Dispatchers.IO) {
             val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()

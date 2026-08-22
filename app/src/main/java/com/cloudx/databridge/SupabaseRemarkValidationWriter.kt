@@ -55,6 +55,20 @@ object SupabaseRemarkValidationWriter {
         ) { }
     }
 
+    /**
+     * Creates/refreshes the caller's trusted Supabase user row before any validation read.
+     * A worker may receive a Call Center remark before writing their own; without this,
+     * validations RLS has no Firebase UID/branch mapping and correctly returns no rows.
+     */
+    fun syncCurrentUserProfile(onComplete: () -> Unit = {}) {
+        invoke(
+            JSONObject().put("action", "sync_profile"),
+            screen = "SupabaseProfileSync",
+            action = "supabase_profile_sync",
+            reference = ""
+        ) { onComplete() }
+    }
+
     /** Parses Supabase/PostgREST timestamp output without turning a parse failure into 1970. */
     fun parseCreatedAtMillis(value: String?): Long {
         val raw = value?.trim().orEmpty()
