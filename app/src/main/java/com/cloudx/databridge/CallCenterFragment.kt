@@ -881,9 +881,7 @@ class CallCenterFragment : Fragment() {
             onSetRemarks = { item -> showRemarksDialog(item) },
             onWhatsappToAgent = { item ->
                 // Today's remarks need a fresh fetch (not the list's cached data, which can be
-                // stale by the time this button is actually tapped) -- reuses the same
-                // fetchHistory + buildHistoryEntries pair showActionHistoryDialog already uses,
-                // just filtered to today instead of showing the full journey.
+                // stale by the time this button is actually tapped).
                 viewLifecycleOwner.lifecycleScope.launch {
                     val todaysRemarksText = withContext(Dispatchers.IO) {
                         val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
@@ -892,26 +890,39 @@ class CallCenterFragment : Fragment() {
                         }
                         val rows = deferred.await()
                         val todayStart = bangladeshTodayStartMillis()
-                        buildHistoryEntries(item, rows)
-                            .filter { it.createdAt >= todayStart }
-                            .joinToString("\n") { entry ->
-                                "\u2022 [${entry.time}] ${entry.author}: ${entry.action}" +
-                                    if (entry.remark.isNotBlank()) " - ${entry.remark}" else ""
+                        val nameMap = systemIdToName
+                        val timeFmt = java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.ENGLISH)
+                        rows.mapNotNull { r ->
+                            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
+                            if (createdAt < todayStart) return@mapNotNull null
+                            val remarksText = resolveRemarkBn(r.optString("remarks").trim())
+                            val noteText = r.optString("note").trim()
+                            if (remarksText.isBlank() && noteText.isBlank()) return@mapNotNull null
+                            val authorSystemId = r.optString("author_system_id").trim()
+                            val authorName = r.optJSONObject("author")?.optString("name")?.trim().orEmpty()
+                                .ifBlank { nameMap[authorSystemId].orEmpty() }
+                                .ifBlank { authorSystemId }
+                            createdAt to buildString {
+                                append("🕑 ").append(timeFmt.format(java.util.Date(createdAt)))
+                                append(" — ").append(authorName)
+                                if (remarksText.isNotBlank()) append("\nRemarks: ").append(remarksText)
+                                if (noteText.isNotBlank()) append("\nNote: ").append(noteText)
                             }
+                        }.sortedBy { it.first }.joinToString("\n\n") { it.second }
                     }
                     if (!isAdded) return@launch
 
-                    val remarksSection = "\n\n📝 Today's Remarks\n" +
+                    val remarksSection = "\n\n━━━━━━━━━━━━━━━━━━━━\n📝 Today's Remarks\n━━━━━━━━━━━━━━━━━━━━\n\n" +
                         todaysRemarksText.ifBlank { "No remarks yet today" }
 
                     val message = WhatsAppHelper.fillTemplate(
-                        body = "📦 Parcel Info\n" +
-                            "Consignment ID : {consignmentId}\n" +
-                            "Customer Name : {name}\n" +
-                            "Phone Number : {phone}\n" +
-                            "Address : {address}\n" +
-                            "COD Amount : ৳{cod}\n" +
-                            "Hub : {hub}" + remarksSection,
+                        body = "━━━━━━━━━━━━━━━━━━━━\n📦 Parcel Info\n━━━━━━━━━━━━━━━━━━━━\n" +
+                            "🆔 Consignment: {consignmentId}\n" +
+                            "👤 Customer: {name}\n" +
+                            "📞 Phone: {phone}\n" +
+                            "📍 Address: {address}\n" +
+                            "💰 COD: ৳{cod}\n" +
+                            "🏢 Hub: {hub}" + remarksSection,
                         name = item.customer,
                         phone = item.phone,
                         address = item.address,
@@ -2454,22 +2465,15 @@ class CallCenterFragment : Fragment() {
         if (ids.isEmpty()) return
         val requestedAtMs = System.currentTimeMillis()
         val cursorMs = ccRemarkFallbackCursorMs.takeIf { it > 0L } ?: requestedAtMs
-        SupabaseRemarkValidationWriter.ensureProfileSynced {
-            SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), cursorMs, "CallCenterFragment") { rows ->
-                ccRemarkFallbackCursorMs = requestedAtMs
-                if (rows.isEmpty()) {
-                    android.util.Log.w("CallCenterFragment",
-                        "fetchNewCcRemarksFromPush: 0 rows returned for ${ids.size} tracked consignment(s) " +
-                        "since cursor=${cursorMs} — possible RLS block or no new remarks yet")
-                    return@fetchNewRemarksSince
-                }
-                val latestByConsignment = rows.groupBy { it.optString("consignment") }
-                    .mapValues { (_, g) -> g.maxByOrNull { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) } }
-                viewLifecycleOwner.lifecycleScope.launch {
-                    if (!isAdded) return@launch
-                    latestByConsignment.forEach { (cId, latest) ->
-                        if (!cId.isNullOrBlank() && latest != null) refreshOneCcParcelFromSupabase(cId, latest)
-                    }
+        SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), cursorMs, "CallCenterFragment") { rows ->
+            ccRemarkFallbackCursorMs = requestedAtMs
+            if (rows.isEmpty()) return@fetchNewRemarksSince
+            val latestByConsignment = rows.groupBy { it.optString("consignment") }
+                .mapValues { (_, g) -> g.maxByOrNull { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) } }
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (!isAdded) return@launch
+                latestByConsignment.forEach { (cId, latest) ->
+                    if (!cId.isNullOrBlank() && latest != null) refreshOneCcParcelFromSupabase(cId, latest)
                 }
             }
         }
