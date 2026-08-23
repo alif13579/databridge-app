@@ -144,6 +144,7 @@ class WorkerSpaceFragment : Fragment() {
 
         initViews(view)
         AppNotificationManager.addRemarkListener(remarkNotificationListener)
+        RemarkPushChainLog.log("RemarkPushChain", "WorkerSpaceFragment: remarkListener REGISTERED (onViewCreated)")
         updateSortByLabel()
         setupCollapseToggle()
         setupSearch()
@@ -161,6 +162,7 @@ class WorkerSpaceFragment : Fragment() {
         searchJob?.cancel()
         searchJob = null
         AppNotificationManager.removeRemarkListener(remarkNotificationListener)
+        RemarkPushChainLog.log("RemarkPushChain", "WorkerSpaceFragment: remarkListener UNREGISTERED (onDestroyView)")
         detachRunsListener()
         detachEngagedAtListeners()
         workerRealtimeJob?.cancel()
@@ -1533,6 +1535,7 @@ class WorkerSpaceFragment : Fragment() {
                 }
                 setupFilterTabs()
                 applyFilters()
+                RemarkPushChainLog.log("RemarkPushChain", "loadData: allParcels loaded, size=${allParcels.size}")
                 syncRemarkListeners(parcels.map { it.id }.toSet())
                 syncEngagedAtListeners(parcels.map { it.id }.toSet())
             } catch (e: Exception) {

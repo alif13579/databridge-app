@@ -86,7 +86,16 @@ object AppNotificationManager {
         }
         badgeListener?.invoke(unreadCount)
         if (item.type == "remark") {
-            remarkListeners.forEach { it(item) }
+            RemarkPushChainLog.log("RemarkPushChain", "AppNotificationManager.add: dispatching to " +
+                "${remarkListeners.size} registered remarkListener(s) — scope=${item.scope} parcelId=${item.parcelId}")
+            remarkListeners.forEach {
+                try {
+                    it(item)
+                } catch (e: Exception) {
+                    RemarkPushChainLog.log("RemarkPushChain", "AppNotificationManager.add: a remarkListener " +
+                        "threw — ${e.javaClass.simpleName}: ${e.message} (other listeners still ran)", isWarning = true)
+                }
+            }
         }
         playSound(context)
         showSystemNotification(context, item)

@@ -92,10 +92,16 @@ object SupabaseRemarkValidationWriter {
     fun fetchHistory(consignmentId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
         if (consignmentId.isBlank()) return onResult(emptyList())
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            onResult(SupabaseClientManager.fetchValidations(screen, "fetch_history", listOf(
-                "consignment" to "eq.$consignmentId",
-                "order" to "created_at.desc"
-            )))
+            try {
+                onResult(SupabaseClientManager.fetchValidations(screen, "fetch_history", listOf(
+                    "consignment" to "eq.$consignmentId",
+                    "order" to "created_at.desc"
+                )))
+            } catch (e: Exception) {
+                RemarkPushChainLog.log("RemarkPushChain", "fetchHistory($screen): uncaught " +
+                    "${e.javaClass.simpleName}: ${e.message} — onResult() called with emptyList()", isWarning = true)
+                onResult(emptyList())
+            }
         }
     }
 
