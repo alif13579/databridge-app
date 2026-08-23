@@ -217,6 +217,16 @@ class CallCenterFragment : Fragment() {
         if (resumeSignal != null) hasPausedSincePendingDial = true
     }
 
+    /** Pre-fills and applies the search box. Called directly by MainActivity when this
+     *  fragment is already the visible one (bottomNav reselect is then a no-op and never
+     *  fires onResume), and also from the pendingCcSearchPhone fallback below when a tab
+     *  switch is actually happening. */
+    fun applySearchPhone(phone: String) {
+        if (phone.isBlank() || !::etSearch.isInitialized) return
+        etSearch.setText(phone)
+        etSearch.setSelection(phone.length)
+    }
+
     override fun onResume() {
         super.onResume()
         // Require an intervening onPause so this doesn't fire from the same resumed
@@ -226,15 +236,13 @@ class CallCenterFragment : Fragment() {
             resumeSignal = null
             hasPausedSincePendingDial = false
         }
-        // Set by IncomingCallOverlay's "Search" button via
-        // MainActivity.navigateToCallCenterWithSearch() -- consumed once here so it
-        // doesn't re-apply on an unrelated later resume.
+        // Set by MainActivity.navigateToCallCenterWithSearch() only when a bottomNav tab
+        // switch was actually needed (already-on-CC case applies directly, see there for why).
         (activity as? MainActivity)?.let { main ->
             val phone = main.pendingCcSearchPhone
-            if (!phone.isNullOrBlank() && ::etSearch.isInitialized) {
+            if (!phone.isNullOrBlank()) {
                 main.pendingCcSearchPhone = null
-                etSearch.setText(phone)
-                etSearch.setSelection(phone.length)
+                applySearchPhone(phone)
             }
         }
     }
