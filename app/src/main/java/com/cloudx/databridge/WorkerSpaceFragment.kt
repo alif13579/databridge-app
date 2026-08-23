@@ -100,13 +100,8 @@ class WorkerSpaceFragment : Fragment() {
     // FCM is only an event-triggered fallback if the Realtime socket has not delivered yet.
     // There is no periodic Supabase polling loop.
     private val remarkNotificationListener: (AppNotificationManager.NotifItem) -> Unit = { notification ->
-        RemarkPushChainLog.log("RemarkPushChain", "WorkerSpaceFragment listener: scope=${notification.scope} " +
-            "parcelId=${notification.parcelId}")
         if (notification.scope == "worker" && notification.parcelId.isNotBlank()) {
             refreshWorkerParcelFromPush(notification.parcelId)
-        } else {
-            RemarkPushChainLog.log("RemarkPushChain", "WorkerSpaceFragment listener: skipped " +
-                "(scope must be 'worker' and parcelId non-blank)")
         }
     }
 
@@ -176,9 +171,6 @@ class WorkerSpaceFragment : Fragment() {
         tvAgentInfo = view.findViewById(R.id.twAgentInfo)
         tvSortByDropdown = view.findViewById(R.id.tvSortByDropdown)
         tvSortByDropdown.setOnClickListener { showSortByDropdown() }
-        // Diagnostic-only: long-press to view the on-device remark push/Realtime trace
-        // (RemarkPushChainLog) without needing Android Studio/Logcat attached.
-        tvSortByDropdown.setOnLongClickListener { showRemarkPushChainLogDialog(); true }
         tvTodayCod = view.findViewById(R.id.twTodayCod)
         tvStatTotalValue = view.findViewById(R.id.twStatTotalValue)
         layoutWsStatDynamic = view.findViewById(R.id.layoutStatDynamic)
@@ -1171,9 +1163,11 @@ class WorkerSpaceFragment : Fragment() {
         val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
         return remarkRows.mapNotNull { r ->
             val rStatus = r.optString("remarks_status")?.trim().orEmpty()
+            val rNoteRaw = r.optString("note").trim()
             val rRemarks = listOf(
-                resolveRemarkBn(r.optString("remarks").trim()), r.optString("note").trim()
-            ).filter { it.isNotBlank() }.joinToString("\n")
+                resolveRemarkBn(r.optString("remarks").trim()),
+                rNoteRaw.takeIf { it.isNotBlank() }?.let { "Note: $it" }
+            ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
             if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
 
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
@@ -1212,15 +1206,6 @@ class WorkerSpaceFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                // A CC remark can be the worker's first interaction with Supabase. Wait
-                // briefly for the trusted profile sync so validations RLS can resolve this
-                // Firebase UID's branch_ids before the initial card-badge query runs.
-                val profileSynced = kotlinx.coroutines.CompletableDeferred<Unit>()
-                SupabaseRemarkValidationWriter.syncCurrentUserProfile {
-                    profileSynced.complete(Unit)
-                }
-                kotlinx.coroutines.withTimeoutOrNull(12_000L) { profileSynced.await() }
-
                 systemId = withContext(Dispatchers.IO) {
                     db.reference.child("users/$uid/profile/company_info/system_id")
                         .get().await().getValue(String::class.java)?.trim()
@@ -1372,12 +1357,7 @@ class WorkerSpaceFragment : Fragment() {
             scope      = viewLifecycleOwner.lifecycleScope,
         ) { row ->
             val cId = row.optString("consignment")
-            if (cId.isBlank() || cId !in workerTrackedRemarkIds) {
-                RemarkPushChainLog.log("RemarkPushChain", "syncRemarkListeners: Realtime INSERT for " +
-                    "'$cId' skipped — not in workerTrackedRemarkIds (size=${workerTrackedRemarkIds.size})", isWarning = true)
-                return@subscribeValidations
-            }
-            RemarkPushChainLog.log("RemarkPushChain", "syncRemarkListeners: Realtime INSERT matched for $cId")
+            if (cId.isBlank() || cId !in workerTrackedRemarkIds) return@subscribeValidations
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
             val previous = workerLastSeenRemarkAt[cId] ?: 0L
             workerLastSeenRemarkAt[cId] = maxOf(createdAt, previous)
@@ -1387,17 +1367,29 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
+    /** Event-triggered REST fallback only; never scheduled on an interval. */
+    private fun fetchNewWorkerRemarksFromPush() {
+        if (!isAdded) return
+        val ids = workerTrackedRemarkIds
+        if (ids.isEmpty()) return
+        val floor = ids.mapNotNull { workerLastSeenRemarkAt[it] }.minOrNull() ?: 0L
+        SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), floor, "WorkerSpaceFragment") { rows ->
+            if (rows.isEmpty()) return@fetchNewRemarksSince
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (!isAdded) return@launch
+                rows.groupBy { it.optString("consignment") }.forEach { (cId, group) ->
+                    val latest = group.maxByOrNull {
+                        SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+                    } ?: return@forEach
+                    refreshOneWorkerParcelFromSupabase(cId, latest)
+                }
+            }
+        }
+    }
+
     /** Updates one visible worker card from a Supabase validation row without reloading the run. */
     private fun refreshOneWorkerParcelFromSupabase(cId: String, latestRemarkRow: org.json.JSONObject) {
-        if (!isAdded) {
-            RemarkPushChainLog.log("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: skipped, fragment not attached")
-            return
-        }
-        if (allParcels.none { it.id == cId }) {
-            RemarkPushChainLog.log("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: skipped, $cId " +
-                "not in allParcels (size=${allParcels.size})", isWarning = true)
-            return
-        }
+        if (!isAdded || allParcels.none { it.id == cId }) return
         val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(
             latestRemarkRow.optString("created_at")
         )
@@ -1406,12 +1398,7 @@ class WorkerSpaceFragment : Fragment() {
             resolveRemarkBn(latestRemarkRow.optString("remarks").trim()),
             latestRemarkRow.optString("note").trim()
         ).filter { it.isNotBlank() }.joinToString("\n")
-        if (status.isBlank() && remarkText.isBlank()) {
-            android.util.Log.w("WorkerSpaceFragment",
-                "refreshOneWorkerParcelFromSupabase: skipping $cId — both remarks_status and " +
-                "remark text are blank (source=${latestRemarkRow.optString("source")})")
-            return
-        }
+        if (status.isBlank() && remarkText.isBlank()) return
 
         workerLastSeenRemarkAt[cId] = maxOf(createdAt, workerLastSeenRemarkAt[cId] ?: 0L)
         val newHistory = buildHistoryEntries(cId, listOf(latestRemarkRow))
@@ -1434,7 +1421,6 @@ class WorkerSpaceFragment : Fragment() {
         // applyFilters() only filters the list — it does not rebuild chip counts.
         setupFilterTabs()
         applyFilters()
-        RemarkPushChainLog.log("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: applied to $cId — status=$status remark=$remarkText")
     }
 
     private fun mergeHistoryEntries(
@@ -1453,35 +1439,10 @@ class WorkerSpaceFragment : Fragment() {
      * change immediately without reloading a run.
      */
     private fun refreshWorkerParcelFromPush(consignmentId: String) {
-        // Read this exact parcel rather than using the batch cursor. The cursor is seeded
-        // while the run loads, so a CC write that races that load can be excluded even
-        // though FCM has already told us precisely which parcel changed. This remains an
-        // event-triggered, one-off REST read — it neither polls nor invokes the Edge Function.
-        if (!isAdded) {
-            RemarkPushChainLog.log("RemarkPushChain", "refreshWorkerParcelFromPush: skipped, fragment not attached")
-            return
-        }
-        if (allParcels.none { it.id == consignmentId }) {
-            RemarkPushChainLog.log("RemarkPushChain", "refreshWorkerParcelFromPush: skipped, $consignmentId " +
-                "not in allParcels (size=${allParcels.size}) — not in today's run/list, or list not loaded yet", isWarning = true)
-            return
-        }
-        RemarkPushChainLog.log("RemarkPushChain", "refreshWorkerParcelFromPush: fetching history for $consignmentId")
-        SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
-            RemarkPushChainLog.log("RemarkPushChain", "refreshWorkerParcelFromPush: fetchHistory returned ${rows.size} rows for $consignmentId")
-            if (rows.isEmpty()) {
-                android.util.Log.e("WorkerSpaceFragment",
-                    "refreshWorkerParcelFromPush: fetchHistory returned 0 rows for $consignmentId — " +
-                    "likely RLS block; check public.users.branch_ids for this agent")
-                return@fetchHistory
-            }
-            val latest = rows.maxByOrNull {
-                SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
-            } ?: return@fetchHistory
-            viewLifecycleOwner.lifecycleScope.launch {
-                if (isAdded) refreshOneWorkerParcelFromSupabase(consignmentId, latest)
-            }
-        }
+        // Trigger a one-off REST fetch only when a push arrives. This does not invoke the
+        // Edge Function and is not scheduled periodically.
+        if (!isAdded || allParcels.none { it.id == consignmentId }) return
+        fetchNewWorkerRemarksFromPush()
     }
 
     private fun handleRunsSnapshot(runSnap: DataSnapshot) {
@@ -1606,19 +1567,15 @@ class WorkerSpaceFragment : Fragment() {
 
     /** Deterministic today's run ID: run_{yyyyMMdd}_{systemId} — same formula used everywhere a run ID is needed. */
     private fun computeTodayRunId(): String {
-        val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
+        val today = java.util.Calendar.getInstance()
         val yyyyMMdd = String.format(
-            java.util.Locale.US, "%04d%02d%02d", today.year, today.monthValue, today.dayOfMonth
+            "%04d%02d%02d",
+            today.get(java.util.Calendar.YEAR),
+            today.get(java.util.Calendar.MONTH) + 1,
+            today.get(java.util.Calendar.DAY_OF_MONTH)
         )
         return "run_${yyyyMMdd}_${systemId}"
     }
-
-    /** The delivery operation date is always Bangladesh time, not the handset's timezone. */
-    private fun bangladeshTodayStartMillis(): Long = java.time.LocalDate
-        .now(java.time.ZoneId.of("Asia/Dhaka"))
-        .atStartOfDay(java.time.ZoneId.of("Asia/Dhaka"))
-        .toInstant()
-        .toEpochMilli()
 
     private suspend fun loadParcelsForSelectedRunType(runSnap: DataSnapshot): List<WorkerParcelItem> = coroutineScope {
         val todayRunId = computeTodayRunId()
@@ -1649,10 +1606,12 @@ class WorkerSpaceFragment : Fragment() {
 
         if (consignmentRefs.isEmpty()) return@coroutineScope emptyList()
 
-        // Must match CallCenterFragment exactly. Using the device's local Calendar here
-        // made a worker on another timezone query from the wrong midnight and discard
-        // otherwise-valid CC remarks as not belonging to today's delivery run.
-        val todayStartBulk = bangladeshTodayStartMillis()
+        val todayCalBulk = java.util.Calendar.getInstance()
+        todayCalBulk.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        todayCalBulk.set(java.util.Calendar.MINUTE, 0)
+        todayCalBulk.set(java.util.Calendar.SECOND, 0)
+        todayCalBulk.set(java.util.Calendar.MILLISECOND, 0)
+        val todayStartBulk = todayCalBulk.timeInMillis
         val todayBatchRequestedAtMs = System.currentTimeMillis()
         val todayRemarkRows = withContext(Dispatchers.IO) {
             val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
@@ -1815,38 +1774,6 @@ class WorkerSpaceFragment : Fragment() {
             "priority" -> "⭐ Priority ▾"
             else       -> "🔁 Attempt ▾"
         }
-    }
-
-    /**
-     * Diagnostic-only: shows the on-device RemarkPushChainLog trace in a scrollable,
-     * copyable dialog. Reached via long-press on the "Sort by" label. Not linked from
-     * anywhere else in the UI — remove this + the long-press hook once the CC-write ->
-     * Worker-card issue is confirmed fixed.
-     */
-    private fun showRemarkPushChainLogDialog() {
-        val ctx = context ?: return
-        val text = RemarkPushChainLog.snapshot()
-
-        val tv = TextView(ctx).apply {
-            setText(text)
-            setTextIsSelectable(true)
-            textSize = 11f
-            typeface = android.graphics.Typeface.MONOSPACE
-            setPadding(32, 24, 32, 24)
-        }
-        val scroll = android.widget.ScrollView(ctx).apply { addView(tv) }
-
-        android.app.AlertDialog.Builder(ctx)
-            .setTitle("Remark push/Realtime log (debug)")
-            .setView(scroll)
-            .setPositiveButton("Copy") { _, _ ->
-                val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("RemarkPushChainLog", text))
-                android.widget.Toast.makeText(ctx, "Copied — Claude-কে paste করে দিন", android.widget.Toast.LENGTH_SHORT).show()
-            }
-            .setNeutralButton("Clear") { _, _ -> RemarkPushChainLog.clear() }
-            .setNegativeButton("Close", null)
-            .show()
     }
 
     private fun showSortByDropdown() {
