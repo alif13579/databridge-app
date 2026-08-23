@@ -900,7 +900,7 @@ class CallCenterFragment : Fragment() {
                             if (remarksText.isBlank() && noteText.isBlank()) return@mapNotNull null
                             val authorSystemId = r.optString("author_system_id").trim()
                             val fromWorker = r.optString("source").trim().equals("WORKER", ignoreCase = true)
-                            val roleLabel = if (fromWorker) "Worker" else "CC"
+                            val roleLabel = if (fromWorker) "Agent" else "CC"
                             val authorName = r.optJSONObject("author")?.optString("name")?.trim().orEmpty()
                                 .ifBlank { nameMap[authorSystemId].orEmpty() }
                                 .ifBlank { authorSystemId }
