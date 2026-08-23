@@ -905,8 +905,8 @@ class CallCenterFragment : Fragment() {
                             createdAt to buildString {
                                 append("🕑 ").append(timeFmt.format(java.util.Date(createdAt)))
                                 append(" — ").append(authorName)
-                                if (remarksText.isNotBlank()) append("\nRemarks: ").append(remarksText)
-                                if (noteText.isNotBlank()) append("\nNote: ").append(noteText)
+                                if (remarksText.isNotBlank()) append("\nরিমার্কস: ").append(remarksText)
+                                if (noteText.isNotBlank()) append("\nনোট: ").append(noteText)
                             }
                         }.sortedBy { it.first }.joinToString("\n\n") { it.second }
                     }
