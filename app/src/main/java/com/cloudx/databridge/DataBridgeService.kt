@@ -529,6 +529,7 @@ class DataBridgeService : Service() {
 
     // ─── 🔹 Hybrid Dialer Logic (Preserved) ───
     private fun triggerAutoDial(number: String) {
+        openCallCenterSearch(number)
         val hasCallPerm = ContextCompat.checkSelfPermission(
             applicationContext,
             android.Manifest.permission.CALL_PHONE
@@ -538,6 +539,23 @@ class DataBridgeService : Service() {
             return
         }
         tryDirectCall(number)
+    }
+
+    /** Same as IncomingCallOverlay's "CC-তে খুঁজুন" button, but for the auto-dial path --
+     *  this runs from a background service (no Fragment/Activity to reach), so it goes
+     *  through MainActivity + AppNotificationManager.EXTRA_SEARCH_PHONE the same way a
+     *  notification tap does. Runs alongside the dial, not instead of it, so it lands
+     *  regardless of which of the three call layers below actually succeeds. */
+    private fun openCallCenterSearch(number: String) {
+        try {
+            val intent = Intent(applicationContext, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(AppNotificationManager.EXTRA_SEARCH_PHONE, number)
+            }
+            applicationContext.startActivity(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "openCallCenterSearch failed: ${e.message}")
+        }
     }
 
     private fun triggerOpenDialer(number: String) {
