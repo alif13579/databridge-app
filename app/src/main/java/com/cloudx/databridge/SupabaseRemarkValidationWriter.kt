@@ -74,6 +74,32 @@ object SupabaseRemarkValidationWriter {
         }
     }
 
+    @Volatile private var profileSyncConfirmed = false
+
+    /**
+     * Runs [onReady] once this session's trusted-profile sync (branch_ids etc., which
+     * validations RLS checks against) has been attempted. A prior confirmed success this
+     * session makes this a same-thread no-op — no extra round trip on every read. Otherwise
+     * it triggers a fresh sync attempt first and proceeds to [onReady] regardless of outcome
+     * (matching syncCurrentUserProfile's existing best-effort behavior at the fragment-load
+     * call site) — a failed/timed-out attempt is not cached as success, so the next call from
+     * anywhere retries rather than leaving reads permanently RLS-blind for the rest of the
+     * session.
+     *
+     * This exists because the fragment-load sync alone was not enough: a worker's first-ever
+     * interaction can be receiving a CC remark via push seconds after opening a cold app, and
+     * refreshWorkerParcelFromPush()/refreshCcParcelFromPush() ran their read directly, with no
+     * guarantee the load-time sync had already completed (or that it hadn't silently timed
+     * out). Every RLS-gated read path should go through this, not just the one at load.
+     */
+    fun ensureProfileSynced(onReady: () -> Unit) {
+        if (profileSyncConfirmed) { onReady(); return }
+        syncCurrentUserProfile { response ->
+            profileSyncConfirmed = response != null
+            onReady()
+        }
+    }
+
     /** Parses Supabase/PostgREST timestamp output without turning a parse failure into 1970. */
     fun parseCreatedAtMillis(value: String?): Long {
         val raw = value?.trim().orEmpty()

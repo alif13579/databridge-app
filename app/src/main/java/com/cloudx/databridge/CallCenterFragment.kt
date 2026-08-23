@@ -2454,20 +2454,22 @@ class CallCenterFragment : Fragment() {
         if (ids.isEmpty()) return
         val requestedAtMs = System.currentTimeMillis()
         val cursorMs = ccRemarkFallbackCursorMs.takeIf { it > 0L } ?: requestedAtMs
-        SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), cursorMs, "CallCenterFragment") { rows ->
-            ccRemarkFallbackCursorMs = requestedAtMs
-            if (rows.isEmpty()) {
-                android.util.Log.w("CallCenterFragment",
-                    "fetchNewCcRemarksFromPush: 0 rows returned for ${ids.size} tracked consignment(s) " +
-                    "since cursor=${cursorMs} — possible RLS block or no new remarks yet")
-                return@fetchNewRemarksSince
-            }
-            val latestByConsignment = rows.groupBy { it.optString("consignment") }
-                .mapValues { (_, g) -> g.maxByOrNull { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) } }
-            viewLifecycleOwner.lifecycleScope.launch {
-                if (!isAdded) return@launch
-                latestByConsignment.forEach { (cId, latest) ->
-                    if (!cId.isNullOrBlank() && latest != null) refreshOneCcParcelFromSupabase(cId, latest)
+        SupabaseRemarkValidationWriter.ensureProfileSynced {
+            SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), cursorMs, "CallCenterFragment") { rows ->
+                ccRemarkFallbackCursorMs = requestedAtMs
+                if (rows.isEmpty()) {
+                    android.util.Log.w("CallCenterFragment",
+                        "fetchNewCcRemarksFromPush: 0 rows returned for ${ids.size} tracked consignment(s) " +
+                        "since cursor=${cursorMs} — possible RLS block or no new remarks yet")
+                    return@fetchNewRemarksSince
+                }
+                val latestByConsignment = rows.groupBy { it.optString("consignment") }
+                    .mapValues { (_, g) -> g.maxByOrNull { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) } }
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (!isAdded) return@launch
+                    latestByConsignment.forEach { (cId, latest) ->
+                        if (!cId.isNullOrBlank() && latest != null) refreshOneCcParcelFromSupabase(cId, latest)
+                    }
                 }
             }
         }

@@ -1214,7 +1214,7 @@ class WorkerSpaceFragment : Fragment() {
                 // briefly for the trusted profile sync so validations RLS can resolve this
                 // Firebase UID's branch_ids before the initial card-badge query runs.
                 val profileSynced = kotlinx.coroutines.CompletableDeferred<Unit>()
-                SupabaseRemarkValidationWriter.syncCurrentUserProfile {
+                SupabaseRemarkValidationWriter.ensureProfileSynced {
                     profileSynced.complete(Unit)
                 }
                 kotlinx.coroutines.withTimeoutOrNull(12_000L) { profileSynced.await() }
@@ -1465,19 +1465,21 @@ class WorkerSpaceFragment : Fragment() {
             return
         }
         RemarkPushChainLog.log("RemarkPushChain", "refreshWorkerParcelFromPush: fetching history for $consignmentId")
-        SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
-            RemarkPushChainLog.log("RemarkPushChain", "refreshWorkerParcelFromPush: fetchHistory returned ${rows.size} rows for $consignmentId")
-            if (rows.isEmpty()) {
-                android.util.Log.e("WorkerSpaceFragment",
-                    "refreshWorkerParcelFromPush: fetchHistory returned 0 rows for $consignmentId — " +
-                    "likely RLS block; check public.users.branch_ids for this agent")
-                return@fetchHistory
-            }
-            val latest = rows.maxByOrNull {
-                SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
-            } ?: return@fetchHistory
-            viewLifecycleOwner.lifecycleScope.launch {
-                if (isAdded) refreshOneWorkerParcelFromSupabase(consignmentId, latest)
+        SupabaseRemarkValidationWriter.ensureProfileSynced {
+            SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
+                RemarkPushChainLog.log("RemarkPushChain", "refreshWorkerParcelFromPush: fetchHistory returned ${rows.size} rows for $consignmentId")
+                if (rows.isEmpty()) {
+                    android.util.Log.e("WorkerSpaceFragment",
+                        "refreshWorkerParcelFromPush: fetchHistory returned 0 rows for $consignmentId — " +
+                        "likely RLS block; check public.users.branch_ids for this agent")
+                    return@fetchHistory
+                }
+                val latest = rows.maxByOrNull {
+                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+                } ?: return@fetchHistory
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (isAdded) refreshOneWorkerParcelFromSupabase(consignmentId, latest)
+                }
             }
         }
     }
