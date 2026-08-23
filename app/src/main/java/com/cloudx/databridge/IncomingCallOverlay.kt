@@ -31,56 +31,77 @@ object IncomingCallOverlay {
     private var autoDismissRunnable: Runnable? = null
     private const val AUTO_DISMISS_MS = 30_000L
 
-    fun show(context: Context, match: CallerMatch, otherCount: Int) {
+    fun show(context: Context, rawPhone: String, match: CallerMatch?, otherCount: Int) {
         val appContext = context.applicationContext
         if (!android.provider.Settings.canDrawOverlays(appContext)) return
-        mainHandler.post { showInternal(appContext, match, otherCount) }
+        mainHandler.post { showInternal(appContext, rawPhone, match, otherCount) }
     }
 
     fun dismiss() {
         mainHandler.post { dismissInternal() }
     }
 
-    private fun showInternal(context: Context, match: CallerMatch, otherCount: Int) {
+    private fun showInternal(context: Context, rawPhone: String, match: CallerMatch?, otherCount: Int) {
         dismissInternal() // never stack two
 
         val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
         val view = LayoutInflater.from(context).inflate(R.layout.overlay_incoming_call, null)
 
-        view.findViewById<TextView>(R.id.tvOverlayName).text = match.name.ifBlank { "Unknown customer" }
-        view.findViewById<TextView>(R.id.tvOverlayPhone).text = match.phone.ifBlank { "" }
-        view.findViewById<TextView>(R.id.tvOverlayStatus).text = match.statusLabel
+        val tvViewDetails = view.findViewById<View>(R.id.btnOverlayViewDetails)
+        val tvNoMatch = view.findViewById<TextView>(R.id.tvOverlayNoMatch)
 
-        val tvCod = view.findViewById<TextView>(R.id.tvOverlayCod)
-        if (match.cod > 0) {
-            val nf = NumberFormat.getNumberInstance(Locale.US)
-            tvCod.text = "Tk " + nf.format(match.cod) + " COD"
-            tvCod.isVisible = true
+        if (match != null) {
+            view.findViewById<TextView>(R.id.tvOverlayName).text = match.name.ifBlank { "Unknown customer" }
+            view.findViewById<TextView>(R.id.tvOverlayPhone).text = match.phone.ifBlank { rawPhone }
+            view.findViewById<TextView>(R.id.tvOverlayStatus).text = match.statusLabel
+
+            val tvCod = view.findViewById<TextView>(R.id.tvOverlayCod)
+            if (match.cod > 0) {
+                val nf = NumberFormat.getNumberInstance(Locale.US)
+                tvCod.text = "Tk " + nf.format(match.cod) + " COD"
+                tvCod.isVisible = true
+            } else {
+                tvCod.isVisible = false
+            }
+
+            val tvAddress = view.findViewById<TextView>(R.id.tvOverlayAddress)
+            if (match.address.isNotBlank()) {
+                tvAddress.text = "Address: ${match.address}"
+                tvAddress.isVisible = true
+            } else {
+                tvAddress.isVisible = false
+            }
+
+            val tvMore = view.findViewById<TextView>(R.id.tvOverlayMore)
+            if (otherCount > 0) {
+                tvMore.text = "+$otherCount more active parcel" + if (otherCount > 1) "s" else ""
+                tvMore.isVisible = true
+            } else {
+                tvMore.isVisible = false
+            }
+
+            tvViewDetails.isVisible = true
+            tvNoMatch.isVisible = false
+            tvViewDetails.setOnClickListener {
+                openParcelDetail(context, match.consignmentId)
+                dismissInternal()
+            }
         } else {
-            tvCod.isVisible = false
+            // No matching parcel — minimal card: just the raw number and a way to search it.
+            view.findViewById<TextView>(R.id.tvOverlayName).text = "অজানা নম্বর"
+            view.findViewById<TextView>(R.id.tvOverlayPhone).text = rawPhone
+            view.findViewById<TextView>(R.id.tvOverlayStatus).isVisible = false
+            view.findViewById<TextView>(R.id.tvOverlayCod).isVisible = false
+            view.findViewById<TextView>(R.id.tvOverlayAddress).isVisible = false
+            view.findViewById<TextView>(R.id.tvOverlayMore).isVisible = false
+            tvViewDetails.isVisible = false
+            tvNoMatch.isVisible = true
         }
 
-        val tvAddress = view.findViewById<TextView>(R.id.tvOverlayAddress)
-        if (match.address.isNotBlank()) {
-            tvAddress.text = "Address: ${match.address}"
-            tvAddress.isVisible = true
-        } else {
-            tvAddress.isVisible = false
-        }
-
-        val tvMore = view.findViewById<TextView>(R.id.tvOverlayMore)
-        if (otherCount > 0) {
-            tvMore.text = "+$otherCount more active parcel" + if (otherCount > 1) "s" else ""
-            tvMore.isVisible = true
-        } else {
-            tvMore.isVisible = false
-        }
-
-        val openApp = {
-            openParcelDetail(context, match.consignmentId)
+        view.findViewById<View>(R.id.btnOverlaySearch).setOnClickListener {
+            openCallCenterSearch(context, rawPhone)
             dismissInternal()
         }
-        view.findViewById<View>(R.id.btnOverlayViewDetails).setOnClickListener { openApp() }
         view.findViewById<View>(R.id.btnOverlayClose).setOnClickListener { dismissInternal() }
 
         val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -134,6 +155,20 @@ object IncomingCallOverlay {
      *  navigation path. Defaults to the call-center scope (handleNotificationIntent's own
      *  default for anything other than "worker"), since an incoming customer call is a
      *  call-center scenario. */
+    /** Opens the app straight into CallCenterFragment with [rawPhone] pre-filled in the
+     *  search box -- for calls with no matched parcel (or when the agent wants to search
+     *  manually instead of jumping to the auto-matched one). */
+    private fun openCallCenterSearch(context: Context, rawPhone: String) {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(AppNotificationManager.EXTRA_SEARCH_PHONE, rawPhone)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (_: Exception) {
+        }
+    }
+
     private fun openParcelDetail(context: Context, consignmentId: String) {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP

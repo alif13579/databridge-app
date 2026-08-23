@@ -40,6 +40,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
 
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var bottomNav: BottomNavigationView
+
+    /** Set by navigateToCallCenterWithSearch(), consumed once by CallCenterFragment on
+     *  resume to pre-fill its search box. Nulled out after read so it doesn't re-apply
+     *  on a later unrelated resume. */
+    var pendingCcSearchPhone: String? = null
     private lateinit var navView: NavigationView
     private lateinit var statusDot: View
     private lateinit var tvTopBarUser: TextView
@@ -153,6 +158,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
      *  lands here with the parcel it's about — navigate straight to it, same as tapping
      *  the entry in the in-app bell's NotificationListBottomSheet. */
     private fun handleNotificationIntent(intent: Intent?) {
+        val searchPhone = intent?.getStringExtra(AppNotificationManager.EXTRA_SEARCH_PHONE)
+        if (!searchPhone.isNullOrBlank()) {
+            navigateToCallCenterWithSearch(searchPhone)
+            return
+        }
         // FCM's system-rendered background notification carries the raw data keys;
         // AppNotificationManager's in-process notification uses its namespaced keys.
         val parcelId = intent?.getStringExtra(AppNotificationManager.EXTRA_PARCEL_ID)
@@ -403,10 +413,21 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 ensureNavMatchesRole(info.roleId)
                 updateBottomNavVisibility()
 
-                // Sync through the trusted Edge Function. Direct REST upsert into public.users
-                // is rejected for Firebase's anon database role (401), while the Edge Function
-                // can safely upsert the verified Firebase profile and its complete branch_ids.
-                SupabaseRemarkValidationWriter.syncCurrentUserProfile()
+                // Sync user profile to Supabase users table so RLS branch checks work.
+                // systemId lives in Firebase RTDB under users/$uid/profile/company_info/system_id.
+                val systemId = com.google.firebase.database.FirebaseDatabase.getInstance()
+                    .getReference("users/$uid/profile/company_info/system_id")
+                    .get().await().getValue(String::class.java).orEmpty()
+                val branchId = info.branchIds.firstOrNull().orEmpty()
+                if (systemId.isNotBlank() && branchId.isNotBlank()) {
+                    SupabaseClientManager.syncUser(
+                        firebaseId  = uid,
+                        systemId    = systemId,
+                        name        = auth.currentUser?.displayName.orEmpty(),
+                        employeeId  = "",   // optional; populated later via EmployeeFragment edits
+                        branchId    = branchId,
+                    )
+                }
             }
         } else {
             lifecycleScope.launch {
@@ -952,6 +973,13 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
 
     fun navigateToCallCenterWithParcel(parcelId: String) {
         loadFragment(ParcelDetailFragment.newInstance(parcelId, "cc"))
+    }
+
+    /** Opens CallCenterFragment (bottom-nav tab, not the detail screen) with [phone]
+     *  pre-filled in the search box -- used by IncomingCallOverlay's "Search" button. */
+    fun navigateToCallCenterWithSearch(phone: String) {
+        bottomNav.selectedItemId = R.id.nav_call_center
+        pendingCcSearchPhone = phone
     }
 
     fun navigateToWorkerSpaceWithParcel(parcelId: String) {

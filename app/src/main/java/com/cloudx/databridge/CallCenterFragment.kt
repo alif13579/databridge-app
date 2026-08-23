@@ -226,6 +226,17 @@ class CallCenterFragment : Fragment() {
             resumeSignal = null
             hasPausedSincePendingDial = false
         }
+        // Set by IncomingCallOverlay's "Search" button via
+        // MainActivity.navigateToCallCenterWithSearch() -- consumed once here so it
+        // doesn't re-apply on an unrelated later resume.
+        (activity as? MainActivity)?.let { main ->
+            val phone = main.pendingCcSearchPhone
+            if (!phone.isNullOrBlank() && ::etSearch.isInitialized) {
+                main.pendingCcSearchPhone = null
+                etSearch.setText(phone)
+                etSearch.setSelection(phone.length)
+            }
+        }
     }
 
     override fun onDestroyView() {

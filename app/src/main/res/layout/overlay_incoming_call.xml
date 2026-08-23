@@ -100,16 +100,48 @@
         android:visibility="gone" />
 
     <TextView
-        android:id="@+id/btnOverlayViewDetails"
+        android:id="@+id/tvOverlayNoMatch"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="11dp"
-        android:background="@drawable/bg_overlay_cta"
-        android:text="View Full Details \u2192"
-        android:textColor="#FFFFFF"
-        android:textSize="12.5sp"
-        android:textStyle="bold"
-        android:gravity="center"
-        android:paddingVertical="10dp" />
+        android:textSize="11.5sp"
+        android:textColor="#64748B"
+        android:layout_marginTop="8dp"
+        android:text="কোনো ম্যাচিং পার্সেল পাওয়া যায়নি"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="11dp">
+
+        <TextView
+            android:id="@+id/btnOverlayViewDetails"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/bg_overlay_cta"
+            android:text="View Full Details \u2192"
+            android:textColor="#FFFFFF"
+            android:textSize="12.5sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingVertical="10dp" />
+
+        <TextView
+            android:id="@+id/btnOverlaySearch"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/bg_overlay_badge_status"
+            android:text="🔍 CC-তে খুঁজুন"
+            android:textColor="#0F172A"
+            android:textSize="12.5sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingVertical="10dp" />
+
+    </LinearLayout>
 
 </LinearLayout>

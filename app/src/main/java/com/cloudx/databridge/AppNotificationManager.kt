@@ -31,6 +31,7 @@ object AppNotificationManager {
     private const val CHANNEL_ID = "databridge_alerts_channel_v2"
     const val EXTRA_PARCEL_ID = "notif_parcel_id"
     const val EXTRA_SCOPE = "notif_scope"
+    const val EXTRA_SEARCH_PHONE = "search_phone"
 
     data class NotifItem(
         val id: String = System.currentTimeMillis().toString() + (Math.random() * 1000).toInt(),
@@ -86,16 +87,7 @@ object AppNotificationManager {
         }
         badgeListener?.invoke(unreadCount)
         if (item.type == "remark") {
-            RemarkPushChainLog.log("RemarkPushChain", "AppNotificationManager.add: dispatching to " +
-                "${remarkListeners.size} registered remarkListener(s) — scope=${item.scope} parcelId=${item.parcelId}")
-            remarkListeners.forEach {
-                try {
-                    it(item)
-                } catch (e: Exception) {
-                    RemarkPushChainLog.log("RemarkPushChain", "AppNotificationManager.add: a remarkListener " +
-                        "threw — ${e.javaClass.simpleName}: ${e.message} (other listeners still ran)", isWarning = true)
-                }
-            }
+            remarkListeners.forEach { it(item) }
         }
         playSound(context)
         showSystemNotification(context, item)
