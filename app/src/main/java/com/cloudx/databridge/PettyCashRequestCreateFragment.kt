@@ -1,5 +1,6 @@
 package com.cloudx.databridge
 
+import android.net.Uri
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -9,6 +10,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
@@ -40,10 +42,14 @@ import kotlinx.coroutines.launch
  * only storeId + storeName get saved onto the petty cash request itself,
  * same as the old merchantName field did.
  *
- * Attachment upload to Firebase Storage isn't wired yet — the picker just
- * captures a display name for now (attachmentUrl stays blank). Full file
- * upload can follow the same pattern as Branch's image upload
- * (uploadImageIfNeeded in BranchCreateFragment) when needed.
+ * Attachment upload goes through AttachmentUploader (Cloudflare R2 via a
+ * presigned URL from the r2-attachment-upload Supabase Edge Function — see
+ * that class's doc comment for why R2 rather than Firebase Storage, and why
+ * the actual upload credentials never reach this app). Accepts any image
+ * format or PDF, capped at AttachmentUploader.MAX_FILE_BYTES (5 MB); the
+ * Edge Function independently re-enforces both, since a client-side check
+ * alone can always be bypassed by a modified APK calling the function
+ * directly.
  */
 class PettyCashRequestCreateFragment : Fragment() {
 
@@ -60,7 +66,19 @@ class PettyCashRequestCreateFragment : Fragment() {
     private var selectedCategory: String = ""
     private var selectedStoreId: String = ""
     private var selectedStoreName: String = ""
+
+    // Attachment state. attachmentUrl is what actually gets saved onto the
+    // request (empty until upload succeeds); attachmentName is shown to the
+    // user immediately on pick, before the upload finishes, so the picker
+    // doesn't look like it did nothing while the network call is in flight.
     private var attachmentName: String = ""
+    private var attachmentUrl: String = ""
+    private var attachmentUploading = false
+
+    private val attachmentPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri ?: return@registerForActivityResult
+        onAttachmentPicked(uri)
+    }
 
     private lateinit var tvTitle: TextView
     private lateinit var tvCategorySelected: TextView
@@ -73,6 +91,7 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var etAmount: EditText
     private lateinit var etPurpose: EditText
     private lateinit var tvPurposeCount: TextView
+    private lateinit var tvAttachmentName: TextView
     private lateinit var btnSubmit: android.widget.Button
 
     companion object {
@@ -109,6 +128,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         etAmount = view.findViewById(R.id.etPcRequestAmount)
         etPurpose = view.findViewById(R.id.etPcRequestPurpose)
         tvPurposeCount = view.findViewById(R.id.tvPcRequestPurposeCount)
+        tvAttachmentName = view.findViewById(R.id.tvPcRequestAttachmentName)
         btnSubmit = view.findViewById(R.id.btnPcRequestSubmit)
 
         if (!isEditMode && !RbacManager.hasPermission("petty_cash_requester")) {
@@ -126,7 +146,10 @@ class PettyCashRequestCreateFragment : Fragment() {
 
         view.findViewById<View>(R.id.layoutPcRequestCategory).setOnClickListener { showCategoryPicker() }
         view.findViewById<View>(R.id.layoutPcRequestStore).setOnClickListener { showStorePicker() }
-        view.findViewById<View>(R.id.layoutPcRequestAttachment).setOnClickListener { showAttachmentPicker(view) }
+        view.findViewById<View>(R.id.layoutPcRequestAttachment).setOnClickListener {
+            if (attachmentUploading) return@setOnClickListener // ignore taps mid-upload
+            attachmentPicker.launch(AttachmentUploader.PICKER_MIME_TYPE)
+        }
 
         etPurpose.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -243,18 +266,56 @@ class PettyCashRequestCreateFragment : Fragment() {
             }
     }
 
-    private fun showAttachmentPicker(root: View) {
-        // Placeholder until Storage upload is wired — captures a name only,
-        // matching the "attach a receipt" intent without a real file picker yet.
-        attachmentName = "receipt_${System.currentTimeMillis().toString().takeLast(4)}.jpg"
-        root.findViewById<TextView>(R.id.tvPcRequestAttachmentName).apply {
-            text = attachmentName
-            setTextColor(android.graphics.Color.parseColor("#0F172A"))
+    private fun onAttachmentPicked(uri: Uri) {
+        val meta = AttachmentUploader.readFileMeta(requireContext(), uri)
+        // Show the picked name right away so the tap feels responsive, before
+        // the network round trip finishes — attachmentUrl stays blank until
+        // upload actually succeeds, so onSubmit() can't send a URL that
+        // doesn't point at anything.
+        tvAttachmentName.text = meta?.displayName ?: "Uploading…"
+        tvAttachmentName.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+        attachmentName = meta?.displayName.orEmpty()
+        attachmentUrl = ""
+        attachmentUploading = true
+        btnSubmit.isEnabled = false // an in-flight upload shouldn't let Submit fire without it
+
+        lifecycleScope.launch {
+            when (val result = AttachmentUploader.upload(requireContext(), uri)) {
+                is AttachmentUploader.Result.Success -> {
+                    attachmentUrl = result.publicUrl
+                    attachmentName = result.displayName
+                    if (isAdded) {
+                        tvAttachmentName.text = result.displayName
+                        tvAttachmentName.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+                    }
+                }
+                is AttachmentUploader.Result.Rejected -> {
+                    attachmentName = ""
+                    if (isAdded) {
+                        tvAttachmentName.text = "No file selected"
+                        tvAttachmentName.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+                        Toast.makeText(requireContext(), result.reason, Toast.LENGTH_LONG).show()
+                    }
+                }
+                is AttachmentUploader.Result.Failed -> {
+                    attachmentName = ""
+                    if (isAdded) {
+                        tvAttachmentName.text = "No file selected"
+                        tvAttachmentName.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+                        Toast.makeText(requireContext(), result.message, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            attachmentUploading = false
+            if (isAdded) btnSubmit.isEnabled = true
         }
-        Toast.makeText(requireContext(), "Attachment picker not wired yet — using a placeholder name", Toast.LENGTH_SHORT).show()
     }
 
     private fun onSubmit() {
+        if (attachmentUploading) {
+            Toast.makeText(requireContext(), "Attachment is still uploading — please wait", Toast.LENGTH_SHORT).show()
+            return
+        }
         val amount = etAmount.text?.toString()?.toDoubleOrNull() ?: 0.0
         val purpose = etPurpose.text?.toString().orEmpty().trim()
         val consignmentId = etConsignmentId.text?.toString().orEmpty().trim()
@@ -297,6 +358,12 @@ class PettyCashRequestCreateFragment : Fragment() {
 
         btnSubmit.isEnabled = false
         if (isEditMode) {
+            // NOTE: updateRequest() has no attachment param — editing an existing
+            // PENDING request cannot currently change its attachment, only create
+            // (submitRequest, below) can. Pre-existing limitation, out of scope
+            // for wiring the upload itself; if editing the attachment is wanted
+            // later, updateRequest() needs an attachmentUrl/attachmentName param
+            // added alongside the other fields it already updates.
             lifecycleScope.launch {
                 val result = viewModel.updateRequest(
                     branchId, editRequestId, selectedCategory, purpose, finalAmount,
@@ -319,7 +386,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                     purpose = purpose,
                     amount = finalAmount,
                     priority = PC_PRIORITY_NORMAL,
-                    attachmentUrl = "",
+                    attachmentUrl = attachmentUrl,
                     attachmentName = attachmentName,
                     workerRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId },
                     consignmentId = finalConsignmentId,
