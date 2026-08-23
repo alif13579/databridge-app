@@ -18,9 +18,9 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         val data = message.data
-        android.util.Log.d("RemarkPushChain", "onMessageReceived: data=$data")
+        RemarkPushChainLog.log("RemarkPushChain", "onMessageReceived: data=$data")
         if (data["type"] != "remark") {
-            android.util.Log.d("RemarkPushChain", "onMessageReceived: ignored, type=${data["type"]}")
+            RemarkPushChainLog.log("RemarkPushChain", "onMessageReceived: ignored, type=${data["type"]}")
             return
         }
 
@@ -28,7 +28,7 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
         val body = data["body"]?.takeIf { it.isNotBlank() } ?: "একটি নতুন রিমার্ক এসেছে"
         val parcelId = data["consignment_id"].orEmpty()
         val scope = data["scope"].orEmpty().ifBlank { "cc" }
-        android.util.Log.d("RemarkPushChain", "onMessageReceived: parcelId=$parcelId scope=$scope " +
+        RemarkPushChainLog.log("RemarkPushChain", "onMessageReceived: parcelId=$parcelId scope=$scope " +
             "-> AppNotificationManager.add()")
         AppNotificationManager.add(
             applicationContext,

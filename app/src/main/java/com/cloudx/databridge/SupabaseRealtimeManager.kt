@@ -55,12 +55,16 @@ object SupabaseRealtimeManager {
                 val token = SupabaseClientManager.getAccessToken()
                 if (token != null) {
                     Log.d(TAG, "[$channelKey] Firebase JWT available for the channel")
+                    RemarkPushChainLog.log("RemarkPushChain", "[$channelKey] Firebase JWT available for the channel")
                 } else {
                     Log.e(TAG, "[$channelKey] auth update SKIPPED — getAccessToken() returned null; " +
                         "Realtime will connect with anon key only and RLS will block all events")
+                    RemarkPushChainLog.log("RemarkPushChain", "[$channelKey] auth update SKIPPED — " +
+                        "getAccessToken() returned null; Realtime will connect with anon key only and RLS will block all events", isWarning = true)
                 }
                 client.realtime.connect()
                 Log.i(TAG, "[$channelKey] connect() called — filter: ${filter.first}=${filter.second}")
+                RemarkPushChainLog.log("RemarkPushChain", "[$channelKey] connect() called — filter: ${filter.first}=${filter.second}")
                 val channel = client.realtime.channel(channelKey)
                 channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
                     table = "validations"
@@ -70,9 +74,12 @@ object SupabaseRealtimeManager {
                         val row = JSONObject(event.record.toString())
                         Log.d(TAG, "[$channelKey] INSERT received — consignment=${row.optString("consignment")} " +
                             "source=${row.optString("source")} status=${row.optString("remarks_status")}")
+                        RemarkPushChainLog.log("RemarkPushChain", "[$channelKey] Realtime INSERT received — " +
+                            "consignment=${row.optString("consignment")} source=${row.optString("source")} status=${row.optString("remarks_status")}")
                         onInsert(row)
                     } catch (e: Exception) {
                         Log.e(TAG, "[$channelKey] Failed to parse INSERT event: ${e.message}")
+                        RemarkPushChainLog.log("RemarkPushChain", "[$channelKey] Failed to parse INSERT event: ${e.message}", isWarning = true)
                     }
                 }.launchIn(scope)
                 // supabase-kt 3.x exposes JWT updates on each channel, not on the
@@ -84,8 +91,10 @@ object SupabaseRealtimeManager {
                 token?.let { channel.updateAuth(it) }
                 channel.subscribe()
                 Log.i(TAG, "[$channelKey] subscribe() called")
+                RemarkPushChainLog.log("RemarkPushChain", "[$channelKey] subscribe() called")
             } catch (e: Exception) {
                 Log.e(TAG, "[$channelKey] Subscription failed: ${e.message}", e)
+                RemarkPushChainLog.log("RemarkPushChain", "[$channelKey] Subscription failed: ${e.message}", isWarning = true)
                 FirebaseErrorLogger.log(
                     "SupabaseRealtimeManager", "subscribe_error",
                     e.message ?: "Subscription failed", mapOf("channelKey" to channelKey)

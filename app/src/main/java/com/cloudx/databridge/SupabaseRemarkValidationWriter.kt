@@ -69,6 +69,7 @@ object SupabaseRemarkValidationWriter {
             reference = ""
         ) { response ->
             Log.i("SupabaseProfileSync", "sync_profile response=${response?.take(300) ?: "FAILED"}")
+            RemarkPushChainLog.log("RemarkPushChain", "sync_profile response=${response?.take(300) ?: "FAILED"}", isWarning = response == null)
             onComplete(response)
         }
     }

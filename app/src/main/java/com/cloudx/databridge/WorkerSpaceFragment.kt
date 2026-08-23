@@ -100,12 +100,12 @@ class WorkerSpaceFragment : Fragment() {
     // FCM is only an event-triggered fallback if the Realtime socket has not delivered yet.
     // There is no periodic Supabase polling loop.
     private val remarkNotificationListener: (AppNotificationManager.NotifItem) -> Unit = { notification ->
-        android.util.Log.d("RemarkPushChain", "WorkerSpaceFragment listener: scope=${notification.scope} " +
+        RemarkPushChainLog.log("RemarkPushChain", "WorkerSpaceFragment listener: scope=${notification.scope} " +
             "parcelId=${notification.parcelId}")
         if (notification.scope == "worker" && notification.parcelId.isNotBlank()) {
             refreshWorkerParcelFromPush(notification.parcelId)
         } else {
-            android.util.Log.d("RemarkPushChain", "WorkerSpaceFragment listener: skipped " +
+            RemarkPushChainLog.log("RemarkPushChain", "WorkerSpaceFragment listener: skipped " +
                 "(scope must be 'worker' and parcelId non-blank)")
         }
     }
@@ -174,6 +174,9 @@ class WorkerSpaceFragment : Fragment() {
         tvAgentInfo = view.findViewById(R.id.twAgentInfo)
         tvSortByDropdown = view.findViewById(R.id.tvSortByDropdown)
         tvSortByDropdown.setOnClickListener { showSortByDropdown() }
+        // Diagnostic-only: long-press to view the on-device remark push/Realtime trace
+        // (RemarkPushChainLog) without needing Android Studio/Logcat attached.
+        tvSortByDropdown.setOnLongClickListener { showRemarkPushChainLogDialog(); true }
         tvTodayCod = view.findViewById(R.id.twTodayCod)
         tvStatTotalValue = view.findViewById(R.id.twStatTotalValue)
         layoutWsStatDynamic = view.findViewById(R.id.layoutStatDynamic)
@@ -1368,10 +1371,11 @@ class WorkerSpaceFragment : Fragment() {
         ) { row ->
             val cId = row.optString("consignment")
             if (cId.isBlank() || cId !in workerTrackedRemarkIds) {
-                android.util.Log.w("RemarkPushChain", "syncRemarkListeners: Realtime INSERT for " +
-                    "'$cId' skipped — not in workerTrackedRemarkIds (size=${workerTrackedRemarkIds.size})")
+                RemarkPushChainLog.log("RemarkPushChain", "syncRemarkListeners: Realtime INSERT for " +
+                    "'$cId' skipped — not in workerTrackedRemarkIds (size=${workerTrackedRemarkIds.size})", isWarning = true)
                 return@subscribeValidations
             }
+            RemarkPushChainLog.log("RemarkPushChain", "syncRemarkListeners: Realtime INSERT matched for $cId")
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
             val previous = workerLastSeenRemarkAt[cId] ?: 0L
             workerLastSeenRemarkAt[cId] = maxOf(createdAt, previous)
@@ -1384,12 +1388,12 @@ class WorkerSpaceFragment : Fragment() {
     /** Updates one visible worker card from a Supabase validation row without reloading the run. */
     private fun refreshOneWorkerParcelFromSupabase(cId: String, latestRemarkRow: org.json.JSONObject) {
         if (!isAdded) {
-            android.util.Log.d("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: skipped, fragment not attached")
+            RemarkPushChainLog.log("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: skipped, fragment not attached")
             return
         }
         if (allParcels.none { it.id == cId }) {
-            android.util.Log.w("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: skipped, $cId " +
-                "not in allParcels (size=${allParcels.size})")
+            RemarkPushChainLog.log("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: skipped, $cId " +
+                "not in allParcels (size=${allParcels.size})", isWarning = true)
             return
         }
         val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(
@@ -1428,7 +1432,7 @@ class WorkerSpaceFragment : Fragment() {
         // applyFilters() only filters the list — it does not rebuild chip counts.
         setupFilterTabs()
         applyFilters()
-        android.util.Log.d("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: applied to $cId — status=$status remark=$remarkText")
+        RemarkPushChainLog.log("RemarkPushChain", "refreshOneWorkerParcelFromSupabase: applied to $cId — status=$status remark=$remarkText")
     }
 
     private fun mergeHistoryEntries(
@@ -1452,17 +1456,17 @@ class WorkerSpaceFragment : Fragment() {
         // though FCM has already told us precisely which parcel changed. This remains an
         // event-triggered, one-off REST read — it neither polls nor invokes the Edge Function.
         if (!isAdded) {
-            android.util.Log.d("RemarkPushChain", "refreshWorkerParcelFromPush: skipped, fragment not attached")
+            RemarkPushChainLog.log("RemarkPushChain", "refreshWorkerParcelFromPush: skipped, fragment not attached")
             return
         }
         if (allParcels.none { it.id == consignmentId }) {
-            android.util.Log.w("RemarkPushChain", "refreshWorkerParcelFromPush: skipped, $consignmentId " +
-                "not in allParcels (size=${allParcels.size}) — not in today's run/list, or list not loaded yet")
+            RemarkPushChainLog.log("RemarkPushChain", "refreshWorkerParcelFromPush: skipped, $consignmentId " +
+                "not in allParcels (size=${allParcels.size}) — not in today's run/list, or list not loaded yet", isWarning = true)
             return
         }
-        android.util.Log.d("RemarkPushChain", "refreshWorkerParcelFromPush: fetching history for $consignmentId")
+        RemarkPushChainLog.log("RemarkPushChain", "refreshWorkerParcelFromPush: fetching history for $consignmentId")
         SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
-            android.util.Log.d("RemarkPushChain", "refreshWorkerParcelFromPush: fetchHistory returned ${rows.size} rows for $consignmentId")
+            RemarkPushChainLog.log("RemarkPushChain", "refreshWorkerParcelFromPush: fetchHistory returned ${rows.size} rows for $consignmentId")
             if (rows.isEmpty()) {
                 android.util.Log.e("WorkerSpaceFragment",
                     "refreshWorkerParcelFromPush: fetchHistory returned 0 rows for $consignmentId — " +
@@ -1808,6 +1812,38 @@ class WorkerSpaceFragment : Fragment() {
             "priority" -> "⭐ Priority ▾"
             else       -> "🔁 Attempt ▾"
         }
+    }
+
+    /**
+     * Diagnostic-only: shows the on-device RemarkPushChainLog trace in a scrollable,
+     * copyable dialog. Reached via long-press on the "Sort by" label. Not linked from
+     * anywhere else in the UI — remove this + the long-press hook once the CC-write ->
+     * Worker-card issue is confirmed fixed.
+     */
+    private fun showRemarkPushChainLogDialog() {
+        val ctx = context ?: return
+        val text = RemarkPushChainLog.snapshot()
+
+        val tv = TextView(ctx).apply {
+            setText(text)
+            setTextIsSelectable(true)
+            textSize = 11f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(32, 24, 32, 24)
+        }
+        val scroll = android.widget.ScrollView(ctx).apply { addView(tv) }
+
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Remark push/Realtime log (debug)")
+            .setView(scroll)
+            .setPositiveButton("Copy") { _, _ ->
+                val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("RemarkPushChainLog", text))
+                android.widget.Toast.makeText(ctx, "Copied — Claude-কে paste করে দিন", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("Clear") { _, _ -> RemarkPushChainLog.clear() }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     private fun showSortByDropdown() {
