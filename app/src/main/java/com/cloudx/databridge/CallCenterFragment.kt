@@ -908,7 +908,7 @@ class CallCenterFragment : Fragment() {
                                 append("🕑 ").append(timeFmt.format(java.util.Date(createdAt)))
                                 append("\n").append(roleLabel).append(": ").append(authorName)
                                 if (remarksText.isNotBlank()) append("\nরিমার্কস: ").append(remarksText)
-                                if (noteText.isNotBlank()) append("\nনোট: ").append(noteText)
+                                if (noteText.isNotBlank()) append("\n⚠️ নোট: ").append(noteText)
                             }
                         }.sortedBy { it.first }.joinToString("\n\n") { it.second }
                     }
