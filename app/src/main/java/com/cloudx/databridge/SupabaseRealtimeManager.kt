@@ -49,9 +49,25 @@ object SupabaseRealtimeManager {
         scope: CoroutineScope,
         onInsert: (JSONObject) -> Unit,
     ): Job {
-        val client = SupabaseClientManager.client
         return scope.launch {
             try {
+                // SupabaseClientManager.client throws IllegalStateException when
+                // SupabaseClientManager.init() bailed early due to missing/invalid
+                // config (empty SUPABASE_URL/PUBLISHABLE_KEY in local.properties —
+                // see SupabaseConfig.isConfigured). This used to be read as
+                // `val client = SupabaseClientManager.client` OUTSIDE this try block,
+                // on the caller's thread — an uncaught crash right where CC/Worker
+                // fragments call subscribeValidations() during load. Guarding +
+                // moving the read inside try turns a missing-config crash into a
+                // clear Logcat line instead.
+                if (!SupabaseClientManager.isInitialised) {
+                    Log.e(TAG, "[$channelKey] Skipped — Supabase client not initialised " +
+                        "(missing/invalid config; check local.properties SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY)")
+                    RemarkPushChainLog.log("RemarkPushChain",
+                        "[$channelKey] Skipped — Supabase client not initialised (missing config)", isWarning = true)
+                    return@launch
+                }
+                val client = SupabaseClientManager.client
                 val token = SupabaseClientManager.getAccessToken()
                 if (token != null) {
                     Log.d(TAG, "[$channelKey] Firebase JWT available for the channel")
