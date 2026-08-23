@@ -1,6 +1,7 @@
 package com.cloudx.databridge
 
 import android.content.Intent
+import org.json.JSONObject
 import android.net.Uri
 import android.os.Bundle
 import android.text.Editable
@@ -535,6 +536,19 @@ class WorkerSpaceFragment : Fragment() {
         return remarkOptions.find { it.englishLabel == raw }?.label ?: raw
     }
 
+    /**
+     * Preferred entry point: reads remarks_bn straight from a validations_with_bn row —
+     * that view already did the English->Bangla lookup server-side (LEFT JOIN
+     * remark_labels), so no client-side match is needed. Falls back to the old
+     * remarkOptions match only for a row missing remarks_bn.
+     */
+    private fun resolveRemarkBn(row: JSONObject): String {
+        val raw = row.optString("remarks").trim()
+        if (raw.isBlank()) return raw
+        return if (row.has("remarks_bn")) row.optString("remarks_bn").trim().ifBlank { raw }
+        else resolveRemarkBn(raw)
+    }
+
     private fun showWorkerRemarksDialog(item: WorkerParcelItem) {
         val dialog = BottomSheetDialog(requireContext())
         val view = layoutInflater.inflate(R.layout.bottom_sheet_worker_remarks, null)
@@ -782,7 +796,11 @@ class WorkerSpaceFragment : Fragment() {
                     branchId = branchId,
                     status = statusKey,
                     remarksText = selectedOption?.englishLabel?.ifBlank { selectedLabel } ?: selectedLabel,
-                    noteText = ""
+                    noteText = "",
+                    // Blank when englishLabel is missing/blank (falls back to selectedLabel
+                    // itself above, i.e. already the same text as what's stored) — remark_labels
+                    // only needs an entry when the English and Bangla text actually differ.
+                    remarksBnText = selectedOption?.englishLabel?.takeIf { it.isNotBlank() }?.let { selectedLabel } ?: ""
                 )
                 EngagedStateManager.clearEngaged(p.id, userId)
             }
@@ -888,13 +906,16 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
-    /** Writes a Worker-side remark with the signed-in worker as its actual author. */
+    /** Writes a Worker-side remark with the signed-in worker as its actual author.
+     *  [remarksBnText] is the Bangla label for [remarksText] when it came from a predefined
+     *  WorkerRemarkOption (blank for a free-typed note) — see write()'s doc comment. */
     private suspend fun writeWorkerRemarkToSupabase(
         consignmentId: String,
         branchId: String,
         status: String,
         remarksText: String,
-        noteText: String = ""
+        noteText: String = "",
+        remarksBnText: String = ""
     ) {
         if (systemId.isBlank() || branchId.isBlank()) return
 
@@ -906,7 +927,8 @@ class WorkerSpaceFragment : Fragment() {
             remarksText = remarksText,
             noteText = noteText,
             source = "WORKER",
-            screen = "WorkerSpaceFragment"
+            screen = "WorkerSpaceFragment",
+            remarksBnText = remarksBnText
         )
     }
 
@@ -1168,7 +1190,7 @@ class WorkerSpaceFragment : Fragment() {
             val rStatus = r.optString("remarks_status")?.trim().orEmpty()
             val rNoteRaw = r.optString("note").trim()
             val rRemarks = listOf(
-                resolveRemarkBn(r.optString("remarks").trim()),
+                resolveRemarkBn(r),
                 rNoteRaw.takeIf { it.isNotBlank() }?.let { "Note: $it" }
             ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
             if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
@@ -1404,7 +1426,7 @@ class WorkerSpaceFragment : Fragment() {
         )
         val status = latestRemarkRow.optString("remarks_status").trim()
         val remarkText = listOf(
-            resolveRemarkBn(latestRemarkRow.optString("remarks").trim()),
+            resolveRemarkBn(latestRemarkRow),
             latestRemarkRow.optString("note").trim()
         ).filter { it.isNotBlank() }.joinToString("\n")
         if (status.isBlank() && remarkText.isBlank()) return
@@ -1715,7 +1737,7 @@ class WorkerSpaceFragment : Fragment() {
             // gate has no equivalent left; the badge always shows the latest remark's text now.
             val latestTodayCreatedAt = latestTodayRawEntry?.let { rowCreatedAtMillisBulk(it) } ?: 0L
             val lastRemark = latestTodayRawEntry?.let { row ->
-                listOf(resolveRemarkBn(row.optString("remarks").trim()), row.optString("note").trim())
+                listOf(resolveRemarkBn(row), row.optString("note").trim())
                     .filter { it.isNotBlank() }.joinToString("\n")
             }.orEmpty()
             workerLastSeenRemarkAt[cId] = maxOf(latestTodayCreatedAt, todayBatchRequestedAtMs)

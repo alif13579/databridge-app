@@ -136,6 +136,22 @@ async function firebaseProfileForSystemId(systemId: string, identity: { uid: str
   }
 }
 
+/** Upserts the English->Bangla pair into the shared lookup catalog so Android's
+ *  direct PostgREST history reads can join remark_labels and get Bangla back
+ *  in the same request. Only called when the app actually sent a Bangla label
+ *  (a predefined remark option) — a free-typed note has no Bangla counterpart,
+ *  so it's simply skipped here and stays English-only wherever it's read. */
+async function upsertRemarkLabel(englishLabel: string, banglaLabel: string) {
+  const en = englishLabel.trim()
+  const bn = banglaLabel.trim()
+  if (!en || !bn) return
+  const { error } = await admin.from('remark_labels').upsert({
+    english_label: en, bangla_label: bn, updated_at: new Date().toISOString(),
+  }, { onConflict: 'english_label' })
+  // A failed catalog upsert must never block the actual remark write.
+  if (error) console.error('upsertRemarkLabel failed', error)
+}
+
 /**
  * ── DO NOT make `firebaseId` optional again ─────────────────────────────────
  * Every call MUST pass the target user's real Firebase uid. This upsert runs
@@ -234,26 +250,31 @@ async function firebaseRead(identity: { uid: string; token: string }, path: stri
   return response.ok ? response.json() : null
 }
 
-/** Mirrors CallCenterFragment.resolveRemarkBn() / WorkerSpaceFragment.resolveRemarkBn():
- *  matches the raw remark text saved by the app against text_en in the matching
- *  config node — config/remarks_worker for a WORKER-sourced remark, config/remarks_call_center
- *  for a CC-sourced one — and returns the paired text_bn. Falls back to the raw text when no
- *  match is found (a free-typed remark, or the config entry was edited/removed since). */
-async function resolveRemarkBn(remarksText: string, source: string, identity: { uid: string; token: string }): Promise<string> {
-  if (!remarksText.trim()) return remarksText
-  const configPath = source === 'WORKER' ? 'config/remarks_worker' : 'config/remarks_call_center'
-  const groups = await firebaseRead(identity, configPath) as Record<string, Record<string, unknown>> | null
-  if (!groups) return remarksText
-  for (const group of Object.values(groups)) {
-    if (!group || typeof group !== 'object') continue
-    for (const entry of Object.values(group as Record<string, unknown>)) {
-      const e = entry as Record<string, unknown> | null
-      const textEn = typeof e?.text_en === 'string' ? e.text_en.trim() : ''
-      const textBn = typeof e?.text_bn === 'string' ? e.text_bn.trim() : ''
-      if (textEn && textEn === remarksText.trim() && textBn) return textBn
-    }
-  }
-  return remarksText
+/** Looks up the Bangla label for a saved remark from the remark_labels catalog
+ *  (populated by upsertRemarkLabel() on every write that included a Bangla
+ *  label). Falls back to the raw English text when there's no catalog match —
+ *  a free-typed note, or a remark saved before this catalog existed. */
+async function resolveRemarkBn(remarksText: string): Promise<string> {
+  const en = remarksText.trim()
+  if (!en) return remarksText
+  const { data, error } = await admin.from('remark_labels').select('bangla_label').eq('english_label', en).maybeSingle()
+  if (error) { console.error('resolveRemarkBn lookup failed', error); return remarksText }
+  return data?.bangla_label || remarksText
+}
+
+/** Batch version for the report action: one lookup query for every distinct
+ *  English remark in the page, instead of one per row. Adds `remarks_bn` to
+ *  each row (falls back to the English text when the catalog has no match,
+ *  same as resolveRemarkBn). Android's direct-PostgREST reads (history/today/
+ *  range) get remarks_bn from the validations_with_bn view instead (a
+ *  server-side LEFT JOIN against remark_labels) — see that view's migration. */
+async function withBanglaLabels<T extends { remarks: string }>(rows: T[]): Promise<(T & { remarks_bn: string })[]> {
+  const distinctEn = [...new Set(rows.map((r) => r.remarks.trim()).filter(Boolean))]
+  if (!distinctEn.length) return rows.map((r) => ({ ...r, remarks_bn: r.remarks }))
+  const { data, error } = await admin.from('remark_labels').select('english_label,bangla_label').in('english_label', distinctEn)
+  if (error) { console.error('withBanglaLabels lookup failed', error); return rows.map((r) => ({ ...r, remarks_bn: r.remarks })) }
+  const map = new Map((data ?? []).map((r) => [r.english_label, r.bangla_label]))
+  return rows.map((r) => ({ ...r, remarks_bn: map.get(r.remarks.trim()) || r.remarks }))
 }
 
 function asMillis(value: unknown): number {
@@ -283,7 +304,7 @@ async function notificationDetails(row: { consignment: string; author_system_id:
   const author = typeof authorProfile?.name === 'string' && authorProfile.name.trim() ? authorProfile.name.trim() : 'Agent'
   const customer = typeof parcel?.recipientName === 'string' && parcel.recipientName.trim() ? parcel.recipientName.trim() : row.consignment
   const attempt = Number(parcel?.attempt) || 0
-  const base = (await resolveRemarkBn(row.remarks, row.source, identity)) || 'নতুন রিমার্ক এসেছে'
+  const base = (await resolveRemarkBn(row.remarks)) || 'নতুন রিমার্ক এসেছে'
   return {
     title: `${author} — ${customer}`,
     body: `${base}\n📅 ${ageLabel(parcel?.createdAt, parcel?.updatedAt)}  •  🔁 ${attempt} attempt${attempt === 1 ? '' : 's'}`,
@@ -432,6 +453,11 @@ Deno.serve(async (request) => {
       }
       const { error } = await admin.from('validations').insert(savedRow)
       if (error) throw error
+      // Best-effort catalog update — runs after the audit row is safely saved,
+      // and never blocks or fails the write response.
+      if (typeof row.remarks_bn === 'string') {
+        await upsertRemarkLabel(savedRow.remarks, row.remarks_bn)
+      }
       await sendRemarkPush(savedRow, identity)
       return reply({ ok: true })
     }
@@ -452,7 +478,7 @@ Deno.serve(async (request) => {
       }
       const { data, error } = await query.order('created_at', { ascending: false }).range(page * pageSize, (page + 1) * pageSize - 1)
       if (error) throw error
-      return reply(data ?? [])
+      return reply(await withBanglaLabels(data ?? []))
     }
     else return reply({ error: 'Unknown action' }, 400)
     const { data, error } = await query.order('created_at', { ascending: false })

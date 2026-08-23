@@ -246,8 +246,13 @@ object SupabaseClientManager {
     // ── Direct REST reads (unlimited — replaces Edge Function read actions) ───
 
     /**
-     * Fetches rows from public.validations using the free PostgREST API.
+     * Fetches rows from public.validations_with_bn using the free PostgREST API.
      * No Edge Function invocation is consumed.
+     *
+     * validations_with_bn is a view over validations that adds a remarks_bn
+     * column (LEFT JOIN against remark_labels) — every validations column and
+     * filter/order/range param still works identically, callers get Bangla
+     * back in the same request without any extra lookup.
      *
      * [params] is a list of query-string key→value pairs appended to the URL.
      * Returns a list of rows as [JSONObject], same shape as the Edge Function
@@ -269,7 +274,7 @@ object SupabaseClientManager {
         val query = params.joinToString("&") { (k, v) ->
             "${k.encodeParam()}=${v.encodeParam()}"
         }
-        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/validations?$query"
+        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/validations_with_bn?$query"
         try {
             val response = httpClient.newCall(
                 Request.Builder()
