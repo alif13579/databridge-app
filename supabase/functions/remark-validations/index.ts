@@ -106,8 +106,14 @@ async function firebaseProfile(identity: { uid: string; token: string }): Promis
   }
 }
 
-/** Resolve a known system id only when a write needs to create its master row. */
-async function firebaseProfileForSystemId(systemId: string, identity: { uid: string; token: string }): Promise<FirebaseProfile | null> {
+/** Resolve a known system id only when a write needs to create its master row.
+ *  Returns the assigned user's Firebase uid alongside their profile — callers must
+ *  pass it through to upsertUser(), or that user's users.firebase_id row gets
+ *  overwritten with NULL (see upsertUser's firebaseId param), silently breaking
+ *  RLS's my_system_id()/my_branch_ids() for them (branch_id = any(my_branch_ids())
+ *  and assigned_to_system_id = my_system_id() both resolve to NULL — reads return
+ *  a genuinely empty [], not an error) until they get a fresh sync_profile call. */
+async function firebaseProfileForSystemId(systemId: string, identity: { uid: string; token: string }): Promise<(FirebaseProfile & { uid: string }) | null> {
   const index = await firebaseRead(identity, `users_by_systemId/${encodeURIComponent(systemId)}`) as { uid?: unknown } | null
   if (typeof index?.uid !== 'string' || !index.uid) return null
   // The assigned user need not be the caller, so read only the public profile
@@ -126,6 +132,7 @@ async function firebaseProfileForSystemId(systemId: string, identity: { uid: str
     canAccessCallCenter: false,
     name: typeof profile?.name === 'string' ? profile.name.trim() : '',
     employeeId: typeof info?.employee_id === 'string' ? info.employee_id.trim() : '',
+    uid: index.uid,
   }
 }
 
@@ -381,7 +388,7 @@ Deno.serve(async (request) => {
       } else {
         const assignedProfile = await firebaseProfileForSystemId(row.assigned_to_system_id, identity)
         if (!assignedProfile) return reply({ error: 'Assigned user was not found' }, 400)
-        await upsertUser(assignedProfile)
+        await upsertUser(assignedProfile, assignedProfile.uid)
       }
       const parcelPromise = firebaseRead(
         identity, `courier/consignments/${encodeURIComponent(row.consignment)}`
