@@ -136,7 +136,30 @@ async function firebaseProfileForSystemId(systemId: string, identity: { uid: str
   }
 }
 
-async function upsertUser(profile: FirebaseProfile, firebaseId?: string) {
+/**
+ * ── DO NOT make `firebaseId` optional again ─────────────────────────────────
+ * Every call MUST pass the target user's real Firebase uid. This upsert runs
+ * `onConflict: 'system_id'`, so it updates that person's EXISTING row — and
+ * `firebase_id: firebaseId || null` means any call that omits it OVERWRITES
+ * an already-correct firebase_id with NULL.
+ *
+ * That happened for real on 2026-08-23: firebaseProfileForSystemId() resolved
+ * the assigned worker's uid internally but didn't return it, and the write
+ * action's `upsertUser(assignedProfile)` call (no 2nd arg) nulled that
+ * worker's firebase_id on every CC-assigned remark. Both my_branch_ids() and
+ * my_system_id() look users up BY firebase_id, so once it was NULL every RLS
+ * read for that worker — branch-scoped and assigned_to_system_id alike —
+ * silently resolved to an empty result. HTTP 200, "genuine empty []", no
+ * error anywhere. Looked exactly like a missing/misapplied RLS migration and
+ * cost a multi-hour debugging session (see commit 6b3a39c) before the actual
+ * cause — corrupted data, not a bad policy — was found.
+ *
+ * firebaseId is a required param specifically so a future call site CANNOT
+ * compile without deciding what to pass. If a caller genuinely has no uid
+ * for this user yet, that is itself a bug to fix at the caller, not a reason
+ * to silently write NULL here.
+ */
+async function upsertUser(profile: FirebaseProfile, firebaseId: string) {
   const { error } = await admin.from('users').upsert({
     system_id: profile.systemId,
     employee_id: profile.employeeId || null,
