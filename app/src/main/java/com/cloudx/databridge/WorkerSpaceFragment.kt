@@ -1219,7 +1219,13 @@ class WorkerSpaceFragment : Fragment() {
                     return@launch
                 }
 
-                attachRunsListener(systemId)
+                // Direct validation reads and Realtime both go through RLS.  A worker can
+                // receive a Call Center remark before ever writing one, so establish the
+                // trusted Supabase profile (and refresh its Firebase token) before the first
+                // badge/history query is able to run.
+                SupabaseRemarkValidationWriter.ensureProfileSynced {
+                    if (isAdded) attachRunsListener(systemId)
+                }
 
                 // Best-effort: agentPhone for WhatsApp template
                 viewLifecycleOwner.lifecycleScope.launch {
@@ -1449,21 +1455,23 @@ class WorkerSpaceFragment : Fragment() {
      */
     private fun refreshWorkerParcelFromPush(consignmentId: String) {
         if (!isAdded || allParcels.none { it.id == consignmentId }) return
-        SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
-            if (rows.isEmpty()) {
-                android.util.Log.e("WorkerSpaceFragment",
-                    "refreshWorkerParcelFromPush: fetchHistory returned 0 rows for $consignmentId — " +
-                    "likely RLS block; check public.users.branch_ids for this agent")
-                return@fetchHistory
-            }
-            val latest = rows.maxByOrNull {
-                SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
-            } ?: return@fetchHistory
-            android.util.Log.d("WorkerSpaceFragment",
-                "refreshWorkerParcelFromPush: updating $consignmentId from push — " +
-                "source=${latest.optString("source")} status=${latest.optString("remarks_status")}")
-            viewLifecycleOwner.lifecycleScope.launch {
-                if (isAdded) refreshOneWorkerParcelFromSupabase(consignmentId, latest)
+        SupabaseRemarkValidationWriter.ensureProfileSynced {
+            SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
+                if (rows.isEmpty()) {
+                    android.util.Log.e("WorkerSpaceFragment",
+                        "refreshWorkerParcelFromPush: fetchHistory returned 0 rows for $consignmentId — " +
+                        "RLS did not grant this worker access to the validation row")
+                    return@fetchHistory
+                }
+                val latest = rows.maxByOrNull {
+                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+                } ?: return@fetchHistory
+                android.util.Log.d("WorkerSpaceFragment",
+                    "refreshWorkerParcelFromPush: updating $consignmentId from push — " +
+                    "source=${latest.optString("source")} status=${latest.optString("remarks_status")}")
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (isAdded) refreshOneWorkerParcelFromSupabase(consignmentId, latest)
+                }
             }
         }
     }

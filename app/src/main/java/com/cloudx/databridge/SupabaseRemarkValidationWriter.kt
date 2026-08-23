@@ -57,7 +57,7 @@ object SupabaseRemarkValidationWriter {
         ) { }
     }
 
-    private var hasForcedTokenRefreshForRoleClaim = false
+    @Volatile private var hasForcedTokenRefreshForRoleClaim = false
 
     /**
      * Creates/refreshes the caller's trusted Supabase user row before any validation read.
@@ -88,14 +88,22 @@ object SupabaseRemarkValidationWriter {
                     } catch (e: Exception) {
                         RemarkPushChainLog.log("RemarkPushChain", "Forced token refresh failed: ${e.message}", isWarning = true)
                         hasForcedTokenRefreshForRoleClaim = false // allow retry on a later sync_profile call
+                    } finally {
+                        // A Firebase custom claim is only visible after the forced token refresh.
+                        // Do not start an RLS-gated REST/Realtime read with the stale token.
+                        onComplete(response)
                     }
                 }
+            } else {
+                onComplete(response)
             }
-            onComplete(response)
         }
     }
 
     @Volatile private var profileSyncConfirmed = false
+    private val profileSyncLock = Any()
+    private var profileSyncInFlight = false
+    private val profileSyncWaiters = mutableListOf<() -> Unit>()
 
     /**
      * Runs [onReady] once this session's trusted-profile sync (branch_ids etc., which
@@ -114,10 +122,36 @@ object SupabaseRemarkValidationWriter {
      * out). Every RLS-gated read path should go through this, not just the one at load.
      */
     fun ensureProfileSynced(onReady: () -> Unit) {
-        if (profileSyncConfirmed) { onReady(); return }
-        syncCurrentUserProfile { response ->
-            profileSyncConfirmed = response != null
+        var alreadySynced = false
+        val startSync = synchronized(profileSyncLock) {
+            when {
+                profileSyncConfirmed -> {
+                    alreadySynced = true
+                    false
+                }
+                profileSyncInFlight -> {
+                    profileSyncWaiters += onReady
+                    false
+                }
+                else -> {
+                    profileSyncWaiters += onReady
+                    profileSyncInFlight = true
+                    true
+                }
+            }
+        }
+        if (alreadySynced) {
             onReady()
+            return
+        }
+        if (!startSync) return
+        syncCurrentUserProfile { response ->
+            val waiters = synchronized(profileSyncLock) {
+                profileSyncConfirmed = response != null
+                profileSyncInFlight = false
+                profileSyncWaiters.toList().also { profileSyncWaiters.clear() }
+            }
+            waiters.forEach { it() }
         }
     }
 
