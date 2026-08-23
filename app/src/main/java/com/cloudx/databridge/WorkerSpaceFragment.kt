@@ -1440,12 +1440,32 @@ class WorkerSpaceFragment : Fragment() {
      * FCM supplies the affected consignment ID but not the sensitive remark body. Fetch its
      * history and update the one in-memory row, so its card, status chip and filtered list
      * change immediately without reloading a run.
+     *
+     * Uses fetchHistory (no time filter, specific consignment) instead of the cursor-based
+     * fetchNewWorkerRemarksFromPush. FCM delivery can be significantly delayed — in observed
+     * cases 4+ minutes — so the relevant remark's created_at can easily fall before the
+     * workerLastSeenRemarkAt cursor. fetchHistory bypasses the cursor entirely and always
+     * returns the latest row for the specific consignment, so delayed pushes resolve correctly.
      */
     private fun refreshWorkerParcelFromPush(consignmentId: String) {
-        // Trigger a one-off REST fetch only when a push arrives. This does not invoke the
-        // Edge Function and is not scheduled periodically.
         if (!isAdded || allParcels.none { it.id == consignmentId }) return
-        fetchNewWorkerRemarksFromPush()
+        SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "WorkerSpaceFragment") { rows ->
+            if (rows.isEmpty()) {
+                android.util.Log.e("WorkerSpaceFragment",
+                    "refreshWorkerParcelFromPush: fetchHistory returned 0 rows for $consignmentId — " +
+                    "likely RLS block; check public.users.branch_ids for this agent")
+                return@fetchHistory
+            }
+            val latest = rows.maxByOrNull {
+                SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+            } ?: return@fetchHistory
+            android.util.Log.d("WorkerSpaceFragment",
+                "refreshWorkerParcelFromPush: updating $consignmentId from push — " +
+                "source=${latest.optString("source")} status=${latest.optString("remarks_status")}")
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (isAdded) refreshOneWorkerParcelFromSupabase(consignmentId, latest)
+            }
+        }
     }
 
     private fun handleRunsSnapshot(runSnap: DataSnapshot) {
