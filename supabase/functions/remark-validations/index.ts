@@ -148,6 +148,57 @@ async function upsertUser(profile: FirebaseProfile, firebaseId?: string) {
 
 type ServiceAccount = { client_email: string; private_key: string; project_id?: string }
 
+/** Mints a short-lived Google OAuth2 access token for the given scope from the Firebase
+ *  service account (the same key already used for FCM — a project's default Firebase
+ *  Admin SDK service account has these permissions by default, no separate credential
+ *  needed). */
+async function googleAccessToken(scope: string): Promise<string> {
+  const serviceAccountJson = Deno.env.get('FCM_SERVICE_ACCOUNT_JSON')
+  if (!serviceAccountJson) throw new Error('FCM_SERVICE_ACCOUNT_JSON is not configured')
+  const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount
+  const jwt = new JWT({ email: serviceAccount.client_email, key: serviceAccount.private_key, scopes: [scope] })
+  const { access_token: accessToken } = await jwt.authorize()
+  if (!accessToken) throw new Error(`Unable to authorize Google request for scope ${scope}`)
+  return accessToken
+}
+
+/** Supabase's Third-Party Auth (Firebase) reads the `role` claim from the JWT to decide
+ *  which Postgres role a direct REST/Realtime request runs as. Firebase ID tokens never
+ *  carry a `role` claim by default, so without this every such request silently runs as
+ *  `anon` — RLS policies scoped `to authenticated` never even evaluate, regardless of how
+ *  correct branch_ids/firebase_id mapping is. See:
+ *  https://supabase.com/docs/guides/auth/third-party/firebase-auth#assign-the-role-custom-claim
+ *  Idempotent: skips the write if the claim is already set. Errors are logged, not thrown —
+ *  this must never block a write or a profile sync from completing. */
+async function ensureAuthenticatedRoleClaim(uid: string): Promise<void> {
+  try {
+    const accessToken = await googleAccessToken('https://www.googleapis.com/auth/identitytoolkit')
+    const lookupRes = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ localId: [uid] }),
+    })
+    if (!lookupRes.ok) throw new Error(`accounts:lookup HTTP ${lookupRes.status}: ${await lookupRes.text()}`)
+    const lookupJson = await lookupRes.json()
+    const account = lookupJson?.users?.[0]
+    const existingClaims = account?.customAttributes ? JSON.parse(account.customAttributes) : {}
+    if (existingClaims.role === 'authenticated') return // already set, nothing to do
+
+    const updateRes = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:update', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        localId: uid,
+        customAttributes: JSON.stringify({ ...existingClaims, role: 'authenticated' }),
+      }),
+    })
+    if (!updateRes.ok) throw new Error(`accounts:update HTTP ${updateRes.status}: ${await updateRes.text()}`)
+    console.info(`ensureAuthenticatedRoleClaim: set role=authenticated for uid=${uid}`)
+  } catch (error) {
+    console.error('ensureAuthenticatedRoleClaim failed', error)
+  }
+}
+
 async function firebaseRead(identity: { uid: string; token: string }, path: string): Promise<unknown> {
   const response = await fetch(`${firebaseDatabaseUrl}/${path}.json?auth=${encodeURIComponent(identity.token)}`)
   return response.ok ? response.json() : null
@@ -233,13 +284,7 @@ async function sendRemarkPush(row: { consignment: string; branch_id: string; ass
     if (deviceError) throw deviceError
     if (!devices?.length) return
 
-    const jwt = new JWT({
-      email: serviceAccount.client_email,
-      key: serviceAccount.private_key,
-      scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
-    })
-    const { access_token: accessToken } = await jwt.authorize()
-    if (!accessToken) throw new Error('Unable to authorize FCM request')
+    const accessToken = await googleAccessToken('https://www.googleapis.com/auth/firebase.messaging')
 
     const recipientScope = fromWorker ? 'cc' : 'worker'
     const { title, body } = await notificationDetails(row, identity)
@@ -292,6 +337,10 @@ Deno.serve(async (request) => {
     if (action === 'sync_profile') {
       const profile = await firebaseProfile(identity)
       await upsertUser(profile, identity.uid)
+      // Without this claim, Supabase's Third-Party Auth runs every direct REST/Realtime
+      // request from this user as the `anon` Postgres role — RLS policies scoped
+      // `to authenticated` never evaluate, regardless of correct branch_ids mapping.
+      await ensureAuthenticatedRoleClaim(identity.uid)
       console.info(`sync_profile ok: system_id=${profile.systemId}, branches=${profile.branchIds.length}`)
       return reply({ ok: true, system_id: profile.systemId, branch_count: profile.branchIds.length })
     }
@@ -326,6 +375,7 @@ Deno.serve(async (request) => {
       // never supplies them, so a caller cannot impersonate another employee.
       const authorProfile = await firebaseProfile(identity)
       await upsertUser(authorProfile, identity.uid)
+      await ensureAuthenticatedRoleClaim(identity.uid) // defensive: covers a user who writes before ever syncing
       if (row.assigned_to_system_id === authorProfile.systemId) {
         // Already upserted above; avoids a duplicate Firebase profile request.
       } else {

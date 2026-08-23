@@ -11,6 +11,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.io.IOException
 import java.time.Instant
 import java.time.LocalDate
@@ -56,6 +57,8 @@ object SupabaseRemarkValidationWriter {
         ) { }
     }
 
+    private var hasForcedTokenRefreshForRoleClaim = false
+
     /**
      * Creates/refreshes the caller's trusted Supabase user row before any validation read.
      * A worker may receive a Call Center remark before writing their own; without this,
@@ -70,6 +73,24 @@ object SupabaseRemarkValidationWriter {
         ) { response ->
             Log.i("SupabaseProfileSync", "sync_profile response=${response?.take(300) ?: "FAILED"}")
             RemarkPushChainLog.log("RemarkPushChain", "sync_profile response=${response?.take(300) ?: "FAILED"}", isWarning = response == null)
+            // The Edge Function just set the role:authenticated custom claim server-side (or
+            // confirmed it's already set) — but per Firebase/Supabase docs, a claim set this way
+            // does NOT apply to a token already cached client-side; the SDK must be told to fetch
+            // a fresh one. Force this once per process so every later (non-forced) getAccessToken()
+            // call picks up the SDK's now-refreshed cache. sync_profile can fire several times in a
+            // row at app start, so this is guarded to avoid repeated forced network round-trips.
+            if (response != null && !hasForcedTokenRefreshForRoleClaim) {
+                hasForcedTokenRefreshForRoleClaim = true
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        FirebaseAuth.getInstance().currentUser?.getIdToken(true)?.await()
+                        RemarkPushChainLog.log("RemarkPushChain", "Forced Firebase ID token refresh after sync_profile (picks up role claim)")
+                    } catch (e: Exception) {
+                        RemarkPushChainLog.log("RemarkPushChain", "Forced token refresh failed: ${e.message}", isWarning = true)
+                        hasForcedTokenRefreshForRoleClaim = false // allow retry on a later sync_profile call
+                    }
+                }
+            }
             onComplete(response)
         }
     }
