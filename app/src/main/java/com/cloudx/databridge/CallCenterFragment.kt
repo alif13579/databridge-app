@@ -1082,8 +1082,11 @@ class CallCenterFragment : Fragment() {
         val nameMap = systemIdToName
         return rows.mapNotNull { r ->
             val status = r.optString("remarks_status").trim()
-            val remarks = listOf(resolveRemarkBn(r.optString("remarks").trim()), r.optString("note").trim())
-                .filter { it.isNotBlank() }.joinToString("\n")
+            val noteRaw = r.optString("note").trim()
+            val remarks = listOf(
+                resolveRemarkBn(r.optString("remarks").trim()),
+                noteRaw.takeIf { it.isNotBlank() }?.let { "Note: $it" }
+            ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
             if (status.isBlank() && remarks.isBlank()) return@mapNotNull null
             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
             val authorSystemId = r.optString("author_system_id").trim()
