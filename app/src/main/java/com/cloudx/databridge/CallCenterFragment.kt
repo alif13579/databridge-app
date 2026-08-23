@@ -900,13 +900,13 @@ class CallCenterFragment : Fragment() {
                             if (remarksText.isBlank() && noteText.isBlank()) return@mapNotNull null
                             val authorSystemId = r.optString("author_system_id").trim()
                             val fromWorker = r.optString("source").trim().equals("WORKER", ignoreCase = true)
-                            val roleEmoji = if (fromWorker) "👷" else "☎️"
+                            val roleLabel = if (fromWorker) "Worker" else "CC"
                             val authorName = r.optJSONObject("author")?.optString("name")?.trim().orEmpty()
                                 .ifBlank { nameMap[authorSystemId].orEmpty() }
                                 .ifBlank { authorSystemId }
                             createdAt to buildString {
                                 append("🕑 ").append(timeFmt.format(java.util.Date(createdAt)))
-                                append("\n").append(roleEmoji).append(" ").append(authorName)
+                                append("\n").append(roleLabel).append(": ").append(authorName)
                                 if (remarksText.isNotBlank()) append("\nরিমার্কস: ").append(remarksText)
                                 if (noteText.isNotBlank()) append("\nনোট: ").append(noteText)
                             }
