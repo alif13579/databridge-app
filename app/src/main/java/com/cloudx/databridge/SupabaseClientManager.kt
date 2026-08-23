@@ -261,6 +261,8 @@ object SupabaseClientManager {
         val token = getAccessToken()
         if (token == null) {
             Log.e(TAG, "Validation read skipped: Firebase bearer token is unavailable ($screen/$action)")
+            RemarkPushChainLog.log("RemarkPushChain", "fetchValidations($screen/$action): SKIPPED — " +
+                "getAccessToken() returned null (no signed-in Firebase user / no ID token)", isWarning = true)
             FirebaseErrorLogger.log(screen, "${action}_no_token", "No Supabase token")
             return@withContext emptyList()
         }
@@ -282,6 +284,8 @@ object SupabaseClientManager {
                 val text = it.body?.string().orEmpty()
                 if (!it.isSuccessful) {
                     Log.e(TAG, "Validation read HTTP ${it.code} ($screen/$action): ${text.take(1_000)}")
+                    RemarkPushChainLog.log("RemarkPushChain", "fetchValidations($screen/$action): " +
+                        "HTTP ${it.code} — ${text.take(500)}", isWarning = true)
                     FirebaseErrorLogger.log(screen, "${action}_http_error",
                         "HTTP ${it.code}: ${text.take(300)}")
                     return@withContext emptyList()
@@ -291,31 +295,42 @@ object SupabaseClientManager {
                     Log.w(TAG, "Validation read returned 0 rows ($screen/$action) — " +
                         "possible RLS block: check branch_ids in public.users for this Firebase UID. " +
                         "URL: $url")
+                    RemarkPushChainLog.log("RemarkPushChain", "fetchValidations($screen/$action): " +
+                        "HTTP 200 but 0 rows (genuine empty array) — query: $query", isWarning = true)
                 } else {
                     Log.d(TAG, "Validation read OK ($screen/$action): ${arr.length()} row(s)")
+                    RemarkPushChainLog.log("RemarkPushChain", "fetchValidations($screen/$action): " +
+                        "HTTP 200, ${arr.length()} row(s)")
                 }
                 List(arr.length()) { i -> arr.getJSONObject(i) }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Validation read failed ($screen/$action)", e)
+            RemarkPushChainLog.log("RemarkPushChain", "fetchValidations($screen/$action): " +
+                "EXCEPTION — ${e.javaClass.simpleName}: ${e.message}", isWarning = true)
             FirebaseErrorLogger.log(screen, "${action}_error", e.message ?: "Request failed")
             emptyList()
         }
     }
 
     /** Logs only non-secret JWT claims needed to diagnose Third-party Auth/RLS. */
+    private var lastLoggedTokenClaims: String? = null
+
     private fun logFirebaseTokenClaims(token: String) {
         try {
             val payload = token.split('.').getOrNull(1) ?: return
             val decoded = String(Base64.decode(payload, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING))
             val claims = JSONObject(decoded)
-            Log.d(
-                TAG,
-                "Firebase token claims: uid=${claims.optString("sub", "<missing>")}, " +
-                    "aud=${claims.optString("aud", "<missing>")}, " +
-                    "iss=${claims.optString("iss", "<missing>")}, " +
-                    "role=${claims.optString("role", "<missing>")}"
-            )
+            val summary = "uid=${claims.optString("sub", "<missing>")}, " +
+                "aud=${claims.optString("aud", "<missing>")}, " +
+                "iss=${claims.optString("iss", "<missing>")}, " +
+                "role=${claims.optString("role", "<missing>")}, " +
+                "exp=${claims.optLong("exp", 0L)}"
+            Log.d(TAG, "Firebase token claims: $summary")
+            if (summary != lastLoggedTokenClaims) {
+                lastLoggedTokenClaims = summary
+                RemarkPushChainLog.log("RemarkPushChain", "Firebase token claims: $summary")
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Could not decode Firebase token claims for diagnostics: ${e.message}")
         }
