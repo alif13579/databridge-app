@@ -171,6 +171,9 @@ class WorkerSpaceFragment : Fragment() {
         tvAgentInfo = view.findViewById(R.id.twAgentInfo)
         tvSortByDropdown = view.findViewById(R.id.tvSortByDropdown)
         tvSortByDropdown.setOnClickListener { showSortByDropdown() }
+        // Diagnostic-only: long-press to view the on-device remark push/Realtime trace
+        // (RemarkPushChainLog) without needing Android Studio/Logcat attached.
+        tvSortByDropdown.setOnLongClickListener { showRemarkPushChainLogDialog(); true }
         tvTodayCod = view.findViewById(R.id.twTodayCod)
         tvStatTotalValue = view.findViewById(R.id.twStatTotalValue)
         layoutWsStatDynamic = view.findViewById(R.id.layoutStatDynamic)
@@ -1774,6 +1777,38 @@ class WorkerSpaceFragment : Fragment() {
             "priority" -> "⭐ Priority ▾"
             else       -> "🔁 Attempt ▾"
         }
+    }
+
+    /**
+     * Diagnostic-only: shows the on-device RemarkPushChainLog trace in a scrollable,
+     * copyable dialog. Reached via long-press on the "Sort by" label. Not linked from
+     * anywhere else in the UI — remove this + the long-press hook once the CC-write ->
+     * Worker-card issue is confirmed fixed.
+     */
+    private fun showRemarkPushChainLogDialog() {
+        val ctx = context ?: return
+        val text = RemarkPushChainLog.snapshot()
+
+        val tv = TextView(ctx).apply {
+            setText(text)
+            setTextIsSelectable(true)
+            textSize = 11f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(32, 24, 32, 24)
+        }
+        val scroll = android.widget.ScrollView(ctx).apply { addView(tv) }
+
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Remark push/Realtime log (debug)")
+            .setView(scroll)
+            .setPositiveButton("Copy") { _, _ ->
+                val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("RemarkPushChainLog", text))
+                android.widget.Toast.makeText(ctx, "Copied — Claude-কে paste করে দিন", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("Clear") { _, _ -> RemarkPushChainLog.clear() }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     private fun showSortByDropdown() {
