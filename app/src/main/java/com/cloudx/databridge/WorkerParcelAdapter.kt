@@ -39,7 +39,14 @@ data class WorkerParcelItem(
      *  EngagedStateManager for the write/clear/staleness logic this is populated from. */
     val engagedAgents: List<EngagedAgent> = emptyList(),
     val attemptCount: Int = 0,
-    val history: List<HistoryEntry> = emptyList()
+    val history: List<HistoryEntry> = emptyList(),
+    /** The consignment's own resolvedBranchIds (locked in at run-creation time — see
+     *  ConfigSheetWizardSteps), NOT the currently signed-in worker's branch_ids. A remark's
+     *  validations.branch_id must match the CONSIGNMENT's branch for RLS (branch_id = any
+     *  (my_branch_ids())) to let every agent who can see this branch read the remark back —
+     *  using the signed-in agent's own branch instead breaks that for any multi-branch agent
+     *  whose current branch differs from this specific consignment's. */
+    val branchIds: List<String> = emptyList()
 ) {
     /** remarkStatus (if set) always takes priority over the raw parcel status — this is
      *  what the card's status chip shows and what filters/tabs match against. Same pattern

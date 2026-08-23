@@ -580,10 +580,13 @@ class WorkerSpaceFragment : Fragment() {
                 val todayDateKey = todayDateKeyYyyyMmDd()
 
                 // Call-log lookup on IO first (same as saveRemarkForItems()), then write.
+                // branch_id must be this CONSIGNMENT's own branch, not the signed-in agent's
+                // — see the doc comment on WorkerParcelItem.branchIds and the matching fix in
+                // saveRemarkForItems() below.
                 viewLifecycleOwner.lifecycleScope.launch {
                     writeWorkerRemarkToSupabase(
                         consignmentId = item.id,
-                        branchId = RbacManager.current.branchIds.firstOrNull().orEmpty(),
+                        branchId = item.branchIds.firstOrNull() ?: RbacManager.current.branchIds.firstOrNull().orEmpty(),
                         status = "",
                         remarksText = "",
                         noteText = noteText
@@ -778,11 +781,17 @@ class WorkerSpaceFragment : Fragment() {
             // (see SupabaseRemarkValidationWriter's doc comment) — the CallLogHelper lookup
             // that used to feed it is dropped too, since computing it now would be wasted
             // work with nowhere to put the result.
-            val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
+            // branch_id must be the CONSIGNMENT's own branch (see WorkerParcelItem.branchIds
+            // doc), not the signed-in agent's — a bulk save can span parcels belonging to
+            // different branches, so this is resolved per item, not once outside the loop.
+            // Falls back to the agent's own branch only for a parcel whose run predates this
+            // field (resolvedBranchIds was added retroactively — see ConfigSheetWizardSteps'
+            // backfill-on-next-sync comment).
+            val fallbackBranchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
             items.forEach { p ->
                 writeWorkerRemarkToSupabase(
                     consignmentId = p.id,
-                    branchId = branchId,
+                    branchId = p.branchIds.firstOrNull() ?: fallbackBranchId,
                     status = statusKey,
                     remarksText = selectedOption?.englishLabel?.ifBlank { selectedLabel } ?: selectedLabel,
                     noteText = ""
@@ -1642,7 +1651,13 @@ class WorkerSpaceFragment : Fragment() {
             consSnap.children.forEach { c ->
                 val cId = c.key ?: return@forEach
                 val routeStatus = c.getValue(String::class.java) ?: readString(c, "status")
-                consignmentRefs[cId] = ConsignmentRunRef(runType, todayRunId, routeStatus)
+                // resolvedBranchIds is a child under this consignment's own run-node entry
+                // (see ConfigSheetWizardSteps) — c.child() returns an empty/non-existent
+                // snapshot (not a crash) on the run types where this entry is a plain status
+                // string rather than an object, so this is safe either way.
+                val branchIds = c.child("resolvedBranchIds").children
+                    .mapNotNull { it.getValue(String::class.java)?.trim()?.takeIf { id -> id.isNotBlank() } }
+                consignmentRefs[cId] = ConsignmentRunRef(runType, todayRunId, routeStatus, branchIds)
             }
         }
 
@@ -1750,7 +1765,8 @@ class WorkerSpaceFragment : Fragment() {
                     updatedAt = updatedAtVal,
                     engagedAgents = engagedAgentsValBulk,
                     attemptCount = attemptVal,
-                    history = emptyList()
+                    history = emptyList(),
+                    branchIds = runRef.branchIds
                 )
             )
         }
@@ -2028,7 +2044,8 @@ class WorkerSpaceFragment : Fragment() {
     data class ConsignmentRunRef(
         val runType: String,
         val runId: String,
-        val routeStatus: String
+        val routeStatus: String,
+        val branchIds: List<String> = emptyList()
     )
 
     companion object {
