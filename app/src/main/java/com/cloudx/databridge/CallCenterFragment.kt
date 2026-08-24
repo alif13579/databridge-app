@@ -950,7 +950,7 @@ class CallCenterFragment : Fragment() {
                         rows.mapNotNull { r ->
                             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
                             if (createdAt < todayStart) return@mapNotNull null
-                            val remarksText = resolveRemarkBn(r.optString("remarks").trim())
+                            val remarksText = resolveRemarkBn(r)
                             val noteText = r.optString("note").trim()
                             if (remarksText.isBlank() && noteText.isBlank()) return@mapNotNull null
                             val authorSystemId = r.optString("author_system_id").trim()
@@ -1139,7 +1139,7 @@ class CallCenterFragment : Fragment() {
             val status = r.optString("remarks_status").trim()
             val noteRaw = r.optString("note").trim()
             val remarks = listOf(
-                resolveRemarkBn(r.optString("remarks").trim()),
+                resolveRemarkBn(r),
                 noteRaw.takeIf { it.isNotBlank() }?.let { "Note: $it" }
             ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
             if (status.isBlank() && remarks.isBlank()) return@mapNotNull null
@@ -2430,7 +2430,7 @@ class CallCenterFragment : Fragment() {
                         // dropped: the badge always shows the latest remark's text now,
                         // regardless of who wrote it.
                         val entryRemarksText = latestTodayEntry?.let { row ->
-                            listOf(resolveRemarkBn(row.optString("remarks").trim()), row.optString("note").trim())
+                            listOf(resolveRemarkBn(row), row.optString("note").trim())
                                 .filter { it.isNotBlank() }.joinToString("\n")
                         }.orEmpty()
                         val remarkLabelNote = entryRemarksText
@@ -2565,7 +2565,7 @@ class CallCenterFragment : Fragment() {
                     .parseCreatedAtMillis(latestRemarkRow.optString("created_at"))
                 val liveRemarkStatus = latestRemarkRow.optString("remarks_status").trim()
                 val latestRemark = listOf(
-                    resolveRemarkBn(latestRemarkRow.optString("remarks").trim()), latestRemarkRow.optString("note").trim()
+                    resolveRemarkBn(latestRemarkRow), latestRemarkRow.optString("note").trim()
                 ).filter { it.isNotBlank() }.joinToString("\n")
                 allParcels = allParcels.toMutableList().also {
                     it[idx] = it[idx].copy(
@@ -2678,6 +2678,21 @@ class CallCenterFragment : Fragment() {
     private fun resolveRemarkBn(raw: String): String {
         if (raw.isBlank()) return raw
         return ccRemarkOptions.find { it.englishLabel == raw }?.label ?: raw
+    }
+
+    /**
+     * Preferred entry point: reads remarks_bn straight from a validations_with_bn row —
+     * that view already did the English->Bangla lookup server-side (LEFT JOIN
+     * remark_labels), so no client-side match is needed. Falls back to the old
+     * ccRemarkOptions match only for rows fetched from somewhere that doesn't carry
+     * remarks_bn (there shouldn't be any left, but this keeps a row missing the
+     * column from silently showing blank instead of degrading to the old behavior).
+     */
+    private fun resolveRemarkBn(row: org.json.JSONObject): String {
+        val raw = row.optString("remarks").trim()
+        if (raw.isBlank()) return raw
+        return if (row.has("remarks_bn")) row.optString("remarks_bn").trim().ifBlank { raw }
+        else resolveRemarkBn(raw)
     }
 
     private fun showRemarksDialog(item: CallCenterParcelItem) {
@@ -2927,7 +2942,11 @@ class CallCenterFragment : Fragment() {
                 remarksText = selectedStoredRemarkText,
                 noteText = noteText,
                 source = "CC",
-                screen = "CallCenterFragment"
+                screen = "CallCenterFragment",
+                // Blank when the CC-configured language is already English (selectedRemarkText
+                // == selectedStoredRemarkText) or this was a note-only save with no predefined
+                // option picked — remark_labels only needs an entry when the two differ.
+                remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedStoredRemarkText } ?: ""
             )
 
             EngagedStateManager.clearEngaged(target.id, userId)

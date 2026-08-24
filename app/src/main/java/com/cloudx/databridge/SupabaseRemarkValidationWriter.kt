@@ -27,9 +27,14 @@ object SupabaseRemarkValidationWriter {
         .writeTimeout(10, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).build()
     private val jsonMediaType = "application/json".toMediaType()
 
+    /** [remarksBnText] is the Bangla label paired with [remarksText] (e.g. CcRemarkOption.label
+     *  / WorkerRemarkOption.label) when the remark came from a predefined option — leave blank
+     *  for a free-typed note, which has no Bangla counterpart. When present, the Edge Function
+     *  upserts the pair into remark_labels so any card showing this English text (via a direct
+     *  PostgREST join, or the Edge Function's own report/push paths) can resolve Bangla. */
     fun write(assignedAgentSystemId: String, branchId: String, consignmentId: String,
               status: String, remarksText: String, noteText: String = "", source: String,
-              screen: String) {
+              screen: String, remarksBnText: String = "") {
         if (assignedAgentSystemId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
             val missing = buildList {
                 if (assignedAgentSystemId.isBlank()) add("assignedAgentSystemId")
@@ -42,7 +47,8 @@ object SupabaseRemarkValidationWriter {
             .put("consignment", consignmentId).put("branch_id", branchId)
             .put("assigned_to_system_id", assignedAgentSystemId)
             .put("source", source)
-            .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)), screen,
+            .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)
+            .apply { if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText) }), screen,
             "supabase_validation_write", consignmentId) { }
     }
 
