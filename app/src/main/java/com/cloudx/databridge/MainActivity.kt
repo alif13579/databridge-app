@@ -45,6 +45,12 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
      *  resume to pre-fill its search box. Nulled out after read so it doesn't re-apply
      *  on a later unrelated resume. */
     var pendingCcSearchPhone: String? = null
+
+    /** Tab the agent was on before an auto-navigate-to-CC-search. Restored by
+     *  onCcSearchValidated() if the search turns out to match nothing, so an unmatched
+     *  incoming/history/auto-dial number never leaves the agent stranded on an empty CC
+     *  screen. -1 means "no pending navigation to revert." */
+    private var previousBottomNavItemBeforeCcSearch: Int = -1
     private lateinit var navView: NavigationView
     private lateinit var statusDot: View
     private lateinit var tvTopBarUser: TextView
@@ -976,10 +982,47 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     }
 
     /** Opens CallCenterFragment (bottom-nav tab, not the detail screen) with [phone]
-     *  pre-filled in the search box -- used by IncomingCallOverlay's "Search" button. */
+     *  pre-filled in the search box -- used by IncomingCallOverlay's "Search" button,
+     *  HistoryFragment's dial action, and DataBridgeService's background auto-dial.
+     *
+     *  Gated on the "Lookup from Call Center" settings toggle (off by default) and on
+     *  the agent actually having Call Center access -- an agent without nav_call_center
+     *  never sees the toggle in Settings, so this is a defensive second check, not the
+     *  primary gate.
+     *
+     *  bottomNav.selectedItemId is a no-op when CC is already the selected tab (no
+     *  reselect callback, no fragment onResume), so pendingCcSearchPhone alone would
+     *  never get consumed in that case. Apply directly to the live fragment when it's
+     *  already attached; only fall back to the resume-time flag when a tab switch is
+     *  actually about to happen -- and in that case, validate the search actually found
+     *  a match before leaving the agent there (see onCcSearchValidated). */
     fun navigateToCallCenterWithSearch(phone: String) {
-        bottomNav.selectedItemId = R.id.nav_call_center
+        val toggles = getSharedPreferences("databridge_toggles", MODE_PRIVATE)
+        if (!toggles.getBoolean("lookup_from_cc", false)) return
+        if (!RbacManager.hasPermission("nav_call_center")) return
+
+        val alreadyOnCc = supportFragmentManager.findFragmentById(R.id.container) is CallCenterFragment
+        if (alreadyOnCc) {
+            // Already viewing CC -- just search in place, no tab switch to validate.
+            (supportFragmentManager.findFragmentById(R.id.container) as? CallCenterFragment)
+                ?.applySearchPhone(phone)
+            return
+        }
+
+        previousBottomNavItemBeforeCcSearch = bottomNav.selectedItemId
         pendingCcSearchPhone = phone
+        bottomNav.selectedItemId = R.id.nav_call_center
+    }
+
+    /** Called by CallCenterFragment once its pending search has been checked against
+     *  loaded data. If nothing matched, silently returns the agent to whichever tab
+     *  they were on -- there's no reason to strand them on an empty CC screen for an
+     *  unmatched number. */
+    fun onCcSearchValidated(hasResults: Boolean) {
+        if (!hasResults && previousBottomNavItemBeforeCcSearch != -1) {
+            bottomNav.selectedItemId = previousBottomNavItemBeforeCcSearch
+        }
+        previousBottomNavItemBeforeCcSearch = -1
     }
 
     fun navigateToWorkerSpaceWithParcel(parcelId: String) {

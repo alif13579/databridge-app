@@ -165,6 +165,8 @@ class CallCenterFragment : Fragment() {
     private lateinit var adapter: CallCenterAdapter
 
     private var allParcels = listOf<CallCenterParcelItem>()
+    private var hasLoadedCcDataOnce = false
+    private var pendingSearchValidation: (() -> Unit)? = null
     private lateinit var etSearch: EditText
     private lateinit var tvSearchClear: TextView
     private lateinit var tvSearchCount: TextView
@@ -220,11 +222,45 @@ class CallCenterFragment : Fragment() {
     /** Pre-fills and applies the search box. Called directly by MainActivity when this
      *  fragment is already the visible one (bottomNav reselect is then a no-op and never
      *  fires onResume), and also from the pendingCcSearchPhone fallback below when a tab
-     *  switch is actually happening. */
-    fun applySearchPhone(phone: String) {
+     *  switch is actually happening.
+     *
+     *  Resets statusFilter to "all" first -- a leftover non-All chip would otherwise hide
+     *  a real match from the search, since applyFilters() applies the status filter on
+     *  top of the search filter.
+     *
+     *  If [onValidated] is given, it fires once with whether the search actually matched
+     *  any parcel -- immediately if CC's data is already loaded, or once the first load
+     *  completes otherwise (see the hasLoadedCcDataOnce hook in the run-loading coroutine).
+     *  Callers use this to avoid switching the agent into an empty CC screen for a number
+     *  that matches nothing. */
+    fun applySearchPhone(phone: String, onValidated: ((Boolean) -> Unit)? = null) {
         if (phone.isBlank() || !::etSearch.isInitialized) return
+        statusFilter = "all"
         etSearch.setText(phone)
         etSearch.setSelection(phone.length)
+        val validate = {
+            setupFilterTabs()
+            applyFilters()
+            onValidated?.invoke(matchCountForPhone(phone) > 0)
+        }
+        if (hasLoadedCcDataOnce) validate() else pendingSearchValidation = validate
+    }
+
+    /** Same match rule applyFilters() uses for its search box (phone/id/customer/cod).
+     *  Checked against the raw allParcels, not scopedParcels() -- an agent filter chip
+     *  left selected from earlier shouldn't cause a real match to be reported as "no
+     *  results" and revert the navigation; statusFilter is reset separately above. */
+    private fun matchCountForPhone(phone: String): Int {
+        val q = phone.trim().lowercase()
+        if (q.isBlank()) return 0
+        val qDigits = q.filter { it.isDigit() }
+        return allParcels.count {
+            it.phone.contains(q) ||
+                (qDigits.isNotEmpty() && it.phone.filter { c -> c.isDigit() }.contains(qDigits)) ||
+                it.id.lowercase().contains(q) ||
+                it.customer.lowercase().contains(q) ||
+                it.cod.toString().contains(q)
+        }
     }
 
     override fun onResume() {
@@ -242,7 +278,7 @@ class CallCenterFragment : Fragment() {
             val phone = main.pendingCcSearchPhone
             if (!phone.isNullOrBlank()) {
                 main.pendingCcSearchPhone = null
-                applySearchPhone(phone)
+                applySearchPhone(phone) { hasResults -> main.onCcSearchValidated(hasResults) }
             }
         }
     }
@@ -2441,6 +2477,8 @@ class CallCenterFragment : Fragment() {
 
         if (!isAdded || generation != ccLoadGeneration) return
         allParcels = parcels.sortedBy { it.id }
+        hasLoadedCcDataOnce = true
+        pendingSearchValidation?.let { it(); pendingSearchValidation = null }
         // Branch chips reflect the CC agent's OWN assignment (RbacManager), not whatever
         // branches happen to show up in the fetched parcels — Karim (Sonargaon only) never
         // sees a "Bandar" chip even if a stray legacy parcel's deliveryHub said otherwise.
