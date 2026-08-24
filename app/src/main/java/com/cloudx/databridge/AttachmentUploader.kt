@@ -2,11 +2,15 @@ package com.cloudx.databridge
 
 import android.content.ContentResolver
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -14,6 +18,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -33,10 +38,31 @@ import kotlin.coroutines.resume
  * only to be rejected server-side. The Edge Function re-checks both
  * independently and is the real enforcement point — this client-side check
  * is a courtesy, not the security boundary.
+ *
+ * If a picked image is over the limit, it's compressed (JPEG re-encode,
+ * shrinking quality then dimensions) rather than immediately rejected —
+ * phone camera photos routinely land in the 3-8 MB range, and requiring
+ * the user to go find a separate app to shrink a receipt photo before they
+ * can attach it is a bad flow for something this common. PDFs are never
+ * compressed — there's no cheap, reliable way to shrink an arbitrary PDF
+ * without a dedicated library, and receipts as PDFs are rarely huge to
+ * begin with. Compression only ever runs on a *copy* of the bytes in
+ * memory; if it fails for any reason (a format Bitmap can't decode, most
+ * notably HEIC/HEIF on pre-Android-10 devices — see compressImageIfNeeded's
+ * own comment) the original bytes are used as-is and the existing size
+ * check applies unchanged, so compression can only make more images
+ * uploadable, never break a case that worked before.
  */
 object AttachmentUploader {
 
     const val MAX_FILE_BYTES = 5L * 1024 * 1024 // 5 MB — keep in sync with the Edge Function's MAX_FILE_BYTES
+
+    /** Of ALLOWED_MIME_TYPES, the subset eligible for compression — i.e. everything except PDF. */
+    private val COMPRESSIBLE_IMAGE_MIME_TYPES = setOf(
+        "image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif", "image/bmp",
+    )
+    private const val COMPRESS_MIN_QUALITY = 40 // below this, a receipt photo stops being legible
+    private const val COMPRESS_MIN_DIMENSION_PX = 800 // don't shrink a receipt below readable size
 
     /** MIME types this feature accepts — "all image formats" plus PDF, matching the Edge Function's ALLOWED_CONTENT_TYPES. */
     private val ALLOWED_MIME_TYPES = setOf(
@@ -102,9 +128,42 @@ object AttachmentUploader {
         val meta = readFileMeta(context, uri) ?: return Result.Rejected("Couldn't read the selected file")
         if (meta.mimeType !in ALLOWED_MIME_TYPES) return Result.Rejected("Only images or PDF files are allowed")
         if (meta.sizeBytes <= 0) return Result.Rejected("Couldn't determine the file size")
-        if (meta.sizeBytes > MAX_FILE_BYTES) {
+
+        var bytes = try {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        } catch (e: Exception) {
+            null
+        } ?: return Result.Failed("Couldn't read the selected file")
+        var mimeType = meta.mimeType
+        var displayName = meta.displayName
+
+        if (bytes.size > MAX_FILE_BYTES && mimeType in COMPRESSIBLE_IMAGE_MIME_TYPES) {
+            // compressImageIfNeeded runs the Bitmap decode/encode off the calling
+            // dispatcher (it's CPU-bound work, not something to do on whatever
+            // thread the caller happens to be on).
+            val compressed = compressImageIfNeeded(bytes)
+            if (compressed != null) {
+                bytes = compressed
+                mimeType = "image/jpeg" // Bitmap.compress(JPEG, ...) always re-encodes to JPEG regardless of the source format
+                // Keep the user-facing name recognizable but reflect the real
+                // encoding, since the object stored in R2 is now actually a JPEG
+                // (matters if this name is ever shown as a download filename).
+                displayName = displayName.substringBeforeLast('.', displayName) + ".jpg"
+            }
+            // If compression failed (e.g. Bitmap couldn't decode this format —
+            // most notably HEIC/HEIF on a pre-Android-10 device), bytes/mimeType
+            // are left as the original — falls through to the same size check
+            // as before compression existed, so this can only add cases that
+            // now succeed, never remove one that used to.
+        }
+
+        // Re-check size against whatever we're actually about to upload — either
+        // the original bytes (never touched, or compression wasn't applicable/
+        // didn't help) or the compressed replacement.
+        if (bytes.size > MAX_FILE_BYTES) {
             return Result.Rejected("File exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit")
         }
+        val uploadMeta = meta.copy(displayName = displayName, mimeType = mimeType, sizeBytes = bytes.size.toLong())
 
         if (!SupabaseConfig.isConfigured) return Result.Failed("Upload isn't configured yet")
         val user = FirebaseAuth.getInstance().currentUser ?: return Result.Failed("Not signed in")
@@ -115,26 +174,88 @@ object AttachmentUploader {
         } ?: return Result.Failed("Couldn't verify your sign-in — try again")
 
         val presignResponse = try {
-            requestPresignedUrl(token, meta)
+            requestPresignedUrl(token, uploadMeta)
         } catch (e: Exception) {
-            log("presign_error", e.message ?: "Unknown error", meta)
+            log("presign_error", e.message ?: "Unknown error", uploadMeta)
             return Result.Failed("Couldn't prepare the upload — check your connection and try again")
         }
 
-        val bytes = try {
-            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        } catch (e: Exception) {
-            null
-        } ?: return Result.Failed("Couldn't read the selected file")
-
         return try {
-            putFile(presignResponse.uploadUrl, bytes, meta.mimeType)
-            Result.Success(presignResponse.publicUrl, presignResponse.objectKey, meta.displayName)
+            putFile(presignResponse.uploadUrl, bytes, uploadMeta.mimeType)
+            Result.Success(presignResponse.publicUrl, presignResponse.objectKey, uploadMeta.displayName)
         } catch (e: Exception) {
-            log("put_error", e.message ?: "Unknown error", meta)
+            log("put_error", e.message ?: "Unknown error", uploadMeta)
             Result.Failed("Upload failed partway through — try again")
         }
     }
+
+    /**
+     * Tries to bring [original] under MAX_FILE_BYTES by re-encoding as JPEG,
+     * first lowering quality, then shrinking dimensions if quality alone isn't
+     * enough. Returns null (never throws) if the image can't be decoded at
+     * all — the caller falls back to uploading the original bytes untouched.
+     *
+     * Decoding can fail for reasons that have nothing to do with a corrupt
+     * file: HEIC/HEIF only decodes via BitmapFactory on Android 10+ (see the
+     * class doc comment), so on an older device this is expected to return
+     * null for a HEIC photo, not a bug to chase.
+     *
+     * Runs on Dispatchers.Default since Bitmap decode/compress is CPU-bound,
+     * not I/O — keeps this off whatever dispatcher the caller is on.
+     */
+    private suspend fun compressImageIfNeeded(original: ByteArray): ByteArray? = withContext(Dispatchers.Default) {
+        val bitmap = try {
+            BitmapFactory.decodeByteArray(original, 0, original.size)
+        } catch (_: Exception) {
+            null
+        } ?: return@withContext null
+
+        try {
+            // Pass 1: lower JPEG quality at the original dimensions.
+            var quality = 90
+            var encoded = encodeJpeg(bitmap, quality)
+            while (encoded.size > MAX_FILE_BYTES && quality > COMPRESS_MIN_QUALITY) {
+                quality -= 10
+                encoded = encodeJpeg(bitmap, quality)
+            }
+            if (encoded.size <= MAX_FILE_BYTES) return@withContext encoded
+
+            // Pass 2: quality alone wasn't enough (very high resolution source) —
+            // shrink dimensions too, keeping aspect ratio, and re-run quality
+            // reduction at each smaller size.
+            var width = bitmap.width
+            var height = bitmap.height
+            var scaled = bitmap
+            while (encoded.size > MAX_FILE_BYTES &&
+                width > COMPRESS_MIN_DIMENSION_PX && height > COMPRESS_MIN_DIMENSION_PX
+            ) {
+                width = (width * 0.75f).toInt()
+                height = (height * 0.75f).toInt()
+                val resized = Bitmap.createScaledBitmap(bitmap, width, height, true)
+                if (scaled !== bitmap) scaled.recycle() // drop the previous intermediate scaled copy, not the original
+                scaled = resized
+                quality = 90
+                encoded = encodeJpeg(scaled, quality)
+                while (encoded.size > MAX_FILE_BYTES && quality > COMPRESS_MIN_QUALITY) {
+                    quality -= 10
+                    encoded = encodeJpeg(scaled, quality)
+                }
+            }
+            if (scaled !== bitmap) scaled.recycle()
+            // Whatever we ended up with — under the limit or not, the caller's
+            // own size check after this function returns is what actually
+            // decides pass/reject either way.
+            encoded
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun encodeJpeg(bitmap: Bitmap, quality: Int): ByteArray =
+        ByteArrayOutputStream().use { stream ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+            stream.toByteArray()
+        }
 
     private data class PresignResponse(val uploadUrl: String, val objectKey: String, val publicUrl: String)
 
