@@ -39,29 +39,50 @@ import kotlin.coroutines.resume
  * independently and is the real enforcement point — this client-side check
  * is a courtesy, not the security boundary.
  *
- * If a picked image is over the limit, it's compressed (JPEG re-encode,
- * shrinking quality then dimensions) rather than immediately rejected —
- * phone camera photos routinely land in the 3-8 MB range, and requiring
- * the user to go find a separate app to shrink a receipt photo before they
- * can attach it is a bad flow for something this common. PDFs are never
- * compressed — there's no cheap, reliable way to shrink an arbitrary PDF
- * without a dedicated library, and receipts as PDFs are rarely huge to
- * begin with. Compression only ever runs on a *copy* of the bytes in
- * memory; if it fails for any reason (a format Bitmap can't decode, most
+ * Any picked image over COMPRESS_TRIGGER_BYTES (1 MB) is compressed rather
+ * than uploaded as-is — phone camera photos routinely land in the 3-8 MB
+ * range, well past what a receipt photo actually needs. Compression stays
+ * within JPEG quality 90-85, the well-established "sweet spot" where file
+ * size drops sharply (40-60%) with no visible loss versus the original —
+ * dimensions are only ever touched as a last resort, for a source so
+ * high-resolution that quality 85 alone still doesn't fit under
+ * MAX_FILE_BYTES (5 MB, the actual upload ceiling; see compressImageIfNeeded
+ * for exactly where that fallback kicks in). PDFs are never compressed —
+ * there's no cheap, reliable way to shrink an arbitrary PDF without a
+ * dedicated library, and receipts as PDFs are rarely huge to begin with.
+ * Compression only ever runs on a *copy* of the bytes in memory, and the
+ * compressed result is only adopted if it's actually smaller than the
+ * original — some sources (flat-color PNGs, screenshots) can end up
+ * *larger* after a JPEG re-encode, in which case the original is kept as-is.
+ * If compression fails for any reason (a format Bitmap can't decode, most
  * notably HEIC/HEIF on pre-Android-10 devices — see compressImageIfNeeded's
- * own comment) the original bytes are used as-is and the existing size
- * check applies unchanged, so compression can only make more images
- * uploadable, never break a case that worked before.
+ * own comment) the original bytes are used as-is too, and the existing
+ * MAX_FILE_BYTES check applies unchanged — so compression can only make
+ * more images uploadable, never break a case that worked before.
  */
 object AttachmentUploader {
 
-    const val MAX_FILE_BYTES = 5L * 1024 * 1024 // 5 MB — keep in sync with the Edge Function's MAX_FILE_BYTES
+    const val MAX_FILE_BYTES = 5L * 1024 * 1024 // 5 MB — the actual upload ceiling, keep in sync with the Edge Function's MAX_FILE_BYTES
+    private const val COMPRESS_TRIGGER_BYTES = 1L * 1024 * 1024 // 1 MB — compression kicks in above this, well below MAX_FILE_BYTES
 
     /** Of ALLOWED_MIME_TYPES, the subset eligible for compression — i.e. everything except PDF. */
     private val COMPRESSIBLE_IMAGE_MIME_TYPES = setOf(
         "image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif", "image/bmp",
     )
-    private const val COMPRESS_MIN_QUALITY = 40 // below this, a receipt photo stops being legible
+    // JPEG quality 85-90 is the documented "sweet spot": near-original visual
+    // quality (most viewers can't distinguish it from quality 100 on a normal
+    // screen) while cutting 40-60% of the file size. Compression starts at 90
+    // and steps down only as far as 85 by default — never further, so a
+    // receipt photo never gets visibly worse just to save a few more KB.
+    private const val COMPRESS_QUALITY_START = 90
+    private const val COMPRESS_QUALITY_FLOOR = 85
+    // Only reached if quality 85 alone still doesn't fit under MAX_FILE_BYTES
+    // (an extremely high-resolution source) — dimension shrinking is the
+    // fallback, not the default, and this floor allows a more aggressive
+    // quality drop at that point since fitting under the upload ceiling at
+    // all takes priority over staying at the gentle range once it's clear
+    // quality alone won't get there.
+    private const val COMPRESS_QUALITY_FLOOR_FALLBACK = 40
     private const val COMPRESS_MIN_DIMENSION_PX = 800 // don't shrink a receipt below readable size
 
     /** MIME types this feature accepts — "all image formats" plus PDF, matching the Edge Function's ALLOWED_CONTENT_TYPES. */
@@ -137,12 +158,16 @@ object AttachmentUploader {
         var mimeType = meta.mimeType
         var displayName = meta.displayName
 
-        if (bytes.size > MAX_FILE_BYTES && mimeType in COMPRESSIBLE_IMAGE_MIME_TYPES) {
+        if (bytes.size > COMPRESS_TRIGGER_BYTES && mimeType in COMPRESSIBLE_IMAGE_MIME_TYPES) {
             // compressImageIfNeeded runs the Bitmap decode/encode off the calling
             // dispatcher (it's CPU-bound work, not something to do on whatever
             // thread the caller happens to be on).
             val compressed = compressImageIfNeeded(bytes)
-            if (compressed != null) {
+            if (compressed != null && compressed.size < bytes.size) {
+                // Guard against formats where JPEG re-encoding can end up
+                // *larger* than the source (flat-color PNGs, screenshots) —
+                // only adopt the compressed result if it actually shrank
+                // the file; otherwise keep uploading the original as-is.
                 bytes = compressed
                 mimeType = "image/jpeg" // Bitmap.compress(JPEG, ...) always re-encodes to JPEG regardless of the source format
                 // Keep the user-facing name recognizable but reflect the real
@@ -151,10 +176,11 @@ object AttachmentUploader {
                 displayName = displayName.substringBeforeLast('.', displayName) + ".jpg"
             }
             // If compression failed (e.g. Bitmap couldn't decode this format —
-            // most notably HEIC/HEIF on a pre-Android-10 device), bytes/mimeType
-            // are left as the original — falls through to the same size check
-            // as before compression existed, so this can only add cases that
-            // now succeed, never remove one that used to.
+            // most notably HEIC/HEIF on a pre-Android-10 device) or didn't
+            // actually help, bytes/mimeType are left as the original — falls
+            // through to the same size check as before compression existed,
+            // so this can only add cases that now succeed, never remove one
+            // that used to.
         }
 
         // Re-check size against whatever we're actually about to upload — either
@@ -190,10 +216,22 @@ object AttachmentUploader {
     }
 
     /**
-     * Tries to bring [original] under MAX_FILE_BYTES by re-encoding as JPEG,
-     * first lowering quality, then shrinking dimensions if quality alone isn't
-     * enough. Returns null (never throws) if the image can't be decoded at
-     * all — the caller falls back to uploading the original bytes untouched.
+     * Tries to bring [original] under MAX_FILE_BYTES by re-encoding as JPEG.
+     * Returns null (never throws) if the image can't be decoded at all — the
+     * caller falls back to uploading the original bytes untouched.
+     *
+     * Two tiers, gentle first:
+     *   Pass 1 — quality only, from COMPRESS_QUALITY_START (90) down to
+     *   COMPRESS_QUALITY_FLOOR (85), original dimensions untouched. This is
+     *   the documented "sweet spot" range: file size drops sharply with no
+     *   visible loss. This is the expected path for ordinary phone-camera
+     *   photos and is where compression stops as soon as it fits.
+     *   Pass 2 — only reached if quality 85 alone still doesn't fit under
+     *   MAX_FILE_BYTES (an unusually high-resolution source). Shrinks
+     *   dimensions (keeping aspect ratio) and allows quality down to
+     *   COMPRESS_QUALITY_FLOOR_FALLBACK (40), since at this point getting
+     *   under the actual upload ceiling takes priority over staying in the
+     *   gentle range.
      *
      * Decoding can fail for reasons that have nothing to do with a corrupt
      * file: HEIC/HEIF only decodes via BitmapFactory on Android 10+ (see the
@@ -211,18 +249,19 @@ object AttachmentUploader {
         } ?: return@withContext null
 
         try {
-            // Pass 1: lower JPEG quality at the original dimensions.
-            var quality = 90
+            // Pass 1: gentle quality-only reduction at the original
+            // dimensions, staying within the 90-85 sweet spot.
+            var quality = COMPRESS_QUALITY_START
             var encoded = encodeJpeg(bitmap, quality)
-            while (encoded.size > MAX_FILE_BYTES && quality > COMPRESS_MIN_QUALITY) {
-                quality -= 10
+            while (encoded.size > MAX_FILE_BYTES && quality > COMPRESS_QUALITY_FLOOR) {
+                quality -= 5
                 encoded = encodeJpeg(bitmap, quality)
             }
             if (encoded.size <= MAX_FILE_BYTES) return@withContext encoded
 
-            // Pass 2: quality alone wasn't enough (very high resolution source) —
-            // shrink dimensions too, keeping aspect ratio, and re-run quality
-            // reduction at each smaller size.
+            // Pass 2: the gentle range wasn't enough (very high resolution
+            // source) — shrink dimensions too, keeping aspect ratio, and
+            // allow a more aggressive quality drop at each smaller size.
             var width = bitmap.width
             var height = bitmap.height
             var scaled = bitmap
@@ -234,9 +273,9 @@ object AttachmentUploader {
                 val resized = Bitmap.createScaledBitmap(bitmap, width, height, true)
                 if (scaled !== bitmap) scaled.recycle() // drop the previous intermediate scaled copy, not the original
                 scaled = resized
-                quality = 90
+                quality = COMPRESS_QUALITY_START
                 encoded = encodeJpeg(scaled, quality)
-                while (encoded.size > MAX_FILE_BYTES && quality > COMPRESS_MIN_QUALITY) {
+                while (encoded.size > MAX_FILE_BYTES && quality > COMPRESS_QUALITY_FLOOR_FALLBACK) {
                     quality -= 10
                     encoded = encodeJpeg(scaled, quality)
                 }
