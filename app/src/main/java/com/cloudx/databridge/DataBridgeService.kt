@@ -545,8 +545,14 @@ class DataBridgeService : Service() {
      *  this runs from a background service (no Fragment/Activity to reach), so it goes
      *  through MainActivity + AppNotificationManager.EXTRA_SEARCH_PHONE the same way a
      *  notification tap does. Runs alongside the dial, not instead of it, so it lands
-     *  regardless of which of the three call layers below actually succeeds. */
+     *  regardless of which of the three call layers below actually succeeds.
+     *
+     *  Gated on the "lookup_from_cc" toggle here (not just in MainActivity) so the app
+     *  doesn't get launched into the foreground at all when the feature is off. */
     private fun openCallCenterSearch(number: String) {
+        val enabled = applicationContext.getSharedPreferences("databridge_toggles", MODE_PRIVATE)
+            .getBoolean("lookup_from_cc", false)
+        if (!enabled) return
         try {
             val intent = Intent(applicationContext, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
