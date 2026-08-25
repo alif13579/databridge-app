@@ -236,8 +236,10 @@
                             android:id="@+id/btnPcDetailAttachmentView"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="\u2B07"
-                            android:textSize="16sp"
+                            android:text="View"
+                            android:textStyle="bold"
+                            android:textColor="#2563EB"
+                            android:textSize="13sp"
                             android:padding="6dp" />
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>

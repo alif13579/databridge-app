@@ -68,8 +68,12 @@ class PettyCashRequestCreateFragment : Fragment() {
     private var selectedStoreName: String = ""
 
     // Attachment state. attachmentUrl is what actually gets saved onto the
-    // request (empty until upload succeeds); attachmentName is shown to the
-    // user immediately on pick, before the upload finishes, so the picker
+    // request (empty until upload succeeds) — despite the name, this holds
+    // an R2 *object key*, not a URL: the bucket is private, so there's no
+    // standing public URL for it. Viewing the attachment later means asking
+    // AttachmentUploader.getDownloadUrl() for a fresh presigned URL each
+    // time, using this stored key. attachmentName is shown to the user
+    // immediately on pick, before the upload finishes, so the picker
     // doesn't look like it did nothing while the network call is in flight.
     private var attachmentName: String = ""
     private var attachmentUrl: String = ""
@@ -282,7 +286,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         lifecycleScope.launch {
             when (val result = AttachmentUploader.upload(requireContext(), uri)) {
                 is AttachmentUploader.Result.Success -> {
-                    attachmentUrl = result.publicUrl
+                    attachmentUrl = result.objectKey
                     attachmentName = result.displayName
                     if (isAdded) {
                         tvAttachmentName.text = result.displayName
