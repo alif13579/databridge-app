@@ -63,6 +63,11 @@ data class PettyCashRequest(
     val purpose: String = "",
     val amount: Double = 0.0,
     val priority: String = PC_PRIORITY_NORMAL,
+    // Despite the field name, this holds an R2 *object key* (e.g.
+    // "petty_cash_attachments/<uid>/<timestamp>_<random>.jpg"), not a URL —
+    // the R2 bucket is private, so there's no standing public URL for it.
+    // See AttachmentUploader.getDownloadUrl() for turning this into a
+    // short-lived presigned URL when someone needs to actually view it.
     val attachmentUrl: String = "",
     val attachmentName: String = "",
     val requestedDate: Long = 0L,           // date the expense was incurred, set by the Requester — separate from createdAt (submission time)

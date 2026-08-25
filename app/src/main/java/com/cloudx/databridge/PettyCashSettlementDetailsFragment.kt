@@ -1,9 +1,13 @@
 package com.cloudx.databridge
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.MimeTypeMap
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -58,6 +62,13 @@ import java.util.Locale
  * formerly named "Team Aligned" throughout the codebase — fully renamed,
  * both display label and internal names, since no production data existed
  * under the old names yet.
+ *
+ * Attachment viewing: since this is the one screen every role in the chain
+ * passes through, it's also the only place an uploaded attachment can be
+ * opened from (requester, Staff, Cash POC, and Accounts alike — see
+ * bindAttachmentOpener). Each tap fetches a fresh presigned download URL
+ * (AttachmentUploader.getDownloadUrl) rather than reusing one, since the
+ * R2 bucket is private and presigned URLs are short-lived.
  */
 class PettyCashSettlementDetailsFragment : Fragment() {
 
@@ -117,6 +128,57 @@ class PettyCashSettlementDetailsFragment : Fragment() {
     private fun formatDate(millis: Long): String {
         if (millis == 0L) return "—"
         return SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(millis))
+    }
+
+    /**
+     * Wires the attachment row's tap targets (the name and the "View" text)
+     * to fetch a fresh presigned download URL and hand it to the device's
+     * default viewer. Every tap requests a new URL rather than reusing one —
+     * presigned URLs are short-lived (see getDownloadUrl's doc comment) and
+     * this screen can stay open far longer than that.
+     */
+    private fun bindAttachmentOpener(root: View, request: PettyCashRequest) {
+        val tvName = root.findViewById<TextView>(R.id.tvPcDetailAttachmentName)
+        val tvView = root.findViewById<TextView>(R.id.btnPcDetailAttachmentView)
+        val hasAttachment = request.attachmentUrl.isNotBlank()
+
+        tvView.isVisible = hasAttachment
+        tvView.isEnabled = hasAttachment
+        tvName.isEnabled = hasAttachment
+
+        if (!hasAttachment) {
+            tvName.setOnClickListener(null)
+            tvView.setOnClickListener(null)
+            return
+        }
+
+        val openAttachment = View.OnClickListener {
+            if (!isAdded) return@OnClickListener
+            tvView.isEnabled = false // avoid double taps stacking up multiple in-flight requests
+            lifecycleScope.launch {
+                when (val result = AttachmentUploader.getDownloadUrl(request.attachmentUrl)) {
+                    is AttachmentUploader.DownloadResult.Success -> openInViewer(result.downloadUrl, request.attachmentName)
+                    is AttachmentUploader.DownloadResult.Failed ->
+                        if (isAdded) Toast.makeText(requireContext(), result.message, Toast.LENGTH_SHORT).show()
+                }
+                if (isAdded) tvView.isEnabled = true
+            }
+        }
+        tvName.setOnClickListener(openAttachment)
+        tvView.setOnClickListener(openAttachment)
+    }
+
+    /** Infers a MIME type from the stored file name's extension so the device picks an appropriate viewer (image app, PDF reader, etc.) rather than guessing from the bare URL. */
+    private fun openInViewer(downloadUrl: String, fileName: String) {
+        val extension = fileName.substringAfterLast('.', "").lowercase()
+        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+            ?: "*/*" // unrecognized extension — let the device offer whatever can handle a generic view
+        try {
+            val intent = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(downloadUrl), mimeType)
+            startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            if (isAdded) Toast.makeText(requireContext(), "No app found to open this attachment", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun render(state: PettyCashState) {
@@ -197,6 +259,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         root.findViewById<TextView>(R.id.tvPcDetailPurpose).text = request.purpose
         root.findViewById<TextView>(R.id.tvPcDetailAttachmentName).text =
             request.attachmentName.ifBlank { "No attachment" }
+        bindAttachmentOpener(root, request)
 
         // Settlement Summary: Claimed Amount (the original ask, permanent record —
         // never overwritten by edits along the approval chain) vs Settled Amount

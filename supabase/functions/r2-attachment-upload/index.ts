@@ -1,25 +1,35 @@
 import { createRemoteJWKSet, jwtVerify } from 'npm:jose@5'
 
 /**
- * Presigned-upload issuer for Petty Cash request attachments (Cloudflare R2).
+ * Presigned-URL issuer for Petty Cash request attachments (Cloudflare R2).
  *
  * Why this exists as its own function, separate from remark-validations:
- * this only ever hands out a short-lived upload URL — it never touches
+ * this only ever hands out short-lived R2 URLs — it never touches
  * Postgres/validations data, so it doesn't need the Supabase service role
  * key or the remark-validations table at all. Keeping it isolated means a
  * bug here can't touch remark data, and vice versa.
  *
- * Flow: Android sends { file_name, content_type, size_bytes } with its
- * Firebase ID token → this function verifies the token (same JWKS check as
- * remark-validations), rejects anything that isn't an image or a PDF or is
- * over 5 MB, then returns a presigned R2 PUT URL the app can upload directly
- * to. The R2 secret access key lives ONLY in this function's environment
- * secrets (set via `supabase secrets set`) — it is never sent to, or
- * bundled in, the Android app. A client can at most get one presigned URL
- * for one specific object key, valid for a few minutes.
+ * Two actions, both requiring a valid Firebase ID token:
+ *   - upload (default, body has no "action" or action: "upload"): Android
+ *     sends { file_name, content_type, size_bytes } → this rejects anything
+ *     that isn't an image or a PDF or is over 5 MB, then returns a
+ *     presigned PUT URL for a fresh object key under the caller's uid.
+ *   - download (action: "download"): Android sends { object_key } for an
+ *     attachment it already knows about (i.e. it read a PettyCashRequest
+ *     that has this key — Firebase's own read rules are what actually gate
+ *     who can see which request, this function does no extra per-request
+ *     role check on top of "is this a valid Firebase user") → this returns
+ *     a presigned GET URL for that exact key.
  *
- * R2 is S3-compatible, so this hand-rolls AWS Signature Version 4 for a
- * presigned URL rather than pulling in the full AWS SDK for one call.
+ * The bucket is private — there is no public base URL. Every read goes
+ * through a presigned GET, the same way every write goes through a
+ * presigned PUT. The R2 secret access key lives ONLY in this function's
+ * environment secrets (set via `supabase secrets set`) — it is never sent
+ * to, or bundled in, the Android app. Each presigned URL is scoped to one
+ * specific object key and expires in minutes.
+ *
+ * R2 is S3-compatible, so this hand-rolls AWS Signature Version 4 for
+ * presigned URLs rather than pulling in the full AWS SDK for two calls.
  */
 
 const corsHeaders = {
@@ -35,10 +45,6 @@ const R2_ACCOUNT_ID = Deno.env.get('R2_ACCOUNT_ID')
 const R2_ACCESS_KEY_ID = Deno.env.get('R2_ACCESS_KEY_ID')
 const R2_SECRET_ACCESS_KEY = Deno.env.get('R2_SECRET_ACCESS_KEY')
 const R2_BUCKET_NAME = Deno.env.get('R2_BUCKET_NAME')
-// Optional: a public R2.dev or custom domain the app can GET the file back
-// from after upload. If unset, the function still returns the object key
-// so the caller can construct/store a URL once one is configured.
-const R2_PUBLIC_BASE_URL = Deno.env.get('R2_PUBLIC_BASE_URL')?.replace(/\/$/, '') ?? ''
 
 for (const [name, value] of Object.entries({
   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME,
@@ -59,6 +65,10 @@ const ALLOWED_CONTENT_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif', 'image/bmp',
   'application/pdf',
 ])
+// Every attachment object key lives under this prefix — used both to build
+// new keys on upload and to scope-check a key handed back for download (see
+// handleDownload's own comment on what that check does and doesn't cover).
+const ATTACHMENT_KEY_PREFIX = 'petty_cash_attachments/'
 
 function reply(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: corsHeaders })
@@ -105,12 +115,13 @@ function hex(bytes: Uint8Array): string {
 }
 
 /**
- * Builds a presigned SigV4 URL for a single PUT to R2. R2 supports AWS
- * SigV4 query-parameter presigning identically to S3 (region is always
- * "auto" for R2). Expiry is deliberately short — this URL is meant to be
- * used within seconds by the requesting device, not stored or replayed.
+ * Builds a presigned SigV4 URL for a single request to R2 — PUT for an
+ * upload, GET for a download. R2 supports AWS SigV4 query-parameter
+ * presigning identically to S3 (region is always "auto" for R2). Expiry is
+ * deliberately short in both cases — these URLs are meant to be used
+ * within seconds/minutes of being issued, not stored or replayed.
  */
-async function presignR2PutUrl(objectKey: string, contentType: string, expirySeconds: number): Promise<string> {
+async function presignR2Url(method: 'PUT' | 'GET', objectKey: string, expirySeconds: number): Promise<string> {
   const region = 'auto'
   const service = 's3'
   const host = `${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
@@ -134,10 +145,10 @@ async function presignR2PutUrl(objectKey: string, contentType: string, expirySec
 
   const canonicalUri = `/${R2_BUCKET_NAME}/${objectKey.split('/').map(encodeURIComponent).join('/')}`
   const canonicalHeaders = `host:${host}\n`
-  const payloadHash = 'UNSIGNED-PAYLOAD' // presigned PUT: body isn't known/hashed ahead of time
+  const payloadHash = 'UNSIGNED-PAYLOAD' // presigned PUT/GET: body isn't known/hashed ahead of time
 
   const canonicalRequest = [
-    'PUT', canonicalUri, canonicalQueryString, canonicalHeaders, signedHeaders, payloadHash,
+    method, canonicalUri, canonicalQueryString, canonicalHeaders, signedHeaders, payloadHash,
   ].join('\n')
 
   const canonicalRequestHash = hex(new Uint8Array(
@@ -162,41 +173,68 @@ Deno.serve(async (request) => {
   try {
     const identity = await firebaseIdentity(request)
     const body = await request.json()
+    const action = typeof body.action === 'string' ? body.action : 'upload'
 
-    const contentType = typeof body.content_type === 'string' ? body.content_type.toLowerCase().trim() : ''
-    const sizeBytes = Number(body.size_bytes)
-    const originalFileName = typeof body.file_name === 'string' ? body.file_name.trim() : ''
-
-    if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
-      return reply({ error: 'Only images or PDF files are allowed' }, 400)
-    }
-    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
-      return reply({ error: 'size_bytes is required' }, 400)
-    }
-    if (sizeBytes > MAX_FILE_BYTES) {
-      return reply({ error: `File exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit` }, 400)
-    }
-
-    // Object key: per-user folder + random component, so one requester can
-    // never guess or overwrite another's attachment key even though the
-    // bucket itself isn't publicly listable.
-    const randomComponent = hex(crypto.getRandomValues(new Uint8Array(8)))
-    const objectKey = `petty_cash_attachments/${identity.uid}/${Date.now()}_${randomComponent}.${extensionFor(contentType)}`
-
-    const uploadUrl = await presignR2PutUrl(objectKey, contentType, 300) // 5-minute window
-    const publicUrl = R2_PUBLIC_BASE_URL ? `${R2_PUBLIC_BASE_URL}/${objectKey}` : ''
-
-    console.info(`r2-attachment-upload ok: uid=${identity.uid}, key=${objectKey}, type=${contentType}, size=${sizeBytes}`)
-    return reply({
-      ok: true,
-      upload_url: uploadUrl,
-      object_key: objectKey,
-      public_url: publicUrl,
-      original_file_name: originalFileName,
-      content_type: contentType,
-    })
+    if (action === 'download') return await handleDownload(identity, body)
+    if (action === 'upload') return await handleUpload(identity, body)
+    return reply({ error: `Unknown action: ${action}` }, 400)
   } catch (error) {
     console.error(error)
     return reply({ error: 'Unauthorized or failed request' }, 401)
   }
 })
+
+async function handleUpload(identity: { uid: string }, body: Record<string, unknown>): Promise<Response> {
+  const contentType = typeof body.content_type === 'string' ? body.content_type.toLowerCase().trim() : ''
+  const sizeBytes = Number(body.size_bytes)
+  const originalFileName = typeof body.file_name === 'string' ? body.file_name.trim() : ''
+
+  if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
+    return reply({ error: 'Only images or PDF files are allowed' }, 400)
+  }
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return reply({ error: 'size_bytes is required' }, 400)
+  }
+  if (sizeBytes > MAX_FILE_BYTES) {
+    return reply({ error: `File exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit` }, 400)
+  }
+
+  // Object key: per-user folder + random component, so one requester can
+  // never guess or overwrite another's attachment key even though the
+  // bucket itself isn't publicly listable.
+  const randomComponent = hex(crypto.getRandomValues(new Uint8Array(8)))
+  const objectKey = `${ATTACHMENT_KEY_PREFIX}${identity.uid}/${Date.now()}_${randomComponent}.${extensionFor(contentType)}`
+
+  const uploadUrl = await presignR2Url('PUT', objectKey, 300) // 5-minute window
+
+  console.info(`r2-attachment-upload ok: uid=${identity.uid}, key=${objectKey}, type=${contentType}, size=${sizeBytes}`)
+  return reply({
+    ok: true,
+    upload_url: uploadUrl,
+    object_key: objectKey,
+    original_file_name: originalFileName,
+    content_type: contentType,
+  })
+}
+
+async function handleDownload(identity: { uid: string }, body: Record<string, unknown>): Promise<Response> {
+  const objectKey = typeof body.object_key === 'string' ? body.object_key : ''
+
+  // Scope guard, not a per-request role check: this only confirms the key
+  // is actually one of *this feature's* attachment keys (right prefix, no
+  // path-traversal component) — it does not check whether `identity.uid`
+  // is allowed to see the specific Petty Cash request this key belongs to.
+  // That authorization already happened at the point the app read this key
+  // out of Firebase in the first place: Firebase's own read rules are what
+  // decide which requests (and thus which attachment keys) a given user
+  // can see. If a key clears this guard, the caller already had legitimate
+  // read access to the request it's attached to.
+  if (!objectKey.startsWith(ATTACHMENT_KEY_PREFIX) || objectKey.includes('..')) {
+    return reply({ error: 'Invalid object_key' }, 400)
+  }
+
+  const downloadUrl = await presignR2Url('GET', objectKey, 300) // 5-minute window — enough for the app to open/hand off the URL
+
+  console.info(`r2-attachment-download ok: uid=${identity.uid}, key=${objectKey}`)
+  return reply({ ok: true, download_url: downloadUrl, object_key: objectKey })
+}

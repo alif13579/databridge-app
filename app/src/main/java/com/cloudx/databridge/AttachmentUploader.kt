@@ -26,12 +26,17 @@ import kotlin.coroutines.resume
 /**
  * Uploads Petty Cash request attachments (receipt photos / PDFs) to Cloudflare
  * R2, going through the `r2-attachment-upload` Supabase Edge Function to get a
- * short-lived presigned URL first.
+ * short-lived presigned URL first — and, once a request has one, hands back a
+ * fresh presigned URL to view/download it too, since the bucket is private
+ * and there's no standing public URL for anything in it.
  *
  * Deliberately does NOT hold any R2 credentials — the Edge Function is the
  * only thing that knows the R2 secret access key (see that function's own
- * doc comment). This object's job is: (1) describe the file to the Edge
- * Function, (2) PUT the file's bytes straight to the URL it returns.
+ * doc comment). For an upload, this object's job is: (1) describe the file
+ * to the Edge Function, (2) PUT the file's bytes straight to the URL it
+ * returns. For a download, it's simpler: hand the Edge Function the object
+ * key already stored on the request, get back a presigned GET URL. Neither
+ * direction ever needs the R2 secret key itself.
  *
  * A 5 MB / image-or-PDF-only check happens here too, purely so a user gets
  * an immediate, specific error instead of waiting on a network round trip
@@ -102,7 +107,7 @@ object AttachmentUploader {
     const val PICKER_MIME_TYPE = "*/*"
 
     sealed class Result {
-        data class Success(val publicUrl: String, val objectKey: String, val displayName: String) : Result()
+        data class Success(val objectKey: String, val displayName: String) : Result()
         data class Rejected(val reason: String) : Result() // client-side validation failure — no network call made
         data class Failed(val message: String) : Result()  // network/server failure
     }
@@ -208,12 +213,84 @@ object AttachmentUploader {
 
         return try {
             putFile(presignResponse.uploadUrl, bytes, uploadMeta.mimeType)
-            Result.Success(presignResponse.publicUrl, presignResponse.objectKey, uploadMeta.displayName)
+            Result.Success(presignResponse.objectKey, uploadMeta.displayName)
         } catch (e: Exception) {
             log("put_error", e.message ?: "Unknown error", uploadMeta)
             Result.Failed("Upload failed partway through — try again")
         }
     }
+
+    sealed class DownloadResult {
+        data class Success(val downloadUrl: String) : DownloadResult()
+        data class Failed(val message: String) : DownloadResult()
+    }
+
+    /**
+     * Requests a short-lived presigned GET URL for an already-uploaded
+     * attachment, identified by the object key stored on the request
+     * (PettyCashRequest.attachmentUrl — despite the field's name, this is
+     * an R2 object key, not a URL, since the bucket is private and there is
+     * no standing public URL for it). The returned download_url is only
+     * valid for a few minutes — callers should request a fresh one each
+     * time the user wants to open the attachment, not cache it.
+     */
+    suspend fun getDownloadUrl(objectKey: String): DownloadResult {
+        if (objectKey.isBlank()) return DownloadResult.Failed("No attachment on this request")
+        if (!SupabaseConfig.isConfigured) return DownloadResult.Failed("Attachment viewing isn't configured yet")
+        val user = FirebaseAuth.getInstance().currentUser ?: return DownloadResult.Failed("Not signed in")
+        val token = try {
+            user.getIdToken(false).await().token
+        } catch (e: Exception) {
+            null
+        } ?: return DownloadResult.Failed("Couldn't verify your sign-in — try again")
+
+        return try {
+            val url = requestPresignedDownloadUrl(token, objectKey)
+            DownloadResult.Success(url)
+        } catch (e: Exception) {
+            FirebaseErrorLogger.log(
+                screen = "PettyCashAttachment", action = "download_presign_error",
+                errorMessage = e.message ?: "Unknown error", extra = mapOf("objectKey" to objectKey),
+            )
+            DownloadResult.Failed("Couldn't open the attachment — check your connection and try again")
+        }
+    }
+
+    private suspend fun requestPresignedDownloadUrl(firebaseToken: String, objectKey: String): String =
+        suspendCancellableCoroutine { continuation ->
+            val payload = JSONObject().put("action", "download").put("object_key", objectKey)
+            val request = Request.Builder()
+                .url("${SupabaseConfig.PROJECT_URL}/functions/v1/r2-attachment-upload")
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                .addHeader("Authorization", "Bearer $firebaseToken")
+                .addHeader("Content-Type", "application/json")
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) continuation.resumeWith(Result.failure(e))
+                }
+                override fun onResponse(call: Call, response: okhttp3.Response) {
+                    response.use {
+                        val text = it.body?.string().orEmpty()
+                        if (!it.isSuccessful) {
+                            if (continuation.isActive) {
+                                continuation.resumeWith(Result.failure(IOException("HTTP ${it.code}: ${text.take(300)}")))
+                            }
+                            return
+                        }
+                        try {
+                            val downloadUrl = JSONObject(text).getString("download_url")
+                            if (continuation.isActive) continuation.resume(downloadUrl)
+                        } catch (e: Exception) {
+                            if (continuation.isActive) continuation.resumeWith(Result.failure(e))
+                        }
+                    }
+                }
+            })
+        }
 
     /**
      * Tries to bring [original] under MAX_FILE_BYTES by re-encoding as JPEG.
@@ -296,11 +373,12 @@ object AttachmentUploader {
             stream.toByteArray()
         }
 
-    private data class PresignResponse(val uploadUrl: String, val objectKey: String, val publicUrl: String)
+    private data class PresignResponse(val uploadUrl: String, val objectKey: String)
 
     private suspend fun requestPresignedUrl(firebaseToken: String, meta: FileMeta): PresignResponse =
         suspendCancellableCoroutine { continuation ->
             val payload = JSONObject()
+                .put("action", "upload")
                 .put("file_name", meta.displayName)
                 .put("content_type", meta.mimeType)
                 .put("size_bytes", meta.sizeBytes)
@@ -331,7 +409,6 @@ object AttachmentUploader {
                             val parsed = PresignResponse(
                                 uploadUrl = json.getString("upload_url"),
                                 objectKey = json.getString("object_key"),
-                                publicUrl = json.optString("public_url", ""),
                             )
                             if (continuation.isActive) continuation.resume(parsed)
                         } catch (e: Exception) {
