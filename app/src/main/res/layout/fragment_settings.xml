@@ -508,7 +508,7 @@
                 android:trackTint="#555555" />
         </LinearLayout>
 
-        <!-- Lookup from Call Center -- only visible to users with Call Center access;
+        <!-- Lookup from Call Center — only visible to users with Call Center access;
              see SettingsFragment.setupListeners() for the RBAC-gated visibility check. -->
         <LinearLayout
             android:id="@+id/rowLookupFromCc"
