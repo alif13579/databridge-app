@@ -44,6 +44,12 @@ object IncomingCallOverlay {
     private fun showInternal(context: Context, rawPhone: String, match: CallerMatch?, otherCount: Int) {
         dismissInternal() // never stack two
 
+        val lookupFromCcEnabled = context.getSharedPreferences("databridge_toggles", Context.MODE_PRIVATE)
+            .getBoolean("lookup_from_cc", false)
+        // The unmatched card exists only to offer the CC search shortcut -- with the
+        // toggle off there's nothing useful to show for a call with no matched parcel.
+        if (match == null && !lookupFromCcEnabled) return
+
         val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
         val view = LayoutInflater.from(context).inflate(R.layout.overlay_incoming_call, null)
 
@@ -98,7 +104,9 @@ object IncomingCallOverlay {
             tvNoMatch.isVisible = true
         }
 
-        view.findViewById<View>(R.id.btnOverlaySearch).setOnClickListener {
+        val btnSearch = view.findViewById<View>(R.id.btnOverlaySearch)
+        btnSearch.isVisible = lookupFromCcEnabled
+        btnSearch.setOnClickListener {
             openCallCenterSearch(context, rawPhone)
             dismissInternal()
         }

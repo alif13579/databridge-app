@@ -165,6 +165,8 @@ class CallCenterFragment : Fragment() {
     private lateinit var adapter: CallCenterAdapter
 
     private var allParcels = listOf<CallCenterParcelItem>()
+    private var hasLoadedCcDataOnce = false
+    private var pendingSearchValidation: (() -> Unit)? = null
     private lateinit var etSearch: EditText
     private lateinit var tvSearchClear: TextView
     private lateinit var tvSearchCount: TextView
@@ -217,6 +219,50 @@ class CallCenterFragment : Fragment() {
         if (resumeSignal != null) hasPausedSincePendingDial = true
     }
 
+    /** Pre-fills and applies the search box. Called directly by MainActivity when this
+     *  fragment is already the visible one (bottomNav reselect is then a no-op and never
+     *  fires onResume), and also from the pendingCcSearchPhone fallback below when a tab
+     *  switch is actually happening.
+     *
+     *  Resets statusFilter to "all" first -- a leftover non-All chip would otherwise hide
+     *  a real match from the search, since applyFilters() applies the status filter on
+     *  top of the search filter.
+     *
+     *  If [onValidated] is given, it fires once with whether the search actually matched
+     *  any parcel -- immediately if CC's data is already loaded, or once the first load
+     *  completes otherwise (see the hasLoadedCcDataOnce hook in the run-loading coroutine).
+     *  Callers use this to avoid switching the agent into an empty CC screen for a number
+     *  that matches nothing. */
+    fun applySearchPhone(phone: String, onValidated: ((Boolean) -> Unit)? = null) {
+        if (phone.isBlank() || !::etSearch.isInitialized) return
+        statusFilter = "all"
+        etSearch.setText(phone)
+        etSearch.setSelection(phone.length)
+        val validate = {
+            setupFilterTabs()
+            applyFilters()
+            onValidated?.invoke(matchCountForPhone(phone) > 0)
+        }
+        if (hasLoadedCcDataOnce) validate() else pendingSearchValidation = validate
+    }
+
+    /** Same match rule applyFilters() uses for its search box (phone/id/customer/cod).
+     *  Checked against the raw allParcels, not scopedParcels() -- an agent filter chip
+     *  left selected from earlier shouldn't cause a real match to be reported as "no
+     *  results" and revert the navigation; statusFilter is reset separately above. */
+    private fun matchCountForPhone(phone: String): Int {
+        val q = phone.trim().lowercase()
+        if (q.isBlank()) return 0
+        val qDigits = q.filter { it.isDigit() }
+        return allParcels.count {
+            it.phone.contains(q) ||
+                (qDigits.isNotEmpty() && it.phone.filter { c -> c.isDigit() }.contains(qDigits)) ||
+                it.id.lowercase().contains(q) ||
+                it.customer.lowercase().contains(q) ||
+                it.cod.toString().contains(q)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         // Require an intervening onPause so this doesn't fire from the same resumed
@@ -226,15 +272,13 @@ class CallCenterFragment : Fragment() {
             resumeSignal = null
             hasPausedSincePendingDial = false
         }
-        // Set by IncomingCallOverlay's "Search" button via
-        // MainActivity.navigateToCallCenterWithSearch() -- consumed once here so it
-        // doesn't re-apply on an unrelated later resume.
+        // Set by MainActivity.navigateToCallCenterWithSearch() only when a bottomNav tab
+        // switch was actually needed (already-on-CC case applies directly, see there for why).
         (activity as? MainActivity)?.let { main ->
             val phone = main.pendingCcSearchPhone
-            if (!phone.isNullOrBlank() && ::etSearch.isInitialized) {
+            if (!phone.isNullOrBlank()) {
                 main.pendingCcSearchPhone = null
-                etSearch.setText(phone)
-                etSearch.setSelection(phone.length)
+                applySearchPhone(phone) { hasResults -> main.onCcSearchValidated(hasResults) }
             }
         }
     }
@@ -906,7 +950,7 @@ class CallCenterFragment : Fragment() {
                         rows.mapNotNull { r ->
                             val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
                             if (createdAt < todayStart) return@mapNotNull null
-                            val remarksText = resolveRemarkBn(r.optString("remarks").trim())
+                            val remarksText = resolveRemarkBn(r)
                             val noteText = r.optString("note").trim()
                             if (remarksText.isBlank() && noteText.isBlank()) return@mapNotNull null
                             val authorSystemId = r.optString("author_system_id").trim()
@@ -1095,7 +1139,7 @@ class CallCenterFragment : Fragment() {
             val status = r.optString("remarks_status").trim()
             val noteRaw = r.optString("note").trim()
             val remarks = listOf(
-                resolveRemarkBn(r.optString("remarks").trim()),
+                resolveRemarkBn(r),
                 noteRaw.takeIf { it.isNotBlank() }?.let { "Note: $it" }
             ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
             if (status.isBlank() && remarks.isBlank()) return@mapNotNull null
@@ -2386,7 +2430,7 @@ class CallCenterFragment : Fragment() {
                         // dropped: the badge always shows the latest remark's text now,
                         // regardless of who wrote it.
                         val entryRemarksText = latestTodayEntry?.let { row ->
-                            listOf(resolveRemarkBn(row.optString("remarks").trim()), row.optString("note").trim())
+                            listOf(resolveRemarkBn(row), row.optString("note").trim())
                                 .filter { it.isNotBlank() }.joinToString("\n")
                         }.orEmpty()
                         val remarkLabelNote = entryRemarksText
@@ -2433,6 +2477,8 @@ class CallCenterFragment : Fragment() {
 
         if (!isAdded || generation != ccLoadGeneration) return
         allParcels = parcels.sortedBy { it.id }
+        hasLoadedCcDataOnce = true
+        pendingSearchValidation?.let { it(); pendingSearchValidation = null }
         // Branch chips reflect the CC agent's OWN assignment (RbacManager), not whatever
         // branches happen to show up in the fetched parcels — Karim (Sonargaon only) never
         // sees a "Bandar" chip even if a stray legacy parcel's deliveryHub said otherwise.
@@ -2469,6 +2515,15 @@ class CallCenterFragment : Fragment() {
             val cId = row.optString("consignment")
             if (cId.isBlank() || cId !in ccRemarkTrackedIds) return@subscribeValidations
             viewLifecycleOwner.lifecycleScope.launch {
+                // Realtime pushes a bare validations row with no remarks_bn column (this
+                // isn't a fetchValidations() REST read) — resolve it here, cached, before
+                // the card renders, so a WebSocket-pushed remark shows Bangla immediately
+                // rather than falling back to the (possibly stale) local ccRemarkOptions match.
+                row.optString("remarks").trim().takeIf { it.isNotBlank() }?.let { en ->
+                    SupabaseClientManager.resolveRemarkBnCached("CallCenterFragment", en)?.let { bn ->
+                        row.put("remarks_bn", bn)
+                    }
+                }
                 if (isAdded) refreshOneCcParcelFromSupabase(cId, row)
             }
         }
@@ -2519,7 +2574,7 @@ class CallCenterFragment : Fragment() {
                     .parseCreatedAtMillis(latestRemarkRow.optString("created_at"))
                 val liveRemarkStatus = latestRemarkRow.optString("remarks_status").trim()
                 val latestRemark = listOf(
-                    resolveRemarkBn(latestRemarkRow.optString("remarks").trim()), latestRemarkRow.optString("note").trim()
+                    resolveRemarkBn(latestRemarkRow), latestRemarkRow.optString("note").trim()
                 ).filter { it.isNotBlank() }.joinToString("\n")
                 allParcels = allParcels.toMutableList().also {
                     it[idx] = it[idx].copy(
@@ -2632,6 +2687,23 @@ class CallCenterFragment : Fragment() {
     private fun resolveRemarkBn(raw: String): String {
         if (raw.isBlank()) return raw
         return ccRemarkOptions.find { it.englishLabel == raw }?.label ?: raw
+    }
+
+    /**
+     * Preferred entry point: reads remarks_bn directly off a row when present.
+     * remarks_bn is populated client-side, not by the server — see
+     * SupabaseRemarkValidationWriter.withRemarkLabels() for a fetchValidations()
+     * REST read, or the Realtime handler in syncCcRemarkListeners() for a
+     * WebSocket push (both look it up from validation_remarks, cached in
+     * SupabaseClientManager, and inject it into the row before this is called).
+     * Falls back to the old ccRemarkOptions match only for rows that somehow
+     * missed that step, instead of degrading straight to English.
+     */
+    private fun resolveRemarkBn(row: org.json.JSONObject): String {
+        val raw = row.optString("remarks").trim()
+        if (raw.isBlank()) return raw
+        return if (row.has("remarks_bn")) row.optString("remarks_bn").trim().ifBlank { raw }
+        else resolveRemarkBn(raw)
     }
 
     private fun showRemarksDialog(item: CallCenterParcelItem) {
@@ -2881,7 +2953,11 @@ class CallCenterFragment : Fragment() {
                 remarksText = selectedStoredRemarkText,
                 noteText = noteText,
                 source = "CC",
-                screen = "CallCenterFragment"
+                screen = "CallCenterFragment",
+                // Blank when the CC-configured language is already English (selectedRemarkText
+                // == selectedStoredRemarkText) or this was a note-only save with no predefined
+                // option picked — validation_remarks only needs an entry when the two differ.
+                remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedStoredRemarkText } ?: ""
             )
 
             EngagedStateManager.clearEngaged(target.id, userId)

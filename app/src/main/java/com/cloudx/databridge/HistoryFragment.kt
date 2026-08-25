@@ -318,6 +318,12 @@ class HistoryFragment : Fragment() {
     private fun dialNumber(number: String, record: CallRecord) {
         AutoDialHelper.dial(this, number) // ✅ auto-dial / dialpad / SIM chooser
         saveAction(record, "dial", "")
+        // So the agent lands back in CC with this number already searched once the
+        // phone call ends and they return to DataBridge -- same flow as the incoming-call
+        // overlay's "CC-তে খুঁজুন" button (see IncomingCallOverlay.kt).
+        // navigateToCallCenterWithSearch() itself checks the "lookup_from_cc" toggle and
+        // nav_call_center permission, so nothing extra to gate here.
+        (activity as? MainActivity)?.navigateToCallCenterWithSearch(number)
     }
 
     private fun saveRemark(record: CallRecord) {

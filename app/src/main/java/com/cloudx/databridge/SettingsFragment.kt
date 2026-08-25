@@ -41,6 +41,8 @@ class SettingsFragment : Fragment() {
     private lateinit var switchAutoCopy: Switch
     private lateinit var switchRedial: Switch
     private lateinit var switchCallerIdPopup: Switch
+    private lateinit var switchLookupFromCc: Switch
+    private lateinit var rowLookupFromCc: View
     private val prefCallerIdPopup = "caller_id_popup"
     private lateinit var layoutRedialCount: View
     private lateinit var tvRedialCount: android.widget.TextView
@@ -109,6 +111,8 @@ class SettingsFragment : Fragment() {
         switchAutoCopy       = binding.findViewById(R.id.switchAutoCopy)
         switchRedial         = binding.findViewById(R.id.switchRedial)
         switchCallerIdPopup  = binding.findViewById(R.id.switchCallerIdPopup)
+        switchLookupFromCc   = binding.findViewById(R.id.switchLookupFromCc)
+        rowLookupFromCc      = binding.findViewById(R.id.rowLookupFromCc)
         layoutRedialCount    = binding.findViewById(R.id.layoutRedialCount)
         tvRedialCount        = binding.findViewById(R.id.tvRedialCount)
         tvRedialMinus        = binding.findViewById(R.id.tvRedialMinus)
@@ -250,6 +254,15 @@ class SettingsFragment : Fragment() {
                     requireContext().stopService(Intent(requireContext(), IncomingCallLegacyWatcherService::class.java))
                 }
             }
+        }
+
+        // Only agents with Call Center access can search from it -- hide the row entirely
+        // for everyone else rather than showing a toggle that would do nothing for them.
+        rowLookupFromCc.visibility = if (RbacManager.hasPermission("nav_call_center")) View.VISIBLE else View.GONE
+        switchLookupFromCc.setOnCheckedChangeListener(null)
+        switchLookupFromCc.isChecked = togglePrefs.getBoolean("lookup_from_cc", false)
+        switchLookupFromCc.setOnCheckedChangeListener { _, isChecked ->
+            togglePrefs.edit().putBoolean("lookup_from_cc", isChecked).apply()
         }
 
         layoutLogin.setOnClickListener {

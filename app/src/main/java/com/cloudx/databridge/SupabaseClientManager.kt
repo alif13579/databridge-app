@@ -249,6 +249,10 @@ object SupabaseClientManager {
      * Fetches rows from public.validations using the free PostgREST API.
      * No Edge Function invocation is consumed.
      *
+     * Rows come back English-only (remarks column) — callers wanting Bangla
+     * pull the distinct remarks text out of the result and pass it to
+     * [fetchRemarkLabels] as a second, separate query.
+     *
      * [params] is a list of query-string key→value pairs appended to the URL.
      * Returns a list of rows as [JSONObject], same shape as the Edge Function
      * used to return so existing callers need no changes.
@@ -310,6 +314,115 @@ object SupabaseClientManager {
                 "EXCEPTION — ${e.javaClass.simpleName}: ${e.message}", isWarning = true)
             FirebaseErrorLogger.log(screen, "${action}_error", e.message ?: "Request failed")
             emptyList()
+        }
+    }
+
+    // In-memory only — cleared on process death/app restart by design (see the
+    // conversation that settled on this): remark options are a small predefined
+    // set, so this fills up fast and stays fresh without a persistence/invalidation
+    // story. Guarded by the class monitor since GlobalScope.launch callers (Realtime
+    // push handlers) can hit this from multiple coroutines concurrently.
+    private val remarkLabelCache = mutableMapOf<String, String>()
+
+    /**
+     * Resolves a single English remark text to Bangla, using [remarkLabelCache]
+     * first and only hitting validation_remarks on a cache miss. This is the
+     * preferred entry point for one-off lookups (a single Realtime push event) —
+     * for a whole page of rows, prefer [fetchRemarkLabels] once for the distinct
+     * set instead of calling this per-row.
+     *
+     * Returns null on a miss (no catalog entry — a free-typed note, or a remark
+     * saved before this table existed) and does NOT cache the miss, since a
+     * pending write's upsert could resolve it moments later.
+     */
+    suspend fun resolveRemarkBnCached(screen: String, remarksEn: String): String? {
+        val en = remarksEn.trim()
+        if (en.isBlank()) return null
+        synchronized(remarkLabelCache) { remarkLabelCache[en] }?.let { return it }
+        val looked = fetchRemarkLabels(screen, listOf(en))[en] ?: return null
+        synchronized(remarkLabelCache) { remarkLabelCache[en] = looked }
+        return looked
+    }
+
+    /**
+     * Looks up Bangla labels for a set of English remark texts from
+     * public.validation_remarks (the write side upserts en/bn pairs here —
+     * see SupabaseRemarkValidationWriter.write's remarksBnText param).
+     * No Edge Function invocation — free PostgREST API, same as [fetchValidations].
+     *
+     * Checks [remarkLabelCache] first and only queries for entries not already
+     * cached; every fresh result is cached before returning. Prefer this over
+     * repeated [resolveRemarkBnCached] calls when resolving a whole page of rows
+     * at once — one query for every actual miss, instead of one per row.
+     *
+     * Returns a map of English text -> Bangla text. A key with no catalog
+     * match (a free-typed note, or a remark saved before this table existed)
+     * is simply absent from the map — callers should fall back to the
+     * English text themselves when a lookup misses, same pattern as the
+     * Edge Function's resolveRemarkBn/withBanglaLabels.
+     *
+     * [remarksEn] should already be the distinct set of texts needed — callers
+     * pull this from a [fetchValidations] result's `remarks` field before
+     * calling this, no point looking up duplicates twice.
+     */
+    suspend fun fetchRemarkLabels(
+        screen: String,
+        remarksEn: Collection<String>,
+    ): Map<String, String> = withContext(Dispatchers.IO) {
+        val distinct = remarksEn.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        if (distinct.isEmpty()) return@withContext emptyMap()
+        val cached = mutableMapOf<String, String>()
+        val toFetch = mutableListOf<String>()
+        synchronized(remarkLabelCache) {
+            distinct.forEach { en -> remarkLabelCache[en]?.let { cached[en] = it } ?: toFetch.add(en) }
+        }
+        if (toFetch.isEmpty()) return@withContext cached
+        val token = getAccessToken()
+        if (token == null) {
+            Log.e(TAG, "Remark label read skipped: Firebase bearer token is unavailable ($screen)")
+            return@withContext cached
+        }
+        // PostgREST in.(...) filter — comma-separated, each value individually
+        // percent-encoded. A literal comma or paren inside a remark text would
+        // break this filter syntax, but remark texts are short fixed labels
+        // (predefined options), never free-typed content, so this is safe here.
+        val inList = toFetch.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
+        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/validation_remarks" +
+            "?select=remarks_en,remarks_bn&remarks_en=in.($inList)"
+        try {
+            val response = httpClient.newCall(
+                Request.Builder()
+                    .url(url)
+                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                    .addHeader("Authorization", "Bearer $token")
+                    .addHeader("Accept", "application/json")
+                    .get()
+                    .build()
+            ).execute()
+            response.use {
+                val text = it.body?.string().orEmpty()
+                if (!it.isSuccessful) {
+                    Log.e(TAG, "Remark label read HTTP ${it.code} ($screen): ${text.take(1_000)}")
+                    FirebaseErrorLogger.log(screen, "validation_remarks_http_error",
+                        "HTTP ${it.code}: ${text.take(300)}")
+                    return@withContext cached
+                }
+                val arr = JSONArray(text)
+                val fresh = buildMap {
+                    for (i in 0 until arr.length()) {
+                        val row = arr.getJSONObject(i)
+                        val en = row.optString("remarks_en")
+                        val bn = row.optString("remarks_bn")
+                        if (en.isNotBlank() && bn.isNotBlank()) put(en, bn)
+                    }
+                }
+                if (fresh.isNotEmpty()) synchronized(remarkLabelCache) { remarkLabelCache.putAll(fresh) }
+                cached + fresh
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Remark label read failed ($screen)", e)
+            FirebaseErrorLogger.log(screen, "validation_remarks_error", e.message ?: "Request failed")
+            cached
         }
     }
 

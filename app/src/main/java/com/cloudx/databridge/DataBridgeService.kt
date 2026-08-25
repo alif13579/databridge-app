@@ -420,8 +420,25 @@ class DataBridgeService : Service() {
                 if (togglePrefs.getBoolean("sound_on_receive", true)) playSound()
                 vibrateDevice()
                 if (record.type == "phone" && record.cleaned.isNotEmpty()) {
-                    if (togglePrefs.getBoolean("auto_dial", false)) triggerAutoDial(record.cleaned)
-                    else if (togglePrefs.getBoolean("auto_open_dialer", false)) triggerOpenDialer(record.cleaned)
+                    val autoDial = togglePrefs.getBoolean("auto_dial", false)
+                    val lookupFromCcEnabled = togglePrefs.getBoolean("lookup_from_cc", false)
+                    var handledByPopup = false
+                    if (lookupFromCcEnabled && RbacManager.hasPermission("nav_call_center")) {
+                        // Try the full Truecaller-style popup first -- it handles the call
+                        // itself (when autoDial is on) and lets the agent save a remark
+                        // inline, so CallCenterFragment doesn't need to open at all.
+                        val matched = IncomingCallerLookup.lookup(record.cleaned)
+                        if (matched != null) {
+                            RemarkPopupOverlay.show(applicationContext, matched.primary, autoDial)
+                            handledByPopup = true
+                        }
+                    }
+                    // No match (or toggle off / no CC access) -- unchanged original behavior.
+                    // Skipped when the popup already placed the call, so this never double-dials.
+                    if (!handledByPopup) {
+                        if (autoDial) triggerAutoDial(record.cleaned)
+                        else if (togglePrefs.getBoolean("auto_open_dialer", false)) triggerOpenDialer(record.cleaned)
+                    }
                 }
             }
             // Auto-copy — moved here from HistoryFragment so it also fires while the app
@@ -529,6 +546,7 @@ class DataBridgeService : Service() {
 
     // ─── 🔹 Hybrid Dialer Logic (Preserved) ───
     private fun triggerAutoDial(number: String) {
+        openCallCenterSearch(number)
         val hasCallPerm = ContextCompat.checkSelfPermission(
             applicationContext,
             android.Manifest.permission.CALL_PHONE
@@ -538,6 +556,29 @@ class DataBridgeService : Service() {
             return
         }
         tryDirectCall(number)
+    }
+
+    /** Same as IncomingCallOverlay's "CC-তে খুঁজুন" button, but for the auto-dial path --
+     *  this runs from a background service (no Fragment/Activity to reach), so it goes
+     *  through MainActivity + AppNotificationManager.EXTRA_SEARCH_PHONE the same way a
+     *  notification tap does. Runs alongside the dial, not instead of it, so it lands
+     *  regardless of which of the three call layers below actually succeeds.
+     *
+     *  Gated on the "lookup_from_cc" toggle here (not just in MainActivity) so the app
+     *  doesn't get launched into the foreground at all when the feature is off. */
+    private fun openCallCenterSearch(number: String) {
+        val enabled = applicationContext.getSharedPreferences("databridge_toggles", MODE_PRIVATE)
+            .getBoolean("lookup_from_cc", false)
+        if (!enabled) return
+        try {
+            val intent = Intent(applicationContext, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(AppNotificationManager.EXTRA_SEARCH_PHONE, number)
+            }
+            applicationContext.startActivity(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "openCallCenterSearch failed: ${e.message}")
+        }
     }
 
     private fun triggerOpenDialer(number: String) {

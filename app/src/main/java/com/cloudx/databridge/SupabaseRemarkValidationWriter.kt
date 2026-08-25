@@ -27,9 +27,15 @@ object SupabaseRemarkValidationWriter {
         .writeTimeout(10, TimeUnit.SECONDS).readTimeout(10, TimeUnit.SECONDS).build()
     private val jsonMediaType = "application/json".toMediaType()
 
+    /** [remarksBnText] is the Bangla label paired with [remarksText] (e.g. CcRemarkOption.label
+     *  / WorkerRemarkOption.label) when the remark came from a predefined option — leave blank
+     *  for a free-typed note, which has no Bangla counterpart. When present, the Edge Function
+     *  upserts the pair into validation_remarks so any card showing this English text (via
+     *  withRemarkLabels() below, a Realtime push cache lookup, or the Edge Function's own
+     *  report/push paths) can resolve Bangla. */
     fun write(assignedAgentSystemId: String, branchId: String, consignmentId: String,
               status: String, remarksText: String, noteText: String = "", source: String,
-              screen: String) {
+              screen: String, remarksBnText: String = "") {
         if (assignedAgentSystemId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
             val missing = buildList {
                 if (assignedAgentSystemId.isBlank()) add("assignedAgentSystemId")
@@ -42,7 +48,8 @@ object SupabaseRemarkValidationWriter {
             .put("consignment", consignmentId).put("branch_id", branchId)
             .put("assigned_to_system_id", assignedAgentSystemId)
             .put("source", source)
-            .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)), screen,
+            .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)
+            .apply { if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText) }), screen,
             "supabase_validation_write", consignmentId) { }
     }
 
@@ -170,14 +177,33 @@ object SupabaseRemarkValidationWriter {
 
     // ── Read functions — direct PostgREST REST API (unlimited, zero invocations) ──
 
+    /** Looks up Bangla for every row's `remarks` field (a second, separate PostgREST
+     *  call to validation_remarks) and injects it into each row as `remarks_bn` before
+     *  the caller's onResult fires — resolveRemarkBn(JSONObject) in the fragments reads
+     *  that field directly. A row whose remark has no catalog match (free-typed note,
+     *  or saved before the catalog existed) simply doesn't get the field added; the
+     *  fragments' resolveRemarkBn() already falls back to English for that case. */
+    private suspend fun withRemarkLabels(rows: List<JSONObject>, screen: String): List<JSONObject> {
+        if (rows.isEmpty()) return rows
+        val distinctEn = rows.map { it.optString("remarks").trim() }.filter { it.isNotBlank() }.distinct()
+        if (distinctEn.isEmpty()) return rows
+        val labels = SupabaseClientManager.fetchRemarkLabels(screen, distinctEn)
+        if (labels.isEmpty()) return rows
+        rows.forEach { row ->
+            labels[row.optString("remarks").trim()]?.let { bn -> row.put("remarks_bn", bn) }
+        }
+        return rows
+    }
+
     fun fetchHistory(consignmentId: String, screen: String, onResult: (List<JSONObject>) -> Unit) {
         if (consignmentId.isBlank()) return onResult(emptyList())
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                onResult(SupabaseClientManager.fetchValidations(screen, "fetch_history", listOf(
+                val rows = SupabaseClientManager.fetchValidations(screen, "fetch_history", listOf(
                     "consignment" to "eq.$consignmentId",
                     "order" to "created_at.desc"
-                )))
+                ))
+                onResult(withRemarkLabels(rows, screen))
             } catch (e: Exception) {
                 RemarkPushChainLog.log("RemarkPushChain", "fetchHistory($screen): uncaught " +
                     "${e.javaClass.simpleName}: ${e.message} — onResult() called with emptyList()", isWarning = true)
@@ -190,11 +216,12 @@ object SupabaseRemarkValidationWriter {
         if (assignedAgentSystemId.isBlank()) return onResult(emptyList())
         val start = LocalDate.now(ZoneId.of("Asia/Dhaka")).atStartOfDay(ZoneId.of("Asia/Dhaka")).toInstant().toString()
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            onResult(SupabaseClientManager.fetchValidations(screen, "fetch_today", listOf(
+            val rows = SupabaseClientManager.fetchValidations(screen, "fetch_today", listOf(
                 "assigned_to_system_id" to "eq.$assignedAgentSystemId",
                 "created_at" to "gte.$start",
                 "order" to "created_at.desc"
-            )))
+            ))
+            onResult(withRemarkLabels(rows, screen))
         }
     }
 
@@ -204,12 +231,13 @@ object SupabaseRemarkValidationWriter {
         val start = Instant.ofEpochMilli(rangeStartMs).toString()
         val end   = Instant.ofEpochMilli(rangeEndMs).toString()
         kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            onResult(SupabaseClientManager.fetchValidations(screen, "fetch_range", listOf(
+            val rows = SupabaseClientManager.fetchValidations(screen, "fetch_range", listOf(
                 "assigned_to_system_id" to "eq.$assignedAgentSystemId",
                 "created_at" to "gte.$start",
                 "created_at" to "lte.$end",
                 "order" to "created_at.desc"
-            )))
+            ))
+            onResult(withRemarkLabels(rows, screen))
         }
     }
 
@@ -229,7 +257,11 @@ object SupabaseRemarkValidationWriter {
                     "order" to "created_at.desc"
                 ))
                 allRows.addAll(rows)
-                if (remaining.decrementAndGet() == 0) onResult(allRows.toList())
+                if (remaining.decrementAndGet() == 0) {
+                    kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        onResult(withRemarkLabels(allRows.toList(), screen))
+                    }
+                }
             }
         }
     }
