@@ -136,18 +136,18 @@ async function firebaseProfileForSystemId(systemId: string, identity: { uid: str
   }
 }
 
-/** Upserts the English->Bangla pair into the shared lookup catalog so Android's
- *  direct PostgREST history reads can join remark_labels and get Bangla back
- *  in the same request. Only called when the app actually sent a Bangla label
- *  (a predefined remark option) — a free-typed note has no Bangla counterpart,
- *  so it's simply skipped here and stays English-only wherever it's read. */
-async function upsertRemarkLabel(englishLabel: string, banglaLabel: string) {
-  const en = englishLabel.trim()
-  const bn = banglaLabel.trim()
+/** Upserts the English->Bangla pair into the validation_remarks helper table so
+ *  Android's direct PostgREST reads can look up Bangla by English text. Only
+ *  called when the app actually sent a Bangla label (a predefined remark
+ *  option) — a free-typed note has no Bangla counterpart, so it's simply
+ *  skipped here and stays English-only wherever it's read. */
+async function upsertRemarkLabel(remarksEn: string, remarksBn: string) {
+  const en = remarksEn.trim()
+  const bn = remarksBn.trim()
   if (!en || !bn) return
-  const { error } = await admin.from('remark_labels').upsert({
-    english_label: en, bangla_label: bn, updated_at: new Date().toISOString(),
-  }, { onConflict: 'english_label' })
+  const { error } = await admin.from('validation_remarks').upsert({
+    remarks_en: en, remarks_bn: bn, updated_at: new Date().toISOString(),
+  }, { onConflict: 'remarks_en' })
   // A failed catalog upsert must never block the actual remark write.
   if (error) console.error('upsertRemarkLabel failed', error)
 }
@@ -250,30 +250,30 @@ async function firebaseRead(identity: { uid: string; token: string }, path: stri
   return response.ok ? response.json() : null
 }
 
-/** Looks up the Bangla label for a saved remark from the remark_labels catalog
- *  (populated by upsertRemarkLabel() on every write that included a Bangla
- *  label). Falls back to the raw English text when there's no catalog match —
- *  a free-typed note, or a remark saved before this catalog existed. */
+/** Looks up the Bangla label for a saved remark from the validation_remarks
+ *  helper table (populated by upsertRemarkLabel() on every write that included
+ *  a Bangla label). Falls back to the raw English text when there's no match —
+ *  a free-typed note, or a remark saved before this table existed. */
 async function resolveRemarkBn(remarksText: string): Promise<string> {
   const en = remarksText.trim()
   if (!en) return remarksText
-  const { data, error } = await admin.from('remark_labels').select('bangla_label').eq('english_label', en).maybeSingle()
+  const { data, error } = await admin.from('validation_remarks').select('remarks_bn').eq('remarks_en', en).maybeSingle()
   if (error) { console.error('resolveRemarkBn lookup failed', error); return remarksText }
-  return data?.bangla_label || remarksText
+  return data?.remarks_bn || remarksText
 }
 
 /** Batch version for the report action: one lookup query for every distinct
  *  English remark in the page, instead of one per row. Adds `remarks_bn` to
- *  each row (falls back to the English text when the catalog has no match,
- *  same as resolveRemarkBn). Android's direct-PostgREST reads (history/today/
- *  range) get remarks_bn from the validations_with_bn view instead (a
- *  server-side LEFT JOIN against remark_labels) — see that view's migration. */
+ *  each row (falls back to the English text when there's no match, same as
+ *  resolveRemarkBn). Android's own direct-PostgREST reads do the equivalent
+ *  lookup themselves — fetch distinct remarks from validations, then a
+ *  second query to validation_remarks — see SupabaseClientManager. */
 async function withBanglaLabels<T extends { remarks: string }>(rows: T[]): Promise<(T & { remarks_bn: string })[]> {
   const distinctEn = [...new Set(rows.map((r) => r.remarks.trim()).filter(Boolean))]
   if (!distinctEn.length) return rows.map((r) => ({ ...r, remarks_bn: r.remarks }))
-  const { data, error } = await admin.from('remark_labels').select('english_label,bangla_label').in('english_label', distinctEn)
+  const { data, error } = await admin.from('validation_remarks').select('remarks_en,remarks_bn').in('remarks_en', distinctEn)
   if (error) { console.error('withBanglaLabels lookup failed', error); return rows.map((r) => ({ ...r, remarks_bn: r.remarks })) }
-  const map = new Map((data ?? []).map((r) => [r.english_label, r.bangla_label]))
+  const map = new Map((data ?? []).map((r) => [r.remarks_en, r.remarks_bn]))
   return rows.map((r) => ({ ...r, remarks_bn: map.get(r.remarks.trim()) || r.remarks }))
 }
 
