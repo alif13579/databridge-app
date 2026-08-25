@@ -161,6 +161,14 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
         return EmployeeIndexMigrationResult(dryRun, matched, unresolved)
     }
 
+    /** Deletes the old claims_by_employeeId index outright. Deliberately a separate call from
+     *  migrateEmployeeIndexToSystemId — bundling delete into the migration would mean a bug in
+     *  the migration's mapping has no way back. Call this only after spot-checking the new
+     *  claims_by_systemId index looks right. */
+    suspend fun deleteOldEmployeeIndex() {
+        db.reference.child("claims/indexes/claims_by_employeeId").removeValue().await()
+    }
+
     companion object {
         fun claimId(timestamp: Long): String {
             require(timestamp in 1_000_000_000_000L..9_999_999_999_999L) { "Claim timestamp must be 13 digits" }

@@ -80,6 +80,7 @@ class ClaimsReportFragment : Fragment() {
         v.findViewById<Button>(R.id.btnClaimsExcel).setOnClickListener { export("xlsx") }
         v.findViewById<Button>(R.id.btnClaimsPdf).setOnClickListener { export("pdf") }
         v.findViewById<Button>(R.id.btnClaimsMigrateIndex).setOnClickListener { showMigrationDialog() }
+        v.findViewById<Button>(R.id.btnClaimsDeleteOldIndex).setOnClickListener { showDeleteOldIndexDialog() }
         // Open with a useful current-month report immediately; changing either
         // date still requires an explicit Search so the user controls refreshes.
         if (lockedToBranch && selectedBranches.isNotEmpty()) search(v)
@@ -327,6 +328,21 @@ class ClaimsReportFragment : Fragment() {
             builder.setPositiveButton("OK", null)
         }
         builder.show()
+    }
+
+    private fun showDeleteOldIndexDialog() {
+        AlertDialog.Builder(requireContext())
+            .setTitle("Delete old employee_id index?")
+            .setMessage("Permanently deletes claims/indexes/claims_by_employeeId. Only do this after you've run the migration and spot-checked a few claims in the new system_id index — this cannot be undone.")
+            .setPositiveButton("Delete") { _, _ ->
+                lifecycleScope.launch {
+                    runCatching { repo.deleteOldEmployeeIndex() }
+                        .onSuccess { toast("Old index deleted") }
+                        .onFailure { toast(it.message ?: "Delete failed") }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun pickDate(initial: Long, done: (Long) -> Unit) { MaterialDatePicker.Builder.datePicker().setSelection(initial).build().also { it.addOnPositiveButtonClickListener { utc -> done(localDay(utc)) }; it.show(childFragmentManager, "claims_date") } }
