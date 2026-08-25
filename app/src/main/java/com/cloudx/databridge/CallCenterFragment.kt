@@ -2515,6 +2515,15 @@ class CallCenterFragment : Fragment() {
             val cId = row.optString("consignment")
             if (cId.isBlank() || cId !in ccRemarkTrackedIds) return@subscribeValidations
             viewLifecycleOwner.lifecycleScope.launch {
+                // Realtime pushes a bare validations row with no remarks_bn column (this
+                // isn't a fetchValidations() REST read) — resolve it here, cached, before
+                // the card renders, so a WebSocket-pushed remark shows Bangla immediately
+                // rather than falling back to the (possibly stale) local ccRemarkOptions match.
+                row.optString("remarks").trim().takeIf { it.isNotBlank() }?.let { en ->
+                    SupabaseClientManager.resolveRemarkBnCached("CallCenterFragment", en)?.let { bn ->
+                        row.put("remarks_bn", bn)
+                    }
+                }
                 if (isAdded) refreshOneCcParcelFromSupabase(cId, row)
             }
         }
@@ -2681,12 +2690,14 @@ class CallCenterFragment : Fragment() {
     }
 
     /**
-     * Preferred entry point: reads remarks_bn straight from a validations_with_bn row —
-     * that view already did the English->Bangla lookup server-side (LEFT JOIN
-     * remark_labels), so no client-side match is needed. Falls back to the old
-     * ccRemarkOptions match only for rows fetched from somewhere that doesn't carry
-     * remarks_bn (there shouldn't be any left, but this keeps a row missing the
-     * column from silently showing blank instead of degrading to the old behavior).
+     * Preferred entry point: reads remarks_bn directly off a row when present.
+     * remarks_bn is populated client-side, not by the server — see
+     * SupabaseRemarkValidationWriter.withRemarkLabels() for a fetchValidations()
+     * REST read, or the Realtime handler in syncCcRemarkListeners() for a
+     * WebSocket push (both look it up from validation_remarks, cached in
+     * SupabaseClientManager, and inject it into the row before this is called).
+     * Falls back to the old ccRemarkOptions match only for rows that somehow
+     * missed that step, instead of degrading straight to English.
      */
     private fun resolveRemarkBn(row: org.json.JSONObject): String {
         val raw = row.optString("remarks").trim()
@@ -2945,7 +2956,7 @@ class CallCenterFragment : Fragment() {
                 screen = "CallCenterFragment",
                 // Blank when the CC-configured language is already English (selectedRemarkText
                 // == selectedStoredRemarkText) or this was a note-only save with no predefined
-                // option picked — remark_labels only needs an entry when the two differ.
+                // option picked — validation_remarks only needs an entry when the two differ.
                 remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedStoredRemarkText } ?: ""
             )
 

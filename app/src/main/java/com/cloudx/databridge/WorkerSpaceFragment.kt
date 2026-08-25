@@ -537,10 +537,14 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     /**
-     * Preferred entry point: reads remarks_bn straight from a validations_with_bn row —
-     * that view already did the English->Bangla lookup server-side (LEFT JOIN
-     * remark_labels), so no client-side match is needed. Falls back to the old
-     * remarkOptions match only for a row missing remarks_bn.
+     * Preferred entry point: reads remarks_bn directly off a row when present.
+     * remarks_bn is populated client-side, not by the server — see
+     * SupabaseRemarkValidationWriter.withRemarkLabels() for a fetchValidations()
+     * REST read, or the Realtime handler in syncRemarkListeners() for a
+     * WebSocket push (both look it up from validation_remarks, cached in
+     * SupabaseClientManager, and inject it into the row before this is called).
+     * Falls back to the old remarkOptions match only for a row that somehow
+     * missed that step, instead of degrading straight to English.
      */
     private fun resolveRemarkBn(row: JSONObject): String {
         val raw = row.optString("remarks").trim()
@@ -798,7 +802,7 @@ class WorkerSpaceFragment : Fragment() {
                     remarksText = selectedOption?.englishLabel?.ifBlank { selectedLabel } ?: selectedLabel,
                     noteText = "",
                     // Blank when englishLabel is missing/blank (falls back to selectedLabel
-                    // itself above, i.e. already the same text as what's stored) — remark_labels
+                    // itself above, i.e. already the same text as what's stored) — validation_remarks
                     // only needs an entry when the English and Bangla text actually differ.
                     remarksBnText = selectedOption?.englishLabel?.takeIf { it.isNotBlank() }?.let { selectedLabel } ?: ""
                 )
@@ -1393,6 +1397,15 @@ class WorkerSpaceFragment : Fragment() {
             val previous = workerLastSeenRemarkAt[cId] ?: 0L
             workerLastSeenRemarkAt[cId] = maxOf(createdAt, previous)
             viewLifecycleOwner.lifecycleScope.launch {
+                // Realtime pushes a bare validations row with no remarks_bn column (this
+                // isn't a fetchValidations() REST read) — resolve it here, cached, before
+                // the card renders, so a WebSocket-pushed remark shows Bangla immediately
+                // rather than falling back to the (possibly stale) local remarkOptions match.
+                row.optString("remarks").trim().takeIf { it.isNotBlank() }?.let { en ->
+                    SupabaseClientManager.resolveRemarkBnCached("WorkerSpaceFragment", en)?.let { bn ->
+                        row.put("remarks_bn", bn)
+                    }
+                }
                 if (isAdded) refreshOneWorkerParcelFromSupabase(cId, row)
             }
         }
