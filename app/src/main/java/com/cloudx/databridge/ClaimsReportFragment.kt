@@ -13,6 +13,9 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.datepicker.MaterialDatePicker
 import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.io.File
@@ -34,16 +37,26 @@ class ClaimsReportFragment : Fragment() {
     private val allowedBranchIds get() = arguments?.getStringArrayList(ARG_ALLOWED_BRANCH_IDS)?.filter { it.isNotBlank() }.orEmpty()
     private var allowedBranchNames: Map<String, String> = emptyMap()
 
+    /** employeeId here is always users/{uid}/profile/company_info/employee_id — the same
+     *  HR-assigned ID ClaimInfo.employeeId is stamped with on submit (see
+     *  PettyCashViewModel.currentEmployeeId()), so it's usable directly as the filter key. */
+    private data class ClaimsEmployeeOption(val employeeId: String, val name: String) {
+        val display: String get() = "$name ($employeeId)"
+    }
+    private var claimsEmployeeOptions: List<ClaimsEmployeeOption> = emptyList()
+    private val selectedEmployeeIds: MutableSet<String> = mutableSetOf() // empty = all employees
+
     override fun onCreateView(i: LayoutInflater, c: ViewGroup?, s: Bundle?): View = i.inflate(R.layout.fragment_claims_report, c, false)
 
     override fun onViewCreated(v: View, s: Bundle?) {
         val suppliedBranchId = arguments?.getString(ARG_BRANCH_ID).orEmpty()
         selectedBranches += suppliedBranchId.takeIf { it.isNotBlank() }.orEmpty()
         val branch = v.findViewById<TextView>(R.id.btnClaimsBranches)
+        val employees = v.findViewById<TextView>(R.id.btnClaimsEmployees)
         val fromView = v.findViewById<TextView>(R.id.btnClaimsFrom)
         val toView = v.findViewById<TextView>(R.id.btnClaimsTo)
         fun dates() { fromView.text = "From: ${dateFormat.format(Date(from))}"; toView.text = "To: ${dateFormat.format(Date(to))}" }
-        dates(); refreshBranches(branch)
+        dates(); refreshBranches(branch); rebuildClaimsEmployeeRoster(employees)
         if (lockedToBranch && allowedBranchIds.size <= 1) {
             // A dashboard report must stay within the eligible branch scope.
             // With only one eligible branch there is nothing to pick, so keep
@@ -54,10 +67,11 @@ class ClaimsReportFragment : Fragment() {
         when {
             lockedToBranch && allowedBranchIds.size > 1 -> {
                 loadAllowedBranchNames(branch)
-                branch.setOnClickListener { chooseAllowedBranch(branch, v) }
+                branch.setOnClickListener { chooseAllowedBranch(branch, employees, v) }
             }
-            !lockedToBranch -> branch.setOnClickListener { chooseBranches(branch) }
+            !lockedToBranch -> branch.setOnClickListener { chooseBranches(branch, employees) }
         }
+        employees.setOnClickListener { showClaimsEmployeesDropdown(employees) }
         fromView.setOnClickListener { pickDate(from) { from = it; if (to < from) to = endOfDay(it); dates() } }
         toView.setOnClickListener { pickDate(to) { to = endOfDay(it); if (from > to) from = startOfDay(it); dates() } }
         v.findViewById<Button>(R.id.btnClaimsSearch).setOnClickListener { search(v) }
@@ -79,7 +93,7 @@ class ClaimsReportFragment : Fragment() {
         refreshBranches(label)
     }
 
-    private fun chooseAllowedBranch(label: TextView, root: View) {
+    private fun chooseAllowedBranch(label: TextView, employees: TextView, root: View) {
         if (allowedBranchIds.isEmpty()) return
         val current = selectedBranches.firstOrNull()
         val selected = allowedBranchIds.indexOf(current).coerceAtLeast(0)
@@ -90,6 +104,7 @@ class ClaimsReportFragment : Fragment() {
                 selectedBranches += allowedBranchIds[which]
                 report = null
                 refreshBranches(label)
+                rebuildClaimsEmployeeRoster(employees)
                 dialog.dismiss()
                 search(root)
             }
@@ -97,13 +112,13 @@ class ClaimsReportFragment : Fragment() {
             .show()
     }
 
-    private fun chooseBranches(label: TextView) = lifecycleScope.launch {
+    private fun chooseBranches(label: TextView, employees: TextView) = lifecycleScope.launch {
         val branches = db.reference.child("branches").get().await().children.map { it.key.orEmpty() to (it.child("name").getValue(String::class.java).orEmpty()) }
         if (branches.isEmpty()) return@launch toast("No branches found")
         val checked = BooleanArray(branches.size) { branches[it].first in selectedBranches }
         AlertDialog.Builder(requireContext()).setTitle("Select branches")
             .setMultiChoiceItems(branches.map { (id, name) -> "$name ($id)" }.toTypedArray(), checked) { _, which, yes -> if (yes) selectedBranches += branches[which].first else selectedBranches -= branches[which].first }
-            .setPositiveButton("Done") { _, _ -> refreshBranches(label) }.show()
+            .setPositiveButton("Done") { _, _ -> refreshBranches(label); rebuildClaimsEmployeeRoster(employees) }.show()
     }
 
     private fun refreshBranches(label: TextView) {
@@ -114,13 +129,124 @@ class ClaimsReportFragment : Fragment() {
         }
     }
 
+    /** Roster = employees belonging to the currently selected branch(es), via
+     *  branches/{id}/employees (same index BranchEditFragment's person picker reads). Rebuilt
+     *  whenever branch selection changes so the dropdown never offers an employee who can't
+     *  actually have a claim in scope. Previously-selected employees who fall out of the new
+     *  roster are dropped, same as CallCenterFragment.rebuildCcAgentRoster(). */
+    private fun rebuildClaimsEmployeeRoster(employees: TextView) = lifecycleScope.launch {
+        if (selectedBranches.isEmpty()) {
+            claimsEmployeeOptions = emptyList()
+            selectedEmployeeIds.clear()
+            updateClaimsEmployeesLabel(employees)
+            return@launch
+        }
+        val uids = linkedSetOf<String>()
+        selectedBranches.forEach { branchId ->
+            runCatching { db.reference.child("branches/$branchId/employees").get().await() }
+                .getOrNull()?.children?.forEach { e -> e.key?.let { uids += it } }
+        }
+        val options = coroutineScope {
+            uids.map { uid ->
+                async {
+                    val profile = runCatching { db.reference.child("users/$uid/profile").get().await() }.getOrNull()
+                    val empId = profile?.child("company_info/employee_id")?.getValue(String::class.java).orEmpty().trim()
+                    if (empId.isBlank()) return@async null
+                    val name = profile?.child("name")?.getValue(String::class.java)?.trim().orEmpty().ifBlank { empId }
+                    ClaimsEmployeeOption(empId, name)
+                }
+            }.awaitAll().filterNotNull()
+        }.sortedBy { it.name }
+        claimsEmployeeOptions = options
+        selectedEmployeeIds.retainAll(options.map { it.employeeId }.toSet())
+        updateClaimsEmployeesLabel(employees)
+    }
+
+    private fun updateClaimsEmployeesLabel(employees: TextView) {
+        val selected = claimsEmployeeOptions.filter { it.employeeId in selectedEmployeeIds }
+        employees.text = when {
+            selected.isEmpty() -> "All Employees"
+            selected.size == 1 -> selected.first().name
+            selected.size == 2 -> "${selected[0].name} & ${selected[1].name}"
+            else -> "${selected[0].name}, ${selected[1].name} & ${selected.size - 2} more"
+        }
+    }
+
+    /** Searchable multiselect, same dialog + interaction CallCenterFragment.showAgentDropdown()
+     *  uses for its agent filter: check any number of employees, Select All/Clear All, Apply.
+     *  A fully-checked (or fully-unchecked) result both collapse to "All Employees", matching
+     *  ClaimsReportFilter's existing empty-set-means-no-filter semantics. */
+    private fun showClaimsEmployeesDropdown(employees: TextView) {
+        if (selectedBranches.isEmpty()) return toast("Select branch(es) first")
+        if (claimsEmployeeOptions.isEmpty()) return toast("এই branch-এ কোনো employee পাওয়া যায়নি")
+        val ctx = requireContext()
+        val dialogView = LayoutInflater.from(ctx).inflate(R.layout.dialog_agent_multiselect, null)
+        val etSearch = dialogView.findViewById<EditText>(R.id.etAgentSearch)
+        val layoutCheckboxes = dialogView.findViewById<LinearLayout>(R.id.layoutAgentCheckboxes)
+        val tvNoResults = dialogView.findViewById<TextView>(R.id.tvAgentNoResults)
+        val btnSelectClearAll = dialogView.findViewById<Button>(R.id.btnAgentSelectClearAll)
+        val btnApply = dialogView.findViewById<Button>(R.id.btnAgentApply)
+
+        val working: MutableSet<String> = if (selectedEmployeeIds.isEmpty())
+            claimsEmployeeOptions.map { it.employeeId }.toMutableSet() else selectedEmployeeIds.toMutableSet()
+
+        val checkboxes = claimsEmployeeOptions.map { option ->
+            val cb = LayoutInflater.from(ctx).inflate(R.layout.item_agent_checkbox, layoutCheckboxes, false) as CheckBox
+            cb.text = option.display
+            cb.isChecked = option.employeeId in working
+            layoutCheckboxes.addView(cb)
+            option to cb
+        }
+
+        var dialog: AlertDialog? = null
+        fun updateToggleLabel() { btnSelectClearAll.text = if (working.size >= claimsEmployeeOptions.size) "Clear All" else "Select All" }
+
+        checkboxes.forEach { (option, cb) ->
+            cb.setOnCheckedChangeListener { _, checked ->
+                if (checked) working += option.employeeId else working -= option.employeeId
+                updateToggleLabel()
+            }
+        }
+        btnSelectClearAll.setOnClickListener {
+            if (working.size >= claimsEmployeeOptions.size) {
+                working.clear(); checkboxes.forEach { (_, cb) -> cb.isChecked = false }
+            } else {
+                working.clear(); working += claimsEmployeeOptions.map { it.employeeId }
+                checkboxes.forEach { (_, cb) -> cb.isChecked = true }
+            }
+            updateToggleLabel()
+        }
+        etSearch.addTextChangedListener(object : android.text.TextWatcher {
+            override fun afterTextChanged(s: android.text.Editable?) {
+                val q = s?.toString()?.trim()?.lowercase().orEmpty()
+                var anyVisible = false
+                checkboxes.forEach { (option, cb) ->
+                    val matches = q.isEmpty() || option.name.lowercase().contains(q) || option.employeeId.lowercase().contains(q)
+                    cb.visibility = if (matches) View.VISIBLE else View.GONE
+                    if (matches) anyVisible = true
+                }
+                tvNoResults.visibility = if (anyVisible) View.GONE else View.VISIBLE
+            }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
+        btnApply.setOnClickListener {
+            selectedEmployeeIds.clear()
+            if (working.size < claimsEmployeeOptions.size) selectedEmployeeIds += working
+            updateClaimsEmployeesLabel(employees)
+            dialog?.dismiss()
+        }
+        dialog = AlertDialog.Builder(ctx).setTitle("Select Employees").setView(dialogView).create()
+        dialog?.setOnShowListener { updateToggleLabel() }
+        dialog?.show()
+    }
+
     private fun search(v: View) {
         if (selectedBranches.isEmpty()) return toast("Select at least one branch")
-        val employeeIds = v.findViewById<EditText>(R.id.etClaimsEmployees).text.toString().split(',').map { it.trim() }.filter { it.isNotBlank() }.toSet()
         val progress = v.findViewById<ProgressBar>(R.id.pbClaimsReport)
         progress.isVisible = true
         lifecycleScope.launch {
-            runCatching { repo.search(ClaimsReportFilter(selectedBranches, employeeIds, from, to)) }
+            runCatching { repo.search(ClaimsReportFilter(selectedBranches, selectedEmployeeIds, from, to)) }
                 .onSuccess { report = it; render(v, it) }.onFailure { toast(it.message ?: "Report search failed") }
             progress.isVisible = false
         }
