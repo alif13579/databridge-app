@@ -26,6 +26,7 @@
                 <Button android:id="@+id/btnClaimsExcel" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Export Excel"/>
                 <Button android:id="@+id/btnClaimsPdf" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:text="Export PDF"/>
             </LinearLayout>
+            <Button android:id="@+id/btnClaimsMigrateIndex" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:text="⚠️ One-time: migrate employee index to system_id" android:textAllCaps="false" android:textSize="12sp" android:backgroundTint="#FEF3C7" android:textColor="#92400E"/>
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

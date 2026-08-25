@@ -11,6 +11,10 @@ data class ClaimInfo(
     val branchName: String = "",
     val employeeId: String = "",
     val employeeName: String = "",
+    // Canonical unique filter/index key (users/{uid}/profile/company_info/system_id — digits
+    // only). employeeId above is kept purely for display; it can contain spaces, which is why
+    // it's unsafe as a Firebase key/index segment. See claims_by_systemId in FirebasePaths.
+    val agentSystemId: String = "",
     val type: String = "",
     val category: String = "",
     val purpose: String = "",
@@ -43,9 +47,19 @@ data class ClaimInfo(
     val rejectedByUid: String = "", val rejectedByName: String = "", val rejectedAt: Long = 0L, val rejectReason: String = ""
 )
 
+/** Result of the one-time claims_by_employeeId -> claims_by_systemId backfill.
+ *  unresolved holds (employeeId, claimId) pairs where no current user profile's
+ *  company_info/system_id matched that employeeId (e.g. employee no longer exists) —
+ *  surfaced rather than silently dropped, so nothing gets lost quietly. */
+data class EmployeeIndexMigrationResult(
+    val dryRun: Boolean,
+    val matched: Int,
+    val unresolved: List<Pair<String, String>>
+)
+
 data class ClaimsReportFilter(
     val branchIds: Set<String>,
-    val employeeIds: Set<String> = emptySet(),
+    val systemIds: Set<String> = emptySet(),
     val fromMillis: Long,
     val toMillis: Long,
     val types: Set<String> = emptySet(),

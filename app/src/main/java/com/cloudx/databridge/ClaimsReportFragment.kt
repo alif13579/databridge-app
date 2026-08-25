@@ -37,14 +37,16 @@ class ClaimsReportFragment : Fragment() {
     private val allowedBranchIds get() = arguments?.getStringArrayList(ARG_ALLOWED_BRANCH_IDS)?.filter { it.isNotBlank() }.orEmpty()
     private var allowedBranchNames: Map<String, String> = emptyMap()
 
-    /** employeeId here is always users/{uid}/profile/company_info/employee_id — the same
-     *  HR-assigned ID ClaimInfo.employeeId is stamped with on submit (see
-     *  PettyCashViewModel.currentEmployeeId()), so it's usable directly as the filter key. */
-    private data class ClaimsEmployeeOption(val employeeId: String, val name: String) {
-        val display: String get() = "$name ($employeeId)"
+    /** systemId (users/{uid}/profile/company_info/system_id, digits-only) is the actual
+     *  filter/index key — same identity ClaimInfo.agentSystemId is stamped with on submit
+     *  (see PettyCashViewModel.currentSystemId()). employeeId is kept purely for display
+     *  ("Mehedi (EMP001)"); it can contain spaces, which is why it's never used as a key.
+     *  Mirrors CallCenterFragment.AgentOption's systemId/employeeId split exactly. */
+    private data class ClaimsEmployeeOption(val systemId: String, val employeeId: String, val name: String) {
+        val display: String get() = "$name (${employeeId.ifBlank { systemId }})"
     }
     private var claimsEmployeeOptions: List<ClaimsEmployeeOption> = emptyList()
-    private val selectedEmployeeIds: MutableSet<String> = mutableSetOf() // empty = all employees
+    private val selectedSystemIds: MutableSet<String> = mutableSetOf() // empty = all employees
 
     override fun onCreateView(i: LayoutInflater, c: ViewGroup?, s: Bundle?): View = i.inflate(R.layout.fragment_claims_report, c, false)
 
@@ -77,6 +79,7 @@ class ClaimsReportFragment : Fragment() {
         v.findViewById<Button>(R.id.btnClaimsSearch).setOnClickListener { search(v) }
         v.findViewById<Button>(R.id.btnClaimsExcel).setOnClickListener { export("xlsx") }
         v.findViewById<Button>(R.id.btnClaimsPdf).setOnClickListener { export("pdf") }
+        v.findViewById<Button>(R.id.btnClaimsMigrateIndex).setOnClickListener { showMigrationDialog() }
         // Open with a useful current-month report immediately; changing either
         // date still requires an explicit Search so the user controls refreshes.
         if (lockedToBranch && selectedBranches.isNotEmpty()) search(v)
@@ -137,7 +140,7 @@ class ClaimsReportFragment : Fragment() {
     private fun rebuildClaimsEmployeeRoster(employees: TextView) = lifecycleScope.launch {
         if (selectedBranches.isEmpty()) {
             claimsEmployeeOptions = emptyList()
-            selectedEmployeeIds.clear()
+            selectedSystemIds.clear()
             updateClaimsEmployeesLabel(employees)
             return@launch
         }
@@ -150,20 +153,21 @@ class ClaimsReportFragment : Fragment() {
             uids.map { uid ->
                 async {
                     val profile = runCatching { db.reference.child("users/$uid/profile").get().await() }.getOrNull()
+                    val sysId = profile?.child("company_info/system_id")?.getValue(String::class.java).orEmpty().trim()
+                    if (sysId.isBlank()) return@async null // can't be filtered on — also can't have submitted a claim (submit requires it)
                     val empId = profile?.child("company_info/employee_id")?.getValue(String::class.java).orEmpty().trim()
-                    if (empId.isBlank()) return@async null
-                    val name = profile?.child("name")?.getValue(String::class.java)?.trim().orEmpty().ifBlank { empId }
-                    ClaimsEmployeeOption(empId, name)
+                    val name = profile?.child("name")?.getValue(String::class.java)?.trim().orEmpty().ifBlank { empId.ifBlank { sysId } }
+                    ClaimsEmployeeOption(sysId, empId, name)
                 }
             }.awaitAll().filterNotNull()
         }.sortedBy { it.name }
         claimsEmployeeOptions = options
-        selectedEmployeeIds.retainAll(options.map { it.employeeId }.toSet())
+        selectedSystemIds.retainAll(options.map { it.systemId }.toSet())
         updateClaimsEmployeesLabel(employees)
     }
 
     private fun updateClaimsEmployeesLabel(employees: TextView) {
-        val selected = claimsEmployeeOptions.filter { it.employeeId in selectedEmployeeIds }
+        val selected = claimsEmployeeOptions.filter { it.systemId in selectedSystemIds }
         employees.text = when {
             selected.isEmpty() -> "All Employees"
             selected.size == 1 -> selected.first().name
@@ -187,13 +191,13 @@ class ClaimsReportFragment : Fragment() {
         val btnSelectClearAll = dialogView.findViewById<Button>(R.id.btnAgentSelectClearAll)
         val btnApply = dialogView.findViewById<Button>(R.id.btnAgentApply)
 
-        val working: MutableSet<String> = if (selectedEmployeeIds.isEmpty())
-            claimsEmployeeOptions.map { it.employeeId }.toMutableSet() else selectedEmployeeIds.toMutableSet()
+        val working: MutableSet<String> = if (selectedSystemIds.isEmpty())
+            claimsEmployeeOptions.map { it.systemId }.toMutableSet() else selectedSystemIds.toMutableSet()
 
         val checkboxes = claimsEmployeeOptions.map { option ->
             val cb = LayoutInflater.from(ctx).inflate(R.layout.item_agent_checkbox, layoutCheckboxes, false) as CheckBox
             cb.text = option.display
-            cb.isChecked = option.employeeId in working
+            cb.isChecked = option.systemId in working
             layoutCheckboxes.addView(cb)
             option to cb
         }
@@ -203,7 +207,7 @@ class ClaimsReportFragment : Fragment() {
 
         checkboxes.forEach { (option, cb) ->
             cb.setOnCheckedChangeListener { _, checked ->
-                if (checked) working += option.employeeId else working -= option.employeeId
+                if (checked) working += option.systemId else working -= option.systemId
                 updateToggleLabel()
             }
         }
@@ -211,7 +215,7 @@ class ClaimsReportFragment : Fragment() {
             if (working.size >= claimsEmployeeOptions.size) {
                 working.clear(); checkboxes.forEach { (_, cb) -> cb.isChecked = false }
             } else {
-                working.clear(); working += claimsEmployeeOptions.map { it.employeeId }
+                working.clear(); working += claimsEmployeeOptions.map { it.systemId }
                 checkboxes.forEach { (_, cb) -> cb.isChecked = true }
             }
             updateToggleLabel()
@@ -221,7 +225,7 @@ class ClaimsReportFragment : Fragment() {
                 val q = s?.toString()?.trim()?.lowercase().orEmpty()
                 var anyVisible = false
                 checkboxes.forEach { (option, cb) ->
-                    val matches = q.isEmpty() || option.name.lowercase().contains(q) || option.employeeId.lowercase().contains(q)
+                    val matches = q.isEmpty() || option.name.lowercase().contains(q) || option.employeeId.lowercase().contains(q) || option.systemId.contains(q)
                     cb.visibility = if (matches) View.VISIBLE else View.GONE
                     if (matches) anyVisible = true
                 }
@@ -231,8 +235,8 @@ class ClaimsReportFragment : Fragment() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
         btnApply.setOnClickListener {
-            selectedEmployeeIds.clear()
-            if (working.size < claimsEmployeeOptions.size) selectedEmployeeIds += working
+            selectedSystemIds.clear()
+            if (working.size < claimsEmployeeOptions.size) selectedSystemIds += working
             updateClaimsEmployeesLabel(employees)
             dialog?.dismiss()
         }
@@ -246,7 +250,7 @@ class ClaimsReportFragment : Fragment() {
         val progress = v.findViewById<ProgressBar>(R.id.pbClaimsReport)
         progress.isVisible = true
         lifecycleScope.launch {
-            runCatching { repo.search(ClaimsReportFilter(selectedBranches, selectedEmployeeIds, from, to)) }
+            runCatching { repo.search(ClaimsReportFilter(selectedBranches, selectedSystemIds, from, to)) }
                 .onSuccess { report = it; render(v, it) }.onFailure { toast(it.message ?: "Report search failed") }
             progress.isVisible = false
         }
@@ -284,6 +288,45 @@ class ClaimsReportFragment : Fragment() {
         else CashExportWriter.writePdf(file, "DataBridge — Petty Cash Report", "Branches: ${selectedBranches.joinToString()} | Placed ${dateFormat.format(Date(from))} – ${dateFormat.format(Date(to))} | Generated: ${SimpleDateFormat("dd MMM yyyy HH:mm", Locale.getDefault()).format(Date())}", listOf(CashExportWriter.PdfSummaryCard("Claims", data.totalRequests.toString()), CashExportWriter.PdfSummaryCard("Requested", "৳${data.totalRequested}"), CashExportWriter.PdfSummaryCard("Approved", "৳${data.totalApproved}"), CashExportWriter.PdfSummaryCard("Settled", "৳${data.totalSettled}")), headers, rows, List(headers.size) { 1f })
         val uri = FileProvider.getUriForFile(requireContext(), "${requireContext().packageName}.fileprovider", file)
         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType(if (format == "xlsx") "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" else "application/pdf").putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Export Claims"))
+    }
+
+    /** One-time trigger for ClaimsRepository.migrateEmployeeIndexToSystemId. Always dry-runs
+     *  first — real writes only happen from a second, explicit tap on that result dialog.
+     *  Remove btnClaimsMigrateIndex (and this) once the migration has been run and spot-checked. */
+    private fun showMigrationDialog() {
+        AlertDialog.Builder(requireContext())
+            .setTitle("Migrate employee index")
+            .setMessage("Backfills old claims onto the system_id-based index. Starts with a dry run — writes nothing, just reports what would happen.")
+            .setPositiveButton("Run Dry Run") { _, _ -> runMigration(dryRun = true) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun runMigration(dryRun: Boolean) {
+        toast(if (dryRun) "Running dry run…" else "Migrating…")
+        lifecycleScope.launch {
+            runCatching { repo.migrateEmployeeIndexToSystemId(dryRun) }
+                .onSuccess { showMigrationResult(it) }
+                .onFailure { toast(it.message ?: "Migration failed") }
+        }
+    }
+
+    private fun showMigrationResult(result: EmployeeIndexMigrationResult) {
+        val preview = result.unresolved.take(10).joinToString("\n") { (empId, claimId) -> "• $empId → $claimId" }
+        val more = (result.unresolved.size - 10).let { if (it > 0) "\n…and $it more" else "" }
+        val body = buildString {
+            append(if (result.dryRun) "DRY RUN — nothing written yet.\n\n" else "Done — written.\n\n")
+            append("Matched: ${result.matched}\nUnresolved: ${result.unresolved.size}")
+            if (result.unresolved.isNotEmpty()) append("\n\n$preview$more")
+        }
+        val builder = AlertDialog.Builder(requireContext()).setTitle("Migration result").setMessage(body)
+        if (result.dryRun && result.matched > 0) {
+            builder.setPositiveButton("Run For Real") { _, _ -> runMigration(dryRun = false) }
+            builder.setNegativeButton("Close", null)
+        } else {
+            builder.setPositiveButton("OK", null)
+        }
+        builder.show()
     }
 
     private fun pickDate(initial: Long, done: (Long) -> Unit) { MaterialDatePicker.Builder.datePicker().setSelection(initial).build().also { it.addOnPositiveButtonClickListener { utc -> done(localDay(utc)) }; it.show(childFragmentManager, "claims_date") } }
