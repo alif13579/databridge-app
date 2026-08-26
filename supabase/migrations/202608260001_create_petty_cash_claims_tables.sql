@@ -1,19 +1,68 @@
 -- Petty Cash / Claims — table structure only, ahead of the actual data/write-flow
 -- migration off Firebase. Mirrors Firebase's current shape exactly (see
--- ClaimsModels.kt's ClaimInfo, PettyCashModels.kt's PettyCashDeposit, and
--- FirebasePaths.kt's claim*/pettyCash* paths) so the eventual migration is a
--- straight field-for-field copy rather than a redesign-while-migrating.
+-- ClaimsModels.kt's ClaimInfo, PettyCashModels.kt's PettyCashDeposit, Branch.kt,
+-- and FirebasePaths.kt's claim*/pettyCash*/branch* paths) so the eventual
+-- migration is close to a field-for-field copy rather than a redesign-while-migrating.
 --
--- Three tables, matching Firebase's three distinct roots:
+-- Four tables, matching Firebase's four distinct roots:
 --   claims/{claimId}/info                       -> claims (below)
 --   petty_cash/{branchId}/wallet/deposits/{id}   -> petty_cash_deposits (below)
 --   petty_cash/{branchId}/wallet/balance         -> petty_cash_wallet_balance (below)
+--   branches/{branchId}                          -> branches (below)
 --
 -- Deliberately NOT migrated: claims/indexes/claims_by_branchId and
 -- claims_by_systemId (ClaimsRepository's manual Firebase index trees). A SQL
 -- WHERE clause with an index on branch_id/agent_system_id replaces both —
 -- see the indexes below. No Edge Function, RLS write policy, or data copy is
 -- part of this migration; those come with the actual write-flow cutover.
+--
+-- Every *_name paired with a *_uid/*_id/*_system_id column in Firebase (branch_name,
+-- employee_name, staff_by_name, poc_approved_by_name, settle_in_process_by_name,
+-- settled_by_name, rejected_by_name, entered_by_name, manager_name, etc.) is
+-- deliberately NOT a column here — public.users already has name keyed by
+-- system_id (and branches.name below covers branch_id), so every one of these
+-- is a join/lookup at read time instead of a stored, driftable copy. Firebase
+-- stored them denormalized because Realtime Database has no server-side JOIN;
+-- Postgres does, so there's no reason to carry that duplication forward.
+
+-- ── branches ─────────────────────────────────────────────────────────────
+-- Mirrors Branch.kt exactly. manager_uid/accountant_uid/petty_cash_poc_uid/
+-- staff_uid are Firebase uids (not system_id) — kept as bare text reference
+-- columns, same as Firebase, rather than a foreign key to users, since users
+-- is keyed by system_id there and a uid->system_id join would need
+-- firebase_id, an unindexed lookup at that table currently.
+create table if not exists public.branches (
+  branch_id            text primary key,
+  branch_code          text not null default '',
+  name                 text not null default '',
+  branch_type          text not null default '',
+  address              text not null default '',
+  latitude             double precision not null default 0,
+  longitude            double precision not null default 0,
+  email                text not null default '',
+  phone                text not null default '',
+  manager_uid          text not null default '',
+  accountant_uid       text not null default '',
+  accountant_role      text not null default '',
+  petty_cash_poc_uid   text not null default '',
+  staff_uid            text not null default '',
+  staff_role           text not null default '',
+  parent_branch_id     text not null default '',
+  status               text not null default 'active',
+  image_url            text not null default '',
+  created_by           text not null default '',
+  created_at           timestamptz not null default now(),
+  updated_at           timestamptz not null default now()
+  -- updated_log (Branch.kt's Map<String, UpdateLogEntry> audit trail) has no
+  -- column here — an unbounded, ever-growing map is a poor fit for a single
+  -- row's column; if/when this table gets a real write-flow, that history
+  -- becomes its own table (branch_update_log or similar) keyed on branch_id,
+  -- not a repeat of Firebase's shape.
+);
+
+alter table public.branches enable row level security;
+-- No policies yet — see claims' note below; same reasoning (no write-flow
+-- wired to this table yet).
 
 -- ── claims ───────────────────────────────────────────────────────────────
 -- The canonical request/approval record — ClaimInfo lives once in Firebase
@@ -27,13 +76,12 @@ create table if not exists public.claims (
                                                           -- imported rows keep their original id unchanged.
   claim_code                  text not null,
   branch_id                   text not null,
-  branch_name                 text not null default '',
   employee_id                 text not null default '',
-  employee_name               text not null default '',
   -- Canonical unique filter/index key (digits-only system_id) — see ClaimInfo's
   -- doc comment on why this exists separately from employee_id (which can
   -- contain spaces, making it unsafe as a Firebase key; that constraint
   -- doesn't apply here, but the same column keeps the eventual copy 1:1).
+  -- Also the join key into users for employee_name — see the note above.
   agent_system_id             text not null default '',
   type                        text not null default '',
   category                    text not null default '',
@@ -63,19 +111,14 @@ create table if not exists public.claims (
   created_at                  timestamptz not null default now(),
   updated_at                  timestamptz not null default now(),
   staff_by_uid                text not null default '',
-  staff_by_name                text not null default '',
   staff_at                    timestamptz,
   staff_comment                text not null default '',
   poc_approved_by_uid          text not null default '',
-  poc_approved_by_name         text not null default '',
   poc_comment                  text not null default '',
   settle_in_process_by_uid     text not null default '',
-  settle_in_process_by_name    text not null default '',
   settle_in_process_at         timestamptz,
   settled_by_uid                text not null default '',
-  settled_by_name                text not null default '',
   rejected_by_uid               text not null default '',
-  rejected_by_name               text not null default '',
   rejected_at                   timestamptz,
   reject_reason                  text not null default ''
 );
@@ -109,7 +152,6 @@ create table if not exists public.petty_cash_deposits (
   remarks          text not null default '',
   balance_after    numeric not null default 0,
   entered_by_uid   text not null default '',
-  entered_by_name  text not null default '',
   created_at       timestamptz not null default now()
 );
 
