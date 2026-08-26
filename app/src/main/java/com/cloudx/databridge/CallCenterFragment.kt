@@ -2603,9 +2603,10 @@ class CallCenterFragment : Fragment() {
         .toEpochMilli()
 
     /**
-     * Loads Call Center remark options for the "Set Remarks" sheet from config/remarks,
-     * respecting config/language/ccLang for which language to show remark text vs status
-     * label in (independent of workerLang — see ConfigLanguageFragment).
+     * Loads Call Center remark options for the "Set Remarks" sheet from
+     * public.validation_remarks (source='CC'), respecting config/language/ccLang for which
+     * language to show remark text vs status label in (independent of workerLang — see
+     * ConfigLanguageFragment). WhatsApp templates are unrelated and still load from Firebase.
      */
     private fun loadCcRemarkOptions() {
         viewLifecycleOwner.lifecycleScope.launch {
@@ -2620,10 +2621,7 @@ class CallCenterFragment : Fragment() {
                 val (remarkLang, statusLang) = parseLangPair(langValue)
                 ccStatusLang = statusLang
 
-                val remarksSnap = withContext(Dispatchers.IO) {
-                    com.google.firebase.database.FirebaseDatabase.getInstance().reference
-                        .child("config/remarks_call_center").get().await()
-                }
+                val options = SupabaseClientManager.fetchRemarkOptions("CallCenterFragment", "CC")
                 val templatesSnap = withContext(Dispatchers.IO) {
                     com.google.firebase.database.FirebaseDatabase.getInstance().reference
                         .child("config/whatsappTemplates").get().await()
@@ -2636,38 +2634,26 @@ class CallCenterFragment : Fragment() {
                     loadedTemplates[tid] = ConfigState.WhatsAppTemplate(tid, name, body)
                 }
                 whatsappTemplatesCache = loadedTemplates
-                data class FetchedCcRemark(val option: CcRemarkOption, val priority: Int)
-                val fetched = mutableListOf<FetchedCcRemark>()
-                remarksSnap.children.forEach { groupSnap ->
-                    groupSnap.children.forEach { r ->
-                        val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
-                        val textEn = r.child("text_en").getValue(String::class.java)?.trim().orEmpty()
-                        val label = (if (remarkLang == "en") textEn.ifBlank { textBn } else textBn.ifBlank { textEn })
-                        val englishLabel = textEn.ifBlank { textBn }
-                        if (label.isBlank()) return@forEach
-                        val target = r.child("target_status").getValue(String::class.java)?.trim()
-                            .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
-                        val templateId = r.child("template_id").getValue(String::class.java)?.trim().orEmpty()
-                        val priority = r.child("priority").getValue(Int::class.java) ?: 0
-                        val metaEntry = StatusMetaCache.entries[target]
-                        val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
-                        fetched.add(FetchedCcRemark(
-                            CcRemarkOption(
-                                icon = "💬",
-                                label = label,
-                                englishLabel = englishLabel,
-                                statusKey = target,
-                                statusPreview = preview,
-                                statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
-                                templateId = templateId
-                            ),
-                            priority
-                        ))
-                    }
+                val fetched = options.mapNotNull { opt ->
+                    val label = if (remarkLang == "en") opt.textEn.ifBlank { opt.textBn } else opt.textBn.ifBlank { opt.textEn }
+                    val englishLabel = opt.textEn.ifBlank { opt.textBn }
+                    if (label.isBlank()) return@mapNotNull null
+                    val target = opt.targetStatus.ifBlank { return@mapNotNull null }
+                    val metaEntry = StatusMetaCache.entries[target]
+                    val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
+                    CcRemarkOption(
+                        icon = "💬",
+                        label = label,
+                        englishLabel = englishLabel,
+                        statusKey = target,
+                        statusPreview = preview,
+                        statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
+                        templateId = opt.templateId
+                    ) to opt.priority
                 }
 
                 if (isAdded) {
-                    ccRemarkOptions = fetched.sortedByDescending { it.priority }.map { it.option }
+                    ccRemarkOptions = fetched.sortedByDescending { it.second }.map { it.first }
                     if (::adapter.isInitialized) {
                         adapter.statusLang = ccStatusLang
                         adapter.notifyDataSetChanged()
@@ -2725,7 +2711,7 @@ class CallCenterFragment : Fragment() {
 
         if (options.isEmpty()) {
             val tv = TextView(requireContext())
-            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই।\nAdmin-কে config/remarks_call_center-এ remark যোগ করতে বলুন।"
+            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই।\nAdmin-কে Call Center remark config-এ remark যোগ করতে বলুন।"
             tv.textSize = 13f
             tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
             tv.setPadding(0, 24, 0, 24)

@@ -56,13 +56,20 @@ class ParcelDetailFragment : Fragment() {
     private val scope    by lazy { arguments?.getString("scope")     ?: "cc"  }
     private val userId   by lazy { auth.currentUser?.uid ?: "" }
 
+    // Resolved once (scope == "worker" only) for the "Set Remarks" save below — the signed-in
+    // worker's own systemId, since a worker landing here is always looking at their own
+    // assigned parcel (unlike CC scope, where the assigned worker isn't the signed-in user
+    // and must come from the remark history instead — see lastResolvedAgentSystemId).
+    private var ownWorkerSystemId: String = ""
     // Remark options for the "Set Remarks" sheet — loaded once from the scope-appropriate
-    // config path (config/remarks_call_center or config/remarks_worker, same admin-managed
-    // source CallCenterFragment/WorkerSpaceFragment already read), so options stay in sync
-    // with whichever screen the agent/worker started from.
+    // Supabase source ('CC' or 'WORKER' in public.validation_remarks, same admin-managed
+    // catalog CallCenterFragment/WorkerSpaceFragment/RemarkPopupOverlay already read via
+    // SupabaseClientManager.fetchRemarkOptions()), so options stay in sync with whichever
+    // screen the agent/worker started from.
     private data class PdRemarkOption(
         val icon: String,
         val label: String,
+        val englishLabel: String,
         val statusKey: String,
         val statusPreview: String,
         val statusColor: Int
@@ -105,9 +112,13 @@ class ParcelDetailFragment : Fragment() {
     private var currentAgentPhone: String = ""
     private var lastResolvedAgentSystemId: String = ""
 
-    // Live remark listener
-    private var remarkListener: ValueEventListener? = null
-    private val remarkRef get() = db.reference.child("courier/remarks_by_consignment/$parcelId")
+    // Live remark timeline: initial load via SupabaseRemarkValidationWriter.fetchHistory()
+    // (free PostgREST read, zero Edge Function invocations), kept live afterward via a
+    // Realtime subscription on validations filtered by consignment — same pattern
+    // CallCenterFragment/WorkerSpaceFragment use, replacing this fragment's old
+    // courier/remarks_by_consignment ValueEventListener.
+    private var timelineRealtimeJob: kotlinx.coroutines.Job? = null
+    private var timelineRows: MutableList<org.json.JSONObject> = mutableListOf()
 
     // Cache: uid → display name (resolved lazily from Firebase via UserNameResolver)
     private val uidNameCache = mutableMapOf<String, String>()
@@ -179,10 +190,22 @@ class ParcelDetailFragment : Fragment() {
 
         loadPdRemarkOptions()
         loadParcelInfo()
+        if (scope == "worker") loadOwnWorkerSystemId()
+    }
+
+    /** Resolves the signed-in user's own systemId once, for the "Set Remarks" save below. */
+    private fun loadOwnWorkerSystemId() {
+        if (userId.isBlank()) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            ownWorkerSystemId = withContext(Dispatchers.IO) {
+                db.reference.child("users/$userId/profile/company_info/system_id")
+                    .get().await().getValue(String::class.java)?.trim()
+            }.orEmpty()
+        }
     }
 
     override fun onDestroyView() {
-        remarkListener?.let { remarkRef.removeEventListener(it) }
+        timelineRealtimeJob?.cancel()
         super.onDestroyView()
     }
 
@@ -191,35 +214,25 @@ class ParcelDetailFragment : Fragment() {
     //    agent or worker landing here directly doesn't have to back out to set one) ──
 
     private fun loadPdRemarkOptions() {
-        val configPath = if (scope == "worker") "config/remarks_worker" else "config/remarks_call_center"
+        val source = if (scope == "worker") "WORKER" else "CC"
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val remarksSnap = withContext(Dispatchers.IO) {
-                    StatusMetaCache.refresh()
-                    db.reference.child(configPath).get().await()
-                }
-                val fetched = mutableListOf<Pair<PdRemarkOption, Int>>()
-                remarksSnap.children.forEach { groupSnap ->
-                    groupSnap.children.forEach { r ->
-                        val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
-                        val textEn = r.child("text_en").getValue(String::class.java)?.trim().orEmpty()
-                        val label = textBn.ifBlank { textEn }
-                        if (label.isBlank()) return@forEach
-                        val target = r.child("target_status").getValue(String::class.java)?.trim()
-                            .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
-                        val priority = r.child("priority").getValue(Int::class.java) ?: 0
-                        val metaEntry = StatusMetaCache.entries[target]
-                        val preview = StatusMetaCache.labelOrNull(target, "bn") ?: target
-                        fetched.add(
-                            PdRemarkOption(
-                                icon = "💬",
-                                label = label,
-                                statusKey = target,
-                                statusPreview = preview,
-                                statusColor = metaEntry?.color ?: android.graphics.Color.GRAY
-                            ) to priority
-                        )
-                    }
+                withContext(Dispatchers.IO) { StatusMetaCache.refresh() }
+                val options = SupabaseClientManager.fetchRemarkOptions("ParcelDetailFragment", source)
+                val fetched = options.mapNotNull { opt ->
+                    val label = opt.textBn.ifBlank { opt.textEn }
+                    if (label.isBlank()) return@mapNotNull null
+                    val target = opt.targetStatus.ifBlank { return@mapNotNull null }
+                    val metaEntry = StatusMetaCache.entries[target]
+                    val preview = StatusMetaCache.labelOrNull(target, "bn") ?: target
+                    PdRemarkOption(
+                        icon = "💬",
+                        label = label,
+                        englishLabel = opt.textEn.ifBlank { opt.textBn },
+                        statusKey = target,
+                        statusPreview = preview,
+                        statusColor = metaEntry?.color ?: android.graphics.Color.GRAY
+                    ) to opt.priority
                 }
                 if (isAdded) {
                     pdRemarkOptions = fetched.sortedByDescending { it.second }.map { it.first }
@@ -251,8 +264,8 @@ class ParcelDetailFragment : Fragment() {
 
         if (pdRemarkOptions.isEmpty()) {
             val tv = TextView(requireContext())
-            val configName = if (scope == "worker") "config/remarks_worker" else "config/remarks_call_center"
-            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই।\nAdmin-কে $configName-এ remark যোগ করতে বলুন।"
+            val scopeName = if (scope == "worker") "Worker" else "Call Center"
+            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই।\nAdmin-কে $scopeName remark config-এ remark যোগ করতে বলুন।"
             tv.textSize = 13f
             tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
             tv.setPadding(0, 24, 0, 24)
@@ -261,6 +274,7 @@ class ParcelDetailFragment : Fragment() {
 
         var selectedStatus     = ""
         var selectedRemarkText = ""
+        var selectedRemarkTextEn = ""
         val optionViews = mutableListOf<View>()
 
         btnSave.isEnabled = false
@@ -300,8 +314,9 @@ class ParcelDetailFragment : Fragment() {
                 tvText.setTextColor(requireContext().getColor(R.color.theme_text_remark_opt_selected))
                 dot.visibility = View.VISIBLE
 
-                selectedStatus     = opt.statusKey
-                selectedRemarkText = opt.label
+                selectedStatus       = opt.statusKey
+                selectedRemarkText   = opt.label
+                selectedRemarkTextEn = opt.englishLabel
                 tvAutoStatus.text  = opt.statusPreview
                 tvAutoStatus.setTextColor(opt.statusColor)
                 refreshSaveEnabled()
@@ -316,27 +331,44 @@ class ParcelDetailFragment : Fragment() {
 
             val timestamp    = System.currentTimeMillis()
             val indexDateKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(timestamp))
-            val remarkedBy   = if (scope == "worker") "worker" else "support"
+            val source       = if (scope == "worker") "WORKER" else "CC"
+            // worker scope: the signed-in worker IS the assigned agent (they're looking at
+            // their own parcel). CC scope: the assigned worker is whoever the remark history
+            // last showed (lastResolvedAgentSystemId) — the CC agent themselves is never the
+            // assigned_to_system_id. See ownWorkerSystemId/lastResolvedAgentSystemId's doc
+            // comments above for why these differ.
+            val assignedAgentSystemId = if (scope == "worker") ownWorkerSystemId else lastResolvedAgentSystemId
+            val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
 
-            val remarkData = mapOf(
-                "userId"      to userId,
-                "remarks"     to selectedRemarkText.ifBlank { noteText },
-                "note"        to noteText,
-                "status"      to selectedStatus,
-                "remarked_by" to remarkedBy,
-                "createdAt"   to timestamp
+            if (assignedAgentSystemId.isBlank()) {
+                // write() silently no-ops on a blank assignedAgentSystemId (logs and returns,
+                // no error callback) — CC scope hits this when no worker has touched the
+                // parcel yet (lastResolvedAgentSystemId only populates from remark history).
+                // Surfacing it here beats a false "saved" toast over a remark that never wrote.
+                Toast.makeText(requireContext(),
+                    "⚠ এই parcel-এ এখনো কোনো worker assign/touch করেনি, তাই remark save করা যাচ্ছে না",
+                    Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+
+            SupabaseRemarkValidationWriter.write(
+                assignedAgentSystemId = assignedAgentSystemId,
+                branchId = branchId,
+                consignmentId = parcelId,
+                status = selectedStatus,
+                remarksText = selectedRemarkTextEn.ifBlank { noteText },
+                noteText = noteText,
+                source = source,
+                screen = "ParcelDetailFragment",
+                // Blank when selectedRemarkTextEn == selectedRemarkText (config language is
+                // already English) or this was a note-only save with no option picked — same
+                // reasoning as CallCenterFragment's saveCcRemarkForItems.
+                remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedRemarkTextEn } ?: ""
             )
-            db.reference.child("courier/remarks_by_consignment/$parcelId/remarks_$timestamp")
-                .setValue(remarkData)
-                .addOnFailureListener { e ->
-                    FirebaseErrorLogger.log(
-                        screen = "ParcelDetailFragment", action = "remark_write",
-                        errorMessage = e.message ?: "unknown",
-                        extra = mapOf("consignmentId" to parcelId, "userId" to userId)
-                    )
-                    Toast.makeText(requireContext(), "⚠ Remark save হয়নি: ${e.message}", Toast.LENGTH_LONG).show()
-                }
 
+            // Kept alongside the validations write above: these feed CC's push-queue index
+            // (courier/remarks_by_userId) and per-day dedup (courier/users_by_consignment),
+            // unrelated to the remark record itself, which now lives in Supabase.
             db.reference.child("courier/remarks_by_userId/$userId/push_${indexDateKey}_$parcelId")
                 .setValue(
                     mapOf(
@@ -443,7 +475,7 @@ class ParcelDetailFragment : Fragment() {
                     // remarks listener could fire before this callback finishes). Attached
                     // even if the try block above failed, so the timeline can still work
                     // independently of the overview card.
-                    attachRemarkListener()
+                    loadAndSubscribeTimeline()
                 }
                 override fun onCancelled(e: DatabaseError) {
                     if (!isAdded || view == null) return
@@ -451,82 +483,98 @@ class ParcelDetailFragment : Fragment() {
                     // Parcel info failed to load, but the remarks timeline can still
                     // work independently — attach it anyway (CREATED entry just won't
                     // show since currentCreatedAt stays 0).
-                    attachRemarkListener()
+                    loadAndSubscribeTimeline()
                 }
             })
     }
 
     // ── Remarks timeline (live) ──────────────────────────────────────────────────
 
-    private fun attachRemarkListener() {
-        // Defensive: loadParcelInfo() uses addListenerForSingleValueEvent so this
-        // normally fires exactly once, but guard against a double-attach anyway
-        // (e.g. a future retry path) by detaching any existing listener first.
-        remarkListener?.let { remarkRef.removeEventListener(it) }
-        remarkListener = object : ValueEventListener {
-            override fun onDataChange(snap: DataSnapshot) {
-                // isAdded can still be true for a brief window after the fragment's
-                // view has been destroyed (e.g. rapid back-navigation or a second
-                // notification tap while this fragment is mid-transition). Accessing
-                // viewLifecycleOwner in that window throws IllegalStateException, so
-                // guard on `view != null` — the real signal that the view is alive —
-                // instead of `isAdded` alone.
-                if (!isAdded || view == null) return
-                viewLifecycleOwner.lifecycleScope.launch {
-                    try {
-                        renderTimeline(snap)
-                    } catch (e: Exception) {
-                        FirebaseErrorLogger.log(
-                            screen = "ParcelDetailFragment",
-                            action = "renderTimeline",
-                            errorMessage = e.stackTraceToString(),
-                            extra = mapOf("parcelId" to parcelId, "scope" to scope)
-                        )
-                        if (isAdded && view != null) {
-                            progressBar.visibility = View.GONE
-                            android.widget.Toast.makeText(
-                                requireContext(),
-                                "⚠️ Timeline load failed: ${e.javaClass.simpleName}: ${e.message}",
-                                android.widget.Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
+    private fun loadAndSubscribeTimeline() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val rows = withContext(Dispatchers.IO) {
+                val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
+                SupabaseRemarkValidationWriter.fetchHistory(parcelId, "ParcelDetailFragment") { fetched ->
+                    deferred.complete(fetched)
                 }
-                // Independent of renderTimeline — doesn't block/get blocked by it. Re-resolves
-                // only when the latest worker-remark's agentSystemId actually changes (a new
-                // remark from the SAME worker, or the timeline reordering, is a no-op here).
-                viewLifecycleOwner.lifecycleScope.launch {
-                    try {
-                        resolveAgentPhoneIfNeeded(snap)
-                    } catch (e: Exception) {
-                        FirebaseErrorLogger.log(
-                            screen = "ParcelDetailFragment", action = "resolveAgentPhone",
-                            errorMessage = e.message ?: "unknown",
-                            extra = mapOf("parcelId" to parcelId)
-                        )
-                    }
+                deferred.await()
+            }
+            if (!isAdded || view == null) return@launch
+            timelineRows = rows.toMutableList()
+            try {
+                renderTimeline()
+            } catch (e: Exception) {
+                FirebaseErrorLogger.log(
+                    screen = "ParcelDetailFragment", action = "renderTimeline",
+                    errorMessage = e.stackTraceToString(),
+                    extra = mapOf("parcelId" to parcelId, "scope" to scope)
+                )
+                if (isAdded && view != null) {
+                    progressBar.visibility = View.GONE
+                    android.widget.Toast.makeText(
+                        requireContext(),
+                        "⚠️ Timeline load failed: ${e.javaClass.simpleName}: ${e.message}",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
                 }
             }
-            override fun onCancelled(e: DatabaseError) {}
+            try {
+                resolveAgentPhoneIfNeeded()
+            } catch (e: Exception) {
+                FirebaseErrorLogger.log(
+                    screen = "ParcelDetailFragment", action = "resolveAgentPhone",
+                    errorMessage = e.message ?: "unknown",
+                    extra = mapOf("parcelId" to parcelId)
+                )
+            }
+            subscribeTimelineRealtime()
         }
-        remarkRef.addValueEventListener(remarkListener!!)
     }
 
-    /** Finds the most recent remarked_by=="worker" entry's agentSystemId and, if it's
+    /** Kept alive independently of the fragment's other listeners — a new INSERT just
+     *  appends to timelineRows and re-renders, same incremental approach CallCenterFragment/
+     *  WorkerSpaceFragment's Realtime handlers use (see refreshOneCcParcelFromSupabase). */
+    private fun subscribeTimelineRealtime() {
+        timelineRealtimeJob?.cancel()
+        timelineRealtimeJob = SupabaseRealtimeManager.subscribeValidations(
+            channelKey = "parcel_detail_$parcelId",
+            filter = "consignment" to parcelId,
+            scope = viewLifecycleOwner.lifecycleScope,
+        ) { row ->
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (!isAdded || view == null) return@launch
+                val source = row.optString("source").trim()
+                row.optString("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
+                    SupabaseClientManager.resolveRemarkBnCached("ParcelDetailFragment", source, en)?.let { bn ->
+                        row.put("remarks_bn", bn)
+                    }
+                }
+                timelineRows.add(row)
+                try {
+                    renderTimeline()
+                } catch (e: Exception) {
+                    FirebaseErrorLogger.log(
+                        screen = "ParcelDetailFragment", action = "renderTimeline_realtime",
+                        errorMessage = e.stackTraceToString(),
+                        extra = mapOf("parcelId" to parcelId, "scope" to scope)
+                    )
+                }
+                resolveAgentPhoneIfNeeded()
+            }
+        }
+    }
+
+    /** Finds the most recent WORKER-sourced row's assigned_to_system_id and, if it's
      *  different from the last one resolved, looks up that worker's phone (targeted
      *  users_by_systemId/{id}/uid -> users/{uid}/profile/phone reads, not a full scan)
      *  and caches it in currentAgentPhone for the WhatsApp button. */
-    private suspend fun resolveAgentPhoneIfNeeded(snap: DataSnapshot) {
-        val latestSystemId = snap.children
+    private suspend fun resolveAgentPhoneIfNeeded() {
+        val latestSystemId = timelineRows
+            .filter { it.optString("source").trim().equals("WORKER", ignoreCase = true) }
             .mapNotNull { r ->
-                val remarkedBy = r.child("remarked_by").getValue(String::class.java)?.trim()
-                if (remarkedBy != "worker") return@mapNotNull null
-                val sysId = r.child("agentSystemId").getValue(String::class.java)?.trim()
-                if (sysId.isNullOrBlank()) return@mapNotNull null
-                val createdAt = r.child("createdAt").getValue(Long::class.java)
-                    ?: r.child("createdAt").getValue(Double::class.java)?.toLong()
-                    ?: r.child("createdAt").getValue(String::class.java)?.toLongOrNull()
-                    ?: 0L
+                val sysId = r.optString("assigned_to_system_id").trim()
+                if (sysId.isBlank()) return@mapNotNull null
+                val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
                 sysId to createdAt
             }
             .maxByOrNull { it.second }
@@ -549,7 +597,7 @@ class ParcelDetailFragment : Fragment() {
         if (isAdded) currentAgentPhone = phone
     }
 
-    private suspend fun renderTimeline(snap: DataSnapshot) {
+    private suspend fun renderTimeline() {
         val ctx = context ?: return
 
         data class Entry(
@@ -567,56 +615,52 @@ class ParcelDetailFragment : Fragment() {
         val sdf = SimpleDateFormat("dd-MM-yy  hh:mm a", Locale.getDefault())
         val lang = "bn"
 
-        // Resolve display names + photos for any uids we see — same shared resolver
-        // WorkerSpaceFragment/CallCenterFragment's Journey Log dialogs use, instead of
-        // this fragment's own ad-hoc users/{uid}/name lookup (wrong path — the real one
-        // is users/{uid}/profile/name, which is what UserNameResolver reads).
-        val uidsToResolve = snap.children
-            .mapNotNull { it.child("userId").getValue(String::class.java)?.trim() }
-            .filter { it.isNotBlank() && !uidNameCache.containsKey(it) }
+        // Resolve display names + photos for any author system IDs we see — same shared
+        // resolver WorkerSpaceFragment/CallCenterFragment's Journey Log dialogs use.
+        // validations.author_system_id is the lookup key here (not a Firebase uid like the
+        // old courier/remarks_by_consignment rows carried), resolved via users_by_systemId.
+        val systemIdsToResolve = timelineRows
+            .mapNotNull { it.optString("author_system_id").trim().takeIf { id -> id.isNotBlank() } }
+            .filter { !uidNameCache.containsKey(it) }
             .distinct()
 
-        if (uidsToResolve.isNotEmpty()) {
+        if (systemIdsToResolve.isNotEmpty()) {
             withContext(Dispatchers.IO) {
-                uidsToResolve.forEach { uid ->
+                systemIdsToResolve.forEach { systemId ->
                     runCatching {
-                        uidNameCache[uid] = UserNameResolver.resolveName(uid)
-                        uidPhotoCache[uid] = UserNameResolver.resolvePhotoUrl(uid)
+                        val uid = db.reference.child("users_by_systemId/$systemId/uid")
+                            .get().await().getValue(String::class.java)?.trim().orEmpty()
+                        if (uid.isNotBlank()) {
+                            uidNameCache[systemId] = UserNameResolver.resolveName(uid)
+                            uidPhotoCache[systemId] = UserNameResolver.resolvePhotoUrl(uid)
+                        }
                     }
                 }
             }
         }
 
-        val entries = snap.children
+        val entries = timelineRows
             .mapNotNull { r ->
-                val rStatus    = r.child("status").getValue(String::class.java)?.trim().orEmpty()
-                val rRemarks   = r.child("remarks").getValue(String::class.java)?.trim().orEmpty()
-                val rNoteOnly  = r.child("note").getValue(String::class.java)?.trim().orEmpty()
+                val rStatus = r.optString("remarks_status").trim()
+                val rRemarksRaw = r.optString("remarks").trim()
+                val rRemarks = if (r.has("remarks_bn")) r.optString("remarks_bn").trim().ifBlank { rRemarksRaw } else rRemarksRaw
+                val rNoteOnly = r.optString("note").trim()
                 if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
-                // Firebase has stored createdAt as Long everywhere we write it, but a
-                // single-type read can still throw DatabaseException if any entry was
-                // ever written differently — same defensive fallback chain as readCod().
-                val createdAt  = r.child("createdAt").getValue(Long::class.java)
-                    ?: r.child("createdAt").getValue(Double::class.java)?.toLong()
-                    ?: r.child("createdAt").getValue(String::class.java)?.toLongOrNull()
-                    ?: 0L
-                val timeStr    = if (createdAt > 0) sdf.format(Date(createdAt)) else "—"
-                val remarkedBy = r.child("remarked_by").getValue(String::class.java)?.trim().orEmpty()
-                val uid        = r.child("userId").getValue(String::class.java)?.trim().orEmpty()
-                val photoUrl   = uidPhotoCache[uid].orEmpty()
+                val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
+                val timeStr = if (createdAt > 0) sdf.format(Date(createdAt)) else "—"
+                val fromWorker = r.optString("source").trim().equals("WORKER", ignoreCase = true)
+                val authorSystemId = r.optString("author_system_id").trim()
+                val photoUrl = uidPhotoCache[authorSystemId].orEmpty()
 
-                // Only treat it as a resolved name if UserNameResolver actually found a
-                // profile — it falls back to returning the raw uid when it can't, and a
-                // raw uid string isn't a name we want to show in place of "You"/"Delivery Agent".
-                val resolvedName = uidNameCache[uid]?.takeIf { it.isNotBlank() && it != uid }
-                val isCurrentUser = uid.isNotBlank() && uid == auth.currentUser?.uid
+                val resolvedName = uidNameCache[authorSystemId]?.takeIf { it.isNotBlank() && it != authorSystemId }
+                val isCurrentUser = scope == "worker" && authorSystemId.isNotBlank() && authorSystemId == ownWorkerSystemId
                 val author = when {
-                    isCurrentUser         -> "You"
-                    resolvedName != null  -> resolvedName
-                    remarkedBy == "support" -> "CC Agent"
-                    else                  -> "Delivery Agent"
+                    isCurrentUser        -> "You"
+                    resolvedName != null -> resolvedName
+                    fromWorker            -> "Delivery Agent"
+                    else                  -> "CC Agent"
                 }
-                val role = if (remarkedBy == "support") "cc" else "agent"
+                val role = if (fromWorker) "agent" else "cc"
 
                 // Remarks + note combined — same rule as the long-press Journey Log
                 // dialogs' rLabel (WorkerSpaceFragment/CallCenterFragment), falling back
@@ -629,12 +673,7 @@ class ParcelDetailFragment : Fragment() {
                     else                  -> ""
                 }
 
-                // Call attempts logged against this entry — same path/shape CallCenterFragment's
-                // Journey Log dialog already reads, just not previously wired up here.
-                val callLogCount = r.child("call_logs/call_count").getValue(Long::class.java)?.toInt() ?: 0
-                val callLogTotalDurationSec = r.child("call_logs/total_duration_sec").getValue(Long::class.java)?.toInt() ?: 0
-
-                Entry(rStatus, display, timeStr, author, role, photoUrl, createdAt, callLogCount, callLogTotalDurationSec)
+                Entry(rStatus, display, timeStr, author, role, photoUrl, createdAt)
             }
             .sortedBy { it.createdAt }   // oldest first → timeline reads top-to-bottom
 

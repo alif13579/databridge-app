@@ -443,32 +443,33 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     /**
-     * Loads remark options for the "Set Remarks" sheet from config/remarks (admin-managed in
-     * ConfigRemarksFragment) instead of a fixed hardcoded list. Each remark's target_status is
-     * resolved against config/statusMeta for its display label + color. Falls back to the
-     * built-in default list (see remarkOptions' initializer) if config is empty/unreachable.
+     * Loads remark options for the "Set Remarks" sheet from public.validation_remarks
+     * (source='WORKER', admin-managed in ConfigRemarksFragment) instead of a fixed hardcoded
+     * list. Each remark's target_status is resolved against config/statusMeta for its display
+     * label + color. Falls back to the built-in default list (see remarkOptions' initializer)
+     * if config is empty/unreachable.
      */
     private fun loadRemarkOptions() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                // These 4 reads are fully independent of each other (none depends on another's
+                // These reads are fully independent of each other (none depends on another's
                 // result) but were previously awaited one-at-a-time, adding up their individual
                 // round-trip times. Firing them together and awaiting all at once cuts total
-                // wait time down to roughly the SLOWEST single read instead of the sum of all 4.
-                val (langValue, remarksSnap, templatesSnap) = coroutineScope {
+                // wait time down to roughly the SLOWEST single read instead of the sum of all.
+                val (langValue, options, templatesSnap) = coroutineScope {
                     val statusMetaDeferred = async(Dispatchers.IO) { StatusMetaCache.refresh() }
                     val langDeferred = async(Dispatchers.IO) {
                         db.reference.child("config/language/workerLang").get().await()
                             .getValue(String::class.java)
                     }
-                    val remarksDeferred = async(Dispatchers.IO) {
-                        db.reference.child("config/remarks_worker").get().await()
+                    val optionsDeferred = async(Dispatchers.IO) {
+                        SupabaseClientManager.fetchRemarkOptions("WorkerSpaceFragment", "WORKER")
                     }
                     val templatesDeferred = async(Dispatchers.IO) {
                         db.reference.child("config/whatsappTemplates").get().await()
                     }
                     statusMetaDeferred.await()
-                    Triple(langDeferred.await(), remarksDeferred.await(), templatesDeferred.await())
+                    Triple(langDeferred.await(), optionsDeferred.await(), templatesDeferred.await())
                 }
                 val langValueResolved = langValue?.trim().orEmpty().ifBlank { "bn_bn" }
                 val (remarkLang, statusLang) = parseLangPair(langValueResolved)
@@ -482,37 +483,25 @@ class WorkerSpaceFragment : Fragment() {
                     loadedTemplates[tid] = ConfigState.WhatsAppTemplate(tid, name, body)
                 }
                 whatsappTemplatesCache = loadedTemplates
-                data class FetchedRemark(val option: WorkerRemarkOption, val priority: Int)
-                val fetched = mutableListOf<FetchedRemark>()
-                remarksSnap.children.forEach { groupSnap ->
-                    groupSnap.children.forEach { r ->
-                        val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
-                        val textEn = r.child("text_en").getValue(String::class.java)?.trim().orEmpty()
-                        val label = (if (remarkLang == "en") textEn.ifBlank { textBn } else textBn.ifBlank { textEn })
-                        if (label.isBlank()) return@forEach
-                        val target = r.child("target_status").getValue(String::class.java)?.trim()
-                            .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
-                        val templateId = r.child("template_id").getValue(String::class.java)?.trim().orEmpty()
-                        val priority = r.child("priority").getValue(Int::class.java) ?: 0
-                        val metaEntry = StatusMetaCache.entries[target]
-                        val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
-                        fetched.add(FetchedRemark(
-                            WorkerRemarkOption(
-                                icon = "💬",
-                                label = label,
-                                englishLabel = textEn.ifBlank { textBn.ifBlank { label } },
-                                statusKey = target,
-                                statusPreview = preview,
-                                statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
-                                templateId = templateId
-                            ),
-                            priority
-                        ))
-                    }
+                val fetched = options.mapNotNull { opt ->
+                    val label = if (remarkLang == "en") opt.textEn.ifBlank { opt.textBn } else opt.textBn.ifBlank { opt.textEn }
+                    if (label.isBlank()) return@mapNotNull null
+                    val target = opt.targetStatus.ifBlank { return@mapNotNull null }
+                    val metaEntry = StatusMetaCache.entries[target]
+                    val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
+                    WorkerRemarkOption(
+                        icon = "💬",
+                        label = label,
+                        englishLabel = opt.textEn.ifBlank { opt.textBn.ifBlank { label } },
+                        statusKey = target,
+                        statusPreview = preview,
+                        statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
+                        templateId = opt.templateId
+                    ) to opt.priority
                 }
 
                 if (isAdded) {
-                    remarkOptions = fetched.sortedByDescending { it.priority }.map { it.option }
+                    remarkOptions = fetched.sortedByDescending { it.second }.map { it.first }
                     if (::adapter.isInitialized) {
                         adapter.statusLang = workerStatusLang
                         adapter.notifyDataSetChanged()
@@ -567,7 +556,7 @@ class WorkerSpaceFragment : Fragment() {
 
         if (options.isEmpty()) {
             val tv = TextView(requireContext())
-            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই। Admin-কে config/remarks_worker-এ remark যোগ করতে বলুন।\n\nনোট হিসেবে লিখতে পারেন:"
+            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই। Admin-কে Worker remark config-এ remark যোগ করতে বলুন।\n\nনোট হিসেবে লিখতে পারেন:"
             tv.textSize = 13f
             tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
             tv.setPadding(0, 24, 0, 12)
