@@ -2519,8 +2519,9 @@ class CallCenterFragment : Fragment() {
                 // isn't a fetchValidations() REST read) — resolve it here, cached, before
                 // the card renders, so a WebSocket-pushed remark shows Bangla immediately
                 // rather than falling back to the (possibly stale) local ccRemarkOptions match.
-                row.optString("remarks").trim().takeIf { it.isNotBlank() }?.let { en ->
-                    SupabaseClientManager.resolveRemarkBnCached("CallCenterFragment", en)?.let { bn ->
+                val source = row.optString("source").trim()
+                row.optString("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
+                    SupabaseClientManager.resolveRemarkBnCached("CallCenterFragment", source, en)?.let { bn ->
                         row.put("remarks_bn", bn)
                     }
                 }

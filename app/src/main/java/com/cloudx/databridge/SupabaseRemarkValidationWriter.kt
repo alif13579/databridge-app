@@ -53,6 +53,83 @@ object SupabaseRemarkValidationWriter {
             "supabase_validation_write", consignmentId) { }
     }
 
+    // ── Admin remark-option config (ConfigRemarksFragment) ──────────────────────
+    // Distinct from write() above: these manage validation_remarks rows as the
+    // OPTIONS themselves (what shows in the CC/Worker remark picker), gated
+    // server-side by the Edge Function's canAccessConfig check (mirrors
+    // RbacManager.hasPermission("nav_config")) — not the ordinary remark-save flow.
+    // Suspend-based (unlike invoke()'s callback style above) since
+    // ConfigRemarksFragment is already fully coroutine-driven.
+
+    /** Result of an admin_* Edge Function call: the parsed JSONObject on success,
+     *  or an error message on failure — ConfigRemarksFragment shows [error] directly
+     *  in a Toast, so it's kept human-readable rather than a raw exception. */
+    sealed class AdminResult {
+        data class Ok(val body: JSONObject) : AdminResult()
+        data class Err(val message: String) : AdminResult()
+    }
+
+    private suspend fun invokeAdmin(payload: JSONObject): AdminResult = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            if (cont.isActive) cont.resumeWith(Result.success(AdminResult.Err("Not signed in")))
+            return@suspendCancellableCoroutine
+        }
+        user.getIdToken(false).addOnCompleteListener { tokenTask ->
+            val token = tokenTask.result?.token
+            if (!tokenTask.isSuccessful || token.isNullOrBlank()) {
+                if (cont.isActive) cont.resumeWith(Result.success(
+                    AdminResult.Err(tokenTask.exception?.message ?: "No Firebase ID token")))
+                return@addOnCompleteListener
+            }
+            val request = Request.Builder().url("${SupabaseConfig.PROJECT_URL}/functions/v1/remark-validations")
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY).addHeader("Authorization", "Bearer $token")
+                .addHeader("Content-Type", "application/json").post(payload.toString().toRequestBody(jsonMediaType)).build()
+            client.newCall(request).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (cont.isActive) cont.resumeWith(Result.success(AdminResult.Err(e.message ?: "Network error")))
+                }
+                override fun onResponse(call: Call, response: okhttp3.Response) {
+                    response.use {
+                        val text = it.body?.string().orEmpty()
+                        val result = try {
+                            if (it.isSuccessful) AdminResult.Ok(JSONObject(text))
+                            else AdminResult.Err(JSONObject(text).optString("error").ifBlank { "HTTP ${it.code}" })
+                        } catch (_: Exception) {
+                            if (it.isSuccessful) AdminResult.Err("Unexpected response") else AdminResult.Err("HTTP ${it.code}")
+                        }
+                        if (cont.isActive) cont.resumeWith(Result.success(result))
+                    }
+                }
+            })
+        }
+    }
+
+    /** Lists every remark option for [source] ('CC' or 'WORKER'), sorted by priority
+     *  descending (same order the Edge Function query applies, matching
+     *  ConfigRemarksFragment's existing `sortedByDescending { it.priority }` display). */
+    suspend fun adminListRemarks(source: String): AdminResult =
+        invokeAdmin(JSONObject().put("action", "admin_list_remarks").put("source", source))
+
+    /** Creates a remark option ([id] blank) or updates one ([id] set). [remark] should
+     *  contain whichever of remarks_en/remarks_bn/category/target_status/template_id/
+     *  priority/instruction_type/instruction_text/is_active are being set — omitted
+     *  fields default per the Edge Function's admin_upsert_remark handling. */
+    suspend fun adminUpsertRemark(source: String, id: String, remark: JSONObject): AdminResult =
+        invokeAdmin(JSONObject().put("action", "admin_upsert_remark").put("remark",
+            remark.put("source", source).apply { if (id.isNotBlank()) put("id", id) }))
+
+    suspend fun adminDeleteRemark(id: String): AdminResult =
+        invokeAdmin(JSONObject().put("action", "admin_delete_remark").put("id", id))
+
+    /** Migrates or deletes every remark option under [source] whose target_status is
+     *  [fromStatus] — used when an admin deletes a status (ConfigStatusesFragment).
+     *  Pass [toStatus] blank to delete those remarks instead of migrating them. */
+    suspend fun adminMigrateStatusRemarks(source: String, fromStatus: String, toStatus: String): AdminResult =
+        invokeAdmin(JSONObject().put("action", "admin_migrate_status_remarks")
+            .put("source", source).put("from_status", fromStatus)
+            .apply { if (toStatus.isNotBlank()) put("to_status", toStatus) })
+
     /** Associates the current signed-in user and this app installation's FCM token server-side. */
     fun registerPushToken(token: String) {
         if (token.isBlank()) return
@@ -177,20 +254,26 @@ object SupabaseRemarkValidationWriter {
 
     // ── Read functions — direct PostgREST REST API (unlimited, zero invocations) ──
 
-    /** Looks up Bangla for every row's `remarks` field (a second, separate PostgREST
-     *  call to validation_remarks) and injects it into each row as `remarks_bn` before
+    /** Looks up Bangla for every row's `remarks` field, grouped by `source` (a row's
+     *  Bangla lookup must match the source it was saved under — remarks_en alone isn't
+     *  unique once Worker and CC options share validation_remarks, see migration
+     *  202608250002) — one PostgREST call to validation_remarks per distinct source
+     *  present, not per row. Injects the result into each row as `remarks_bn` before
      *  the caller's onResult fires — resolveRemarkBn(JSONObject) in the fragments reads
      *  that field directly. A row whose remark has no catalog match (free-typed note,
      *  or saved before the catalog existed) simply doesn't get the field added; the
      *  fragments' resolveRemarkBn() already falls back to English for that case. */
     private suspend fun withRemarkLabels(rows: List<JSONObject>, screen: String): List<JSONObject> {
         if (rows.isEmpty()) return rows
-        val distinctEn = rows.map { it.optString("remarks").trim() }.filter { it.isNotBlank() }.distinct()
-        if (distinctEn.isEmpty()) return rows
-        val labels = SupabaseClientManager.fetchRemarkLabels(screen, distinctEn)
-        if (labels.isEmpty()) return rows
-        rows.forEach { row ->
-            labels[row.optString("remarks").trim()]?.let { bn -> row.put("remarks_bn", bn) }
+        rows.groupBy { it.optString("source").trim() }.forEach { (source, sourceRows) ->
+            if (source.isBlank()) return@forEach
+            val distinctEn = sourceRows.map { it.optString("remarks").trim() }.filter { it.isNotBlank() }.distinct()
+            if (distinctEn.isEmpty()) return@forEach
+            val labels = SupabaseClientManager.fetchRemarkLabels(screen, source, distinctEn)
+            if (labels.isEmpty()) return@forEach
+            sourceRows.forEach { row ->
+                labels[row.optString("remarks").trim()]?.let { bn -> row.put("remarks_bn", bn) }
+            }
         }
         return rows
     }

@@ -144,29 +144,22 @@ object RemarkPopupOverlay {
 
     private data class RemarkOption(val label: String, val englishLabel: String, val targetStatus: String)
 
-    /** Same config/remarks_call_center + config/language/ccLang source CallCenterFragment's
-     *  loadCcRemarkOptions() reads -- kept intentionally minimal (no templates/priority
-     *  sorting) since the popup only needs label + target_status to save a remark. */
+    /** Same source used by CallCenterFragment's loadCcRemarkOptions() and the language
+     *  preference at config/language/ccLang -- kept intentionally minimal (no templates
+     *  sorting beyond priority) since the popup only needs label + target_status to save
+     *  a remark. */
     private suspend fun fetchRemarkOptions(): List<RemarkOption> {
         return try {
             val db = com.google.firebase.database.FirebaseDatabase.getInstance().reference
             val langValue = db.child("config/language/ccLang").get().await()
                 .getValue(String::class.java)?.trim().orEmpty().ifBlank { "bn_en" }
             val remarkLang = langValue.substringBefore("_").ifBlank { "bn" }
-            val remarksSnap = db.child("config/remarks_call_center").get().await()
-            val options = mutableListOf<RemarkOption>()
-            remarksSnap.children.forEach { groupSnap ->
-                groupSnap.children.forEach { r ->
-                    val textBn = r.child("text_bn").getValue(String::class.java)?.trim().orEmpty()
-                    val textEn = r.child("text_en").getValue(String::class.java)?.trim().orEmpty()
-                    val label = if (remarkLang == "en") textEn.ifBlank { textBn } else textBn.ifBlank { textEn }
-                    if (label.isBlank()) return@forEach
-                    val target = r.child("target_status").getValue(String::class.java)?.trim()
-                        .orEmpty().ifBlank { groupSnap.key ?: return@forEach }
-                    options.add(RemarkOption(label, textEn.ifBlank { textBn }, target))
-                }
+            SupabaseClientManager.fetchRemarkOptions("RemarkPopupOverlay", "CC").mapNotNull { opt ->
+                val label = if (remarkLang == "en") opt.textEn.ifBlank { opt.textBn } else opt.textBn.ifBlank { opt.textEn }
+                if (label.isBlank()) return@mapNotNull null
+                val target = opt.targetStatus.ifBlank { return@mapNotNull null }
+                RemarkOption(label, opt.textEn.ifBlank { opt.textBn }, target)
             }
-            options
         } catch (e: Exception) {
             FirebaseErrorLogger.log("RemarkPopupOverlay", "fetch_remarks_failed", e.message ?: "")
             emptyList()
@@ -269,6 +262,9 @@ object RemarkPopupOverlay {
                 noteText = etNote.text?.toString()?.trim().orEmpty(),
                 source = "CC",
                 screen = "RemarkPopupOverlay",
+                // Blank when chosen.label IS chosen.englishLabel (CC-configured language is
+                // already English) -- same reasoning as CallCenterFragment's saveCcRemarkForItems.
+                remarksBnText = chosen.label.takeIf { it.isNotBlank() && it != chosen.englishLabel } ?: ""
             )
             btnSave.isVisible = false
             chipContainer.isVisible = false

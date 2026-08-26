@@ -41,7 +41,7 @@ async function firebaseIdentity(request: Request): Promise<{ uid: string; token:
 
 type FirebaseProfile = {
   systemId: string; roleId: string; branchIds: string[]; canAccessCallCenter: boolean
-  name: string; employeeId: string
+  canAccessConfig: boolean; name: string; employeeId: string
 }
 
 function permissionEnabled(node: unknown, permission: string): boolean {
@@ -101,6 +101,9 @@ async function firebaseProfile(identity: { uid: string; token: string }): Promis
     systemId, roleId,
     branchIds,
     canAccessCallCenter: permissionEnabled(overrideActive ? overridePermissions : rolePermissions, 'nav_call_center'),
+    // Mirrors RbacManager.hasPermission("nav_config") — same override-vs-role
+    // permissions node already fetched above, no extra Firebase read needed.
+    canAccessConfig: permissionEnabled(overrideActive ? overridePermissions : rolePermissions, 'nav_config'),
     name: typeof profile?.name === 'string' ? profile.name.trim() : '',
     employeeId: typeof companyInfo?.employee_id === 'string' ? companyInfo.employee_id.trim() : '',
   }
@@ -140,14 +143,22 @@ async function firebaseProfileForSystemId(systemId: string, identity: { uid: str
  *  Android's direct PostgREST reads can look up Bangla by English text. Only
  *  called when the app actually sent a Bangla label (a predefined remark
  *  option) — a free-typed note has no Bangla counterpart, so it's simply
- *  skipped here and stays English-only wherever it's read. */
-async function upsertRemarkLabel(remarksEn: string, remarksBn: string) {
+ *  skipped here and stays English-only wherever it's read.
+ *
+ *  source ('CC' or 'WORKER', same vocabulary as validations.source) scopes the
+ *  conflict target to (source, remarks_en) — see migration 202608250002 for why
+ *  remarks_en alone stopped being unique once Worker and CC options share this
+ *  table. This upsert only ever touches remarks_en/remarks_bn/updated_at on an
+ *  existing row; it never creates a new option (target_status, priority, etc.
+ *  would be missing) — a row must already exist here, written by the admin
+ *  options screen, for this to update anything. */
+async function upsertRemarkLabel(source: string, remarksEn: string, remarksBn: string) {
   const en = remarksEn.trim()
   const bn = remarksBn.trim()
   if (!en || !bn) return
   const { error } = await admin.from('validation_remarks').upsert({
-    remarks_en: en, remarks_bn: bn, updated_at: new Date().toISOString(),
-  }, { onConflict: 'remarks_en' })
+    source, remarks_en: en, remarks_bn: bn, updated_at: new Date().toISOString(),
+  }, { onConflict: 'source,remarks_en', ignoreDuplicates: false })
   // A failed catalog upsert must never block the actual remark write.
   if (error) console.error('upsertRemarkLabel failed', error)
 }
@@ -252,29 +263,44 @@ async function firebaseRead(identity: { uid: string; token: string }, path: stri
 
 /** Looks up the Bangla label for a saved remark from the validation_remarks
  *  helper table (populated by upsertRemarkLabel() on every write that included
- *  a Bangla label). Falls back to the raw English text when there's no match —
- *  a free-typed note, or a remark saved before this table existed. */
-async function resolveRemarkBn(remarksText: string): Promise<string> {
+ *  a Bangla label), scoped to the same source ('CC'/'WORKER') the remark was
+ *  saved under — remarks_en alone isn't unique once Worker and CC options
+ *  share this table (see migration 202608250002), so a lookup must match on
+ *  both to avoid picking up the wrong scope's Bangla for the same English
+ *  text. Falls back to the raw English text when there's no match — a
+ *  free-typed note, or a remark saved before this table existed. */
+async function resolveRemarkBn(source: string, remarksText: string): Promise<string> {
   const en = remarksText.trim()
   if (!en) return remarksText
-  const { data, error } = await admin.from('validation_remarks').select('remarks_bn').eq('remarks_en', en).maybeSingle()
+  const { data, error } = await admin.from('validation_remarks').select('remarks_bn')
+    .eq('source', source).eq('remarks_en', en).maybeSingle()
   if (error) { console.error('resolveRemarkBn lookup failed', error); return remarksText }
   return data?.remarks_bn || remarksText
 }
 
 /** Batch version for the report action: one lookup query for every distinct
- *  English remark in the page, instead of one per row. Adds `remarks_bn` to
- *  each row (falls back to the English text when there's no match, same as
- *  resolveRemarkBn). Android's own direct-PostgREST reads do the equivalent
- *  lookup themselves — fetch distinct remarks from validations, then a
- *  second query to validation_remarks — see SupabaseClientManager. */
-async function withBanglaLabels<T extends { remarks: string }>(rows: T[]): Promise<(T & { remarks_bn: string })[]> {
-  const distinctEn = [...new Set(rows.map((r) => r.remarks.trim()).filter(Boolean))]
-  if (!distinctEn.length) return rows.map((r) => ({ ...r, remarks_bn: r.remarks }))
-  const { data, error } = await admin.from('validation_remarks').select('remarks_en,remarks_bn').in('remarks_en', distinctEn)
-  if (error) { console.error('withBanglaLabels lookup failed', error); return rows.map((r) => ({ ...r, remarks_bn: r.remarks })) }
-  const map = new Map((data ?? []).map((r) => [r.remarks_en, r.remarks_bn]))
-  return rows.map((r) => ({ ...r, remarks_bn: map.get(r.remarks.trim()) || r.remarks }))
+ *  (source, English remark) pair in the page, instead of one per row. Adds
+ *  `remarks_bn` to each row (falls back to the English text when there's no
+ *  match, same as resolveRemarkBn). Android's own direct-PostgREST reads do
+ *  the equivalent lookup themselves — fetch distinct remarks from
+ *  validations, then a second query to validation_remarks — see
+ *  SupabaseClientManager. */
+async function withBanglaLabels<T extends { remarks: string; source: string }>(rows: T[]): Promise<(T & { remarks_bn: string })[]> {
+  const distinctKeys = [...new Set(rows.map((r) => `${r.source}\u0000${r.remarks.trim()}`).filter((k) => !k.endsWith('\u0000')))]
+  if (!distinctKeys.length) return rows.map((r) => ({ ...r, remarks_bn: r.remarks }))
+  const bySource = new Map<string, string[]>()
+  for (const key of distinctKeys) {
+    const [source, en] = key.split('\u0000')
+    bySource.set(source, [...(bySource.get(source) ?? []), en])
+  }
+  const lookups = await Promise.all([...bySource.entries()].map(async ([source, ens]) => {
+    const { data, error } = await admin.from('validation_remarks').select('remarks_en,remarks_bn')
+      .eq('source', source).in('remarks_en', ens)
+    if (error) { console.error('withBanglaLabels lookup failed', error); return [] }
+    return (data ?? []).map((r) => ({ source, ...r }))
+  }))
+  const map = new Map(lookups.flat().map((r) => [`${r.source}\u0000${r.remarks_en}`, r.remarks_bn]))
+  return rows.map((r) => ({ ...r, remarks_bn: map.get(`${r.source}\u0000${r.remarks.trim()}`) || r.remarks }))
 }
 
 function asMillis(value: unknown): number {
@@ -304,7 +330,7 @@ async function notificationDetails(row: { consignment: string; author_system_id:
   const author = typeof authorProfile?.name === 'string' && authorProfile.name.trim() ? authorProfile.name.trim() : 'Agent'
   const customer = typeof parcel?.recipientName === 'string' && parcel.recipientName.trim() ? parcel.recipientName.trim() : row.consignment
   const attempt = Number(parcel?.attempt) || 0
-  const base = (await resolveRemarkBn(row.remarks)) || 'নতুন রিমার্ক এসেছে'
+  const base = (await resolveRemarkBn(row.source, row.remarks)) || 'নতুন রিমার্ক এসেছে'
   return {
     title: `${author} — ${customer}`,
     body: `${base}\n📅 ${ageLabel(parcel?.createdAt, parcel?.updatedAt)}  •  🔁 ${attempt} attempt${attempt === 1 ? '' : 's'}`,
@@ -414,6 +440,101 @@ Deno.serve(async (request) => {
       return reply({ ok: true })
     }
 
+    if (action === 'admin_list_remarks') {
+      const profile = await firebaseProfile(identity)
+      if (!profile.canAccessConfig) return reply({ error: 'Not authorized for remark config' }, 403)
+      if (body.source !== 'CC' && body.source !== 'WORKER') {
+        return reply({ error: 'Invalid remark source' }, 400)
+      }
+      const { data, error } = await admin.from('validation_remarks').select('*')
+        .eq('source', body.source).order('priority', { ascending: false })
+      if (error) throw error
+      return reply({ ok: true, remarks: data ?? [] })
+    }
+
+    // Creates a new remark option (no id in the body) or updates an existing one
+    // (id present) — both go through the admin's canAccessConfig check first.
+    // This is a distinct table from validations' write action above: this row
+    // IS the option itself (what shows in the picker), not a saved remark.
+    if (action === 'admin_upsert_remark') {
+      const profile = await firebaseProfile(identity)
+      if (!profile.canAccessConfig) return reply({ error: 'Not authorized for remark config' }, 403)
+      const row = body.remark
+      if (!row || typeof row !== 'object') return reply({ error: 'Missing remark' }, 400)
+      if (row.source !== 'CC' && row.source !== 'WORKER') {
+        return reply({ error: 'Invalid remark source' }, 400)
+      }
+      if (typeof row.remarks_en !== 'string' && typeof row.remarks_bn !== 'string') {
+        return reply({ error: 'remarks_en or remarks_bn is required' }, 400)
+      }
+      const remarksEn = (typeof row.remarks_en === 'string' ? row.remarks_en : '').trim()
+      const remarksBn = (typeof row.remarks_bn === 'string' ? row.remarks_bn : '').trim()
+      const payload = {
+        // Falls back to the other language when one side is blank — mirrors
+        // ConfigRemarksFragment.addRemark()'s `bn.ifEmpty { en }` / `en.ifEmpty { bn }`.
+        source: row.source,
+        remarks_en: remarksEn || remarksBn,
+        remarks_bn: remarksBn || remarksEn,
+        category: typeof row.category === 'string' ? row.category : '',
+        target_status: typeof row.target_status === 'string' ? row.target_status : '',
+        template_id: typeof row.template_id === 'string' ? row.template_id : '',
+        priority: Number.isFinite(row.priority) ? row.priority : 0,
+        instruction_type: typeof row.instruction_type === 'string' ? row.instruction_type : '',
+        instruction_text: typeof row.instruction_text === 'string' ? row.instruction_text : '',
+        is_active: typeof row.is_active === 'boolean' ? row.is_active : true,
+        updated_at: new Date().toISOString(),
+      }
+      if (typeof row.id === 'string' && row.id.trim()) {
+        const { data, error } = await admin.from('validation_remarks').update(payload)
+          .eq('id', row.id.trim()).select('*').maybeSingle()
+        if (error) throw error
+        if (!data) return reply({ error: 'Remark not found' }, 404)
+        return reply({ ok: true, remark: data })
+      }
+      const { data, error } = await admin.from('validation_remarks')
+        .insert({ id: crypto.randomUUID(), ...payload }).select('*').maybeSingle()
+      if (error) throw error
+      return reply({ ok: true, remark: data })
+    }
+
+    if (action === 'admin_delete_remark') {
+      const profile = await firebaseProfile(identity)
+      if (!profile.canAccessConfig) return reply({ error: 'Not authorized for remark config' }, 403)
+      if (typeof body.id !== 'string' || !body.id.trim()) return reply({ error: 'id is required' }, 400)
+      const { error } = await admin.from('validation_remarks').delete().eq('id', body.id.trim())
+      if (error) throw error
+      return reply({ ok: true })
+    }
+
+    // Used when an admin deletes a status (ConfigStatusesFragment): every remark
+    // option whose target_status is the deleted status must either move to a
+    // replacement status or be removed, per source (Worker and CC choose their
+    // migration target independently — see confirmDelete()'s two spinners).
+    // body.source is required (Worker and CC targets are migrated as two separate
+    // calls, not one combined request) so this only ever touches one scope's rows.
+    if (action === 'admin_migrate_status_remarks') {
+      const profile = await firebaseProfile(identity)
+      if (!profile.canAccessConfig) return reply({ error: 'Not authorized for remark config' }, 403)
+      if (body.source !== 'CC' && body.source !== 'WORKER') {
+        return reply({ error: 'Invalid remark source' }, 400)
+      }
+      if (typeof body.from_status !== 'string' || !body.from_status.trim()) {
+        return reply({ error: 'from_status is required' }, 400)
+      }
+      const fromStatus = body.from_status.trim()
+      if (typeof body.to_status === 'string' && body.to_status.trim()) {
+        const { error } = await admin.from('validation_remarks')
+          .update({ target_status: body.to_status.trim(), updated_at: new Date().toISOString() })
+          .eq('source', body.source).eq('target_status', fromStatus)
+        if (error) throw error
+      } else {
+        const { error } = await admin.from('validation_remarks').delete()
+          .eq('source', body.source).eq('target_status', fromStatus)
+        if (error) throw error
+      }
+      return reply({ ok: true })
+    }
+
     if (action === 'write') {
       const row = body.row
       if (!row || !['consignment', 'branch_id', 'assigned_to_system_id', 'source'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
@@ -456,7 +577,7 @@ Deno.serve(async (request) => {
       // Best-effort catalog update — runs after the audit row is safely saved,
       // and never blocks or fails the write response.
       if (typeof row.remarks_bn === 'string') {
-        await upsertRemarkLabel(savedRow.remarks, row.remarks_bn)
+        await upsertRemarkLabel(savedRow.source, savedRow.remarks, row.remarks_bn)
       }
       await sendRemarkPush(savedRow, identity)
       return reply({ ok: true })

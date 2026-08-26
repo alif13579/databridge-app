@@ -1401,8 +1401,9 @@ class WorkerSpaceFragment : Fragment() {
                 // isn't a fetchValidations() REST read) — resolve it here, cached, before
                 // the card renders, so a WebSocket-pushed remark shows Bangla immediately
                 // rather than falling back to the (possibly stale) local remarkOptions match.
-                row.optString("remarks").trim().takeIf { it.isNotBlank() }?.let { en ->
-                    SupabaseClientManager.resolveRemarkBnCached("WorkerSpaceFragment", en)?.let { bn ->
+                val source = row.optString("source").trim()
+                row.optString("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
+                    SupabaseClientManager.resolveRemarkBnCached("WorkerSpaceFragment", source, en)?.let { bn ->
                         row.put("remarks_bn", bn)
                     }
                 }
