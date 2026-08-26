@@ -49,8 +49,8 @@ class ConfigStatusesFragment : Fragment() {
     private var newColorIdx: Int = 0
     private val statusColors = ConfigState.STATUS_COLORS
 
-    // Worker and call-center remark pickers use separate Firebase nodes
-    // (config/remarks_worker vs config/remarks_call_center — see ConfigRemarksFragment).
+    // Worker and call-center remark pickers use separate scopes in Supabase's
+    // validation_remarks (source='WORKER' vs source='CC' — see ConfigRemarksFragment).
     // Status deletion must count/migrate remarks in BOTH scopes independently, otherwise
     // remarks silently become orphaned when their status is deleted.
     private var remarksWorker:     MutableMap<String, MutableList<ConfigState.Remark>> = mutableMapOf()
@@ -129,27 +129,34 @@ class ConfigStatusesFragment : Fragment() {
         }
 
     private suspend fun loadRemarks() {
-        remarksWorker = loadRemarksFromNode("config/remarks_worker")
-        remarksCallCenter = loadRemarksFromNode("config/remarks_call_center")
+        remarksWorker = loadRemarksFromSupabase("WORKER")
+        remarksCallCenter = loadRemarksFromSupabase("CC")
     }
 
-    private suspend fun loadRemarksFromNode(node: String): MutableMap<String, MutableList<ConfigState.Remark>> {
-        val snap = db.reference.child(node).get().await()
+    /** Groups every remark option under [source] by target_status, for the count/
+     *  migrate-on-delete UI below. Same admin_list_remarks call ConfigRemarksFragment
+     *  uses — this fragment only needs counts and target_status, but there's no
+     *  lighter-weight endpoint and this list is small (predefined options, not
+     *  parcel data), so no separate count-only action was added. */
+    private suspend fun loadRemarksFromSupabase(source: String): MutableMap<String, MutableList<ConfigState.Remark>> {
         val loaded = mutableMapOf<String, MutableList<ConfigState.Remark>>()
-        if (!snap.exists()) return loaded
-        snap.children.forEach { statusSnap ->
-            val key = statusSnap.key ?: return@forEach
-            val list = mutableListOf<ConfigState.Remark>()
-            statusSnap.children.forEach { r ->
-                val id = r.child("id").getValue(String::class.java) ?: return@forEach
-                val textBn = r.child("text_bn").getValue(String::class.java) ?: ""
-                val textEn = r.child("text_en").getValue(String::class.java) ?: ""
-                val targetStatus = r.child("target_status").getValue(String::class.java) ?: key
-                val templateId   = r.child("template_id").getValue(String::class.java) ?: ""
-                val priority     = r.child("priority").getValue(Int::class.java) ?: 0
-                list.add(ConfigState.Remark(id, textBn, textEn, targetStatus, templateId, priority))
+        when (val result = SupabaseRemarkValidationWriter.adminListRemarks(source)) {
+            is SupabaseRemarkValidationWriter.AdminResult.Ok -> {
+                val arr = result.body.optJSONArray("remarks") ?: org.json.JSONArray()
+                for (i in 0 until arr.length()) {
+                    val r = arr.getJSONObject(i)
+                    val targetStatus = r.optString("target_status")
+                    if (targetStatus.isBlank()) continue
+                    loaded.getOrPut(targetStatus) { mutableListOf() }.add(ConfigState.Remark(
+                        id = r.optString("id"), text_bn = r.optString("remarks_bn"), text_en = r.optString("remarks_en"),
+                        target_status = targetStatus, template_id = r.optString("template_id"),
+                        priority = r.optInt("priority", 0), instruction_type = r.optString("instruction_type"),
+                        instruction_text = r.optString("instruction_text"), is_active = r.optBoolean("is_active", true),
+                    ))
+                }
             }
-            if (list.isNotEmpty()) loaded[key] = list
+            is SupabaseRemarkValidationWriter.AdminResult.Err ->
+                Log.e("ConfigStatuses", "Failed to load $source remarks: ${result.message}")
         }
         return loaded
     }
@@ -316,22 +323,6 @@ class ConfigStatusesFragment : Fragment() {
     }
 
     private fun confirmDelete(key: String, migrateWorkerTarget: String?, migrateCcTarget: String?) {
-        // Migrate worker remarks to the chosen target status (or drop if none chosen).
-        val toMigrateWorker = remarksWorker[key] ?: emptyList()
-        if (migrateWorkerTarget != null && toMigrateWorker.isNotEmpty()) {
-            val updated = toMigrateWorker.map { it.copy(target_status = migrateWorkerTarget) }
-            remarksWorker.getOrPut(migrateWorkerTarget) { mutableListOf() }.addAll(updated)
-        }
-        remarksWorker.remove(key)
-
-        // Migrate call-center remarks to the chosen target status (independent choice).
-        val toMigrateCc = remarksCallCenter[key] ?: emptyList()
-        if (migrateCcTarget != null && toMigrateCc.isNotEmpty()) {
-            val updated = toMigrateCc.map { it.copy(target_status = migrateCcTarget) }
-            remarksCallCenter.getOrPut(migrateCcTarget) { mutableListOf() }.addAll(updated)
-        }
-        remarksCallCenter.remove(key)
-
         ConfigState.statuses = ConfigState.statuses.filter { it != key }
         val newMeta = ConfigState.statusMeta.toMutableMap()
         newMeta.remove(key)
@@ -339,9 +330,19 @@ class ConfigStatusesFragment : Fragment() {
 
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Deleting...")
-            val ok = saveStatusMeta() &&
-                saveRemarksNode("config/remarks_worker", remarksWorker) &&
-                saveRemarksNode("config/remarks_call_center", remarksCallCenter)
+            // Independent per-source calls (not one combined request) — see
+            // admin_migrate_status_remarks' doc comment on the Edge Function side.
+            // Both must succeed for the delete to be considered complete; if one
+            // fails after the other succeeded, that partial state is reported via
+            // the error toast rather than silently retried, so the admin can see
+            // exactly what happened and retry deleting the status if needed.
+            val workerOk = (remarksWorker[key]?.size ?: 0) == 0 ||
+                SupabaseRemarkValidationWriter.adminMigrateStatusRemarks("WORKER", key, migrateWorkerTarget ?: "")
+                    is SupabaseRemarkValidationWriter.AdminResult.Ok
+            val ccOk = (remarksCallCenter[key]?.size ?: 0) == 0 ||
+                SupabaseRemarkValidationWriter.adminMigrateStatusRemarks("CC", key, migrateCcTarget ?: "")
+                    is SupabaseRemarkValidationWriter.AdminResult.Ok
+            val ok = workerOk && ccOk && saveStatusMeta()
             if (ok) {
                 reloadConfig()
                 bindStatusList()
@@ -613,33 +614,6 @@ class ConfigStatusesFragment : Fragment() {
             true
         } catch (e: Exception) {
             Log.e("ConfigStatuses", "Failed to save statusMeta", e)
-            false
-        }
-
-    private suspend fun saveRemarksNode(
-        node: String,
-        data: Map<String, List<ConfigState.Remark>>
-    ): Boolean =
-        try {
-            val payload = mutableMapOf<String, Any>()
-            data.forEach { (statusKey, list) ->
-                if (list.isNotEmpty()) {
-                    payload[statusKey] = list.mapIndexed { i, r ->
-                        "$i" to mapOf(
-                            "id"            to r.id,
-                            "text_bn"       to r.text_bn,
-                            "text_en"       to r.text_en,
-                            "target_status" to r.target_status,
-                            "template_id"   to r.template_id,
-                            "priority"      to r.priority,
-                        )
-                    }.toMap()
-                }
-            }
-            db.reference.child(node).setValue(payload).await()
-            true
-        } catch (e: Exception) {
-            Log.e("ConfigStatuses", "Failed to save remarks to $node", e)
             false
         }
 

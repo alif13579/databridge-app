@@ -13,6 +13,7 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ktx.getValue
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import org.json.JSONObject
 
 /**
  * 💬 Remarks Config Tab
@@ -22,7 +23,15 @@ import kotlinx.coroutines.tasks.await
  *  - Status chips (filtered by priority, only show statuses that have remarks + the active one)
  *  - List of remarks per status with target-status reassign + delete
  *  - Add new remark form (বাংলা + English + target group)
- *  - Auto-save to Firebase: config/remarks/{statusKey}[]/
+ *
+ * Remark options themselves live in Supabase (public.validation_remarks, one row
+ * per option, source='WORKER'/'CC') — reached only through the remark-validations
+ * Edge Function's admin_list_remarks/admin_upsert_remark/admin_delete_remark
+ * actions (see SupabaseRemarkValidationWriter), which check the caller's
+ * canAccessConfig permission server-side before writing. This moved off
+ * Firebase's config/remarks_worker|remarks_call_center nodes; status metadata
+ * (statuses/statusMeta) and WhatsApp templates are unrelated and still load
+ * from Firebase via [db] below.
  */
 class ConfigRemarksFragment : Fragment() {
 
@@ -35,11 +44,11 @@ class ConfigRemarksFragment : Fragment() {
     private var activeStatus: String = statuses.firstOrNull { (remarks[it]?.size ?: 0) > 0 } ?: statuses.firstOrNull() ?: "DELIVERED"
 
     // Which app's remarks are being managed — Worker and Call Center have separate,
-    // independent remark lists (config/remarks_worker vs config/remarks_call_center) so
-    // status-changing actions available to one role never leak into the other's picker.
-    private enum class RemarkScope(val firebaseNode: String) {
-        WORKER("config/remarks_worker"),
-        CALL_CENTER("config/remarks_call_center")
+    // independent remark lists (source='WORKER' vs source='CC' in validation_remarks)
+    // so status-changing actions available to one role never leak into the other's picker.
+    private enum class RemarkScope(val source: String) {
+        WORKER("WORKER"),
+        CALL_CENTER("CC")
     }
     private var activeScope: RemarkScope = RemarkScope.WORKER
 
@@ -158,25 +167,33 @@ class ConfigRemarksFragment : Fragment() {
     }
 
     private suspend fun loadRemarks() {
-        val snap = db.reference.child(activeScope.firebaseNode).get().await()
         val loaded = mutableMapOf<String, MutableList<ConfigState.Remark>>()
-        if (snap.exists()) {
-            snap.children.forEach { statusSnap ->
-                val key = statusSnap.key ?: return@forEach
-                val list = mutableListOf<ConfigState.Remark>()
-                statusSnap.children.forEach { r ->
-                    val id = r.child("id").getValue(String::class.java) ?: uid()
-                    val textBn = r.child("text_bn").getValue(String::class.java) ?: ""
-                    val textEn = r.child("text_en").getValue(String::class.java) ?: ""
-                    val targetStatus = r.child("target_status").getValue(String::class.java) ?: key
-                    val templateId   = r.child("template_id").getValue(String::class.java) ?: ""
-                    val priority     = r.child("priority").getValue(Int::class.java) ?: 0
-                    val instructionType = r.child("instruction_type").getValue(String::class.java) ?: ""
-                    val instructionText = r.child("instruction_text").getValue(String::class.java) ?: ""
-                    list.add(ConfigState.Remark(id, textBn, textEn, targetStatus, templateId, priority, instructionType, instructionText))
+        when (val result = SupabaseRemarkValidationWriter.adminListRemarks(activeScope.source)) {
+            is SupabaseRemarkValidationWriter.AdminResult.Ok -> {
+                val arr = result.body.optJSONArray("remarks") ?: org.json.JSONArray()
+                for (i in 0 until arr.length()) {
+                    val r = arr.getJSONObject(i)
+                    val targetStatus = r.optString("target_status")
+                    val remark = ConfigState.Remark(
+                        id = r.optString("id"),
+                        text_bn = r.optString("remarks_bn"),
+                        text_en = r.optString("remarks_en"),
+                        target_status = targetStatus,
+                        template_id = r.optString("template_id"),
+                        priority = r.optInt("priority", 0),
+                        instruction_type = r.optString("instruction_type"),
+                        instruction_text = r.optString("instruction_text"),
+                        is_active = r.optBoolean("is_active", true),
+                    )
+                    // Grouped by target_status for the status-chip picker, same shape
+                    // bindStatusChips()/bindRemarksList() already expect — validation_remarks
+                    // has no separate grouping concept (unlike Firebase's nested
+                    // config/remarks_*/{statusKey}[] structure), target_status IS the group.
+                    if (targetStatus.isNotBlank()) loaded.getOrPut(targetStatus) { mutableListOf() }.add(remark)
                 }
-                if (list.isNotEmpty()) loaded[key] = list
             }
+            is SupabaseRemarkValidationWriter.AdminResult.Err ->
+                throw Exception(result.message)
         }
         remarks = loaded
         ConfigState.remarks = remarks
@@ -340,41 +357,40 @@ class ConfigRemarksFragment : Fragment() {
 
     /** handleTargetChange: move remark to new target group */
     private fun handleTargetChange(group: String, id: String, newTarget: String) {
-        val moved = remarks[group]?.find { it.id == id } ?: return
-        remarks[group]?.removeAll { it.id == id }
-        val updated = moved.copy(target_status = newTarget)
-        remarks.getOrPut(newTarget) { mutableListOf() }.add(updated)
-        ConfigState.remarks = remarks
-        bindAll()
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Changing...")
-            if (saveRemarks()) {
-                reloadConfig()
-                bindAll()
-                setBusy(false)
-                Toast.makeText(requireContext(), "Changed", Toast.LENGTH_SHORT).show()
-            } else {
-                setBusy(false)
-                Toast.makeText(requireContext(), "Remark move failed", Toast.LENGTH_LONG).show()
+            val remark = JSONObject().put("target_status", newTarget)
+            when (val result = SupabaseRemarkValidationWriter.adminUpsertRemark(activeScope.source, id, remark)) {
+                is SupabaseRemarkValidationWriter.AdminResult.Ok -> {
+                    activeStatus = newTarget
+                    reloadConfig()
+                    bindAll()
+                    setBusy(false)
+                    Toast.makeText(requireContext(), "Changed", Toast.LENGTH_SHORT).show()
+                }
+                is SupabaseRemarkValidationWriter.AdminResult.Err -> {
+                    setBusy(false)
+                    Toast.makeText(requireContext(), "Remark move failed: ${result.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
 
     /** handleDelete: remove remark from group */
     private fun handleDelete(group: String, id: String) {
-        remarks[group]?.removeAll { it.id == id }
-        ConfigState.remarks = remarks
-        bindAll()
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Deleting...")
-            if (saveRemarks()) {
-                reloadConfig()
-                bindAll()
-                setBusy(false)
-                Toast.makeText(requireContext(), "Deleted", Toast.LENGTH_SHORT).show()
-            } else {
-                setBusy(false)
-                Toast.makeText(requireContext(), "Remark delete failed", Toast.LENGTH_LONG).show()
+            when (val result = SupabaseRemarkValidationWriter.adminDeleteRemark(id)) {
+                is SupabaseRemarkValidationWriter.AdminResult.Ok -> {
+                    reloadConfig()
+                    bindAll()
+                    setBusy(false)
+                    Toast.makeText(requireContext(), "Deleted", Toast.LENGTH_SHORT).show()
+                }
+                is SupabaseRemarkValidationWriter.AdminResult.Err -> {
+                    setBusy(false)
+                    Toast.makeText(requireContext(), "Remark delete failed: ${result.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -540,23 +556,21 @@ class ConfigRemarksFragment : Fragment() {
         group: String, id: String, newBn: String, newEn: String, newTemplateId: String, newPriority: Int = 0,
         newInstructionType: String = "", newInstructionText: String = "",
     ) {
-        val list = remarks[group] ?: return
-        val idx = list.indexOfFirst { it.id == id }
-        if (idx < 0) return
-        list[idx] = list[idx].copy(
-            text_bn = newBn, text_en = newEn, template_id = newTemplateId, priority = newPriority,
-            instruction_type = newInstructionType, instruction_text = newInstructionText,
-        )
-        ConfigState.remarks = remarks
-        bindAll()
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Saving...")
-            if (saveRemarks()) {
-                reloadConfig(); bindAll(); setBusy(false)
-                Toast.makeText(requireContext(), "✅ Updated", Toast.LENGTH_SHORT).show()
-            } else {
-                setBusy(false)
-                Toast.makeText(requireContext(), "Update failed", Toast.LENGTH_LONG).show()
+            val remark = JSONObject()
+                .put("remarks_bn", newBn).put("remarks_en", newEn)
+                .put("template_id", newTemplateId).put("priority", newPriority)
+                .put("instruction_type", newInstructionType).put("instruction_text", newInstructionText)
+            when (val result = SupabaseRemarkValidationWriter.adminUpsertRemark(activeScope.source, id, remark)) {
+                is SupabaseRemarkValidationWriter.AdminResult.Ok -> {
+                    reloadConfig(); bindAll(); setBusy(false)
+                    Toast.makeText(requireContext(), "✅ Updated", Toast.LENGTH_SHORT).show()
+                }
+                is SupabaseRemarkValidationWriter.AdminResult.Err -> {
+                    setBusy(false)
+                    Toast.makeText(requireContext(), "Update failed: ${result.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -724,35 +738,29 @@ class ConfigRemarksFragment : Fragment() {
         instructionText: String = "",
         onSuccess: () -> Unit = {},
     ) {
-        val remark = ConfigState.Remark(
-            id = uid(),
-            text_bn = bn.ifEmpty { en },
-            text_en = en.ifEmpty { bn },
-            target_status = target,
-            template_id = templateId,
-            priority = priority,
-            instruction_type = instructionType,
-            instruction_text = instructionText,
-        )
-        remarks.getOrPut(target) { mutableListOf() }.add(remark)
-        ConfigState.remarks = remarks
-        activeStatus = target
-        bindAll()
-
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Creating...")
-            if (saveRemarks()) {
-                reloadConfig()
-                bindAll()
-                setBusy(false)
-                Toast.makeText(requireContext(), "Created", Toast.LENGTH_SHORT).show()
-                onSuccess()
-            } else {
-                remarks[target]?.removeAll { it.id == remark.id }
-                ConfigState.remarks = remarks
-                bindAll()
-                setBusy(false)
-                Toast.makeText(requireContext(), "Remark create failed", Toast.LENGTH_LONG).show()
+            val remark = JSONObject()
+                .put("remarks_bn", bn.ifEmpty { en })
+                .put("remarks_en", en.ifEmpty { bn })
+                .put("target_status", target)
+                .put("template_id", templateId)
+                .put("priority", priority)
+                .put("instruction_type", instructionType)
+                .put("instruction_text", instructionText)
+            when (val result = SupabaseRemarkValidationWriter.adminUpsertRemark(activeScope.source, "", remark)) {
+                is SupabaseRemarkValidationWriter.AdminResult.Ok -> {
+                    activeStatus = target
+                    reloadConfig()
+                    bindAll()
+                    setBusy(false)
+                    Toast.makeText(requireContext(), "Created", Toast.LENGTH_SHORT).show()
+                    onSuccess()
+                }
+                is SupabaseRemarkValidationWriter.AdminResult.Err -> {
+                    setBusy(false)
+                    Toast.makeText(requireContext(), "Remark create failed: ${result.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -763,48 +771,7 @@ class ConfigRemarksFragment : Fragment() {
     private fun sortedStatuses(): List<String> =
         statuses.sortedByDescending { statusMeta[it]?.priority ?: 0 }
 
-    /** uid: random 6-char id (mirrors JSX uid()) */
-    private fun uid(): String = (Math.random() * 36 * 36 * 36 * 36 * 36 * 36).toLong()
-        .toString(36).padStart(6, '0').takeLast(6)
-
     private fun parseColor(hex: String): Int = android.graphics.Color.parseColor(hex)
-
-    /** triggerSave: write remarks to Firebase */
-    private fun triggerSave() {
-        viewLifecycleOwner.lifecycleScope.launch {
-            if (!saveRemarks()) {
-                Toast.makeText(requireContext(), "Remark save failed", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    private suspend fun saveRemarks(): Boolean =
-        try {
-            val payload = mutableMapOf<String, Any>()
-            remarks.forEach { (statusKey, list) ->
-                if (list.isNotEmpty()) {
-                    val rows = mutableMapOf<String, Any>()
-                    list.forEachIndexed { i, r ->
-                        rows["$i"] = mapOf(
-                            "id"            to r.id,
-                            "text_bn"       to r.text_bn,
-                            "text_en"       to r.text_en,
-                            "target_status" to r.target_status,
-                            "template_id"   to r.template_id,
-                            "priority"      to r.priority,
-                            "instruction_type" to r.instruction_type,
-                            "instruction_text" to r.instruction_text,
-                        )
-                    }
-                    payload[statusKey] = rows
-                }
-            }
-            db.reference.child(activeScope.firebaseNode).setValue(payload).await()
-            true
-        } catch (e: Exception) {
-            Log.e("ConfigRemarks", "Failed to save remarks", e)
-            false
-        }
 
     private fun setBusy(show: Boolean, text: String = "Loading...") {
         if (!::busyOverlay.isInitialized) return

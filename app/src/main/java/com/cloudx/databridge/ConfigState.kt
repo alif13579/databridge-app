@@ -6,17 +6,16 @@ package com.cloudx.databridge
  * Mirrors the JSX App-level useState variables:
  *   statuses, statusMeta, remarks, workerLang, ccLang
  *
- * Firebase paths:
- *   config/remarks_worker/{statusKey}[]/      ← RemarksFragment r/w (worker scope)
- *   config/remarks_call_center/{statusKey}[]/ ← RemarksFragment r/w (call-center scope)
+ * Firebase paths (statuses/language/sheets — unrelated to remark options):
  *   config/language/workerLang                ← LanguageFragment r/w
  *   config/language/ccLang                     ← LanguageFragment r/w
  *   config/statusMeta/{key}/...                ← StatusesFragment r/w
  *   config/sheets/{branchId}/current/          ← SheetFragment r/w
  *
- * Note: ConfigState.remarks is unused/legacy — StatusesFragment reads/writes the two
- * scoped nodes directly (own remarksWorker/remarksCallCenter maps) since remark counts
- * and delete-migration must be checked per scope independently.
+ * Remark options moved to Supabase (public.validation_remarks) — see
+ * ConfigRemarksFragment's header comment. ConfigState.remarks is unused/legacy,
+ * same as before the move (StatusesFragment reads/writes remark counts via its
+ * own scoped lookups, not this map).
  */
 object ConfigState {
 
@@ -49,6 +48,10 @@ object ConfigState {
         // from the type. Both blank = no instruction attached (the common case).
         val instruction_type: String = "",
         val instruction_text: String = "",
+        // is_active: false hides this option from the picker without deleting it —
+        // an alternative to a hard delete when past saved remarks may still reference
+        // this text (see validation_remarks migration 202608250002).
+        val is_active: Boolean = true,
     )
 
     /** Fixed instruction-type options for the Remarks config's Instruction dropdown —
