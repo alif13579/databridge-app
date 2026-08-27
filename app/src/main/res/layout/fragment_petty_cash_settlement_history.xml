@@ -48,15 +48,23 @@
                 android:contentDescription="Filter" />
         </LinearLayout>
 
-        <!-- Filter tabs: All / Today / This Month -->
-        <LinearLayout
-            android:id="@+id/layoutPcSetHistTabs"
+        <!-- Filter tabs: All / Today / This Month — scrollable left-to-right
+             rather than clipped/squeezed if they overflow. -->
+        <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
             android:background="#FFFFFF"
-            android:paddingHorizontal="12dp"
-            android:paddingBottom="10dp" />
+            android:scrollbars="none"
+            android:overScrollMode="ifContentScrolls">
+
+            <LinearLayout
+                android:id="@+id/layoutPcSetHistTabs"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="12dp"
+                android:paddingBottom="10dp" />
+        </HorizontalScrollView>
 
         <ProgressBar
             android:id="@+id/pbPcSetHistLoading"
