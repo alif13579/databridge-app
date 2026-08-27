@@ -84,12 +84,65 @@ create table if not exists public.claims (
   -- Also the join key into users for employee_name — see the note above.
   agent_system_id             text not null default '',
   type                        text not null default '',
+  -- Free text, not yet a hard enum (a check constraint would need the write-flow's
+  -- validation logic settled first) — but the intended fixed set, per the "Top
+  -- Sheet For Petty Cash Expense" PDF's Expense Summary page, is exactly these
+  -- 18 (the PDF's 3 "Others Exp…" catch-all rows are deliberately excluded —
+  -- purpose above covers that free-text case instead of a fixed category):
+  --   Operation Expense group:
+  --     Parcel Sending Cost (Hub To Hub), Parcel Receiving Cost (Van/Point To Hub),
+  --     Pickup Van Parking, Cycle Parking Bill, Toll Fee
+  --     — NOT in this list: Parcel Pickup Conveyance / Parcel Delivery Conveyance /
+  --     Bulk Parcel Delivery Conveyance, which the PDF derives from `type` (Pickup /
+  --     Delivery / Bulk Delivery) instead of being their own category value.
+  --   Office Maintenance Cost group:
+  --     Print And Photocopy Cost, Office Accessories Purchase, Internet Connection
+  --     Cost, CCTV Setup And Maintenance Cost, IPS Set-Up And Servicing Cost
+  --   Utilities Expense group:
+  --     Internet Bill, Regarding Mobile Bill For QC Team Member, Gas Bill,
+  --     Local Security Guard Bill, Garbage Bill, Water/Wasa Bill, Cleaner Bill,
+  --     Transgender Bill
   category                    text not null default '',
   purpose                     text not null default '',
   consignment_id              text not null default '',
   store_id                    text not null default '',
   store_name                  text not null default '',
   pickup_count                integer not null default 0,
+  -- Conveyance fields — populated when category is one of the two conveyance
+  -- categories (Pickup / Bulk Delivery, see type above); blank/0 for every
+  -- other category. vehicle is a fixed 3-option list (CNG, Paddle Van, Auto).
+  --
+  -- from_area/to_area store either an areaId (from courier/areas/pickup_area
+  -- or courier/areas/delivery_area — ConfigAreasFragment's Area.areaId, which
+  -- of the two directories depends on category) or the literal 'OFFICE'
+  -- sentinel, which isn't a real area-directory entry. Which side defaults to
+  -- 'OFFICE' — and which side is prefilled from the selected store — depends
+  -- on category:
+  --   Pickup:        to_area defaults 'OFFICE' (a pickup always ends at the
+  --                   office). from_area is prefilled from the selected
+  --                   store's Store.areaId (every store has one, per Store's
+  --                   shape above) but is a normal pickup_area dropdown — the
+  --                   requester can freely change it to any pickup_area entry,
+  --                   not just the store's own area.
+  --   Bulk Delivery:  from_area defaults 'OFFICE' (a bulk delivery always
+  --                   starts at the office). to_area is a plain delivery_area
+  --                   dropdown with no store to prefill from (Bulk Delivery
+  --                   has no store_id/store_name — Consignment ID instead).
+  --
+  -- attempt_quantity/delivered_quantity/cid_or_merchant/expense_date mirror
+  -- the per-line fields on the "Top Sheet For Petty Cash Expense" PDF's
+  -- Conveyance Voucher pages (Attempt quantity / Delivered / CID / Merchant /
+  -- Date columns) — expense_date is the date printed on that voucher line,
+  -- deliberately separate from created_at/requested_at (when the claim
+  -- record itself was created), since a claim can be filed for conveyance
+  -- that happened on an earlier date.
+  vehicle                     text not null default '',
+  from_area                   text not null default '',
+  to_area                     text not null default '',
+  attempt_quantity            integer not null default 0,
+  delivered_quantity          integer not null default 0,
+  cid_or_merchant             text not null default '',
+  expense_date                date,
   requested_amount            numeric not null default 0,
   approved_amount             numeric not null default 0,
   settled_amount              numeric not null default 0,
