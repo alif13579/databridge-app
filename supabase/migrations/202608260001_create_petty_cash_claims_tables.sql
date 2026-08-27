@@ -36,6 +36,13 @@ create table if not exists public.branches (
   branch_code          text not null default '',
   name                 text not null default '',
   branch_type          text not null default '',
+  -- Not in Firebase's Branch.kt (a Petty Cash report requirement, not a
+  -- pre-existing branch attribute) — the "Region Name" printed on the "Top
+  -- Sheet For Petty Cash Expense" PDF's POC-details block (e.g. "ISD").
+  -- Free text, not yet a fixed list — no region directory exists to
+  -- validate against (unlike branch_type, which has none either, or
+  -- courier/areas' delivery_area/pickup_area, which do).
+  region               text not null default '',
   address              text not null default '',
   latitude             double precision not null default 0,
   longitude            double precision not null default 0,
@@ -45,6 +52,13 @@ create table if not exists public.branches (
   accountant_uid       text not null default '',
   accountant_role      text not null default '',
   petty_cash_poc_uid   text not null default '',
+  -- Not in Firebase's Branch.kt — the "Petty cash limit" figure on the "Top
+  -- Sheet For Petty Cash Expense" PDF (e.g. 5000), which "Cash in hand" and
+  -- "Over expenditure" are calculated against (limit - total_cost; a negative
+  -- result is the over-expenditure amount) — see the same PDF discussion that
+  -- added region above. Per-branch, since different hubs can carry different
+  -- limits, same as region.
+  petty_cash_limit     numeric not null default 0,
   staff_uid            text not null default '',
   staff_role           text not null default '',
   parent_branch_id     text not null default '',
