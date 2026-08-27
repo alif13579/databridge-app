@@ -62,15 +62,24 @@
                     android:contentDescription="Filter" />
             </LinearLayout>
 
-            <!-- Filter tabs: All / High / Normal -->
-            <LinearLayout
-                android:id="@+id/layoutPcPendingTabs"
+            <!-- Filter tabs: All + one per status actually present (up to 7
+                 total) — can overflow a single screen width, so scrollable
+                 left-to-right rather than clipped/squeezed. -->
+            <HorizontalScrollView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
                 android:background="#FFFFFF"
-                android:paddingHorizontal="12dp"
-                android:paddingBottom="10dp" />
+                android:scrollbars="none"
+                android:overScrollMode="ifContentScrolls">
+
+                <LinearLayout
+                    android:id="@+id/layoutPcPendingTabs"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingHorizontal="12dp"
+                    android:paddingBottom="10dp" />
+            </HorizontalScrollView>
 
             <ProgressBar
                 android:id="@+id/pbPcPendingLoading"

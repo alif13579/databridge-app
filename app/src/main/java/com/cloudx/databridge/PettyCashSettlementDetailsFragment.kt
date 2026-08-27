@@ -262,20 +262,24 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         bindAttachmentOpener(root, request)
 
         // Settlement Summary: Claimed Amount (the original ask, permanent record —
-        // never overwritten by edits along the approval chain) vs Settled Amount
-        // (the actual final figure paid out, set by Accounts at the Settle step,
-        // defaulting to what Cash POC approved but adjustable once more there).
-        // "—" until it's actually reached settled, so it doesn't look like 0 was
-        // paid for a still-in-flight request.
+        // never overwritten by edits along the approval chain), Approved Amount
+        // (set by Cash POC at approval time — may differ from Claimed on a
+        // partial approval), and Settled Amount (the actual final figure paid
+        // out, set by Accounts at the Settle step, defaulting to what Cash POC
+        // approved but adjustable once more there). Each amount shows "—" until
+        // its own stage is actually reached, so it doesn't look like 0 was
+        // approved/paid for a still-in-flight request.
         val cardSummary = root.findViewById<View>(R.id.cardPcSettlementSummary)
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         val canSeeSummary = roles.isAccounts || request.workerUid == myUid
 
         cardSummary.isVisible = canSeeSummary
         if (canSeeSummary) {
+            val approvedAmountText = if (request.pocApprovedAt != 0L) taka(request.approvedAmount) else "—"
             val settledAmountText = if (request.status == PC_STATUS_SETTLED) taka(request.settledAmount) else "—"
             bindRow(root, R.id.rowPcSummaryRequestAmount, "Claimed Amount", taka(request.amount))
-            bindRow(root, R.id.rowPcSummaryApprovedAmount, "Settled Amount", settledAmountText)
+            bindRow(root, R.id.rowPcSummaryApprovedAmount, "Approved Amount", approvedAmountText)
+            bindRow(root, R.id.rowPcSummarySettledAmount, "Settled Amount", settledAmountText)
         }
 
         // POC's approval comment, surfaced directly (not just buried in the
