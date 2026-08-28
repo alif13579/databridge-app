@@ -1,3 +1,7 @@
 [functions.remark-validations]
 # This function validates Firebase ID tokens itself, not Supabase Auth JWTs.
 verify_jwt = false
+
+[functions.claims-sync]
+# Same reasoning as remark-validations above.
+verify_jwt = false

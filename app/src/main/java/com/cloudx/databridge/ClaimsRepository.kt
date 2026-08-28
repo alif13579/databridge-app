@@ -42,6 +42,9 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
             "${FirebasePaths.claimsByBranch(claim.branchId)}/$id" to true,
             "${FirebasePaths.claimsBySystemId(claim.agentSystemId)}/$id" to true
         )).await()
+        // Firebase is the source of truth and already has the write; Supabase is
+        // a best-effort alternative copy — never blocks or fails claim creation.
+        SupabaseClaimsWriter.sync(claim)
         return claim
     }
 
@@ -84,7 +87,10 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
             if (key.startsWith("claims/")) key else "${FirebasePaths.claimInfo(claimId)}/$key"
         }
         db.reference.updateChildren(rooted).await()
-        return get(claimId) ?: error("Claim disappeared after update")
+        val updated = get(claimId) ?: error("Claim disappeared after update")
+        // Same posture as create() above — best-effort, never blocks/fails the update.
+        SupabaseClaimsWriter.sync(updated)
+        return updated
     }
 
     suspend fun search(filter: ClaimsReportFilter): ClaimsReport = coroutineScope {
