@@ -337,11 +337,9 @@ class ConfigStatusesFragment : Fragment() {
             // the error toast rather than silently retried, so the admin can see
             // exactly what happened and retry deleting the status if needed.
             val workerOk = (remarksWorker[key]?.size ?: 0) == 0 ||
-                SupabaseRemarkValidationWriter.adminMigrateStatusRemarks("WORKER", key, migrateWorkerTarget ?: "")
-                    is SupabaseRemarkValidationWriter.AdminResult.Ok
+                (SupabaseRemarkValidationWriter.adminMigrateStatusRemarks("WORKER", key, migrateWorkerTarget ?: "") is SupabaseRemarkValidationWriter.AdminResult.Ok)
             val ccOk = (remarksCallCenter[key]?.size ?: 0) == 0 ||
-                SupabaseRemarkValidationWriter.adminMigrateStatusRemarks("CC", key, migrateCcTarget ?: "")
-                    is SupabaseRemarkValidationWriter.AdminResult.Ok
+                (SupabaseRemarkValidationWriter.adminMigrateStatusRemarks("CC", key, migrateCcTarget ?: "") is SupabaseRemarkValidationWriter.AdminResult.Ok)
             val ok = workerOk && ccOk && saveStatusMeta()
             if (ok) {
                 reloadConfig()
