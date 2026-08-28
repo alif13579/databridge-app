@@ -241,7 +241,7 @@ class CallCenterFragment : Fragment() {
         val validate = {
             setupFilterTabs()
             applyFilters()
-            onValidated?.invoke(matchCountForPhone(phone) > 0)
+            if (onValidated != null) onValidated(matchCountForPhone(phone) > 0)
         }
         if (hasLoadedCcDataOnce) validate() else pendingSearchValidation = validate
     }
