@@ -45,6 +45,7 @@ class PettyCashFilterFragment : Fragment() {
     private lateinit var tvDateTo: TextView
     private lateinit var tvCategorySelected: TextView
     private lateinit var tvWorkerCategorySelected: TextView
+    private lateinit var etRequesterName: android.widget.EditText
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -67,6 +68,7 @@ class PettyCashFilterFragment : Fragment() {
         tvDateTo = view.findViewById(R.id.tvPcFilterDateTo)
         tvCategorySelected = view.findViewById(R.id.tvPcFilterCategorySelected)
         tvWorkerCategorySelected = view.findViewById(R.id.tvPcFilterWorkerCategorySelected)
+        etRequesterName = view.findViewById(R.id.etPcFilterRequesterName)
 
         view.findViewById<View>(R.id.btnPcFilterBack).setOnClickListener {
             parentFragmentManager.popBackStack()
@@ -170,6 +172,8 @@ class PettyCashFilterFragment : Fragment() {
         tvCategorySelected.text = selectedCategory
         tvWorkerCategorySelected.text = selectedWorkerCategory
 
+        etRequesterName.setText("")
+
         checkedStatusGroups.clear()
         statusOptions.indices.forEach { checkedStatusGroups.add(it) }
         buildStatusCheckboxes(root)
@@ -187,7 +191,8 @@ class PettyCashFilterFragment : Fragment() {
             dateToMillis = dateToMillis,
             statuses = resolvedStatuses,
             category = selectedCategory,
-            workerCategory = selectedWorkerCategory
+            workerCategory = selectedWorkerCategory,
+            requesterName = etRequesterName.text.toString().trim()
         )
 
         parentFragmentManager.setFragmentResult(

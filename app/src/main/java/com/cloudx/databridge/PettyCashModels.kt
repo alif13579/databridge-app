@@ -155,12 +155,14 @@ data class PettyCashFilterState(
     val dateToMillis: Long = 0L,
     val statuses: Set<String> = emptySet(), // subset of PC_STATUS_* constants
     val category: String = "",              // "" or "All Categories" = no restriction
-    val workerCategory: String = ""         // "" or "All Categories" = no restriction
+    val workerCategory: String = "",        // "" or "All Categories" = no restriction
+    val requesterName: String = ""          // free-text, matched case-insensitively against workerName
 ) {
     val isActive: Boolean get() =
         dateFromMillis != 0L || dateToMillis != 0L || statuses.isNotEmpty() ||
         (category.isNotBlank() && category != "All Categories") ||
-        (workerCategory.isNotBlank() && workerCategory != "All Categories")
+        (workerCategory.isNotBlank() && workerCategory != "All Categories") ||
+        requesterName.isNotBlank()
 
     fun matches(request: PettyCashRequest): Boolean {
         // requestedDate is when the expense actually happened; createdAt is
@@ -174,10 +176,11 @@ data class PettyCashFilterState(
         if (statuses.isNotEmpty() && request.status !in statuses) return false
         if (category.isNotBlank() && category != "All Categories" && request.category != category) return false
         if (workerCategory.isNotBlank() && workerCategory != "All Categories" && request.workerRole != workerCategory) return false
+        if (requesterName.isNotBlank() && !request.workerName.contains(requesterName.trim(), ignoreCase = true)) return false
         return true
     }
 
-    /** Date-range-only match for deposits, which have no status/category/worker-role. */
+    /** Date-range-only match for deposits, which have no status/category/worker-role/requester. */
     fun matches(deposit: PettyCashDeposit): Boolean {
         if (dateFromMillis != 0L && deposit.timestamp < dateFromMillis) return false
         if (dateToMillis != 0L && deposit.timestamp > dateToMillis) return false
@@ -194,6 +197,7 @@ data class PettyCashFilterState(
             putStringArrayList("statuses", ArrayList(state.statuses))
             putString("category", state.category)
             putString("workerCategory", state.workerCategory)
+            putString("requesterName", state.requesterName)
         }
 
         fun fromBundle(bundle: Bundle): PettyCashFilterState = PettyCashFilterState(
@@ -201,7 +205,8 @@ data class PettyCashFilterState(
             dateToMillis = bundle.getLong("dateToMillis", 0L),
             statuses = (bundle.getStringArrayList("statuses") ?: arrayListOf()).toSet(),
             category = bundle.getString("category").orEmpty(),
-            workerCategory = bundle.getString("workerCategory").orEmpty()
+            workerCategory = bundle.getString("workerCategory").orEmpty(),
+            requesterName = bundle.getString("requesterName").orEmpty()
         )
     }
 }

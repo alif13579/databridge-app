@@ -223,6 +223,31 @@
                         android:textColor="#94A3B8" />
                 </LinearLayout>
 
+                <!-- Requester Name -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Requester Name"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#334155"
+                    android:layout_marginTop="20dp" />
+
+                <EditText
+                    android:id="@+id/etPcFilterRequesterName"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_pc_input"
+                    android:paddingHorizontal="14dp"
+                    android:hint="Search by name"
+                    android:textSize="14sp"
+                    android:textColor="#0F172A"
+                    android:textColorHint="#94A3B8"
+                    android:inputType="textPersonName"
+                    android:maxLines="1"
+                    android:imeOptions="actionDone" />
+
                 <!-- Reset / Apply -->
                 <Button
                     android:id="@+id/btnPcFilterReset"
