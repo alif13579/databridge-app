@@ -42,6 +42,7 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
             "${FirebasePaths.claimsByBranch(claim.branchId)}/$id" to true,
             "${FirebasePaths.claimsBySystemId(claim.agentSystemId)}/$id" to true
         )).await()
+        SupabaseClaimsWriter.mirror(claim)
         return claim
     }
 
@@ -62,6 +63,7 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
         // what we don't have rather than writing a blank-keyed entry.
         if (info.agentSystemId.isNotBlank()) writes["${FirebasePaths.claimsBySystemId(info.agentSystemId)}/$id"] = true
         db.reference.updateChildren(writes).await()
+        SupabaseClaimsWriter.mirror(info)
         return true
     }
 
@@ -84,7 +86,9 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
             if (key.startsWith("claims/")) key else "${FirebasePaths.claimInfo(claimId)}/$key"
         }
         db.reference.updateChildren(rooted).await()
-        return get(claimId) ?: error("Claim disappeared after update")
+        val updated = get(claimId) ?: error("Claim disappeared after update")
+        SupabaseClaimsWriter.mirror(updated)
+        return updated
     }
 
     suspend fun search(filter: ClaimsReportFilter): ClaimsReport = coroutineScope {

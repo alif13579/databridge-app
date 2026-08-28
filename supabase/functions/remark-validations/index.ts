@@ -535,6 +535,47 @@ Deno.serve(async (request) => {
       return reply({ ok: true })
     }
 
+    // Best-effort mirror of Petty Cash claims into public.claims, written alongside
+    // (never instead of) the app's existing Firebase write in ClaimsRepository.kt —
+    // Firebase stays the source of truth for now. See this table's own migration
+    // comment (202608260001_create_petty_cash_claims_tables.sql): "table structure
+    // only, ahead of the actual data/write-flow migration off Firebase." This is
+    // that mirror, added ahead of the actual cutover so the table stays populated
+    // and can be spot-checked against Firebase before Firebase is ever removed.
+    // *Name fields (branchName, employeeName, staffByName, ...) are intentionally
+    // not accepted here — that same migration comment explains those are joins
+    // against users/branches at read time on the Supabase side, not stored columns.
+    if (action === 'claim_upsert') {
+      const c = body.claim
+      const str = (v: unknown) => typeof v === 'string' ? v : ''
+      const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : 0
+      const iso = (v: unknown) => typeof v === 'string' && v.trim() ? v : null
+      if (!c || !str(c.id).trim() || !str(c.branch_id).trim() || !str(c.agent_system_id).trim()) {
+        return reply({ error: 'claim id, branch_id and agent_system_id are required' }, 400)
+      }
+      const { error } = await admin.from('claims').upsert({
+        id: str(c.id), claim_code: str(c.claim_code),
+        branch_id: str(c.branch_id), employee_id: str(c.employee_id), agent_system_id: str(c.agent_system_id),
+        type: str(c.type), category: str(c.category), purpose: str(c.purpose),
+        consignment_id: str(c.consignment_id), store_id: str(c.store_id), store_name: str(c.store_name),
+        pickup_count: num(c.pickup_count),
+        requested_amount: num(c.requested_amount), approved_amount: num(c.approved_amount), settled_amount: num(c.settled_amount),
+        payment_method: str(c.payment_method), transaction_id: str(c.transaction_id),
+        status: str(c.status), priority: str(c.priority),
+        attachment_url: str(c.attachment_url), attachment_name: str(c.attachment_name),
+        worker_uid: str(c.worker_uid), worker_role: str(c.worker_role),
+        requested_at: iso(c.requested_at), approved_at: iso(c.approved_at), settled_at: iso(c.settled_at),
+        created_at: iso(c.created_at), updated_at: iso(c.updated_at),
+        staff_by_uid: str(c.staff_by_uid), staff_at: iso(c.staff_at), staff_comment: str(c.staff_comment),
+        poc_approved_by_uid: str(c.poc_approved_by_uid), poc_comment: str(c.poc_comment),
+        settle_in_process_by_uid: str(c.settle_in_process_by_uid), settle_in_process_at: iso(c.settle_in_process_at),
+        settled_by_uid: str(c.settled_by_uid),
+        rejected_by_uid: str(c.rejected_by_uid), rejected_at: iso(c.rejected_at), reject_reason: str(c.reject_reason),
+      }, { onConflict: 'id' })
+      if (error) throw error
+      return reply({ ok: true })
+    }
+
     if (action === 'write') {
       const row = body.row
       if (!row || !['consignment', 'branch_id', 'assigned_to_system_id', 'source'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
