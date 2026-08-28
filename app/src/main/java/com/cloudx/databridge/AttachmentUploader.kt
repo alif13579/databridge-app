@@ -99,10 +99,10 @@ object AttachmentUploader {
     /**
      * MIME filter for the picker launch. ActivityResultContracts.GetContent()
      * only accepts a single MIME string (no comma-joined list of several
-     * types), so this uses the "*/*" wildcard and relies on readFileMeta()/
-     * upload() to reject anything that isn't actually an image or PDF after
-     * the user picks it — the picker showing everything is a minor UX cost,
-     * not a validation gap.
+     * types), so this uses the wildcard MIME type (any/any) and relies on
+     * readFileMeta()/upload() to reject anything that isn't actually an image
+     * or PDF after the user picks it — the picker showing everything is a
+     * minor UX cost, not a validation gap.
      */
     const val PICKER_MIME_TYPE = "*/*"
 
