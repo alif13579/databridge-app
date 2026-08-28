@@ -270,14 +270,14 @@ object AttachmentUploader {
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    if (continuation.isActive) continuation.resumeWith(Result.failure(e))
+                    if (continuation.isActive) continuation.resumeWithException(e)
                 }
                 override fun onResponse(call: Call, response: okhttp3.Response) {
                     response.use {
                         val text = it.body?.string().orEmpty()
                         if (!it.isSuccessful) {
                             if (continuation.isActive) {
-                                continuation.resumeWith(Result.failure(IOException("HTTP ${it.code}: ${text.take(300)}")))
+                                continuation.resumeWithException(IOException("HTTP ${it.code}: ${text.take(300)}"))
                             }
                             return
                         }
@@ -285,7 +285,7 @@ object AttachmentUploader {
                             val downloadUrl = JSONObject(text).getString("download_url")
                             if (continuation.isActive) continuation.resume(downloadUrl)
                         } catch (e: Exception) {
-                            if (continuation.isActive) continuation.resumeWith(Result.failure(e))
+                            if (continuation.isActive) continuation.resumeWithException(e)
                         }
                     }
                 }
@@ -393,14 +393,14 @@ object AttachmentUploader {
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    if (continuation.isActive) continuation.resumeWith(Result.failure(e))
+                    if (continuation.isActive) continuation.resumeWithException(e)
                 }
                 override fun onResponse(call: Call, response: okhttp3.Response) {
                     response.use {
                         val text = it.body?.string().orEmpty()
                         if (!it.isSuccessful) {
                             if (continuation.isActive) {
-                                continuation.resumeWith(Result.failure(IOException("HTTP ${it.code}: ${text.take(300)}")))
+                                continuation.resumeWithException(IOException("HTTP ${it.code}: ${text.take(300)}"))
                             }
                             return
                         }
@@ -412,7 +412,7 @@ object AttachmentUploader {
                             )
                             if (continuation.isActive) continuation.resume(parsed)
                         } catch (e: Exception) {
-                            if (continuation.isActive) continuation.resumeWith(Result.failure(e))
+                            if (continuation.isActive) continuation.resumeWithException(e)
                         }
                     }
                 }
@@ -427,14 +427,14 @@ object AttachmentUploader {
             continuation.invokeOnCancellation { call.cancel() }
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    if (continuation.isActive) continuation.resumeWith(Result.failure(e))
+                    if (continuation.isActive) continuation.resumeWithException(e)
                 }
                 override fun onResponse(call: Call, response: okhttp3.Response) {
                     response.use {
                         if (it.isSuccessful) {
                             if (continuation.isActive) continuation.resume(Unit)
                         } else if (continuation.isActive) {
-                            continuation.resumeWith(Result.failure(IOException("Upload HTTP ${it.code}")))
+                            continuation.resumeWithException(IOException("Upload HTTP ${it.code}"))
                         }
                     }
                 }
