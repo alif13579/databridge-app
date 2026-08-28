@@ -22,6 +22,7 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * Uploads Petty Cash request attachments (receipt photos / PDFs) to Cloudflare
