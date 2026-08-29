@@ -277,7 +277,13 @@ class ClaimsReportFragment : Fragment() {
                 // that FK wasn't added), so the report falls back to the first
                 // matching claim's own agent details as a reasonable "prepared by"
                 // stand-in rather than leaving the header blank.
-                val outFile = File(requireContext().cacheDir, "petty_cash_top_sheet_${System.currentTimeMillis()}.pdf")
+                // exports/ subfolder — matches file_paths.xml's <cache-path name="exports"
+                // path="exports/" /> declaration (see CashLedgerListFragment/
+                // CashManagementHomeFragment/ScannerFragment for the same pattern). A
+                // file saved directly at cacheDir's root isn't covered by that
+                // declaration and FileProvider.getUriForFile() below would throw.
+                val exportsDir = File(requireContext().cacheDir, "exports").apply { mkdirs() }
+                val outFile = File(exportsDir, "petty_cash_top_sheet_${System.currentTimeMillis()}.pdf")
                 PettyCashTopSheetPdfWriter.generate(
                     outFile = outFile,
                     claims = claims,
