@@ -40,7 +40,7 @@ object SupabaseClientManager {
     // dialog could sometimes sit in its loading state indefinitely. Bounding both the
     // per-phase timeouts and the overall call time guarantees fetchValidations() always
     // returns (emptyList() on failure) within a fixed window.
-    private val httpClient = OkHttpClient.Builder()
+    val httpClient = OkHttpClient.Builder()
         .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
         .writeTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
