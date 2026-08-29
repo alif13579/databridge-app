@@ -199,25 +199,47 @@ options, which is why the CC "Set Remarks" picker currently shows nothing.
 
 No client access (service-role / Edge Function only).
 
+### `public.claims` — now live (Petty Cash / Claims report, ClaimsReportFragment)
+*(created 202608260001 as "structure only"; became active once
+SupabaseClaimsReader.kt/ClaimsReportFragment.kt started querying it — see
+migration history #20 for the original create-table statement and every
+column comment)*
+
+Two changes since the original create-table:
+
+- `branch_id`/`agent_system_id` gained explicit FK constraints (to
+  `branches(branch_id)`/`users(system_id)`) — the original create-table
+  had neither; added manually via SQL Editor, not tracked as a numbered
+  migration.
+- `expense_date` was renamed to `placed_date` and its semantics changed:
+  originally conveyance-only (populated when category is Pickup/Bulk
+  Delivery, blank otherwise, per the original column comment), it's now
+  the date a claim/expense request was placed — mandatory on every claim
+  regardless of category, user-editable (any role), defaulting to
+  `CURRENT_DATE` on insert but not locked to it.
+
+`public.branches`, `public.petty_cash_deposits`, `public.petty_cash_wallet_balance`
+remain not-yet-used — see below.
+
 ### Tables that exist but are NOT yet used by any app code
 *(created 202608260001, explicitly "structure only" ahead of an eventual
 Petty Cash / Claims migration off Firebase; RLS enabled with zero
 policies, so nothing can read/write them yet even if the app tried)*
 
 - `public.branches`
-- `public.claims`
 - `public.petty_cash_deposits`
 - `public.petty_cash_wallet_balance`
 
-Petty Cash and Claims features currently run entirely on Firebase Realtime
-Database (`PettyCashViewModel.kt`, `PettyCashModels.kt`, `ClaimsModels.kt`,
-`FirebasePaths.kt`) — nothing in `SupabaseClientManager.kt` queries any of
-these four tables. See each table's column list in migration history #20
-above (preserved there since these aren't live yet, so there's no
-"current" reads to verify column names against — the audit's
+Petty Cash and Claims features currently run mostly on Firebase Realtime
+Database (`PettyCashViewModel.kt`, `PettyCashModels.kt`, `FirebasePaths.kt`)
+— `public.claims` above is the one exception now being migrated (see
+`ClaimsReportFragment.kt`); the three tables above are still fully
+Firebase-only and untouched. See each table's column list in migration
+history #20 above (preserved there since these aren't live yet, so
+there's no "current" reads to verify column names against — the audit's
 cross-reference against `SupabaseClientManager.kt`'s query strings only
-covered `validations`, `users`, and `validation_remarks`, the three tables
-the app actually queries).
+covered `validations`, `users`, and `validation_remarks`, the tables the
+app actually queried at the time of that audit).
 
 ### Platform-level objects (not from any migration file)
 

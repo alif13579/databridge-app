@@ -10,22 +10,21 @@
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="16dp">
             <LinearLayout android:id="@+id/layoutClaimsBranchSelector" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
                 <TextView android:text="Branch" android:textStyle="bold" android:textColor="#334155" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-                <TextView android:id="@+id/btnClaimsBranches" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:padding="12dp" android:background="@drawable/bg_input_rounded" android:text="Select branches" android:textColor="#0F172A"/>
+                <TextView android:id="@+id/btnClaimsBranches" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:padding="12dp" android:background="@drawable/bg_input_rounded" android:text="Select a branch" android:textColor="#0F172A"/>
             </LinearLayout>
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Employees" android:textStyle="bold" android:textColor="#334155"/>
             <TextView android:id="@+id/btnClaimsEmployees" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:padding="12dp" android:background="@drawable/bg_input_rounded" android:text="All Employees" android:textColor="#0F172A"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Category" android:textStyle="bold" android:textColor="#334155"/>
+            <TextView android:id="@+id/btnClaimsCategories" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:padding="12dp" android:background="@drawable/bg_input_rounded" android:text="All Categories" android:textColor="#0F172A"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Status" android:textStyle="bold" android:textColor="#334155"/>
+            <TextView android:id="@+id/btnClaimsStatuses" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="5dp" android:padding="12dp" android:background="@drawable/bg_input_rounded" android:text="All Statuses" android:textColor="#0F172A"/>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="12dp">
                 <TextView android:id="@+id/btnClaimsFrom" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:padding="12dp" android:background="@drawable/bg_input_rounded"/>
                 <TextView android:id="@+id/btnClaimsTo" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:padding="12dp" android:background="@drawable/bg_input_rounded"/>
             </LinearLayout>
-            <Button android:id="@+id/btnClaimsSearch" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="SEARCH"/>
+            <Button android:id="@+id/btnClaimsSearch" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="SEARCH &amp; GENERATE REPORT"/>
             <ProgressBar android:id="@+id/pbClaimsReport" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center" android:layout_margin="16dp" android:visibility="gone"/>
             <TextView android:id="@+id/tvClaimsSummary" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:padding="16dp" android:textColor="#FFFFFF" android:background="@drawable/bg_action_button_purple"/>
-            <LinearLayout android:id="@+id/layoutClaimsRows" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="12dp"/>
-            <LinearLayout android:id="@+id/layoutClaimsExport" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="12dp" android:visibility="gone">
-                <Button android:id="@+id/btnClaimsExcel" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="Export Excel"/>
-                <Button android:id="@+id/btnClaimsPdf" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:text="Export PDF"/>
-            </LinearLayout>
             <Button android:id="@+id/btnClaimsMigrateIndex" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:text="⚠️ One-time: migrate employee index to system_id" android:textAllCaps="false" android:textSize="12sp" android:backgroundTint="#FEF3C7" android:textColor="#92400E"/>
             <Button android:id="@+id/btnClaimsDeleteOldIndex" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="🗑 Delete old employee_id index (after verifying)" android:textAllCaps="false" android:textSize="12sp" android:backgroundTint="#FEE2E2" android:textColor="#991B1B"/>
         </LinearLayout>
