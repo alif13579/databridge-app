@@ -103,19 +103,31 @@ object SupabaseClaimsWriter {
     }
 
     /** Maps ClaimInfo's camelCase fields to public.claims' snake_case columns
-     *  (202608260001_create_petty_cash_claims_tables.sql). *Name fields (branchName,
-     *  employeeName, staffByName, etc.) are deliberately NOT sent — that migration's own
-     *  comment explains why: those are joins against users/branches at read time on the
-     *  Supabase side, not stored columns, so nothing is lost by omitting them here. The
-     *  table's conveyance columns (vehicle, from_area, to_area, attempt_quantity,
-     *  delivered_quantity, cid_or_merchant, expense_date) have no ClaimInfo counterpart yet
-     *  either — also omitted, left at their table defaults until that field lands here too.
-     *  Millis timestamps convert to ISO-8601; a 0L/not-yet-reached-that-stage timestamp
-     *  (staffAt, approvedAt, etc.) is sent as null, matching the column's nullable
-     *  timestamptz type. */
+     *  (see SCHEMA_HISTORY.md's "public.claims — now live" entry). *Name fields
+     *  (branchName, employeeName, staffByName, etc.) are deliberately NOT sent —
+     *  those are joins against users/branches at read time on the Supabase side,
+     *  not stored columns, so nothing is lost by omitting them here. The table's
+     *  conveyance columns (vehicle, from_area, to_area, attempt_quantity,
+     *  delivered_quantity, cid_or_merchant) have no ClaimInfo counterpart yet
+     *  either — also omitted, left at their table defaults until that field
+     *  lands here too. Millis timestamps convert to ISO-8601; a 0L/not-yet-
+     *  reached-that-stage timestamp (staffAt, approvedAt, etc.) is sent as null,
+     *  matching the column's nullable timestamptz type.
+     *
+     *  placed_date IS sent (unlike the omitted columns above) — it's a NOT NULL
+     *  date column (see SCHEMA_HISTORY.md), derived from requestedAt (the same
+     *  "requested date" reviewers can now correct — see PettyCashRequest.
+     *  requestedDate / the requested-date-correction feature) rather than a
+     *  literal ClaimInfo field of that name. Falls back to today when
+     *  requestedAt is 0L (not yet reached that stage) so the insert never
+     *  violates the NOT NULL constraint. */
     private fun ClaimInfo.toSupabaseJson(): JSONObject {
         fun millisToIso(millis: Long): Any =
             if (millis > 0L) java.time.Instant.ofEpochMilli(millis).toString() else JSONObject.NULL
+        fun millisToIsoDate(millis: Long): String {
+            val instant = if (millis > 0L) java.time.Instant.ofEpochMilli(millis) else java.time.Instant.now()
+            return instant.atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
+        }
 
         return JSONObject().apply {
             put("id", claimId)
@@ -130,6 +142,7 @@ object SupabaseClaimsWriter {
             put("store_id", storeId)
             put("store_name", storeName)
             put("pickup_count", pickupCount)
+            put("placed_date", millisToIsoDate(requestedAt))
             put("requested_amount", requestedAmount)
             put("approved_amount", approvedAmount)
             put("settled_amount", settledAmount)
