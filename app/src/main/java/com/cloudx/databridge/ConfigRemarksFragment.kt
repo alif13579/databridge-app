@@ -460,6 +460,22 @@ class ConfigRemarksFragment : Fragment() {
             ).apply { bottomMargin = dp(10) }
         }
 
+        // Status (target_status) — same dropdown as the create dialog (openCreateDialog).
+        // Missing here before: the edit dialog never showed or sent target_status at
+        // all, so the Edge Function's admin_upsert_remark fell back to '' on every
+        // edit (see that action's `typeof row.target_status === 'string' ? ... : ''`),
+        // silently wiping out this field on every single edit regardless of what it
+        // had been before.
+        val sortedEdit = sortedStatuses()
+        val currentStatusIdx = sortedEdit.indexOf(remark.target_status)
+        val statusSpinnerEdit = Spinner(ctx).apply {
+            minimumHeight = dp(46)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(dp(8), 0, dp(8), 0)
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, sortedEdit.map { statusMeta[it]?.en ?: it })
+            setSelection(currentStatusIdx.coerceAtLeast(0))
+        }
+
         val tvTemplateLabel = TextView(ctx).apply {
             text = "WhatsApp Template (ঐচ্ছিক)"
             textSize = 10f
@@ -488,6 +504,14 @@ class ConfigRemarksFragment : Fragment() {
             setPadding(0, 0, 0, dp(5))
         })
         layout.addView(etPriorityEdit)
+        layout.addView(android.widget.TextView(ctx).apply {
+            text = "Status"
+            textSize = 10f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, dp(5))
+        })
+        layout.addView(statusSpinnerEdit)
         layout.addView(tvTemplateLabel)
         layout.addView(templateSpinner)
 
@@ -543,23 +567,25 @@ class ConfigRemarksFragment : Fragment() {
                 }
                 val newTemplateId = templates.getOrNull(templateSpinner.selectedItemPosition - 1)?.id ?: ""
                 val newPriority = etPriorityEdit.text.toString().trim().toIntOrNull() ?: 0
+                val newTargetStatus = sortedEdit.getOrElse(statusSpinnerEdit.selectedItemPosition) { remark.target_status }
                 val newInstructionPos = instructionSpinnerEdit.selectedItemPosition
                 val newInstructionType = if (newInstructionPos <= 0) "" else ConfigState.INSTRUCTION_TYPES.getOrElse(newInstructionPos - 1) { "" }
                 val newInstructionText = if (newInstructionType.isNotBlank()) etInstructionEdit.text.toString().trim() else ""
-                handleEdit(group, remark.id, newBn, newEn, newTemplateId, newPriority, newInstructionType, newInstructionText)
+                handleEdit(group, remark.id, newBn, newEn, newTemplateId, newTargetStatus, newPriority, newInstructionType, newInstructionText)
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
     private fun handleEdit(
-        group: String, id: String, newBn: String, newEn: String, newTemplateId: String, newPriority: Int = 0,
-        newInstructionType: String = "", newInstructionText: String = "",
+        group: String, id: String, newBn: String, newEn: String, newTemplateId: String, newTargetStatus: String,
+        newPriority: Int = 0, newInstructionType: String = "", newInstructionText: String = "",
     ) {
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Saving...")
             val remark = JSONObject()
                 .put("remarks_bn", newBn).put("remarks_en", newEn)
+                .put("target_status", newTargetStatus)
                 .put("template_id", newTemplateId).put("priority", newPriority)
                 .put("instruction_type", newInstructionType).put("instruction_text", newInstructionText)
             when (val result = SupabaseRemarkValidationWriter.adminUpsertRemark(activeScope.source, id, remark)) {
