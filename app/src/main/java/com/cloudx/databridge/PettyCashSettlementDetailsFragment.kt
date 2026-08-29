@@ -1,5 +1,6 @@
 package com.cloudx.databridge
 
+import android.app.DatePickerDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
@@ -20,6 +21,7 @@ import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -234,6 +236,21 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         bindRow(root, R.id.rowPcCategory, "Category", request.category)
         bindRow(root, R.id.rowPcAmount, "Amount", taka(request.amount))
         bindRow(root, R.id.rowPcRequestedOn, "Requested On", formatDate(if (request.requestedDate != 0L) request.requestedDate else request.createdAt))
+
+        // Reviewer-only date correction: the requester's own entry can be a rough
+        // guess, and report generation needs it accurate. Not the requester, and
+        // any of the reviewing roles — not tied to one specific pipeline stage,
+        // since the date can still need fixing at any point before reporting.
+        val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        val canEditRequestedDate = request.workerUid != myUid && (roles.isStaff || roles.isCashPoc || roles.isAccounts)
+        val requestedOnRow = root.findViewById<View>(R.id.rowPcRequestedOn)
+        if (canEditRequestedDate) {
+            requestedOnRow.isClickable = true
+            requestedOnRow.setOnClickListener { showRequestedDatePicker(request) }
+        } else {
+            requestedOnRow.isClickable = false
+            requestedOnRow.setOnClickListener(null)
+        }
 
         val rowExtra = root.findViewById<View>(R.id.rowPcCategoryExtra)
         when {
@@ -558,6 +575,19 @@ class PettyCashSettlementDetailsFragment : Fragment() {
 
     private fun requestIdFor(code: String): String =
         latestState?.requests?.find { it.requestCode == code }?.id.orEmpty()
+
+    private fun showRequestedDatePicker(request: PettyCashRequest) {
+        val base = request.requestedDate.takeIf { it != 0L } ?: request.createdAt
+        val cal = Calendar.getInstance().apply { if (base != 0L) timeInMillis = base }
+        DatePickerDialog(
+            requireContext(),
+            { _, year, month, day ->
+                val picked = Calendar.getInstance().apply { set(year, month, day) }.timeInMillis
+                runAction { viewModel.updateRequestedDate(request.id, picked) }
+            },
+            cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }
 
     private fun runAction(block: suspend () -> Result<Unit>) {
         lifecycleScope.launch {

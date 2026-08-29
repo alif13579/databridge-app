@@ -290,6 +290,25 @@ class PettyCashViewModel : ViewModel() {
         claims.update(requestId, mapOf("status" to PC_STATUS_CANCELLED))
     }
 
+    // ── Reviewer (any role EXCEPT the original requester): correct the requested
+    //    date ──────────────────────────────────────────────────────────────────
+    // The requester's own date entry (submitRequest()/updateRequest(), while still
+    // pending) can be wrong or simply a rough guess. This is the counterpart for
+    // whoever reviews the request afterward — Staff, Cash POC, or Accounts — to
+    // correct it so report generation's "Requested Date" is accurate. Deliberately
+    // not status-restricted, unlike updateRequest(): the date can still need fixing
+    // at any stage before/around report generation, not just while pending.
+
+    suspend fun updateRequestedDate(requestId: String, requestedDate: Long): Result<Unit> = runCatching {
+        require(requestedDate > 0L) { "A valid date is required" }
+        val uid = auth.currentUser?.uid.orEmpty()
+        val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
+
+        if (existing.workerUid == uid) throw IllegalStateException("The requester can't edit this — only another reviewer can")
+
+        claims.update(requestId, mapOf("requestedAt" to requestedDate))
+    }
+
     // ── Staff (formerly "Team Aligned"): acknowledge a request (1st approval) ──
     // Both the display label AND the field/variable names are now "Staff"
     // (staff_uid, staff_role, isStaff, staffByUid, staffByName, staffAt) --
