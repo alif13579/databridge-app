@@ -14,7 +14,7 @@ import kotlinx.coroutines.tasks.await
  */
 class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getInstance()) {
 
-    suspend fun create(info: ClaimInfo): ClaimInfo {
+    suspend fun create(info: ClaimInfo, onSupabaseResult: (Boolean) -> Unit = {}): ClaimInfo {
         require(info.branchId.isNotBlank()) { "A branch is required" }
         require(info.employeeId.isNotBlank()) { "An employee ID is required" }
         require(info.agentSystemId.isNotBlank()) { "An agent system ID is required" }
@@ -44,7 +44,7 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
         )).await()
         // Firebase is the source of truth and already has the write; Supabase is
         // a best-effort alternative copy — never blocks or fails claim creation.
-        SupabaseClaimsWriter.sync(claim)
+        SupabaseClaimsWriter.sync(claim, onSupabaseResult)
         return claim
     }
 
@@ -68,7 +68,7 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
         return true
     }
 
-    suspend fun update(claimId: String, updates: Map<String, Any?>): ClaimInfo {
+    suspend fun update(claimId: String, updates: Map<String, Any?>, onSupabaseResult: (Boolean) -> Unit = {}): ClaimInfo {
         val old = get(claimId) ?: error("Claim not found")
         val branchId = updates["branchId"] as? String ?: old.branchId
         val systemId = updates["agentSystemId"] as? String ?: old.agentSystemId
@@ -89,7 +89,7 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
         db.reference.updateChildren(rooted).await()
         val updated = get(claimId) ?: error("Claim disappeared after update")
         // Same posture as create() above — best-effort, never blocks/fails the update.
-        SupabaseClaimsWriter.sync(updated)
+        SupabaseClaimsWriter.sync(updated, onSupabaseResult)
         return updated
     }
 

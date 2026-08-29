@@ -372,10 +372,16 @@ class PettyCashRequestCreateFragment : Fragment() {
                 val result = viewModel.updateRequest(
                     branchId, editRequestId, selectedCategory, purpose, finalAmount,
                     consignmentId = finalConsignmentId, storeId = finalStoreId, storeName = finalStoreName,
-                    pickupCount = finalPickupCount
+                    pickupCount = finalPickupCount,
+                    onSupabaseResult = { ok ->
+                        activity?.runOnUiThread {
+                            if (isAdded) Toast.makeText(requireContext(),
+                                if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 )
                 if (result.isSuccess) {
-                    Toast.makeText(requireContext(), "Request updated", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), "✓ Firebase saved — Request updated", Toast.LENGTH_SHORT).show()
                     parentFragmentManager.popBackStack()
                 } else {
                     btnSubmit.isEnabled = true
@@ -396,10 +402,16 @@ class PettyCashRequestCreateFragment : Fragment() {
                     consignmentId = finalConsignmentId,
                     storeId = finalStoreId,
                     storeName = finalStoreName,
-                    pickupCount = finalPickupCount
+                    pickupCount = finalPickupCount,
+                    onSupabaseResult = { ok ->
+                        activity?.runOnUiThread {
+                            if (isAdded) Toast.makeText(requireContext(),
+                                if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 )
                 if (result.isSuccess) {
-                    Toast.makeText(requireContext(), "Request ${result.getOrNull()} submitted", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), "✓ Firebase saved — Request ${result.getOrNull()} submitted", Toast.LENGTH_SHORT).show()
                     parentFragmentManager.popBackStack()
                 } else {
                     btnSubmit.isEnabled = true

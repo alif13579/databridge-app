@@ -216,7 +216,8 @@ class PettyCashViewModel : ViewModel() {
         storeId: String = "",
         storeName: String = "",
         pickupCount: Int = 0,
-        requestedDate: Long = 0L
+        requestedDate: Long = 0L,
+        onSupabaseResult: (Boolean) -> Unit = {}
     ): Result<String> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Requester" }
@@ -241,7 +242,7 @@ class PettyCashViewModel : ViewModel() {
             attachmentUrl = attachmentUrl,
             attachmentName = attachmentName,
             status = PC_STATUS_PENDING, requestedAt = if (requestedDate != 0L) requestedDate else now
-        ))
+        ), onSupabaseResult)
         claim.claimCode
     }
 
@@ -257,7 +258,8 @@ class PettyCashViewModel : ViewModel() {
         storeId: String = "",
         storeName: String = "",
         pickupCount: Int = 0,
-        requestedDate: Long = 0L
+        requestedDate: Long = 0L,
+        onSupabaseResult: (Boolean) -> Unit = {}
     ): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
@@ -274,12 +276,12 @@ class PettyCashViewModel : ViewModel() {
                 "purpose" to purpose,
                 "requestedAmount" to amount,
                 "requestedAt" to (if (requestedDate != 0L) requestedDate else existing.requestedDate)
-            ))
+            ), onSupabaseResult)
     }
 
     // ── Requester: delete a request (only while status == pending) ──────────
 
-    suspend fun deleteRequest(branchId: String, requestId: String): Result<Unit> = runCatching {
+    suspend fun deleteRequest(branchId: String, requestId: String, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
 
@@ -287,7 +289,7 @@ class PettyCashViewModel : ViewModel() {
         if (existing.status != PC_STATUS_PENDING) throw IllegalStateException("This request can no longer be deleted")
 
         // Claims are never deleted: cancellation keeps audit and reporting intact.
-        claims.update(requestId, mapOf("status" to PC_STATUS_CANCELLED))
+        claims.update(requestId, mapOf("status" to PC_STATUS_CANCELLED), onSupabaseResult)
     }
 
     // ── Staff (formerly "Team Aligned"): acknowledge a request (1st approval) ──
@@ -304,7 +306,7 @@ class PettyCashViewModel : ViewModel() {
     // touches (that history is an accurate record of what the screen said
     // at the time).
 
-    suspend fun acknowledgeRequest(branchId: String, requestId: String, comment: String = ""): Result<Unit> = runCatching {
+    suspend fun acknowledgeRequest(branchId: String, requestId: String, comment: String = "", onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Staff" }
         val now = System.currentTimeMillis()
@@ -316,12 +318,12 @@ class PettyCashViewModel : ViewModel() {
                 "staffAt" to now,
                 "staffComment" to comment,
                 "updatedAt" to now
-            ))
+            ), onSupabaseResult)
     }
 
     // ── Cash POC: approve a request (2nd approval) ──────────────────────────
 
-    suspend fun approveRequest(branchId: String, requestId: String, comment: String = "", approvedAmount: Double? = null): Result<Unit> = runCatching {
+    suspend fun approveRequest(branchId: String, requestId: String, comment: String = "", approvedAmount: Double? = null, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Cash POC" }
         val now = System.currentTimeMillis()
@@ -338,12 +340,12 @@ class PettyCashViewModel : ViewModel() {
                 "pocComment" to comment,
                 "approvedAmount" to finalApprovedAmount,
                 "updatedAt" to now
-            ))
+            ), onSupabaseResult)
     }
 
     // ── Accounts: mark a request ready to settle (queues it for cash handover) ──
 
-    suspend fun markReadyToSettle(branchId: String, requestId: String): Result<Unit> = runCatching {
+    suspend fun markReadyToSettle(branchId: String, requestId: String, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Accounts" }
         val now = System.currentTimeMillis()
@@ -354,7 +356,7 @@ class PettyCashViewModel : ViewModel() {
                 "settleInProcessByName" to name,
                 "settleInProcessAt" to now,
                 "updatedAt" to now
-            ))
+            ), onSupabaseResult)
     }
 
     // ── Accounts: settle a request (final step, deducts wallet balance) ─────
@@ -364,7 +366,8 @@ class PettyCashViewModel : ViewModel() {
         requestId: String,
         paymentMethod: String,
         trxId: String,
-        settledAmount: Double? = null
+        settledAmount: Double? = null,
+        onSupabaseResult: (Boolean) -> Unit = {}
     ): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Accounts" }
@@ -396,12 +399,12 @@ class PettyCashViewModel : ViewModel() {
                 "paymentMethod" to paymentMethod,
                 "transactionId" to trxId,
                 "updatedAt" to now
-            ))
+            ), onSupabaseResult)
     }
 
     // ── Reject (can happen at Pending or Acknowledged stage only) ───────────
 
-    suspend fun rejectRequest(branchId: String, requestId: String, reason: String): Result<Unit> = runCatching {
+    suspend fun rejectRequest(branchId: String, requestId: String, reason: String, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName()
         val now = System.currentTimeMillis()
@@ -413,7 +416,7 @@ class PettyCashViewModel : ViewModel() {
                 "rejectedAt" to now,
                 "rejectReason" to reason,
                 "updatedAt" to now
-            ))
+            ), onSupabaseResult)
     }
 
     // ── Accounts: deposit fund into the branch wallet ────────────────────────

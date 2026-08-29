@@ -30,11 +30,14 @@ object SupabaseClaimsWriter {
 
     /** Fire-and-forget: mirrors [claim]'s current full state to Supabase. Safe to call
      *  after both a brand-new claim and any status-transition update — the Edge
-     *  Function upserts on claim id either way. */
-    fun sync(claim: ClaimInfo) {
+     *  Function upserts on claim id either way.
+     *  [onResult] fires once the network call actually completes (true = HTTP success),
+     *  on a background thread — callers that touch UI must switch threads themselves.
+     *  Never fires synchronously, so it always lands after the caller's own return. */
+    fun sync(claim: ClaimInfo, onResult: (Boolean) -> Unit = {}) {
         if (claim.claimId.isBlank() || claim.branchId.isBlank() || claim.agentSystemId.isBlank()) {
             log("claims_sync_skip_missing_ids", "Missing claimId/branchId/agentSystemId", claim.claimId)
-            return
+            onResult(false); return
         }
         val payload = JSONObject().put("action", "upsert_claim").put("claim", JSONObject().apply {
             put("claimId", claim.claimId); put("claimCode", claim.claimCode)
@@ -63,21 +66,21 @@ object SupabaseClaimsWriter {
             put("rejectedByUid", claim.rejectedByUid); put("rejectedAt", claim.rejectedAt)
             put("rejectReason", claim.rejectReason)
         })
-        invoke(payload, claim.claimId)
+        invoke(payload, claim.claimId, onResult)
     }
 
-    private fun invoke(payload: JSONObject, claimId: String) {
+    private fun invoke(payload: JSONObject, claimId: String, onResult: (Boolean) -> Unit) {
         if (!SupabaseConfig.isConfigured) {
             log("claims_sync_skip_not_configured", "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured", claimId)
-            return
+            onResult(false); return
         }
         val user = FirebaseAuth.getInstance().currentUser
-        if (user == null) { log("claims_sync_skip_not_signed_in", "No Firebase user", claimId); return }
+        if (user == null) { log("claims_sync_skip_not_signed_in", "No Firebase user", claimId); onResult(false); return }
         user.getIdToken(false).addOnCompleteListener { tokenTask ->
             val token = tokenTask.result?.token
             if (!tokenTask.isSuccessful || token.isNullOrBlank()) {
                 log("claims_sync_token_error", tokenTask.exception?.message ?: "No Firebase ID token", claimId)
-                return@addOnCompleteListener
+                onResult(false); return@addOnCompleteListener
             }
             val request = Request.Builder().url("${SupabaseConfig.PROJECT_URL}/functions/v1/claims-sync")
                 .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY).addHeader("Authorization", "Bearer $token")
@@ -85,11 +88,15 @@ object SupabaseClaimsWriter {
             client.newCall(request).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     log("claims_sync_network_error", e.message ?: "Network error", claimId)
+                    onResult(false)
                 }
                 override fun onResponse(call: Call, response: okhttp3.Response) {
                     response.use {
-                        if (!it.isSuccessful) {
+                        if (it.isSuccessful) {
+                            onResult(true)
+                        } else {
                             log("claims_sync_http_error", "HTTP ${it.code}: ${it.body?.string()?.take(500)}", claimId)
+                            onResult(false)
                         }
                     }
                 }
