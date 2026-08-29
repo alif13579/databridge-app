@@ -14,7 +14,7 @@ import kotlinx.coroutines.tasks.await
  */
 class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getInstance()) {
 
-    suspend fun create(info: ClaimInfo): ClaimInfo {
+    suspend fun create(info: ClaimInfo, onSupabaseResult: (Boolean) -> Unit = {}): ClaimInfo {
         require(info.branchId.isNotBlank()) { "A branch is required" }
         require(info.employeeId.isNotBlank()) { "An employee ID is required" }
         require(info.agentSystemId.isNotBlank()) { "An agent system ID is required" }
@@ -42,7 +42,9 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
             "${FirebasePaths.claimsByBranch(claim.branchId)}/$id" to true,
             "${FirebasePaths.claimsBySystemId(claim.agentSystemId)}/$id" to true
         )).await()
-        SupabaseClaimsWriter.mirror(claim)
+        // Firebase is the source of truth and already has the write; Supabase is
+        // a best-effort alternative copy — never blocks or fails claim creation.
+        SupabaseClaimsWriter.mirror(claim, onSupabaseResult)
         return claim
     }
 
@@ -51,7 +53,7 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
 
     /** Idempotently imports a legacy request.  Existing claim IDs are never
      * overwritten, which makes an interrupted migration safe to re-run. */
-    suspend fun importLegacy(info: ClaimInfo): Boolean {
+    suspend fun importLegacy(info: ClaimInfo, onSupabaseResult: (Boolean) -> Unit = {}): Boolean {
         val id = info.claimId
         require(id.matches(Regex("claim_[0-9]{13}"))) { "Invalid migrated claim ID" }
         if (get(id) != null) return false
@@ -63,11 +65,11 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
         // what we don't have rather than writing a blank-keyed entry.
         if (info.agentSystemId.isNotBlank()) writes["${FirebasePaths.claimsBySystemId(info.agentSystemId)}/$id"] = true
         db.reference.updateChildren(writes).await()
-        SupabaseClaimsWriter.mirror(info)
+        SupabaseClaimsWriter.mirror(info, onSupabaseResult)
         return true
     }
 
-    suspend fun update(claimId: String, updates: Map<String, Any?>): ClaimInfo {
+    suspend fun update(claimId: String, updates: Map<String, Any?>, onSupabaseResult: (Boolean) -> Unit = {}): ClaimInfo {
         val old = get(claimId) ?: error("Claim not found")
         val branchId = updates["branchId"] as? String ?: old.branchId
         val systemId = updates["agentSystemId"] as? String ?: old.agentSystemId
@@ -87,7 +89,8 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
         }
         db.reference.updateChildren(rooted).await()
         val updated = get(claimId) ?: error("Claim disappeared after update")
-        SupabaseClaimsWriter.mirror(updated)
+        // Same posture as create() above — best-effort, never blocks/fails the update.
+        SupabaseClaimsWriter.mirror(updated, onSupabaseResult)
         return updated
     }
 

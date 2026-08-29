@@ -428,7 +428,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 btnPrimary.text = "Acknowledge Request"
                 btnPrimary.setOnClickListener {
                     val comment = root.findViewById<android.widget.EditText>(R.id.etPcDetailComment).text?.toString()?.trim().orEmpty()
-                    runAction { viewModel.acknowledgeRequest(branchId, requestIdFor(requestCode), comment) }
+                    runAction { onSupa -> viewModel.acknowledgeRequest(branchId, requestIdFor(requestCode), comment, onSupabaseResult = onSupa) }
                 }
             }
             canApprove -> {
@@ -438,7 +438,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                     val comment = root.findViewById<android.widget.EditText>(R.id.etPcDetailComment).text?.toString()?.trim().orEmpty()
                     val amountText = root.findViewById<android.widget.EditText>(R.id.etPcDetailApprovedAmount).text?.toString()?.trim().orEmpty()
                     val approvedAmount = amountText.toDoubleOrNull() ?: request.amount
-                    runAction { viewModel.approveRequest(branchId, requestIdFor(requestCode), comment, approvedAmount) }
+                    runAction { onSupa -> viewModel.approveRequest(branchId, requestIdFor(requestCode), comment, approvedAmount, onSupabaseResult = onSupa) }
                 }
             }
             canMarkReady -> {
@@ -491,8 +491,15 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         }
 
         lifecycleScope.launch {
-            val result = viewModel.settleRequest(branchId, requestIdFor(requestCode), paymentMethod, trxId, typedAmount)
+            val result = viewModel.settleRequest(branchId, requestIdFor(requestCode), paymentMethod, trxId, typedAmount,
+                onSupabaseResult = { ok ->
+                    activity?.runOnUiThread {
+                        if (isAdded) Toast.makeText(requireContext(),
+                            if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
+                    }
+                })
             if (result.isSuccess) {
+                Toast.makeText(requireContext(), "✓ Firebase saved", Toast.LENGTH_SHORT).show()
                 parentFragmentManager.beginTransaction()
                     .replace(R.id.container, PettyCashSettlementSuccessFragment.newInstance(branchId, requestCode))
                     .addToBackStack(null)
@@ -522,7 +529,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Mark $requestCode ready to settle?")
             .setMessage("This moves the request into your cash handover queue.")
-            .setPositiveButton("Mark Ready") { _, _ -> runAction { viewModel.markReadyToSettle(branchId, requestIdFor(requestCode)) } }
+            .setPositiveButton("Mark Ready") { _, _ -> runAction { onSupa -> viewModel.markReadyToSettle(branchId, requestIdFor(requestCode), onSupabaseResult = onSupa) } }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -539,9 +546,15 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             .setPositiveButton("Reject") { _, _ ->
                 val reason = input.text?.toString()?.trim().orEmpty()
                 lifecycleScope.launch {
-                    val result = viewModel.rejectRequest(branchId, requestIdFor(requestCode), reason)
+                    val result = viewModel.rejectRequest(branchId, requestIdFor(requestCode), reason,
+                        onSupabaseResult = { ok ->
+                            activity?.runOnUiThread {
+                                if (isAdded) Toast.makeText(requireContext(),
+                                    if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
+                            }
+                        })
                     if (result.isSuccess) {
-                        Toast.makeText(requireContext(), "$requestCode rejected", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(requireContext(), "✓ Firebase saved — $requestCode rejected", Toast.LENGTH_SHORT).show()
                         parentFragmentManager.popBackStack()
                     } else {
                         Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Reject failed", Toast.LENGTH_SHORT).show()
@@ -560,9 +573,15 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             .setMessage("This permanently removes the request. This can't be undone.")
             .setPositiveButton("Delete") { _, _ ->
                 lifecycleScope.launch {
-                    val result = viewModel.deleteRequest(branchId, requestIdFor(requestCode))
+                    val result = viewModel.deleteRequest(branchId, requestIdFor(requestCode),
+                        onSupabaseResult = { ok ->
+                            activity?.runOnUiThread {
+                                if (isAdded) Toast.makeText(requireContext(),
+                                    if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
+                            }
+                        })
                     if (result.isSuccess) {
-                        Toast.makeText(requireContext(), "$requestCode deleted", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(requireContext(), "✓ Firebase saved — $requestCode deleted", Toast.LENGTH_SHORT).show()
                         parentFragmentManager.popBackStack()
                     } else {
                         Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Delete failed", Toast.LENGTH_SHORT).show()
@@ -583,17 +602,22 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             requireContext(),
             { _, year, month, day ->
                 val picked = Calendar.getInstance().apply { set(year, month, day) }.timeInMillis
-                runAction { viewModel.updateRequestedDate(request.id, picked) }
+                runAction { onSupa -> viewModel.updateRequestedDate(request.id, picked, onSupabaseResult = onSupa) }
             },
             cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
         ).show()
     }
 
-    private fun runAction(block: suspend () -> Result<Unit>) {
+    private fun runAction(block: suspend ((Boolean) -> Unit) -> Result<Unit>) {
         lifecycleScope.launch {
-            val result = block()
+            val result = block { ok ->
+                activity?.runOnUiThread {
+                    if (isAdded) Toast.makeText(requireContext(),
+                        if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
+                }
+            }
             if (result.isSuccess) {
-                Toast.makeText(requireContext(), "Done", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "✓ Firebase saved — Done", Toast.LENGTH_SHORT).show()
                 if (branchId.isNotBlank()) viewModel.load(branchId)
             } else {
                 Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Action failed", Toast.LENGTH_SHORT).show()

@@ -32,9 +32,28 @@ object SupabaseClaimsWriter {
         .build()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    fun mirror(claim: ClaimInfo) {
-        if (!SupabaseConfig.isConfigured) return
-        val user = FirebaseAuth.getInstance().currentUser ?: return
+    /** [onResult] fires once the network call actually completes (true = HTTP
+     *  success), on a background thread — callers that touch UI must switch
+     *  threads themselves. Never fires synchronously. Added alongside the
+     *  Firebase/Supabase confirmation toasts (PettyCashViewModel's write
+     *  methods) — mirror() itself is unchanged otherwise. */
+    fun mirror(claim: ClaimInfo, onResult: (Boolean) -> Unit = {}) {
+        if (!SupabaseConfig.isConfigured) {
+            FirebaseErrorLogger.log(
+                "SupabaseClaimsWriter", "mirror_skip_not_configured",
+                "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured",
+                mapOf("claimId" to claim.claimId)
+            )
+            onResult(false); return
+        }
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            FirebaseErrorLogger.log(
+                "SupabaseClaimsWriter", "mirror_skip_not_signed_in", "No Firebase user",
+                mapOf("claimId" to claim.claimId)
+            )
+            onResult(false); return
+        }
         user.getIdToken(false).addOnCompleteListener { tokenTask ->
             val token = tokenTask.result?.token
             if (!tokenTask.isSuccessful || token.isNullOrBlank()) {
@@ -43,7 +62,7 @@ object SupabaseClaimsWriter {
                     tokenTask.exception?.message ?: "No Firebase ID token",
                     mapOf("claimId" to claim.claimId)
                 )
-                return@addOnCompleteListener
+                onResult(false); return@addOnCompleteListener
             }
             val payload = JSONObject()
                 .put("action", "claim_upsert")
@@ -61,17 +80,21 @@ object SupabaseClaimsWriter {
                         "SupabaseClaimsWriter", "mirror_network_error",
                         e.message ?: "Network error", mapOf("claimId" to claim.claimId)
                     )
+                    onResult(false)
                 }
 
                 override fun onResponse(call: Call, response: Response) {
                     response.use {
-                        if (!it.isSuccessful) {
+                        if (it.isSuccessful) {
+                            onResult(true)
+                        } else {
                             val text = it.body?.string().orEmpty()
                             FirebaseErrorLogger.log(
                                 "SupabaseClaimsWriter", "mirror_http_error",
                                 "HTTP ${it.code}: ${text.take(500)}",
                                 mapOf("claimId" to claim.claimId)
                             )
+                            onResult(false)
                         }
                     }
                 }
