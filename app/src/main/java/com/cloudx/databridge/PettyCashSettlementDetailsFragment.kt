@@ -287,7 +287,6 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         // its own stage is actually reached, so it doesn't look like 0 was
         // approved/paid for a still-in-flight request.
         val cardSummary = root.findViewById<View>(R.id.cardPcSettlementSummary)
-        val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         val canSeeSummary = roles.isAccounts || request.workerUid == myUid
 
         cardSummary.isVisible = canSeeSummary
