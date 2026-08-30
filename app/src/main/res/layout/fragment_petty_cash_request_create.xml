@@ -192,6 +192,200 @@
                         android:hint="e.g. 3" />
                 </LinearLayout>
 
+                <!-- Conveyance fields — shown for both Pickup and Bulk Delivery (per the
+                     discussion that decided these apply to both categories, unlike
+                     Store/Consignment ID which are category-specific). Vehicle/From/To
+                     mirror the remark-picker's same fields and Office-default logic:
+                     Pickup defaults To='Office' and prefills From from the selected
+                     store's own area; Bulk Delivery defaults From='Office' with To as a
+                     plain dropdown (no store to prefill from). See applyConveyanceDefaults()
+                     in the Fragment for the actual default-application logic. -->
+                <LinearLayout
+                    android:id="@+id/groupPcRequestConveyance"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Vehicle"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:layout_marginTop="16dp" />
+
+                    <LinearLayout
+                        android:id="@+id/layoutPcRequestVehicle"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_pc_input"
+                        android:paddingHorizontal="14dp"
+                        android:clickable="true"
+                        android:focusable="true">
+
+                        <TextView
+                            android:id="@+id/tvPcRequestVehicleSelected"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Select Vehicle"
+                            android:textSize="14sp"
+                            android:textColor="#94A3B8" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="\u25BC"
+                            android:textSize="11sp"
+                            android:textColor="#94A3B8" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="From"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:layout_marginTop="14dp" />
+
+                    <LinearLayout
+                        android:id="@+id/layoutPcRequestFromArea"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_pc_input"
+                        android:paddingHorizontal="14dp"
+                        android:clickable="true"
+                        android:focusable="true">
+
+                        <TextView
+                            android:id="@+id/tvPcRequestFromAreaSelected"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Office"
+                            android:textSize="14sp"
+                            android:textColor="#0F172A" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="\u25BC"
+                            android:textSize="11sp"
+                            android:textColor="#94A3B8" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="To"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:layout_marginTop="14dp" />
+
+                    <LinearLayout
+                        android:id="@+id/layoutPcRequestToArea"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_pc_input"
+                        android:paddingHorizontal="14dp"
+                        android:clickable="true"
+                        android:focusable="true">
+
+                        <TextView
+                            android:id="@+id/tvPcRequestToAreaSelected"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Office"
+                            android:textSize="14sp"
+                            android:textColor="#0F172A" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="\u25BC"
+                            android:textSize="11sp"
+                            android:textColor="#94A3B8" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Attempt Quantity"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:layout_marginTop="14dp" />
+
+                    <EditText
+                        android:id="@+id/etPcRequestAttemptQuantity"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_pc_input"
+                        android:paddingHorizontal="14dp"
+                        android:inputType="number"
+                        android:maxLength="4"
+                        android:textSize="14sp"
+                        android:hint="e.g. 5" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Delivered Quantity"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:layout_marginTop="14dp" />
+
+                    <EditText
+                        android:id="@+id/etPcRequestDeliveredQuantity"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_pc_input"
+                        android:paddingHorizontal="14dp"
+                        android:inputType="number"
+                        android:maxLength="4"
+                        android:textSize="14sp"
+                        android:hint="e.g. 4" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="CID / Merchant"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:layout_marginTop="14dp" />
+
+                    <EditText
+                        android:id="@+id/etPcRequestCidOrMerchant"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_pc_input"
+                        android:hint="Enter CID or merchant name"
+                        android:textSize="14sp"
+                        android:textColor="#0F172A"
+                        android:paddingHorizontal="14dp"
+                        android:maxLines="1"
+                        android:inputType="text" />
+                </LinearLayout>
+
                 <!-- Amount — hidden for Pickup: the Requester doesn't know the actual
                      cost yet (that comes back from the store), so Staff fills it in
                      after this claim is submitted, not the Requester. -->

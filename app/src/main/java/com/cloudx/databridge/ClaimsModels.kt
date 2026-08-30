@@ -20,6 +20,17 @@ data class ClaimInfo(
     val purpose: String = "",
     val consignmentId: String = "",
     val storeName: String = "",
+    // Conveyance fields — populated only when category is Pickup or Bulk Delivery
+    // (mirrors public.claims' same 6 columns and the same From='Office'-default/
+    // store-area-prefill logic already used for the remark-picker's Vehicle/From/
+    // To fields — see PettyCashRequestCreateFragment's conveyance-fields UI).
+    // Blank/0 for every other category.
+    val vehicle: String = "",
+    val fromArea: String = "",
+    val toArea: String = "",
+    val attemptQuantity: Int = 0,
+    val deliveredQuantity: Int = 0,
+    val cidOrMerchant: String = "",
     val requestedAmount: Double = 0.0,
     val approvedAmount: Double = 0.0,
     val settledAmount: Double = 0.0,
@@ -89,7 +100,9 @@ fun ClaimInfo.asPettyCashRequest(): PettyCashRequest = PettyCashRequest(
     id = claimId, branchId = branchId, requestCode = claimCode, workerUid = workerUid,
     workerName = employeeName, workerRole = workerRole, category = category,
     consignmentId = consignmentId, storeId = storeId, storeName = storeName,
-    pickupCount = pickupCount, purpose = purpose, amount = requestedAmount, priority = priority,
+    pickupCount = pickupCount, vehicle = vehicle, fromArea = fromArea, toArea = toArea,
+    attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
+    purpose = purpose, amount = requestedAmount, priority = priority,
     attachmentUrl = attachmentUrl, attachmentName = attachmentName, requestedDate = requestedAt,
     status = status, createdAt = createdAt, updatedAt = updatedAt,
     staffByUid = staffByUid, staffByName = staffByName, staffAt = staffAt, staffComment = staffComment,
