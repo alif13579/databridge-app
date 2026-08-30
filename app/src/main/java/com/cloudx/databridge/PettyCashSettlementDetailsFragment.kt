@@ -409,13 +409,15 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         }
 
         layoutComment.isVisible = canAcknowledge || canApprove
-        layoutApprovedAmount.isVisible = canApprove
-        if (canApprove) {
+        layoutApprovedAmount.isVisible = canAcknowledge || canApprove
+        if (canAcknowledge || canApprove) {
+            root.findViewById<TextView>(R.id.tvPcDetailApprovedAmountLabel).text =
+                if (canApprove) "Approved Amount" else "Amount"
             val etAmount = root.findViewById<android.widget.EditText>(R.id.etPcDetailApprovedAmount)
             // Only prefill when empty so re-binds (e.g. a Firebase update
-            // ticking in) don't clobber a value the POC is mid-typing.
+            // ticking in) don't clobber a value the agent is mid-typing.
             if (etAmount.text.isNullOrBlank()) {
-                etAmount.setText(formatAmountForInput(request.amount))
+                etAmount.setText(formatAmountForInput(request.approvedAmount.takeIf { it > 0 } ?: request.amount))
             }
         }
         cardSettleForm.isVisible = canSettle
@@ -427,7 +429,9 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 btnPrimary.text = "Acknowledge Request"
                 btnPrimary.setOnClickListener {
                     val comment = root.findViewById<android.widget.EditText>(R.id.etPcDetailComment).text?.toString()?.trim().orEmpty()
-                    runAction { onSupa -> viewModel.acknowledgeRequest(branchId, requestIdFor(requestCode), comment, onSupabaseResult = onSupa) }
+                    val amountText = root.findViewById<android.widget.EditText>(R.id.etPcDetailApprovedAmount).text?.toString()?.trim().orEmpty()
+                    val acknowledgedAmount = amountText.toDoubleOrNull()
+                    runAction { onSupa -> viewModel.acknowledgeRequest(branchId, requestIdFor(requestCode), comment, acknowledgedAmount, onSupabaseResult = onSupa) }
                 }
             }
             canApprove -> {

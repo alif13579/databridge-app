@@ -325,19 +325,24 @@ class PettyCashViewModel : ViewModel() {
     // touches (that history is an accurate record of what the screen said
     // at the time).
 
-    suspend fun acknowledgeRequest(branchId: String, requestId: String, comment: String = "", onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
+    suspend fun acknowledgeRequest(branchId: String, requestId: String, comment: String = "", approvedAmount: Double? = null, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Staff" }
         val now = System.currentTimeMillis()
         claims.get(requestId) ?: throw IllegalStateException("Request not found")
-        claims.update(requestId, mapOf(
+        val updates = mutableMapOf<String, Any?>(
                 "status" to PC_STATUS_ACKNOWLEDGED,
                 "staffByUid" to uid,
                 "staffByName" to name,
                 "staffAt" to now,
                 "staffComment" to comment,
                 "updatedAt" to now
-            ), onSupabaseResult)
+            )
+        // Staff can optionally pre-set the amount here -- Cash POC's Approve step still
+        // prefills from (and can override) whatever ends up in approvedAmount, so this is
+        // a convenience default for POC, not a final figure.
+        if (approvedAmount != null) updates["approvedAmount"] = approvedAmount
+        claims.update(requestId, updates, onSupabaseResult)
     }
 
     // ── Cash POC: approve a request (2nd approval) ──────────────────────────
