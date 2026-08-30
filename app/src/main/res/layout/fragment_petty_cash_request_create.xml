@@ -110,18 +110,55 @@
                         android:textColor="#334155"
                         android:layout_marginTop="16dp" />
 
-                    <EditText
-                        android:id="@+id/etPcRequestConsignmentId"
+                    <LinearLayout
                         android:layout_width="match_parent"
-                        android:layout_height="52dp"
-                        android:layout_marginTop="6dp"
-                        android:background="@drawable/bg_pc_input"
-                        android:hint="Enter consignment ID"
-                        android:textSize="14sp"
-                        android:textColor="#0F172A"
-                        android:paddingHorizontal="14dp"
-                        android:maxLines="1"
-                        android:inputType="text" />
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="6dp">
+
+                        <EditText
+                            android:id="@+id/etPcRequestConsignmentId"
+                            android:layout_width="0dp"
+                            android:layout_height="52dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_pc_input"
+                            android:hint="Type or scan consignment ID"
+                            android:textSize="14sp"
+                            android:textColor="#0F172A"
+                            android:paddingHorizontal="14dp"
+                            android:maxLines="1"
+                            android:inputType="text" />
+
+                        <TextView
+                            android:id="@+id/btnPcRequestScanConsignment"
+                            android:layout_width="52dp"
+                            android:layout_height="52dp"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/bg_pc_input"
+                            android:gravity="center"
+                            android:text="📷"
+                            android:textSize="18sp" />
+                    </LinearLayout>
+
+                    <!-- Firebase preview of the entered/scanned id, so the agent can
+                         confirm they've got the right parcel before submitting. -->
+                    <LinearLayout
+                        android:id="@+id/layoutPcRequestConsignmentPreview"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@drawable/bg_card_rounded"
+                        android:padding="10dp"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:id="@+id/tvPcRequestConsignmentPreview"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:textSize="12.5sp"
+                            android:textColor="#0F172A" />
+                    </LinearLayout>
                 </LinearLayout>
 
                 <!-- Store — shown only when category == Pickup -->

@@ -1,7 +1,10 @@
 package com.cloudx.databridge
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.LayoutInflater
@@ -15,6 +18,7 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
+import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.launch
 
 /**
@@ -79,15 +83,37 @@ class PettyCashRequestCreateFragment : Fragment() {
     private var attachmentUrl: String = ""
     private var attachmentUploading = false
 
+    private val consignmentPreviewHandler = Handler(Looper.getMainLooper())
+    private var consignmentPreviewRunnable: Runnable? = null
+
     private val attachmentPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@registerForActivityResult
         onAttachmentPicked(uri)
+    }
+
+    // Same scan mechanism + SCAN_RESULT/pipe-suffix handling as WorkerSpaceFragment's
+    // search-by-scan (setupScanButton()/scanLauncher there).
+    private val scanLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == android.app.Activity.RESULT_OK) {
+            val raw = res.data?.getStringExtra("SCAN_RESULT") ?: ""
+            val cleaned = raw.trim().split("|").first().trim()
+            if (cleaned.isNotBlank()) {
+                etConsignmentId.setText(cleaned)
+                etConsignmentId.setSelection(cleaned.length)
+            }
+        }
     }
 
     private lateinit var tvTitle: TextView
     private lateinit var tvCategorySelected: TextView
     private lateinit var groupConsignment: View
     private lateinit var etConsignmentId: EditText
+    private lateinit var btnScanConsignment: View
+    private lateinit var layoutConsignmentPreview: View
+    private lateinit var tvConsignmentPreview: TextView
+    private lateinit var btnScanConsignment: View
+    private lateinit var layoutConsignmentPreview: View
+    private lateinit var tvConsignmentPreview: TextView
     private lateinit var groupStore: View
     private lateinit var tvStoreSelected: TextView
     private lateinit var etPickupCount: EditText
@@ -125,6 +151,33 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvCategorySelected = view.findViewById(R.id.tvPcRequestCategorySelected)
         groupConsignment = view.findViewById(R.id.groupPcRequestConsignment)
         etConsignmentId = view.findViewById(R.id.etPcRequestConsignmentId)
+        btnScanConsignment = view.findViewById(R.id.btnPcRequestScanConsignment)
+        layoutConsignmentPreview = view.findViewById(R.id.layoutPcRequestConsignmentPreview)
+        tvConsignmentPreview = view.findViewById(R.id.tvPcRequestConsignmentPreview)
+
+        btnScanConsignment.setOnClickListener {
+            try {
+                scanLauncher.launch(Intent(requireContext(), MlKitScannerActivity::class.java))
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), "Camera error: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        // Debounced preview: waits for a pause in typing so a Firebase read doesn't
+        // fire on every keystroke. A scan sets the whole id in one go, so it also
+        // benefits from the same debounce rather than needing a separate path.
+        etConsignmentId.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                consignmentPreviewRunnable?.let { consignmentPreviewHandler.removeCallbacks(it) }
+                val id = s?.toString()?.trim().orEmpty()
+                if (id.isBlank()) { layoutConsignmentPreview.isVisible = false; return }
+                val runnable = Runnable { loadConsignmentPreview(id) }
+                consignmentPreviewRunnable = runnable
+                consignmentPreviewHandler.postDelayed(runnable, 500L)
+            }
+        })
         groupStore = view.findViewById(R.id.groupPcRequestStore)
         tvStoreSelected = view.findViewById(R.id.tvPcRequestStoreSelected)
         etPickupCount = view.findViewById(R.id.etPcRequestPickupCount)
@@ -267,6 +320,29 @@ class PettyCashRequestCreateFragment : Fragment() {
             .addOnFailureListener {
                 storesLoaded = true // don't leave the picker stuck saying "still loading" forever
                 Toast.makeText(requireContext(), "Couldn't load store list: ${it.message}", Toast.LENGTH_SHORT).show()
+            }
+    }
+
+    /** Firebase read-only preview so the agent can confirm they've got the right
+     *  parcel — shows recipient name/phone/address/status, or a not-found message.
+     *  Guards on isAdded since this can complete after the view is gone (fragment
+     *  navigated away mid-request). */
+    private fun loadConsignmentPreview(consignmentId: String) {
+        FirebaseDatabase.getInstance().reference.child("courier/consignments/$consignmentId")
+            .get().addOnCompleteListener { task ->
+                if (!isAdded) return@addOnCompleteListener
+                val cons = if (task.isSuccessful) task.result?.value as? Map<*, *> else null
+                if (cons == null) {
+                    tvConsignmentPreview.text = "⚠ এই ID-তে কোনো consignment পাওয়া যায়নি"
+                    layoutConsignmentPreview.isVisible = true
+                    return@addOnCompleteListener
+                }
+                val name = (cons["recipientName"] as? String).orEmpty().ifBlank { "—" }
+                val phone = (cons["recipientPhone"] as? String).orEmpty().ifBlank { "—" }
+                val address = (cons["recipientAddress"] as? String).orEmpty().ifBlank { "—" }
+                val status = (cons["status"] as? String).orEmpty().ifBlank { "—" }
+                tvConsignmentPreview.text = "$name · $phone\n$address\nStatus: $status"
+                layoutConsignmentPreview.isVisible = true
             }
     }
 
