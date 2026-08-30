@@ -631,12 +631,12 @@ Deno.serve(async (request) => {
     // Best-effort mirror of Petty Cash deposits + wallet balance, same posture
     // as claim_upsert right above — alongside (never instead of) the existing
     // Firebase writes in PettyCashViewModel.kt's depositFund()/settleRequest(),
-    // Firebase remains the source of truth. See SupabasePettyCashWriter.kt's
-    // own doc comment: unlike claims, there was no prior Edge Function action
-    // to confirm these two tables' live column names against, so the columns
-    // referenced below are a best-effort derivation, not a verified match —
-    // check Supabase's Table Editor against these two upserts before/while
-    // deploying.
+    // Firebase remains the source of truth. Columns verified 2026-08-30 against
+    // a live information_schema.columns dump — see SupabasePettyCashWriter.kt's
+    // toSupabaseJson() doc comment for the two things that dump caught
+    // (entered_by_name isn't a real column; id is `uuid`, not text, so the
+    // Kotlin side converts Firebase's push-id string via
+    // UUID.nameUUIDFromBytes() before sending it here).
     if (action === 'petty_cash_deposit_upsert') {
       const d = body.deposit
       const str = (v: unknown) => typeof v === 'string' ? v : ''
@@ -649,7 +649,7 @@ Deno.serve(async (request) => {
         id: str(d.id), branch_id: str(d.branch_id),
         amount: num(d.amount), source: str(d.source), reference: str(d.reference), remarks: str(d.remarks),
         balance_after: num(d.balance_after),
-        entered_by_uid: str(d.entered_by_uid), entered_by_name: str(d.entered_by_name),
+        entered_by_uid: str(d.entered_by_uid),
         created_at: iso(d.created_at),
       }, { onConflict: 'id' })
       if (error) throw error

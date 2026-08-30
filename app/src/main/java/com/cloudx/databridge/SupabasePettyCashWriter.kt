@@ -22,20 +22,11 @@ import java.util.concurrent.TimeUnit
  * remains the source of truth, a Supabase failure here must never surface to
  * the caller or affect a Firebase write that already succeeded.
  *
- * UNVERIFIED COLUMN NAMES: unlike [SupabaseClaimsWriter], there was no
- * existing claim_upsert-style Edge Function action to confirm the live
- * column names of these two tables against — SCHEMA_HISTORY.md documents
- * them as still fully unused by any app code, so there's no "current" read
- * to cross-check spelling against the way that file's own audit did for
- * claims/validations/users. The names below are this class's best-effort
- * derivation from PettyCashDeposit's own fields, following the same
- * camelCase -> snake_case convention and Firebase-UID-vs-system_id join
- * choices SupabaseClaimsWriter already established. Check the actual
- * columns in Supabase's Table Editor before/while deploying the matching
- * Edge Function actions (petty_cash_deposit_upsert /
- * petty_cash_wallet_balance_upsert in remark-validations/index.ts) — a
- * mismatch fails loudly (an upsert error), it doesn't corrupt anything,
- * consistent with this mirror's whole best-effort design.
+ * Column names verified 2026-08-30 against a live information_schema.columns
+ * dump of both tables (this file's first version guessed at them, following
+ * claim_upsert's naming convention, since there was no existing Edge Function
+ * action to confirm against the way claims/validations/users had) — see
+ * toSupabaseJson()'s doc comment for the two things that dump caught.
  */
 object SupabasePettyCashWriter {
     private val client = OkHttpClient.Builder()
@@ -137,18 +128,23 @@ object SupabasePettyCashWriter {
         }
     }
 
-    /** Maps PettyCashDeposit's camelCase fields to petty_cash_deposits' (assumed)
-     *  snake_case columns — see this file's class-level doc comment on why these
-     *  names are unverified. branchId isn't a PettyCashDeposit field (it's a
+    /** Maps PettyCashDeposit's camelCase fields to petty_cash_deposits' columns —
+     *  verified 2026-08-30 against a live information_schema.columns dump (see
+     *  git history for this file's earlier, unverified version). Two things
+     *  that dump caught: entered_by_name isn't a real column (dropped below,
+     *  do not re-add without also adding the column), and id is `uuid not null
+     *  default gen_random_uuid()` — NOT text — so Firebase's push-id string
+     *  (e.g. "-NxAbC...") can't be sent as-is, it'd fail Postgres' uuid type
+     *  coercion. Converting it via UUID.nameUUIDFromBytes() (MD5-based, so the
+     *  same Firebase id always maps to the same UUID) keeps upsert-on-id
+     *  idempotent across retries without needing a schema change for a raw
+     *  firebase-id column. branchId isn't a PettyCashDeposit field (it's a
      *  parent key in the Firebase path, FirebasePaths.pettyCashDeposits(branchId))
-     *  so it's threaded through as a separate parameter here rather than expected
-     *  on the model. enteredByName is sent as a plain column (denormalized) rather
-     *  than assumed-joinable at read time the way claims omits its *Name fields —
-     *  unlike claims' agent_system_id -> users FK, enteredByUid is a raw Firebase
-     *  UID, and there's no confirmed join path from that to a display name here. */
+     *  so it's threaded through as a separate parameter here rather than
+     *  expected on the model. */
     private fun PettyCashDeposit.toSupabaseJson(branchId: String): JSONObject =
         JSONObject().apply {
-            put("id", id)
+            put("id", java.util.UUID.nameUUIDFromBytes(id.toByteArray(Charsets.UTF_8)).toString())
             put("branch_id", branchId)
             put("amount", amount)
             put("source", source)
@@ -156,7 +152,6 @@ object SupabasePettyCashWriter {
             put("remarks", remarks)
             put("balance_after", balanceAfter)
             put("entered_by_uid", enteredByUid)
-            put("entered_by_name", enteredByName)
             put("created_at", if (timestamp > 0L) java.time.Instant.ofEpochMilli(timestamp).toString() else JSONObject.NULL)
         }
 }
