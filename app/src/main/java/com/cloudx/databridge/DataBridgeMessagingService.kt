@@ -28,6 +28,19 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
         val body = data["body"]?.takeIf { it.isNotBlank() } ?: "একটি নতুন রিমার্ক এসেছে"
         val parcelId = data["consignment_id"].orEmpty()
         val scope = data["scope"].orEmpty()
+
+        // scope="worker" means CC just wrote a remark this worker hasn't answered yet --
+        // exactly what DeliveryReminderReceiver checks for. FCM data messages reach
+        // onMessageReceived() even with the app fully closed (unlike the Realtime
+        // subscription, which only runs while WorkerSpaceFragment's view is alive), so
+        // this is what re-arms the reminder chain when it had already stopped (nothing
+        // was pending on its last check) instead of waiting for the worker to reopen the
+        // app. Safe to call even when nothing is actually still pending -- the alarm
+        // fires once, finds nothing, and simply doesn't reschedule again.
+        if (scope == "worker") {
+            DeliveryReminderReceiver.arm(applicationContext)
+        }
+
         RemarkPushChainLog.log("RemarkPushChain", "onMessageReceived: parcelId=$parcelId scope=$scope " +
             "-> AppNotificationManager.add()")
         AppNotificationManager.add(
