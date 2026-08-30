@@ -37,10 +37,16 @@ object IncomingCallOverlay {
     private var layoutParams: WindowManager.LayoutParams? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var autoDismissRunnable: Runnable? = null
+    private var autoMinimizeRunnable: Runnable? = null
     private const val AUTO_DISMISS_MS = 30_000L
+    // Long enough to read the card at a glance, short enough that the screen doesn't
+    // stay covered once the agent isn't actively looking at it — auto-collapses to the
+    // small bubble instead of fully dismissing, so it's still one tap away.
+    private const val AUTO_MINIMIZE_MS = 8_000L
     private const val PREFS_NAME = "databridge_toggles"
     private const val KEY_POS_X = "overlay_pos_x"
     private const val KEY_POS_Y = "overlay_pos_y"
+    private const val EDGE_MARGIN_DP = 8
 
     fun show(context: Context, rawPhone: String, match: CallerMatch?, otherCount: Int) {
         val appContext = context.applicationContext
@@ -156,20 +162,42 @@ object IncomingCallOverlay {
         }
 
         setupDrag(context, view, wm, params)
-        setupMinimizeToggle(view, llExpanded, llMinimized)
+        setupMinimizeToggle(context, view, wm, params, llExpanded, llMinimized)
 
         try {
             wm.addView(view, params)
             overlayView = view
             windowManager = wm
             layoutParams = params
-            val runnable = Runnable { dismissInternal() }
-            autoDismissRunnable = runnable
-            mainHandler.postDelayed(runnable, AUTO_DISMISS_MS)
+            val dismissRunnable = Runnable { dismissInternal() }
+            autoDismissRunnable = dismissRunnable
+            mainHandler.postDelayed(dismissRunnable, AUTO_DISMISS_MS)
+            scheduleAutoMinimize(context, view, wm, params, llExpanded, llMinimized)
         } catch (_: Exception) {
             // Overlay permission revoked mid-flight, or OEM restriction -- fail silently,
             // this popup is a convenience, never something that should crash a call.
         }
+    }
+
+    /** Collapses to the bubble on its own after AUTO_MINIMIZE_MS of no interaction — cancelled
+     *  by any drag (setupDrag) and by manual minimize/expand (setupMinimizeToggle), and
+     *  re-scheduled after each of those so the countdown restarts from a fresh interaction
+     *  rather than firing mid-read. Not scheduled again once already minimized — there's
+     *  nothing further to collapse. */
+    private fun scheduleAutoMinimize(
+        context: Context, view: View, wm: WindowManager, params: WindowManager.LayoutParams,
+        llExpanded: View, llMinimized: View
+    ) {
+        autoMinimizeRunnable?.let { mainHandler.removeCallbacks(it) }
+        if (llMinimized.isVisible) return // already minimized, nothing to schedule
+        val runnable = Runnable { minimize(context, view, wm, params, llExpanded, llMinimized) }
+        autoMinimizeRunnable = runnable
+        mainHandler.postDelayed(runnable, AUTO_MINIMIZE_MS)
+    }
+
+    private fun cancelAutoMinimize() {
+        autoMinimizeRunnable?.let { mainHandler.removeCallbacks(it) }
+        autoMinimizeRunnable = null
     }
 
     /** Drag-anywhere-on-the-card-background repositioning. Buttons still get their own taps
@@ -194,6 +222,7 @@ object IncomingCallOverlay {
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
                     isDragging = false
+                    cancelAutoMinimize() // reading/interacting with it — don't collapse mid-touch
                     false // let a plain tap still reach a button underneath
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -214,6 +243,9 @@ object IncomingCallOverlay {
                             .putInt(KEY_POS_Y, params.y)
                             .apply()
                     }
+                    val llExpanded = view.findViewById<View>(R.id.llOverlayExpanded)
+                    val llMinimized = view.findViewById<View>(R.id.llOverlayMinimized)
+                    scheduleAutoMinimize(context, view, wm, params, llExpanded, llMinimized)
                     val wasDragging = isDragging
                     isDragging = false
                     wasDragging
@@ -226,20 +258,55 @@ object IncomingCallOverlay {
     /** Tapping the minimize icon collapses the card to just the small chip (llMinimized);
      *  tapping that chip re-expands. The window itself shrinks/grows with it since both
      *  states are WRAP_CONTENT — nothing to resize manually beyond toggling visibility. */
-    private fun setupMinimizeToggle(view: View, llExpanded: View, llMinimized: View) {
+    private fun setupMinimizeToggle(
+        context: Context, view: View, wm: WindowManager, params: WindowManager.LayoutParams,
+        llExpanded: View, llMinimized: View
+    ) {
         view.findViewById<View>(R.id.btnOverlayMinimize).setOnClickListener {
-            llExpanded.isVisible = false
-            llMinimized.isVisible = true
+            minimize(context, view, wm, params, llExpanded, llMinimized)
         }
         llMinimized.setOnClickListener {
             llMinimized.isVisible = false
             llExpanded.isVisible = true
+            // The bubble may have snapped to an edge at a width far narrower than the full
+            // card — clamp x back on screen so expanding never pushes part of the card off
+            // the right edge.
+            view.post {
+                val screenWidth = context.resources.displayMetrics.widthPixels
+                val margin = dpToPx(context, EDGE_MARGIN_DP)
+                val maxX = screenWidth - view.width - margin
+                if (params.x > maxX) params.x = maxX.coerceAtLeast(margin)
+                try { wm.updateViewLayout(view, params) } catch (_: Exception) { }
+            }
+            scheduleAutoMinimize(context, view, wm, params, llExpanded, llMinimized)
+        }
+    }
+
+    /** Shared by both the manual minimize tap and the auto-minimize timeout: collapses to the
+     *  chip, then snaps it to whichever screen edge (left/right) it's already closer to —
+     *  standard floating-bubble behavior, so it settles out of the way rather than sitting
+     *  wherever the much-wider full card happened to be. */
+    private fun minimize(
+        context: Context, view: View, wm: WindowManager, params: WindowManager.LayoutParams,
+        llExpanded: View, llMinimized: View
+    ) {
+        cancelAutoMinimize()
+        if (llMinimized.isVisible) return
+        llExpanded.isVisible = false
+        llMinimized.isVisible = true
+        view.post {
+            val screenWidth = context.resources.displayMetrics.widthPixels
+            val margin = dpToPx(context, EDGE_MARGIN_DP)
+            val cardCenterX = params.x + view.width / 2
+            params.x = if (cardCenterX < screenWidth / 2) margin else screenWidth - view.width - margin
+            try { wm.updateViewLayout(view, params) } catch (_: Exception) { }
         }
     }
 
     private fun dismissInternal() {
         autoDismissRunnable?.let { mainHandler.removeCallbacks(it) }
         autoDismissRunnable = null
+        cancelAutoMinimize()
         val view = overlayView ?: return
         overlayView = null
         val wm = windowManager
