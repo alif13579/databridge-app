@@ -464,6 +464,61 @@ Deno.serve(async (request) => {
       if (row.source !== 'CC' && row.source !== 'WORKER') {
         return reply({ error: 'Invalid remark source' }, 400)
       }
+
+      const remarkId = typeof row.id === 'string' ? row.id.trim() : ''
+
+      if (remarkId) {
+        // Partial update: a caller like ConfigRemarksFragment's per-card status
+        // spinner (handleTargetChange) intentionally sends only the one field
+        // it means to change (e.g. just target_status) — every other field is
+        // simply absent from the request, not meant to be cleared. Fetch the
+        // current row first so any field the caller didn't send keeps its
+        // existing value, instead of being reset to '' / 0 / true by the same
+        // default-fallback logic that's appropriate for a brand new row below.
+        const { data: existing, error: fetchError } = await admin.from('validation_remarks')
+          .select('*').eq('id', remarkId).maybeSingle()
+        if (fetchError) throw fetchError
+        if (!existing) return reply({ error: 'Remark not found' }, 404)
+
+        // Only recompute the bn/en cross-fallback when the caller actually sent
+        // a language field — a target-status-only update must never touch
+        // remarks_en/remarks_bn at all, and must never trip the "one of the two
+        // is required" check below (that check is about a genuine write of
+        // blank text, not about a request that doesn't mention text at all).
+        const sentEn = typeof row.remarks_en === 'string'
+        const sentBn = typeof row.remarks_bn === 'string'
+        if (sentEn || sentBn) {
+          const remarksEn = (sentEn ? row.remarks_en : '').trim()
+          const remarksBn = (sentBn ? row.remarks_bn : '').trim()
+          if (!remarksEn && !remarksBn) {
+            return reply({ error: 'remarks_en or remarks_bn is required' }, 400)
+          }
+          existing.remarks_en = remarksEn || remarksBn
+          existing.remarks_bn = remarksBn || remarksEn
+        }
+        if (typeof row.category === 'string') existing.category = row.category
+        if (typeof row.target_status === 'string') existing.target_status = row.target_status
+        if (typeof row.template_id === 'string') existing.template_id = row.template_id
+        if (Number.isFinite(row.priority)) existing.priority = row.priority
+        if (typeof row.instruction_type === 'string') existing.instruction_type = row.instruction_type
+        if (typeof row.instruction_text === 'string') existing.instruction_text = row.instruction_text
+        if (typeof row.is_active === 'boolean') existing.is_active = row.is_active
+        existing.updated_at = new Date().toISOString()
+        // id rides along on `existing` from the select('*') above, but the
+        // filter (.eq('id', remarkId)) is what targets the row — destructure
+        // it out so the update payload only ever contains columns that are
+        // actually meant to be set.
+        const { id: _unusedId, ...updatePayload } = existing
+        const { data, error } = await admin.from('validation_remarks').update(updatePayload)
+          .eq('id', remarkId).select('*').maybeSingle()
+        if (error) throw error
+        if (!data) return reply({ error: 'Remark not found' }, 404)
+        return reply({ ok: true, remark: data })
+      }
+
+      // Create: there's no existing row to merge against, so every field
+      // genuinely needs a value now — this is the only place '' / 0 / true
+      // defaults are still correct to apply for an absent field.
       if (typeof row.remarks_en !== 'string' && typeof row.remarks_bn !== 'string') {
         return reply({ error: 'remarks_en or remarks_bn is required' }, 400)
       }
@@ -483,13 +538,6 @@ Deno.serve(async (request) => {
         instruction_text: typeof row.instruction_text === 'string' ? row.instruction_text : '',
         is_active: typeof row.is_active === 'boolean' ? row.is_active : true,
         updated_at: new Date().toISOString(),
-      }
-      if (typeof row.id === 'string' && row.id.trim()) {
-        const { data, error } = await admin.from('validation_remarks').update(payload)
-          .eq('id', row.id.trim()).select('*').maybeSingle()
-        if (error) throw error
-        if (!data) return reply({ error: 'Remark not found' }, 404)
-        return reply({ ok: true, remark: data })
       }
       const { data, error } = await admin.from('validation_remarks')
         .insert({ id: crypto.randomUUID(), ...payload }).select('*').maybeSingle()
