@@ -151,6 +151,13 @@
             </intent-filter>
         </receiver>
 
+        <!-- Self-rescheduling AlarmManager target — only ever fired by this app's own
+             PendingIntent (DeliveryReminderReceiver.schedule()), never by the system. -->
+        <receiver
+            android:name=".DeliveryReminderReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

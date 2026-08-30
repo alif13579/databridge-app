@@ -324,6 +324,41 @@ object SupabaseRemarkValidationWriter {
         }
     }
 
+    /** Parcels assigned to this worker where CC's remark is still unanswered -- the
+     *  consignment's LATEST validations row has source='CC' (worker hasn't submitted
+     *  their own remark since). Same "latest row decides" rule used throughout this
+     *  file, just checked in the opposite direction from the Hold Validation Export's
+     *  stillPending (source='WORKER' there means CC hasn't resolved it yet; here
+     *  source='CC' means the worker hasn't).
+     *
+     *  Bounded to the last 14 days -- an outstanding request older than that would be
+     *  unusual and this keeps the query (and the client-side grouping below) cheap for
+     *  a background alarm check. Returns each pending consignment's own latest row, with
+     *  remarks_bn already resolved via withRemarkLabels(). */
+    fun fetchPendingDeliveryRequestsForWorker(assignedAgentSystemId: String, screen: String,
+                                              onResult: (List<JSONObject>) -> Unit) {
+        if (assignedAgentSystemId.isBlank()) return onResult(emptyList())
+        val start = Instant.now().minus(java.time.Duration.ofDays(14)).toString()
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val rows = SupabaseClientManager.fetchValidations(screen, "fetch_pending_delivery_requests", listOf(
+                "assigned_to_system_id" to "eq.$assignedAgentSystemId",
+                "created_at" to "gte.$start",
+                "order" to "created_at.desc"
+            ))
+            val latestByConsignment = LinkedHashMap<String, JSONObject>()
+            rows.forEach { row ->
+                val cId = row.optString("consignment")
+                if (cId.isBlank()) return@forEach
+                val existing = latestByConsignment[cId]
+                if (existing == null || row.optString("created_at") > existing.optString("created_at")) {
+                    latestByConsignment[cId] = row
+                }
+            }
+            val pending = latestByConsignment.values.filter { it.optString("source") == "CC" }
+            onResult(withRemarkLabels(pending, screen))
+        }
+    }
+
     fun fetchNewRemarksSince(consignmentIds: List<String>, sinceEpochMs: Long, screen: String,
                              onResult: (List<JSONObject>) -> Unit) {
         if (consignmentIds.isEmpty()) return onResult(emptyList())
