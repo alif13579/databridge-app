@@ -15,7 +15,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
-import kotlin.random.Random
 
 /**
  * Fires on a self-rescheduling AlarmManager alarm (see schedule() / arm()) to check whether
@@ -23,7 +22,7 @@ import kotlin.random.Random
  * (consignment's latest validations row has source='CC' — see
  * SupabaseRemarkValidationWriter.fetchPendingDeliveryRequestsForWorker()). If so, shows
  * DeliveryReminderOverlay (SYSTEM_ALERT_WINDOW granted) or a plain notification (not
- * granted) for the oldest one, then reschedules itself for another random interval. Stops
+ * granted) for the oldest one, then reschedules itself for another 10 minutes. Stops
  * rescheduling entirely once nothing is pending — armed again the next time
  * WorkerSpaceFragment loads (see its loadData()).
  */
@@ -140,7 +139,7 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
 
         private fun schedule(context: Context) {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-            val delayMs = Random.nextLong(20, 46) * 60_000L // random 20–45 minutes
+            val delayMs = 10 * 60_000L // every 10 minutes
             val pendingIntent = PendingIntent.getBroadcast(
                 context, 0, Intent(context, DeliveryReminderReceiver::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

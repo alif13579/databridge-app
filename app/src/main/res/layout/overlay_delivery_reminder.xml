@@ -126,7 +126,7 @@
         android:background="@drawable/bg_pc_input"
         android:gravity="center_vertical"
         android:paddingHorizontal="12dp"
-        android:text="The parcel will be delivered"
+        android:text="পার্সেলটি ডেলিভারি করা হবে"
         android:textSize="13.5sp"
         android:textColor="#0F172A" />
 
@@ -138,7 +138,7 @@
         android:background="@drawable/bg_pc_input"
         android:gravity="center_vertical"
         android:paddingHorizontal="12dp"
-        android:text="The parcel has delivered"
+        android:text="পার্সেলটি ডেলিভারি হয়ে গেছে"
         android:textSize="13.5sp"
         android:textColor="#0F172A" />
 
