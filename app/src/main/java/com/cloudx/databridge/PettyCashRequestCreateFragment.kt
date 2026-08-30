@@ -91,15 +91,24 @@ class PettyCashRequestCreateFragment : Fragment() {
         onAttachmentPicked(uri)
     }
 
-    // Same scan mechanism + SCAN_RESULT/pipe-suffix handling as WorkerSpaceFragment's
-    // search-by-scan (setupScanButton()/scanLauncher there).
+    // Same scan mechanism as WorkerSpaceFragment's search-by-scan, but the
+    // trim + length validation below matches ScannerFragment's scanLauncher instead
+    // (the canonical place this is checked) -- valid tracking IDs are always exactly
+    // TRACKING_ID_LENGTH (14) characters, length only, not digits-only. Manual/typed
+    // entry deliberately isn't held to this same check, matching ScannerFragment's
+    // own manual-entry path (showBottomSheetManual() there only blank-checks) --
+    // only a scan misfire gets second-guessed this way, not a human typing.
     private val scanLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == android.app.Activity.RESULT_OK) {
-            val raw = res.data?.getStringExtra("SCAN_RESULT") ?: ""
-            val cleaned = raw.trim().split("|").first().trim()
-            if (cleaned.isNotBlank()) {
-                etConsignmentId.setText(cleaned)
-                etConsignmentId.setSelection(cleaned.length)
+            val code = res.data?.getStringExtra("SCAN_RESULT")?.substringBefore('|')?.trim()
+            when {
+                code.isNullOrBlank() -> Toast.makeText(requireContext(), "No code found", Toast.LENGTH_SHORT).show()
+                code.length != ScannerFragment.TRACKING_ID_LENGTH ->
+                    Toast.makeText(requireContext(), "⚠ আপনার স্ক্যান সঠিক নয়। পুনরায় স্ক্যান করুন।", Toast.LENGTH_LONG).show()
+                else -> {
+                    etConsignmentId.setText(code)
+                    etConsignmentId.setSelection(code.length)
+                }
             }
         }
     }
