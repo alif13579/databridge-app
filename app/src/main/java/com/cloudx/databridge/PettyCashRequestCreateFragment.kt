@@ -120,9 +120,6 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var btnScanConsignment: View
     private lateinit var layoutConsignmentPreview: View
     private lateinit var tvConsignmentPreview: TextView
-    private lateinit var btnScanConsignment: View
-    private lateinit var layoutConsignmentPreview: View
-    private lateinit var tvConsignmentPreview: TextView
     private lateinit var groupStore: View
     private lateinit var tvStoreSelected: TextView
     private lateinit var etPickupCount: EditText
