@@ -52,6 +52,8 @@ object DeliveryReminderOverlay {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
+    private var autoDismissRunnable: Runnable? = null
+    private const val AUTO_DISMISS_MS = 60_000L
 
     fun show(context: Context, data: Data) {
         val appContext = context.applicationContext
@@ -124,6 +126,9 @@ object DeliveryReminderOverlay {
         }
         windowManager = wm
         overlayView = view
+        val runnable = Runnable { dismissInternal() }
+        autoDismissRunnable = runnable
+        mainHandler.postDelayed(runnable, AUTO_DISMISS_MS)
     }
 
     private fun submitQuickRemark(context: Context, data: Data, remarkText: String) {
@@ -170,6 +175,8 @@ object DeliveryReminderOverlay {
     }
 
     private fun dismissInternal() {
+        autoDismissRunnable?.let { mainHandler.removeCallbacks(it) }
+        autoDismissRunnable = null
         val wm = windowManager
         val view = overlayView
         if (wm != null && view != null) {
