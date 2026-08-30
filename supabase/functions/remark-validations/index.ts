@@ -580,6 +580,52 @@ Deno.serve(async (request) => {
       return reply({ ok: true })
     }
 
+    // Best-effort mirror of Petty Cash deposits + wallet balance, same posture
+    // as claim_upsert right above — alongside (never instead of) the existing
+    // Firebase writes in PettyCashViewModel.kt's depositFund()/settleRequest(),
+    // Firebase remains the source of truth. See SupabasePettyCashWriter.kt's
+    // own doc comment: unlike claims, there was no prior Edge Function action
+    // to confirm these two tables' live column names against, so the columns
+    // referenced below are a best-effort derivation, not a verified match —
+    // check Supabase's Table Editor against these two upserts before/while
+    // deploying.
+    if (action === 'petty_cash_deposit_upsert') {
+      const d = body.deposit
+      const str = (v: unknown) => typeof v === 'string' ? v : ''
+      const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : 0
+      const iso = (v: unknown) => typeof v === 'string' && v.trim() ? v : null
+      if (!d || !str(d.id).trim() || !str(d.branch_id).trim()) {
+        return reply({ error: 'deposit id and branch_id are required' }, 400)
+      }
+      const { error } = await admin.from('petty_cash_deposits').upsert({
+        id: str(d.id), branch_id: str(d.branch_id),
+        amount: num(d.amount), source: str(d.source), reference: str(d.reference), remarks: str(d.remarks),
+        balance_after: num(d.balance_after),
+        entered_by_uid: str(d.entered_by_uid), entered_by_name: str(d.entered_by_name),
+        created_at: iso(d.created_at),
+      }, { onConflict: 'id' })
+      if (error) throw error
+      return reply({ ok: true })
+    }
+
+    // One row per branch — a plain running-balance snapshot, not an
+    // append-only log the way petty_cash_deposits above is. Called
+    // independently from both depositFund() (+amount) and settleRequest()
+    // (-settledAmount) since either can change the balance without the
+    // other creating a deposit row.
+    if (action === 'petty_cash_wallet_balance_upsert') {
+      const branchId = typeof body.branch_id === 'string' ? body.branch_id.trim() : ''
+      const balance = typeof body.balance === 'number' && Number.isFinite(body.balance) ? body.balance : null
+      if (!branchId || balance === null) {
+        return reply({ error: 'branch_id and a numeric balance are required' }, 400)
+      }
+      const { error } = await admin.from('petty_cash_wallet_balance').upsert({
+        branch_id: branchId, balance, updated_at: new Date().toISOString(),
+      }, { onConflict: 'branch_id' })
+      if (error) throw error
+      return reply({ ok: true })
+    }
+
     if (action === 'write') {
       const row = body.row
       if (!row || !['consignment', 'branch_id', 'assigned_to_system_id', 'source'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
