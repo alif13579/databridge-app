@@ -45,7 +45,7 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
                 if (rows.isEmpty()) return@launch // nothing pending — don't reschedule
 
                 val oldest = rows.minByOrNull { it.optString("created_at") } ?: rows.first()
-                val data = buildReminderData(oldest)
+                val data = buildReminderData(oldest, otherPendingCount = rows.size - 1)
                 if (data != null) {
                     if (android.provider.Settings.canDrawOverlays(appContext)) {
                         DeliveryReminderOverlay.show(appContext, data)
@@ -70,7 +70,7 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
     /** Fills in customer name/address/COD from Firebase — validations rows only carry
      *  customer_phone, not the rest (see the extension's Hold Validation Export for the
      *  same gap and why: those columns were never added to public.validations). */
-    private suspend fun buildReminderData(row: JSONObject): DeliveryReminderOverlay.Data? {
+    private suspend fun buildReminderData(row: JSONObject, otherPendingCount: Int): DeliveryReminderOverlay.Data? {
         val consignmentId = row.optString("consignment")
         if (consignmentId.isBlank()) return null
         val cons = try {
@@ -95,6 +95,7 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
             ccRemarkAtMs = try {
                 java.time.Instant.parse(row.optString("created_at")).toEpochMilli()
             } catch (_: Exception) { 0L },
+            otherPendingCount = otherPendingCount,
         )
     }
 
@@ -116,7 +117,10 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_email)
             .setContentTitle("Delivery update needed — ${data.consignmentId}")
-            .setContentText(data.ccRemarkText.ifBlank { "CC পাঠিয়েছে — reply দিন" })
+            .setContentText(
+                data.ccRemarkText.ifBlank { "CC পাঠিয়েছে — reply দিন" } +
+                    if (data.otherPendingCount > 0) " (+ আরও ${data.otherPendingCount}টা)" else ""
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)

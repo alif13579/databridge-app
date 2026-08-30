@@ -15,6 +15,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -45,6 +46,7 @@ object DeliveryReminderOverlay {
         val ccRemarkText: String,
         val ccAuthorName: String,
         val ccRemarkAtMs: Long,
+        val otherPendingCount: Int = 0,
     )
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -68,6 +70,10 @@ object DeliveryReminderOverlay {
         val view = LayoutInflater.from(context).inflate(R.layout.overlay_delivery_reminder, null)
 
         view.findViewById<TextView>(R.id.tvDrConsignment).text = data.consignmentId
+        view.findViewById<TextView>(R.id.tvDrMoreCount).apply {
+            isVisible = data.otherPendingCount > 0
+            text = "+ আরও ${data.otherPendingCount}টা pending request আছে"
+        }
         view.findViewById<TextView>(R.id.tvDrCustomer).text =
             "${data.customerName.ifBlank { "Unknown customer" }} · ${data.customerPhone}"
         view.findViewById<TextView>(R.id.tvDrAddress).text = data.address.ifBlank { "—" }

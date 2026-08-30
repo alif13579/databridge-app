@@ -39,6 +39,16 @@
             android:textColor="#64748B" />
     </LinearLayout>
 
+    <TextView
+        android:id="@+id/tvDrMoreCount"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:textSize="11.5sp"
+        android:textStyle="bold"
+        android:textColor="#EA580C"
+        android:visibility="gone" />
+
     <!-- Customer / address / status / COD -->
     <TextView
         android:id="@+id/tvDrCustomer"
