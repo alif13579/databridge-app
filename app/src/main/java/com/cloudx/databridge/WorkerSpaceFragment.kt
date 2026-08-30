@@ -542,6 +542,19 @@ class WorkerSpaceFragment : Fragment() {
         else resolveRemarkBn(raw)
     }
 
+    /** DeliveryReminderOverlay's "Others…" option has no Fragment instance to call
+     *  showWorkerRemarksDialog() on directly, so it brings the app to the front instead,
+     *  carrying the consignment id in PENDING_REMARKS_DIALOG_FOR. Once allParcels is loaded
+     *  here, look for a match and open the same dialog the worker would've tapped into
+     *  from the list — then clear the extra so it doesn't reopen on the next resume. */
+    private fun maybeShowPendingRemarksDialogFromReminder() {
+        val activity = activity ?: return
+        val consignmentId = activity.intent?.getStringExtra(PENDING_REMARKS_DIALOG_FOR) ?: return
+        activity.intent?.removeExtra(PENDING_REMARKS_DIALOG_FOR)
+        val item = allParcels.find { it.id == consignmentId } ?: return
+        showWorkerRemarksDialog(item)
+    }
+
     private fun showWorkerRemarksDialog(item: WorkerParcelItem) {
         val dialog = BottomSheetDialog(requireContext())
         val view = layoutInflater.inflate(R.layout.bottom_sheet_worker_remarks, null)
@@ -1555,6 +1568,8 @@ class WorkerSpaceFragment : Fragment() {
                 RemarkPushChainLog.log("RemarkPushChain", "loadData: allParcels loaded, size=${allParcels.size}")
                 syncRemarkListeners(parcels.map { it.id }.toSet())
                 syncEngagedAtListeners(parcels.map { it.id }.toSet())
+                maybeShowPendingRemarksDialogFromReminder()
+                DeliveryReminderReceiver.arm(requireContext())
             } catch (e: Exception) {
                 if (!isAdded || generation != loadGeneration) return@launch
                 tvEmpty.visibility = View.VISIBLE
@@ -2048,6 +2063,10 @@ class WorkerSpaceFragment : Fragment() {
     )
 
     companion object {
+        // Intent extra: DeliveryReminderOverlay's "Others…" hands off here since it has no
+        // Fragment instance to call showWorkerRemarksDialog() on directly — see loadData().
+        const val PENDING_REMARKS_DIALOG_FOR = "pending_remarks_dialog_for"
+
         private const val RUN_TYPE_ALL = "all"
         private val RUN_TYPE_ORDER = listOf("delivery_run", "pickup_run", "return_run")
         // Run ID shape: run_{yyyyMMdd}_{employeeId} — yyyyMMdd is always exactly 8 zero-padded
