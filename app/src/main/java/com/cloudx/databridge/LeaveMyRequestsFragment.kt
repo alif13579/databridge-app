@@ -179,6 +179,7 @@ class LeaveMyRequestsFragment : Fragment() {
             row.findViewById<TextView>(R.id.tvAllReqRowCode).text = item.requestCode
             row.findViewById<TextView>(R.id.tvAllReqRowSubtitle).text = item.leaveType
             row.findViewById<TextView>(R.id.tvAllReqRowAmount).text = formatDate(item.leaveDateMillis).substringBefore(",")
+            row.findViewById<TextView>(R.id.tvAllReqRowSecondaryAmount).visibility = View.GONE
             row.findViewById<TextView>(R.id.tvAllReqRowDate).text = formatDate(item.createdAt)
             row.findViewById<TextView>(R.id.tvAllReqRowStatus).apply {
                 text = label
