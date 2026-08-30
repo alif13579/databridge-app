@@ -34,6 +34,9 @@
         android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Restarts IncomingCallLegacyWatcherService after reboot on API 23-28, where the
+         foreground service doesn't survive a restart on its own — see BootCompletedReceiver. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- 📷 Camera Hardware Feature (required=false → camera ছাড়া devices-এও install হবে) -->
     <uses-feature
@@ -131,6 +134,29 @@
             android:exported="false"
             android:foregroundServiceType="phoneCall"
             tools:targetApi="29" />
+
+        <!-- Restarts IncomingCallLegacyWatcherService after a reboot (API 23-28 only) —
+             the service itself doesn't persist across a restart, so without this the
+             Settings toggle would show "on" while the feature is silently inactive
+             until the user manually re-toggles it. No-ops on API 29+ (BootCompletedReceiver
+             checks Build.VERSION itself; ROLE_CALL_SCREENING survives reboot on its own,
+             nothing to restart there). -->
+        <receiver
+            android:name=".BootCompletedReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Self-rescheduling AlarmManager target — only ever fired by this app's own
+             PendingIntent (DeliveryReminderReceiver.schedule()), never by the system. -->
+        <receiver
+            android:name=".DeliveryReminderReceiver"
+            android:enabled="true"
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

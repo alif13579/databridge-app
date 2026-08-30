@@ -166,7 +166,12 @@ class PettyCashDepositFundFragment : Fragment() {
 
         btnDepositNow.isEnabled = false
         lifecycleScope.launch {
-            val result = viewModel.depositFund(branchId, amount, selectedSource, reference, remarks)
+            val result = viewModel.depositFund(branchId, amount, selectedSource, reference, remarks) { ok ->
+                activity?.runOnUiThread {
+                    if (isAdded) Toast.makeText(requireContext(),
+                        if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
+                }
+            }
             if (result.isSuccess) {
                 Toast.makeText(requireContext(), "Deposited ${taka(amount)} via $selectedSource", Toast.LENGTH_SHORT).show()
                 parentFragmentManager.popBackStack()

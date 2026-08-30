@@ -464,6 +464,61 @@ Deno.serve(async (request) => {
       if (row.source !== 'CC' && row.source !== 'WORKER') {
         return reply({ error: 'Invalid remark source' }, 400)
       }
+
+      const remarkId = typeof row.id === 'string' ? row.id.trim() : ''
+
+      if (remarkId) {
+        // Partial update: a caller like ConfigRemarksFragment's per-card status
+        // spinner (handleTargetChange) intentionally sends only the one field
+        // it means to change (e.g. just target_status) — every other field is
+        // simply absent from the request, not meant to be cleared. Fetch the
+        // current row first so any field the caller didn't send keeps its
+        // existing value, instead of being reset to '' / 0 / true by the same
+        // default-fallback logic that's appropriate for a brand new row below.
+        const { data: existing, error: fetchError } = await admin.from('validation_remarks')
+          .select('*').eq('id', remarkId).maybeSingle()
+        if (fetchError) throw fetchError
+        if (!existing) return reply({ error: 'Remark not found' }, 404)
+
+        // Only recompute the bn/en cross-fallback when the caller actually sent
+        // a language field — a target-status-only update must never touch
+        // remarks_en/remarks_bn at all, and must never trip the "one of the two
+        // is required" check below (that check is about a genuine write of
+        // blank text, not about a request that doesn't mention text at all).
+        const sentEn = typeof row.remarks_en === 'string'
+        const sentBn = typeof row.remarks_bn === 'string'
+        if (sentEn || sentBn) {
+          const remarksEn = (sentEn ? row.remarks_en : '').trim()
+          const remarksBn = (sentBn ? row.remarks_bn : '').trim()
+          if (!remarksEn && !remarksBn) {
+            return reply({ error: 'remarks_en or remarks_bn is required' }, 400)
+          }
+          existing.remarks_en = remarksEn || remarksBn
+          existing.remarks_bn = remarksBn || remarksEn
+        }
+        if (typeof row.category === 'string') existing.category = row.category
+        if (typeof row.target_status === 'string') existing.target_status = row.target_status
+        if (typeof row.template_id === 'string') existing.template_id = row.template_id
+        if (Number.isFinite(row.priority)) existing.priority = row.priority
+        if (typeof row.instruction_type === 'string') existing.instruction_type = row.instruction_type
+        if (typeof row.instruction_text === 'string') existing.instruction_text = row.instruction_text
+        if (typeof row.is_active === 'boolean') existing.is_active = row.is_active
+        existing.updated_at = new Date().toISOString()
+        // id rides along on `existing` from the select('*') above, but the
+        // filter (.eq('id', remarkId)) is what targets the row — destructure
+        // it out so the update payload only ever contains columns that are
+        // actually meant to be set.
+        const { id: _unusedId, ...updatePayload } = existing
+        const { data, error } = await admin.from('validation_remarks').update(updatePayload)
+          .eq('id', remarkId).select('*').maybeSingle()
+        if (error) throw error
+        if (!data) return reply({ error: 'Remark not found' }, 404)
+        return reply({ ok: true, remark: data })
+      }
+
+      // Create: there's no existing row to merge against, so every field
+      // genuinely needs a value now — this is the only place '' / 0 / true
+      // defaults are still correct to apply for an absent field.
       if (typeof row.remarks_en !== 'string' && typeof row.remarks_bn !== 'string') {
         return reply({ error: 'remarks_en or remarks_bn is required' }, 400)
       }
@@ -483,13 +538,6 @@ Deno.serve(async (request) => {
         instruction_text: typeof row.instruction_text === 'string' ? row.instruction_text : '',
         is_active: typeof row.is_active === 'boolean' ? row.is_active : true,
         updated_at: new Date().toISOString(),
-      }
-      if (typeof row.id === 'string' && row.id.trim()) {
-        const { data, error } = await admin.from('validation_remarks').update(payload)
-          .eq('id', row.id.trim()).select('*').maybeSingle()
-        if (error) throw error
-        if (!data) return reply({ error: 'Remark not found' }, 404)
-        return reply({ ok: true, remark: data })
       }
       const { data, error } = await admin.from('validation_remarks')
         .insert({ id: crypto.randomUUID(), ...payload }).select('*').maybeSingle()
@@ -576,6 +624,52 @@ Deno.serve(async (request) => {
         settled_by_uid: str(c.settled_by_uid),
         rejected_by_uid: str(c.rejected_by_uid), rejected_at: iso(c.rejected_at), reject_reason: str(c.reject_reason),
       }, { onConflict: 'id' })
+      if (error) throw error
+      return reply({ ok: true })
+    }
+
+    // Best-effort mirror of Petty Cash deposits + wallet balance, same posture
+    // as claim_upsert right above — alongside (never instead of) the existing
+    // Firebase writes in PettyCashViewModel.kt's depositFund()/settleRequest(),
+    // Firebase remains the source of truth. Columns verified 2026-08-30 against
+    // a live information_schema.columns dump — see SupabasePettyCashWriter.kt's
+    // toSupabaseJson() doc comment for the two things that dump caught
+    // (entered_by_name isn't a real column; id is `uuid`, not text, so the
+    // Kotlin side converts Firebase's push-id string via
+    // UUID.nameUUIDFromBytes() before sending it here).
+    if (action === 'petty_cash_deposit_upsert') {
+      const d = body.deposit
+      const str = (v: unknown) => typeof v === 'string' ? v : ''
+      const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : 0
+      const iso = (v: unknown) => typeof v === 'string' && v.trim() ? v : null
+      if (!d || !str(d.id).trim() || !str(d.branch_id).trim()) {
+        return reply({ error: 'deposit id and branch_id are required' }, 400)
+      }
+      const { error } = await admin.from('petty_cash_deposits').upsert({
+        id: str(d.id), branch_id: str(d.branch_id),
+        amount: num(d.amount), source: str(d.source), reference: str(d.reference), remarks: str(d.remarks),
+        balance_after: num(d.balance_after),
+        entered_by_uid: str(d.entered_by_uid),
+        created_at: iso(d.created_at),
+      }, { onConflict: 'id' })
+      if (error) throw error
+      return reply({ ok: true })
+    }
+
+    // One row per branch — a plain running-balance snapshot, not an
+    // append-only log the way petty_cash_deposits above is. Called
+    // independently from both depositFund() (+amount) and settleRequest()
+    // (-settledAmount) since either can change the balance without the
+    // other creating a deposit row.
+    if (action === 'petty_cash_wallet_balance_upsert') {
+      const branchId = typeof body.branch_id === 'string' ? body.branch_id.trim() : ''
+      const balance = typeof body.balance === 'number' && Number.isFinite(body.balance) ? body.balance : null
+      if (!branchId || balance === null) {
+        return reply({ error: 'branch_id and a numeric balance are required' }, 400)
+      }
+      const { error } = await admin.from('petty_cash_wallet_balance').upsert({
+        branch_id: branchId, balance, updated_at: new Date().toISOString(),
+      }, { onConflict: 'branch_id' })
       if (error) throw error
       return reply({ ok: true })
     }

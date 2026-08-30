@@ -325,19 +325,24 @@ class PettyCashViewModel : ViewModel() {
     // touches (that history is an accurate record of what the screen said
     // at the time).
 
-    suspend fun acknowledgeRequest(branchId: String, requestId: String, comment: String = "", onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
+    suspend fun acknowledgeRequest(branchId: String, requestId: String, comment: String = "", approvedAmount: Double? = null, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Staff" }
         val now = System.currentTimeMillis()
         claims.get(requestId) ?: throw IllegalStateException("Request not found")
-        claims.update(requestId, mapOf(
+        val updates = mutableMapOf<String, Any?>(
                 "status" to PC_STATUS_ACKNOWLEDGED,
                 "staffByUid" to uid,
                 "staffByName" to name,
                 "staffAt" to now,
                 "staffComment" to comment,
                 "updatedAt" to now
-            ), onSupabaseResult)
+            )
+        // Staff can optionally pre-set the amount here -- Cash POC's Approve step still
+        // prefills from (and can override) whatever ends up in approvedAmount, so this is
+        // a convenience default for POC, not a final figure.
+        if (approvedAmount != null) updates["approvedAmount"] = approvedAmount
+        claims.update(requestId, updates, onSupabaseResult)
     }
 
     // ── Cash POC: approve a request (2nd approval) ──────────────────────────
@@ -400,14 +405,23 @@ class PettyCashViewModel : ViewModel() {
         // (e.g. two Accounts users settling different requests at once) don't
         // race and overwrite each other's balance update.
         val balanceRef = db.reference.child(FirebasePaths.pettyCashWalletBalance(branchId))
+        var newBalance = 0.0
         balanceRef.runTransaction(object : Transaction.Handler {
             override fun doTransaction(currentData: MutableData): Transaction.Result {
                 val current = currentData.getValue(Double::class.java) ?: 0.0
-                currentData.value = current - finalSettledAmount
+                newBalance = current - finalSettledAmount
+                currentData.value = newBalance
                 return Transaction.success(currentData)
             }
             override fun onComplete(error: DatabaseError?, committed: Boolean, snapshot: DataSnapshot?) {}
         })
+        // Silent best-effort, same as e.g. sendRemarkPush() elsewhere in this
+        // codebase — onSupabaseResult below is already spoken for by the
+        // claims.update() mirror right after, and combining two independent
+        // async results into one caller-facing callback isn't worth the
+        // complexity for a side effect that never blocks/fails the settle
+        // either way.
+        SupabasePettyCashWriter.mirrorWalletBalance(branchId, newBalance)
 
         claims.update(requestId, mapOf(
                 "status" to PC_STATUS_SETTLED,
@@ -445,7 +459,8 @@ class PettyCashViewModel : ViewModel() {
         amount: Double,
         source: String,
         reference: String,
-        remarks: String
+        remarks: String,
+        onSupabaseResult: (Boolean) -> Unit = {}
     ): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Accounts" }
@@ -465,18 +480,29 @@ class PettyCashViewModel : ViewModel() {
 
         val depositRef = db.reference.child(FirebasePaths.pettyCashDeposits(branchId)).push()
         val depositId = depositRef.key ?: throw IllegalStateException("Could not generate deposit id")
-        depositRef.setValue(
-            PettyCashDeposit(
-                id = depositId,
-                amount = amount,
-                source = source,
-                reference = reference,
-                remarks = remarks,
-                balanceAfter = newBalance,
-                timestamp = now,
-                enteredByUid = uid,
-                enteredByName = name
-            )
-        ).await()
+        val deposit = PettyCashDeposit(
+            id = depositId,
+            amount = amount,
+            source = source,
+            reference = reference,
+            remarks = remarks,
+            balanceAfter = newBalance,
+            timestamp = now,
+            enteredByUid = uid,
+            enteredByName = name
+        )
+        depositRef.setValue(deposit).await()
+
+        // Firebase is the source of truth and already has both writes above;
+        // Supabase is a best-effort alternative copy — never blocks or fails
+        // the deposit. Balance first, then the deposit row, chained rather
+        // than parallel purely to keep this simple (see SupabasePettyCashWriter's
+        // doc comment) — by the time either completes the caller has normally
+        // already popped back off this screen, so the extra latency of doing
+        // them one after another instead of concurrently doesn't cost anything
+        // observable.
+        SupabasePettyCashWriter.mirrorWalletBalance(branchId, newBalance) {
+            SupabasePettyCashWriter.mirrorDeposit(branchId, deposit, onSupabaseResult)
+        }
     }
 }
