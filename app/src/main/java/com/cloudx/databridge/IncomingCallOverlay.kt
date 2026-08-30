@@ -9,12 +9,15 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.TextView
 import androidx.core.view.isVisible
 import java.text.NumberFormat
 import java.util.Locale
+import kotlin.math.abs
 
 /**
  * Adds/removes the incoming-call popup as a real system overlay (WindowManager.addView),
@@ -23,13 +26,21 @@ import java.util.Locale
  * Shared by IncomingCallScreeningService (API 29+) and IncomingCallLegacyWatcherService
  * (API 23-28) so the actual popup behavior is identical regardless of which one detected
  * the call.
+ *
+ * Draggable to any position (persisted in databridge_toggles across calls) and can be
+ * minimized to a small chip mid-call without fully dismissing it.
  */
 object IncomingCallOverlay {
 
     private var overlayView: View? = null
+    private var windowManager: WindowManager? = null
+    private var layoutParams: WindowManager.LayoutParams? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var autoDismissRunnable: Runnable? = null
     private const val AUTO_DISMISS_MS = 30_000L
+    private const val PREFS_NAME = "databridge_toggles"
+    private const val KEY_POS_X = "overlay_pos_x"
+    private const val KEY_POS_Y = "overlay_pos_y"
 
     fun show(context: Context, rawPhone: String, match: CallerMatch?, otherCount: Int) {
         val appContext = context.applicationContext
@@ -44,20 +55,26 @@ object IncomingCallOverlay {
     private fun showInternal(context: Context, rawPhone: String, match: CallerMatch?, otherCount: Int) {
         dismissInternal() // never stack two
 
-        val lookupFromCcEnabled = context.getSharedPreferences("databridge_toggles", Context.MODE_PRIVATE)
-            .getBoolean("lookup_from_cc", false)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val lookupFromCcEnabled = prefs.getBoolean("lookup_from_cc", false)
         // The unmatched card exists only to offer the CC search shortcut -- with the
         // toggle off there's nothing useful to show for a call with no matched parcel.
         if (match == null && !lookupFromCcEnabled) return
 
-        val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
+        val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
         val view = LayoutInflater.from(context).inflate(R.layout.overlay_incoming_call, null)
 
+        val llExpanded = view.findViewById<View>(R.id.llOverlayExpanded)
+        val llMinimized = view.findViewById<View>(R.id.llOverlayMinimized)
+        val tvMinimizedLabel = view.findViewById<TextView>(R.id.tvOverlayMinimizedLabel)
         val tvViewDetails = view.findViewById<View>(R.id.btnOverlayViewDetails)
         val tvNoMatch = view.findViewById<TextView>(R.id.tvOverlayNoMatch)
 
+        val displayName = if (match != null) match.name.ifBlank { "Unknown customer" } else "অজানা নম্বর"
+        tvMinimizedLabel.text = "📞 $displayName"
+
         if (match != null) {
-            view.findViewById<TextView>(R.id.tvOverlayName).text = match.name.ifBlank { "Unknown customer" }
+            view.findViewById<TextView>(R.id.tvOverlayName).text = displayName
             view.findViewById<TextView>(R.id.tvOverlayPhone).text = match.phone.ifBlank { rawPhone }
             view.findViewById<TextView>(R.id.tvOverlayStatus).text = match.statusLabel
 
@@ -94,7 +111,7 @@ object IncomingCallOverlay {
             }
         } else {
             // No matching parcel — minimal card: just the raw number and a way to search it.
-            view.findViewById<TextView>(R.id.tvOverlayName).text = "অজানা নম্বর"
+            view.findViewById<TextView>(R.id.tvOverlayName).text = displayName
             view.findViewById<TextView>(R.id.tvOverlayPhone).text = rawPhone
             view.findViewById<TextView>(R.id.tvOverlayStatus).isVisible = false
             view.findViewById<TextView>(R.id.tvOverlayCod).isVisible = false
@@ -119,23 +136,33 @@ object IncomingCallOverlay {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        // WRAP_CONTENT + explicit x/y (rather than the old MATCH_PARENT banner) is what
+        // makes this a positionable card instead of a full-width bar — x/y are plain
+        // top-left pixel offsets since gravity is TOP|START, matching setOnTouchListener's
+        // drag math below one-to-one.
+        val savedX = prefs.getInt(KEY_POS_X, dpToPx(context, 14))
+        val savedY = prefs.getInt(KEY_POS_Y, dpToPx(context, 46))
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP
-            y = dpToPx(context, 46)
-            x = dpToPx(context, 14)
-            width = context.resources.displayMetrics.widthPixels - dpToPx(context, 28)
+            gravity = Gravity.TOP or Gravity.START
+            x = savedX
+            y = savedY
         }
 
+        setupDrag(context, view, wm, params)
+        setupMinimizeToggle(view, llExpanded, llMinimized)
+
         try {
-            windowManager.addView(view, params)
+            wm.addView(view, params)
             overlayView = view
+            windowManager = wm
+            layoutParams = params
             val runnable = Runnable { dismissInternal() }
             autoDismissRunnable = runnable
             mainHandler.postDelayed(runnable, AUTO_DISMISS_MS)
@@ -145,14 +172,81 @@ object IncomingCallOverlay {
         }
     }
 
+    /** Drag-anywhere-on-the-card-background repositioning. Buttons still get their own taps
+     *  normally (a child view's own touch handling wins for touches landing on it), so this
+     *  only fires for drags starting on the card's non-button surface — exactly how a floating
+     *  chat-head-style widget is normally dragged. A touch that never moves past touchSlop is
+     *  treated as a tap and passed through rather than consumed, so tapping the card background
+     *  (as opposed to a button) doesn't accidentally swallow anything. */
+    private fun setupDrag(context: Context, view: View, wm: WindowManager, params: WindowManager.LayoutParams) {
+        val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        var initialX = 0
+        var initialY = 0
+        var initialTouchX = 0f
+        var initialTouchY = 0f
+        var isDragging = false
+
+        view.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = params.x
+                    initialY = params.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    isDragging = false
+                    false // let a plain tap still reach a button underneath
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - initialTouchX).toInt()
+                    val dy = (event.rawY - initialTouchY).toInt()
+                    if (!isDragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) isDragging = true
+                    if (isDragging) {
+                        params.x = initialX + dx
+                        params.y = initialY + dy
+                        try { wm.updateViewLayout(view, params) } catch (_: Exception) { }
+                    }
+                    isDragging
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isDragging) {
+                        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                            .putInt(KEY_POS_X, params.x)
+                            .putInt(KEY_POS_Y, params.y)
+                            .apply()
+                    }
+                    val wasDragging = isDragging
+                    isDragging = false
+                    wasDragging
+                }
+                else -> false
+            }
+        }
+    }
+
+    /** Tapping the minimize icon collapses the card to just the small chip (llMinimized);
+     *  tapping that chip re-expands. The window itself shrinks/grows with it since both
+     *  states are WRAP_CONTENT — nothing to resize manually beyond toggling visibility. */
+    private fun setupMinimizeToggle(view: View, llExpanded: View, llMinimized: View) {
+        view.findViewById<View>(R.id.btnOverlayMinimize).setOnClickListener {
+            llExpanded.isVisible = false
+            llMinimized.isVisible = true
+        }
+        llMinimized.setOnClickListener {
+            llMinimized.isVisible = false
+            llExpanded.isVisible = true
+        }
+    }
+
     private fun dismissInternal() {
         autoDismissRunnable?.let { mainHandler.removeCallbacks(it) }
         autoDismissRunnable = null
         val view = overlayView ?: return
         overlayView = null
+        val wm = windowManager
+        windowManager = null
+        layoutParams = null
         try {
-            val windowManager = view.context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-            windowManager?.removeView(view)
+            wm?.removeView(view)
         } catch (_: Exception) {
             // Already removed / view not attached -- nothing to do.
         }
