@@ -355,7 +355,7 @@
 
                     <!-- Claims Summary: Requested / Approved / Settled totals for a date range,
                          default "This Month". Approved is the visual anchor (large/bold) since
-                         it's the pending-settlement balance — money already committed but not
+                         it's the pending-settlement balance: money already committed but not
                          yet paid out. -->
                     <androidx.cardview.widget.CardView
                         android:layout_width="match_parent"
