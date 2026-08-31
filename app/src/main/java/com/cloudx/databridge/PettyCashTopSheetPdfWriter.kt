@@ -387,7 +387,7 @@ object PettyCashTopSheetPdfWriter {
         y = drawTwoColLabelRow(canvas, y, "Designation: ${first.agentDesignation.ifBlank { "Delivery Agent" }}", "Department: Fulfillment", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
         y += 8f
 
-        val headers = listOf("Date" to 0.11f, "From" to 0.13f, "To" to 0.13f, "Description" to 0.14f, "Vehicle" to 0.09f, "Amount" to 0.09f, "Attempt quantity" to 0.10f, "Delivered" to 0.09f, "CID / Merchant" to 0.12f)
+        val headers = listOf("Date" to 0.11f, "From" to 0.13f, "Destination" to 0.13f, "Description" to 0.14f, "Vehicle" to 0.09f, "Amount" to 0.09f, "Attempt quantity" to 0.10f, "Delivered" to 0.09f, "CID / Merchant" to 0.12f)
         y = drawTableHeaderRow(canvas, y, headers, strokeBorder, headerFillColor)
         agentClaims.forEach { claim ->
             val dateLabel = runCatching { dateDisplayFormat.format(dateIsoFormat.parse(claim.placedDate) ?: java.util.Date()) }.getOrDefault(claim.placedDate)

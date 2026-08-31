@@ -432,7 +432,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         val areas = if (selectedCategory == PC_CATEGORY_PICKUP) pickupAreas else deliveryAreas
         val labels = listOf("Office") + areas.map { it.name }
         android.app.AlertDialog.Builder(requireContext())
-            .setTitle(if (forFrom) "Select From" else "Select To")
+            .setTitle(if (forFrom) "Select From" else "Select Destination")
             .setItems(labels.toTypedArray()) { _, index ->
                 val id = if (index == 0) "OFFICE" else areas[index - 1].areaId
                 val label = labels[index]
