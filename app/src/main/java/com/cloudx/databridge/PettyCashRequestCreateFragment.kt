@@ -391,6 +391,64 @@ class PettyCashRequestCreateFragment : Fragment() {
             }
     }
 
+    /** Loads both area directories once. Pickup areas populate Pickup's From
+     *  picker; delivery areas populate Bulk Delivery's To picker. */
+    private fun loadAreas() {
+        val db = FirebaseDatabase.getInstance().reference
+        db.child(FirebasePaths.pickupAreas()).get()
+            .addOnSuccessListener { snap ->
+                pickupAreas = snap.children
+                    .mapNotNull { it.getValue(Area::class.java)?.copy(id = it.key.orEmpty()) }
+                    .sortedBy { it.name }
+                areasLoaded = true
+            }
+            .addOnFailureListener { areasLoaded = true }
+        db.child(FirebasePaths.deliveryAreas()).get()
+            .addOnSuccessListener { snap ->
+                deliveryAreas = snap.children
+                    .mapNotNull { it.getValue(Area::class.java)?.copy(id = it.key.orEmpty()) }
+                    .sortedBy { it.name }
+            }
+    }
+
+    private fun showVehiclePicker() {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Select Vehicle")
+            .setItems(vehicleOptions.toTypedArray()) { _, index ->
+                selectedVehicle = vehicleOptions[index]
+                tvVehicleSelected.text = selectedVehicle
+                tvVehicleSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+            }
+            .show()
+    }
+
+    /** Office is available in every list. The remaining areas come from the
+     *  directory appropriate to the selected conveyance category. */
+    private fun showAreaPicker(forFrom: Boolean) {
+        if (!areasLoaded) {
+            Toast.makeText(requireContext(), "Still loading area list, try again in a moment", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val areas = if (selectedCategory == PC_CATEGORY_PICKUP) pickupAreas else deliveryAreas
+        val labels = listOf("Office") + areas.map { it.name }
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle(if (forFrom) "Select From" else "Select To")
+            .setItems(labels.toTypedArray()) { _, index ->
+                val id = if (index == 0) "OFFICE" else areas[index - 1].areaId
+                val label = labels[index]
+                if (forFrom) {
+                    selectedFromArea = id
+                    selectedFromAreaLabel = label
+                    tvFromAreaSelected.text = label
+                } else {
+                    selectedToArea = id
+                    selectedToAreaLabel = label
+                    tvToAreaSelected.text = label
+                }
+            }
+            .show()
+    }
+
     /** Pickup: To defaults 'Office' (a pickup always ends at the office); From is
      *  prefilled from the selected store's own area (every store has one — see
      *  Store.areaId/areaName) but stays freely changeable via showAreaPicker(),
