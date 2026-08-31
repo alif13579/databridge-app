@@ -157,16 +157,21 @@ object DeliveryReminderOverlay {
     }
 
     private fun placeCall(context: Context, phone: String) {
-        if (phone.isBlank()) return
+        // Reuses AutoDialHelper's existing normalizer instead of dialing the raw stored
+        // value as-is -- that value can come from Firebase in any shape ("8801XXXXXXXXX",
+        // "+8801XXXXXXXXX", missing its leading 0, etc.), and normalizeBdPhone() already
+        // handles every one of those into the correct 01XXXXXXXXX local dial format.
+        val normalized = AutoDialHelper.normalizeBdPhone(phone)
+        if (normalized.isBlank()) return
         val hasCallPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) ==
             PackageManager.PERMISSION_GRANTED
         try {
             if (hasCallPerm) {
-                context.startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$phone")).apply {
+                context.startActivity(Intent(Intent.ACTION_CALL, Uri.parse("tel:$normalized")).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 })
             } else {
-                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone")).apply {
+                context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$normalized")).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 })
             }
