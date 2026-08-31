@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Payment Method"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:textColor="#64748B" />
+
+    <Spinner
+        android:id="@+id/spinnerQsPaymentMethod"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:text="Settle Amount"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:textColor="#64748B" />
+
+    <EditText
+        android:id="@+id/etQsAmount"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:inputType="numberDecimal" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:text="Transaction ID (ঐচ্ছিক)"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:textColor="#64748B" />
+
+    <EditText
+        android:id="@+id/etQsTrxId"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:inputType="text" />
+
+</LinearLayout>

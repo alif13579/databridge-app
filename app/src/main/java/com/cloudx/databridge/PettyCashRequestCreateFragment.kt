@@ -1,7 +1,10 @@
 package com.cloudx.databridge
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.LayoutInflater
@@ -15,6 +18,7 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
+import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.launch
 
 /**
@@ -96,15 +100,43 @@ class PettyCashRequestCreateFragment : Fragment() {
     private var attachmentUrl: String = ""
     private var attachmentUploading = false
 
+    private val consignmentPreviewHandler = Handler(Looper.getMainLooper())
+    private var consignmentPreviewRunnable: Runnable? = null
+
     private val attachmentPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri ?: return@registerForActivityResult
         onAttachmentPicked(uri)
+    }
+
+    // Same scan mechanism as WorkerSpaceFragment's search-by-scan, but the
+    // trim + length validation below matches ScannerFragment's scanLauncher instead
+    // (the canonical place this is checked) -- valid tracking IDs are always exactly
+    // TRACKING_ID_LENGTH (14) characters, length only, not digits-only. Manual/typed
+    // entry deliberately isn't held to this same check, matching ScannerFragment's
+    // own manual-entry path (showBottomSheetManual() there only blank-checks) --
+    // only a scan misfire gets second-guessed this way, not a human typing.
+    private val scanLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == android.app.Activity.RESULT_OK) {
+            val code = res.data?.getStringExtra("SCAN_RESULT")?.substringBefore('|')?.trim()
+            when {
+                code.isNullOrBlank() -> Toast.makeText(requireContext(), "No code found", Toast.LENGTH_SHORT).show()
+                code.length != ScannerFragment.TRACKING_ID_LENGTH ->
+                    Toast.makeText(requireContext(), "⚠ আপনার স্ক্যান সঠিক নয়। পুনরায় স্ক্যান করুন।", Toast.LENGTH_LONG).show()
+                else -> {
+                    etConsignmentId.setText(code)
+                    etConsignmentId.setSelection(code.length)
+                }
+            }
+        }
     }
 
     private lateinit var tvTitle: TextView
     private lateinit var tvCategorySelected: TextView
     private lateinit var groupConsignment: View
     private lateinit var etConsignmentId: EditText
+    private lateinit var btnScanConsignment: View
+    private lateinit var layoutConsignmentPreview: View
+    private lateinit var tvConsignmentPreview: TextView
     private lateinit var groupStore: View
     private lateinit var tvStoreSelected: TextView
     private lateinit var etPickupCount: EditText
@@ -152,6 +184,33 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvCategorySelected = view.findViewById(R.id.tvPcRequestCategorySelected)
         groupConsignment = view.findViewById(R.id.groupPcRequestConsignment)
         etConsignmentId = view.findViewById(R.id.etPcRequestConsignmentId)
+        btnScanConsignment = view.findViewById(R.id.btnPcRequestScanConsignment)
+        layoutConsignmentPreview = view.findViewById(R.id.layoutPcRequestConsignmentPreview)
+        tvConsignmentPreview = view.findViewById(R.id.tvPcRequestConsignmentPreview)
+
+        btnScanConsignment.setOnClickListener {
+            try {
+                scanLauncher.launch(Intent(requireContext(), MlKitScannerActivity::class.java))
+            } catch (e: Exception) {
+                Toast.makeText(requireContext(), "Camera error: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+
+        // Debounced preview: waits for a pause in typing so a Firebase read doesn't
+        // fire on every keystroke. A scan sets the whole id in one go, so it also
+        // benefits from the same debounce rather than needing a separate path.
+        etConsignmentId.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                consignmentPreviewRunnable?.let { consignmentPreviewHandler.removeCallbacks(it) }
+                val id = s?.toString()?.trim().orEmpty()
+                if (id.isBlank()) { layoutConsignmentPreview.isVisible = false; return }
+                val runnable = Runnable { loadConsignmentPreview(id) }
+                consignmentPreviewRunnable = runnable
+                consignmentPreviewHandler.postDelayed(runnable, 500L)
+            }
+        })
         groupStore = view.findViewById(R.id.groupPcRequestStore)
         tvStoreSelected = view.findViewById(R.id.tvPcRequestStoreSelected)
         etPickupCount = view.findViewById(R.id.etPcRequestPickupCount)
@@ -332,63 +391,6 @@ class PettyCashRequestCreateFragment : Fragment() {
             }
     }
 
-    /** Loads both area directories once — pickupAreas feeds Pickup's From picker,
-     *  deliveryAreas feeds Bulk Delivery's To picker (see FirebasePaths.pickupAreas()/
-     *  deliveryAreas(), the same courier-wide directories ConfigAreasFragment manages
-     *  and RemarkPopupOverlay's Vehicle/From/To fields already read from). */
-    private fun loadAreas() {
-        val db = com.google.firebase.database.FirebaseDatabase.getInstance().reference
-        db.child(FirebasePaths.pickupAreas()).get()
-            .addOnSuccessListener { snap ->
-                pickupAreas = snap.children.mapNotNull { it.getValue(Area::class.java)?.copy(id = it.key.orEmpty()) }.sortedBy { it.name }
-                areasLoaded = true
-            }
-            .addOnFailureListener { areasLoaded = true }
-        db.child(FirebasePaths.deliveryAreas()).get()
-            .addOnSuccessListener { snap ->
-                deliveryAreas = snap.children.mapNotNull { it.getValue(Area::class.java)?.copy(id = it.key.orEmpty()) }.sortedBy { it.name }
-            }
-    }
-
-    private fun showVehiclePicker() {
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Select Vehicle")
-            .setItems(vehicleOptions.toTypedArray()) { _, index ->
-                selectedVehicle = vehicleOptions[index]
-                tvVehicleSelected.text = selectedVehicle
-                tvVehicleSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
-            }
-            .show()
-    }
-
-    /** Office is always offered as the first option (the sentinel "OFFICE", not a real
-     *  courier/areas entry — see applyConveyanceDefaults()); the rest of the list is
-     *  pickup_area when picking From under Pickup, or delivery_area when picking To
-     *  under Bulk Delivery — the two cases this dialog is ever opened for, matching
-     *  which side is the free-choice dropdown vs the Office-defaulted side. */
-    private fun showAreaPicker(forFrom: Boolean) {
-        if (!areasLoaded) {
-            Toast.makeText(requireContext(), "Still loading area list, try again in a moment", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val areas = if (selectedCategory == PC_CATEGORY_PICKUP) pickupAreas else deliveryAreas
-        val labels = listOf("Office") + areas.map { it.name }
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle(if (forFrom) "Select From" else "Select To")
-            .setItems(labels.toTypedArray()) { _, index ->
-                val id = if (index == 0) "OFFICE" else areas[index - 1].areaId
-                val label = labels[index]
-                if (forFrom) {
-                    selectedFromArea = id; selectedFromAreaLabel = label
-                    tvFromAreaSelected.text = label
-                } else {
-                    selectedToArea = id; selectedToAreaLabel = label
-                    tvToAreaSelected.text = label
-                }
-            }
-            .show()
-    }
-
     /** Pickup: To defaults 'Office' (a pickup always ends at the office); From is
      *  prefilled from the selected store's own area (every store has one — see
      *  Store.areaId/areaName) but stays freely changeable via showAreaPicker(),
@@ -397,17 +399,6 @@ class PettyCashRequestCreateFragment : Fragment() {
      *  dropdown — Bulk Delivery has no store to prefill from (Consignment ID
      *  instead of a store picker). Mirrors the same Office-default/store-prefill
      *  logic already confirmed for the remark-picker's Vehicle/From/To fields. */
-    /** Resolves a stored areaId (or the "OFFICE" sentinel) back to a display label,
-     *  for prefillIfEditing() — falls back to the raw id if the area lists haven't
-     *  loaded yet or the id isn't found in either list (still functionally correct,
-     *  just shows the raw id instead of a friendly name in that edge case). */
-    private fun areaLabelFor(areaId: String): String {
-        if (areaId == "OFFICE") return "Office"
-        return pickupAreas.find { it.areaId == areaId }?.name
-            ?: deliveryAreas.find { it.areaId == areaId }?.name
-            ?: areaId
-    }
-
     private fun applyConveyanceDefaults(category: String) {
         if (category == PC_CATEGORY_PICKUP) {
             selectedToArea = "OFFICE"; selectedToAreaLabel = "Office"
@@ -424,6 +415,40 @@ class PettyCashRequestCreateFragment : Fragment() {
             selectedFromArea = "OFFICE"; selectedFromAreaLabel = "Office"
             tvFromAreaSelected.text = "Office"
         }
+    }
+
+    /** Resolves a stored areaId (or the "OFFICE" sentinel) back to a display label,
+     *  for prefillIfEditing() — falls back to the raw id if the area lists haven't
+     *  loaded yet or the id isn't found in either list (still functionally correct,
+     *  just shows the raw id instead of a friendly name in that edge case). */
+    private fun areaLabelFor(areaId: String): String {
+        if (areaId == "OFFICE") return "Office"
+        return pickupAreas.find { it.areaId == areaId }?.name
+            ?: deliveryAreas.find { it.areaId == areaId }?.name
+            ?: areaId
+    }
+
+    /** Firebase read-only preview so the agent can confirm they've got the right
+     *  parcel — shows recipient name/phone/address/status, or a not-found message.
+     *  Guards on isAdded since this can complete after the view is gone (fragment
+     *  navigated away mid-request). */
+    private fun loadConsignmentPreview(consignmentId: String) {
+        FirebaseDatabase.getInstance().reference.child("courier/consignments/$consignmentId")
+            .get().addOnCompleteListener { task ->
+                if (!isAdded) return@addOnCompleteListener
+                val cons = if (task.isSuccessful) task.result?.value as? Map<*, *> else null
+                if (cons == null) {
+                    tvConsignmentPreview.text = "⚠ এই ID-তে কোনো consignment পাওয়া যায়নি"
+                    layoutConsignmentPreview.isVisible = true
+                    return@addOnCompleteListener
+                }
+                val name = (cons["recipientName"] as? String).orEmpty().ifBlank { "—" }
+                val phone = (cons["recipientPhone"] as? String).orEmpty().ifBlank { "—" }
+                val address = (cons["recipientAddress"] as? String).orEmpty().ifBlank { "—" }
+                val status = (cons["status"] as? String).orEmpty().ifBlank { "—" }
+                tvConsignmentPreview.text = "$name · $phone\n$address\nStatus: $status"
+                layoutConsignmentPreview.isVisible = true
+            }
     }
 
     private fun onAttachmentPicked(uri: Uri) {

@@ -412,7 +412,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         layoutApprovedAmount.isVisible = canAcknowledge || canApprove
         if (canAcknowledge || canApprove) {
             root.findViewById<TextView>(R.id.tvPcDetailApprovedAmountLabel).text =
-                if (canApprove) "Approved Amount" else "Amount"
+                if (canApprove) "Approved Amount" else "Verified Amount"
             val etAmount = root.findViewById<android.widget.EditText>(R.id.etPcDetailApprovedAmount)
             // Only prefill when empty so re-binds (e.g. a Firebase update
             // ticking in) don't clobber a value the agent is mid-typing.

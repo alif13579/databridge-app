@@ -61,6 +61,10 @@ class PettyCashDashboardFragment : Fragment() {
     private lateinit var tvAvailableBalance: TextView
     private lateinit var cardTotalFund: View
     private lateinit var tvTotalFund: TextView
+    private lateinit var tvClaimsDateRange: TextView
+    private lateinit var tvClaimsApproved: TextView
+    private lateinit var tvClaimsRequested: TextView
+    private lateinit var tvClaimsSettled: TextView
     private lateinit var tvQueueTitle: TextView
     private lateinit var tvViewAllQueue: TextView
     private lateinit var layoutQueueList: LinearLayout
@@ -73,6 +77,12 @@ class PettyCashDashboardFragment : Fragment() {
     /** Which role's dashboard is currently on screen. */
     private enum class RoleView { ACCOUNTS, CASH_POC, STAFF }
     private var selectedView: RoleView? = null
+
+    /** Claims Summary card's date range -- [startMillis, endMillis), filters by
+     *  createdAt. Defaults to the current calendar month. */
+    private var claimsRangeStart: Long = 0L
+    private var claimsRangeEnd: Long = 0L
+    private var claimsRangeLabel: String = "This Month"
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -126,6 +136,12 @@ class PettyCashDashboardFragment : Fragment() {
         tvAvailableBalance = view.findViewById(R.id.tvPcAvailableBalance)
         cardTotalFund   = view.findViewById(R.id.cardPcTotalFund)
         tvTotalFund     = view.findViewById(R.id.tvPcTotalFund)
+        tvClaimsDateRange = view.findViewById(R.id.tvPcClaimsDateRange)
+        tvClaimsApproved  = view.findViewById(R.id.tvPcClaimsApproved)
+        tvClaimsRequested = view.findViewById(R.id.tvPcClaimsRequested)
+        tvClaimsSettled   = view.findViewById(R.id.tvPcClaimsSettled)
+        setClaimsRangeToThisMonth()
+        tvClaimsDateRange.setOnClickListener { showClaimsRangePicker() }
         tvQueueTitle    = view.findViewById(R.id.tvPcQueueTitle)
         tvViewAllQueue  = view.findViewById(R.id.tvPcViewAllQueue)
         layoutQueueList = view.findViewById(R.id.layoutPcQueueList)
@@ -430,6 +446,123 @@ class PettyCashDashboardFragment : Fragment() {
                 .commitAllowingStateLoss()
         }
         buildQueueList(queue, canSettle = true, showSettleAction = true)
+        renderClaimsSummary(state)
+    }
+
+    // ── Claims Summary card: Requested / Approved(unsettled) / Settled totals ──
+
+    private fun startOfDay(cal: java.util.Calendar) {
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+    }
+
+    private fun setClaimsRangeToThisMonth() {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        startOfDay(cal)
+        claimsRangeStart = cal.timeInMillis
+        cal.add(java.util.Calendar.MONTH, 1)
+        claimsRangeEnd = cal.timeInMillis
+        claimsRangeLabel = "This Month"
+    }
+
+    /** Filters state.requests by createdAt within [claimsRangeStart, claimsRangeEnd) and
+     *  updates the three amount TextViews. Requested counts every claim in range
+     *  regardless of status; Approved is only claims still awaiting settlement
+     *  (APPROVED / SETTLE_IN_PROCESS) -- this is the pending-settlement balance, which is
+     *  why it's the visually dominant figure; Settled is claims that reached SETTLED. */
+    private fun renderClaimsSummary(state: PettyCashState.Success) {
+        tvClaimsDateRange.text = claimsRangeLabel
+        val inRange = state.requests.filter { it.createdAt in claimsRangeStart until claimsRangeEnd }
+        val requestedTotal = inRange.sumOf { it.amount }
+        val approvedTotal = inRange
+            .filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
+            .sumOf { it.approvedAmount }
+        val settledTotal = inRange
+            .filter { it.status == PC_STATUS_SETTLED }
+            .sumOf { it.settledAmount }
+        tvClaimsApproved.text = taka(approvedTotal)
+        tvClaimsRequested.text = taka(requestedTotal)
+        tvClaimsSettled.text = taka(settledTotal)
+    }
+
+    private fun refreshClaimsSummaryIfLoaded() {
+        (viewModel.state.value as? PettyCashState.Success)?.let { renderClaimsSummary(it) }
+    }
+
+    private fun showClaimsRangePicker() {
+        val options = arrayOf("This Month", "Last Month", "Last 7 Days", "Last 30 Days", "All Time", "Custom Range")
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Date Range বেছে নিন")
+            .setItems(options) { _, which ->
+                val cal = java.util.Calendar.getInstance()
+                when (which) {
+                    0 -> setClaimsRangeToThisMonth()
+                    1 -> {
+                        cal.add(java.util.Calendar.MONTH, -1)
+                        cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+                        startOfDay(cal)
+                        claimsRangeStart = cal.timeInMillis
+                        cal.add(java.util.Calendar.MONTH, 1)
+                        claimsRangeEnd = cal.timeInMillis
+                        claimsRangeLabel = "Last Month"
+                    }
+                    2 -> {
+                        claimsRangeEnd = System.currentTimeMillis()
+                        cal.add(java.util.Calendar.DAY_OF_YEAR, -7)
+                        startOfDay(cal)
+                        claimsRangeStart = cal.timeInMillis
+                        claimsRangeLabel = "Last 7 Days"
+                    }
+                    3 -> {
+                        claimsRangeEnd = System.currentTimeMillis()
+                        cal.add(java.util.Calendar.DAY_OF_YEAR, -30)
+                        startOfDay(cal)
+                        claimsRangeStart = cal.timeInMillis
+                        claimsRangeLabel = "Last 30 Days"
+                    }
+                    4 -> {
+                        claimsRangeStart = 0L
+                        claimsRangeEnd = Long.MAX_VALUE
+                        claimsRangeLabel = "All Time"
+                    }
+                    5 -> {
+                        showCustomClaimsRangePicker()
+                        return@setItems
+                    }
+                }
+                refreshClaimsSummaryIfLoaded()
+            }
+            .show()
+    }
+
+    private fun showCustomClaimsRangePicker() {
+        val startCal = java.util.Calendar.getInstance().apply {
+            if (claimsRangeStart > 0L) timeInMillis = claimsRangeStart
+        }
+        android.app.DatePickerDialog(requireContext(), { _, y, m, d ->
+            val from = java.util.Calendar.getInstance().apply {
+                set(y, m, d); startOfDay(this)
+            }
+            val endCal = java.util.Calendar.getInstance()
+            android.app.DatePickerDialog(requireContext(), { _, y2, m2, d2 ->
+                val to = java.util.Calendar.getInstance().apply {
+                    set(y2, m2, d2); startOfDay(this)
+                    add(java.util.Calendar.DAY_OF_YEAR, 1) // inclusive end date
+                }
+                if (to.timeInMillis <= from.timeInMillis) {
+                    Toast.makeText(requireContext(), "End date শুরুর তারিখের আগে হতে পারবে না", Toast.LENGTH_SHORT).show()
+                    return@DatePickerDialog
+                }
+                claimsRangeStart = from.timeInMillis
+                claimsRangeEnd = to.timeInMillis
+                val fmt = java.text.SimpleDateFormat("dd MMM", Locale.ENGLISH)
+                claimsRangeLabel = "${fmt.format(from.time)} - ${fmt.format(java.util.Date(to.timeInMillis - 86_400_000))}"
+                refreshClaimsSummaryIfLoaded()
+            }, endCal.get(java.util.Calendar.YEAR), endCal.get(java.util.Calendar.MONTH), endCal.get(java.util.Calendar.DAY_OF_MONTH)).show()
+        }, startCal.get(java.util.Calendar.YEAR), startCal.get(java.util.Calendar.MONTH), startCal.get(java.util.Calendar.DAY_OF_MONTH)).show()
     }
 
     // ── Cash POC / Team Aligned summary: request counts + Pending For Approval ─
