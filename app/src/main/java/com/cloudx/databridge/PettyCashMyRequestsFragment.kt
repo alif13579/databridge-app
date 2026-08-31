@@ -46,6 +46,13 @@ class PettyCashMyRequestsFragment : Fragment() {
     private val db = FirebaseDatabase.getInstance()
     private var branchNames: Map<String, String> = emptyMap()
 
+    /** My Claims Summary card's date range -- see PettyCashDashboardFragment's identical
+     *  fields for the shared design this mirrors, scoped here to just this requester's
+     *  own claims. */
+    private var claimsRangeStart: Long = 0L
+    private var claimsRangeEnd: Long = 0L
+    private var claimsRangeLabel: String = "This Month"
+
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
         // Same key PettyCashDashboardFragment uses, so both screens remember
@@ -89,6 +96,8 @@ class PettyCashMyRequestsFragment : Fragment() {
         }
 
         setupBranchSwitcher()
+        setClaimsRangeToThisMonth()
+        view.findViewById<TextView>(R.id.tvPcMyClaimsDateRange).setOnClickListener { showClaimsRangePicker() }
 
         viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
         if (branchId.isBlank()) {
@@ -115,6 +124,122 @@ class PettyCashMyRequestsFragment : Fragment() {
     private fun taka(amount: Double): String {
         val whole = Math.round(amount)
         return "\u09F3${NumberFormat.getNumberInstance(Locale.US).format(whole)}"
+    }
+
+    // ── My Claims Summary card (mirrors PettyCashDashboardFragment's Claims Summary,
+    //    scoped to this requester's own claims) ─────────────────────────────────────
+
+    private fun startOfDay(cal: java.util.Calendar) {
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+    }
+
+    private fun setClaimsRangeToThisMonth() {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        startOfDay(cal)
+        claimsRangeStart = cal.timeInMillis
+        cal.add(java.util.Calendar.MONTH, 1)
+        claimsRangeEnd = cal.timeInMillis
+        claimsRangeLabel = "This Month"
+    }
+
+    private fun renderMyClaimsSummary(mine: List<PettyCashRequest>) {
+        val root = view ?: return
+        root.findViewById<TextView>(R.id.tvPcMyClaimsDateRange).text = claimsRangeLabel
+        val inRange = mine.filter { it.createdAt in claimsRangeStart until claimsRangeEnd }
+        val requestedTotal = inRange.sumOf { it.amount }
+        val approvedTotal = inRange
+            .filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
+            .sumOf { it.approvedAmount }
+        val settledTotal = inRange
+            .filter { it.status == PC_STATUS_SETTLED }
+            .sumOf { it.settledAmount }
+        root.findViewById<TextView>(R.id.tvPcMyClaimsApproved).text = taka(approvedTotal)
+        root.findViewById<TextView>(R.id.tvPcMyClaimsRequested).text = taka(requestedTotal)
+        root.findViewById<TextView>(R.id.tvPcMyClaimsSettled).text = taka(settledTotal)
+    }
+
+    private fun refreshMyClaimsSummaryIfLoaded() {
+        val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        (viewModel.state.value as? PettyCashState.Success)?.let { state ->
+            renderMyClaimsSummary(state.requests.filter { it.workerUid == myUid })
+        }
+    }
+
+    private fun showClaimsRangePicker() {
+        val options = arrayOf("This Month", "Last Month", "Last 7 Days", "Last 30 Days", "All Time", "Custom Range")
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Date Range বেছে নিন")
+            .setItems(options) { _, which ->
+                val cal = java.util.Calendar.getInstance()
+                when (which) {
+                    0 -> setClaimsRangeToThisMonth()
+                    1 -> {
+                        cal.add(java.util.Calendar.MONTH, -1)
+                        cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+                        startOfDay(cal)
+                        claimsRangeStart = cal.timeInMillis
+                        cal.add(java.util.Calendar.MONTH, 1)
+                        claimsRangeEnd = cal.timeInMillis
+                        claimsRangeLabel = "Last Month"
+                    }
+                    2 -> {
+                        claimsRangeEnd = System.currentTimeMillis()
+                        cal.add(java.util.Calendar.DAY_OF_YEAR, -7)
+                        startOfDay(cal)
+                        claimsRangeStart = cal.timeInMillis
+                        claimsRangeLabel = "Last 7 Days"
+                    }
+                    3 -> {
+                        claimsRangeEnd = System.currentTimeMillis()
+                        cal.add(java.util.Calendar.DAY_OF_YEAR, -30)
+                        startOfDay(cal)
+                        claimsRangeStart = cal.timeInMillis
+                        claimsRangeLabel = "Last 30 Days"
+                    }
+                    4 -> {
+                        claimsRangeStart = 0L
+                        claimsRangeEnd = Long.MAX_VALUE
+                        claimsRangeLabel = "All Time"
+                    }
+                    5 -> {
+                        showCustomClaimsRangePicker()
+                        return@setItems
+                    }
+                }
+                refreshMyClaimsSummaryIfLoaded()
+            }
+            .show()
+    }
+
+    private fun showCustomClaimsRangePicker() {
+        val startCal = java.util.Calendar.getInstance().apply {
+            if (claimsRangeStart > 0L) timeInMillis = claimsRangeStart
+        }
+        android.app.DatePickerDialog(requireContext(), { _, y, m, d ->
+            val from = java.util.Calendar.getInstance().apply {
+                set(y, m, d); startOfDay(this)
+            }
+            val endCal = java.util.Calendar.getInstance()
+            android.app.DatePickerDialog(requireContext(), { _, y2, m2, d2 ->
+                val to = java.util.Calendar.getInstance().apply {
+                    set(y2, m2, d2); startOfDay(this)
+                    add(java.util.Calendar.DAY_OF_YEAR, 1) // inclusive end date
+                }
+                if (to.timeInMillis <= from.timeInMillis) {
+                    android.widget.Toast.makeText(requireContext(), "End date শুরুর তারিখের আগে হতে পারবে না", android.widget.Toast.LENGTH_SHORT).show()
+                    return@DatePickerDialog
+                }
+                claimsRangeStart = from.timeInMillis
+                claimsRangeEnd = to.timeInMillis
+                val fmt = SimpleDateFormat("dd MMM", Locale.ENGLISH)
+                claimsRangeLabel = "${fmt.format(from.time)} - ${fmt.format(Date(to.timeInMillis - 86_400_000))}"
+                refreshMyClaimsSummaryIfLoaded()
+            }, endCal.get(java.util.Calendar.YEAR), endCal.get(java.util.Calendar.MONTH), endCal.get(java.util.Calendar.DAY_OF_MONTH)).show()
+        }, startCal.get(java.util.Calendar.YEAR), startCal.get(java.util.Calendar.MONTH), startCal.get(java.util.Calendar.DAY_OF_MONTH)).show()
     }
 
     // ── Branch switcher ──────────────────────────────────────────────────────
@@ -218,23 +343,10 @@ class PettyCashMyRequestsFragment : Fragment() {
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         val mine = state.requests.filter { it.workerUid == myUid }.sortedByDescending { it.createdAt }
 
-        // Hero card: this month's approved total, out of MY requests only
-        // (state.settledThisMonthTotal on the shared model is branch-wide,
-        // meant for Accounts — Requester needs their own number).
-        val cal = java.util.Calendar.getInstance()
-        val currentMonth = cal.get(java.util.Calendar.MONTH)
-        val currentYear = cal.get(java.util.Calendar.YEAR)
-        val approvedThisMonthTotal = mine.filter {
-            val approvedAt = when {
-                it.status == PC_STATUS_SETTLED && it.settledAt != 0L -> it.settledAt
-                it.pocApprovedAt != 0L -> it.pocApprovedAt
-                else -> 0L
-            }
-            if (approvedAt == 0L || it.status !in setOf(PC_STATUS_APPROVED, PC_STATUS_SETTLE_IN_PROCESS, PC_STATUS_SETTLED)) return@filter false
-            cal.timeInMillis = approvedAt
-            cal.get(java.util.Calendar.MONTH) == currentMonth && cal.get(java.util.Calendar.YEAR) == currentYear
-        }.sumOf { it.amount }
-        root.findViewById<TextView>(R.id.tvPcMyRequestsApprovedTotal).text = taka(approvedThisMonthTotal)
+        // My Claims Summary card -- same shape as PettyCashDashboardFragment's
+        // Claims Summary, scoped to this requester's own claims (mine) and filtered by
+        // createdAt within [claimsRangeStart, claimsRangeEnd).
+        renderMyClaimsSummary(mine)
 
         val pendingCount = mine.count { it.status == PC_STATUS_PENDING || it.status == PC_STATUS_ACKNOWLEDGED }
         val approvedCount = mine.count { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }

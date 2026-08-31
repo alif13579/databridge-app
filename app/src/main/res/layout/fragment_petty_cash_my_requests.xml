@@ -123,44 +123,116 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
-                <!-- My Petty Cash Summary hero card -->
+                <!-- My Claims Summary: same Requested/Approved/Settled + date-range shape
+                     as the Accounts dashboard's Claims Summary card, but scoped to this
+                     requester's own claims only (see renderMyRequests()'s "mine" filter). -->
                 <androidx.cardview.widget.CardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     app:cardCornerRadius="16dp"
-                    app:cardElevation="2dp"
-                    app:cardBackgroundColor="#059669">
+                    app:cardElevation="2dp">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="18dp">
+                        android:padding="16dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:text="MY CLAIMS SUMMARY"
+                                android:textSize="11sp"
+                                android:textStyle="bold"
+                                android:textColor="#64748B"
+                                android:letterSpacing="0.05" />
+
+                            <TextView
+                                android:id="@+id/tvPcMyClaimsDateRange"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="This Month"
+                                android:textSize="11.5sp"
+                                android:textStyle="bold"
+                                android:textColor="#059669"
+                                android:padding="4dp"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:foreground="?attr/selectableItemBackground" />
+                        </LinearLayout>
 
                         <TextView
+                            android:id="@+id/tvPcMyClaimsApproved"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="My Petty Cash Summary"
-                            android:textSize="12sp"
-                            android:textStyle="bold"
-                            android:textColor="#D1FAE5" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="10dp"
-                            android:text="Total Approved (This Month)"
-                            android:textSize="12sp"
-                            android:textColor="#D1FAE5" />
-
-                        <TextView
-                            android:id="@+id/tvPcMyRequestsApprovedTotal"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
                             android:fontFamily="monospace"
-                            android:textSize="26sp"
                             android:textStyle="bold"
-                            android:textColor="#FFFFFF" />
+                            android:textSize="26sp"
+                            android:textColor="#0F172A" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Approved (Unsettled)"
+                            android:textSize="11sp"
+                            android:textColor="#94A3B8" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginTop="10dp">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:orientation="vertical">
+                                <TextView
+                                    android:id="@+id/tvPcMyClaimsRequested"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:fontFamily="monospace"
+                                    android:textStyle="bold"
+                                    android:textSize="14sp"
+                                    android:textColor="#CA8A04" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Requested"
+                                    android:textSize="10.5sp"
+                                    android:textColor="#94A3B8" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_weight="1"
+                                android:layout_height="wrap_content"
+                                android:orientation="vertical">
+                                <TextView
+                                    android:id="@+id/tvPcMyClaimsSettled"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:fontFamily="monospace"
+                                    android:textStyle="bold"
+                                    android:textSize="14sp"
+                                    android:textColor="#16A34A" />
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Settled"
+                                    android:textSize="10.5sp"
+                                    android:textColor="#94A3B8" />
+                            </LinearLayout>
+                        </LinearLayout>
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 
