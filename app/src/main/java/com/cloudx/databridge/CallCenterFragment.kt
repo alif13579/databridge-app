@@ -120,8 +120,10 @@ class CallCenterFragment : Fragment() {
     // Cursor for the event-triggered FCM fallback fetch. Realtime is the normal live path;
     // this is never advanced by a timer.
     private var ccRemarkFallbackCursorMs = 0L
-    private var ccRealtimeJob: kotlinx.coroutines.Job? = null
-    private var ccRealtimeChannelKey: String? = null
+    // One branch filter is required per Realtime channel. A CC agent can be assigned
+    // to multiple branches, so keeping one job here would silently omit updates from
+    // every branch except the first.
+    private val ccRealtimeJobs = mutableMapOf<String, Job>()
 
     // Parcel ID to expand after data loads (set when navigating from a notification tap).
     private var pendingExpandParcelId: String? = null
@@ -289,9 +291,8 @@ class CallCenterFragment : Fragment() {
         searchJob = null
         reprocessJob?.cancel()
         reprocessJob = null
-        ccRealtimeJob?.cancel()
-        ccRealtimeJob = null
-        ccRealtimeChannelKey = null
+        ccRealtimeJobs.values.forEach { it.cancel() }
+        ccRealtimeJobs.clear()
         AppNotificationManager.removeRemarkListener(remarkNotificationListener)
         super.onDestroyView()
         stopAutoCall()
@@ -372,6 +373,7 @@ class CallCenterFragment : Fragment() {
         tvBranchDropdown.setOnClickListener { showBranchDropdown() }
         tvAgentDropdown.setOnClickListener { showAgentDropdown() }
         tvSortByDropdown.setOnClickListener { showCcSortByDropdown() }
+        tvSortByDropdown.setOnLongClickListener { showRemarkPushChainLogDialog(); true }
         layoutFilterTabs = view.findViewById(R.id.layoutCcaFilterTabs)
         rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
@@ -1609,7 +1611,17 @@ class CallCenterFragment : Fragment() {
         tvLoadingPercent.text = "লোড হচ্ছে... 0%"
         tvEmpty.visibility    = View.GONE
         detachRunsListener()
-        attachRootRunTypesListener()
+        // Validation reads and Realtime are RLS-gated. Unlike Worker Space, Call
+        // Center previously started its listeners before syncing this CC agent's
+        // Supabase profile and refreshed Firebase token, so another CC agent's
+        // remark could be silently excluded from both paths.
+        SupabaseRemarkValidationWriter.ensureProfileSynced {
+            if (isAdded) {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (isAdded) attachRootRunTypesListener()
+                }
+            }
+        }
     }
 
     /** Discovers today's runs, scoped strictly to the CC agent's OWN assigned branches via
@@ -2153,8 +2165,8 @@ class CallCenterFragment : Fragment() {
         // before the filter changed would still be merged into the candidate set.
         ccBranchRangeSnapshots.clear()
 
-        ccRealtimeJob?.cancel()
-        ccRealtimeJob = null
+        ccRealtimeJobs.values.forEach { it.cancel() }
+        ccRealtimeJobs.clear()
     }
 
     private fun syncCcEngagedAtListeners(currentIds: Set<String>) {
@@ -2494,40 +2506,91 @@ class CallCenterFragment : Fragment() {
 
     private var ccRemarkTrackedIds: Set<String> = emptySet()
 
-    /**
-     * Starts a Supabase Realtime subscription for this branch.
-     * INSERT events on validations arrive instantly via WebSocket — no polling,
-     * no Edge Function invocation consumed.
-     * Previous job is cancelled before starting a new one.
-     */
+    /** Starts one Supabase Realtime subscription for every assigned branch. */
     private fun syncCcRemarkListeners(currentIds: Set<String>) {
         ccRemarkTrackedIds = currentIds
-        val branchId = RbacManager.current.branchIds.firstOrNull() ?: return
-        val channelKey = "cc_branch_$branchId"
-        if (ccRealtimeChannelKey == channelKey && ccRealtimeJob != null) return
-        ccRealtimeJob?.cancel()
-        ccRealtimeChannelKey = channelKey
-        ccRealtimeJob = SupabaseRealtimeManager.subscribeValidations(
-            channelKey = channelKey,
-            filter     = "branch_id" to branchId,
-            scope      = viewLifecycleOwner.lifecycleScope,
-        ) { row ->
-            val cId = row.optString("consignment")
-            if (cId.isBlank() || cId !in ccRemarkTrackedIds) return@subscribeValidations
-            viewLifecycleOwner.lifecycleScope.launch {
-                // Realtime pushes a bare validations row with no remarks_bn column (this
-                // isn't a fetchValidations() REST read) — resolve it here, cached, before
-                // the card renders, so a WebSocket-pushed remark shows Bangla immediately
-                // rather than falling back to the (possibly stale) local ccRemarkOptions match.
-                val source = row.optString("source").trim()
-                row.optString("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
-                    SupabaseClientManager.resolveRemarkBnCached("CallCenterFragment", source, en)?.let { bn ->
-                        row.put("remarks_bn", bn)
-                    }
+        val branchIds = RbacManager.current.branchIds
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+        if (branchIds.isEmpty()) {
+            RemarkPushChainLog.log("RemarkPushChain",
+                "CallCenterFragment: syncCcRemarkListeners SKIPPED — RbacManager.current.branchIds is empty, no branch to subscribe to", isWarning = true)
+            return
+        }
+        val desiredChannelKeys = branchIds.map { "cc_branch_$it" }.toSet()
+        val staleChannelKeys = ccRealtimeJobs.keys.filter { it !in desiredChannelKeys }
+        staleChannelKeys.forEach { channelKey ->
+            ccRealtimeJobs.remove(channelKey)?.cancel()
+        }
+
+        branchIds.forEach { branchId ->
+            val channelKey = "cc_branch_$branchId"
+            if (channelKey in ccRealtimeJobs) return@forEach
+            RemarkPushChainLog.log("RemarkPushChain",
+                "CallCenterFragment: syncCcRemarkListeners — subscribing channel=$channelKey, tracking ${currentIds.size} consignment id(s)")
+            ccRealtimeJobs[channelKey] = SupabaseRealtimeManager.subscribeValidations(
+                channelKey = channelKey,
+                filter     = "branch_id" to branchId,
+                scope      = viewLifecycleOwner.lifecycleScope,
+            ) { row ->
+                val cId = row.optString("consignment")
+                if (cId.isBlank() || cId !in ccRemarkTrackedIds) {
+                    RemarkPushChainLog.log("RemarkPushChain",
+                        "CallCenterFragment: onInsert DROPPED — consignment='$cId' blank=${cId.isBlank()} " +
+                        "in ccRemarkTrackedIds=${cId in ccRemarkTrackedIds} (tracked set size=${ccRemarkTrackedIds.size})",
+                        isWarning = true)
+                    return@subscribeValidations
                 }
-                if (isAdded) refreshOneCcParcelFromSupabase(cId, row)
+                RemarkPushChainLog.log("RemarkPushChain",
+                    "CallCenterFragment: onInsert PASSED trackedIds check — consignment=$cId, calling refreshOneCcParcelFromSupabase")
+                viewLifecycleOwner.lifecycleScope.launch {
+                    // Realtime pushes a bare validations row with no remarks_bn column (this
+                    // isn't a fetchValidations() REST read) — resolve it here, cached, before
+                    // the card renders, so a WebSocket-pushed remark shows Bangla immediately
+                    // rather than falling back to the (possibly stale) local ccRemarkOptions match.
+                    val source = row.optString("source").trim()
+                    row.optString("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
+                        SupabaseClientManager.resolveRemarkBnCached("CallCenterFragment", source, en)?.let { bn ->
+                            row.put("remarks_bn", bn)
+                        }
+                    }
+                    if (isAdded) refreshOneCcParcelFromSupabase(cId, row)
+                }
             }
         }
+    }
+
+    /**
+     * Diagnostic-only: shows the on-device RemarkPushChainLog trace in a scrollable,
+     * copyable dialog — same tool WorkerSpaceFragment already has (long-press "Sort by"
+     * there too), added here 2026-08-30 while chasing a CC-agent-doesn't-see-another-
+     * agent's-remark report. Not linked from anywhere else in the UI.
+     */
+    private fun showRemarkPushChainLogDialog() {
+        val ctx = context ?: return
+        val text = RemarkPushChainLog.snapshot()
+
+        val tv = TextView(ctx).apply {
+            setText(text)
+            setTextIsSelectable(true)
+            textSize = 11f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(32, 24, 32, 24)
+        }
+        val scroll = android.widget.ScrollView(ctx).apply { addView(tv) }
+
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Remark push/Realtime log (debug)")
+            .setView(scroll)
+            .setPositiveButton("Copy") { _, _ ->
+                val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("RemarkPushChainLog", text))
+                android.widget.Toast.makeText(ctx, "Copied — Claude-কে paste করে দিন", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("Clear") { _, _ -> RemarkPushChainLog.clear() }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     /** Event-triggered REST fallback only; never scheduled on an interval. */
@@ -2537,15 +2600,19 @@ class CallCenterFragment : Fragment() {
         if (ids.isEmpty()) return
         val requestedAtMs = System.currentTimeMillis()
         val cursorMs = ccRemarkFallbackCursorMs.takeIf { it > 0L } ?: requestedAtMs
-        SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), cursorMs, "CallCenterFragment") { rows ->
-            ccRemarkFallbackCursorMs = requestedAtMs
-            if (rows.isEmpty()) return@fetchNewRemarksSince
-            val latestByConsignment = rows.groupBy { it.optString("consignment") }
-                .mapValues { (_, g) -> g.maxByOrNull { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) } }
-            viewLifecycleOwner.lifecycleScope.launch {
-                if (!isAdded) return@launch
-                latestByConsignment.forEach { (cId, latest) ->
-                    if (!cId.isNullOrBlank() && latest != null) refreshOneCcParcelFromSupabase(cId, latest)
+        // This is an FCM-triggered fallback, but it still reads the RLS-protected
+        // validations table. Restore the same profile-sync guard Worker uses.
+        SupabaseRemarkValidationWriter.ensureProfileSynced {
+            SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), cursorMs, "CallCenterFragment") { rows ->
+                ccRemarkFallbackCursorMs = requestedAtMs
+                if (rows.isEmpty()) return@fetchNewRemarksSince
+                val latestByConsignment = rows.groupBy { it.optString("consignment") }
+                    .mapValues { (_, g) -> g.maxByOrNull { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) } }
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (!isAdded) return@launch
+                    latestByConsignment.forEach { (cId, latest) ->
+                        if (!cId.isNullOrBlank() && latest != null) refreshOneCcParcelFromSupabase(cId, latest)
+                    }
                 }
             }
         }
@@ -2569,6 +2636,12 @@ class CallCenterFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             if (!isAdded) return@launch
             val idx = allParcels.indexOfFirst { it.id == cId }
+            if (idx == -1) {
+                RemarkPushChainLog.log("RemarkPushChain",
+                    "CallCenterFragment: refreshOneCcParcelFromSupabase DROPPED — consignment=$cId " +
+                    "not found in allParcels (size=${allParcels.size}); this agent's loaded list doesn't include it",
+                    isWarning = true)
+            }
             if (idx != -1) {
                 val oldStatus = allParcels[idx].effectiveStatus
                 val createdAt = SupabaseRemarkValidationWriter
@@ -2587,6 +2660,9 @@ class CallCenterFragment : Fragment() {
                     )
                 }
                 val newStatus = allParcels[idx].effectiveStatus
+                RemarkPushChainLog.log("RemarkPushChain",
+                    "CallCenterFragment: refreshOneCcParcelFromSupabase APPLIED — consignment=$cId " +
+                    "status '$oldStatus' -> '$newStatus', remarkStatus=$liveRemarkStatus")
                 if (oldStatus != newStatus) {
                     setupFilterTabs()
                 }
