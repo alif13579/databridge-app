@@ -35,17 +35,23 @@ object CallStateWatcher {
      * "call ended" firing instantly for a state that was already IDLE before this call was
      * even placed (e.g. the dial failed, or there's a brief gap before the OS reports OFFHOOK).
      *
+     * [requireOffhookFirst] = false skips that requirement and completes on the very next
+     * IDLE transition instead — for callers tracking an INCOMING call that may never be
+     * answered at all (rings, then missed/rejected without ever going OFFHOOK), where the
+     * OFFHOOK-first requirement would mean this never fires for exactly that case. Existing
+     * callers are unaffected — the default preserves the original answered-call-only behavior.
+     *
      * Returns true only on a genuine observed end-of-call. Returns false on timeout, missing
      * permission, or any error — callers should treat false as "fall back to your own signal",
      * not as "the call is still going".
      */
-    suspend fun awaitCallEnd(ctx: Context, timeoutMs: Long): Boolean {
+    suspend fun awaitCallEnd(ctx: Context, timeoutMs: Long, requireOffhookFirst: Boolean = true): Boolean {
         if (!hasPermission(ctx)) return false
         val telephony = ctx.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
             ?: return false
 
         val deferred = CompletableDeferred<Boolean>()
-        var sawOffhook = false
+        var sawOffhook = !requireOffhookFirst
 
         fun onState(state: Int) {
             if (state == TelephonyManager.CALL_STATE_OFFHOOK) sawOffhook = true

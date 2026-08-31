@@ -40,5 +40,23 @@ class IncomingCallScreeningService : CallScreeningService() {
             val result = IncomingCallerLookup.lookup(number)
             IncomingCallOverlay.show(applicationContext, number, result?.primary, result?.otherCount ?: 0)
         }
+
+        // Popup previously had no signal that the call itself ended on this path — only the
+        // fixed 30s auto-dismiss timer (IncomingCallOverlay.AUTO_DISMISS_MS) removed it, so a
+        // quickly missed/rejected/short call left a now-stale card sitting there for however
+        // much of that 30s remained. requireOffhookFirst = false so this also catches "rang
+        // then missed/rejected" (never went OFFHOOK at all), not just "answered then hung up".
+        // No-ops (returns false, never dismisses) without READ_PHONE_STATE granted — the 30s
+        // timer alone still applies for those installs, same as before this existed.
+        serviceScope.launch {
+            val ended = CallStateWatcher.awaitCallEnd(applicationContext, CALL_END_WATCH_TIMEOUT_MS, requireOffhookFirst = false)
+            if (ended) IncomingCallOverlay.dismiss()
+        }
+    }
+
+    private companion object {
+        // A bit past IncomingCallOverlay's own 30s auto-dismiss — gives this watcher a real
+        // chance to catch a call ending on its own before that fallback timer would anyway.
+        const val CALL_END_WATCH_TIMEOUT_MS = 45_000L
     }
 }
