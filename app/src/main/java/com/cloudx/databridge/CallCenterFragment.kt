@@ -372,6 +372,7 @@ class CallCenterFragment : Fragment() {
         tvBranchDropdown.setOnClickListener { showBranchDropdown() }
         tvAgentDropdown.setOnClickListener { showAgentDropdown() }
         tvSortByDropdown.setOnClickListener { showCcSortByDropdown() }
+        tvSortByDropdown.setOnLongClickListener { showRemarkPushChainLogDialog(); true }
         layoutFilterTabs = view.findViewById(R.id.layoutCcaFilterTabs)
         rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
@@ -2502,18 +2503,33 @@ class CallCenterFragment : Fragment() {
      */
     private fun syncCcRemarkListeners(currentIds: Set<String>) {
         ccRemarkTrackedIds = currentIds
-        val branchId = RbacManager.current.branchIds.firstOrNull() ?: return
+        val branchId = RbacManager.current.branchIds.firstOrNull()
+        if (branchId == null) {
+            RemarkPushChainLog.log("RemarkPushChain",
+                "CallCenterFragment: syncCcRemarkListeners SKIPPED — RbacManager.current.branchIds is empty, no branch to subscribe to", isWarning = true)
+            return
+        }
         val channelKey = "cc_branch_$branchId"
         if (ccRealtimeChannelKey == channelKey && ccRealtimeJob != null) return
         ccRealtimeJob?.cancel()
         ccRealtimeChannelKey = channelKey
+        RemarkPushChainLog.log("RemarkPushChain",
+            "CallCenterFragment: syncCcRemarkListeners — subscribing channel=$channelKey, tracking ${currentIds.size} consignment id(s)")
         ccRealtimeJob = SupabaseRealtimeManager.subscribeValidations(
             channelKey = channelKey,
             filter     = "branch_id" to branchId,
             scope      = viewLifecycleOwner.lifecycleScope,
         ) { row ->
             val cId = row.optString("consignment")
-            if (cId.isBlank() || cId !in ccRemarkTrackedIds) return@subscribeValidations
+            if (cId.isBlank() || cId !in ccRemarkTrackedIds) {
+                RemarkPushChainLog.log("RemarkPushChain",
+                    "CallCenterFragment: onInsert DROPPED — consignment='$cId' blank=${cId.isBlank()} " +
+                    "in ccRemarkTrackedIds=${cId in ccRemarkTrackedIds} (tracked set size=${ccRemarkTrackedIds.size})",
+                    isWarning = true)
+                return@subscribeValidations
+            }
+            RemarkPushChainLog.log("RemarkPushChain",
+                "CallCenterFragment: onInsert PASSED trackedIds check — consignment=$cId, calling refreshOneCcParcelFromSupabase")
             viewLifecycleOwner.lifecycleScope.launch {
                 // Realtime pushes a bare validations row with no remarks_bn column (this
                 // isn't a fetchValidations() REST read) — resolve it here, cached, before
@@ -2528,6 +2544,38 @@ class CallCenterFragment : Fragment() {
                 if (isAdded) refreshOneCcParcelFromSupabase(cId, row)
             }
         }
+    }
+
+    /**
+     * Diagnostic-only: shows the on-device RemarkPushChainLog trace in a scrollable,
+     * copyable dialog — same tool WorkerSpaceFragment already has (long-press "Sort by"
+     * there too), added here 2026-08-30 while chasing a CC-agent-doesn't-see-another-
+     * agent's-remark report. Not linked from anywhere else in the UI.
+     */
+    private fun showRemarkPushChainLogDialog() {
+        val ctx = context ?: return
+        val text = RemarkPushChainLog.snapshot()
+
+        val tv = TextView(ctx).apply {
+            setText(text)
+            setTextIsSelectable(true)
+            textSize = 11f
+            typeface = android.graphics.Typeface.MONOSPACE
+            setPadding(32, 24, 32, 24)
+        }
+        val scroll = android.widget.ScrollView(ctx).apply { addView(tv) }
+
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Remark push/Realtime log (debug)")
+            .setView(scroll)
+            .setPositiveButton("Copy") { _, _ ->
+                val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("RemarkPushChainLog", text))
+                android.widget.Toast.makeText(ctx, "Copied — Claude-কে paste করে দিন", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("Clear") { _, _ -> RemarkPushChainLog.clear() }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     /** Event-triggered REST fallback only; never scheduled on an interval. */
@@ -2569,6 +2617,12 @@ class CallCenterFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             if (!isAdded) return@launch
             val idx = allParcels.indexOfFirst { it.id == cId }
+            if (idx == -1) {
+                RemarkPushChainLog.log("RemarkPushChain",
+                    "CallCenterFragment: refreshOneCcParcelFromSupabase DROPPED — consignment=$cId " +
+                    "not found in allParcels (size=${allParcels.size}); this agent's loaded list doesn't include it",
+                    isWarning = true)
+            }
             if (idx != -1) {
                 val oldStatus = allParcels[idx].effectiveStatus
                 val createdAt = SupabaseRemarkValidationWriter
@@ -2587,6 +2641,9 @@ class CallCenterFragment : Fragment() {
                     )
                 }
                 val newStatus = allParcels[idx].effectiveStatus
+                RemarkPushChainLog.log("RemarkPushChain",
+                    "CallCenterFragment: refreshOneCcParcelFromSupabase APPLIED — consignment=$cId " +
+                    "status '$oldStatus' -> '$newStatus', remarkStatus=$liveRemarkStatus")
                 if (oldStatus != newStatus) {
                     setupFilterTabs()
                 }
