@@ -79,6 +79,13 @@ object IncomingCallOverlay {
         val displayName = if (match != null) match.name.ifBlank { "Unknown customer" } else "অজানা নম্বর"
         tvMinimizedLabel.text = "📞 $displayName"
 
+        // Both remaining navigation paths from this popup (View Full Details, Search in CC)
+        // land in CallCenterFragment — gate them on the same permission that screen itself
+        // requires, so a user without CC access never gets sent into a fragment they can't
+        // actually use. hasPermission() reads an in-memory cache synchronously, safe to call
+        // from this Service context with no Firebase round-trip.
+        val hasCcAccess = RbacManager.hasPermission("nav_call_center")
+
         if (match != null) {
             view.findViewById<TextView>(R.id.tvOverlayName).text = displayName
             view.findViewById<TextView>(R.id.tvOverlayPhone).text = match.phone.ifBlank { rawPhone }
@@ -109,7 +116,7 @@ object IncomingCallOverlay {
                 tvMore.isVisible = false
             }
 
-            tvViewDetails.isVisible = true
+            tvViewDetails.isVisible = hasCcAccess
             tvNoMatch.isVisible = false
             tvViewDetails.setOnClickListener {
                 openParcelDetail(context, match.consignmentId)
@@ -128,7 +135,7 @@ object IncomingCallOverlay {
         }
 
         val btnSearch = view.findViewById<View>(R.id.btnOverlaySearch)
-        btnSearch.isVisible = lookupFromCcEnabled
+        btnSearch.isVisible = lookupFromCcEnabled && hasCcAccess
         btnSearch.setOnClickListener {
             openCallCenterSearch(context, rawPhone)
             dismissInternal()
