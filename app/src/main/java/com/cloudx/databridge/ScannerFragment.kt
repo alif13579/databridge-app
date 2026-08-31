@@ -19,7 +19,10 @@ import com.google.firebase.database.FirebaseDatabase
 
 class ScannerFragment : Fragment() {
 
-    private companion object {
+    // Not private: TRACKING_ID_LENGTH is reused elsewhere as the single source of
+    // truth for a valid scanned tracking ID's length (see
+    // PettyCashRequestCreateFragment's scanLauncher).
+    companion object {
         const val TRACKING_ID_LENGTH = 14
     }
 

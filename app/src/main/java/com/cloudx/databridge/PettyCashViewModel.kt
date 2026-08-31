@@ -216,6 +216,12 @@ class PettyCashViewModel : ViewModel() {
         storeId: String = "",
         storeName: String = "",
         pickupCount: Int = 0,
+        vehicle: String = "",
+        fromArea: String = "",
+        toArea: String = "",
+        attemptQuantity: Int = 0,
+        deliveredQuantity: Int = 0,
+        cidOrMerchant: String = "",
         requestedDate: Long = 0L,
         onSupabaseResult: (Boolean) -> Unit = {}
     ): Result<String> = runCatching {
@@ -236,6 +242,8 @@ class PettyCashViewModel : ViewModel() {
             storeId = storeId,
             storeName = storeName,
             pickupCount = pickupCount,
+            vehicle = vehicle, fromArea = fromArea, toArea = toArea,
+            attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
             purpose = purpose,
             requestedAmount = amount,
             priority = priority,
@@ -258,6 +266,12 @@ class PettyCashViewModel : ViewModel() {
         storeId: String = "",
         storeName: String = "",
         pickupCount: Int = 0,
+        vehicle: String = "",
+        fromArea: String = "",
+        toArea: String = "",
+        attemptQuantity: Int = 0,
+        deliveredQuantity: Int = 0,
+        cidOrMerchant: String = "",
         requestedDate: Long = 0L,
         onSupabaseResult: (Boolean) -> Unit = {}
     ): Result<Unit> = runCatching {
@@ -273,6 +287,12 @@ class PettyCashViewModel : ViewModel() {
                 "storeId" to storeId,
                 "storeName" to storeName,
                 "pickupCount" to pickupCount,
+                "vehicle" to vehicle,
+                "fromArea" to fromArea,
+                "toArea" to toArea,
+                "attemptQuantity" to attemptQuantity,
+                "deliveredQuantity" to deliveredQuantity,
+                "cidOrMerchant" to cidOrMerchant,
                 "purpose" to purpose,
                 "requestedAmount" to amount,
                 "requestedAt" to (if (requestedDate != 0L) requestedDate else existing.requestedDate)

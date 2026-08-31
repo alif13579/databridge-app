@@ -1,16 +1,23 @@
 package com.cloudx.databridge
 
+import android.app.AlertDialog
 import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
+import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -294,10 +301,63 @@ class PettyCashPendingSettlementFragment : Fragment() {
                     .commitAllowingStateLoss()
             }
             card.setOnClickListener(openDetails)
-            btnSettle.setOnClickListener(openDetails)
+            // Settle (final step) gets a quick inline confirm instead of opening details --
+            // Mark Ready has no extra fields to collect, so it still just opens details
+            // (which shows the right stage's action, same as tapping the card itself).
+            btnSettle.setOnClickListener(
+                if (item.status == PC_STATUS_SETTLE_IN_PROCESS) View.OnClickListener { showQuickSettleDialog(item) }
+                else openDetails
+            )
 
             layoutList.addView(card)
         }
+    }
+
+    /** Quick inline confirm for the final Settle step, straight from the list card --
+     *  skips opening PettyCashSettlementDetailsFragment. Collects the same three fields
+     *  that screen's settle form does (Payment Method, Settle Amount, Transaction ID)
+     *  since PettyCashViewModel.settleRequest() requires paymentMethod/trxId; a bare
+     *  "Yes" without them would have to guess defaults for money-affecting fields. */
+    private fun showQuickSettleDialog(item: PettyCashRequest) {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_pc_quick_settle, null)
+        val spinner = dialogView.findViewById<Spinner>(R.id.spinnerQsPaymentMethod)
+        spinner.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Cash", "Bank"))
+        val etAmount = dialogView.findViewById<EditText>(R.id.etQsAmount)
+        val defaultAmount = item.approvedAmount.takeIf { it > 0 } ?: item.amount
+        etAmount.setText(if (defaultAmount == defaultAmount.toLong().toDouble())
+            defaultAmount.toLong().toString() else defaultAmount.toString())
+        val etTrxId = dialogView.findViewById<EditText>(R.id.etQsTrxId)
+
+        AlertDialog.Builder(requireContext())
+            .setTitle("Settle Confirm")
+            .setMessage("${item.requestCode} settle করবেন?")
+            .setView(dialogView)
+            .setPositiveButton("Yes") { _, _ ->
+                val amount = etAmount.text?.toString()?.trim()?.toDoubleOrNull()
+                if (amount == null || amount <= 0) {
+                    Toast.makeText(requireContext(), "Enter a valid settle amount", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                val paymentMethod = spinner.selectedItem?.toString() ?: "Cash"
+                val typedTrxId = etTrxId.text?.toString()?.trim().orEmpty()
+                val trxId = typedTrxId.ifBlank { "TXN-${System.currentTimeMillis().toString().takeLast(5)}" }
+                lifecycleScope.launch {
+                    val result = viewModel.settleRequest(branchId, item.id, paymentMethod, trxId, amount,
+                        onSupabaseResult = { ok ->
+                            activity?.runOnUiThread {
+                                if (isAdded) Toast.makeText(requireContext(),
+                                    if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
+                            }
+                        })
+                    if (isAdded) {
+                        Toast.makeText(requireContext(),
+                            if (result.isSuccess) "✓ Settled" else "⚠ Settle failed: ${result.exceptionOrNull()?.message}",
+                            Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

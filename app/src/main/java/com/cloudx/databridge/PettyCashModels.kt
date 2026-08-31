@@ -60,6 +60,16 @@ data class PettyCashRequest(
     val storeId: String = "",              // set when category == Pickup
     val storeName: String = "",            // set when category == Pickup
     val pickupCount: Int = 0,              // set when category == Pickup — how many pickups this claim covers
+    // Conveyance fields — set when category is Pickup or Bulk Delivery. See
+    // ClaimInfo's same-named fields (the canonical source — this is a display
+    // copy) and PettyCashRequestCreateFragment's groupPcRequestConveyance for
+    // the actual entry UI + Office-default/store-area-prefill logic.
+    val vehicle: String = "",
+    val fromArea: String = "",
+    val toArea: String = "",
+    val attemptQuantity: Int = 0,
+    val deliveredQuantity: Int = 0,
+    val cidOrMerchant: String = "",
     val purpose: String = "",
     val amount: Double = 0.0,
     val priority: String = PC_PRIORITY_NORMAL,

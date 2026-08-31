@@ -106,13 +106,10 @@ object SupabaseClaimsWriter {
      *  (see SCHEMA_HISTORY.md's "public.claims — now live" entry). *Name fields
      *  (branchName, employeeName, staffByName, etc.) are deliberately NOT sent —
      *  those are joins against users/branches at read time on the Supabase side,
-     *  not stored columns, so nothing is lost by omitting them here. The table's
-     *  conveyance columns (vehicle, from_area, to_area, attempt_quantity,
-     *  delivered_quantity, cid_or_merchant) have no ClaimInfo counterpart yet
-     *  either — also omitted, left at their table defaults until that field
-     *  lands here too. Millis timestamps convert to ISO-8601; a 0L/not-yet-
-     *  reached-that-stage timestamp (staffAt, approvedAt, etc.) is sent as null,
-     *  matching the column's nullable timestamptz type.
+     *  not stored columns, so nothing is lost by omitting them here. Millis
+     *  timestamps convert to ISO-8601; a 0L/not-yet-reached-that-stage timestamp
+     *  (staffAt, approvedAt, etc.) is sent as null, matching the column's
+     *  nullable timestamptz type.
      *
      *  placed_date IS sent (unlike the omitted columns above) — it's a NOT NULL
      *  date column (see SCHEMA_HISTORY.md), derived from requestedAt (the same
@@ -141,6 +138,12 @@ object SupabaseClaimsWriter {
             put("consignment_id", consignmentId)
             put("store_id", storeId)
             put("store_name", storeName)
+            put("vehicle", vehicle)
+            put("from_area", fromArea)
+            put("to_area", toArea)
+            put("attempt_quantity", attemptQuantity)
+            put("delivered_quantity", deliveredQuantity)
+            put("cid_or_merchant", cidOrMerchant)
             put("pickup_count", pickupCount)
             put("placed_date", millisToIsoDate(requestedAt))
             put("requested_amount", requestedAmount)

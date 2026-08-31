@@ -23,3 +23,6 @@ keystore.properties
 app/databridge-release.p12
 # 🔐 Firebase config - sensitive credentials
 app/google-services.json
+
+# Kotlin compiler daemon logs/session files — local build artifacts, not source
+.kotlin/
