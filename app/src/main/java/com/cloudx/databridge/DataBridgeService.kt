@@ -423,7 +423,7 @@ class DataBridgeService : Service() {
                     val autoDial = togglePrefs.getBoolean("auto_dial", false)
                     val lookupFromCcEnabled = togglePrefs.getBoolean("lookup_from_cc", false)
                     var handledByPopup = false
-                    if (lookupFromCcEnabled && RbacManager.hasPermission("nav_call_center")) {
+                    if (lookupFromCcEnabled && (RbacManager.hasPermission("nav_call_center") || RbacManager.hasPermission("nav_space"))) {
                         // Try the full Truecaller-style popup first -- it handles the call
                         // itself (when autoDial is on) and lets the agent save a remark
                         // inline, so CallCenterFragment doesn't need to open at all.
