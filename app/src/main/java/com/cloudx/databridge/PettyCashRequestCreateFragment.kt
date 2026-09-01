@@ -223,6 +223,19 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvToAreaSelected = view.findViewById(R.id.tvPcRequestToAreaSelected)
         etAttemptQuantity = view.findViewById(R.id.etPcRequestAttemptQuantity)
         etDeliveredQuantity = view.findViewById(R.id.etPcRequestDeliveredQuantity)
+        // Always derived, never typed directly -- see applyConveyanceDefaults():
+        // mirrors Number of Pickups for Pickup, fixed at 1 for Bulk Delivery
+        // (exactly one consignment id per request).
+        etAttemptQuantity.isEnabled = false
+        etDeliveredQuantity.isEnabled = false
+
+        etPickupCount.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                if (selectedCategory == PC_CATEGORY_PICKUP) syncAttemptDeliveredQuantities()
+            }
+        })
         etCidOrMerchant = view.findViewById(R.id.etPcRequestCidOrMerchant)
         groupAmount = view.findViewById(R.id.groupPcAmount)
         etAmount = view.findViewById(R.id.etPcRequestAmount)
@@ -473,6 +486,23 @@ class PettyCashRequestCreateFragment : Fragment() {
             selectedFromArea = "OFFICE"; selectedFromAreaLabel = "Office"
             tvFromAreaSelected.text = "Office"
         }
+        syncAttemptDeliveredQuantities()
+    }
+
+    /** Attempt/Delivered Quantity are never typed directly (see the isEnabled = false
+     *  set alongside their findViewById above) -- Pickup: number of pickups IS the
+     *  attempt quantity, so both mirror etPickupCount's value live as it's typed
+     *  (see the TextWatcher added alongside that field). Bulk Delivery: fixed at 1,
+     *  since exactly one consignment id is being submitted per request. */
+    private fun syncAttemptDeliveredQuantities() {
+        val value = when (selectedCategory) {
+            PC_CATEGORY_PICKUP -> etPickupCount.text?.toString()?.trim()?.toIntOrNull() ?: 0
+            PC_CATEGORY_BULK_DELIVERY -> 1
+            else -> 0
+        }
+        val text = if (value > 0) value.toString() else ""
+        etAttemptQuantity.setText(text)
+        etDeliveredQuantity.setText(text)
     }
 
     /** Resolves a stored areaId (or the "OFFICE" sentinel) back to a display label,
