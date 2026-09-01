@@ -1,403 +1,293 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout
+<androidx.swiperefreshlayout.widget.SwipeRefreshLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/swipeVdRefresh"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+<androidx.core.widget.NestedScrollView
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/theme_bg_dashboard">
+    android:background="@color/theme_bg_page">
 
-    <!-- Pull-to-refresh -->
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-        android:id="@+id/swipeRefresh"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
 
-        <androidx.core.widget.NestedScrollView
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ভেরিফাই ও ডেলিভারি রিকোয়েস্ট"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_primary" />
+
+        <ProgressBar
+            android:id="@+id/pbVdLoading"
+            style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="match_parent">
+            android:layout_height="wrap_content"
+            android:indeterminate="true"
+            android:layout_marginTop="6dp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvVdError"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#DC2626"
+            android:textSize="12.5sp"
+            android:layout_marginTop="6dp"
+            android:visibility="gone" />
+
+        <!-- Filters -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+
+            <TextView
+                android:id="@+id/tvVdDateRange"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/bg_card_rounded"
+                android:padding="10dp"
+                android:textSize="12.5sp"
+                android:textColor="@color/theme_text_primary"
+                android:drawablePadding="6dp"
+                android:gravity="center_vertical" />
+
+            <TextView
+                android:id="@+id/tvVdAgentFilter"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_card_rounded"
+                android:padding="10dp"
+                android:textSize="12.5sp"
+                android:textColor="@color/theme_text_primary"
+                android:text="All Agents"
+                android:gravity="center_vertical" />
+        </LinearLayout>
+
+        <!-- Top 4 metric cards, 2x2 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="10dp">
+
+            <include android:id="@+id/cardVdTotalAssign" layout="@layout/item_vd_metric_card"
+                android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp" />
+            <include android:id="@+id/cardVdVerifyRequest" layout="@layout/item_vd_metric_card"
+                android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+
+            <include android:id="@+id/cardVdHoldReturn" layout="@layout/item_vd_metric_card"
+                android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp" />
+            <include android:id="@+id/cardVdDeliveryRequest" layout="@layout/item_vd_metric_card"
+                android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- Delivery Request Summary -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card_rounded"
+            android:padding="12dp"
+            android:layout_marginTop="10dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ডেলিভারি রিকোয়েস্টের সারাংশ"
+                android:textSize="11.5sp"
+                android:textStyle="bold"
+                android:textColor="#0099B8" />
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+
+                <include android:id="@+id/subVdConfirmed" layout="@layout/item_vd_sub_metric"
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+                <include android:id="@+id/subVdDelivered" layout="@layout/item_vd_sub_metric"
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+                <include android:id="@+id/subVdPending" layout="@layout/item_vd_sub_metric"
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Funnel: hierarchical card stack (no literal connector lines,
+             visual grouping via indentation + a thin left accent bar instead). -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="14dp">
+
+            <!-- Level 1: Total Assign -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:background="@drawable/bg_card_rounded"
                 android:padding="12dp">
-
-                <!-- ── Date Header ── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:layout_marginBottom="12dp">
-
-                    <!-- Date label -->
-                    <TextView
-                        android:id="@+id/tvDateLabel"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Today"
-                        android:textSize="18sp"
-                        android:textColor="@color/theme_text_primary"
-                        android:textStyle="bold"
-                        android:layout_marginBottom="2dp" />
-
-                    <TextView
-                        android:id="@+id/tvDateSubLabel"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textSize="11sp"
-                        android:textColor="@color/theme_text_secondary" />
-
-                    <!-- Date range chips -->
-                    <HorizontalScrollView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:scrollbars="none"
-                        android:layout_marginTop="10dp">
-
-                        <LinearLayout
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:gravity="center_vertical">
-
-                            <com.google.android.material.chip.Chip
-                                android:id="@+id/chipToday"
-                                style="@style/Widget.MaterialComponents.Chip.Choice"
-                                android:layout_width="wrap_content"
-                                android:layout_height="32dp"
-                                android:text="Today"
-                                android:textSize="11sp"
-                                android:layout_marginEnd="6dp"
-                                android:checked="true"
-                                app:chipBackgroundColor="@color/chip_selector"
-                                app:checkedIconVisible="false" />
-
-                            <com.google.android.material.chip.Chip
-                                android:id="@+id/chipYesterday"
-                                style="@style/Widget.MaterialComponents.Chip.Choice"
-                                android:layout_width="wrap_content"
-                                android:layout_height="32dp"
-                                android:text="Yesterday"
-                                android:textSize="11sp"
-                                android:layout_marginEnd="6dp"
-                                app:chipBackgroundColor="@color/chip_selector"
-                                app:checkedIconVisible="false" />
-
-                            <com.google.android.material.chip.Chip
-                                android:id="@+id/chipLast7"
-                                style="@style/Widget.MaterialComponents.Chip.Choice"
-                                android:layout_width="wrap_content"
-                                android:layout_height="32dp"
-                                android:text="Last 7 Days"
-                                android:textSize="11sp"
-                                android:layout_marginEnd="6dp"
-                                app:chipBackgroundColor="@color/chip_selector"
-                                app:checkedIconVisible="false" />
-
-                            <com.google.android.material.chip.Chip
-                                android:id="@+id/chipThisMonth"
-                                style="@style/Widget.MaterialComponents.Chip.Choice"
-                                android:layout_width="wrap_content"
-                                android:layout_height="32dp"
-                                android:text="This Month"
-                                android:textSize="11sp"
-                                android:layout_marginEnd="6dp"
-                                app:chipBackgroundColor="@color/chip_selector"
-                                app:checkedIconVisible="false" />
-
-                            <com.google.android.material.chip.Chip
-                                android:id="@+id/chipCustom"
-                                style="@style/Widget.MaterialComponents.Chip.Choice"
-                                android:layout_width="wrap_content"
-                                android:layout_height="32dp"
-                                android:text="Custom"
-                                android:textSize="11sp"
-                                app:chipBackgroundColor="@color/chip_selector"
-                                app:checkedIconVisible="false" />
-
-                        </LinearLayout>
-                    </HorizontalScrollView>
-
-                    <!-- Branch filter (only shown when the user has access to more than
-                         one branch — see DashboardFragment.observeState()) -->
-                    <TextView
-                        android:id="@+id/tvBranchDropdown"
-                        android:layout_width="wrap_content"
-                        android:layout_height="30dp"
-                        android:layout_marginTop="8dp"
-                        android:text="All Branches ▾"
-                        android:textSize="11sp"
-                        android:gravity="center"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:background="@drawable/bg_filter_chip_inactive"
-                        android:textColor="@color/theme_text_secondary"
-                        android:visibility="gone"
-                        android:clickable="true"
-                        android:focusable="true" />
+                <View android:layout_width="4dp" android:layout_height="match_parent" android:background="#3B82F6" android:layout_marginEnd="10dp" />
+                <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+                    <TextView android:id="@+id/tvVdFunnelTotalLabel" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="মোট অ্যাসাইন" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
+                    <TextView android:id="@+id/tvVdFunnelTotalValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="18sp" android:textStyle="bold" android:textColor="#3B82F6" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="কল সেন্টার এজেন্টদের মোট অ্যাসাইনকৃত পার্সেল" android:textSize="10.5sp" android:textColor="@color/theme_text_secondary" />
                 </LinearLayout>
-
-                <!-- ── Section: Validation Overview ── -->
-                <TextView
-                    android:id="@+id/tvSectionOverview"
-                    style="@style/DashboardSectionLabel"
-                    android:text="Validation Overview" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="0dp">
-
-                    <include android:id="@+id/cardTotal" layout="@layout/item_metric_card" />
-
-                </LinearLayout>
-
-                <!-- Per-status cards (dynamic — one per distinct final_status found in range,
-                     2 per row, built in DashboardFragment.buildOverviewCards()) -->
-                <LinearLayout
-                    android:id="@+id/layoutDynamicOverviewCards"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:layout_marginBottom="16dp" />
-
-                <!-- ── Section: Runs ── -->
-                <TextView
-                    android:id="@+id/tvSectionRuns"
-                    style="@style/DashboardSectionLabel"
-                    android:text="Run Status" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="16dp">
-
-                    <include android:id="@+id/cardTotalRuns"  layout="@layout/item_metric_card" />
-                    <include android:id="@+id/cardOpenRuns"   layout="@layout/item_metric_card" />
-                    <include android:id="@+id/cardClosedRuns" layout="@layout/item_metric_card" />
-
-                </LinearLayout>
-
-                <!-- ── Section: Earnings ── -->
-                <TextView
-                    android:id="@+id/tvSectionEarnings"
-                    style="@style/DashboardSectionLabel"
-                    android:text="Earnings" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="16dp">
-
-                    <include android:id="@+id/cardEarnings" layout="@layout/item_metric_card" />
-
-                </LinearLayout>
-
-                <!-- ── Section: Distribution ── -->
-                <TextView
-                    android:id="@+id/tvSectionDist"
-                    style="@style/DashboardSectionLabel"
-                    android:text="Status Distribution" />
-
-                <androidx.cardview.widget.CardView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    app:cardBackgroundColor="@color/theme_bg_card"
-                    app:cardCornerRadius="10dp"
-                    app:cardElevation="0dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="14dp">
-
-                        <!-- Segmented bar -->
-                        <LinearLayout
-                            android:id="@+id/layoutStatusBar"
-                            android:layout_width="match_parent"
-                            android:layout_height="10dp"
-                            android:orientation="horizontal"
-                            android:clipToOutline="true"
-                            android:layout_marginBottom="14dp" />
-
-                        <!-- Legend list (dynamic — one row per distinct status found in range) -->
-                        <LinearLayout
-                            android:id="@+id/layoutStatusLegend"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical" />
-
-                    </LinearLayout>
-
-                </androidx.cardview.widget.CardView>
-
-                <!-- ── Section: Agent Leaderboard (admin/branch only) ── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:id="@+id/tvSectionAgents"
-                        style="@style/DashboardSectionLabel"
-                        android:layout_width="0dp"
-                        android:layout_weight="1"
-                        android:text="Agent Performance"
-                        android:visibility="gone" />
-
-                    <!-- Visible for anyone with subordinates (Success.hasSubordinates), not
-                         just role == "manager" — DashboardFragment keeps its text in sync
-                         with the ViewModel's rollupMode. -->
-                    <TextView
-                        android:id="@+id/tvRollupToggle"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textSize="10sp"
-                        android:textStyle="bold"
-                        android:textColor="@color/theme_accent"
-                        android:text="👥 Team View ▾"
-                        android:visibility="gone"
-                        android:padding="4dp" />
-
-                </LinearLayout>
-
-                <!-- Drill-down breadcrumb — visible only while vm.drillStack is non-empty.
-                     Tapping it goes back one level (see DashboardFragment.drillBack()). -->
-                <TextView
-                    android:id="@+id/tvDrillBreadcrumb"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textSize="11sp"
-                    android:textColor="@color/theme_accent"
-                    android:padding="6dp"
-                    android:background="@drawable/bg_card_rounded"
-                    android:layout_marginBottom="8dp"
-                    android:visibility="gone"
-                    android:clickable="true"
-                    android:focusable="true" />
-
-                <androidx.cardview.widget.CardView
-                    android:id="@+id/cardAgents"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:visibility="gone"
-                    app:cardBackgroundColor="@color/theme_bg_card"
-                    app:cardCornerRadius="10dp"
-                    app:cardElevation="0dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical">
-
-                        <!-- Header row -->
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal"
-                            android:padding="12dp"
-                            android:background="@color/theme_bg_dashboard_inner">
-
-                            <TextView
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="AGENT"
-                                android:textSize="9sp"
-                                android:textColor="@color/theme_text_secondary"
-                                android:textAllCaps="true"
-                                android:letterSpacing="0.08" />
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="✓  ↩  ⏸  RATE"
-                                android:textSize="9sp"
-                                android:textColor="@color/theme_text_secondary"
-                                android:textAllCaps="true"
-                                android:letterSpacing="0.08" />
-
-                        </LinearLayout>
-
-                        <!-- Dynamic agent rows go here -->
-                        <LinearLayout
-                            android:id="@+id/layoutAgentRows"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="vertical"
-                            android:divider="@drawable/divider_dark"
-                            android:showDividers="middle" />
-
-                    </LinearLayout>
-
-                </androidx.cardview.widget.CardView>
-
             </LinearLayout>
 
-        </androidx.core.widget.NestedScrollView>
+            <View android:layout_width="2dp" android:layout_height="14dp" android:layout_marginStart="24dp" android:background="@color/theme_border" />
 
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+            <!-- Level 2: Verify Request -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:background="@drawable/bg_card_rounded"
+                android:padding="12dp"
+                android:layout_marginStart="16dp">
+                <View android:layout_width="4dp" android:layout_height="match_parent" android:background="#16A34A" android:layout_marginEnd="10dp" />
+                <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="ভেরিফাই রিকোয়েস্ট" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
+                    <TextView android:id="@+id/tvVdFunnelVerifyValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="18sp" android:textStyle="bold" android:textColor="#16A34A" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="মোট অ্যাসাইন থেকে যে ভেরিফাই রিকোয়েস্ট করা হয়েছে" android:textSize="10.5sp" android:textColor="@color/theme_text_secondary" />
+                </LinearLayout>
+            </LinearLayout>
 
-    <!-- Loading overlay -->
-    <LinearLayout
-        android:id="@+id/layoutLoading"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:visibility="gone">
+            <View android:layout_width="2dp" android:layout_height="14dp" android:layout_marginStart="32dp" android:background="@color/theme_border" />
 
-        <ProgressBar
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:indeterminateTint="@color/theme_accent" />
+            <!-- Level 3: Hold/Return + Delivery Request, side by side -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginStart="16dp">
 
-        <TextView
-            android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="10dp"
+                    android:layout_marginEnd="6dp">
+                    <View android:layout_width="4dp" android:layout_height="match_parent" android:background="#8B5CF6" android:layout_marginEnd="8dp" />
+                    <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="ভেরিফাইড (Hold/Return)" android:textSize="10.5sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
+                        <TextView android:id="@+id/tvVdFunnelHoldReturnValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:textSize="16sp" android:textStyle="bold" android:textColor="#8B5CF6" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="যার জন্য পার্সেল ভেরিফাই হয়েছে (এগুলো আর ডেলিভারি হবে না)" android:textSize="9.5sp" android:textColor="@color/theme_text_secondary" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="10dp">
+                    <View android:layout_width="4dp" android:layout_height="match_parent" android:background="#F97316" android:layout_marginEnd="8dp" />
+                    <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="ডেলিভারি রিকোয়েস্ট" android:textSize="10.5sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
+                        <TextView android:id="@+id/tvVdFunnelDeliveryReqValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:textSize="16sp" android:textStyle="bold" android:textColor="#F97316" />
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="যে পার্সেলগুলো ডেলিভারির জন্য পাঠানো হয়েছে" android:textSize="9.5sp" android:textColor="@color/theme_text_secondary" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <View android:layout_width="2dp" android:layout_height="14dp" android:layout_marginStart="60dp" android:background="@color/theme_border" />
+
+            <!-- Level 4: Confirmed / Delivered / Pending, under Delivery Request -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginStart="52dp">
+
+                <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:background="@drawable/bg_card_rounded" android:padding="8dp" android:layout_marginEnd="4dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="✅ কনফার্মড" android:textSize="10sp" android:textColor="@color/theme_text_secondary" />
+                    <TextView android:id="@+id/tvVdFunnelConfirmedValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="14sp" android:textStyle="bold" android:textColor="#16A34A" />
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:background="@drawable/bg_card_rounded" android:padding="8dp" android:layout_marginEnd="4dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="🚚 ডেলিভারড" android:textSize="10sp" android:textColor="@color/theme_text_secondary" />
+                    <TextView android:id="@+id/tvVdFunnelDeliveredValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="14sp" android:textStyle="bold" android:textColor="#3B82F6" />
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:background="@drawable/bg_card_rounded" android:padding="8dp">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="⏳ পেন্ডিং" android:textSize="10sp" android:textColor="@color/theme_text_secondary" />
+                    <TextView android:id="@+id/tvVdFunnelPendingValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textSize="14sp" android:textStyle="bold" android:textColor="#CA8A04" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Bottom quick summary -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Loading dashboard…"
-            android:textColor="@color/theme_text_secondary"
-            android:textSize="12sp"
-            android:layout_marginTop="10dp" />
+            android:orientation="vertical"
+            android:background="@drawable/bg_card_rounded"
+            android:padding="12dp"
+            android:layout_marginTop="14dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📋 এই রিপোর্টের দ্রুত সারাংশ"
+                android:textSize="11.5sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_text_primary" />
+
+            <TextView
+                android:id="@+id/tvVdQuickSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textSize="11.5sp"
+                android:lineSpacingExtra="4dp"
+                android:textColor="@color/theme_text_secondary" />
+        </LinearLayout>
 
     </LinearLayout>
-
-    <!-- Error view -->
-    <LinearLayout
-        android:id="@+id/layoutError"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:padding="32dp"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/tvError"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Something went wrong"
-            android:textColor="@color/theme_red"
-            android:textSize="13sp"
-            android:gravity="center" />
-
-        <Button
-            android:id="@+id/btnRetry"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Retry"
-            android:layout_marginTop="16dp"
-            android:textColor="@color/theme_accent"
-            app:strokeColor="@color/theme_accent" />
-
-    </LinearLayout>
-
-</FrameLayout>
+</androidx.core.widget.NestedScrollView>
+</androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
