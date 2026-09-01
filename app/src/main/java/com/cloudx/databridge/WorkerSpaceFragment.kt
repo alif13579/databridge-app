@@ -1987,10 +1987,10 @@ class WorkerSpaceFragment : Fragment() {
      *  at/after today's midnight) instead of the live allParcels list, so it reflects
      *  everything actioned today rather than just what's in the currently-assigned run.
      *  (Formerly sourced from courier/remarks_by_userId/{uid} — retired along with that path;
-     *  DashboardViewModel.loadAgentStat() still reads that old path and is NOT migrated here,
-     *  left as a separate task per Alif.) Call this on load and again right after a remark
-     *  save, not from updateCounts()'s cadence — a single bounded read per call, not worth
-     *  re-querying on every minor live-list update. */
+     *  the old dashboard's per-agent stat loader also read that path and was removed
+     *  entirely along with it, rather than migrated.) Call this on load and again right
+     *  after a remark save, not from updateCounts()'s cadence — a single bounded read per
+     *  call, not worth re-querying on every minor live-list update. */
     private fun loadTodayRemarksStats() {
         if (systemId.isBlank()) return
         viewLifecycleOwner.lifecycleScope.launch {

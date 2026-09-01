@@ -74,7 +74,8 @@ class AccessManagerFragment : Fragment() {
         var permissions: Map<String, Boolean> = emptyMap(),
         var level: Int? = null, // null = not yet configured; see RoleLevelCache.DEFAULT_LEVEL for the runtime fallback
         // role_reports_to/{roleId}/target_roles — which OTHER roles this role's employees'
-        // data is visible to (branch-scoped at read time in DashboardViewModel.subordinatePool()).
+        // data is visible to (branch-scoped at read time by whichever screen resolves
+        // subordinate visibility — see RbacManager.kt's subordinatePool() design notes).
         var targetRoles: Set<String> = emptySet(),
     )
 
@@ -141,7 +142,8 @@ class AccessManagerFragment : Fragment() {
     }
 
     /** Which OTHER roles this role's employees' data is visible to (branch-scoped at read
-     *  time in DashboardViewModel.subordinatePool()) — e.g. delivery_agent's target_roles
+     *  time by whichever screen resolves subordinate visibility — see RbacManager.kt's
+     *  subordinatePool() design notes) — e.g. delivery_agent's target_roles
      *  might be [incharge, supervisor]. Multi-select since more than one role can see the
      *  same role's data. */
     private fun promptEditReportsTo() {

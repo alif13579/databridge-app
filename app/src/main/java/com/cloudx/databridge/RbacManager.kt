@@ -43,7 +43,8 @@ import kotlinx.coroutines.tasks.await
  *     places that don't share logic:
  *       - EmployeeFragment.canManageRole() / manageableRoleIds() — reads
  *         ROLE_LEVELS directly, myLevel < targetLevel.
- *       - DashboardViewModel.load() — hardcodes `roleId == "worker"` for
+ *       - The old dashboard's stat-loading logic (removed along with
+ *         DashboardViewModel) hardcoded `roleId == "worker"` for
  *         self-only view and `roleId == "manager" && rollupMode` for a
  *         2-level supervisor rollup; everything else falls into
  *         loadWorkerAgentStats(), which only ever resolves role_id ==
@@ -111,8 +112,8 @@ import kotlinx.coroutines.tasks.await
  *   without one of these two in place first.
  *
  * ─── PHASE 2 — generic "who is my subordinate" rule ───
- *   Replace every hardcoded role-name branch (DashboardViewModel.load()'s
- *   `roleId == "worker"` / `roleId == "manager"`, and anywhere else a
+ *   Replace every hardcoded role-name branch (the old dashboard's former
+ *   `roleId == "worker"` / `roleId == "manager"` checks, and anywhere else a
  *   role name currently decides visibility — audit for this, there may
  *   be more than the two call sites already found) with ONE generic
  *   rule, computed from the same levels cache Phase 1 builds:
@@ -159,14 +160,15 @@ import kotlinx.coroutines.tasks.await
  *   - Every read stays bounded (per-candidate, parallel via async/
  *     awaitAll — never a company-wide scan). This is THE reason
  *     courier/remarks_by_userId, courier/users_by_consignment, and the
- *     whole DashboardViewModel rewrite exist — the old loadBranchView()/
+ *     eventual removal of DashboardViewModel exist — the old loadBranchView()/
  *     loadWorkerView() were removed specifically for violating this.
  *     Whatever subordinatePool() resolves to, each person's stat load
  *     stays its own bounded courier/remarks_by_userId/{uid} read, same
  *     as today.
  *   - Firebase reads that can fail (permission, network) get
  *     runCatching{}.onFailure { FirebaseErrorLogger.log(...) }.getOrNull()
- *     — the pattern just added to DashboardViewModel.loadAgentStat() —
+ *     — the pattern the old dashboard's per-agent stat loader used before
+ *     it (and the rest of DashboardViewModel) was removed —
  *     not a silent getOrNull() with no trace.
  *   - No backfill of existing data for anything in this plan unless
  *     explicitly asked — matches the ddMMyy format fix and the

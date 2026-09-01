@@ -123,7 +123,7 @@ object AuthManager {
         // REST reads use Firebase Third-party Auth tokens directly. Keep the legacy
         // exchange for this SDK's Realtime plugin, which currently requires an Auth
         // session; a failed exchange no longer prevents REST history reads.
-        // User sync (branch_id, system_id) happens in DashboardViewModel after RBAC loads.
+        // User sync (branch_id, system_id) happens in MainActivity after RBAC loads.
         SupabaseClientManager.exchangeFirebaseToken()
     }
 }
