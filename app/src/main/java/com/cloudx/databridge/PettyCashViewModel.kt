@@ -197,10 +197,6 @@ class PettyCashViewModel : ViewModel() {
             .getValue(String::class.java).orEmpty().trim()
     }
 
-    private suspend fun branchName(branchId: String): String =
-        db.reference.child(FirebasePaths.branchName(branchId)).get().await()
-            .getValue(String::class.java).orEmpty()
-
     // ── Requester: submit a new request ─────────────────────────────────────
 
     suspend fun submitRequest(
@@ -234,13 +230,12 @@ class PettyCashViewModel : ViewModel() {
         require(systemId.isNotBlank()) { "Your system ID is missing. Please contact an administrator." }
         val claim = claims.create(ClaimInfo(
             branchId = branchId,
-            branchName = branchName(branchId), employeeId = employeeId, employeeName = name,
+            employeeId = employeeId, employeeName = name,
             agentSystemId = systemId,
             workerUid = uid, workerRole = workerRole, type = category,
             category = category,
             consignmentId = consignmentId,
             storeId = storeId,
-            storeName = storeName,
             pickupCount = pickupCount,
             vehicle = vehicle, fromArea = fromArea, toArea = toArea,
             attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
@@ -285,7 +280,6 @@ class PettyCashViewModel : ViewModel() {
                 "category" to category,
                 "consignmentId" to consignmentId,
                 "storeId" to storeId,
-                "storeName" to storeName,
                 "pickupCount" to pickupCount,
                 "vehicle" to vehicle,
                 "fromArea" to fromArea,

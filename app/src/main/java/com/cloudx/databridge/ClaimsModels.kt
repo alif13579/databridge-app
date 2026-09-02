@@ -8,7 +8,6 @@ data class ClaimInfo(
     val claimId: String = "",
     val claimCode: String = "",
     val branchId: String = "",
-    val branchName: String = "",
     val employeeId: String = "",
     val employeeName: String = "",
     // Canonical unique filter/index key (users/{uid}/profile/company_info/system_id — digits
@@ -19,7 +18,6 @@ data class ClaimInfo(
     val category: String = "",
     val purpose: String = "",
     val consignmentId: String = "",
-    val storeName: String = "",
     // Conveyance fields — populated only when category is Pickup or Bulk Delivery
     // (mirrors public.claims' same 6 columns and the same From='Office'-default/
     // store-area-prefill logic already used for the remark-picker's Vehicle/From/
@@ -99,7 +97,7 @@ data class ClaimsReport(
 fun ClaimInfo.asPettyCashRequest(): PettyCashRequest = PettyCashRequest(
     id = claimId, branchId = branchId, requestCode = claimCode, workerUid = workerUid,
     workerName = employeeName, workerRole = workerRole, category = category,
-    consignmentId = consignmentId, storeId = storeId, storeName = storeName,
+    consignmentId = consignmentId, storeId = storeId,
     pickupCount = pickupCount, vehicle = vehicle, fromArea = fromArea, toArea = toArea,
     attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
     purpose = purpose, amount = requestedAmount, priority = priority,
