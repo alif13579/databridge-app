@@ -16,7 +16,6 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
 
     suspend fun create(info: ClaimInfo, onSupabaseResult: (Boolean) -> Unit = {}): ClaimInfo {
         require(info.branchId.isNotBlank()) { "A branch is required" }
-        require(info.employeeId.isNotBlank()) { "An employee ID is required" }
         require(info.agentSystemId.isNotBlank()) { "An agent system ID is required" }
         var timestamp = System.currentTimeMillis()
         var id = claimId(timestamp)

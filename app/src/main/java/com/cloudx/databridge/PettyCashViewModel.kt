@@ -183,23 +183,13 @@ class PettyCashViewModel : ViewModel() {
         }.getOrNull()?.takeIf { it.isNotBlank() } ?: auth.currentUser?.displayName.orEmpty()
     }
 
-    private suspend fun currentEmployeeId(): String {
-        val uid = auth.currentUser?.uid.orEmpty()
-        return db.reference.child("users/$uid/profile/company_info/employee_id").get().await()
-            .getValue(String::class.java).orEmpty().trim()
-    }
-
-    // Digits-only, unlike employee_id above — this is the safe-as-a-Firebase-key identity
-    // used for claims_by_systemId (see FirebasePaths.claimsBySystemId).
+    // Digits-only — this is the safe-as-a-Firebase-key identity used for
+    // claims_by_systemId (see FirebasePaths.claimsBySystemId).
     private suspend fun currentSystemId(): String {
         val uid = auth.currentUser?.uid.orEmpty()
         return db.reference.child("users/$uid/profile/company_info/system_id").get().await()
             .getValue(String::class.java).orEmpty().trim()
     }
-
-    private suspend fun branchName(branchId: String): String =
-        db.reference.child(FirebasePaths.branchName(branchId)).get().await()
-            .getValue(String::class.java).orEmpty()
 
     // ── Requester: submit a new request ─────────────────────────────────────
 
@@ -228,19 +218,16 @@ class PettyCashViewModel : ViewModel() {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Requester" }
         val now = System.currentTimeMillis()
-        val employeeId = currentEmployeeId()
-        require(employeeId.isNotBlank()) { "Your employee ID is missing. Please contact an administrator." }
         val systemId = currentSystemId()
         require(systemId.isNotBlank()) { "Your system ID is missing. Please contact an administrator." }
         val claim = claims.create(ClaimInfo(
             branchId = branchId,
-            branchName = branchName(branchId), employeeId = employeeId, employeeName = name,
+            employeeName = name,
             agentSystemId = systemId,
             workerUid = uid, workerRole = workerRole, type = category,
             category = category,
             consignmentId = consignmentId,
             storeId = storeId,
-            storeName = storeName,
             pickupCount = pickupCount,
             vehicle = vehicle, fromArea = fromArea, toArea = toArea,
             attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
@@ -285,7 +272,6 @@ class PettyCashViewModel : ViewModel() {
                 "category" to category,
                 "consignmentId" to consignmentId,
                 "storeId" to storeId,
-                "storeName" to storeName,
                 "pickupCount" to pickupCount,
                 "vehicle" to vehicle,
                 "fromArea" to fromArea,

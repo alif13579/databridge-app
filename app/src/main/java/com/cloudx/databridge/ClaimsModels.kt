@@ -8,18 +8,15 @@ data class ClaimInfo(
     val claimId: String = "",
     val claimCode: String = "",
     val branchId: String = "",
-    val branchName: String = "",
-    val employeeId: String = "",
     val employeeName: String = "",
     // Canonical unique filter/index key (users/{uid}/profile/company_info/system_id — digits
-    // only). employeeId above is kept purely for display; it can contain spaces, which is why
-    // it's unsafe as a Firebase key/index segment. See claims_by_systemId in FirebasePaths.
+    // only). HR employee_id is looked up from public.users via this key when needed instead
+    // of being stored on the claim itself. See claims_by_systemId in FirebasePaths.
     val agentSystemId: String = "",
     val type: String = "",
     val category: String = "",
     val purpose: String = "",
     val consignmentId: String = "",
-    val storeName: String = "",
     // Conveyance fields — populated only when category is Pickup or Bulk Delivery
     // (mirrors public.claims' same 6 columns and the same From='Office'-default/
     // store-area-prefill logic already used for the remark-picker's Vehicle/From/
@@ -99,7 +96,7 @@ data class ClaimsReport(
 fun ClaimInfo.asPettyCashRequest(): PettyCashRequest = PettyCashRequest(
     id = claimId, branchId = branchId, requestCode = claimCode, workerUid = workerUid,
     workerName = employeeName, workerRole = workerRole, category = category,
-    consignmentId = consignmentId, storeId = storeId, storeName = storeName,
+    consignmentId = consignmentId, storeId = storeId,
     pickupCount = pickupCount, vehicle = vehicle, fromArea = fromArea, toArea = toArea,
     attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
     purpose = purpose, amount = requestedAmount, priority = priority,

@@ -148,7 +148,6 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var tvToAreaSelected: TextView
     private lateinit var etAttemptQuantity: EditText
     private lateinit var etDeliveredQuantity: EditText
-    private lateinit var etCidOrMerchant: EditText
     private lateinit var groupConveyance: View
     private lateinit var groupAmount: View
     private lateinit var etAmount: EditText
@@ -236,7 +235,6 @@ class PettyCashRequestCreateFragment : Fragment() {
                 if (selectedCategory == PC_CATEGORY_PICKUP) syncAttemptDeliveredQuantities()
             }
         })
-        etCidOrMerchant = view.findViewById(R.id.etPcRequestCidOrMerchant)
         groupAmount = view.findViewById(R.id.groupPcAmount)
         etAmount = view.findViewById(R.id.etPcRequestAmount)
         etPurpose = view.findViewById(R.id.etPcRequestPurpose)
@@ -324,7 +322,6 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
         if (request.attemptQuantity > 0) etAttemptQuantity.setText(request.attemptQuantity.toString())
         if (request.deliveredQuantity > 0) etDeliveredQuantity.setText(request.deliveredQuantity.toString())
-        if (request.cidOrMerchant.isNotBlank()) etCidOrMerchant.setText(request.cidOrMerchant)
         prefilled = true
     }
 
@@ -595,7 +592,6 @@ class PettyCashRequestCreateFragment : Fragment() {
         val pickupCount = etPickupCount.text?.toString()?.trim()?.toIntOrNull() ?: 0
         val attemptQuantity = etAttemptQuantity.text?.toString()?.trim()?.toIntOrNull() ?: 0
         val deliveredQuantity = etDeliveredQuantity.text?.toString()?.trim()?.toIntOrNull() ?: 0
-        val cidOrMerchant = etCidOrMerchant.text?.toString().orEmpty().trim()
 
         if (branchId.isBlank()) {
             Toast.makeText(requireContext(), "No branch selected", Toast.LENGTH_SHORT).show()
@@ -637,7 +633,14 @@ class PettyCashRequestCreateFragment : Fragment() {
         val finalToArea = if (isConveyanceCategory) selectedToArea else ""
         val finalAttemptQuantity = if (isConveyanceCategory) attemptQuantity else 0
         val finalDeliveredQuantity = if (isConveyanceCategory) deliveredQuantity else 0
-        val finalCidOrMerchant = if (isConveyanceCategory) cidOrMerchant else ""
+        // Always derived, never typed directly -- no etCidOrMerchant field exists
+        // in the layout anymore. Mirrors Consignment ID for Bulk Delivery, the
+        // picked store's name for Pickup.
+        val finalCidOrMerchant = when (selectedCategory) {
+            PC_CATEGORY_BULK_DELIVERY -> finalConsignmentId
+            PC_CATEGORY_PICKUP -> finalStoreName
+            else -> ""
+        }
 
         btnSubmit.isEnabled = false
         if (isEditMode) {
