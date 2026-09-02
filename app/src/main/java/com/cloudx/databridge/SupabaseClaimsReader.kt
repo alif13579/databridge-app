@@ -30,7 +30,7 @@ object SupabaseClaimsReader {
         val agentSystemId: String get() = raw.optString("agent_system_id")
         val type: String get() = raw.optString("type")
         val category: String get() = raw.optString("category")
-        val purpose: String get() = raw.optString("purpose")
+        val purpose: String get() = raw.optString("remarks")
         val settledAmount: Double get() = raw.optDouble("settled_amount", 0.0)
         val vehicle: String get() = raw.optString("vehicle")
         val fromArea: String get() = raw.optString("from_area")
