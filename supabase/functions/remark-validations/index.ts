@@ -599,12 +599,14 @@ Deno.serve(async (request) => {
       const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : 0
       const iso = (v: unknown) => typeof v === 'string' && v.trim() ? v : null
       if (!c || !str(c.id).trim() || !str(c.branch_id).trim() || !str(c.agent_system_id).trim()) {
-        return reply({ error: 'claim id, branch_id and agent_system_id are required' }, 400)
+        return reply({ error: 'claim id, branch_id and agent_system_id (requester_system_id) are required' }, 400)
       }
       const { error } = await admin.from('claims').upsert({
         id: str(c.id), claim_code: str(c.claim_code),
         branch_id: str(c.branch_id), requester_system_id: str(c.agent_system_id),
         type: str(c.type), category: str(c.category), remarks: str(c.purpose),
+        vehicle: str(c.vehicle), from_area: str(c.from_area), to_area: str(c.to_area),
+        attempt_quantity: num(c.attempt_quantity), delivered_quantity: num(c.delivered_quantity),
         cid_or_merchant: str(c.cid_or_merchant),
         // NOT NULL date column — falls back to today when the caller (currently
         // SupabaseClaimsWriter.kt) sends no placed_date, so this upsert can never
