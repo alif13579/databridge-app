@@ -140,7 +140,6 @@ object SupabaseClaimsWriter {
             put("attempt_quantity", attemptQuantity)
             put("delivered_quantity", deliveredQuantity)
             put("cid_or_merchant", cidOrMerchant)
-            put("pickup_count", pickupCount)
             put("placed_date", millisToIsoDate(requestedAt))
             put("requested_amount", requestedAmount)
             put("approved_amount", approvedAmount)

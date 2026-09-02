@@ -606,7 +606,6 @@ Deno.serve(async (request) => {
         branch_id: str(c.branch_id), agent_system_id: str(c.agent_system_id),
         type: str(c.type), category: str(c.category), remarks: str(c.purpose),
         cid_or_merchant: str(c.cid_or_merchant),
-        pickup_count: num(c.pickup_count),
         // NOT NULL date column — falls back to today when the caller (currently
         // SupabaseClaimsWriter.kt) sends no placed_date, so this upsert can never
         // violate the NOT NULL constraint even if a caller omits the field.
