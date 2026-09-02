@@ -10,7 +10,7 @@ import org.json.JSONObject
 /**
  * Reads public.claims for the "Top Sheet For Petty Cash Expense" report, joined
  * against branches and users via PostgREST embedding — claims.branch_id and
- * claims.agent_system_id both carry a real FK (added manually via SQL Editor —
+ * claims.requester_system_id both carry a real FK (added manually via SQL Editor —
  * see SCHEMA_HISTORY.md's "public.claims — now live" entry), so a single
  * embedded-select query returns branch/employee details alongside each claim
  * row without a second round-trip.
@@ -27,7 +27,7 @@ object SupabaseClaimsReader {
         val id: String get() = raw.optString("id")
         val claimCode: String get() = raw.optString("claim_code")
         val branchId: String get() = raw.optString("branch_id")
-        val agentSystemId: String get() = raw.optString("agent_system_id")
+        val agentSystemId: String get() = raw.optString("requester_system_id")
         val type: String get() = raw.optString("type")
         val category: String get() = raw.optString("category")
         val purpose: String get() = raw.optString("remarks")
@@ -190,7 +190,7 @@ object SupabaseClaimsReader {
         // percent-encoded. Same pattern SupabaseClientManager.fetchRemarkLabels
         // already uses for this.
         if (agentSystemIds.isNotEmpty()) {
-            urlBuilder.append("&agent_system_id=in.(").append(agentSystemIds.joinToString(",") { it.encodeParam() }).append(")")
+            urlBuilder.append("&requester_system_id=in.(").append(agentSystemIds.joinToString(",") { it.encodeParam() }).append(")")
         }
         if (categories.isNotEmpty()) {
             urlBuilder.append("&category=in.(").append(categories.joinToString(",") { it.encodeParam() }).append(")")

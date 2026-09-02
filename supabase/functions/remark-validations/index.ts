@@ -603,7 +603,7 @@ Deno.serve(async (request) => {
       }
       const { error } = await admin.from('claims').upsert({
         id: str(c.id), claim_code: str(c.claim_code),
-        branch_id: str(c.branch_id), agent_system_id: str(c.agent_system_id),
+        branch_id: str(c.branch_id), requester_system_id: str(c.agent_system_id),
         type: str(c.type), category: str(c.category), remarks: str(c.purpose),
         cid_or_merchant: str(c.cid_or_merchant),
         // NOT NULL date column — falls back to today when the caller (currently
