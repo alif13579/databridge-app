@@ -71,6 +71,15 @@ object RemarkPopupOverlay {
     private fun showInternal(context: Context, match: CallerMatch, isAutoDialing: Boolean) {
         dismissInternal() // never stack two
 
+        // Which remark catalog (WORKER vs CC) and write-source this popup uses — CC takes
+        // priority when the user has both (preserves this popup's original CC-only
+        // behavior for CC-capable users unchanged), WORKER only when they lack CC access
+        // but do have worker access. DataBridgeService's own trigger condition already
+        // requires at least one of these before show() is ever called.
+        val source = if (RbacManager.hasPermission("nav_call_center")) "CC"
+            else if (RbacManager.hasPermission("nav_space")) "WORKER"
+            else "CC" // shouldn't be reachable given the trigger gate; keep the prior default
+
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
         val view = LayoutInflater.from(context).inflate(R.layout.overlay_history_remark, null)
 
@@ -117,11 +126,11 @@ object RemarkPopupOverlay {
 
         loadJob = overlayScope.launch {
             val (remarkOptions, assignedAgentSystemId) = withContext(Dispatchers.IO) {
-                fetchRemarkOptions() to resolveAssignedAgent(match.consignmentId)
+                fetchRemarkOptions(source) to resolveAssignedAgent(match.consignmentId)
             }
             if (overlayView !== view) return@launch // dismissed while loading
 
-            renderRemarkChips(context, view, remarkOptions, match, assignedAgentSystemId)
+            renderRemarkChips(context, view, remarkOptions, match, assignedAgentSystemId, source)
         }
     }
 
@@ -150,17 +159,19 @@ object RemarkPopupOverlay {
 
     private data class RemarkOption(val label: String, val englishLabel: String, val targetStatus: String)
 
-    /** Same source used by CallCenterFragment's loadCcRemarkOptions() and the language
-     *  preference at config/language/ccLang -- kept intentionally minimal (no templates
-     *  sorting beyond priority) since the popup only needs label + target_status to save
-     *  a remark. */
-    private suspend fun fetchRemarkOptions(): List<RemarkOption> {
+    /** Same source used by CallCenterFragment's loadCcRemarkOptions()/WorkerSpaceFragment's
+     *  equivalent -- kept intentionally minimal (no templates sorting beyond priority)
+     *  since the popup only needs label + target_status to save a remark. [source]
+     *  ("CC" or "WORKER") picks both the correct remark catalog and the matching
+     *  language-preference path (config/language/ccLang vs .../workerLang). */
+    private suspend fun fetchRemarkOptions(source: String): List<RemarkOption> {
         return try {
             val db = com.google.firebase.database.FirebaseDatabase.getInstance().reference
-            val langValue = db.child("config/language/ccLang").get().await()
+            val langPath = if (source == "WORKER") "config/language/workerLang" else "config/language/ccLang"
+            val langValue = db.child(langPath).get().await()
                 .getValue(String::class.java)?.trim().orEmpty().ifBlank { "bn_en" }
             val remarkLang = langValue.substringBefore("_").ifBlank { "bn" }
-            SupabaseClientManager.fetchRemarkOptions("RemarkPopupOverlay", "CC").mapNotNull { opt ->
+            SupabaseClientManager.fetchRemarkOptions("RemarkPopupOverlay", source).mapNotNull { opt ->
                 val label = if (remarkLang == "en") opt.textEn.ifBlank { opt.textBn } else opt.textBn.ifBlank { opt.textEn }
                 if (label.isBlank()) return@mapNotNull null
                 val target = opt.targetStatus.ifBlank { return@mapNotNull null }
@@ -198,10 +209,13 @@ object RemarkPopupOverlay {
         options: List<RemarkOption>,
         match: CallerMatch,
         assignedAgentSystemId: String?,
+        source: String,
     ) {
         val chipContainer = view.findViewById<LinearLayout>(R.id.llHrRemarkChips)
         val etNote = view.findViewById<EditText>(R.id.etHrNote)
         val tvAgentMissing = view.findViewById<TextView>(R.id.tvHrAgentMissing)
+        val btnSetRemarks = view.findViewById<View>(R.id.btnHrSetRemarks)
+        val llRemarkSection = view.findViewById<View>(R.id.llHrRemarkSection)
         val btnSave = view.findViewById<TextView>(R.id.btnHrSave)
         val tvConfirmation = view.findViewById<TextView>(R.id.tvHrConfirmation)
 
@@ -243,9 +257,18 @@ object RemarkPopupOverlay {
         if (assignedAgentSystemId.isNullOrBlank()) {
             // Can't safely resolve who to assign the remark to -- no Save button, point
             // the agent at Call Center instead of risking a write with a guessed id.
+            // Set Remarks stays hidden too -- nothing usable behind it in this state.
             tvAgentMissing.isVisible = true
-            btnSave.isVisible = false
+            btnSetRemarks.isVisible = false
             return
+        }
+
+        // Collapsed behind "Set Remarks" by default -- expands to reveal the same
+        // chips+note+save shape used when tapping remarks on a parcel card elsewhere.
+        btnSetRemarks.isVisible = true
+        btnSetRemarks.setOnClickListener {
+            btnSetRemarks.isVisible = false
+            llRemarkSection.isVisible = true
         }
 
         btnSave.setOnClickListener {
@@ -266,15 +289,13 @@ object RemarkPopupOverlay {
                 status = chosen.targetStatus,
                 remarksText = chosen.englishLabel,
                 noteText = etNote.text?.toString()?.trim().orEmpty(),
-                source = "CC",
+                source = source,
                 screen = "RemarkPopupOverlay",
-                // Blank when chosen.label IS chosen.englishLabel (CC-configured language is
+                // Blank when chosen.label IS chosen.englishLabel (configured language is
                 // already English) -- same reasoning as CallCenterFragment's saveCcRemarkForItems.
                 remarksBnText = chosen.label.takeIf { it.isNotBlank() && it != chosen.englishLabel } ?: ""
             )
-            btnSave.isVisible = false
-            chipContainer.isVisible = false
-            etNote.isVisible = false
+            llRemarkSection.isVisible = false
             tvConfirmation.isVisible = true
             mainHandler.postDelayed({ dismissInternal() }, 2000)
         }

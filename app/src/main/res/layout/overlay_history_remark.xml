@@ -135,39 +135,100 @@
         android:gravity="center"
         android:paddingVertical="10dp" />
 
-    <!-- Remarks -->
+    <!-- Remarks: collapsed behind a "Set Remarks" button by default (note box was always
+         taking up space before), expands to the same chips+note+save shape used when
+         tapping remarks directly on a parcel card elsewhere in the app. -->
     <TextView
-        android:layout_width="wrap_content"
+        android:id="@+id/btnHrSetRemarks"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="13dp"
-        android:text="দ্রুত রিমার্কস"
-        android:textSize="11.5sp"
-        android:textColor="#64748B" />
+        android:background="@drawable/bg_overlay_badge_status"
+        android:text="📝 রিমার্কস সেট করুন"
+        android:textColor="#0F172A"
+        android:textSize="12.5sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:paddingVertical="10dp"
+        android:visibility="gone" />
 
-    <HorizontalScrollView
+    <LinearLayout
+        android:id="@+id/llHrRemarkSection"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:scrollbars="none">
-        <LinearLayout
-            android:id="@+id/llHrRemarkChips"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal" />
-    </HorizontalScrollView>
+            android:layout_marginTop="13dp"
+            android:text="দ্রুত রিমার্কস"
+            android:textSize="11.5sp"
+            android:textColor="#64748B" />
 
-    <EditText
-        android:id="@+id/etHrNote"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:background="@drawable/bg_overlay_badge_status"
-        android:hint="নোট লিখুন (ঐচ্ছিক)"
-        android:textSize="12.5sp"
-        android:minLines="2"
-        android:gravity="top|start"
-        android:padding="9dp"
-        android:inputType="textMultiLine" />
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/llHrRemarkChips"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <EditText
+            android:id="@+id/etHrNote"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_overlay_badge_status"
+            android:hint="নোট লিখুন (ঐচ্ছিক)"
+            android:textSize="12.5sp"
+            android:minLines="2"
+            android:gravity="top|start"
+            android:padding="9dp"
+            android:inputType="textMultiLine" />
+
+        <!-- Footer actions -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="10dp">
+
+            <TextView
+                android:id="@+id/btnHrDismiss"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/bg_overlay_badge_status"
+                android:text="বন্ধ করুন"
+                android:textColor="#0F172A"
+                android:textSize="12.5sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:paddingVertical="10dp" />
+
+            <TextView
+                android:id="@+id/btnHrSave"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_overlay_cta"
+                android:text="রিমার্কস সেভ করুন"
+                android:textColor="#FFFFFF"
+                android:textSize="12.5sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:paddingVertical="10dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
 
     <TextView
         android:id="@+id/tvHrAgentMissing"
@@ -178,42 +239,6 @@
         android:textSize="11.5sp"
         android:textColor="#B45309"
         android:visibility="gone" />
-
-    <!-- Footer actions -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="10dp">
-
-        <TextView
-            android:id="@+id/btnHrDismiss"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="6dp"
-            android:background="@drawable/bg_overlay_badge_status"
-            android:text="বন্ধ করুন"
-            android:textColor="#0F172A"
-            android:textSize="12.5sp"
-            android:textStyle="bold"
-            android:gravity="center"
-            android:paddingVertical="10dp" />
-
-        <TextView
-            android:id="@+id/btnHrSave"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:background="@drawable/bg_overlay_cta"
-            android:text="রিমার্কস সেভ করুন"
-            android:textColor="#FFFFFF"
-            android:textSize="12.5sp"
-            android:textStyle="bold"
-            android:gravity="center"
-            android:paddingVertical="10dp" />
-
-    </LinearLayout>
 
     <TextView
         android:id="@+id/tvHrConfirmation"
