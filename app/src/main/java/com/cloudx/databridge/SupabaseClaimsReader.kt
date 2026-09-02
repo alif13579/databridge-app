@@ -28,7 +28,6 @@ object SupabaseClaimsReader {
         val claimCode: String get() = raw.optString("claim_code")
         val branchId: String get() = raw.optString("branch_id")
         val agentSystemId: String get() = raw.optString("agent_system_id")
-        val employeeId: String get() = raw.optString("employee_id")
         val type: String get() = raw.optString("type")
         val category: String get() = raw.optString("category")
         val purpose: String get() = raw.optString("purpose")
@@ -54,6 +53,7 @@ object SupabaseClaimsReader {
         val branchRegion: String get() = branch?.optString("region").orEmpty()
         val branchPettyCashLimit: Double get() = branch?.optDouble("petty_cash_limit", 0.0) ?: 0.0
         val agentName: String get() = agent?.optString("name").orEmpty()
+        val agentEmployeeId: String get() = agent?.optString("employee_id").orEmpty()
         val agentPhone: String get() = agent?.optString("phone").orEmpty()
         val agentDesignation: String get() = agent?.optString("designation").orEmpty()
     }
@@ -153,7 +153,7 @@ object SupabaseClaimsReader {
     /**
      * Fetches claims rows for [branchId] with placed_date in [fromDateIso,
      * toDateIso] (both "yyyy-MM-dd", inclusive), embedding branches(name,region,
-     * petty_cash_limit) and users(name,phone,designation) in the same request.
+     * petty_cash_limit) and users(name,phone,designation,employee_id) in the same request.
      *
      * [agentSystemIds]/[categories]/[statuses] are optional narrowing filters —
      * an empty list for any of them means "no filter on that dimension" (matches
@@ -179,7 +179,7 @@ object SupabaseClaimsReader {
             Log.e(TAG, "fetchClaimsForReport skipped: no Firebase bearer token")
             return@withContext emptyList()
         }
-        val select = "*,branches(name,region,petty_cash_limit),users(name,phone,designation)"
+        val select = "*,branches(name,region,petty_cash_limit),users(name,phone,designation,employee_id)"
         val urlBuilder = StringBuilder("${SupabaseConfig.PROJECT_URL}/rest/v1/claims")
             .append("?select=").append(select.encodeParam())
             .append("&branch_id=eq.").append(branchId.encodeParam())

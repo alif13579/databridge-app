@@ -183,14 +183,8 @@ class PettyCashViewModel : ViewModel() {
         }.getOrNull()?.takeIf { it.isNotBlank() } ?: auth.currentUser?.displayName.orEmpty()
     }
 
-    private suspend fun currentEmployeeId(): String {
-        val uid = auth.currentUser?.uid.orEmpty()
-        return db.reference.child("users/$uid/profile/company_info/employee_id").get().await()
-            .getValue(String::class.java).orEmpty().trim()
-    }
-
-    // Digits-only, unlike employee_id above — this is the safe-as-a-Firebase-key identity
-    // used for claims_by_systemId (see FirebasePaths.claimsBySystemId).
+    // Digits-only — this is the safe-as-a-Firebase-key identity used for
+    // claims_by_systemId (see FirebasePaths.claimsBySystemId).
     private suspend fun currentSystemId(): String {
         val uid = auth.currentUser?.uid.orEmpty()
         return db.reference.child("users/$uid/profile/company_info/system_id").get().await()
@@ -224,13 +218,11 @@ class PettyCashViewModel : ViewModel() {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Requester" }
         val now = System.currentTimeMillis()
-        val employeeId = currentEmployeeId()
-        require(employeeId.isNotBlank()) { "Your employee ID is missing. Please contact an administrator." }
         val systemId = currentSystemId()
         require(systemId.isNotBlank()) { "Your system ID is missing. Please contact an administrator." }
         val claim = claims.create(ClaimInfo(
             branchId = branchId,
-            employeeId = employeeId, employeeName = name,
+            employeeName = name,
             agentSystemId = systemId,
             workerUid = uid, workerRole = workerRole, type = category,
             category = category,

@@ -130,7 +130,6 @@ object SupabaseClaimsWriter {
             put("id", claimId)
             put("claim_code", claimCode)
             put("branch_id", branchId)
-            put("employee_id", employeeId)
             put("agent_system_id", agentSystemId)
             put("type", type)
             put("category", category)

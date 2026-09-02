@@ -155,7 +155,7 @@ class ClaimsReportFragment : Fragment() {
         // guarantees the employee list only ever shows people who actually have
         // a claim in this branch, not the full company roster.
         val rows = SupabaseClaimsReader.fetchClaimsForReport(selectedBranchId, "1970-01-01", "2999-12-31")
-        employeeOptions = rows.map { ClaimsEmployeeOption(it.agentSystemId, it.employeeId, it.agentName.ifBlank { it.agentSystemId }) }
+        employeeOptions = rows.map { ClaimsEmployeeOption(it.agentSystemId, it.agentEmployeeId, it.agentName.ifBlank { it.agentSystemId }) }
             .distinctBy { it.systemId }
             .sortedBy { it.name }
     }
@@ -291,7 +291,7 @@ class ClaimsReportFragment : Fragment() {
                     branchRegion = branchRegion,
                     pettyCashLimit = pettyCashLimit,
                     pocName = claims.first().agentName,
-                    pocEmployeeId = claims.first().employeeId,
+                    pocEmployeeId = claims.first().agentEmployeeId,
                     pocDesignation = claims.first().agentDesignation,
                     pocContact = claims.first().agentPhone,
                     fromDateIso = fromIso,

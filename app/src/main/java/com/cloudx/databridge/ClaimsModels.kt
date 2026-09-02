@@ -8,11 +8,10 @@ data class ClaimInfo(
     val claimId: String = "",
     val claimCode: String = "",
     val branchId: String = "",
-    val employeeId: String = "",
     val employeeName: String = "",
     // Canonical unique filter/index key (users/{uid}/profile/company_info/system_id — digits
-    // only). employeeId above is kept purely for display; it can contain spaces, which is why
-    // it's unsafe as a Firebase key/index segment. See claims_by_systemId in FirebasePaths.
+    // only). HR employee_id is looked up from public.users via this key when needed instead
+    // of being stored on the claim itself. See claims_by_systemId in FirebasePaths.
     val agentSystemId: String = "",
     val type: String = "",
     val category: String = "",
