@@ -605,7 +605,7 @@ Deno.serve(async (request) => {
         id: str(c.id), claim_code: str(c.claim_code),
         branch_id: str(c.branch_id), agent_system_id: str(c.agent_system_id),
         type: str(c.type), category: str(c.category), remarks: str(c.purpose),
-        consignment_id: str(c.consignment_id), store_id: str(c.store_id),
+        cid_or_merchant: str(c.cid_or_merchant),
         pickup_count: num(c.pickup_count),
         // NOT NULL date column — falls back to today when the caller (currently
         // SupabaseClaimsWriter.kt) sends no placed_date, so this upsert can never

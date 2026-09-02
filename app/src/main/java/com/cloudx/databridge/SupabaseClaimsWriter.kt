@@ -134,8 +134,6 @@ object SupabaseClaimsWriter {
             put("type", type)
             put("category", category)
             put("purpose", purpose)
-            put("consignment_id", consignmentId)
-            put("store_id", storeId)
             put("vehicle", vehicle)
             put("from_area", fromArea)
             put("to_area", toArea)
