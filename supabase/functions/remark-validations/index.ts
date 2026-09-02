@@ -608,10 +608,6 @@ Deno.serve(async (request) => {
         vehicle: str(c.vehicle), from_area: str(c.from_area), to_area: str(c.to_area),
         attempt_quantity: num(c.attempt_quantity), delivered_quantity: num(c.delivered_quantity),
         cid_or_merchant: str(c.cid_or_merchant),
-        // NOT NULL date column — falls back to today when the caller (currently
-        // SupabaseClaimsWriter.kt) sends no placed_date, so this upsert can never
-        // violate the NOT NULL constraint even if a caller omits the field.
-        placed_date: (typeof c.placed_date === 'string' && c.placed_date.trim()) ? c.placed_date.trim() : new Date().toISOString().slice(0, 10),
         requested_amount: num(c.requested_amount), approved_amount: num(c.approved_amount), settled_amount: num(c.settled_amount),
         payment_method: str(c.payment_method), transaction_id: str(c.transaction_id),
         status: str(c.status), priority: str(c.priority),

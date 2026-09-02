@@ -111,13 +111,7 @@ object SupabaseClaimsWriter {
      *  (staffAt, approvedAt, etc.) is sent as null, matching the column's
      *  nullable timestamptz type.
      *
-     *  placed_date IS sent (unlike the omitted columns above) — it's a NOT NULL
-     *  date column (see SCHEMA_HISTORY.md), derived from requestedAt (the same
-     *  "requested date" reviewers can now correct — see PettyCashRequest.
-     *  requestedDate / the requested-date-correction feature) rather than a
-     *  literal ClaimInfo field of that name. Falls back to today when
-     *  requestedAt is 0L (not yet reached that stage) so the insert never
-     *  violates the NOT NULL constraint. */
+     *  Millis timestamps convert to ISO-8601; a 0L timestamp is sent as null.
     private fun ClaimInfo.toSupabaseJson(): JSONObject {
         fun millisToIso(millis: Long): Any =
             if (millis > 0L) java.time.Instant.ofEpochMilli(millis).toString() else JSONObject.NULL
@@ -140,7 +134,6 @@ object SupabaseClaimsWriter {
             put("attempt_quantity", attemptQuantity)
             put("delivered_quantity", deliveredQuantity)
             put("cid_or_merchant", cidOrMerchant)
-            put("placed_date", millisToIsoDate(requestedAt))
             put("requested_amount", requestedAmount)
             put("approved_amount", approvedAmount)
             put("settled_amount", settledAmount)

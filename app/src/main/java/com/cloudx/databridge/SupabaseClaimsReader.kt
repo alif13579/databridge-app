@@ -42,7 +42,7 @@ object SupabaseClaimsReader {
         // (any category, not just conveyance), user-editable. Renamed from
         // expense_date; see SCHEMA_HISTORY.md's "public.claims — now live" entry
         // for why (it was originally conveyance-only, blank on other categories).
-        val placedDate: String get() = raw.optString("placed_date") // yyyy-MM-dd
+        val placedDate: String get() = raw.optString("requested_at").take(10) // yyyy-MM-dd derived from requested_at
         val status: String get() = raw.optString("status")
 
         // Embedded via the FK — PostgREST nests these as single objects (not arrays)
@@ -151,7 +151,7 @@ object SupabaseClaimsReader {
     suspend fun fetchDistinctStatuses(branchId: String): List<String> = fetchDistinctColumnValues(branchId, "status")
 
     /**
-     * Fetches claims rows for [branchId] with placed_date in [fromDateIso,
+     * Fetches claims rows for [branchId] with requested_at in [fromDateIso,
      * toDateIso] (both "yyyy-MM-dd", inclusive), embedding branches(name,region,
      * petty_cash_limit) and users(name,phone,designation,employee_id) in the same request.
      *
@@ -183,9 +183,9 @@ object SupabaseClaimsReader {
         val urlBuilder = StringBuilder("${SupabaseConfig.PROJECT_URL}/rest/v1/claims")
             .append("?select=").append(select.encodeParam())
             .append("&branch_id=eq.").append(branchId.encodeParam())
-            .append("&placed_date=gte.").append(fromDateIso.encodeParam())
-            .append("&placed_date=lte.").append(toDateIso.encodeParam())
-            .append("&order=placed_date.asc")
+            .append("&requested_at=gte.").append(fromDateIso.encodeParam())
+            .append("&requested_at=lte.").append((toDateIso + "T23:59:59Z").encodeParam())
+            .append("&order=requested_at.asc")
         // PostgREST in.(...) filter — comma-separated, each value individually
         // percent-encoded. Same pattern SupabaseClientManager.fetchRemarkLabels
         // already uses for this.
