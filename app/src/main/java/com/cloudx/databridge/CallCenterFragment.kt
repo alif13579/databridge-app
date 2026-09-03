@@ -2625,10 +2625,32 @@ class CallCenterFragment : Fragment() {
      * summary counts in sync without reloading every parcel.
      */
     private fun refreshCcParcelFromPush(consignmentId: String) {
-        // Trigger a one-off REST fetch only when a push arrives. This does not invoke the
-        // Edge Function and is not scheduled periodically.
+        // A push may arrive several minutes after the worker saved the row.  Do not use
+        // the cursor-based "new since" read here: on a cold CC screen its cursor can be
+        // initialised after that row's created_at, which silently leaves the card on its
+        // previous effective status.  Match WorkerSpaceFragment's proven path instead:
+        // fetch this parcel's complete history and apply its actual latest row.
         if (!isAdded || allParcels.none { it.id == consignmentId }) return
-        fetchNewCcRemarksFromPush()
+        SupabaseRemarkValidationWriter.ensureProfileSynced {
+            SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "CallCenterFragment") { rows ->
+                if (rows.isEmpty()) {
+                    RemarkPushChainLog.log("RemarkPushChain",
+                        "CallCenterFragment: refreshCcParcelFromPush returned 0 rows for $consignmentId — " +
+                            "RLS did not grant this CC user access to the validation row",
+                        isWarning = true)
+                    return@fetchHistory
+                }
+                val latest = rows.maxByOrNull {
+                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+                } ?: return@fetchHistory
+                RemarkPushChainLog.log("RemarkPushChain",
+                    "CallCenterFragment: refreshCcParcelFromPush updating $consignmentId from push — " +
+                        "source=${latest.optString("source")} status=${latest.optString("remarks_status")}")
+                viewLifecycleOwner.lifecycleScope.launch {
+                    if (isAdded) refreshOneCcParcelFromSupabase(consignmentId, latest)
+                }
+            }
+        }
     }
 
     /** Updates one card directly from a Supabase validation row. */

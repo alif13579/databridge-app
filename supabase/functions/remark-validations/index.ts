@@ -388,10 +388,13 @@ async function notificationDetails(row: { consignment: string; author_system_id:
 
 async function sendRemarkPush(row: { consignment: string; branch_id: string; assigned_to_system_id: string; author_system_id: string; remarks_status: string; remarks: string; source: string }, identity: { uid: string; token: string }) {
   // A failed or not-yet-configured push must never prevent the audit record from saving.
+  // Return a deliberately non-sensitive diagnostic so the Android sender can show exactly
+  // why a saved remark did not produce a notification. The function's server log retains
+  // the same outcome for cases where the sender device is no longer available.
   const serviceAccountJson = Deno.env.get('FCM_SERVICE_ACCOUNT_JSON')
   if (!serviceAccountJson) {
-    console.warn('FCM_SERVICE_ACCOUNT_JSON is not configured; push skipped')
-    return
+    console.error(`remark_push skipped: reason=fcm_service_account_missing consignment=${row.consignment}`)
+    return { recipient_scope: row.source === 'WORKER' ? 'cc' : 'worker', matched_devices: 0, accepted: 0, reason: 'fcm_service_account_missing' }
   }
   try {
     const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount
@@ -399,7 +402,10 @@ async function sendRemarkPush(row: { consignment: string; branch_id: string; ass
 
     // CC -> worker: send only to that worker. Worker -> CC: notify only users
     // whose Firebase RBAC permission grants access to the Call Center fragment.
-    const fromWorker = row.assigned_to_system_id === row.author_system_id
+    // `source` is the explicit, validated direction of the remark. It is safer than
+    // inferring direction from IDs: a CC agent can be assigned a parcel too.
+    const fromWorker = row.source === 'WORKER'
+    const recipientScope = fromWorker ? 'cc' : 'worker'
     let tokenQuery = admin.from('fcm_device_tokens').select('token')
     if (fromWorker) {
       tokenQuery = tokenQuery.eq('can_access_call_center', true).overlaps('branch_ids', [row.branch_id])
@@ -408,14 +414,20 @@ async function sendRemarkPush(row: { consignment: string; branch_id: string; ass
     }
     const { data: devices, error: deviceError } = await tokenQuery
     if (deviceError) throw deviceError
-    if (!devices?.length) return
+    const matchedDevices = devices?.length ?? 0
+    if (!matchedDevices) {
+      const recipient = fromWorker
+        ? `cc branch=${row.branch_id} can_access_call_center=true`
+        : `worker system_id=${row.assigned_to_system_id}`
+      console.warn(`remark_push skipped: reason=no_matching_device_token consignment=${row.consignment} recipient=${recipient}`)
+      return { recipient_scope: recipientScope, matched_devices: 0, accepted: 0, reason: 'no_matching_device_token' }
+    }
 
     const accessToken = await googleAccessToken('https://www.googleapis.com/auth/firebase.messaging')
 
-    const recipientScope = fromWorker ? 'cc' : 'worker'
     const { title, body } = await notificationDetails(row, identity)
     const projectId = serviceAccount.project_id || firebaseProjectId
-    await Promise.all(devices.map(async ({ token }) => {
+    const outcomes = await Promise.all(devices.map(async ({ token }) => {
       const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId!)}/messages:send`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -441,7 +453,7 @@ async function sendRemarkPush(row: { consignment: string; branch_id: string; ass
           },
         } }),
       })
-      if (response.ok) return
+      if (response.ok) return true
       const text = await response.text()
       // FCM's UNREGISTERED errorCode means this exact token is permanently dead
       // (app uninstalled, token superseded by a newer one on the same device,
@@ -461,9 +473,16 @@ async function sendRemarkPush(row: { consignment: string; branch_id: string; ass
       } else {
         console.error(`FCM send failed (${response.status}): ${text}`)
       }
+      return false
     }))
+    const accepted = outcomes.filter(Boolean).length
+    const reason = accepted === matchedDevices ? 'accepted_by_fcm' : 'fcm_rejected_some_devices'
+    console.info(`remark_push result: consignment=${row.consignment} scope=${recipientScope} matched=${matchedDevices} accepted=${accepted} reason=${reason}`)
+    return { recipient_scope: recipientScope, matched_devices: matchedDevices, accepted, reason }
   } catch (error) {
-    console.error('FCM push failed', error)
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`remark_push failed: consignment=${row.consignment} reason=${message}`)
+    return { recipient_scope: row.source === 'WORKER' ? 'cc' : 'worker', matched_devices: 0, accepted: 0, reason: `push_exception: ${message.slice(0, 160)}` }
   }
 }
 
@@ -800,8 +819,8 @@ Deno.serve(async (request) => {
       if (typeof row.remarks_bn === 'string') {
         await upsertRemarkLabel(savedRow.source, savedRow.remarks, row.remarks_bn)
       }
-      await sendRemarkPush(savedRow, identity)
-      return reply({ ok: true })
+      const push = await sendRemarkPush(savedRow, identity)
+      return reply({ ok: true, push })
     }
 
     let query = admin.from('validations')

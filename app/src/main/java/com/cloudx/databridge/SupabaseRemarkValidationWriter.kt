@@ -50,7 +50,21 @@ object SupabaseRemarkValidationWriter {
             .put("source", source)
             .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)
             .apply { if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText) }), screen,
-            "supabase_validation_write", consignmentId) { }
+            "supabase_validation_write", consignmentId) { response ->
+                // The validation write is intentionally independent from push delivery, so
+                // a saved remark can still have push={reason:...}. Keep that outcome in the
+                // on-device diagnostic trace instead of silently discarding it.
+                val push = runCatching { JSONObject(response ?: "").optJSONObject("push") }.getOrNull()
+                val reason = push?.optString("reason").orEmpty().ifBlank { "missing_push_result" }
+                val scope = push?.optString("recipient_scope").orEmpty()
+                val matched = push?.optInt("matched_devices", 0) ?: 0
+                val accepted = push?.optInt("accepted", 0) ?: 0
+                val message = "write push result: consignment=$consignmentId source=$source " +
+                    "scope=$scope matched=$matched accepted=$accepted reason=$reason"
+                Log.i("RemarkPushChain", message)
+                RemarkPushChainLog.log("RemarkPushChain", message,
+                    isWarning = reason != "accepted_by_fcm")
+            }
     }
 
     // ── Admin remark-option config (ConfigRemarksFragment) ──────────────────────
