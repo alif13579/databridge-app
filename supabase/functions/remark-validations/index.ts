@@ -688,8 +688,10 @@ Deno.serve(async (request) => {
         // Already upserted above; avoids a duplicate Firebase profile request.
       } else {
         const assignedProfile = await firebaseProfileForSystemId(row.assigned_to_system_id, identity)
-        if (!assignedProfile) return reply({ error: 'Assigned user was not found' }, 400)
-        await upsertUser(assignedProfile, assignedProfile.uid)
+        // Best-effort: upsert the assigned user if we can resolve their profile.
+        // A missing/stale index entry must NOT block the remark from saving — the
+        // remark row is valid and the CC agent saving it has already been verified.
+        if (assignedProfile) await upsertUser(assignedProfile, assignedProfile.uid)
       }
       const parcelPromise = firebaseRead(
         identity, `courier/consignments/${encodeURIComponent(row.consignment)}`
