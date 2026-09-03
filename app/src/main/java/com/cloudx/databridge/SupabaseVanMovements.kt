@@ -11,11 +11,13 @@ import org.json.JSONObject
 import java.time.ZoneId
 
 /**
- * Supabase reads + authoritative writes for the Van Check-In log
- * (public.van_movements) — hub van arrival/departure timestamps.
+ * Supabase reads + authoritative writes for the generic Check-In log
+ * (public.check_ins) — hub van arrival/departure timestamps today, more
+ * subject kinds later. Identity is system_id-only (users lookups key on
+ * system_id, so no uid is stored anywhere here).
  *
  * Reads are direct PostgREST (free); writes go through the
- * remark-validations Edge Function's van_checkin / van_checkout actions
+ * remark-validations Edge Function's checkin / checkout actions
  * (service-role admin client — same posture as SupabaseClaimsWriter.save:
  * throws on any failure, callers surface it via runCatching).
  */
@@ -45,7 +47,7 @@ object SupabaseVanMovements {
     suspend fun fetchMovements(branchId: String): List<VanMovement> = withContext(Dispatchers.IO) {
         require(branchId.isNotBlank()) { "A branch is required" }
         val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
-        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/van_movements" +
+        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/check_ins" +
             "?select=*&branch_id=eq.${branchId.encodeParam()}" +
             "&or=(check_in_at.gte.${bangladeshTodayStartIso().encodeParam()},check_out_at.is.null)" +
             "&order=check_in_at.desc"
@@ -68,7 +70,7 @@ object SupabaseVanMovements {
                 VanMovement(
                     id = row.optString("id"),
                     branchId = row.optString("branch_id"),
-                    vehicleNumber = row.optString("vehicle_number"),
+                    vehicleNumber = row.optString("subject_label"),
                     vehicleType = row.optString("vehicle_type"),
                     driverName = row.optString("driver_name"),
                     checkInAt = isoToMillis(row.optString("check_in_at").ifBlank { row.optString("created_at") }),
@@ -92,14 +94,15 @@ object SupabaseVanMovements {
         checkInAtMillis: Long = System.currentTimeMillis(),
     ): String = withContext(Dispatchers.IO) {
         val body = JSONObject()
-            .put("action", "van_checkin")
+            .put("action", "checkin")
             .put("branch_id", branchId)
-            .put("vehicle_number", vehicleNumber)
+            .put("subject_type", "van")
+            .put("subject_label", vehicleNumber)
             .put("vehicle_type", vehicleType)
             .put("driver_name", driverName)
             .put("note", note)
             .put("check_in_at", java.time.Instant.ofEpochMilli(checkInAtMillis).toString())
-        val text = postAction(body, "van_checkin")
+        val text = postAction(body, "checkin")
         JSONObject(text).optString("movement_id")
     }
 
@@ -110,10 +113,10 @@ object SupabaseVanMovements {
      *  Throws on real failure. */
     suspend fun checkOut(movementId: String, checkOutAtMillis: Long = System.currentTimeMillis()) = withContext(Dispatchers.IO) {
         val body = JSONObject()
-            .put("action", "van_checkout")
+            .put("action", "checkout")
             .put("movement_id", movementId)
             .put("check_out_at", java.time.Instant.ofEpochMilli(checkOutAtMillis).toString())
-        postAction(body, "van_checkout")
+        postAction(body, "checkout")
     }
 
     private suspend fun postAction(body: JSONObject, logTag: String): String = withContext(Dispatchers.IO) {

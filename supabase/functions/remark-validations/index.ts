@@ -617,22 +617,27 @@ Deno.serve(async (request) => {
       return reply({ ok: true, system_id: target.systemId })
     }
 
-    if (action === 'van_checkin') {
-      // Hub van arrival: opens one movement row (check_out_at NULL = inside).
-      // Double check-in is rejected here AND by the van_open_per_vehicle
-      // partial unique index — the app pre-checks, but concurrent taps from
-      // two devices must not create two open rows for the same van.
+    if (action === 'checkin') {
+      // Generic check-in (vans today; more subject kinds later): opens one
+      // row in public.check_ins (check_out_at NULL = inside). Identity is
+      // system_id-only — users lookups key on system_id, so no uid column is
+      // stored at all. Double check-in is rejected here AND by the
+      // checkin_open_per_subject partial unique index — the app pre-checks,
+      // but concurrent taps from two devices must not create two open rows.
       const branchId = typeof body.branch_id === 'string' ? body.branch_id.trim() : ''
-      const vehicleNumber = typeof body.vehicle_number === 'string' ? body.vehicle_number.trim() : ''
-      if (!branchId || !vehicleNumber) {
-        return reply({ error: 'branch_id and vehicle_number are required' }, 400)
+      const subjectType = typeof body.subject_type === 'string' && body.subject_type.trim()
+        ? body.subject_type.trim() : 'van'
+      const subjectLabel = typeof body.subject_label === 'string' ? body.subject_label.trim()
+        : (typeof body.vehicle_number === 'string' ? body.vehicle_number.trim() : '')
+      if (!branchId || !subjectLabel) {
+        return reply({ error: 'branch_id and subject_label are required' }, 400)
       }
       const str = (v: unknown) => typeof v === 'string' ? v : ''
-      const { data: alreadyOpen } = await admin.from('van_movements').select('id')
-        .eq('branch_id', branchId).eq('vehicle_number', vehicleNumber)
+      const { data: alreadyOpen } = await admin.from('check_ins').select('id')
+        .eq('branch_id', branchId).eq('subject_type', subjectType).eq('subject_label', subjectLabel)
         .is('check_out_at', null).limit(1)
       if (alreadyOpen && alreadyOpen.length > 0) {
-        return reply({ error: 'Vehicle already checked in', movement_id: alreadyOpen[0].id }, 409)
+        return reply({ error: 'Already checked in', movement_id: alreadyOpen[0].id }, 409)
       }
       // Manual backdate allowed (the tap often comes late) — but never the
       // future. 60s grace covers minor device clock skew.
@@ -646,30 +651,30 @@ Deno.serve(async (request) => {
       }
       const recorder = await firebaseProfile(identity)
       const now = new Date().toISOString()
-      const { data, error } = await admin.from('van_movements').insert({
-        branch_id: branchId, vehicle_number: vehicleNumber,
+      const { data, error } = await admin.from('check_ins').insert({
+        branch_id: branchId, subject_type: subjectType, subject_label: subjectLabel,
         vehicle_type: str(body.vehicle_type), driver_name: str(body.driver_name),
         note: str(body.note),
         check_in_at: checkInAt.toISOString(),
-        check_in_by_uid: identity.uid, check_in_by_system_id: recorder.systemId,
+        check_in_by_system_id: recorder.systemId,
         created_at: now, updated_at: now,
       }).select('id').maybeSingle()
       if (error) throw error
-      console.info(`van_checkin ok: branch=${branchId} vehicle=${vehicleNumber}`)
+      console.info(`checkin ok: branch=${branchId} subject=${subjectType}/${subjectLabel}`)
       return reply({ ok: true, movement_id: data?.id })
     }
 
-    if (action === 'van_checkout') {
-      // Hub van departure: stamps the open row. Scoped to still-open rows, so
-      // a double-tap (or two devices) can't stamp twice — the second call
-      // reports already:true instead of failing.
+    if (action === 'checkout') {
+      // Stamps the open row. Scoped to still-open rows, so a double-tap (or
+      // two devices) can't stamp twice — the second call reports already:true
+      // instead of failing.
       if (typeof body.movement_id !== 'string' || !body.movement_id.trim()) {
         return reply({ error: 'movement_id is required' }, 400)
       }
       const recorder = await firebaseProfile(identity)
       const now = new Date().toISOString()
       const targetId = body.movement_id.trim()
-      const { data: target, error: fetchError } = await admin.from('van_movements')
+      const { data: target, error: fetchError } = await admin.from('check_ins')
         .select('id,check_in_at,check_out_at').eq('id', targetId).maybeSingle()
       if (fetchError) throw fetchError
       if (!target) return reply({ error: 'Movement not found' }, 404)
@@ -687,9 +692,9 @@ Deno.serve(async (request) => {
       if (checkOutAt.getTime() > Date.now() + 60_000) {
         return reply({ error: 'Check-out time cannot be in the future' }, 400)
       }
-      const { data, error } = await admin.from('van_movements').update({
+      const { data, error } = await admin.from('check_ins').update({
         check_out_at: checkOutAt.toISOString(),
-        check_out_by_uid: identity.uid, check_out_by_system_id: recorder.systemId,
+        check_out_by_system_id: recorder.systemId,
         updated_at: now,
       }).eq('id', targetId).is('check_out_at', null)
         .select('id')
@@ -699,7 +704,7 @@ Deno.serve(async (request) => {
         // write — that checkout already stamped it, same as already:true.
         return reply({ ok: true, already: true })
       }
-      console.info(`van_checkout ok: movement=${body.movement_id}`)
+      console.info(`checkout ok: movement=${body.movement_id}`)
       return reply({ ok: true })
     }
 

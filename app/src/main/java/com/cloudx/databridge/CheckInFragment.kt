@@ -20,7 +20,7 @@ import java.util.Locale
 
 /**
  * Check-In — hub check-in/out log. Today this hosts the van arrival/departure
- * log (Supabase public.van_movements); the screen is deliberately named
+ * log (Supabase public.check_ins); the screen is deliberately named
  * generic so future check-ins (e.g. employee check-in) can live here as
  * sections/tabs without a rename.
  *

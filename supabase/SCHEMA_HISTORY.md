@@ -153,6 +153,14 @@ partial unique index (branch_id, vehicle_number) WHERE check_out_at IS NULL
 the DB, not just the app. App side: VanCheckInFragment (drawer,
 nav_van_checkin permission) + static VanCatalog fleet + van_checkin/
 van_checkout Edge Function actions.
+26. **202609030004** — REPLACES 25's `van_movements` (dropped in the same file;
+it never held production rows): generic `check_ins` table — subject_type +
+subject_label instead of vehicle_number, NO uid columns (identity is
+system_id-only: check_in/out_by_system_id, since users lookups key on
+system_id). Same branch-scoped RLS; partial unique index renamed to
+checkin_open_per_subject (branch_id, subject_type, subject_label). Edge
+Function actions renamed van_checkin/van_checkout → checkin/checkout
+(validations unchanged); app reader/writer moved to check_ins.
 
 ---
 
