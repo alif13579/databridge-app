@@ -1,28 +1,31 @@
 package com.cloudx.databridge
 
 import com.google.firebase.auth.FirebaseAuth
-import okhttp3.Call
-import okhttp3.Callback
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
 import org.json.JSONObject
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * Best-effort mirror of Petty Cash claims into Supabase's public.claims table, alongside
- * (never instead of) the existing Firebase write in [ClaimsRepository]. Firebase remains the
- * source of truth for now — public.claims was created "table structure only, ahead of the
- * actual data/write-flow migration off Firebase" (202608260001). This is that mirror, added
- * ahead of the actual cutover so the table stays populated and can be spot-checked against
- * Firebase before Firebase is ever removed.
+ * Authoritative write for claims into Supabase's public.claims table — the
+ * sole persistence layer for claims as of the Supabase-only cutover.
  *
- * A Supabase failure here must never surface to the caller or affect the Firebase write that
- * already succeeded — same fire-and-forget-on-failure convention [SupabaseRemarkValidationWriter]
- * already uses for its own non-critical side effects (e.g. sendRemarkPush()).
+ * Until this cutover, [save] below was mirror(): a best-effort, fire-and-forget
+ * copy written alongside (never instead of) the Firebase write in
+ * [ClaimsRepository], with Firebase as source of truth. That Firebase write is
+ * now commented out (not deleted) in ClaimsRepository rather than the source
+ * of truth, and this is the only place a claim actually gets persisted — so
+ * unlike the old mirror(), [save] throws on any failure (not configured, not
+ * signed in, network error, non-2xx). There is no longer a Firebase write
+ * underneath to fall back on; callers must treat a thrown exception as "the
+ * claim was not saved" — ClaimsRepository's callers already do, via their
+ * existing runCatching { ... } blocks (see PettyCashViewModel.kt), so no
+ * caller-side changes were needed for this.
  */
 object SupabaseClaimsWriter {
     private val client = OkHttpClient.Builder()
@@ -32,37 +35,29 @@ object SupabaseClaimsWriter {
         .build()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    /** [onResult] fires once the network call actually completes (true = HTTP
-     *  success), on a background thread — callers that touch UI must switch
-     *  threads themselves. Never fires synchronously. Added alongside the
-     *  Firebase/Supabase confirmation toasts (PettyCashViewModel's write
-     *  methods) — mirror() itself is unchanged otherwise. */
-    fun mirror(claim: ClaimInfo, onResult: (Boolean) -> Unit = {}) {
-        if (!SupabaseConfig.isConfigured) {
-            FirebaseErrorLogger.log(
-                "SupabaseClaimsWriter", "mirror_skip_not_configured",
-                "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured",
-                mapOf("claimId" to claim.claimId)
-            )
-            onResult(false); return
-        }
-        val user = FirebaseAuth.getInstance().currentUser
-        if (user == null) {
-            FirebaseErrorLogger.log(
-                "SupabaseClaimsWriter", "mirror_skip_not_signed_in", "No Firebase user",
-                mapOf("claimId" to claim.claimId)
-            )
-            onResult(false); return
-        }
-        user.getIdToken(false).addOnCompleteListener { tokenTask ->
-            val token = tokenTask.result?.token
-            if (!tokenTask.isSuccessful || token.isNullOrBlank()) {
+    suspend fun save(claim: ClaimInfo) {
+        withContext(Dispatchers.IO) {
+            if (!SupabaseConfig.isConfigured) {
                 FirebaseErrorLogger.log(
-                    "SupabaseClaimsWriter", "mirror_token_error",
-                    tokenTask.exception?.message ?: "No Firebase ID token",
+                    "SupabaseClaimsWriter", "save_not_configured",
+                    "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured",
                     mapOf("claimId" to claim.claimId)
                 )
-                onResult(false); return@addOnCompleteListener
+                error("Supabase is not configured")
+            }
+            val user = FirebaseAuth.getInstance().currentUser ?: run {
+                FirebaseErrorLogger.log(
+                    "SupabaseClaimsWriter", "save_not_signed_in", "No Firebase user",
+                    mapOf("claimId" to claim.claimId)
+                )
+                error("No signed-in user")
+            }
+            val token = user.getIdToken(false).await().token ?: run {
+                FirebaseErrorLogger.log(
+                    "SupabaseClaimsWriter", "save_token_error", "No Firebase ID token",
+                    mapOf("claimId" to claim.claimId)
+                )
+                error("Could not get an ID token")
             }
             val payload = JSONObject()
                 .put("action", "claim_upsert")
@@ -74,62 +69,63 @@ object SupabaseClaimsWriter {
                 .addHeader("Content-Type", "application/json")
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
-            client.newCall(request).enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val text = response.body?.string().orEmpty()
                     FirebaseErrorLogger.log(
-                        "SupabaseClaimsWriter", "mirror_network_error",
-                        e.message ?: "Network error", mapOf("claimId" to claim.claimId)
+                        "SupabaseClaimsWriter", "save_http_error",
+                        "HTTP ${response.code}: ${text.take(500)}",
+                        mapOf("claimId" to claim.claimId)
                     )
-                    onResult(false)
+                    error("Failed to save claim to Supabase: HTTP ${response.code}")
                 }
-
-                override fun onResponse(call: Call, response: Response) {
-                    response.use {
-                        if (it.isSuccessful) {
-                            onResult(true)
-                        } else {
-                            val text = it.body?.string().orEmpty()
-                            FirebaseErrorLogger.log(
-                                "SupabaseClaimsWriter", "mirror_http_error",
-                                "HTTP ${it.code}: ${text.take(500)}",
-                                mapOf("claimId" to claim.claimId)
-                            )
-                            onResult(false)
-                        }
-                    }
-                }
-            })
+            }
         }
     }
 
     /** Maps ClaimInfo's camelCase fields to public.claims' snake_case columns
-     *  (see SCHEMA_HISTORY.md's "public.claims — now live" entry). *Name fields
-     *  (branchName, employeeName, staffByName, etc.) are deliberately NOT sent —
-     *  those are joins against users/branches at read time on the Supabase side,
-     *  not stored columns, so nothing is lost by omitting them here. Millis
-     *  timestamps convert to ISO-8601; a 0L/not-yet-reached-that-stage timestamp
+     *  (see SCHEMA_HISTORY.md's "public.claims" entry). Millis timestamps
+     *  convert to ISO-8601; a 0L/not-yet-reached-that-stage timestamp
      *  (staffAt, approvedAt, etc.) is sent as null, matching the column's
      *  nullable timestamptz type.
      *
-     *  Millis timestamps convert to ISO-8601; a 0L timestamp is sent as null.
-     */
+     *  Name fields (branchName, employeeName, staffByName, pocApprovedByName,
+     *  settleInProcessByName, settledByName, rejectedByName) ARE sent as of
+     *  the Supabase-only cutover — added as real columns for this (see
+     *  SCHEMA_HISTORY.md), since staff_by_uid/poc_approved_by_uid/
+     *  settle_in_process_by_uid/settled_by_uid/rejected_by_uid have no FK to
+     *  join through for a name, unlike branch_id/agent_system_id. Before the
+     *  cutover these were deliberately omitted (Firebase was source of truth,
+     *  this was only a best-effort mirror; the report screen reconstructed
+     *  branch/agent name via a branches/users join instead) — now that
+     *  Supabase is the sole persistence layer, every actor name needs to be
+     *  directly on the row for ClaimsRepository's get()/search()/
+     *  searchMyClaims() to reconstruct a full ClaimInfo. */
     private fun ClaimInfo.toSupabaseJson(): JSONObject {
         fun millisToIso(millis: Long): Any =
+            if (millis > 0L) java.time.Instant.ofEpochMilli(millis).toString() else JSONObject.NULL
 
         return JSONObject().apply {
             put("id", claimId)
             put("claim_code", claimCode)
             put("branch_id", branchId)
+            put("branch_name", branchName)
+            put("employee_id", employeeId)
+            put("employee_name", employeeName)
             put("agent_system_id", agentSystemId)
             put("type", type)
             put("category", category)
             put("purpose", purpose)
+            put("consignment_id", consignmentId)
+            put("store_id", storeId)
+            put("store_name", storeName)
             put("vehicle", vehicle)
             put("from_area", fromArea)
             put("to_area", toArea)
             put("attempt_quantity", attemptQuantity)
             put("delivered_quantity", deliveredQuantity)
             put("cid_or_merchant", cidOrMerchant)
+            put("pickup_count", pickupCount)
             put("requested_amount", requestedAmount)
             put("approved_amount", approvedAmount)
             put("settled_amount", settledAmount)
@@ -147,14 +143,19 @@ object SupabaseClaimsWriter {
             put("created_at", millisToIso(createdAt))
             put("updated_at", millisToIso(updatedAt))
             put("staff_by_uid", staffByUid)
+            put("staff_by_name", staffByName)
             put("staff_at", millisToIso(staffAt))
             put("staff_comment", staffComment)
             put("poc_approved_by_uid", pocApprovedByUid)
+            put("poc_approved_by_name", pocApprovedByName)
             put("poc_comment", pocComment)
             put("settle_in_process_by_uid", settleInProcessByUid)
+            put("settle_in_process_by_name", settleInProcessByName)
             put("settle_in_process_at", millisToIso(settleInProcessAt))
             put("settled_by_uid", settledByUid)
+            put("settled_by_name", settledByName)
             put("rejected_by_uid", rejectedByUid)
+            put("rejected_by_name", rejectedByName)
             put("rejected_at", millisToIso(rejectedAt))
             put("reject_reason", rejectReason)
         }

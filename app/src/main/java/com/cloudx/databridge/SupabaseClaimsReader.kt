@@ -225,5 +225,175 @@ object SupabaseClaimsReader {
     }
 
     private fun String.encodeParam(): String = java.net.URLEncoder.encode(this, "UTF-8")
+
+    private fun Long.toIsoInstant(): String = java.time.Instant.ofEpochMilli(this).toString()
+
+    /** Inverse of SupabaseClaimsWriter's ClaimInfo.toSupabaseJson() — reconstructs
+     *  a full ClaimInfo from one public.claims row. A plain select=* is enough,
+     *  no embed needed: every field, including every actor name, is now a
+     *  stored column (see SCHEMA_HISTORY.md) — unlike [ClaimRow] above, which
+     *  stays report-only and keeps relying on the branches/users embed for
+     *  just branchName/agentName. Used by [getById]/[search]/[searchMyClaims]
+     *  below, which back ClaimsRepository's live get()/search()/
+     *  searchMyClaims() post-cutover. */
+    private fun JSONObject.toClaimInfo(): ClaimInfo {
+        fun isoMillis(key: String): Long {
+            val v = optString(key, "")
+            return if (v.isBlank()) 0L else runCatching { java.time.Instant.parse(v).toEpochMilli() }.getOrDefault(0L)
+        }
+        return ClaimInfo(
+            claimId = optString("id"),
+            claimCode = optString("claim_code"),
+            branchId = optString("branch_id"),
+            branchName = optString("branch_name"),
+            employeeId = optString("employee_id"),
+            employeeName = optString("employee_name"),
+            agentSystemId = optString("agent_system_id"),
+            type = optString("type"),
+            category = optString("category"),
+            purpose = optString("purpose"),
+            consignmentId = optString("consignment_id"),
+            storeName = optString("store_name"),
+            vehicle = optString("vehicle"),
+            fromArea = optString("from_area"),
+            toArea = optString("to_area"),
+            attemptQuantity = optInt("attempt_quantity", 0),
+            deliveredQuantity = optInt("delivered_quantity", 0),
+            cidOrMerchant = optString("cid_or_merchant"),
+            requestedAmount = optDouble("requested_amount", 0.0),
+            approvedAmount = optDouble("approved_amount", 0.0),
+            settledAmount = optDouble("settled_amount", 0.0),
+            paymentMethod = optString("payment_method"),
+            transactionId = optString("transaction_id"),
+            status = optString("status").ifBlank { PC_STATUS_PENDING },
+            requestedAt = isoMillis("requested_at"),
+            approvedAt = isoMillis("approved_at"),
+            settledAt = isoMillis("settled_at"),
+            createdAt = isoMillis("created_at"),
+            updatedAt = isoMillis("updated_at"),
+            workerUid = optString("worker_uid"),
+            workerRole = optString("worker_role"),
+            storeId = optString("store_id"),
+            pickupCount = optInt("pickup_count", 0),
+            priority = optString("priority").ifBlank { PC_PRIORITY_NORMAL },
+            attachmentUrl = optString("attachment_url"),
+            attachmentName = optString("attachment_name"),
+            staffByUid = optString("staff_by_uid"), staffByName = optString("staff_by_name"),
+            staffAt = isoMillis("staff_at"), staffComment = optString("staff_comment"),
+            pocApprovedByUid = optString("poc_approved_by_uid"), pocApprovedByName = optString("poc_approved_by_name"),
+            pocComment = optString("poc_comment"),
+            settleInProcessByUid = optString("settle_in_process_by_uid"), settleInProcessByName = optString("settle_in_process_by_name"),
+            settleInProcessAt = isoMillis("settle_in_process_at"),
+            settledByUid = optString("settled_by_uid"), settledByName = optString("settled_by_name"),
+            rejectedByUid = optString("rejected_by_uid"), rejectedByName = optString("rejected_by_name"),
+            rejectedAt = isoMillis("rejected_at"), rejectReason = optString("reject_reason")
+        )
+    }
+
+    /** Single claim by id, or null if it doesn't exist. Unlike the report
+     *  methods above, this throws on failure (auth/network/HTTP error) rather
+     *  than swallowing to a default — it backs ClaimsRepository.get(), which
+     *  callers across PettyCashViewModel already wrap in their own
+     *  runCatching {} and treat a thrown exception as a real failure, same
+     *  contract Firebase's .await() gave them before the cutover. */
+    suspend fun getById(claimId: String): ClaimInfo? = withContext(Dispatchers.IO) {
+        if (claimId.isBlank()) return@withContext null
+        val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
+        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/claims?select=*&id=eq.${claimId.encodeParam()}&limit=1"
+        val response = SupabaseClientManager.httpClient.newCall(
+            Request.Builder().url(url)
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Accept", "application/json")
+                .get().build()
+        ).execute()
+        response.use {
+            val text = it.body?.string().orEmpty()
+            if (!it.isSuccessful) error("getById claim HTTP ${it.code}: ${text.take(1_000)}")
+            val arr = JSONArray(text)
+            if (arr.length() == 0) null else arr.getJSONObject(0).toClaimInfo()
+        }
+    }
+
+    /** Full-fidelity replacement for the old Firebase-based
+     *  ClaimsRepository.search() — backs PettyCashViewModel's load() (the
+     *  branch's whole request list: dashboard, My Requests, etc.), not just
+     *  the Claims Report screen. Throws on failure, unlike fetchClaimsForReport
+     *  above: a network hiccup here should surface as a real load error, not
+     *  silently show "no requests".
+     *
+     *  fromMillis/toMillis filter on created_at (the claim's creation instant)
+     *  — the same value the old Firebase claimId (`claim_<createdAtMillis>`)
+     *  range-query encoded, so this preserves identical range semantics.
+     *  branchIds (usually one, but a set) are pushed down as a single
+     *  branch_id=in.(...) query instead of Firebase's old per-branch parallel
+     *  fetches — one round trip instead of N. */
+    suspend fun search(filter: ClaimsReportFilter): ClaimsReport = withContext(Dispatchers.IO) {
+        require(filter.branchIds.isNotEmpty()) { "Select at least one branch" }
+        require(filter.fromMillis in 1..filter.toMillis) { "Invalid date range" }
+        val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
+        val urlBuilder = StringBuilder("${SupabaseConfig.PROJECT_URL}/rest/v1/claims")
+            .append("?select=*")
+            .append("&branch_id=in.(").append(filter.branchIds.joinToString(",") { it.encodeParam() }).append(")")
+            .append("&created_at=gte.").append(filter.fromMillis.toIsoInstant().encodeParam())
+            .append("&created_at=lte.").append(filter.toMillis.toIsoInstant().encodeParam())
+            .append("&order=created_at.").append(if (filter.newestFirst) "desc" else "asc")
+        if (filter.systemIds.isNotEmpty()) {
+            urlBuilder.append("&agent_system_id=in.(").append(filter.systemIds.joinToString(",") { it.encodeParam() }).append(")")
+        }
+        if (filter.types.isNotEmpty()) {
+            urlBuilder.append("&type=in.(").append(filter.types.joinToString(",") { it.encodeParam() }).append(")")
+        }
+        if (filter.categories.isNotEmpty()) {
+            urlBuilder.append("&category=in.(").append(filter.categories.joinToString(",") { it.encodeParam() }).append(")")
+        }
+        if (filter.statuses.isNotEmpty()) {
+            urlBuilder.append("&status=in.(").append(filter.statuses.joinToString(",") { it.encodeParam() }).append(")")
+        }
+        val response = SupabaseClientManager.httpClient.newCall(
+            Request.Builder().url(urlBuilder.toString())
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Accept", "application/json")
+                .get().build()
+        ).execute()
+        response.use {
+            val text = it.body?.string().orEmpty()
+            if (!it.isSuccessful) error("search claims HTTP ${it.code}: ${text.take(1_000)}")
+            val arr = JSONArray(text)
+            ClaimsReport(List(arr.length()) { i -> arr.getJSONObject(i).toClaimInfo() }, filter)
+        }
+    }
+
+    /** Full-fidelity replacement for the old Firebase-based
+     *  ClaimsRepository.searchMyClaims() — one system_id, no branch
+     *  requirement (unlike [search]), matching what the old
+     *  claims_by_systemId-only index lookup did. Throws on failure, same
+     *  posture as [search] and [getById] above. */
+    suspend fun searchMyClaims(systemId: String, fromMillis: Long, toMillis: Long, newestFirst: Boolean = true): ClaimsReport = withContext(Dispatchers.IO) {
+        require(systemId.isNotBlank()) { "System ID is required" }
+        val filter = ClaimsReportFilter(emptySet(), setOf(systemId), fromMillis, toMillis, newestFirst = newestFirst)
+        val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
+        val url = StringBuilder("${SupabaseConfig.PROJECT_URL}/rest/v1/claims")
+            .append("?select=*")
+            .append("&agent_system_id=eq.").append(systemId.encodeParam())
+            .append("&created_at=gte.").append(fromMillis.toIsoInstant().encodeParam())
+            .append("&created_at=lte.").append(toMillis.toIsoInstant().encodeParam())
+            .append("&order=created_at.").append(if (newestFirst) "desc" else "asc")
+            .toString()
+        val response = SupabaseClientManager.httpClient.newCall(
+            Request.Builder().url(url)
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Accept", "application/json")
+                .get().build()
+        ).execute()
+        response.use {
+            val text = it.body?.string().orEmpty()
+            if (!it.isSuccessful) error("searchMyClaims HTTP ${it.code}: ${text.take(1_000)}")
+            val arr = JSONArray(text)
+            ClaimsReport(List(arr.length()) { i -> arr.getJSONObject(i).toClaimInfo() }, filter)
+        }
+    }
 }
 
