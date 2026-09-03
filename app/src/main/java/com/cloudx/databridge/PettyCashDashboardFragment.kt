@@ -15,11 +15,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-import com.google.firebase.database.FirebaseDatabase
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -71,7 +67,6 @@ class PettyCashDashboardFragment : Fragment() {
     private lateinit var layoutNoRoleState: View
 
     private var branchId: String = ""
-    private val db = FirebaseDatabase.getInstance()
     private var branchNames: Map<String, String> = emptyMap()
 
     /** Which role's dashboard is currently on screen. */
@@ -219,18 +214,18 @@ class PettyCashDashboardFragment : Fragment() {
         }
         tvBranchName.text = branchNames[branchId] ?: "Branch"
 
+        // One Supabase read for the full branch list (see
+        // SupabaseClaimsReader.fetchBranches), filtered to this user's
+        // branches — replaces the old per-branch Firebase
+        // branches/{id}/name reads.
         viewLifecycleOwner.lifecycleScope.launch {
-            val resolved = coroutineScope {
-                branchIds.filter { it !in branchNames }.associateWith { id ->
-                    async {
-                        runCatching {
-                            db.reference.child("branches/$id/name").get().await().getValue(String::class.java)
-                        }.getOrNull()
-                    }
-                }.mapValues { (id, deferred) -> deferred.await()?.takeIf { it.isNotBlank() } ?: id }
+            runCatching { SupabaseClaimsReader.fetchBranches() }.onSuccess { options ->
+                val byId = options.associate { it.branchId to it.name }
+                val resolved = branchIds.filter { it !in branchNames }
+                    .associateWith { id -> byId[id]?.takeIf { it.isNotBlank() } ?: id }
+                branchNames = branchNames + resolved
+                tvBranchName.text = branchNames[branchId] ?: branchId
             }
-            branchNames = branchNames + resolved
-            tvBranchName.text = branchNames[branchId] ?: branchId
         }
     }
 

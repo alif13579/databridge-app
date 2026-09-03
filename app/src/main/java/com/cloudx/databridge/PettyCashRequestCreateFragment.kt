@@ -37,10 +37,10 @@ import kotlinx.coroutines.launch
  * server-side (well, ViewModel-side) regardless.
  *
  * Category-specific fields: Bulk Delivery shows a Consignment ID text
- * field; Pickup shows a Store picker (fetched from courier/stores, see
- * FirebasePaths.stores() — a courier-wide directory shared with the rest
- * of the courier flow, not Petty-Cash-specific; managed from Config's
- * Stores tab, see ConfigStoresFragment). Formerly a bare "Merchant Name"
+ * field; Pickup shows a Store picker (fetched from Supabase's public.stores,
+ * see SupabaseClaimsReader.fetchStores() — a courier-wide directory shared
+ * with the rest of the courier flow, not Petty-Cash-specific; managed from
+ * Config's Stores tab, see ConfigStoresFragment). Formerly a bare "Merchant Name"
  * text picker against courier/merchants — renamed and expanded to a full
  * Store record (Store ID, name, address, area, phone) per Alif's request;
  * only storeId + storeName get saved onto the petty cash request itself,
@@ -386,19 +386,25 @@ class PettyCashRequestCreateFragment : Fragment() {
     }
 
     private fun loadStores() {
-        com.google.firebase.database.FirebaseDatabase.getInstance()
-            .reference.child(FirebasePaths.stores())
-            .get()
-            .addOnSuccessListener { snap ->
-                stores = snap.children
-                    .mapNotNull { it.getValue(Store::class.java)?.copy(id = it.key.orEmpty()) }
-                    .sortedBy { it.name }
-                storesLoaded = true
-            }
-            .addOnFailureListener {
-                storesLoaded = true // don't leave the picker stuck saying "still loading" forever
-                Toast.makeText(requireContext(), "Couldn't load store list: ${it.message}", Toast.LENGTH_SHORT).show()
-            }
+        // Stores live in Supabase's public.stores (see
+        // SupabaseClaimsReader.fetchStores) — the old Firebase
+        // courier/stores read is removed. Areas + consignment preview below
+        // stay on Firebase: courier-directory data, out of scope for the
+        // Petty Cash cutover.
+        lifecycleScope.launch {
+            runCatching { SupabaseClaimsReader.fetchStores() }
+                .onSuccess { result ->
+                    stores = result.sortedBy { it.name }
+                    storesLoaded = true
+                    if (result.isEmpty()) {
+                        Toast.makeText(requireContext(), "Couldn't load store list", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .onFailure {
+                    storesLoaded = true // don't leave the picker stuck saying "still loading" forever
+                    Toast.makeText(requireContext(), "Couldn't load store list: ${it.message}", Toast.LENGTH_SHORT).show()
+                }
+        }
     }
 
     /** Loads both area directories once. Pickup areas populate Pickup's From

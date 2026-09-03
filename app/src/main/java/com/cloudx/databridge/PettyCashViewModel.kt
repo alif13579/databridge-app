@@ -5,30 +5,21 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.MutableData
-import com.google.firebase.database.Transaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
 /**
- * Petty Cash Management — central Firebase read/write + role resolution.
+ * Petty Cash Management — central Supabase read/write + role resolution.
  *
- * Firebase structure:
- *   claims/{claimId}/info                             -> ClaimInfo
- *   petty_cash/{branchId}/wallet/balance              -> Double
- *   petty_cash/{branchId}/wallet/deposits/{depositId} -> PettyCashDeposit
- *   branches/{branchId}/staff_uid / petty_cash_poc_uid / accountant_uid
- *     -> branch-level role assignment (see Branch.kt), resolved against
- *        the signed-in user's uid or role_id (role_id assignment means
- *        "everyone with this role at this branch", same convention as
- *        the existing accountant_role field).
+ * Supabase tables (public schema):
+ *   claims                                    -> ClaimInfo (via ClaimsRepository)
+ *   petty_cash_deposits                       -> PettyCashDeposit (via SupabasePettyCashReader/Writer)
+ *   petty_cash_wallet_balance (one row/branch)-> Double (via SupabasePettyCashReader/Writer)
+ *   branches                                  -> Branch role assignments (staff/poc/accountant)
+ *   users                                     -> signed-in user's name + system_id
  *
  * Role resolution: a person's petty cash role at a given branch is derived
  * by comparing their uid/role_id against the branch's assigned uids/roles.
@@ -86,14 +77,16 @@ class PettyCashViewModel : ViewModel() {
 
     private data class LoadResult(
         val report: ClaimsReport,
-        val deposits: DataSnapshot,
-        val balance: DataSnapshot,
-        val branch: DataSnapshot
+        val deposits: List<PettyCashDeposit>,
+        val walletBalance: Double,
+        val branch: Branch
     )
 
-    private val db = FirebaseDatabase.getInstance()
     private val auth = FirebaseAuth.getInstance()
-    private val claims = ClaimsRepository(db)
+    // Live claim save/read is Supabase-only (ClaimsRepository). The one-time
+    // Firebase index migration tool lives in FirebaseClaimsIndexMigration and
+    // is unrelated to this ViewModel.
+    private val claims = ClaimsRepository()
 
     private val _state = MutableLiveData<PettyCashState>(PettyCashState.Loading)
     val state: LiveData<PettyCashState> = _state
@@ -109,8 +102,10 @@ class PettyCashViewModel : ViewModel() {
             try {
                 val loaded = withContext(Dispatchers.IO) {
                     coroutineScope {
-                        // Requests now come from the branch index. The index is
-                        // key-range queried by the server, not read wholesale.
+                        // Requests come from Supabase's public.claims (see
+                        // ClaimsRepository) — deposits, wallet balance and the
+                        // branch row come from their own Supabase tables now,
+                        // not Firebase. All four are independent reads.
                         val requestsDeferred = async {
                             claims.search(ClaimsReportFilter(
                                 branchIds = setOf(branchId),
@@ -118,27 +113,25 @@ class PettyCashViewModel : ViewModel() {
                                 toMillis = 9_999_999_999_999L
                             ))
                         }
-                        val depositsDeferred = async { db.reference.child(FirebasePaths.pettyCashDeposits(branchId)).get().await() }
-                        val balanceDeferred  = async { db.reference.child(FirebasePaths.pettyCashWalletBalance(branchId)).get().await() }
-                        val branchDeferred   = async { db.reference.child("branches/$branchId").get().await() }
+                        val depositsDeferred = async { SupabasePettyCashReader.fetchDeposits(branchId) }
+                        val balanceDeferred  = async { SupabasePettyCashReader.fetchWalletBalance(branchId) }
+                        val branchDeferred   = async { SupabasePettyCashReader.fetchBranch(branchId) }
                         LoadResult(requestsDeferred.await(), depositsDeferred.await(), balanceDeferred.await(), branchDeferred.await())
                     }
                 }
 
                 val claimReport = loaded.report
-                val depositsSnap = loaded.deposits
-                val balanceSnap = loaded.balance
-                val branchSnap = loaded.branch
 
                 val requests = claimReport.claims.map { it.asPettyCashRequest() }
 
-                val deposits = depositsSnap.children
-                    .mapNotNull { snap -> snap.getValue(PettyCashDeposit::class.java)?.copy(id = snap.key.orEmpty()) }
-                    .sortedByDescending { it.timestamp }
+                // Reader already returns newest-first; keep the sort explicit
+                // so the Deposit History screen's contract doesn't depend on
+                // query ordering alone.
+                val deposits = loaded.deposits.sortedByDescending { it.timestamp }
 
-                val walletBalance = balanceSnap.getValue(Double::class.java) ?: 0.0
+                val walletBalance = loaded.walletBalance
 
-                val branch = branchSnap.getValue(Branch::class.java) ?: Branch()
+                val branch = loaded.branch
                 val roles = resolveRoles(branch)
 
                 _state.value = PettyCashState.Success(requests, deposits, walletBalance, roles)
@@ -172,23 +165,19 @@ class PettyCashViewModel : ViewModel() {
         )
     }
 
-    /** Fetches the signed-in user's real display name from their profile — role
-     *  names ("Manager", "Cash POC") are not person names and shouldn't be
-     *  stored as the actor on an approval step. */
+    /** Fetches the signed-in user's real display name from their Supabase users
+     *  row — role names ("Manager", "Cash POC") are not person names and
+     *  shouldn't be stored as the actor on an approval step. */
     private suspend fun currentUserName(): String {
-        val uid = auth.currentUser?.uid.orEmpty()
-        if (uid.isBlank()) return ""
-        return runCatching {
-            db.reference.child("users/$uid/profile/name").get().await().getValue(String::class.java)
-        }.getOrNull()?.takeIf { it.isNotBlank() } ?: auth.currentUser?.displayName.orEmpty()
+        if (auth.currentUser?.uid.isNullOrBlank()) return ""
+        return runCatching { SupabasePettyCashReader.fetchCurrentUser().name }
+            .getOrNull()?.takeIf { it.isNotBlank() } ?: auth.currentUser?.displayName.orEmpty()
     }
 
-    // Digits-only — this is the safe-as-a-Firebase-key identity used for
-    // claims_by_systemId (see FirebasePaths.claimsBySystemId).
+    // Digits-only — the canonical identity for claims (see ClaimInfo.
+    // agentSystemId), resolved from the signed-in user's Supabase users row.
     private suspend fun currentSystemId(): String {
-        val uid = auth.currentUser?.uid.orEmpty()
-        return db.reference.child("users/$uid/profile/company_info/system_id").get().await()
-            .getValue(String::class.java).orEmpty().trim()
+        return SupabasePettyCashReader.fetchCurrentUser().systemId.trim()
     }
 
     // ── Requester: submit a new request ─────────────────────────────────────
@@ -414,27 +403,13 @@ class PettyCashViewModel : ViewModel() {
         // claim if POC didn't touch it) when Accounts settles as-is without adjusting.
         val finalSettledAmount = settledAmount ?: existing.approvedAmount.takeIf { it > 0 } ?: existing.amount
 
-        // Deduct from wallet balance via a transaction so concurrent settlements
-        // (e.g. two Accounts users settling different requests at once) don't
-        // race and overwrite each other's balance update.
-        val balanceRef = db.reference.child(FirebasePaths.pettyCashWalletBalance(branchId))
-        var newBalance = 0.0
-        balanceRef.runTransaction(object : Transaction.Handler {
-            override fun doTransaction(currentData: MutableData): Transaction.Result {
-                val current = currentData.getValue(Double::class.java) ?: 0.0
-                newBalance = current - finalSettledAmount
-                currentData.value = newBalance
-                return Transaction.success(currentData)
-            }
-            override fun onComplete(error: DatabaseError?, committed: Boolean, snapshot: DataSnapshot?) {}
-        })
-        // Silent best-effort, same as e.g. sendRemarkPush() elsewhere in this
-        // codebase — onSupabaseResult below is already spoken for by the
-        // claims.update() mirror right after, and combining two independent
-        // async results into one caller-facing callback isn't worth the
-        // complexity for a side effect that never blocks/fails the settle
-        // either way.
-        SupabasePettyCashWriter.mirrorWalletBalance(branchId, newBalance)
+        // Read-compute-write on the Supabase wallet row (see
+        // SupabasePettyCashWriter's doc comment for the concurrency note —
+        // Firebase's atomic transaction has no direct equivalent here).
+        // Balance first, then the claim update, matching the original order.
+        val currentBalance = SupabasePettyCashReader.fetchWalletBalance(branchId)
+        val newBalance = currentBalance - finalSettledAmount
+        SupabasePettyCashWriter.saveWalletBalance(branchId, newBalance)
 
         claims.update(requestId, mapOf(
                 "status" to PC_STATUS_SETTLED,
@@ -482,22 +457,17 @@ class PettyCashViewModel : ViewModel() {
         val name = currentUserName().ifBlank { "Accounts" }
         val now = System.currentTimeMillis()
 
-        val balanceRef = db.reference.child(FirebasePaths.pettyCashWalletBalance(branchId))
-        var newBalance = 0.0
-        balanceRef.runTransaction(object : Transaction.Handler {
-            override fun doTransaction(currentData: MutableData): Transaction.Result {
-                val current = currentData.getValue(Double::class.java) ?: 0.0
-                newBalance = current + amount
-                currentData.value = newBalance
-                return Transaction.success(currentData)
-            }
-            override fun onComplete(error: DatabaseError?, committed: Boolean, snapshot: DataSnapshot?) {}
-        })
+        // Read-compute-write on the Supabase wallet row (same concurrency
+        // note as settleRequest above).
+        val currentBalance = SupabasePettyCashReader.fetchWalletBalance(branchId)
+        val newBalance = currentBalance + amount
+        SupabasePettyCashWriter.saveWalletBalance(branchId, newBalance)
 
-        val depositRef = db.reference.child(FirebasePaths.pettyCashDeposits(branchId)).push()
-        val depositId = depositRef.key ?: throw IllegalStateException("Could not generate deposit id")
+        // Supabase id column is uuid (see SupabasePettyCashWriter's doc
+        // comment) — a random UUID keeps inserts unique without needing the
+        // old Firebase push-id scheme.
         val deposit = PettyCashDeposit(
-            id = depositId,
+            id = java.util.UUID.randomUUID().toString(),
             amount = amount,
             source = source,
             reference = reference,
@@ -507,18 +477,12 @@ class PettyCashViewModel : ViewModel() {
             enteredByUid = uid,
             enteredByName = name
         )
-        depositRef.setValue(deposit).await()
-
-        // Firebase is the source of truth and already has both writes above;
-        // Supabase is a best-effort alternative copy — never blocks or fails
-        // the deposit. Balance first, then the deposit row, chained rather
-        // than parallel purely to keep this simple (see SupabasePettyCashWriter's
-        // doc comment) — by the time either completes the caller has normally
-        // already popped back off this screen, so the extra latency of doing
-        // them one after another instead of concurrently doesn't cost anything
-        // observable.
-        SupabasePettyCashWriter.mirrorWalletBalance(branchId, newBalance) {
-            SupabasePettyCashWriter.mirrorDeposit(branchId, deposit, onSupabaseResult)
-        }
+        SupabasePettyCashWriter.saveDeposit(branchId, deposit)
+        // Both saves above throw on failure, so reaching here means Supabase
+        // has the write — same posture as ClaimsRepository (fires true; a
+        // failure throws before reaching this line and surfaces via the
+        // Result). Keeps PettyCashDepositFundFragment's "✓ Supabase saved"
+        // toast working.
+        onSupabaseResult(true)
     }
 }

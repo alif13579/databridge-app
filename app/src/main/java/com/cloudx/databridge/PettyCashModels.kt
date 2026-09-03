@@ -10,10 +10,10 @@ import com.google.firebase.database.IgnoreExtraProperties
  * Cash POC approves it -> Accounts marks it ready to settle -> Accounts
  * hands over cash and marks it settled.
  *
- * Firebase structure (see FirebasePaths.claim*):
- *   claims/{claimId}/info -> ClaimInfo (rendered into this legacy UI model)
- *   petty_cash/{branchId}/wallet/balance        -> Double
- *   petty_cash/{branchId}/wallet/deposits/{id}  -> PettyCashDeposit
+ * Firebase structure is legacy — the live flow is Supabase-only:
+ *   public.claims                 -> ClaimInfo (rendered into this legacy UI model)
+ *   public.petty_cash_wallet_balance (one row/branch) -> Double
+ *   public.petty_cash_deposits    -> PettyCashDeposit
  */
 
 // Request lifecycle status

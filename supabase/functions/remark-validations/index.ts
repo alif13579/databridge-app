@@ -679,13 +679,14 @@ Deno.serve(async (request) => {
       return reply({ ok: true })
     }
 
-    // Best-effort mirror of Petty Cash claims into public.claims, written alongside
-    // (never instead of) the app's existing Firebase write in ClaimsRepository.kt —
-    // Firebase stays the source of truth for now. See this table's own migration
-    // comment (202608260001_create_petty_cash_claims_tables.sql): "table structure
-    // only, ahead of the actual data/write-flow migration off Firebase." This is
-    // that mirror, added ahead of the actual cutover so the table stays populated
-    // and can be spot-checked against Firebase before Firebase is ever removed.
+    // Authoritative write of Petty Cash claims into public.claims — the sole
+    // persistence layer for claims since the Supabase cutover (previously a
+    // best-effort mirror alongside the app's Firebase write in
+    // ClaimsRepository.kt; that Firebase write is now removed). See this
+    // table's own migration comment
+    // (202608260001_create_petty_cash_claims_tables.sql): "table structure
+    // only, ahead of the actual data/write-flow migration off Firebase." This
+    // action is that write flow, now that the cutover has happened.
     // *Name fields (branchName, employeeName, staffByName, ...) are intentionally
     // not accepted here — that same migration comment explains those are joins
     // against users/branches at read time on the Supabase side, not stored columns.
@@ -729,10 +730,11 @@ Deno.serve(async (request) => {
       return reply({ ok: true })
     }
 
-    // Best-effort mirror of Petty Cash deposits + wallet balance, same posture
-    // as claim_upsert right above — alongside (never instead of) the existing
-    // Firebase writes in PettyCashViewModel.kt's depositFund()/settleRequest(),
-    // Firebase remains the source of truth. Columns verified 2026-08-30 against
+    // Authoritative writes for Petty Cash deposits + wallet balance, same
+    // posture as claim_upsert above — the sole persistence layer since the
+    // Full Petty Cash cutover (previously a best-effort mirror alongside the
+    // Firebase writes in PettyCashViewModel.kt's depositFund()/settleRequest();
+    // those Firebase writes are now removed). Columns verified 2026-08-30 against
     // a live information_schema.columns dump — see SupabasePettyCashWriter.kt's
     // toSupabaseJson() doc comment for the two things that dump caught
     // (entered_by_name isn't a real column; id is `uuid`, not text, so the

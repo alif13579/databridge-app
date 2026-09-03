@@ -113,8 +113,24 @@ ground truth rather than a second manual read-through.
     silent empty-result reads, since both fragments treat a lookup miss as
     "fall back to English text" rather than surfacing an error).
 22. **202608270002** — added `phone`, `designation` to `users` (needed for
-    a Petty Cash PDF report's POC contact fields; mirrors data Firebase
-    already had that never made it into the Supabase copy).
+a Petty Cash PDF report's POC contact fields; mirrors data Firebase
+already had that never made it into the Supabase copy).
+23. **202609030001** (new migration file, NOT yet applied — apply via
+dashboard SQL Editor or `supabase db push`) — Full Petty Cash cutover
+reads: `anon`+`authenticated` SELECT grants + branch-scoped read policies
+on `petty_cash_deposits` / `petty_cash_wallet_balance`
+(`branch_id = any (my_branch_ids())`), plus an own-row-only users read
+policy (`firebase_id = current_firebase_id()`) for
+SupabasePettyCashReader.fetchCurrentUser. Same anon-inclusive pattern as
+#15/#21 (Firebase JWTs carry no `role` claim → PostgREST serves `anon`).
+Writes need no policy change (Edge Function admin client bypasses RLS).
+App side of the same cutover: PettyCashViewModel deposits/balance/branch/
+user reads + deposit/settle writes are Supabase-only (Firebase RTDB writes
+removed); ClaimsRepository's commented Firebase blocks deleted, one-time
+Firebase index tools isolated in FirebaseClaimsIndexMigration; store picker
+reads public.stores. Courier-directory reads (areas, consignment preview),
+Firebase Auth (Supabase Third-party Auth tokens), FCM, and the Edge
+Function's Firebase profile lookups intentionally remain.
 
 ---
 

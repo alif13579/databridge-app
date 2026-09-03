@@ -24,14 +24,14 @@ import java.util.*
  * PettyCashTopSheetPdfWriter) — one action, no separate export step (per the
  * discussion that settled on this over a two-step search-then-export flow).
  *
- * repo (ClaimsRepository, Firebase) is kept ONLY for the one-time employee-index
- * migration tools below (btnClaimsMigrateIndex/btnClaimsDeleteOldIndex) — those
- * migrate Firebase's own claims_by_employeeId->claims_by_systemId index and have
- * nothing to do with the Supabase-backed report itself; they stay Firebase-based
- * on purpose (see their doc comments) and get removed once no longer needed.
+ * FirebaseClaimsIndexMigration (Firebase-only, one-time) is kept ONLY for the
+ * one-time employee-index migration tools below
+ * (btnClaimsMigrateIndex/btnClaimsDeleteOldIndex) — those migrate Firebase's
+ * own claims_by_employeeId->claims_by_systemId index and have nothing to do
+ * with the Supabase-backed report itself; they stay Firebase-based on
+ * purpose (see their doc comments) and get removed once no longer needed.
  */
 class ClaimsReportFragment : Fragment() {
-    private val repo = ClaimsRepository()
     private val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
     private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
@@ -320,7 +320,7 @@ class ClaimsReportFragment : Fragment() {
 
     // ── One-time Firebase employee-index migration tools (unrelated to the report above) ──
 
-    /** One-time trigger for ClaimsRepository.migrateEmployeeIndexToSystemId. Always dry-runs
+    /** One-time trigger for FirebaseClaimsIndexMigration.migrateEmployeeIndexToSystemId. Always dry-runs
      *  first — real writes only happen from a second, explicit tap on that result dialog.
      *  Remove btnClaimsMigrateIndex (and this) once the migration has been run and spot-checked. */
     private fun showMigrationDialog() {
@@ -335,7 +335,7 @@ class ClaimsReportFragment : Fragment() {
     private fun runMigration(dryRun: Boolean) {
         toast(if (dryRun) "Running dry run…" else "Migrating…")
         lifecycleScope.launch {
-            runCatching { repo.migrateEmployeeIndexToSystemId(dryRun) }
+            runCatching { FirebaseClaimsIndexMigration.migrateEmployeeIndexToSystemId(dryRun) }
                 .onSuccess { showMigrationResult(it) }
                 .onFailure { toast(it.message ?: "Migration failed") }
         }
@@ -365,7 +365,7 @@ class ClaimsReportFragment : Fragment() {
             .setMessage("Permanently deletes claims/indexes/claims_by_employeeId. Only do this after you've run the migration and spot-checked a few claims in the new system_id index — this cannot be undone.")
             .setPositiveButton("Delete") { _, _ ->
                 lifecycleScope.launch {
-                    runCatching { repo.deleteOldEmployeeIndex() }
+                    runCatching { FirebaseClaimsIndexMigration.deleteOldEmployeeIndex() }
                         .onSuccess { toast("Old index deleted") }
                         .onFailure { toast(it.message ?: "Delete failed") }
                 }

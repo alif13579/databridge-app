@@ -1,26 +1,38 @@
 package com.cloudx.databridge
 
 import com.google.firebase.auth.FirebaseAuth
-import okhttp3.Call
-import okhttp3.Callback
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
 import org.json.JSONObject
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
- * Best-effort mirror of Petty Cash deposits + wallet balance into Supabase's
- * public.petty_cash_deposits / public.petty_cash_wallet_balance tables,
- * alongside (never instead of) the existing Firebase writes in
- * [PettyCashViewModel.depositFund] / [PettyCashViewModel.settleRequest].
- * Same posture as [SupabaseClaimsWriter] right above these two tables in
- * SCHEMA_HISTORY.md: created "table structure only" (202608260001), Firebase
- * remains the source of truth, a Supabase failure here must never surface to
- * the caller or affect a Firebase write that already succeeded.
+ * Authoritative writes for Petty Cash deposits + wallet balance into
+ * Supabase's public.petty_cash_deposits / public.petty_cash_wallet_balance
+ * tables — the sole persistence layer for these since the Full Petty Cash
+ * cutover (previously a best-effort mirror alongside Firebase writes in
+ * PettyCashViewModel.depositFund()/settleRequest(), with Firebase as source
+ * of truth; those Firebase writes are now removed).
+ *
+ * Same contract as SupabaseClaimsWriter.save(): throws on any failure (not
+ * configured, not signed in, network error, non-2xx). There is no Firebase
+ * write underneath to fall back on; callers must treat a thrown exception
+ * as "the write did not happen" — PettyCashViewModel's callers already do,
+ * via their existing runCatching { ... } blocks, so no caller-side changes
+ * were needed for this.
+ *
+ * Balance concurrency note: Firebase used a server-side transaction for the
+ * read-modify-write (atomic against concurrent settlements). The Edge
+ * Function's petty_cash_wallet_balance_upsert is a plain last-write-wins
+ * upsert — two simultaneous settle/deposit calls can race (both read N,
+ * one writes N+a, the other N-b, losing one delta). In practice settlements
+ * are human-paced per branch, so this window is negligible; a future
+ * petty_cash_wallet_adjust(delta) RPC action would close it properly.
  *
  * Column names verified 2026-08-30 against a live information_schema.columns
  * dump of both tables (this file's first version guessed at them, following
@@ -36,61 +48,52 @@ object SupabasePettyCashWriter {
         .build()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    /** [onResult] fires once the network call actually completes (true = HTTP
-     *  success), on a background thread — callers that touch UI must switch
-     *  threads themselves (see PettyCashSettlementDetailsFragment.runAction's
-     *  activity?.runOnUiThread { if (isAdded) ... } guard for the pattern
-     *  this project already uses). Never fires synchronously. */
-    fun mirrorDeposit(branchId: String, deposit: PettyCashDeposit, onResult: (Boolean) -> Unit = {}) {
+    /** Authoritative deposit write — throws on failure (see file doc). */
+    suspend fun saveDeposit(branchId: String, deposit: PettyCashDeposit) {
         postAction(
             action = "petty_cash_deposit_upsert",
-            logTag = "mirror_deposit",
+            logTag = "save_deposit",
             idForLog = deposit.id,
-            body = JSONObject().put("deposit", deposit.toSupabaseJson(branchId)),
-            onResult = onResult
+            body = JSONObject().put("deposit", deposit.toSupabaseJson(branchId))
         )
     }
 
-    /** Same one-action-per-Firebase-write posture as mirrorDeposit — called
-     *  separately from both depositFund() (+amount) and settleRequest()
-     *  (-settledAmount), since either can change the balance independently
-     *  and neither creates a deposit row on its own. */
-    fun mirrorWalletBalance(branchId: String, balance: Double, onResult: (Boolean) -> Unit = {}) {
+    /** Authoritative wallet-balance write — throws on failure (see file doc).
+     *  Called separately from both depositFund() (+amount) and
+     *  settleRequest() (-settledAmount), since either can change the balance
+     *  independently and neither creates a deposit row on its own. */
+    suspend fun saveWalletBalance(branchId: String, balance: Double) {
         postAction(
             action = "petty_cash_wallet_balance_upsert",
-            logTag = "mirror_wallet_balance",
+            logTag = "save_wallet_balance",
             idForLog = branchId,
-            body = JSONObject().put("branch_id", branchId).put("balance", balance),
-            onResult = onResult
+            body = JSONObject().put("branch_id", branchId).put("balance", balance)
         )
     }
 
-    private fun postAction(action: String, logTag: String, idForLog: String, body: JSONObject, onResult: (Boolean) -> Unit) {
-        if (!SupabaseConfig.isConfigured) {
-            FirebaseErrorLogger.log(
-                "SupabasePettyCashWriter", "${logTag}_skip_not_configured",
-                "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured",
-                mapOf("id" to idForLog)
-            )
-            onResult(false); return
-        }
-        val user = FirebaseAuth.getInstance().currentUser
-        if (user == null) {
-            FirebaseErrorLogger.log(
-                "SupabasePettyCashWriter", "${logTag}_skip_not_signed_in", "No Firebase user",
-                mapOf("id" to idForLog)
-            )
-            onResult(false); return
-        }
-        user.getIdToken(false).addOnCompleteListener { tokenTask ->
-            val token = tokenTask.result?.token
-            if (!tokenTask.isSuccessful || token.isNullOrBlank()) {
+    private suspend fun postAction(action: String, logTag: String, idForLog: String, body: JSONObject) {
+        withContext(Dispatchers.IO) {
+            if (!SupabaseConfig.isConfigured) {
                 FirebaseErrorLogger.log(
-                    "SupabasePettyCashWriter", "${logTag}_token_error",
-                    tokenTask.exception?.message ?: "No Firebase ID token",
+                    "SupabasePettyCashWriter", "${logTag}_not_configured",
+                    "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured",
                     mapOf("id" to idForLog)
                 )
-                onResult(false); return@addOnCompleteListener
+                error("Supabase is not configured")
+            }
+            val user = FirebaseAuth.getInstance().currentUser ?: run {
+                FirebaseErrorLogger.log(
+                    "SupabasePettyCashWriter", "${logTag}_not_signed_in", "No Firebase user",
+                    mapOf("id" to idForLog)
+                )
+                error("No signed-in user")
+            }
+            val token = user.getIdToken(false).await().token ?: run {
+                FirebaseErrorLogger.log(
+                    "SupabasePettyCashWriter", "${logTag}_token_error", "No Firebase ID token",
+                    mapOf("id" to idForLog)
+                )
+                error("Could not get an ID token")
             }
             val payload = JSONObject().put("action", action)
             body.keys().forEach { key -> payload.put(key, body.get(key)) }
@@ -101,30 +104,16 @@ object SupabasePettyCashWriter {
                 .addHeader("Content-Type", "application/json")
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
-            client.newCall(request).enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val text = response.body?.string().orEmpty()
                     FirebaseErrorLogger.log(
-                        "SupabasePettyCashWriter", "${logTag}_network_error",
-                        e.message ?: "Network error", mapOf("id" to idForLog)
+                        "SupabasePettyCashWriter", "${logTag}_http_error",
+                        "HTTP ${response.code}: ${text.take(500)}", mapOf("id" to idForLog)
                     )
-                    onResult(false)
+                    error("Failed to save to Supabase: HTTP ${response.code}")
                 }
-
-                override fun onResponse(call: Call, response: Response) {
-                    response.use {
-                        if (it.isSuccessful) {
-                            onResult(true)
-                        } else {
-                            val text = it.body?.string().orEmpty()
-                            FirebaseErrorLogger.log(
-                                "SupabasePettyCashWriter", "${logTag}_http_error",
-                                "HTTP ${it.code}: ${text.take(500)}", mapOf("id" to idForLog)
-                            )
-                            onResult(false)
-                        }
-                    }
-                }
-            })
+            }
         }
     }
 
