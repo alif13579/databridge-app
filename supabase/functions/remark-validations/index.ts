@@ -441,7 +441,26 @@ async function sendRemarkPush(row: { consignment: string; branch_id: string; ass
           },
         } }),
       })
-      if (!response.ok) console.error(`FCM send failed (${response.status}): ${await response.text()}`)
+      if (response.ok) return
+      const text = await response.text()
+      // FCM's UNREGISTERED errorCode means this exact token is permanently dead
+      // (app uninstalled, token superseded by a newer one on the same device,
+      // etc.) — safe to delete outright. Every other failure (auth, quota,
+      // transient network) must NOT delete a token that may still be good.
+      let isUnregistered = false
+      try {
+        const parsed = JSON.parse(text)
+        const details = parsed?.error?.details
+        isUnregistered = Array.isArray(details) && details.some((d: unknown) =>
+          (d as { errorCode?: unknown })?.errorCode === 'UNREGISTERED')
+      } catch { /* non-JSON body — fall through, treat as a logged, non-deleting failure */ }
+      if (isUnregistered) {
+        const { error: deleteError } = await admin.from('fcm_device_tokens').delete().eq('token', token)
+        if (deleteError) console.error(`Failed to delete unregistered token: ${deleteError.message}`)
+        else console.info(`Deleted unregistered FCM token (${token.slice(0, 12)}...)`)
+      } else {
+        console.error(`FCM send failed (${response.status}): ${text}`)
+      }
     }))
   } catch (error) {
     console.error('FCM push failed', error)
