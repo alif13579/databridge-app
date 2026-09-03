@@ -198,9 +198,13 @@ async function upsertRemarkLabel(source: string, remarksEn: string, remarksBn: s
  * compile without deciding what to pass. If a caller genuinely has no uid
  * for this user yet, that is itself a bug to fix at the caller, not a reason
  * to silently write NULL here.
+ *
+ * (This still applies to the employee_id-conflict fallback below — it reuses
+ * the same payload, firebaseId included, so the rule above covers both
+ * upsert attempts, not just the first.)
  */
 async function upsertUser(profile: FirebaseProfile, firebaseId: string) {
-  const { error } = await admin.from('users').upsert({
+  const payload = {
     system_id: profile.systemId,
     employee_id: profile.employeeId || null,
     name: profile.name || profile.systemId,
@@ -212,8 +216,40 @@ async function upsertUser(profile: FirebaseProfile, firebaseId: string) {
     role: profile.roleId || null,
     firebase_id: firebaseId || null,
     updated_at: new Date().toISOString(),
-  }, { onConflict: 'system_id' })
-  if (error) throw error
+  }
+  const { error } = await admin.from('users').upsert(payload, { onConflict: 'system_id' })
+  if (!error) return
+
+  // users.employee_id has its own unique constraint (users_employee_id_key),
+  // separate from the system_id conflict target above — Postgres upsert only
+  // auto-resolves the ONE conflict target it's given, so a genuine employee_id
+  // collision under a different system_id still surfaces as a hard error here,
+  // not something onConflict: 'system_id' silently handles.
+  //
+  // Seen for real on 2026-09-03: an employee (employee_id "M 1703") had two
+  // Firebase accounts (two different system_ids) at some point; the stale one
+  // got deleted from Firebase, but its users row — keyed by the now-orphaned
+  // system_id — was never cleaned up, so every write for the surviving
+  // account's system_id hit "duplicate key value violates unique constraint
+  // users_employee_id_key" and failed outright, blocking that agent's remark
+  // saves entirely until the stale row was found and deleted by hand.
+  //
+  // employee_id is the durable, real-world identity here (system_id is a
+  // Firebase-account artifact that can legitimately change — re-onboarding,
+  // a corrupted account getting recreated, etc.), so on this specific
+  // conflict, retry keyed on employee_id instead: this updates the existing
+  // row in place (system_id and everything else moves to the new values)
+  // rather than requiring another manual cleanup each time it recurs.
+  const isEmployeeIdConflict = error.code === '23505'
+    && (error.message?.includes('employee_id') || error.details?.includes('employee_id'))
+  if (!isEmployeeIdConflict || !profile.employeeId) throw error
+
+  errLog('upsertUser', 'employee_id_conflict_fallback', {
+    systemId: profile.systemId, employeeId: profile.employeeId, firebaseId,
+    originalError: { code: error.code, message: error.message, details: error.details },
+  })
+  const { error: fallbackError } = await admin.from('users').upsert(payload, { onConflict: 'employee_id' })
+  if (fallbackError) throw fallbackError
 }
 
 type ServiceAccount = { client_email: string; private_key: string; project_id?: string }
