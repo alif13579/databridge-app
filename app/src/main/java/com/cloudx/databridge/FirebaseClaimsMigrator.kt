@@ -1,12 +1,23 @@
 package com.cloudx.databridge
 
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 
 /**
  * One-way drain: Firebase `claims/...` → Supabase `public.claims`.
  *
  * For every Firebase claim found under `claims/{id}/info`:
+ *  0. Backfill every referenced actor (requester + all approvers) into
+ *     public.users from their Firebase profile FIRST ([backfillUsers]) — so
+ *     copied rows' actor names resolve via join and the read-back check can
+ *     actually pass 100%.
  *  1. Save the full row to Supabase (SupabaseClaimsWriter.save — upsert on
  *     id, so re-running never duplicates).
  *  2. Read it straight back (SupabaseClaimsReader.getById) and compare
@@ -16,12 +27,10 @@ import kotlinx.coroutines.tasks.await
  *
  * Anything that fails to copy, or copies but differs on ANY field, is NEVER
  * deleted — it stays in Firebase and is reported (see [MigrateResult]).
- * The common mismatch cause is an actor name: Supabase reconstructs names
- * via the public.users join, so a claim whose actor has no users row yet
- * (never logged into the Supabase-backed app) reads back with a blank name.
- * Fix = that user logs in once (sync_profile creates the row), then re-run —
- * each run only processes what Firebase still holds, so Firebase drains to
- * zero over successive runs.
+ * Actor users are backfilled from Firebase first, so the remaining mismatch
+ * cause is a genuinely broken Firebase profile (e.g. no system_id) — fix it
+ * in Firebase and re-run. Each run only processes what Firebase still holds,
+ * so Firebase drains to zero over successive runs.
  *
  * Run from the Accounts-gated "Migrate Firebase Claims" row in
  * PettyCashReportsFragment. Migrates ALL branches (Firebase holds claims
@@ -33,6 +42,8 @@ object FirebaseClaimsMigrator {
 
     data class MigrateResult(
         val totalFirebase: Int,
+        val usersEnsured: Int,
+        val userErrors: List<String>,
         val copied: Int,
         val verified: Int,
         val deleted: Int,
@@ -41,9 +52,46 @@ object FirebaseClaimsMigrator {
     )
 
     /**
-     * Runs the full drain. [onProgress] fires on a background thread after
-     * each claim (done, total) — callers must post to the UI thread
-     * themselves.
+     * Ensures every Firebase uid in [uids] has its public.users row, built
+     * from its Firebase profile server-side (Edge Function `backfill_user`
+     * action — the client only sends the uid, never identity content, so no
+     * caller can inject another identity; see that action's comment).
+     * Returns (ensuredCount, failures). A failed uid doesn't block anything —
+     * its claims simply fall into the mismatch path below.
+     */
+    suspend fun backfillUsers(uids: Set<String>): Pair<Int, List<String>> = withContext(Dispatchers.IO) {
+        if (!SupabaseConfig.isConfigured) error("Supabase is not configured")
+        val token = FirebaseAuth.getInstance().currentUser?.getIdToken(false)?.await()?.token
+            ?: error("Not signed in")
+        var ok = 0
+        val failed = mutableListOf<String>()
+        uids.filter { it.isNotBlank() }.forEach { uid ->
+            try {
+                val payload = JSONObject().put("action", "backfill_user").put("firebase_uid", uid)
+                val request = Request.Builder()
+                    .url("${SupabaseConfig.PROJECT_URL}/functions/v1/remark-validations")
+                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                    .addHeader("Authorization", "Bearer $token")
+                    .addHeader("Content-Type", "application/json")
+                    .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .build()
+                SupabaseClientManager.httpClient.newCall(request).execute().use { response ->
+                    val text = response.body?.string().orEmpty()
+                    if (response.isSuccessful && JSONObject(text).optBoolean("ok")) ok++
+                    else failed += "$uid: HTTP ${response.code} ${text.take(160)}"
+                }
+            } catch (e: Exception) {
+                failed += "$uid: ${e.message}"
+            }
+        }
+        ok to failed
+    }
+
+    /**
+     * Runs the full drain: users first (so names resolve), then copy →
+     * verify → delete-verified per claim. [onProgress] fires on a background
+     * thread after each claim (done, total) — callers must post to the UI
+     * thread themselves.
      */
     suspend fun migrateAll(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): MigrateResult {
         val db = FirebaseDatabase.getInstance().reference
@@ -75,6 +123,18 @@ object FirebaseClaimsMigrator {
         val mismatched = mutableListOf<FieldMismatch>()
         val errors = mutableListOf<String>()
 
+        // Step 0: ensure every referenced actor's users row from Firebase, so
+        // the read-back name check below compares against real data. Uids are
+        // the Firebase identity keys already stored on each claim — requester
+        // plus every approval-step actor.
+        val actorUids = infos.flatMap { (_, info) ->
+            listOf(
+                info.workerUid, info.staffByUid, info.pocApprovedByUid,
+                info.settleInProcessByUid, info.settledByUid, info.rejectedByUid
+            )
+        }.filter { it.isNotBlank() }.toSet()
+        val (usersEnsured, userErrors) = backfillUsers(actorUids)
+
         infos.forEachIndexed { index, (key, info) ->
             try {
                 SupabaseClaimsWriter.save(info)
@@ -95,7 +155,7 @@ object FirebaseClaimsMigrator {
             }
             onProgress(index + 1, infos.size)
         }
-        return MigrateResult(infos.size, copied, verified, deleted, mismatched, errors)
+        return MigrateResult(infos.size, usersEnsured, userErrors, copied, verified, deleted, mismatched, errors)
     }
 
     /** Deletes one Firebase claim and every index entry pointing at it. */

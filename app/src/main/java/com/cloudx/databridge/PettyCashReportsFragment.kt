@@ -123,14 +123,21 @@ class PettyCashReportsFragment : Fragment() {
     private fun showMigrationResult(result: FirebaseClaimsMigrator.MigrateResult) {
         val body = buildString {
             append("Firebase claims found: ${result.totalFirebase}\n")
-            append("Copied to Supabase: ${result.copied}\n")
+            append("Users ensured in Supabase: ${result.usersEnsured}")
+            if (result.userErrors.isNotEmpty()) append(" (${result.userErrors.size} failed)")
+            append("\nCopied to Supabase: ${result.copied}\n")
             append("Verified 100% match: ${result.verified}\n")
             append("Deleted from Firebase: ${result.deleted}")
+            if (result.userErrors.isNotEmpty()) {
+                append("\n\nUser backfill failures: ${result.userErrors.size}")
+                result.userErrors.take(8).forEach { append("\n• $it") }
+                if (result.userErrors.size > 8) append("\n…and ${result.userErrors.size - 8} more")
+            }
             if (result.mismatched.isNotEmpty()) {
                 append("\n\nKept in Firebase (differ on read-back): ${result.mismatched.size}")
                 result.mismatched.take(8).forEach { append("\n• ${it.claimId}: ${it.fields.joinToString(", ")}") }
                 if (result.mismatched.size > 8) append("\n…and ${result.mismatched.size - 8} more")
-                append("\n\nUsual cause: an actor name with no Supabase users row yet — that user logs in once, then re-run.")
+                append("\n\nUsual cause: the actor's Firebase profile itself is missing data (no system_id) — fix the profile in Firebase, then re-run.")
             }
             if (result.errors.isNotEmpty()) {
                 append("\n\nErrors: ${result.errors.size}")

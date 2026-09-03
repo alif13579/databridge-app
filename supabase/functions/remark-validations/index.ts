@@ -152,6 +152,44 @@ async function firebaseProfileForSystemId(systemId: string, identity: { uid: str
   }
 }
 
+/** Reads an arbitrary user's Firebase profile (by uid) for the claims-drain
+ *  backfill below. Same shape as firebaseProfile(), but the uid comes from
+ *  the request body (a claim actor), not the verified token — callers must
+ *  only ever pass uids collected from real claim rows, never free input that
+ *  decides WHAT gets written (the profile content itself always comes from
+ *  this server-side read, preserving upsertUser's no-client-identity rule).
+ *  Returns null when the uid has no profile or no system_id (e.g. a deleted
+ *  account) — the caller reports it instead of writing a bad row. */
+async function firebaseProfileForUid(uid: string, identity: { uid: string; token: string }): Promise<(FirebaseProfile & { uid: string }) | null> {
+  const response = await fetch(`${firebaseDatabaseUrl}/users/${encodeURIComponent(uid)}/profile.json?auth=${encodeURIComponent(identity.token)}`)
+  if (!response.ok) return null
+  const profile = await response.json()
+  const companyInfo = profile?.company_info
+  const systemId = typeof companyInfo?.system_id === 'string' ? companyInfo.system_id.trim() : ''
+  if (!systemId) return null
+  let roleId = typeof companyInfo?.role_id === 'string' ? companyInfo.role_id.trim()
+    : typeof companyInfo?.role === 'string' ? companyInfo.role.trim() : ''
+  if (!roleId) {
+    const roleResponse = await fetch(
+      `${firebaseDatabaseUrl}/users/${encodeURIComponent(uid)}/role.json?auth=${encodeURIComponent(identity.token)}`,
+    )
+    if (roleResponse.ok) {
+      const legacyRole = await roleResponse.json()
+      if (typeof legacyRole === 'string') roleId = legacyRole.trim()
+    }
+  }
+  return {
+    systemId,
+    roleId,
+    branchIds: readBranchIds(companyInfo),
+    canAccessCallCenter: false,
+    canAccessConfig: false,
+    name: typeof profile?.name === 'string' ? profile.name.trim() : '',
+    employeeId: typeof companyInfo?.employee_id === 'string' ? companyInfo.employee_id.trim() : '',
+    uid,
+  }
+}
+
 /** Upserts the English->Bangla pair into the validation_remarks helper table so
  *  Android's direct PostgREST reads can look up Bangla by English text. Only
  *  called when the app actually sent a Bangla label (a predefined remark
@@ -534,6 +572,34 @@ Deno.serve(async (request) => {
       }, { onConflict: 'token' })
       if (error) throw error
       return reply({ ok: true })
+    }
+
+    if (action === 'backfill_user') {
+      // One-way user drain for the Firebase→Supabase claims migration (see
+      // FirebaseClaimsMigrator.kt): ensures a claim actor's public.users row
+      // exists BEFORE their claims are copied, so copied rows' actor names
+      // resolve via join and the 100% read-back check passes.
+      //
+      // Security posture matches upsertUser's DO-NOT rule: the ONLY client
+      // input is the target Firebase uid. Name/system_id/branches all come
+      // from the server-side Firebase read above — a caller can only repair
+      // the target's truthful row (upsert keyed on system_id, firebase_id
+      // always the real uid, never NULL), never inject another identity.
+      if (typeof body.firebase_uid !== 'string' || !body.firebase_uid.trim()) {
+        return reply({ error: 'firebase_uid is required' }, 400)
+      }
+      const targetUid = body.firebase_uid.trim()
+      const target = await firebaseProfileForUid(targetUid, identity)
+      if (!target) {
+        errLog('backfill_user', 'no_firebase_profile', { firebase_uid: targetUid })
+        return reply({ error: 'No Firebase profile with system_id for this user' }, 404)
+      }
+      await upsertUser(target, targetUid)
+      // Defensive, same as the write path: covers a user whose reads would
+      // otherwise run as anon before ever syncing themselves.
+      await ensureAuthenticatedRoleClaim(targetUid)
+      console.info(`backfill_user ok: system_id=${target.systemId}`)
+      return reply({ ok: true, system_id: target.systemId })
     }
 
     if (action === 'admin_list_remarks') {
