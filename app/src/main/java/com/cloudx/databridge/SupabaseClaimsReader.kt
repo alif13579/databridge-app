@@ -297,10 +297,10 @@ object SupabaseClaimsReader {
             claimCode = optString("claim_code"),
             branchId = optString("branch_id"),
             employeeName = embedName("requester"),
-            agentSystemId = optString("requester_system_id").ifBlank { optString("agent_system_id") },
+            agentSystemId = optString("requester_system_id"),
             type = optString("type"),
             category = optString("category"),
-            purpose = optString("remarks").ifBlank { optString("purpose") },
+            purpose = optString("remarks"),
             consignmentId = optString("consignment_id"),
             vehicle = optString("vehicle"),
             fromArea = optString("from_area"),
@@ -357,7 +357,7 @@ object SupabaseClaimsReader {
     private const val ACTOR_SELECT =
         "*," +
         "branch:branch_id(name)," +
-        "requester:agent_system_id(name)," +
+        "requester:requester_system_id(name)," +
         "staff_user:staff_by_system_id(name)," +
         "poc_user:poc_approved_by_system_id(name)," +
         "settle_user:settle_in_process_by_system_id(name)," +
@@ -413,7 +413,7 @@ object SupabaseClaimsReader {
             .append("&created_at=lte.").append(filter.toMillis.toIsoInstant().encodeParam())
             .append("&order=created_at.").append(if (filter.newestFirst) "desc" else "asc")
         if (filter.systemIds.isNotEmpty()) {
-            urlBuilder.append("&agent_system_id=in.(").append(filter.systemIds.joinToString(",") { it.encodeParam() }).append(")")
+            urlBuilder.append("&requester_system_id=in.(").append(filter.systemIds.joinToString(",") { it.encodeParam() }).append(")")
         }
         if (filter.types.isNotEmpty()) {
             urlBuilder.append("&type=in.(").append(filter.types.joinToString(",") { it.encodeParam() }).append(")")
@@ -450,7 +450,7 @@ object SupabaseClaimsReader {
         val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
         val url = StringBuilder("${SupabaseConfig.PROJECT_URL}/rest/v1/claims")
             .append("?select=").append(ACTOR_SELECT.encodeParam())
-            .append("&agent_system_id=eq.").append(systemId.encodeParam())
+            .append("&requester_system_id=eq.").append(systemId.encodeParam())
             .append("&created_at=gte.").append(fromMillis.toIsoInstant().encodeParam())
             .append("&created_at=lte.").append(toMillis.toIsoInstant().encodeParam())
             .append("&order=created_at.").append(if (newestFirst) "desc" else "asc")

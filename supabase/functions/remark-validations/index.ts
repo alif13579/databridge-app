@@ -649,15 +649,15 @@ Deno.serve(async (request) => {
       const str = (v: unknown) => typeof v === 'string' ? v : ''
       const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : 0
       const iso = (v: unknown) => typeof v === 'string' && v.trim() ? v : null
-      if (!c || !str(c.id).trim() || !str(c.branch_id).trim() || !str(c.agent_system_id).trim()) {
-        errLog('claim_upsert', 'missing_required_fields', { id: c?.id, branch_id: c?.branch_id, has_system_id: !!c?.agent_system_id })
-        return reply({ error: 'claim id, branch_id and agent_system_id (requester_system_id) are required' }, 400)
+      if (!c || !str(c.id).trim() || !str(c.branch_id).trim() || !str(c.requester_system_id).trim()) {
+        errLog('claim_upsert', 'missing_required_fields', { id: c?.id, branch_id: c?.branch_id, has_system_id: !!c?.requester_system_id })
+        return reply({ error: 'claim id, branch_id and requester_system_id are required' }, 400)
       }
       const { error } = await admin.from('claims').upsert({
         id: str(c.id), claim_code: str(c.claim_code),
-        branch_id: str(c.branch_id), agent_system_id: str(c.agent_system_id),
+        branch_id: str(c.branch_id), requester_system_id: str(c.requester_system_id),
         // branch_name and employee_name are not stored — joined at read time via FKs.
-        type: str(c.type), category: str(c.category), purpose: str(c.purpose),
+        type: str(c.type), category: str(c.category), remarks: str(c.remarks),
         consignment_id: str(c.consignment_id), store_id: str(c.store_id), store_name: str(c.store_name),
         pickup_count: num(c.pickup_count),
         // NOT NULL date column — falls back to today when the caller (currently
