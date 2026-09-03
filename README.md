@@ -1,177 +1,112 @@
 # DataBridge
 
-**DataBridge** is an Android app for courier/delivery workforce management, built for operations running on Pathao Courier. It connects field agents, call center staff, supervisors, and admins under one platform — with real-time Firebase sync, role-based access control, and Google Sheets integration for delivery data.
+**DataBridge** is an Android app for courier/delivery workforce management, built for operations running on Pathao Courier. It connects field agents, call center staff, supervisors, and admins under one platform — with role-based access control, real-time remark sync, Petty Cash management, and Google Sheets integration for delivery data.
+
+App version: **5.22.127** (versionCode 280). Language: Kotlin, minSdk 23, target/compile 34.
 
 ---
 
-## Features
+## Where data lives (read this first)
 
-### Role-Based Access Control (RBAC)
-Every screen and action is gated by a permission system. Roles include `admin`, `supervisor`, `staff`, `worker/agent`, and `guest`. Permissions are managed per-role in Firebase and enforced at runtime via `RbacManager`. The `AccessManagerFragment` lets admins toggle permissions per role without a new app release.
+The backend is a **hybrid — Supabase first, Firebase for the rest**. Rule of thumb:
 
-### Worker Space
-The primary view for delivery agents. Shows their assigned parcels for the day — customer name, phone, address, COD amount, consignment ID, and status. Data is filtered by the logged-in user's `employee_id` (from `company_info` in Firebase), so each agent sees only their own parcels. Planned: live sync from Google Sheets.
-
-### Call Center
-A dialer-focused view for call center agents. Displays parcel records with one-tap calling, remark logging, and status updates. Integrates with the auto-dial helper and tracks call history locally via Room database, with optional Firebase sync.
-
-### Config *(admin / supervisor / staff)*
-A 4-tab settings panel for branch-level configuration:
-
-- **Remarks** — Manage predefined remark options per delivery status (Delivered, Return, Hold, etc.) in Bengali and English.
-- **Language** — Set the display language for Worker and Call Center fragments independently (remark language + status language).
-- **Statuses** — Add, edit, or delete custom delivery statuses beyond the built-in set. Each status has a name (Bengali + English), color, and priority.
-- **Sheet** — Connect a Google Sheet per branch as the delivery data source. Supports a 4-step OAuth flow (Google account → Drive sheet picker → tab selector → column range), Manual and Auto-detect column mapping, branch-wise sync intervals, and full audit history in Firebase.
-
-### Scanner
-Barcode/QR scanner for parcel validation. Supports single and batch scan modes with camera or manual entry. Scan results are logged with timestamps.
-
-### Branch Management
-Admins can create, view, and edit branches. Supervisors and staff see their assigned branch detail. Each branch has its own sheet config and sync settings.
-
-### Employee Management
-View and manage employees per branch. Admins see all employees across all branches; supervisors see their branch. Employee profiles include role, `employee_id`, branch assignment, and contact info.
-
-### Salary Manager
-Configure salary slabs and piecework rates for agents. Slabs are branch-aware and editable by authorized roles.
-
-### History
-Unified activity log showing call records, parcel status changes, and sync events. Filterable by date and type.
-
-### Memory
-Earnings tracker for agents. Logs completed deliveries with COD amounts to help agents track daily/weekly earnings.
-
-### Connect
-Links the app to a browser extension via Firebase session. Supports permanent (Google-authenticated) and guest sessions. Session state is monitored in real-time; disconnect triggers automatic cleanup.
-
-### Settings
-App-level settings including dark mode toggle, Google account link/unlink, and local data management.
-
----
-
-## Architecture
-
-| Layer | Tech |
+| Feature | Source of truth |
 |---|---|
-| Language | Kotlin |
-| UI | XML layouts, Fragments, Navigation Drawer + Bottom Nav |
-| Backend | Firebase Realtime Database |
-| Auth | Firebase Auth + Google Sign-In |
-| Local DB | Room (call records) |
-| Background Sync | WorkManager (planned: sheet sync) |
-| Networking | OkHttp (Google Sheets / Drive API) |
-| Image loading | Coil |
+| Petty Cash claims (request → settle) | Supabase `public.claims` |
+| Wallet balance + deposits | Supabase `public.petty_cash_deposits`, `public.petty_cash_wallet_balance` |
+| Claim categories catalog | Supabase `public.claim_categories` (admin-managed) |
+| Branches, stores, users (synced copy) | Supabase `public.branches`, `public.stores`, `public.users` |
+| CC/Worker remarks audit log | Supabase `public.validations` + `public.validation_remarks` |
+| Push device registry | Supabase `public.fcm_device_tokens` (server-managed) |
+| Sign-in / identity | **Firebase Auth** (+ Google Sign-In). Supabase trusts the Firebase JWT directly (Third-party Auth) |
+| Delivery roster, consignments, areas, runs | **Firebase** Realtime Database (`courier/...`) |
+| Config (remarks options admin, statuses, sheets, language, roles) | **Firebase** (`config/...`, `roles/...`) |
+| Sessions/extensions, presence, call state | **Firebase** (`sessions/...`, `container/...`, `users/.../connections`) |
+| Attachments (receipt photos/PDFs) | Cloudflare R2 (private bucket, presigned URLs via Edge Function) |
+| Error logs | Firebase `error_logs/...` |
+
+Firebase is still required (Auth + RTDB + FCM). "Supabase-only" in commit messages means the *Petty Cash claim flow*, never the whole app.
+
+Supabase project: `jlmvpozfacpxphftzfvw` (`https://jlmvpozfacpxphftzfvw.supabase.co`).
+Firebase project: `databridgebd` (RTDB `https://databridgebd-default-rtdb.asia-southeast1.firebasedatabase.app`).
 
 ---
 
-## Firebase Structure
+## Key flows
 
-```
-users/{uid}/
-  profile/         ← display name, email, lastActive
-  company_info/    ← role, branch_ids, employee_id
+### Petty Cash claim lifecycle
+`pending → verified (Staff) → approved (Cash POC) → ready_to_settle → settled (Accounts)`, or `rejected` / `cancelled`. Every status change is a full-row upsert to `public.claims` via the `claim_upsert` Edge Function action — never a partial patch.
 
-roles/{roleId}/
-  permissions/     ← map of nav_* keys → boolean
+- Requester form (`PettyCashRequestCreateFragment`): category comes from the `claim_categories` catalog (admin can add more; seeded with `Bulk Delivery`, `Pickup`). Expense date defaults to today, past dates allowed, future blocked. Pickup carries quantities only (amount = 0 at request; the settled amount is set at approve/settle). Store/consignment/pickup-count are saved on the claim.
+- Central logic: `PettyCashViewModel` (Supabase-only reads/writes). Claim persistence: `ClaimsRepository` → `SupabaseClaimsWriter` / `SupabaseClaimsReader`.
+- **Amounts in reports are always `settled_amount`** (actual payout), and only `status == settled` rows count.
 
-branches/{branch_id}/
-  name, ...
+### Petty Cash report (Top Sheet PDF)
+`ClaimsReportFragment`: single branch + employee/category/status filters + date range (filters `requested_at`) → `SupabaseClaimsReader.fetchClaimsForReport` → `PettyCashTopSheetPdfWriter` generates the 4-section PDF (Top Sheet, Expense Summary, Agent Acknowledgement, per-agent Conveyance Vouchers). Category sections come from the DB (distinct values + catalog groups), conveyance types appear verbatim as saved, voucher headers read `Attempted` / `Succeeded` (neutral for pickup + delivery). The branch's real POC header resolves via `branches.petty_cash_poc_uid → public.users`.
 
-config/
-  remarks/{statusKey}/[]     ← remark list per status
-  language/workerLang        ← worker fragment language
-  language/ccLang            ← call center language
-  statusMeta/{key}/          ← custom status definitions
-  sheets/{branch_id}/
-    current/                 ← active sheet config + column mapping
-    history/{push_id}/       ← audit log of every change
-    data/rows/{consignment}/ ← synced sheet rows
+### Firebase → Supabase claims drain
+Old Firebase claims are drained from **Petty Cash → Reports → Migrate Firebase Claims** (Accounts only): each claim is copied field-wise, read back, and compared on all 54 `ClaimInfo` fields — the Firebase original (claim node + index entries) is deleted **only on a 100% match**. Mismatches/errors stay in Firebase and are listed. Actor `users` rows are backfilled from Firebase first (`backfill_user`), so names resolve. Re-running drains the remainder to zero. Code: `FirebaseClaimsMigrator.kt`.
 
-sessions/{extId}/            ← browser extension sessions
-container/container_{uid}/   ← permanent data container
-```
+### Remarks (Call Center ↔ Worker)
+- Save path: fragments → `SupabaseRemarkValidationWriter.write()` → Edge Function `write` action (derives author from the verified token, upserts `users`, inserts `validations`, triggers push). CC picker options come from `validation_remarks` (source `CC`/`WORKER`); selecting one fills its admin-written `instruction_text` into the note box (`×` clears it); the box content saves as the note.
+- Live paths, in order: Supabase Realtime WebSocket → FCM data-message fallback → 1-minute badge poll. FCM carries only the consignment ID; the body is always re-fetched (RLS-protected).
+- Push targeting (`sendRemarkPush`): Worker→CC = CC devices with `can_access_call_center` overlapping the branch; CC→Worker = the assigned worker's `system_id`. Token rows refresh on every remark save and re-register on login/token-rotation (with backoff retry); sign-out unregisters. Code: `DataBridgeMessagingService`, `AppNotificationManager`, `SupabaseRealtimeManager`.
 
----
+### Attachments
+Request form → `AttachmentUploader` (5 MB / image-or-PDF check + JPEG compression) → presigned PUT from `r2-attachment-upload` → R2 object key stored as `claims.attachment_url`. Viewing goes through a fresh presigned GET each time (bucket is private). R2 credentials live only in the function's secrets.
 
-## RBAC Permissions
-
-| Key | Description |
-|---|---|
-| `nav_dashboard` | Dashboard |
-| `nav_my_tasks` | My Tasks |
-| `nav_space` | Worker Space |
-| `nav_call_center` | Call Center |
-| `nav_connect` | Connect to extension |
-| `nav_history` | History |
-| `nav_scanner` | Scanner |
-| `nav_memory` | Memory / earnings |
-| `nav_salary_manager` | Salary Manager |
-| `nav_access_manager` | Access Manager (role editor) |
-| `nav_branches` | Branch view/management |
-| `nav_team` | Employee management |
-| `nav_config` | Config (remarks, language, statuses, sheets) |
-| `nav_reports` | Reports |
-| `nav_settings` | Settings |
-| `nav_support` | Support |
+### Auth model (important)
+Supabase has no passwords here: every REST/Realtime/Function call carries the **Firebase ID token**. Because these JWTs carry no `role` claim, PostgREST serves requests as `anon` — so RLS policies and grants cover `anon, authenticated`. The Edge Function sets a `role=authenticated` custom claim on first sync (`ensureAuthenticatedRoleClaim`); the app force-refreshes its cached token once per process afterwards.
 
 ---
 
-## Google Sheets Integration
+## Backend reference
 
-Config → Sheet tab allows authorized users to connect a Google Sheet per branch as the delivery roster source.
+### Edge Functions (`supabase/functions/`)
+- **`remark-validations`** (`verify_jwt = false` — it verifies the Firebase JWT itself): `sync_profile`, `register_push_token`, `unregister_push_token`, `backfill_user`, `write`, `report`, `claim_upsert`, `petty_cash_deposit_upsert`, `petty_cash_wallet_balance_upsert`, `admin_list_remarks`, `admin_upsert_remark`, `admin_delete_remark`, `admin_migrate_status_remarks`.
+- **`r2-attachment-upload`** (`verify_jwt = false`): `upload` (presigned PUT), `download` (presigned GET).
 
-**Flow:**
-1. Choose branch
-2. Connect → Google OAuth popup (Drive + Sheets readonly scopes)
-3. Select spreadsheet from Drive
-4. Select tab/worksheet
-5. Define column range and map columns (Manual or Auto-detect from headers)
-6. Set sync interval (branch-wide, reflected on all agents' devices)
+### Database
+- `supabase/migrations/` holds real migration files (including RLS policies + `claim_categories` + seeds). `supabase/SCHEMA_HISTORY.md` is the human-readable history of how the schema got here — read it before touching tables.
+- Direct PostgREST reads are free/unlimited; Edge Function invocations are not — prefer REST for reads (see `SupabaseClientManager.fetchValidations` pattern).
 
-**Column mapping fields:** Agent ID, Consignment ID, Customer Name, Phone, Address, COD, Status, Note
-
-**Data path:** `config/sheets/{branch_id}/data/rows/{consignment_id}/`
-
-Each agent's Worker Space shows only rows where the Agent ID column matches their `employee_id`.
-
-All config changes are written to `history/` with timestamp, user name, role, and action (`created` / `updated` / `disconnected`).
-
----
-
-## Working with This Repo
-
-This repo gets worked on by multiple sessions/branches in parallel (AI and
-human), often without visibility into each other's in-progress work. A few
-things that have caused real problems in practice, worth checking before you
-git push or git branch --delete:
-
-- **Check for existing work on the same topic before branching.** Run
-  `git branch -a` before starting something new. Two branches
-  (`feat/dynamic-role-hierarchy` and `feat/explicit-reports-to-hierarchy`)
-  were built in parallel for the exact same feature because neither session
-  checked what the other had already started.
-
-- **`git branch --merged` is not the same as "safe to delete."** It lists
-  any branch whose commits are *all* ancestors of the target — which is
-  trivially true for a branch that was just created off the current tip and
-  hasn't received its intended work yet, not just for branches that were
-  genuinely finished and merged. Before bulk-deleting anything that shows up
-  as "merged," check whether it's a *freshly created* branch with zero
-  commits of its own (`git log main..branch` empty) — if so, confirm with
-  whoever's asking before deleting; it may be about to receive work, not
-  actually done. (GitHub's own "auto-delete head branches after merge"
-  setting already handles genuinely-merged-via-PR branches for you — most
-  merged branches you see are probably already gone by the time you check.)
-
-- **Pull before pushing, every time.** Another session may have pushed since
-  you last synced. If `git push` is rejected, `git fetch` + check
-  `git diff --stat` between your base and the new remote tip before merging
-  — if the changed files don't overlap with what you touched, a plain
-  `git merge` is safe; if they do, look at the actual diff in the
-  overlapping file before assuming it'll merge cleanly.
+### Secrets (what goes where)
+| Secret | Where | Notes |
+|---|---|---|
+| `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` | `local.properties` (gitignored) / CI `-P` flags | Publishable key is public by design; it ships in the APK |
+| `sbp_...` access token | env var `SUPABASE_ACCESS_TOKEN` only, never committed | For `supabase login/link/db push/functions deploy` |
+| `sb_secret_...` / service-role key | Supabase server side only | NEVER in the app, Gradle, or Git |
+| `FCM_SERVICE_ACCOUNT_JSON`, `R2_*`, `FIREBASE_*` | Edge Function secrets (`supabase secrets set` / Dashboard) | Never in the repo |
+| `google-services.json` | `app/` (gitignored — ask an admin for a copy) | Required to build |
+| `keystore.properties` | repo root (gitignored) | Release signing; without it builds fall back to debug signing |
 
 ---
 
-## Version
+## Working with this repo
 
-Current: **2.7**
+### New-machine setup
+1. Clone, then get `google-services.json` into `app/` and create `local.properties` (see `local.properties.example`).
+2. Install tooling without sudo: `supabase` CLI → `~/.local/bin`, Node 20 LTS → `~/.node` (this Mac has no Homebrew; official installer needs an admin password).
+3. `export SUPABASE_ACCESS_TOKEN=<sbp_...>` → `supabase link --project-ref jlmvpozfacpxphftzfvw` → `supabase db push` → `supabase functions deploy remark-validations r2-attachment-upload`.
+4. `./gradlew assembleDebug` (first run warms the Gradle cache; ~2 min after that).
+5. Admin adds claim categories via Dashboard → Table Editor → `claim_categories` (no app release needed).
+
+### Conventions that prevent real incidents
+- **Amount shown anywhere = `settled_amount`.** Requested/approved are intermediate figures only.
+- **Claim writes are full-row upserts.** A partial map must be applied onto the loaded full claim first (`applyUpdates`) or missing columns blank out.
+- **`upsertUser` rule:** `firebase_id` is a required param — never write NULL (it silently breaks RLS for that user). Identity content always comes from server-side Firebase reads, never client input.
+- **Run `assembleDebug` before pushing.** Kotlin gotchas that bit before: `/*` inside KDoc swallows the file (nested comments); `launch`/`delay` need explicit imports even with qualified `GlobalScope`.
+- This repo gets worked on by multiple sessions/branches in parallel. Before branching, run `git branch -a` (two branches were once built for the same feature in parallel). Pull before pushing every time; `git branch --merged` is not proof a branch is done.
+- Tokens/keys pasted in chat must be rotated afterwards.
+
+---
+
+## Repo map (where to look)
+
+- `app/src/main/java/com/cloudx/databridge/` — all app code (~150 files)
+  - Petty Cash: `PettyCashViewModel`, `ClaimsRepository`, `SupabaseClaimsWriter/Reader`, `SupabasePettyCashWriter/Reader`, `PettyCash*Fragment`, `ClaimsReportFragment`, `PettyCashTopSheetPdfWriter`, `FirebaseClaimsMigrator`, `FirebaseClaimsIndexMigration`
+  - Remarks/push: `SupabaseRemarkValidationWriter`, `SupabaseClientManager`, `SupabaseRealtimeManager`, `DataBridgeMessagingService`, `AppNotificationManager`, `CallCenterFragment`, `WorkerSpaceFragment`
+  - Platform: `DataBridgeApplication`, `MainActivity`, `AuthManager`, `RbacManager`, `AttachmentUploader`, `FirebasePaths`
+- `supabase/functions/` — Edge Function source (deployed separately, see setup)
+- `supabase/migrations/` + `supabase/SCHEMA_HISTORY.md` — schema truth
+- `database.rules.json` + `database.rules.README.md` — Firebase RTDB rules
