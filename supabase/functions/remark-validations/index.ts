@@ -28,6 +28,13 @@ function reply(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: corsHeaders })
 }
 
+/** Structured error logger. Every call emits a single-line JSON to stdout so
+ *  Supabase Dashboard → Functions → Logs shows filterable, copy-pasteable entries.
+ *  Share the copied line with Claude for diagnosis. */
+function errLog(action: string, reason: string, ctx: Record<string, unknown> = {}) {
+  console.error(JSON.stringify({ ts: new Date().toISOString(), action, reason, ...ctx }))
+}
+
 async function firebaseIdentity(request: Request): Promise<{ uid: string; token: string }> {
   const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
   if (!token) throw new Error('Missing Firebase ID token')
@@ -599,6 +606,7 @@ Deno.serve(async (request) => {
       const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : 0
       const iso = (v: unknown) => typeof v === 'string' && v.trim() ? v : null
       if (!c || !str(c.id).trim() || !str(c.branch_id).trim() || !str(c.agent_system_id).trim()) {
+        errLog('claim_upsert', 'missing_required_fields', { id: c?.id, branch_id: c?.branch_id, has_system_id: !!c?.agent_system_id })
         return reply({ error: 'claim id, branch_id and agent_system_id (requester_system_id) are required' }, 400)
       }
       const { error } = await admin.from('claims').upsert({
@@ -621,7 +629,10 @@ Deno.serve(async (request) => {
         settled_by_uid: str(c.settled_by_uid),
         rejected_by_uid: str(c.rejected_by_uid), rejected_at: iso(c.rejected_at), reject_reason: str(c.reject_reason),
       }, { onConflict: 'id' })
-      if (error) throw error
+      if (error) {
+        errLog('claim_upsert', 'db_upsert_failed', { claim_id: c?.id, pg_code: error.code, pg_message: error.message })
+        throw error
+      }
       return reply({ ok: true })
     }
 
@@ -674,9 +685,11 @@ Deno.serve(async (request) => {
     if (action === 'write') {
       const row = body.row
       if (!row || !['consignment', 'branch_id', 'assigned_to_system_id', 'source'].every((key) => typeof row[key] === 'string' && row[key].trim())) {
+        errLog('write', 'missing_required_fields', { row: JSON.stringify(row) })
         return reply({ error: 'Missing required row fields' }, 400)
       }
       if (row.source !== 'CC' && row.source !== 'WORKER') {
+        errLog('write', 'invalid_source', { source: row.source })
         return reply({ error: 'Invalid remark source' }, 400)
       }
       // Author fields come exclusively from the verified Firebase identity; Android
@@ -711,7 +724,10 @@ Deno.serve(async (request) => {
         customer_phone: typeof parcel?.recipientPhone === 'string' ? parcel.recipientPhone.trim() : '',
       }
       const { error } = await admin.from('validations').insert(savedRow)
-      if (error) throw error
+      if (error) {
+        errLog('write', 'db_insert_failed', { consignment: savedRow.consignment, pg_code: error.code, pg_message: error.message })
+        throw error
+      }
       // Best-effort catalog update — runs after the audit row is safely saved,
       // and never blocks or fails the write response.
       if (typeof row.remarks_bn === 'string') {
@@ -745,7 +761,10 @@ Deno.serve(async (request) => {
     console.log(JSON.stringify({ action, firebaseUid: identity.uid, count: data?.length ?? 0 }))
     return reply(data ?? [])
   } catch (error) {
-    console.error(error)
+    errLog(action ?? 'unknown', 'unhandled_exception', {
+      uid: identity?.uid,
+      err: error instanceof Error ? { msg: error.message, stack: error.stack?.slice(0, 500) } : String(error)
+    })
     return reply({ error: 'Unauthorized or failed request' }, 401)
   }
 })
