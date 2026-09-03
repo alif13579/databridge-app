@@ -79,7 +79,9 @@ object SupabaseVanMovements {
         }
     }
 
-    /** Opens a movement row (van arrival). Throws on failure — including the
+    /** Opens a movement row (van arrival). [checkInAtMillis] defaults to now —
+     *  pass an earlier instant for a late-tapped backdate (never the future;
+     *  the server rejects that too). Throws on failure — including the
      *  server's 409 when this van is already inside. Returns the movement id. */
     suspend fun checkIn(
         branchId: String,
@@ -87,6 +89,7 @@ object SupabaseVanMovements {
         vehicleType: String,
         driverName: String = "",
         note: String = "",
+        checkInAtMillis: Long = System.currentTimeMillis(),
     ): String = withContext(Dispatchers.IO) {
         val body = JSONObject()
             .put("action", "van_checkin")
@@ -95,16 +98,21 @@ object SupabaseVanMovements {
             .put("vehicle_type", vehicleType)
             .put("driver_name", driverName)
             .put("note", note)
+            .put("check_in_at", java.time.Instant.ofEpochMilli(checkInAtMillis).toString())
         val text = postAction(body, "van_checkin")
         JSONObject(text).optString("movement_id")
     }
 
-    /** Stamps departure on an open row. Idempotent server-side (double-tap
-     *  reports ok-Already, never errors). Throws on real failure. */
-    suspend fun checkOut(movementId: String) = withContext(Dispatchers.IO) {
+    /** Stamps departure on an open row. [checkOutAtMillis] defaults to now —
+     *  pass an earlier instant for a late-tapped correction (never before the
+     *  row's own check-in, never the future; the server enforces both).
+     *  Idempotent server-side (double-tap reports ok-already, never errors).
+     *  Throws on real failure. */
+    suspend fun checkOut(movementId: String, checkOutAtMillis: Long = System.currentTimeMillis()) = withContext(Dispatchers.IO) {
         val body = JSONObject()
             .put("action", "van_checkout")
             .put("movement_id", movementId)
+            .put("check_out_at", java.time.Instant.ofEpochMilli(checkOutAtMillis).toString())
         postAction(body, "van_checkout")
     }
 

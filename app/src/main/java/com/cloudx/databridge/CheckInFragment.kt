@@ -19,18 +19,21 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Van Check-In — hub van arrival/departure log (Supabase public.van_movements).
+ * Check-In — hub check-in/out log. Today this hosts the van arrival/departure
+ * log (Supabase public.van_movements); the screen is deliberately named
+ * generic so future check-ins (e.g. employee check-in) can live here as
+ * sections/tabs without a rename.
  *
  * Top: today's movements for this branch — "Inside now" rows (check-in time +
  * elapsed, each with a Check Out button) above the completed history (in/out
  * + duration). The ＋ Check In button opens the static fleet picker
- * ([VanCatalog]); tapping a van checks it in immediately (optional driver +
- * note ride along). A van that's already inside can't check in twice — the
- * server 409-guards it and the DB partial unique index enforces it.
+ * ([VanCatalog]); tapping a van checks it in at the picked date+time
+ * (default now, past allowed, future blocked). Check Out opens a date+time
+ * confirm (default now, never before its own check-in, never future).
  *
- * Permission-gated drawer entry (nav_van_checkin, admin-toggleable).
+ * Permission-gated drawer entry (nav_checkin, admin-toggleable).
  */
-class VanCheckInFragment : Fragment() {
+class CheckInFragment : Fragment() {
 
     private var branchId: String = ""
     private var branchName: String = ""
@@ -47,8 +50,8 @@ class VanCheckInFragment : Fragment() {
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
         private const val ARG_BRANCH_NAME = "branch_name"
-        fun newInstance(branchId: String, branchName: String = ""): VanCheckInFragment {
-            val f = VanCheckInFragment()
+        fun newInstance(branchId: String, branchName: String = ""): CheckInFragment {
+            val f = CheckInFragment()
             f.arguments = Bundle().apply {
                 putString(ARG_BRANCH_ID, branchId)
                 putString(ARG_BRANCH_NAME, branchName)
@@ -58,7 +61,7 @@ class VanCheckInFragment : Fragment() {
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        return inflater.inflate(R.layout.fragment_van_check_in, container, false)
+        return inflater.inflate(R.layout.fragment_check_in, container, false)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -67,7 +70,7 @@ class VanCheckInFragment : Fragment() {
         branchName = arguments?.getString(ARG_BRANCH_NAME).orEmpty()
 
         view.findViewById<TextView>(R.id.tvVanTitle).text =
-            if (branchName.isNotBlank()) "Van Check-In — $branchName" else "Van Check-In"
+            if (branchName.isNotBlank()) "Check In — $branchName" else "Check In"
         view.findViewById<View>(R.id.btnVanBack).setOnClickListener {
             parentFragmentManager.popBackStack()
         }
@@ -149,24 +152,14 @@ class VanCheckInFragment : Fragment() {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             text = "${m.vehicleNumber} · ${m.vehicleType}" +
                 (if (m.driverName.isNotBlank()) "\nDriver: ${m.driverName}" else "") +
-                "\nIn: ${formatTime(m.checkInAt)} · ${elapsedSince(m.checkInAt)} inside"
+                "\nIn: ${formatDateTime(m.checkInAt)} · ${elapsedSince(m.checkInAt)} inside"
             textSize = 13f
             setTextColor(0xFF0F172A.toInt())
         }
         val btn = Button(ctx).apply {
             text = "Check Out"
             textSize = 12f
-            setOnClickListener {
-                isEnabled = false
-                lifecycleScope.launch {
-                    runCatching { SupabaseVanMovements.checkOut(m.id) }
-                        .onSuccess { load() }
-                        .onFailure {
-                            isEnabled = true
-                            Toast.makeText(ctx, it.message ?: "Check-out failed", Toast.LENGTH_SHORT).show()
-                        }
-                }
-            }
+            setOnClickListener { showCheckOutSheet(m) }
         }
         row.addView(info)
         row.addView(btn)
@@ -189,16 +182,19 @@ class VanCheckInFragment : Fragment() {
             setPadding(dp(12), dp(10), dp(12), dp(10))
             text = "${m.vehicleNumber} · ${m.vehicleType}" +
                 (if (m.driverName.isNotBlank()) " · ${m.driverName}" else "") +
-                "\n${formatTime(m.checkInAt)} → ${formatTime(m.checkOutAt)}$duration" +
+                "\n${formatDateTime(m.checkInAt)} → ${formatDateTime(m.checkOutAt)}$duration" +
                 (if (m.note.isNotBlank()) "\n${m.note}" else "")
             textSize = 13f
             setTextColor(0xFF0F172A.toInt())
         }
     }
 
-    /** Fleet picker sheet: tap a van = instant check-in (optional driver + note ride along). */
+    /** Fleet picker sheet: date+time (default now, past allowed, future
+     *  blocked) + optional driver/note, then tap a van = check in at the
+     *  picked moment. Late taps backdate; the future can never be picked. */
     private fun showCheckInSheet() {
         val ctx = requireContext()
+        var pickedMillis = System.currentTimeMillis()
         val sheet = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(16), dp(20), dp(20))
@@ -210,6 +206,19 @@ class VanCheckInFragment : Fragment() {
             setTextColor(0xFF0F172A.toInt())
             setPadding(0, 0, 0, dp(12))
         })
+        val tvDateTime = TextView(ctx).apply {
+            textSize = 14f
+            setTextColor(0xFF0F172A.toInt())
+            setPadding(dp(4), dp(4), dp(4), dp(12))
+            setOnClickListener { pickDateTime(pickedMillis, maxMillis = System.currentTimeMillis(), minMillis = 0L) { pickedMillis = it; text = formatDateTime(it) } }
+        }
+        tvDateTime.text = formatDateTime(pickedMillis)
+        sheet.addView(TextView(ctx).apply {
+            text = "Check-in time (tap to change)"
+            textSize = 12f
+            setTextColor(0xFF64748B.toInt())
+        })
+        sheet.addView(tvDateTime)
         val etDriver = EditText(ctx).apply {
             hint = "Driver name (optional)"
             textSize = 14f
@@ -232,7 +241,7 @@ class VanCheckInFragment : Fragment() {
                 setPadding(dp(4), dp(14), dp(4), dp(14))
                 setOnClickListener {
                     dialog.dismiss()
-                    doCheckIn(van, etDriver.text?.toString()?.trim().orEmpty(), etNote.text?.toString()?.trim().orEmpty())
+                    doCheckIn(van, pickedMillis, etDriver.text?.toString()?.trim().orEmpty(), etNote.text?.toString()?.trim().orEmpty())
                 }
             }
             sheet.addView(row)
@@ -240,11 +249,15 @@ class VanCheckInFragment : Fragment() {
         dialog.show()
     }
 
-    private fun doCheckIn(van: VanCatalog.Van, driver: String, note: String) {
+    private fun doCheckIn(van: VanCatalog.Van, atMillis: Long, driver: String, note: String) {
+        if (atMillis > System.currentTimeMillis() + 60_000L) {
+            Toast.makeText(requireContext(), "Check-in time cannot be in the future", Toast.LENGTH_SHORT).show()
+            return
+        }
         pbLoading.isVisible = true
         lifecycleScope.launch {
             runCatching {
-                SupabaseVanMovements.checkIn(branchId, van.number, van.type, driver, note)
+                SupabaseVanMovements.checkIn(branchId, van.number, van.type, driver, note, atMillis)
             }.onSuccess {
                 Toast.makeText(requireContext(), "✓ ${van.number} checked in", Toast.LENGTH_SHORT).show()
                 load()
@@ -255,8 +268,101 @@ class VanCheckInFragment : Fragment() {
         }
     }
 
+    /** Check-out confirm: date+time default now, never before its own
+     *  check-in, never future. */
+    private fun showCheckOutSheet(m: VanMovement) {
+        val ctx = requireContext()
+        var pickedMillis = System.currentTimeMillis()
+        val sheet = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(16), dp(20), dp(20))
+        }
+        sheet.addView(TextView(ctx).apply {
+            text = "Check out ${m.vehicleNumber}?"
+            textSize = 16f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(0xFF0F172A.toInt())
+            setPadding(0, 0, 0, dp(4))
+        })
+        sheet.addView(TextView(ctx).apply {
+            text = "Checked in: ${formatDateTime(m.checkInAt)}"
+            textSize = 13f
+            setTextColor(0xFF64748B.toInt())
+            setPadding(0, 0, 0, dp(8))
+        })
+        val tvDateTime = TextView(ctx).apply {
+            textSize = 15f
+            setTextColor(0xFF0F172A.toInt())
+            setPadding(dp(4), dp(8), dp(4), dp(12))
+            setOnClickListener {
+                pickDateTime(pickedMillis, maxMillis = System.currentTimeMillis(), minMillis = m.checkInAt) { pickedMillis = it; text = formatDateTime(it) }
+            }
+        }
+        tvDateTime.text = formatDateTime(pickedMillis)
+        sheet.addView(tvDateTime)
+        val dialog = AlertDialog.Builder(ctx).setView(sheet)
+            .setPositiveButton("Check Out") { _, _ -> doCheckOut(m, pickedMillis) }
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.show()
+    }
+
+    private fun doCheckOut(m: VanMovement, atMillis: Long) {
+        if (atMillis < m.checkInAt) {
+            Toast.makeText(requireContext(), "Check-out cannot be before check-in", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (atMillis > System.currentTimeMillis() + 60_000L) {
+            Toast.makeText(requireContext(), "Check-out time cannot be in the future", Toast.LENGTH_SHORT).show()
+            return
+        }
+        pbLoading.isVisible = true
+        lifecycleScope.launch {
+            runCatching { SupabaseVanMovements.checkOut(m.id, atMillis) }
+                .onSuccess { load() }
+                .onFailure {
+                    pbLoading.isVisible = false
+                    Toast.makeText(requireContext(), it.message ?: "Check-out failed", Toast.LENGTH_LONG).show()
+                }
+        }
+    }
+
+    /**
+     * Date picker followed by time picker, clamped to [minMillis, maxMillis]
+     * (0 = no bound on that side). Calls [onPicked] with the combined instant.
+     */
+    private fun pickDateTime(currentMillis: Long, maxMillis: Long, minMillis: Long, onPicked: (Long) -> Unit) {
+        val ctx = requireContext()
+        val base = java.util.Calendar.getInstance().apply { timeInMillis = currentMillis }
+        android.app.DatePickerDialog(
+            ctx,
+            { _, y, mo, d ->
+                val dayStart = java.util.Calendar.getInstance().apply {
+                    set(y, mo, d, 0, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
+                }.timeInMillis
+                val t = java.util.Calendar.getInstance().apply { timeInMillis = currentMillis }
+                android.app.TimePickerDialog(
+                    ctx,
+                    { _, h, mi ->
+                        val picked = dayStart + h * 3_600_000L + mi * 60_000L
+                        onPicked(picked.coerceIn(minMillis.takeIf { it > 0L } ?: Long.MIN_VALUE, maxMillis.takeIf { it > 0L } ?: Long.MAX_VALUE))
+                    },
+                    t.get(java.util.Calendar.HOUR_OF_DAY), t.get(java.util.Calendar.MINUTE), false
+                ).show()
+            },
+            base.get(java.util.Calendar.YEAR), base.get(java.util.Calendar.MONTH), base.get(java.util.Calendar.DAY_OF_MONTH)
+        ).apply {
+            if (maxMillis > 0L) datePicker.maxDate = maxMillis
+            if (minMillis > 0L) datePicker.minDate = minMillis
+        }.show()
+    }
+
     private fun formatTime(millis: Long): String =
         if (millis <= 0L) "—" else timeFormat.format(Date(millis))
+
+    private fun formatDateTime(millis: Long): String =
+        if (millis <= 0L) "—"
+        else java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(millis))
 
     private fun elapsedSince(sinceMillis: Long): String {
         if (sinceMillis <= 0L) return "—"

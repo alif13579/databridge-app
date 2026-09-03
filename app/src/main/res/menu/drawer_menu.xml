@@ -90,9 +90,9 @@
             android:title="Leave Management"
             android:visible="false" />
         <item
-            android:id="@+id/nav_van_checkin"
+            android:id="@+id/nav_checkin"
             android:icon="@android:drawable/ic_menu_mylocation"
-            android:title="Van Check-In"
+            android:title="Check In"
             android:visible="false" />
     </group>
 

@@ -392,14 +392,14 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                         loadFragment(LeaveMyRequestsFragment.newInstance(branchId))
                     }
                 }
-                R.id.nav_van_checkin -> {
+                R.id.nav_checkin -> {
                     // Permission-gated drawer entry (admin-toggleable per role).
                     // Same branch-resolution pattern as petty cash above.
                     val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
                     if (branchId.isBlank()) {
                         Toast.makeText(this, "No branch assigned to this account", Toast.LENGTH_SHORT).show()
                     } else {
-                        loadFragment(VanCheckInFragment.newInstance(branchId, RbacManager.current.branchName))
+                        loadFragment(CheckInFragment.newInstance(branchId, RbacManager.current.branchName))
                     }
                 }
                 R.id.nav_login     -> launchGoogleSignIn()
@@ -636,8 +636,8 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 roleName.equals(LEAVE_APPROVER_ROLE_NAME, ignoreCase = true)
             isVisible = RbacManager.hasPermission("leave_requester") || isApprover
         }
-        menu.findItem(R.id.nav_van_checkin)?.apply {
-            isVisible = RbacManager.hasPermission("nav_van_checkin")
+        menu.findItem(R.id.nav_checkin)?.apply {
+            isVisible = RbacManager.hasPermission("nav_checkin")
         }
 
         // Primary nav items – no role gating; only permission-based

@@ -29,7 +29,7 @@
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:text="Van Check-In"
+            android:text="Check In"
             android:textSize="17sp"
             android:textStyle="bold"
             android:textColor="#0F172A"

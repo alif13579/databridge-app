@@ -634,13 +634,23 @@ Deno.serve(async (request) => {
       if (alreadyOpen && alreadyOpen.length > 0) {
         return reply({ error: 'Vehicle already checked in', movement_id: alreadyOpen[0].id }, 409)
       }
+      // Manual backdate allowed (the tap often comes late) — but never the
+      // future. 60s grace covers minor device clock skew.
+      const checkInRaw = typeof body.check_in_at === 'string' ? body.check_in_at.trim() : ''
+      const checkInAt = checkInRaw ? new Date(checkInRaw) : new Date()
+      if (Number.isNaN(checkInAt.getTime())) {
+        return reply({ error: 'Invalid check_in_at' }, 400)
+      }
+      if (checkInAt.getTime() > Date.now() + 60_000) {
+        return reply({ error: 'Check-in time cannot be in the future' }, 400)
+      }
       const recorder = await firebaseProfile(identity)
       const now = new Date().toISOString()
       const { data, error } = await admin.from('van_movements').insert({
         branch_id: branchId, vehicle_number: vehicleNumber,
         vehicle_type: str(body.vehicle_type), driver_name: str(body.driver_name),
         note: str(body.note),
-        check_in_at: now,
+        check_in_at: checkInAt.toISOString(),
         check_in_by_uid: identity.uid, check_in_by_system_id: recorder.systemId,
         created_at: now, updated_at: now,
       }).select('id').maybeSingle()
@@ -658,18 +668,36 @@ Deno.serve(async (request) => {
       }
       const recorder = await firebaseProfile(identity)
       const now = new Date().toISOString()
+      const targetId = body.movement_id.trim()
+      const { data: target, error: fetchError } = await admin.from('van_movements')
+        .select('id,check_in_at,check_out_at').eq('id', targetId).maybeSingle()
+      if (fetchError) throw fetchError
+      if (!target) return reply({ error: 'Movement not found' }, 404)
+      if (target.check_out_at) return reply({ ok: true, already: true })
+      // Manual correction allowed — but never before its own check-in and
+      // never the future (same 60s skew grace as check-in).
+      const checkOutRaw = typeof body.check_out_at === 'string' ? body.check_out_at.trim() : ''
+      const checkOutAt = checkOutRaw ? new Date(checkOutRaw) : new Date()
+      if (Number.isNaN(checkOutAt.getTime())) {
+        return reply({ error: 'Invalid check_out_at' }, 400)
+      }
+      if (checkOutAt.getTime() < new Date(target.check_in_at).getTime()) {
+        return reply({ error: 'Check-out time cannot be before check-in time' }, 400)
+      }
+      if (checkOutAt.getTime() > Date.now() + 60_000) {
+        return reply({ error: 'Check-out time cannot be in the future' }, 400)
+      }
       const { data, error } = await admin.from('van_movements').update({
-        check_out_at: now,
+        check_out_at: checkOutAt.toISOString(),
         check_out_by_uid: identity.uid, check_out_by_system_id: recorder.systemId,
         updated_at: now,
-      }).eq('id', body.movement_id.trim()).is('check_out_at', null)
+      }).eq('id', targetId).is('check_out_at', null)
         .select('id')
       if (error) throw error
       if (!data || data.length === 0) {
-        const { data: existing } = await admin.from('van_movements')
-          .select('id').eq('id', body.movement_id.trim()).limit(1)
-        if (existing && existing.length > 0) return reply({ ok: true, already: true })
-        return reply({ error: 'Movement not found' }, 404)
+        // Lost a race with another device's checkout between our read and
+        // write — that checkout already stamped it, same as already:true.
+        return reply({ ok: true, already: true })
       }
       console.info(`van_checkout ok: movement=${body.movement_id}`)
       return reply({ ok: true })
