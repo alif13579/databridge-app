@@ -142,6 +142,17 @@ report's users-embed fixed (was HTTP 300 ambiguous); store fields
 (consignment_id/store_id/store_name/pickup_count) restored to the
 claim_upsert write path with a new ClaimInfo.storeName carried through
 read/edit/display.
+25. **202609030003** (new migration file — apply via Management API +
+`migration repair`, same as 0001/0002 since local history lost the originals)
+— `van_movements` hub van in/out log (uuid PK; branch_id FK → branches;
+vehicle_number/type; driver_name; check_in/out_at; in/out by uid+system_id;
+note; created/updated_at), anon+authenticated branch-scoped SELECT
+(`branch_id = any (my_branch_ids())`, writes Edge-Function-only), plus a
+partial unique index (branch_id, vehicle_number) WHERE check_out_at IS NULL
+— one open row per van per branch, so concurrent double check-ins fail at
+the DB, not just the app. App side: VanCheckInFragment (drawer,
+nav_van_checkin permission) + static VanCatalog fleet + van_checkin/
+van_checkout Edge Function actions.
 
 ---
 

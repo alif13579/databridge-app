@@ -29,6 +29,7 @@ object PermissionCatalog {
         Perm("petty_cash_requester", "Requester", "Can submit new petty cash requests (e.g. Pickup Agent, Delivery Agent)"),
         Perm("nav_leave_management","Leave Management","Leave requests & Incharge/Shift Lead approval chain"),
         Perm("leave_requester", "Requester", "Can submit new leave requests (e.g. Pickup Agent, Delivery Agent)"),
+        Perm("nav_van_checkin",  "Van Check-In",  "Hub van arrival/departure log (check in/out with timestamps)"),
     )
 
     /**

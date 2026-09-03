@@ -14,6 +14,7 @@ The backend is a **hybrid — Supabase first, Firebase for the rest**. Rule of t
 |---|---|
 | Petty Cash claims (request → settle) | Supabase `public.claims` |
 | Wallet balance + deposits | Supabase `public.petty_cash_deposits`, `public.petty_cash_wallet_balance` |
+| Van check-in/out log | Supabase `public.van_movements` (static fleet list in `VanCatalog.kt`) |
 | Claim categories catalog | Supabase `public.claim_categories` (admin-managed) |
 | Branches, stores, users (synced copy) | Supabase `public.branches`, `public.stores`, `public.users` |
 | CC/Worker remarks audit log | Supabase `public.validations` + `public.validation_remarks` |
