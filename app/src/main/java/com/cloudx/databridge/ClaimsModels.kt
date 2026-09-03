@@ -48,11 +48,11 @@ data class ClaimInfo(
     val priority: String = PC_PRIORITY_NORMAL,
     val attachmentUrl: String = "",
     val attachmentName: String = "",
-    val staffByUid: String = "", val staffByName: String = "", val staffAt: Long = 0L, val staffComment: String = "",
-    val pocApprovedByUid: String = "", val pocApprovedByName: String = "", val pocComment: String = "",
-    val settleInProcessByUid: String = "", val settleInProcessByName: String = "", val settleInProcessAt: Long = 0L,
-    val settledByUid: String = "", val settledByName: String = "",
-    val rejectedByUid: String = "", val rejectedByName: String = "", val rejectedAt: Long = 0L, val rejectReason: String = ""
+    val staffByUid: String = "", val staffBySystemId: String = "", val staffByName: String = "", val staffAt: Long = 0L, val staffComment: String = "",
+    val pocApprovedByUid: String = "", val pocApprovedBySystemId: String = "", val pocApprovedByName: String = "", val pocComment: String = "",
+    val settleInProcessByUid: String = "", val settleInProcessBySystemId: String = "", val settleInProcessByName: String = "", val settleInProcessAt: Long = 0L,
+    val settledByUid: String = "", val settledBySystemId: String = "", val settledByName: String = "",
+    val rejectedByUid: String = "", val rejectedBySystemId: String = "", val rejectedByName: String = "", val rejectedAt: Long = 0L, val rejectReason: String = ""
 )
 
 /** Result of the one-time claims_by_employeeId -> claims_by_systemId backfill.

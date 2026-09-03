@@ -611,8 +611,8 @@ Deno.serve(async (request) => {
       }
       const { error } = await admin.from('claims').upsert({
         id: str(c.id), claim_code: str(c.claim_code),
-        branch_id: str(c.branch_id), branch_name: str(c.branch_name),
-        employee_id: str(c.employee_id), employee_name: str(c.employee_name), agent_system_id: str(c.agent_system_id),
+        branch_id: str(c.branch_id), agent_system_id: str(c.agent_system_id),
+        // branch_name and employee_name are not stored — joined at read time via FKs.
         type: str(c.type), category: str(c.category), purpose: str(c.purpose),
         consignment_id: str(c.consignment_id), store_id: str(c.store_id), store_name: str(c.store_name),
         pickup_count: num(c.pickup_count),
@@ -627,11 +627,11 @@ Deno.serve(async (request) => {
         worker_uid: str(c.worker_uid), worker_role: str(c.worker_role),
         requested_at: iso(c.requested_at), approved_at: iso(c.approved_at), settled_at: iso(c.settled_at),
         created_at: iso(c.created_at), updated_at: iso(c.updated_at),
-        staff_by_uid: str(c.staff_by_uid), staff_by_name: str(c.staff_by_name), staff_at: iso(c.staff_at), staff_comment: str(c.staff_comment),
-        poc_approved_by_uid: str(c.poc_approved_by_uid), poc_approved_by_name: str(c.poc_approved_by_name), poc_comment: str(c.poc_comment),
-        settle_in_process_by_uid: str(c.settle_in_process_by_uid), settle_in_process_by_name: str(c.settle_in_process_by_name), settle_in_process_at: iso(c.settle_in_process_at),
-        settled_by_uid: str(c.settled_by_uid), settled_by_name: str(c.settled_by_name),
-        rejected_by_uid: str(c.rejected_by_uid), rejected_by_name: str(c.rejected_by_name), rejected_at: iso(c.rejected_at), reject_reason: str(c.reject_reason),
+        staff_by_uid: str(c.staff_by_uid), staff_by_system_id: str(c.staff_by_system_id), staff_at: iso(c.staff_at), staff_comment: str(c.staff_comment),
+        poc_approved_by_uid: str(c.poc_approved_by_uid), poc_approved_by_system_id: str(c.poc_approved_by_system_id), poc_comment: str(c.poc_comment),
+        settle_in_process_by_uid: str(c.settle_in_process_by_uid), settle_in_process_by_system_id: str(c.settle_in_process_by_system_id), settle_in_process_at: iso(c.settle_in_process_at),
+        settled_by_uid: str(c.settled_by_uid), settled_by_system_id: str(c.settled_by_system_id),
+        rejected_by_uid: str(c.rejected_by_uid), rejected_by_system_id: str(c.rejected_by_system_id), rejected_at: iso(c.rejected_at), reject_reason: str(c.reject_reason),
       }, { onConflict: 'id' })
       if (error) {
         errLog('claim_upsert', 'db_upsert_failed', { claim_id: c?.id, pg_code: error.code, pg_message: error.message })

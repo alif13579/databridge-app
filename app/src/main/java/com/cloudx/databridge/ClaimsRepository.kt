@@ -213,18 +213,23 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
         updates["approvedAt"]?.let { c = c.copy(approvedAt = it as Long) }
         updates["settledAt"]?.let { c = c.copy(settledAt = it as Long) }
         updates["staffByUid"]?.let { c = c.copy(staffByUid = it as String) }
+        updates["staffBySystemId"]?.let { c = c.copy(staffBySystemId = it as String) }
         updates["staffByName"]?.let { c = c.copy(staffByName = it as String) }
         updates["staffAt"]?.let { c = c.copy(staffAt = it as Long) }
         updates["staffComment"]?.let { c = c.copy(staffComment = it as String) }
         updates["pocApprovedByUid"]?.let { c = c.copy(pocApprovedByUid = it as String) }
+        updates["pocApprovedBySystemId"]?.let { c = c.copy(pocApprovedBySystemId = it as String) }
         updates["pocApprovedByName"]?.let { c = c.copy(pocApprovedByName = it as String) }
         updates["pocComment"]?.let { c = c.copy(pocComment = it as String) }
         updates["settleInProcessByUid"]?.let { c = c.copy(settleInProcessByUid = it as String) }
+        updates["settleInProcessBySystemId"]?.let { c = c.copy(settleInProcessBySystemId = it as String) }
         updates["settleInProcessByName"]?.let { c = c.copy(settleInProcessByName = it as String) }
         updates["settleInProcessAt"]?.let { c = c.copy(settleInProcessAt = it as Long) }
         updates["settledByUid"]?.let { c = c.copy(settledByUid = it as String) }
+        updates["settledBySystemId"]?.let { c = c.copy(settledBySystemId = it as String) }
         updates["settledByName"]?.let { c = c.copy(settledByName = it as String) }
         updates["rejectedByUid"]?.let { c = c.copy(rejectedByUid = it as String) }
+        updates["rejectedBySystemId"]?.let { c = c.copy(rejectedBySystemId = it as String) }
         updates["rejectedByName"]?.let { c = c.copy(rejectedByName = it as String) }
         updates["rejectedAt"]?.let { c = c.copy(rejectedAt = it as Long) }
         updates["rejectReason"]?.let { c = c.copy(rejectReason = it as String) }

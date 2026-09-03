@@ -334,11 +334,13 @@ class PettyCashViewModel : ViewModel() {
     suspend fun acknowledgeRequest(branchId: String, requestId: String, comment: String = "", approvedAmount: Double? = null, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Staff" }
+        val actorSystemId = currentSystemId()
         val now = System.currentTimeMillis()
         claims.get(requestId) ?: throw IllegalStateException("Request not found")
         val updates = mutableMapOf<String, Any?>(
                 "status" to PC_STATUS_ACKNOWLEDGED,
                 "staffByUid" to uid,
+                "staffBySystemId" to actorSystemId,
                 "staffByName" to name,
                 "staffAt" to now,
                 "staffComment" to comment,
@@ -356,6 +358,7 @@ class PettyCashViewModel : ViewModel() {
     suspend fun approveRequest(branchId: String, requestId: String, comment: String = "", approvedAmount: Double? = null, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Cash POC" }
+        val actorSystemId = currentSystemId()
         val now = System.currentTimeMillis()
         val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
         // Defaults to the originally requested amount when the caller doesn't
@@ -365,6 +368,7 @@ class PettyCashViewModel : ViewModel() {
         claims.update(requestId, mapOf(
                 "status" to PC_STATUS_APPROVED,
                 "pocApprovedByUid" to uid,
+                "pocApprovedBySystemId" to actorSystemId,
                 "pocApprovedByName" to name,
                 "approvedAt" to now,
                 "pocComment" to comment,
@@ -378,11 +382,13 @@ class PettyCashViewModel : ViewModel() {
     suspend fun markReadyToSettle(branchId: String, requestId: String, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Accounts" }
+        val actorSystemId = currentSystemId()
         val now = System.currentTimeMillis()
         claims.get(requestId) ?: throw IllegalStateException("Request not found")
         claims.update(requestId, mapOf(
                 "status" to PC_STATUS_SETTLE_IN_PROCESS,
                 "settleInProcessByUid" to uid,
+                "settleInProcessBySystemId" to actorSystemId,
                 "settleInProcessByName" to name,
                 "settleInProcessAt" to now,
                 "updatedAt" to now
@@ -401,6 +407,7 @@ class PettyCashViewModel : ViewModel() {
     ): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Accounts" }
+        val actorSystemId = currentSystemId()
         val now = System.currentTimeMillis()
         val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
         // Defaults to what Cash POC approved (itself already defaulted to the original
@@ -432,6 +439,7 @@ class PettyCashViewModel : ViewModel() {
         claims.update(requestId, mapOf(
                 "status" to PC_STATUS_SETTLED,
                 "settledByUid" to uid,
+                "settledBySystemId" to actorSystemId,
                 "settledByName" to name,
                 "settledAt" to now,
                 "settledAmount" to finalSettledAmount,
@@ -446,11 +454,13 @@ class PettyCashViewModel : ViewModel() {
     suspend fun rejectRequest(branchId: String, requestId: String, reason: String, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName()
+        val actorSystemId = currentSystemId()
         val now = System.currentTimeMillis()
         claims.get(requestId) ?: throw IllegalStateException("Request not found")
         claims.update(requestId, mapOf(
                 "status" to PC_STATUS_REJECTED,
                 "rejectedByUid" to uid,
+                "rejectedBySystemId" to actorSystemId,
                 "rejectedByName" to name,
                 "rejectedAt" to now,
                 "rejectReason" to reason,

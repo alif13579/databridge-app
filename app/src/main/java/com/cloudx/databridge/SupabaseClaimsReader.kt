@@ -236,18 +236,27 @@ object SupabaseClaimsReader {
      *  just branchName/agentName. Used by [getById]/[search]/[searchMyClaims]
      *  below, which back ClaimsRepository's live get()/search()/
      *  searchMyClaims() post-cutover. */
+    /** Extracts `name` from a PostgREST aliased embed object, e.g.
+     *  `staff_user:staff_by_system_id(name)` → `{"staff_user":{"name":"..."}}`
+     *  Returns blank when the actor hasn't acted yet (null embed = no FK match). */
+    private fun JSONObject.embedName(alias: String): String =
+        optJSONObject(alias)?.optString("name").orEmpty()
+
     private fun JSONObject.toClaimInfo(): ClaimInfo {
         fun isoMillis(key: String): Long {
             val v = optString(key, "")
             return if (v.isBlank()) 0L else runCatching { java.time.Instant.parse(v).toEpochMilli() }.getOrDefault(0L)
         }
+        // Actor names are joined via PostgREST embed (see ACTOR_SELECT constant) —
+        // not stored as columns. Requester name comes from the `requester` embed
+        // (agent_system_id → users); branch name from the `branch` embed
+        // (branch_id → branches). Actor system_ids are plain columns.
         return ClaimInfo(
             claimId = optString("id"),
             claimCode = optString("claim_code"),
             branchId = optString("branch_id"),
-            branchName = optString("branch_name"),
-            employeeId = optString("employee_id"),
-            employeeName = optString("employee_name"),
+            branchName = embedName("branch"),
+            employeeName = embedName("requester"),
             agentSystemId = optString("agent_system_id"),
             type = optString("type"),
             category = optString("category"),
@@ -278,17 +287,43 @@ object SupabaseClaimsReader {
             priority = optString("priority").ifBlank { PC_PRIORITY_NORMAL },
             attachmentUrl = optString("attachment_url"),
             attachmentName = optString("attachment_name"),
-            staffByUid = optString("staff_by_uid"), staffByName = optString("staff_by_name"),
+            staffByUid = optString("staff_by_uid"),
+            staffBySystemId = optString("staff_by_system_id"),
+            staffByName = embedName("staff_user"),
             staffAt = isoMillis("staff_at"), staffComment = optString("staff_comment"),
-            pocApprovedByUid = optString("poc_approved_by_uid"), pocApprovedByName = optString("poc_approved_by_name"),
+            pocApprovedByUid = optString("poc_approved_by_uid"),
+            pocApprovedBySystemId = optString("poc_approved_by_system_id"),
+            pocApprovedByName = embedName("poc_user"),
             pocComment = optString("poc_comment"),
-            settleInProcessByUid = optString("settle_in_process_by_uid"), settleInProcessByName = optString("settle_in_process_by_name"),
+            settleInProcessByUid = optString("settle_in_process_by_uid"),
+            settleInProcessBySystemId = optString("settle_in_process_by_system_id"),
+            settleInProcessByName = embedName("settle_user"),
             settleInProcessAt = isoMillis("settle_in_process_at"),
-            settledByUid = optString("settled_by_uid"), settledByName = optString("settled_by_name"),
-            rejectedByUid = optString("rejected_by_uid"), rejectedByName = optString("rejected_by_name"),
+            settledByUid = optString("settled_by_uid"),
+            settledBySystemId = optString("settled_by_system_id"),
+            settledByName = embedName("settled_user"),
+            rejectedByUid = optString("rejected_by_uid"),
+            rejectedBySystemId = optString("rejected_by_system_id"),
+            rejectedByName = embedName("rejected_user"),
             rejectedAt = isoMillis("rejected_at"), rejectReason = optString("reject_reason")
         )
     }
+
+    /** PostgREST select that joins names for all actor system_id FKs.
+     *  Each alias maps to a `users` row via FK on that column:
+     *  requester=agent_system_id, staff_user=staff_by_system_id, etc.
+     *  branch joins branches via branch_id FK.
+     *  Used by getById/search/searchMyClaims — report methods keep their own
+     *  separate select (fetchClaimsForReport) unchanged. */
+    private const val ACTOR_SELECT =
+        "*," +
+        "branch:branch_id(name)," +
+        "requester:agent_system_id(name)," +
+        "staff_user:staff_by_system_id(name)," +
+        "poc_user:poc_approved_by_system_id(name)," +
+        "settle_user:settle_in_process_by_system_id(name)," +
+        "settled_user:settled_by_system_id(name)," +
+        "rejected_user:rejected_by_system_id(name)"
 
     /** Single claim by id, or null if it doesn't exist. Unlike the report
      *  methods above, this throws on failure (auth/network/HTTP error) rather
@@ -299,7 +334,7 @@ object SupabaseClaimsReader {
     suspend fun getById(claimId: String): ClaimInfo? = withContext(Dispatchers.IO) {
         if (claimId.isBlank()) return@withContext null
         val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
-        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/claims?select=*&id=eq.${claimId.encodeParam()}&limit=1"
+        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/claims?select=${ACTOR_SELECT.encodeParam()}&id=eq.${claimId.encodeParam()}&limit=1"
         val response = SupabaseClientManager.httpClient.newCall(
             Request.Builder().url(url)
                 .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
@@ -333,7 +368,7 @@ object SupabaseClaimsReader {
         require(filter.fromMillis in 1..filter.toMillis) { "Invalid date range" }
         val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
         val urlBuilder = StringBuilder("${SupabaseConfig.PROJECT_URL}/rest/v1/claims")
-            .append("?select=*")
+            .append("?select=").append(ACTOR_SELECT.encodeParam())
             .append("&branch_id=in.(").append(filter.branchIds.joinToString(",") { it.encodeParam() }).append(")")
             .append("&created_at=gte.").append(filter.fromMillis.toIsoInstant().encodeParam())
             .append("&created_at=lte.").append(filter.toMillis.toIsoInstant().encodeParam())
@@ -375,7 +410,7 @@ object SupabaseClaimsReader {
         val filter = ClaimsReportFilter(emptySet(), setOf(systemId), fromMillis, toMillis, newestFirst = newestFirst)
         val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
         val url = StringBuilder("${SupabaseConfig.PROJECT_URL}/rest/v1/claims")
-            .append("?select=*")
+            .append("?select=").append(ACTOR_SELECT.encodeParam())
             .append("&agent_system_id=eq.").append(systemId.encodeParam())
             .append("&created_at=gte.").append(fromMillis.toIsoInstant().encodeParam())
             .append("&created_at=lte.").append(toMillis.toIsoInstant().encodeParam())
