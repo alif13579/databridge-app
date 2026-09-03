@@ -100,6 +100,47 @@ object SupabaseClaimsReader {
         }
     }
 
+    suspend fun fetchStores(): List<Store> = withContext(Dispatchers.IO) {
+        val token = SupabaseClientManager.getAccessToken()
+        if (token == null) {
+            Log.e(TAG, "fetchStores skipped: no Firebase bearer token")
+            return@withContext emptyList()
+        }
+        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/stores?select=store_id,name,address,area_id,area_name,phone&order=name.asc"
+        try {
+            val response = SupabaseClientManager.httpClient.newCall(
+                Request.Builder().url(url)
+                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                    .addHeader("Authorization", "Bearer $token")
+                    .addHeader("Accept", "application/json")
+                    .get().build()
+            ).execute()
+            response.use {
+                val text = it.body?.string().orEmpty()
+                if (!it.isSuccessful) {
+                    Log.e(TAG, "fetchStores HTTP ${it.code}: ${text.take(1_000)}")
+                    return@withContext emptyList()
+                }
+                val arr = JSONArray(text)
+                List(arr.length()) { i ->
+                    val row = arr.getJSONObject(i)
+                    Store(
+                        id = row.optString("store_id"),
+                        storeId = row.optString("store_id"),
+                        name = row.optString("name"),
+                        address = row.optString("address"),
+                        areaId = row.optString("area_id"),
+                        areaName = row.optString("area_name"),
+                        phone = row.optString("phone")
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchStores failed", e)
+            emptyList()
+        }
+    }
+
     /**
      * Distinct non-blank values for [column] ('category' or 'status') across
      * every claims row for [branchId] — used to populate the report's dynamic

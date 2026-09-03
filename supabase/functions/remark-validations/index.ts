@@ -38,10 +38,16 @@ function errLog(action: string, reason: string, ctx: Record<string, unknown> = {
 async function firebaseIdentity(request: Request): Promise<{ uid: string; token: string }> {
   const token = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '')
   if (!token) throw new Error('Missing Firebase ID token')
-  const { payload } = await jwtVerify(token, firebaseJwks, {
-    algorithms: ['RS256'], audience: firebaseProjectId,
-    issuer: `https://securetoken.google.com/${firebaseProjectId}`,
-  })
+  let payload: { sub?: unknown }
+  try {
+    const result = await jwtVerify(token, firebaseJwks, {
+      algorithms: ['RS256'], audience: firebaseProjectId,
+      issuer: `https://securetoken.google.com/${firebaseProjectId}`,
+    })
+    payload = result.payload
+  } catch (e) {
+    throw new Error(`Firebase token verification failed: ${e instanceof Error ? e.message : String(e)}`)
+  }
   if (typeof payload.sub !== 'string' || !payload.sub) throw new Error('Invalid Firebase subject')
   return { uid: payload.sub, token }
 }
