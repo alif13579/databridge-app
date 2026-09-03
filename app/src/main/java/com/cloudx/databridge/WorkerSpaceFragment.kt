@@ -1439,6 +1439,14 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
+    /** Parcel-card remarks text: remark + note, with the note clearly labeled
+     *  so agents can tell the two apart ("Note: ..." — the same prefix the
+     *  history dialog in buildHistoryEntries() already uses). */
+    private fun cardRemarkText(row: org.json.JSONObject): String = listOf(
+        resolveRemarkBn(row),
+        row.optString("note").trim().takeIf { it.isNotBlank() }?.let { "Note: $it" }
+    ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
+
     /** Updates one visible worker card from a Supabase validation row without reloading the run. */
     private fun refreshOneWorkerParcelFromSupabase(cId: String, latestRemarkRow: org.json.JSONObject) {
         if (!isAdded || allParcels.none { it.id == cId }) return
@@ -1446,10 +1454,7 @@ class WorkerSpaceFragment : Fragment() {
             latestRemarkRow.optString("created_at")
         )
         val status = latestRemarkRow.optString("remarks_status").trim()
-        val remarkText = listOf(
-            resolveRemarkBn(latestRemarkRow),
-            latestRemarkRow.optString("note").trim()
-        ).filter { it.isNotBlank() }.joinToString("\n")
+        val remarkText = cardRemarkText(latestRemarkRow)
         if (status.isBlank() && remarkText.isBlank()) return
 
         workerLastSeenRemarkAt[cId] = maxOf(createdAt, workerLastSeenRemarkAt[cId] ?: 0L)
@@ -1767,10 +1772,7 @@ class WorkerSpaceFragment : Fragment() {
             // label (see history-building comment above), so the old "only show if from CC"
             // gate has no equivalent left; the badge always shows the latest remark's text now.
             val latestTodayCreatedAt = latestTodayRawEntry?.let { rowCreatedAtMillisBulk(it) } ?: 0L
-            val lastRemark = latestTodayRawEntry?.let { row ->
-                listOf(resolveRemarkBn(row), row.optString("note").trim())
-                    .filter { it.isNotBlank() }.joinToString("\n")
-            }.orEmpty()
+            val lastRemark = latestTodayRawEntry?.let { cardRemarkText(it) }.orEmpty()
             workerLastSeenRemarkAt[cId] = maxOf(latestTodayCreatedAt, todayBatchRequestedAtMs)
             val createdAtVal = detailSnap.child("createdAt").getValue(Long::class.java) ?: 0L
             val updatedAtVal = detailSnap.child("updatedAt").getValue(Long::class.java) ?: 0L
