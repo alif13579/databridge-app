@@ -61,6 +61,62 @@ object SupabaseClaimsReader {
     /** A branch entry for the report's branch-selector dropdown. */
     data class BranchOption(val branchId: String, val name: String)
 
+    /** One admin-managed claim category (see
+     *  supabase/migrations/202609030002_claim_categories.sql). [group] is one
+     *  of conveyance / operation / office / utilities and drives the Top
+     *  Sheet report grouping + the request form's field layout. */
+    data class ClaimCategory(val name: String, val group: String, val sortOrder: Int)
+
+    /** The branch's real Petty Cash POC, resolved via
+     *  branches.petty_cash_poc_uid (a Firebase uid) → public.users
+     *  (firebase_id). Null when the branch has no POC assigned or the users
+     *  row is missing — callers fall back to their previous stand-in. */
+    data class PocInfo(val name: String, val employeeId: String, val designation: String, val phone: String)
+
+    /**
+     * Lists active claim categories for the request form's picker, in admin
+     * order. Empty on any failure — callers fall back to the built-in
+     * Pickup/Bulk Delivery pair so the form never breaks offline. Free
+     * PostgREST read, no Edge Function.
+     */
+    suspend fun fetchClaimCategories(): List<ClaimCategory> = withContext(Dispatchers.IO) {
+        val token = SupabaseClientManager.getAccessToken()
+        if (token == null) {
+            Log.e(TAG, "fetchClaimCategories skipped: no Firebase bearer token")
+            return@withContext emptyList()
+        }
+        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/claim_categories" +
+            "?select=name,category_group,sort_order&is_active=eq.true&order=sort_order.asc"
+        try {
+            val response = SupabaseClientManager.httpClient.newCall(
+                Request.Builder().url(url)
+                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                    .addHeader("Authorization", "Bearer $token")
+                    .addHeader("Accept", "application/json")
+                    .get().build()
+            ).execute()
+            response.use {
+                val text = it.body?.string().orEmpty()
+                if (!it.isSuccessful) {
+                    Log.e(TAG, "fetchClaimCategories HTTP ${it.code}: ${text.take(1_000)}")
+                    return@withContext emptyList()
+                }
+                val arr = JSONArray(text)
+                List(arr.length()) { i ->
+                    val row = arr.getJSONObject(i)
+                    ClaimCategory(
+                        name = row.optString("name"),
+                        group = row.optString("category_group").ifBlank { "operation" },
+                        sortOrder = row.optInt("sort_order", 0)
+                    )
+                }.filter { it.name.isNotBlank() }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchClaimCategories failed", e)
+            emptyList()
+        }
+    }
+
     /**
      * Lists every branch, for the report's single-select branch dropdown — the
      * full list, so any branch can be chosen (see the discussion that settled on
@@ -97,6 +153,56 @@ object SupabaseClaimsReader {
         } catch (e: Exception) {
             Log.e(TAG, "fetchBranches failed", e)
             emptyList()
+        }
+    }
+
+    /**
+     * The branch's real Petty Cash POC for the report header — resolved via
+     * the branch row's petty_cash_poc_uid (a Firebase uid) against
+     * public.users (firebase_id). Null when the branch has no POC assigned
+     * or the users row is missing; callers keep their previous fallback.
+     * Throws on auth/network/HTTP error (a failed request is not the same
+     * as "no POC assigned").
+     */
+    suspend fun fetchPocForBranch(branchId: String): PocInfo? = withContext(Dispatchers.IO) {
+        if (branchId.isBlank()) return@withContext null
+        val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
+        val branchUrl = "${SupabaseConfig.PROJECT_URL}/rest/v1/branches" +
+            "?select=petty_cash_poc_uid&branch_id=eq.${branchId.encodeParam()}&limit=1"
+        val pocUid = SupabaseClientManager.httpClient.newCall(
+            Request.Builder().url(branchUrl)
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Accept", "application/json")
+                .get().build()
+        ).execute().use {
+            val text = it.body?.string().orEmpty()
+            if (!it.isSuccessful) error("fetchPocForBranch (branch) HTTP ${it.code}: ${text.take(1_000)}")
+            val arr = JSONArray(text)
+            if (arr.length() == 0) error("Branch not found")
+            arr.getJSONObject(0).optString("petty_cash_poc_uid").trim()
+        }
+        if (pocUid.isBlank()) return@withContext null
+        val userUrl = "${SupabaseConfig.PROJECT_URL}/rest/v1/users" +
+            "?select=name,employee_id,designation,phone&firebase_id=eq.${pocUid.encodeParam()}&limit=1"
+        SupabaseClientManager.httpClient.newCall(
+            Request.Builder().url(userUrl)
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Accept", "application/json")
+                .get().build()
+        ).execute().use {
+            val text = it.body?.string().orEmpty()
+            if (!it.isSuccessful) error("fetchPocForBranch (user) HTTP ${it.code}: ${text.take(1_000)}")
+            val arr = JSONArray(text)
+            if (arr.length() == 0) return@withContext null
+            val row = arr.getJSONObject(0)
+            PocInfo(
+                name = row.optString("name"),
+                employeeId = row.optString("employee_id"),
+                designation = row.optString("designation"),
+                phone = row.optString("phone")
+            )
         }
     }
 
@@ -220,7 +326,13 @@ object SupabaseClaimsReader {
             Log.e(TAG, "fetchClaimsForReport skipped: no Firebase bearer token")
             return@withContext emptyList()
         }
-        val select = "*,branches(name,region,petty_cash_limit),users(name,phone,designation,employee_id)"
+        val select = "*,branches(name,region,petty_cash_limit)," +
+            // users(...) alone is ambiguous — claims has 6 FKs into users
+            // (requester/staff/poc/settle/settled/rejected), so PostgREST
+            // answers HTTP 300 PGRST201. The alias:fk_column form (same as
+            // ACTOR_SELECT below) pins the requester FK while keeping the
+            // "users" response key ClaimRow parses.
+            "users:requester_system_id(name,phone,designation,employee_id)"
         val urlBuilder = StringBuilder("${SupabaseConfig.PROJECT_URL}/rest/v1/claims")
             .append("?select=").append(select.encodeParam())
             .append("&branch_id=eq.").append(branchId.encodeParam())
@@ -322,6 +434,7 @@ object SupabaseClaimsReader {
             workerUid = optString("worker_uid"),
             workerRole = optString("worker_role"),
             storeId = optString("store_id"),
+            storeName = optString("store_name"),
             pickupCount = optInt("pickup_count", 0),
             priority = optString("priority").ifBlank { PC_PRIORITY_NORMAL },
             attachmentUrl = optString("attachment_url"),

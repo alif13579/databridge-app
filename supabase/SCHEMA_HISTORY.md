@@ -131,6 +131,17 @@ Firebase index tools isolated in FirebaseClaimsIndexMigration; store picker
 reads public.stores. Courier-directory reads (areas, consignment preview),
 Firebase Auth (Supabase Third-party Auth tokens), FCM, and the Edge
 Function's Firebase profile lookups intentionally remain.
+24. **202609030002** (new migration file — apply via `supabase db push`)
+— `claim_categories` catalog (name PK, group check:
+conveyance/operation/office/utilities, is_active, sort_order), anon+
+authenticated SELECT with a using(true) read policy (public catalog, same
+pattern as validation_remarks), writes admin-only via Dashboard/service
+role. Seeded with Bulk Delivery + Pickup (both conveyance). App side:
+request form picker + Top Sheet grouping/voucher filter read this table;
+report's users-embed fixed (was HTTP 300 ambiguous); store fields
+(consignment_id/store_id/store_name/pickup_count) restored to the
+claim_upsert write path with a new ClaimInfo.storeName carried through
+read/edit/display.
 
 ---
 

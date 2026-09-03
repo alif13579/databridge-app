@@ -502,7 +502,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                     }
                 })
             if (result.isSuccess) {
-                Toast.makeText(requireContext(), "✓ Firebase saved", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "✓ Settled", Toast.LENGTH_SHORT).show()
                 parentFragmentManager.beginTransaction()
                     .replace(R.id.container, PettyCashSettlementSuccessFragment.newInstance(branchId, requestCode))
                     .addToBackStack(null)
@@ -557,7 +557,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                             }
                         })
                     if (result.isSuccess) {
-                        Toast.makeText(requireContext(), "✓ Firebase saved — $requestCode rejected", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(requireContext(), "✓ $requestCode rejected", Toast.LENGTH_SHORT).show()
                         parentFragmentManager.popBackStack()
                     } else {
                         Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Reject failed", Toast.LENGTH_SHORT).show()
@@ -584,7 +584,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                             }
                         })
                     if (result.isSuccess) {
-                        Toast.makeText(requireContext(), "✓ Firebase saved — $requestCode deleted", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(requireContext(), "✓ $requestCode deleted", Toast.LENGTH_SHORT).show()
                         parentFragmentManager.popBackStack()
                     } else {
                         Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Delete failed", Toast.LENGTH_SHORT).show()
@@ -620,7 +620,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 }
             }
             if (result.isSuccess) {
-                Toast.makeText(requireContext(), "✓ Firebase saved — Done", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "✓ Done", Toast.LENGTH_SHORT).show()
                 if (branchId.isNotBlank()) viewModel.load(branchId)
             } else {
                 Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Action failed", Toast.LENGTH_SHORT).show()

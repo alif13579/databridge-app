@@ -43,42 +43,26 @@ object PettyCashTopSheetPdfWriter {
     private val dateDisplayFormat = SimpleDateFormat("dd-MM-yy", Locale.US)
     private val dateIsoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    // The 3 top-level PDF groups and which category values (see migration
-    // 202608260001's category-column comment for the canonical 18-item list)
-    // fall under each. Conveyance ("Parcel Pickup/Delivery/Bulk Parcel Delivery
-    // Conveyance") is derived from `type`, not `category` — handled separately
-    // in buildExpenseSummaryRows() below, not listed here.
-    private val operationExpenseCategories = listOf(
-        "Parcel Sending Cost (Hub To Hub)",
-        "Parcel Receiving Cost (Van/Point To Hub)",
-        "Pickup Van Parking",
-        "Cycle Parking Bill",
-        "Toll Fee",
-    )
-    private val officeMaintenanceCategories = listOf(
-        "Print And Photocopy Cost",
-        "Office Accessories Purchase",
-        "Internet Connection Cost",
-        "CCTV Setup And Maintenance Cost",
-        "IPS Set-Up And Servicing Cost",
-    )
-    private val utilitiesCategories = listOf(
-        "Internet Bill",
-        "Regarding Mobile Bill For QC Team Member",
-        "Gas Bill",
-        "Local Security Guard Bill",
-        "Garbage Bill",
-        "Water/Wasa Bill",
-        "Cleaner Bill",
-        "Transgender Bill",
-    )
+    // Legacy conveyance types (pre-catalog data, e.g. the reference PDF's
+    // InterChange rows): any settled claim whose category isn't in the admin
+    // catalog falls back here — conveyance iff its category or type is in
+    // this set, otherwise the operation group, so page-1 totals always stay
+    // balanced (operation + office + utilities == grand total).
+    private val legacyConveyanceTypes = setOf("Pickup", "Bulk Delivery", "InterChange", "Inter Change")
 
     /**
      * Builds the full report PDF for one branch over [fromDateIso, toDateIso]
      * (both "yyyy-MM-dd") from [claims] (already scoped to that branch/range —
      * see SupabaseClaimsReader.fetchClaimsForReport) and writes it to [outFile].
      * Only settled claims (status == "settled") are counted into any total —
-     * a pending/rejected claim isn't an actual expense yet.
+     * a pending/rejected claim isn't an actual expense yet, and every Amount
+     * shown is the settled amount (the actual payout), never requested.
+     *
+     * [categoryGroups] maps category name → group (conveyance / operation /
+     * office / utilities) from the admin-managed claim_categories catalog.
+     * Conveyance-group claims are counted via their `type` rows (never also
+     * as a category row — type mirrors category, so counting both would
+     * double up); every other group via its category rows.
      */
     fun generate(
         outFile: File,
@@ -92,8 +76,20 @@ object PettyCashTopSheetPdfWriter {
         pocContact: String,
         fromDateIso: String,
         toDateIso: String,
+        categoryGroups: Map<String, String> = emptyMap(),
     ) {
         val settled = claims.filter { it.status.equals("settled", ignoreCase = true) }
+        fun groupOf(category: String): String =
+            categoryGroups[category]
+                ?: if (category in legacyConveyanceTypes) "conveyance" else "operation"
+        // A conveyance claim is identified by its category's group — or, for
+        // pre-catalog rows, by a legacy conveyance type saved as `type`
+        // (reference PDF's InterChange rows). Description always shows the
+        // saved type verbatim, however it got here.
+        fun isConveyanceClaim(row: SupabaseClaimsReader.ClaimRow): Boolean =
+            groupOf(row.category) == "conveyance" || row.type in legacyConveyanceTypes
+        fun categoryTotal(category: String) = settled.filter { it.category == category }.sumOf { it.settledAmount }
+        fun typeTotal(type: String) = settled.filter { it.type.equals(type, ignoreCase = true) }.sumOf { it.settledAmount }
         val pdf = PdfDocument()
         var pageNum = 1
         var page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create())
@@ -107,30 +103,52 @@ object PettyCashTopSheetPdfWriter {
         }
 
         // ── Page 1: Top Sheet ──────────────────────────────────────────────
+        // Conveyance claims count only via their type rows (never also as a
+        // category row — type mirrors category, counting both would double
+        // up); every other group via its category rows.
+        val conveyanceTotal = settled.filter { isConveyanceClaim(it) }.sumOf { it.settledAmount }
+        val operationTotal =
+            settled.filter { !isConveyanceClaim(it) && groupOf(it.category) == "operation" }.sumOf { it.settledAmount } + conveyanceTotal
+        val officeTotal = settled.filter { !isConveyanceClaim(it) && groupOf(it.category) == "office" }.sumOf { it.settledAmount }
+        val utilitiesTotal = settled.filter { !isConveyanceClaim(it) && groupOf(it.category) == "utilities" }.sumOf { it.settledAmount }
         drawTopSheetPage(
-            canvas, settled, branchName, branchRegion, pettyCashLimit,
+            canvas, operationTotal, officeTotal, utilitiesTotal,
+            branchName, branchRegion, pettyCashLimit,
             pocName, pocEmployeeId, pocDesignation, pocContact, fromDateIso, toDateIso,
         )
 
         // ── Page 2: Petty Cash Expense Summary ──────────────────────────────
         startNewPage()
+        // Dynamic rows straight from the data: distinct categories per group
+        // plus one row per saved conveyance type (verbatim — Pickup, Bulk
+        // Delivery, InterChange, whatever the table holds).
+        val opCategoryRows = settled.map { it.category }.distinct()
+            .filter { groupOf(it) == "operation" }.sorted()
+            .map { it to categoryTotal(it) }
+        val convTypeRows = settled.filter { isConveyanceClaim(it) }.map { it.type }.distinct()
+            .map { it to typeTotal(it) }
+        val officeRows = settled.map { it.category }.distinct()
+            .filter { groupOf(it) == "office" }.sorted()
+            .map { it to categoryTotal(it) }
+        val utilitiesRows = settled.map { it.category }.distinct()
+            .filter { groupOf(it) == "utilities" }.sorted()
+            .map { it to categoryTotal(it) }
         drawExpenseSummaryPage(
-            canvas, settled, branchName, branchRegion,
+            canvas, opCategoryRows, convTypeRows, officeRows, utilitiesRows,
+            branchName, branchRegion,
             pocName, pocEmployeeId, pocDesignation, pocContact, fromDateIso, toDateIso,
         )
 
         // ── Page 3: Agent Acknowledgement ────────────────────────────────────
         startNewPage()
-        drawAgentAcknowledgementPage(canvas, settled, fromDateIso)
+        drawAgentAcknowledgementPage(canvas, settled, fromDateIso, pocName, pocEmployeeId, pocDesignation)
 
         // ── Page 4+: Conveyance Voucher, one page per agent with conveyance
-        // claims (Pickup/Bulk Delivery). Agents ordered by their first
-        // appearance in the settled list, matching the Agent Acknowledgement
-        // page's SL order — so voucher pages read in the same agent order the
-        // preceding page lists them in. ──
-        val conveyanceClaims = settled.filter {
-            it.type.equals("Pickup", ignoreCase = true) || it.type.equals("Bulk Delivery", ignoreCase = true)
-        }
+        // claims. Agents ordered by their first appearance in the settled
+        // list, matching the Agent Acknowledgement page's SL order — so
+        // voucher pages read in the same agent order the preceding page
+        // lists them in. ──
+        val conveyanceClaims = settled.filter { isConveyanceClaim(it) }
         val agentOrder = LinkedHashSet<String>()
         settled.forEach { agentOrder.add(it.agentSystemId) }
         var voucherSl = 1
@@ -152,7 +170,7 @@ object PettyCashTopSheetPdfWriter {
 
     private fun drawTopSheetPage(
         canvas: Canvas,
-        settled: List<SupabaseClaimsReader.ClaimRow>,
+        operationTotal: Double, officeTotal: Double, utilitiesTotal: Double,
         branchName: String, branchRegion: String, pettyCashLimit: Double,
         pocName: String, pocEmployeeId: String, pocDesignation: String, pocContact: String,
         fromDateIso: String, toDateIso: String,
@@ -190,11 +208,7 @@ object PettyCashTopSheetPdfWriter {
         y = drawSectionHeaderRow(canvas, y, "Region Name: $branchRegion", strokeBorder, labelPaint)
         y += 14f
 
-        // 3-group cost table.
-        val operationTotal = settled.filter { it.category in operationExpenseCategories }.sumOf { it.settledAmount } +
-            settled.filter { it.type.equals("Pickup", true) || it.type.equals("Bulk Delivery", true) }.sumOf { it.settledAmount }
-        val officeTotal = settled.filter { it.category in officeMaintenanceCategories }.sumOf { it.settledAmount }
-        val utilitiesTotal = settled.filter { it.category in utilitiesCategories }.sumOf { it.settledAmount }
+        // 3-group cost table (totals computed by the caller from the settled list).
         val totalCost = operationTotal + officeTotal + utilitiesTotal
 
         y = drawTableHeaderRow(canvas, y, listOf("SL" to 0.1f, "Description" to 0.7f, "Amount" to 0.2f), strokeBorder, headerFillColor)
@@ -226,7 +240,10 @@ object PettyCashTopSheetPdfWriter {
 
     private fun drawExpenseSummaryPage(
         canvas: Canvas,
-        settled: List<SupabaseClaimsReader.ClaimRow>,
+        opCategoryRows: List<Pair<String, Double>>,
+        convTypeRows: List<Pair<String, Double>>,
+        officeRows: List<Pair<String, Double>>,
+        utilitiesRows: List<Pair<String, Double>>,
         branchName: String, branchRegion: String,
         pocName: String, pocEmployeeId: String, pocDesignation: String, pocContact: String,
         fromDateIso: String, toDateIso: String,
@@ -251,32 +268,20 @@ object PettyCashTopSheetPdfWriter {
         y = drawTwoColLabelRow(canvas, y, "Contact Number: $pocContact", "Region Name: $branchRegion", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
         y += 10f
 
-        fun categoryTotal(category: String) = settled.filter { it.category == category }.sumOf { it.settledAmount }
-        fun typeTotal(type: String) = settled.filter { it.type.equals(type, ignoreCase = true) }.sumOf { it.settledAmount }
-
         val rowHeightSmall = 12f
 
-        // A. Operation Expense — 3 conveyance rows (from `type`) + 5 category rows.
+        // A. Operation Expense — operation-group category rows first, then one
+        // row per saved conveyance type (verbatim from the data).
         y = drawSummaryGroupHeader(canvas, y, "A. Operation Expense", "Amount", strokeBorder, headerFillColor)
-        val operationRows = listOf(
-            "Parcel Sending Cost (Hub To Hub)" to categoryTotal("Parcel Sending Cost (Hub To Hub)"),
-            "Parcel Receiving Cost(Van/Point To Hub)" to categoryTotal("Parcel Receiving Cost (Van/Point To Hub)"),
-            "Parcel Pickup Conveyance" to typeTotal("Pickup"),
-            "Parcel Delivery Conveyance" to 0.0, // `type` has no plain "Delivery" value — see category comment.
-            "Bulk Parcel Delivery Conveyance" to typeTotal("Bulk Delivery"),
-            "Pickup Van Parking" to categoryTotal("Pickup Van Parking"),
-            "Cycle Parking Bill" to categoryTotal("Cycle Parking Bill"),
-            "Toll Fee" to categoryTotal("Toll Fee"),
-        )
+        val operationRows = opCategoryRows + convTypeRows
         operationRows.forEachIndexed { i, (label, amount) ->
             y = drawSummaryLineRow(canvas, y, i + 1, label, amount, rowHeightSmall, strokeBorder)
         }
-        val operationTotal = operationRows.sumOf { it.second }
-        y = drawSummaryTotalRow(canvas, y, "Total Operation Expense", operationTotal, strokeBorder)
+        val operationSectionTotal = operationRows.sumOf { it.second }
+        y = drawSummaryTotalRow(canvas, y, "Total Operation Expense", operationSectionTotal, strokeBorder)
 
         // B. Office Maintenance Cost.
         y = drawSummaryGroupHeader(canvas, y, "B. Office Maintaince Cost", "Amount", strokeBorder, headerFillColor)
-        val officeRows = officeMaintenanceCategories.map { it to categoryTotal(it) }
         officeRows.forEachIndexed { i, (label, amount) ->
             y = drawSummaryLineRow(canvas, y, i + 1, label, amount, rowHeightSmall, strokeBorder)
         }
@@ -285,7 +290,6 @@ object PettyCashTopSheetPdfWriter {
 
         // C. Utilities Expense.
         y = drawSummaryGroupHeader(canvas, y, "C. Utilities Expense", "Amount", strokeBorder, headerFillColor)
-        val utilitiesRows = utilitiesCategories.map { it to categoryTotal(it) }
         utilitiesRows.forEachIndexed { i, (label, amount) ->
             y = drawSummaryLineRow(canvas, y, i + 1, label, amount, rowHeightSmall, strokeBorder)
         }
@@ -293,7 +297,7 @@ object PettyCashTopSheetPdfWriter {
         y = drawSummaryTotalRow(canvas, y, "Total Utilities Expense", utilitiesTotal, strokeBorder)
 
         y += 8f
-        val grandTotal = operationTotal + officeTotal + utilitiesTotal
+        val grandTotal = operationSectionTotal + officeTotal + utilitiesTotal
         y = drawSummaryTotalRow(canvas, y, "Total Cost (A+B+C)", grandTotal, strokeBorder, emphasize = true)
         y += 20f
 
@@ -314,6 +318,9 @@ object PettyCashTopSheetPdfWriter {
         canvas: Canvas,
         settled: List<SupabaseClaimsReader.ClaimRow>,
         fromDateIso: String,
+        pocName: String,
+        pocEmployeeId: String,
+        pocDesignation: String,
     ) {
         var y = margin
         val titlePaint = textPaint(darkColor, 12f, bold = true).apply { textAlign = Paint.Align.CENTER }
@@ -327,9 +334,9 @@ object PettyCashTopSheetPdfWriter {
         canvas.drawText("Agent Acknowledgement ($monthYearLabel)", margin + contentWidth / 2, y + 12f, titlePaint)
         y += 18f
 
-        // Group settled claims per agent — Amount and Total Delivered summed
+        // Group settled claims per agent — Amount and Total Succeeded summed
         // across every settled claim (not only conveyance ones), per the
-        // reference PDF's "Amount"/"Total Delivered" columns.
+        // reference PDF's "Amount"/quantity columns.
         data class AgentSummary(val systemId: String, val name: String, val phone: String, val amount: Double, val delivered: Int)
         val bySystemId = settled.groupBy { it.agentSystemId }
         val summaries = bySystemId.map { (systemId, rows) ->
@@ -342,10 +349,14 @@ object PettyCashTopSheetPdfWriter {
             )
         }.sortedBy { it.name }
 
-        y = drawTwoColLabelRow(canvas, y, "E ID: ${summaries.firstOrNull()?.systemId.orEmpty()}", "Name: ", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
+        y = drawTwoColLabelRow(canvas, y, "E ID: $pocEmployeeId", "Name: $pocName", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
+        y = drawTwoColLabelRow(canvas, y, "Department: Fulfillment", "Designation: $pocDesignation", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
         y = drawSectionHeaderRow(canvas, y, "Purpose: Petty Cash", strokeBorder, labelPaint)
 
-        val headers = listOf("SL" to 0.06f, "Name" to 0.22f, "ID" to 0.12f, "Amount" to 0.12f, "Total Delivered" to 0.13f, "Active Contact Number" to 0.17f, "Received by Signature" to 0.18f)
+        // "Succeeded" is neutral for both pickup and delivery claims (a
+        // delivered parcel and a completed pickup are both successes) —
+        // "Delivered" alone read as delivery-only.
+        val headers = listOf("SL" to 0.06f, "Name" to 0.22f, "ID" to 0.12f, "Amount" to 0.12f, "Total Succeeded" to 0.13f, "Active Contact Number" to 0.17f, "Received by Signature" to 0.18f)
         y = drawTableHeaderRow(canvas, y, headers, strokeBorder, headerFillColor)
         summaries.forEachIndexed { i, s ->
             y = drawDataRow(
@@ -387,7 +398,7 @@ object PettyCashTopSheetPdfWriter {
         y = drawTwoColLabelRow(canvas, y, "Designation: ${first.agentDesignation.ifBlank { "Delivery Agent" }}", "Department: Fulfillment", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
         y += 8f
 
-        val headers = listOf("Date" to 0.11f, "From" to 0.13f, "Destination" to 0.13f, "Description" to 0.14f, "Vehicle" to 0.09f, "Amount" to 0.09f, "Attempt quantity" to 0.10f, "Delivered" to 0.09f, "CID / Merchant" to 0.12f)
+        val headers = listOf("Date" to 0.11f, "From" to 0.13f, "Destination" to 0.13f, "Description" to 0.14f, "Vehicle" to 0.09f, "Amount" to 0.09f, "Attempted" to 0.10f, "Succeeded" to 0.09f, "CID / Merchant" to 0.12f)
         y = drawTableHeaderRow(canvas, y, headers, strokeBorder, headerFillColor)
         agentClaims.forEach { claim ->
             val dateLabel = runCatching { dateDisplayFormat.format(dateIsoFormat.parse(claim.placedDate) ?: java.util.Date()) }.getOrDefault(claim.placedDate)
@@ -404,7 +415,7 @@ object PettyCashTopSheetPdfWriter {
         val gTotal = agentClaims.sumOf { it.settledAmount }
         val totalDelivered = agentClaims.sumOf { it.deliveredQuantity }
         y += 4f
-        canvas.drawText("G/Total = ${moneyFormat.format(gTotal)}   Total Delivered = $totalDelivered", margin, y + 9f, textPaint(darkColor, 8.5f, bold = true))
+        canvas.drawText("G/Total = ${moneyFormat.format(gTotal)}   Total Succeeded = $totalDelivered", margin, y + 9f, textPaint(darkColor, 8.5f, bold = true))
         y += 16f
         canvas.drawText("In word: ${amountInWords(gTotal)}", margin, y, textPaint(darkColor, 8.5f))
     }

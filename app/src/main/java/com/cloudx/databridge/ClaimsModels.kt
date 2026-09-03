@@ -44,6 +44,7 @@ data class ClaimInfo(
     val workerUid: String = "",
     val workerRole: String = "",
     val storeId: String = "",
+    val storeName: String = "",
     val pickupCount: Int = 0,
     val priority: String = PC_PRIORITY_NORMAL,
     val attachmentUrl: String = "",
@@ -96,7 +97,7 @@ data class ClaimsReport(
 fun ClaimInfo.asPettyCashRequest(): PettyCashRequest = PettyCashRequest(
     id = claimId, branchId = branchId, requestCode = claimCode, workerUid = workerUid,
     workerName = employeeName, workerRole = workerRole, category = category,
-    consignmentId = consignmentId, storeId = storeId,
+    consignmentId = consignmentId, storeId = storeId, storeName = storeName,
     pickupCount = pickupCount, vehicle = vehicle, fromArea = fromArea, toArea = toArea,
     attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
     purpose = purpose, amount = requestedAmount, priority = priority,

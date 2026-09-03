@@ -63,7 +63,12 @@ class PettyCashRequestCreateFragment : Fragment() {
     private var editRequestId: String = ""
     private val isEditMode: Boolean get() = editRequestId.isNotBlank()
 
-    private val categoryOptions = listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP)
+    private val categoryOptionsFallback = listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP)
+    private var categoryOptions: List<String> = categoryOptionsFallback
+    // Admin-managed category → group map (conveyance / operation / office /
+    // utilities). Empty until loaded — every branch below falls back to the
+    // two known names so the form works offline exactly as before.
+    private var categoryGroups: Map<String, String> = emptyMap()
     private var stores: List<Store> = emptyList()
     private var storesLoaded = false
 
@@ -87,6 +92,25 @@ class PettyCashRequestCreateFragment : Fragment() {
     private var selectedFromAreaLabel: String = "Office"
     private var selectedToArea: String = "OFFICE"
     private var selectedToAreaLabel: String = "Office"
+
+    // Expense date — defaults to today (the created date); a past date can be
+    // picked for backdated expenses, never a future one.
+    private var selectedExpenseDate: Long = startOfDay(System.currentTimeMillis())
+    private lateinit var tvExpenseDateSelected: TextView
+
+    private fun startOfDay(millis: Long): Long = java.util.Calendar.getInstance().apply {
+        timeInMillis = millis
+        set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    /** Conveyance layout (vehicle/from/to + quantities) for the two known
+     *  names even before the catalog loads, otherwise by the admin-managed
+     *  group — so a future conveyance category (e.g. InterChange) gets the
+     *  same fields without an app release. */
+    private fun isConveyanceCategory(category: String): Boolean =
+        categoryGroups[category]?.let { it == "conveyance" }
+            ?: (category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY)
 
     // Attachment state. attachmentUrl is what actually gets saved onto the
     // request (empty until upload succeeds) — despite the name, this holds
@@ -222,9 +246,11 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvToAreaSelected = view.findViewById(R.id.tvPcRequestToAreaSelected)
         etAttemptQuantity = view.findViewById(R.id.etPcRequestAttemptQuantity)
         etDeliveredQuantity = view.findViewById(R.id.etPcRequestDeliveredQuantity)
-        // Always derived, never typed directly -- see applyConveyanceDefaults():
-        // mirrors Number of Pickups for Pickup, fixed at 1 for Bulk Delivery
-        // (exactly one consignment id per request).
+        // Always derived for Pickup/Bulk Delivery, never typed directly -- see
+        // applyConveyanceDefaults(): mirrors Number of Pickups for Pickup,
+        // fixed at 1 for Bulk Delivery (exactly one consignment id per
+        // request). applyCategory() re-enables them for any other conveyance
+        // category, which has nothing to mirror from.
         etAttemptQuantity.isEnabled = false
         etDeliveredQuantity.isEnabled = false
 
@@ -237,6 +263,9 @@ class PettyCashRequestCreateFragment : Fragment() {
         })
         groupAmount = view.findViewById(R.id.groupPcAmount)
         etAmount = view.findViewById(R.id.etPcRequestAmount)
+        tvExpenseDateSelected = view.findViewById(R.id.tvPcRequestExpenseDateSelected)
+        updateExpenseDateLabel()
+        view.findViewById<View>(R.id.layoutPcRequestExpenseDate).setOnClickListener { showExpenseDatePicker() }
         etPurpose = view.findViewById(R.id.etPcRequestPurpose)
         tvPurposeCount = view.findViewById(R.id.tvPcRequestPurposeCount)
         tvAttachmentName = view.findViewById(R.id.tvPcRequestAttachmentName)
@@ -277,6 +306,7 @@ class PettyCashRequestCreateFragment : Fragment() {
 
         loadStores()
         loadAreas()
+        loadClaimCategories()
 
         if (isEditMode) {
             viewModel.state.observe(viewLifecycleOwner) { state -> prefillIfEditing(state) }
@@ -322,14 +352,57 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
         if (request.attemptQuantity > 0) etAttemptQuantity.setText(request.attemptQuantity.toString())
         if (request.deliveredQuantity > 0) etDeliveredQuantity.setText(request.deliveredQuantity.toString())
+        if (request.requestedDate > 0L) {
+            selectedExpenseDate = request.requestedDate
+            updateExpenseDateLabel()
+        }
         prefilled = true
     }
 
     private fun showCategoryPicker() {
+        val options = categoryOptions.ifEmpty { categoryOptionsFallback }
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Select Category")
-            .setItems(categoryOptions.toTypedArray()) { _, index -> applyCategory(categoryOptions[index]) }
+            .setItems(options.toTypedArray()) { _, index -> applyCategory(options[index]) }
             .show()
+    }
+
+    /** Loads the admin-managed category catalog — the picker falls back to
+     *  Bulk Delivery/Pickup when offline so the form never breaks. A selected
+     *  category that vanishes from the catalog is kept as-is (a legacy claim
+     *  being edited must not lose its category). */
+    private fun loadClaimCategories() {
+        lifecycleScope.launch {
+            val catalog = SupabaseClaimsReader.fetchClaimCategories()
+            if (catalog.isEmpty()) return@launch
+            categoryGroups = catalog.associate { it.name to it.group }
+            categoryOptions = catalog.map { it.name }
+        }
+    }
+
+    private fun updateExpenseDateLabel() {
+        tvExpenseDateSelected.text =
+            java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(selectedExpenseDate))
+    }
+
+    private fun showExpenseDatePicker() {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = selectedExpenseDate }
+        android.app.DatePickerDialog(
+            requireContext(),
+            { _, y, m, d ->
+                selectedExpenseDate = java.util.Calendar.getInstance().apply {
+                    set(y, m, d)
+                    set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+                    set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+                }.timeInMillis
+                updateExpenseDateLabel()
+            },
+            cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH)
+        ).apply {
+            // Backdated expenses allowed, future dates never — the expense
+            // can't have happened after today.
+            datePicker.maxDate = System.currentTimeMillis()
+        }.show()
     }
 
     /** Sets the selected category and shows/hides the category-specific field group. */
@@ -338,19 +411,29 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvCategorySelected.text = category
         tvCategorySelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
 
-        groupConsignment.isVisible = category == PC_CATEGORY_BULK_DELIVERY
+        // Store picker stays Pickup-only; consignment is the generic reference
+        // id for every other conveyance category (Bulk Delivery today,
+        // InterChange tomorrow). Non-conveyance categories get neither.
+        val isConveyance = isConveyanceCategory(category)
+        groupConsignment.isVisible = isConveyance && category != PC_CATEGORY_PICKUP
         groupStore.isVisible = category == PC_CATEGORY_PICKUP
-        groupConveyance.isVisible = category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY
-        // Pickup: the Requester submits without knowing the final cost yet (that comes
-        // back from the store), so Staff fills the amount in after the fact instead —
-        // see the "next role edits amount" step. Hidden here, not just unrequired, so
+        groupConveyance.isVisible = isConveyance
+        // Pickup: the Requester submits quantities only, no money amount yet
+        // (that comes back from the store) — the settled amount is filled at
+        // approve/settle time instead. Hidden here, not just unrequired, so
         // it can't look like a forgotten/blank field on the Requester's own screen.
         groupAmount.isVisible = category != PC_CATEGORY_PICKUP
+        // Attempt/Delivered mirror the pickup count for Pickup and stay fixed
+        // at 1 for Bulk Delivery; any other conveyance category types them
+        // directly (nothing to mirror from).
+        val quantitiesLocked = category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY
+        etAttemptQuantity.isEnabled = !quantitiesLocked
+        etDeliveredQuantity.isEnabled = !quantitiesLocked
 
         // Switching category clears the other category's field so a
         // half-filled Consignment ID doesn't silently survive a switch to
         // Pickup (or vice versa) and get submitted anyway.
-        if (category != PC_CATEGORY_BULK_DELIVERY) etConsignmentId.setText("")
+        if (!isConveyance || category == PC_CATEGORY_PICKUP) etConsignmentId.setText("")
         if (category != PC_CATEGORY_PICKUP) {
             selectedStoreId = ""
             selectedStoreName = ""
@@ -607,16 +690,17 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "Select a category", Toast.LENGTH_SHORT).show()
             return
         }
-        if (selectedCategory == PC_CATEGORY_BULK_DELIVERY && consignmentId.isBlank()) {
-            Toast.makeText(requireContext(), "Enter the consignment ID", Toast.LENGTH_SHORT).show()
-            return
-        }
         if (selectedCategory == PC_CATEGORY_PICKUP && selectedStoreId.isBlank()) {
             Toast.makeText(requireContext(), "Select a store", Toast.LENGTH_SHORT).show()
             return
         }
         if (selectedCategory == PC_CATEGORY_PICKUP && pickupCount <= 0) {
             Toast.makeText(requireContext(), "Enter how many pickups", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val isConveyanceSubmit = isConveyanceCategory(selectedCategory)
+        if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP && consignmentId.isBlank()) {
+            Toast.makeText(requireContext(), "Enter the consignment ID", Toast.LENGTH_SHORT).show()
             return
         }
         if (selectedCategory != PC_CATEGORY_PICKUP && amount <= 0.0) {
@@ -628,23 +712,24 @@ class PettyCashRequestCreateFragment : Fragment() {
             return
         }
 
-        val finalConsignmentId = if (selectedCategory == PC_CATEGORY_BULK_DELIVERY) consignmentId else ""
+        val finalConsignmentId = if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP) consignmentId else ""
         val finalStoreId = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreId else ""
         val finalStoreName = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreName else ""
         val finalPickupCount = if (selectedCategory == PC_CATEGORY_PICKUP) pickupCount else 0
+        // Pickup carries quantities only, never a money amount at request time
+        // (0 goes in; the settled amount is filled at approve/settle time).
         val finalAmount = if (selectedCategory == PC_CATEGORY_PICKUP) 0.0 else amount
-        val isConveyanceCategory = selectedCategory == PC_CATEGORY_PICKUP || selectedCategory == PC_CATEGORY_BULK_DELIVERY
-        val finalVehicle = if (isConveyanceCategory) selectedVehicle else ""
-        val finalFromArea = if (isConveyanceCategory) selectedFromArea else ""
-        val finalToArea = if (isConveyanceCategory) selectedToArea else ""
-        val finalAttemptQuantity = if (isConveyanceCategory) attemptQuantity else 0
-        val finalDeliveredQuantity = if (isConveyanceCategory) deliveredQuantity else 0
+        val finalVehicle = if (isConveyanceSubmit) selectedVehicle else ""
+        val finalFromArea = if (isConveyanceSubmit) selectedFromArea else ""
+        val finalToArea = if (isConveyanceSubmit) selectedToArea else ""
+        val finalAttemptQuantity = if (isConveyanceSubmit) attemptQuantity else 0
+        val finalDeliveredQuantity = if (isConveyanceSubmit) deliveredQuantity else 0
         // Always derived, never typed directly -- no etCidOrMerchant field exists
-        // in the layout anymore. Mirrors Consignment ID for Bulk Delivery, the
-        // picked store's name for Pickup.
-        val finalCidOrMerchant = when (selectedCategory) {
-            PC_CATEGORY_BULK_DELIVERY -> finalConsignmentId
-            PC_CATEGORY_PICKUP -> finalStoreName
+        // in the layout anymore. Mirrors Consignment ID for Bulk-like
+        // conveyance, the picked store's name for Pickup.
+        val finalCidOrMerchant = when {
+            selectedCategory == PC_CATEGORY_PICKUP -> finalStoreName
+            isConveyanceSubmit -> finalConsignmentId
             else -> ""
         }
 
@@ -664,6 +749,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                     vehicle = finalVehicle, fromArea = finalFromArea, toArea = finalToArea,
                     attemptQuantity = finalAttemptQuantity, deliveredQuantity = finalDeliveredQuantity,
                     cidOrMerchant = finalCidOrMerchant,
+                    requestedDate = selectedExpenseDate,
                     onSupabaseResult = { ok ->
                         activity?.runOnUiThread {
                             if (isAdded) Toast.makeText(requireContext(),
@@ -672,7 +758,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                     }
                 )
                 if (result.isSuccess) {
-                    Toast.makeText(requireContext(), "✓ Firebase saved — Request updated", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), "✓ Request updated", Toast.LENGTH_SHORT).show()
                     parentFragmentManager.popBackStack()
                 } else {
                     btnSubmit.isEnabled = true
@@ -697,6 +783,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                     vehicle = finalVehicle, fromArea = finalFromArea, toArea = finalToArea,
                     attemptQuantity = finalAttemptQuantity, deliveredQuantity = finalDeliveredQuantity,
                     cidOrMerchant = finalCidOrMerchant,
+                    requestedDate = selectedExpenseDate,
                     onSupabaseResult = { ok ->
                         activity?.runOnUiThread {
                             if (isAdded) Toast.makeText(requireContext(),
@@ -705,7 +792,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                     }
                 )
                 if (result.isSuccess) {
-                    Toast.makeText(requireContext(), "✓ Firebase saved — Request ${result.getOrNull()} submitted", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), "✓ Request ${result.getOrNull()} submitted", Toast.LENGTH_SHORT).show()
                     parentFragmentManager.popBackStack()
                 } else {
                     btnSubmit.isEnabled = true

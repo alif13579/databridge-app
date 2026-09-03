@@ -269,14 +269,21 @@ class ClaimsReportFragment : Fragment() {
                 if (claims.isEmpty()) throw IllegalStateException("No claims found for the selected filters")
                 val branchRegion = claims.first().branchRegion
                 val pettyCashLimit = claims.first().branchPettyCashLimit
-                // The POC (Petty Cash Point of Contact) is a per-branch role, not tied
-                // to any single claim — shown on the Top Sheet header regardless of
-                // which employee(s) were filtered for. branches.petty_cash_poc_uid
-                // isn't resolvable to a users row here (it's a Firebase uid, users is
-                // keyed by system_id — see the branches table's doc comment on why
-                // that FK wasn't added), so the report falls back to the first
-                // matching claim's own agent details as a reasonable "prepared by"
-                // stand-in rather than leaving the header blank.
+                // Admin-managed category → group map for the report's dynamic
+                // sections (empty = writer's legacy fallback covers the known
+                // conveyance types; never fails the report).
+                val categoryGroups = runCatching { SupabaseClaimsReader.fetchClaimCategories() }
+                    .getOrDefault(emptyList()).associate { it.name to it.group }
+                // The real branch POC via branches.petty_cash_poc_uid →
+                // public.users. Falls back to the first matching claim's own
+                // agent details as a "prepared by" stand-in rather than
+                // leaving the header blank.
+                val poc = runCatching { SupabaseClaimsReader.fetchPocForBranch(selectedBranchId) }.getOrNull()
+                val firstAgent = claims.first()
+                val pocName = poc?.name?.takeIf { it.isNotBlank() } ?: firstAgent.agentName
+                val pocEmployeeId = poc?.employeeId?.takeIf { it.isNotBlank() } ?: firstAgent.agentEmployeeId
+                val pocDesignation = poc?.designation?.takeIf { it.isNotBlank() } ?: firstAgent.agentDesignation
+                val pocContact = poc?.phone?.takeIf { it.isNotBlank() } ?: firstAgent.agentPhone
                 // exports/ subfolder — matches file_paths.xml's <cache-path name="exports"
                 // path="exports/" /> declaration (see CashLedgerListFragment/
                 // CashManagementHomeFragment/ScannerFragment for the same pattern). A
@@ -290,12 +297,13 @@ class ClaimsReportFragment : Fragment() {
                     branchName = selectedBranchName,
                     branchRegion = branchRegion,
                     pettyCashLimit = pettyCashLimit,
-                    pocName = claims.first().agentName,
-                    pocEmployeeId = claims.first().agentEmployeeId,
-                    pocDesignation = claims.first().agentDesignation,
-                    pocContact = claims.first().agentPhone,
+                    pocName = pocName,
+                    pocEmployeeId = pocEmployeeId,
+                    pocDesignation = pocDesignation,
+                    pocContact = pocContact,
                     fromDateIso = fromIso,
                     toDateIso = toIso,
+                    categoryGroups = categoryGroups,
                 )
                 outFile
             }.onSuccess { file ->

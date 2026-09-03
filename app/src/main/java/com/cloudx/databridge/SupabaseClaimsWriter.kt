@@ -113,6 +113,16 @@ object SupabaseClaimsWriter {
             put("type", type)
             put("category", category)
             put("remarks", purpose)
+            // consignment/store/pickup_count are always sent (blank/0 when the
+            // category doesn't use them) — the columns are NOT NULL, and the
+            // Edge Function's claim_upsert already accepts all four. They were
+            // dropped during the mirror era; the report doesn't read them, but
+            // detail screens and the audit trail do, so losing them was a real
+            // data gap post-cutover.
+            put("consignment_id", consignmentId)
+            put("store_id", storeId)
+            put("store_name", storeName)
+            put("pickup_count", pickupCount)
             put("vehicle", vehicle)
             put("from_area", fromArea)
             put("to_area", toArea)
