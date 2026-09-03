@@ -416,8 +416,9 @@ Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (request.method !== 'POST') return reply({ error: 'Method not allowed' }, 405)
   let action: string | undefined
+  let identity: { uid: string; token: string } | undefined
   try {
-    const identity = await firebaseIdentity(request)
+    identity = await firebaseIdentity(request)
     const body = await request.json()
     action = body.action
 
