@@ -415,10 +415,11 @@ async function sendRemarkPush(row: { consignment: string; branch_id: string; ass
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (request.method !== 'POST') return reply({ error: 'Method not allowed' }, 405)
+  let action: string | undefined
   try {
     const identity = await firebaseIdentity(request)
     const body = await request.json()
-    const action = body.action
+    action = body.action
 
     // The app must be able to read validations before this user has ever saved a
     // remark. In particular, a worker can receive a CC remark as their first
