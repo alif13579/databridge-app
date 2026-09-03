@@ -773,10 +773,14 @@ Deno.serve(async (request) => {
     console.log(JSON.stringify({ action, firebaseUid: identity.uid, count: data?.length ?? 0 }))
     return reply(data ?? [])
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
     errLog(action ?? 'unknown', 'unhandled_exception', {
       uid: identity?.uid,
       err: error instanceof Error ? { msg: error.message, stack: error.stack?.slice(0, 500) } : String(error)
     })
-    return reply({ error: 'Unauthorized or failed request' }, 401)
+    // Include the actual reason in the response body (not just a generic
+    // message) — the Android client logs this response text verbatim, so
+    // this is the fastest path to diagnosis without needing dashboard access.
+    return reply({ error: 'Unauthorized or failed request', reason: msg, action: action ?? 'unknown' }, 401)
   }
 })
