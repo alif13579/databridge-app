@@ -574,6 +574,21 @@ Deno.serve(async (request) => {
       return reply({ ok: true })
     }
 
+    if (action === 'unregister_push_token') {
+      // Called from AuthManager.signOut() BEFORE the local sign-out, so the
+      // request still carries a valid Bearer token. Scoped to the caller's
+      // own rows (token + firebase_uid): a token string alone can never
+      // delete another user's mapping. Idempotent — deleting an already-gone
+      // token still returns ok, so logout never blocks on push cleanup.
+      if (typeof body.token !== 'string' || body.token.trim().length < 20) {
+        return reply({ error: 'Invalid push token' }, 400)
+      }
+      const { error } = await admin.from('fcm_device_tokens').delete()
+        .eq('token', body.token.trim()).eq('firebase_uid', identity.uid)
+      if (error) throw error
+      return reply({ ok: true })
+    }
+
     if (action === 'backfill_user') {
       // One-way user drain for the Firebase→Supabase claims migration (see
       // FirebaseClaimsMigrator.kt): ensures a claim actor's public.users row
@@ -857,6 +872,22 @@ Deno.serve(async (request) => {
       // never supplies them, so a caller cannot impersonate another employee.
       const authorProfile = await firebaseProfile(identity)
       await upsertUser(authorProfile, identity.uid)
+      // Keep this device fleet's push routing fresh: branch transfers and
+      // role changes otherwise leave fcm_device_tokens.branch_ids /
+      // can_access_call_center stale until the next login (register_push_token
+      // only runs on auth-state change). Best-effort — a failed refresh must
+      // never block the remark save.
+      try {
+        const { error: tokenRefreshError } = await admin.from('fcm_device_tokens').update({
+          branch_ids: authorProfile.branchIds,
+          role_id: authorProfile.roleId,
+          can_access_call_center: authorProfile.canAccessCallCenter,
+          updated_at: new Date().toISOString(),
+        }).eq('firebase_uid', identity.uid)
+        if (tokenRefreshError) console.error('fcm token refresh failed', tokenRefreshError)
+      } catch (e) {
+        console.error('fcm token refresh failed', e)
+      }
       await ensureAuthenticatedRoleClaim(identity.uid) // defensive: covers a user who writes before ever syncing
       if (row.assigned_to_system_id === authorProfile.systemId) {
         // Already upserted above; avoids a duplicate Firebase profile request.

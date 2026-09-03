@@ -19,11 +19,10 @@ import java.util.concurrent.CopyOnWriteArraySet
  * (new remarks, alerts, etc.) and drives the top-bar badge + notification sound
  * + (while the app process is alive) a real Android status-bar notification.
  *
- * Lifecycle: process-scoped singleton. The in-app list is in-memory only and
- * resets when the app process is killed — same for the status-bar notification
- * below, since nothing here runs from a persistent background listener. This
- * is NOT push notification (no FCM): it only fires while the fragment that
- * detected the new remark (WorkerSpaceFragment/CallCenterFragment) is alive.
+ * Fed from two paths: the fragments' Realtime subscriptions while a parcel
+ * screen is open, and FCM data messages via DataBridgeMessagingService (which
+ * is why a push can arrive — and re-arm the worker reminder chain — with the
+ * app fully closed). Tap navigates to the parcel in both cases.
  */
 object AppNotificationManager {
 

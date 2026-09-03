@@ -145,12 +145,55 @@ object SupabaseRemarkValidationWriter {
             .apply { if (toStatus.isNotBlank()) put("to_status", toStatus) })
 
     /** Associates the current signed-in user and this app installation's FCM token server-side. */
-    fun registerPushToken(token: String) {
-        if (token.isBlank()) return
+    fun registerPushToken(token: String, onDone: ((Boolean) -> Unit)? = null) {
+        if (token.isBlank()) {
+            onDone?.invoke(false)
+            return
+        }
         invoke(
             JSONObject().put("action", "register_push_token").put("token", token),
             screen = "PushNotifications",
             action = "push_token_register",
+            reference = ""
+        ) { response -> onDone?.invoke(response != null) }
+    }
+
+    /**
+     * Same registration with bounded retries (immediate, +30s, +5min) for the
+     * login/rotation paths — a single failed attempt (offline at login, blip)
+     * used to leave the device push-blind until the next auth event. Login
+     * and token-rotation callers should prefer this over [registerPushToken].
+     */
+    fun registerPushTokenWithRetry(token: String, maxAttempts: Int = 3) {
+        if (token.isBlank() || maxAttempts < 1) return
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            var attempt = 0
+            var ok = false
+            while (!ok && attempt < maxAttempts) {
+                if (attempt > 0) kotlinx.coroutines.delay(if (attempt == 1) 30_000L else 300_000L)
+                attempt++
+                ok = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+                    registerPushToken(token) { done ->
+                        if (cont.isActive) cont.resume(done, null)
+                    }
+                }
+            }
+            if (!ok) {
+                log("PushNotifications", "push_token_register_gave_up",
+                    "Registration still failing after $attempt attempt(s)", "")
+            }
+        }
+    }
+
+    /** Removes this installation's token mapping at sign-out (see
+     *  AuthManager.signOut — called while still signed in). Fire-and-forget:
+     *  the server action is idempotent, so logout never blocks on it. */
+    fun unregisterPushToken(token: String) {
+        if (token.isBlank()) return
+        invoke(
+            JSONObject().put("action", "unregister_push_token").put("token", token),
+            screen = "PushNotifications",
+            action = "push_token_unregister",
             reference = ""
         ) { }
     }

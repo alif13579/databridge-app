@@ -12,7 +12,9 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         // This can happen long after sign-in; registration is authenticated by the writer.
-        SupabaseRemarkValidationWriter.registerPushToken(token)
+        // Retried: rotation is worth the same backoff as the login path — a failed
+        // rotation with no later auth event would otherwise go unnoticed.
+        SupabaseRemarkValidationWriter.registerPushTokenWithRetry(token)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {

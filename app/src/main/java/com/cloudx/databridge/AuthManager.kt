@@ -8,6 +8,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.tasks.await
 
 object AuthManager {
@@ -55,6 +56,15 @@ object AuthManager {
                 } catch (_: Exception) {}
             }
         }
+        // Drop this installation's push mapping while still signed in (the Bearer
+        // token stays server-valid past local sign-out, but doing it first keeps
+        // the ordering obvious). Best-effort and idempotent server-side — logout
+        // never blocks on push cleanup. Without this, pushes for this user keep
+        // landing on the device after logout until someone else logs in here.
+        try {
+            val fcmToken = FirebaseMessaging.getInstance().token.await()
+            if (fcmToken.isNotBlank()) SupabaseRemarkValidationWriter.unregisterPushToken(fcmToken)
+        } catch (_: Exception) {}
         auth.signOut()
         googleSignInClient?.signOut()?.await()
         SupabaseClientManager.signOut()

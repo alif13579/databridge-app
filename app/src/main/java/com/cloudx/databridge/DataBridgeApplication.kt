@@ -43,11 +43,11 @@ class DataBridgeApplication : Application() {
             Log.d(TAG, "✅ Firebase initialized")
             // A token is per app-installation and can rotate at any time. Register it
             // after every auth-state change so the Edge Function can target this device.
+            // Retried with backoff: a single failed attempt at login (offline, blip)
+            // used to leave the device push-blind until the next auth event.
             FirebaseAuth.getInstance().addAuthStateListener { firebaseAuth ->
                 if (firebaseAuth.currentUser == null) return@addAuthStateListener
-                FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-                    SupabaseRemarkValidationWriter.registerPushToken(token)
-                }
+                fetchAndRegisterPushToken(attempt = 0)
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Firebase init failed: ${e.message}")
