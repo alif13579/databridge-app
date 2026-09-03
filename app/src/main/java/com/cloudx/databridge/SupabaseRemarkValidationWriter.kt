@@ -10,6 +10,9 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.io.IOException
@@ -166,11 +169,11 @@ object SupabaseRemarkValidationWriter {
      */
     fun registerPushTokenWithRetry(token: String, maxAttempts: Int = 3) {
         if (token.isBlank() || maxAttempts < 1) return
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        GlobalScope.launch(Dispatchers.IO) {
             var attempt = 0
             var ok = false
             while (!ok && attempt < maxAttempts) {
-                if (attempt > 0) kotlinx.coroutines.delay(if (attempt == 1) 30_000L else 300_000L)
+                if (attempt > 0) delay(if (attempt == 1) 30_000L else 300_000L)
                 attempt++
                 ok = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
                     registerPushToken(token) { done ->

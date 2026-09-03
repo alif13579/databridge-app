@@ -7,6 +7,10 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * 🔹 DataBridgeApplication.kt (Production-Ready v2.0)
@@ -74,5 +78,24 @@ class DataBridgeApplication : Application() {
     fun setDataBridgeService(service: DataBridgeService?) {
         dataBridgeService = service
         Log.d(TAG, "🔹 DataBridgeService reference ${if (service != null) "set" else "cleared"}")
+    }
+
+    /** Fetches the FCM token and registers it (with retry inside). A failed
+     *  fetch itself is retried twice — without this, an offline login left
+     *  the device push-blind with zero trace beyond the warning below. */
+    private fun fetchAndRegisterPushToken(attempt: Int) {
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { token ->
+                SupabaseRemarkValidationWriter.registerPushTokenWithRetry(token)
+            }
+            .addOnFailureListener { e ->
+                Log.w(TAG, "⚠️ FCM token fetch failed (attempt ${attempt + 1}): ${e.message}")
+                if (attempt < 2) {
+                    GlobalScope.launch(Dispatchers.IO) {
+                        delay(if (attempt == 0) 30_000L else 300_000L)
+                        if (FirebaseAuth.getInstance().currentUser != null) fetchAndRegisterPushToken(attempt + 1)
+                    }
+                }
+            }
     }
 }

@@ -22,7 +22,7 @@ import org.json.JSONObject
  * actions (see SupabasePettyCashWriter) — the admin client there bypasses
  * RLS, so writes never depended on read policies. Reads below are direct
  * PostgREST (free, unlimited) and DO need SELECT policies — see
- * supabase/migrations/*_petty_cash_supabase_reads.sql.
+ * supabase/migrations/202609030001_petty_cash_supabase_reads.sql.
  *
  * Failure posture matches SupabaseClaimsReader's live-query methods
  * (getById/search/searchMyClaims): throw on failure, don't swallow to a
