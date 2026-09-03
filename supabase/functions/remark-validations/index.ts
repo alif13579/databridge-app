@@ -773,10 +773,13 @@ Deno.serve(async (request) => {
     console.log(JSON.stringify({ action, firebaseUid: identity.uid, count: data?.length ?? 0 }))
     return reply(data ?? [])
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error)
+    const msg = error instanceof Error ? error.message
+      : (error && typeof error === 'object')
+        ? JSON.stringify(error)
+        : String(error)
     errLog(action ?? 'unknown', 'unhandled_exception', {
       uid: identity?.uid,
-      err: error instanceof Error ? { msg: error.message, stack: error.stack?.slice(0, 500) } : String(error)
+      err: error instanceof Error ? { msg: error.message, stack: error.stack?.slice(0, 500) } : msg
     })
     // Include the actual reason in the response body (not just a generic
     // message) — the Android client logs this response text verbatim, so
