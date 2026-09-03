@@ -194,10 +194,6 @@ class ClaimsRepository(private val db: FirebaseDatabase = FirebaseDatabase.getIn
         updates["status"]?.let { c = c.copy(status = it as String) }
         updates["category"]?.let { c = c.copy(category = it as String) }
         updates["purpose"]?.let { c = c.copy(purpose = it as String) }
-        updates["consignmentId"]?.let { c = c.copy(consignmentId = it as String) }
-        updates["storeId"]?.let { c = c.copy(storeId = it as String) }
-        updates["storeName"]?.let { c = c.copy(storeName = it as String) }
-        updates["pickupCount"]?.let { c = c.copy(pickupCount = it as Int) }
         updates["vehicle"]?.let { c = c.copy(vehicle = it as String) }
         updates["fromArea"]?.let { c = c.copy(fromArea = it as String) }
         updates["toArea"]?.let { c = c.copy(toArea = it as String) }
