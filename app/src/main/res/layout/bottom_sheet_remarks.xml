@@ -103,19 +103,44 @@
 
             </LinearLayout>
 
-            <!-- Note field -->
-            <EditText
-                android:id="@+id/etRemarksText"
+            <!-- Note / instruction field — remark select fills the admin-written
+                 instruction text here; whatever stays in the box saves as the
+                 note. The × clears it with one tap. -->
+            <FrameLayout
                 android:layout_width="match_parent"
-                android:layout_height="70dp"
-                android:background="@color/theme_bg_inner"
-                android:padding="12dp"
-                android:textColor="@color/theme_text_primary"
-                android:textColorHint="#64748b"
-                android:textSize="13sp"
-                android:hint="Additional note (optional)..."
-                android:gravity="start"
-                android:inputType="textMultiLine" />
+                android:layout_height="wrap_content">
+
+                <EditText
+                    android:id="@+id/etRemarksText"
+                    android:layout_width="match_parent"
+                    android:layout_height="70dp"
+                    android:background="@color/theme_bg_inner"
+                    android:padding="12dp"
+                    android:paddingEnd="40dp"
+                    android:textColor="@color/theme_text_primary"
+                    android:textColorHint="#64748b"
+                    android:textSize="13sp"
+                    android:hint="Additional note (optional)..."
+                    android:gravity="start|top"
+                    android:inputType="textMultiLine" />
+
+                <TextView
+                    android:id="@+id/btnRemarksClearNote"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_gravity="top|end"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginEnd="4dp"
+                    android:gravity="center"
+                    android:text="✕"
+                    android:textSize="14sp"
+                    android:textColor="#64748b"
+                    android:visibility="gone"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:contentDescription="Clear note" />
+
+            </FrameLayout>
 
         </LinearLayout>
     </ScrollView>

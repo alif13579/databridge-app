@@ -2746,7 +2746,8 @@ class CallCenterFragment : Fragment() {
                         statusKey = target,
                         statusPreview = preview,
                         statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
-                        templateId = opt.templateId
+                        templateId = opt.templateId,
+                        instructionText = opt.instructionText
                     ) to opt.priority
                 }
 
@@ -2797,6 +2798,7 @@ class CallCenterFragment : Fragment() {
 
         val tvTitle      = view.findViewById<TextView>(R.id.tvRemarksTitle)
         val etRemarks    = view.findViewById<EditText>(R.id.etRemarksText)
+        val btnClearNote = view.findViewById<TextView>(R.id.btnRemarksClearNote)
         val tvAutoStatus = view.findViewById<TextView>(R.id.tvRemarksAutoStatus)
         val layoutOptions = view.findViewById<android.widget.LinearLayout>(R.id.layoutCcRemarkOptions)
         val btnCancel    = view.findViewById<TextView>(R.id.btnRemarksCancel)
@@ -2839,8 +2841,13 @@ class CallCenterFragment : Fragment() {
         etRemarks.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) { refreshSaveEnabled() }
+            override fun afterTextChanged(s: android.text.Editable?) {
+                refreshSaveEnabled()
+                btnClearNote.visibility =
+                    if (s?.toString()?.isNotBlank() == true) android.view.View.VISIBLE else android.view.View.GONE
+            }
         })
+        btnClearNote.setOnClickListener { etRemarks.setText("") }
 
         for (opt in options) {
             val optView = layoutInflater.inflate(R.layout.item_worker_remark_option, layoutOptions, false)
@@ -2874,6 +2881,11 @@ class CallCenterFragment : Fragment() {
                 selectedTemplateId = opt.templateId
                 tvAutoStatus.text  = opt.statusPreview
                 tvAutoStatus.setTextColor(opt.statusColor)
+
+                // Fill the admin-written instruction for this remark into the
+                // note box (blank instruction clears a previous fill) —
+                // whatever stays in the box saves as the note.
+                etRemarks.setText(opt.instructionText)
 
                 refreshSaveEnabled()
             }
@@ -3215,7 +3227,11 @@ class CallCenterFragment : Fragment() {
         val statusKey: String,
         val statusPreview: String,
         val statusColor: Int,
-        val templateId: String = ""
+        val templateId: String = "",
+        // Admin-written per-remark instruction (validation_remarks.instruction_text,
+        // e.g. "Try again after 3pm, don't return yet") — filled into the note
+        // box on select, saved as the note. Blank = no instruction for this remark.
+        val instructionText: String = ""
     )
 
     // Loaded from config/remarks (+ config/language/ccLang) — see loadCcRemarkOptions().
