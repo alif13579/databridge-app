@@ -112,13 +112,9 @@ object SupabaseClaimsWriter {
      *  nullable timestamptz type.
      *
      *  Millis timestamps convert to ISO-8601; a 0L timestamp is sent as null.
+     */
     private fun ClaimInfo.toSupabaseJson(): JSONObject {
         fun millisToIso(millis: Long): Any =
-            if (millis > 0L) java.time.Instant.ofEpochMilli(millis).toString() else JSONObject.NULL
-        fun millisToIsoDate(millis: Long): String {
-            val instant = if (millis > 0L) java.time.Instant.ofEpochMilli(millis) else java.time.Instant.now()
-            return instant.atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
-        }
 
         return JSONObject().apply {
             put("id", claimId)
