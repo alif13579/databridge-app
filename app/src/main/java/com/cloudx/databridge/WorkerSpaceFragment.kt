@@ -795,8 +795,13 @@ class WorkerSpaceFragment : Fragment() {
             // (see SupabaseRemarkValidationWriter's doc comment) — the CallLogHelper lookup
             // that used to feed it is dropped too, since computing it now would be wasted
             // work with nowhere to put the result.
-            val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
             items.forEach { p ->
+                // A worker can have more than one branch. The validation row MUST carry this
+                // parcel's locked-in run branch (not the worker's first assigned branch): CC's
+                // Realtime channel and Worker -> CC FCM recipient lookup both filter on it.
+                // The fallback is solely for older runs created before resolvedBranchIds existed.
+                val branchId = p.branchIds.firstOrNull()
+                    ?: RbacManager.current.branchIds.firstOrNull().orEmpty()
                 writeWorkerRemarkToSupabase(
                     consignmentId = p.id,
                     branchId = branchId,
@@ -1662,16 +1667,24 @@ class WorkerSpaceFragment : Fragment() {
         val consignmentRefs = linkedMapOf<String, ConsignmentRunRef>()
         val runFetches = runTypesToFetch.map { runType ->
             async(Dispatchers.IO) {
-                val snap = db.reference.child("courier/run_routes/$runType/$todayRunId/consignments")
+                // Read the run node, rather than only its consignments child, because
+                // resolvedBranchIds is the parcel's canonical visibility/push scope.
+                val snap = db.reference.child("courier/run_routes/$runType/$todayRunId")
                     .get().await()
                 Pair(runType, snap)
             }
         }
-        runFetches.awaitAll().forEach { (runType, consSnap) ->
-            consSnap.children.forEach { c ->
+        runFetches.awaitAll().forEach { (runType, runNodeSnap) ->
+            val resolvedBranchIds = runNodeSnap.child("resolvedBranchIds").children
+                .mapNotNull { it.getValue(String::class.java)?.trim()?.takeIf { id -> id.isNotBlank() } }
+            // Compatibility fallback only for legacy run nodes which predate resolvedBranchIds.
+            val runBranchIds = resolvedBranchIds.ifEmpty {
+                RbacManager.current.branchIds.map { it.trim() }.filter { it.isNotBlank() }
+            }
+            runNodeSnap.child("consignments").children.forEach { c ->
                 val cId = c.key ?: return@forEach
                 val routeStatus = c.getValue(String::class.java) ?: readString(c, "status")
-                consignmentRefs[cId] = ConsignmentRunRef(runType, todayRunId, routeStatus)
+                consignmentRefs[cId] = ConsignmentRunRef(runType, todayRunId, routeStatus, runBranchIds)
             }
         }
 
@@ -1781,7 +1794,13 @@ class WorkerSpaceFragment : Fragment() {
                     updatedAt = updatedAtVal,
                     engagedAgents = engagedAgentsValBulk,
                     attemptCount = attemptVal,
-                    history = emptyList()
+                    history = emptyList(),
+                    // Preserve the run's canonical branch IDs for a later worker remark
+                    // write. Without this, Worker -> CC notifications/status updates are
+                    // filtered out whenever a worker's default branch differs from the run.
+                    branchIds = runRef.branchIds.ifEmpty {
+                        listOf(hub).filter { it.isNotBlank() }
+                    }
                 )
             )
         }
@@ -2059,7 +2078,8 @@ class WorkerSpaceFragment : Fragment() {
     data class ConsignmentRunRef(
         val runType: String,
         val runId: String,
-        val routeStatus: String
+        val routeStatus: String,
+        val branchIds: List<String> = emptyList()
     )
 
     companion object {

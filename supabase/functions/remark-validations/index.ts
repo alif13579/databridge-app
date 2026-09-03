@@ -400,8 +400,14 @@ async function sendRemarkPush(row: { consignment: string; branch_id: string; ass
     const serviceAccount = JSON.parse(serviceAccountJson) as ServiceAccount
     if (!serviceAccount.client_email || !serviceAccount.private_key) throw new Error('Invalid FCM service account')
 
-    // CC -> worker: send only to that worker. Worker -> CC: notify only users
-    // whose Firebase RBAC permission grants access to the Call Center fragment.
+    // ┌──────────────────── COMPATIBILITY INVARIANT ────────────────────┐
+    // │ CC -> Worker is known working production behavior. Keep this     │
+    // │ exact system_id-only recipient path isolated from Worker -> CC.  │
+    // │ Do NOT add branch/permission filters here: a worker is targeted  │
+    // │ by the consignment's assigned_to_system_id only.                 │
+    // └─────────────────────────────────────────────────────────────────┘
+    // Worker -> CC deliberately uses the validation row's canonical run branch,
+    // because only CC devices with access to that branch must receive the event.
     // `source` is the explicit, validated direction of the remark. It is safer than
     // inferring direction from IDs: a CC agent can be assigned a parcel too.
     const fromWorker = row.source === 'WORKER'
@@ -410,6 +416,7 @@ async function sendRemarkPush(row: { consignment: string; branch_id: string; ass
     if (fromWorker) {
       tokenQuery = tokenQuery.eq('can_access_call_center', true).overlaps('branch_ids', [row.branch_id])
     } else {
+      // Protected CC -> Worker path — see compatibility invariant above.
       tokenQuery = tokenQuery.eq('system_id', row.assigned_to_system_id)
     }
     const { data: devices, error: deviceError } = await tokenQuery
