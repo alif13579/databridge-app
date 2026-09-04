@@ -3,6 +3,11 @@
 // in config.toml), so they all share this CORS envelope + JSON error shape.
 
 export const corsHeaders = {
+  // Allow-Origin is required for browser clients (the Chrome extension's
+  // content scripts fetch these functions from arbitrary page origins, e.g.
+  // hermes.pathaointernal.com — without it the preflight has no
+  // Access-Control-Allow-Origin and the browser blocks the call entirely).
+  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Content-Type': 'application/json',
