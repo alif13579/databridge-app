@@ -562,6 +562,15 @@
                         android:textSize="16sp" />
                 </LinearLayout>
 
+                <!-- Saving spinner -->
+                <ProgressBar
+                    android:id="@+id/pbPcRequestSaving"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="16dp"
+                    android:visibility="gone" />
+
                 <!-- Submit -->
                 <Button
                     android:id="@+id/btnPcRequestSubmit"

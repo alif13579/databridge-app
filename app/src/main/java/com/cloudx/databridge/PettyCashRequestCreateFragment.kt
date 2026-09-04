@@ -179,6 +179,7 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var tvPurposeCount: TextView
     private lateinit var tvAttachmentName: TextView
     private lateinit var btnSubmit: android.widget.Button
+    private lateinit var pbSaving: android.widget.ProgressBar
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -270,6 +271,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvPurposeCount = view.findViewById(R.id.tvPcRequestPurposeCount)
         tvAttachmentName = view.findViewById(R.id.tvPcRequestAttachmentName)
         btnSubmit = view.findViewById(R.id.btnPcRequestSubmit)
+        pbSaving = view.findViewById(R.id.pbPcRequestSaving)
 
         if (!isEditMode && !RbacManager.hasPermission("petty_cash_requester")) {
             Toast.makeText(requireContext(), "Your role isn't set up to submit petty cash requests", Toast.LENGTH_LONG).show()
@@ -670,6 +672,20 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
     }
 
+    /** Saving indicator: spinner + disabled button with "Saving..." text, so
+     *  the agent can see work is in progress. Call setSaving(false) on every
+     *  exit path (validation returns above never start it). */
+    private fun setSaving(saving: Boolean) {
+        if (!isAdded) return
+        pbSaving.isVisible = saving
+        btnSubmit.isEnabled = !saving
+        btnSubmit.text = when {
+            saving -> "⏳ Saving..."
+            isEditMode -> "Update Request"
+            else -> "Submit Request"
+        }
+    }
+
     private fun onSubmit() {
         if (attachmentUploading) {
             Toast.makeText(requireContext(), "Attachment is still uploading — please wait", Toast.LENGTH_SHORT).show()
@@ -733,7 +749,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             else -> ""
         }
 
-        btnSubmit.isEnabled = false
+        setSaving(true)
         if (isEditMode) {
             // NOTE: updateRequest() has no attachment param — editing an existing
             // PENDING request cannot currently change its attachment, only create
@@ -761,11 +777,15 @@ class PettyCashRequestCreateFragment : Fragment() {
                     Toast.makeText(requireContext(), "✓ Request updated", Toast.LENGTH_SHORT).show()
                     parentFragmentManager.popBackStack()
                 } else {
-                    btnSubmit.isEnabled = true
-                    // Exact server reason in a copyable dialog (not a
-                    // transient Toast) so the error can be pasted to chat.
-                    if (isAdded) SupabaseErrorDialog.show(requireContext(), "Request update failed",
-                        result.exceptionOrNull()?.message ?: "Update failed")
+                    setSaving(false)
+                    // Human-readable toast so the agent understands, plus the
+                    // exact technical reason in a copyable dialog for chat.
+                    val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
+                    if (isAdded) {
+                        Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                        SupabaseErrorDialog.show(requireContext(), friendly,
+                            result.exceptionOrNull()?.message ?: "Update failed")
+                    }
                 }
             }
         } else {
@@ -798,11 +818,15 @@ class PettyCashRequestCreateFragment : Fragment() {
                     Toast.makeText(requireContext(), "✓ Request ${result.getOrNull()} submitted", Toast.LENGTH_SHORT).show()
                     parentFragmentManager.popBackStack()
                 } else {
-                    btnSubmit.isEnabled = true
-                    // Exact server reason in a copyable dialog (not a
-                    // transient Toast) so the error can be pasted to chat.
-                    if (isAdded) SupabaseErrorDialog.show(requireContext(), "Request submit failed",
-                        result.exceptionOrNull()?.message ?: "Submit failed")
+                    setSaving(false)
+                    // Human-readable toast so the agent understands, plus the
+                    // exact technical reason in a copyable dialog for chat.
+                    val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
+                    if (isAdded) {
+                        Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                        SupabaseErrorDialog.show(requireContext(), friendly,
+                            result.exceptionOrNull()?.message ?: "Submit failed")
+                    }
                 }
             }
         }
