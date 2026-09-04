@@ -16,7 +16,8 @@ The backend is a **hybrid — Supabase first, Firebase for the rest**. Rule of t
 | Wallet balance + deposits | Supabase `public.petty_cash_deposits`, `public.petty_cash_wallet_balance` |
 | Van check-in/out log | Supabase `public.check_ins` (subject_type/label; static fleet list in `VanCatalog.kt`) |
 | Claim categories catalog | Supabase `public.claim_categories` (admin-managed) |
-| Branches, stores, users (synced copy) | Supabase `public.branches`, `public.stores`, `public.users` |
+| Branches (directory + role assignments) | Supabase `public.branches` (authoritative; written via `branch_upsert`/`branch_delete`, admin/manager-gated) |
+| Stores, users (synced copy) | Supabase `public.stores`, `public.users` |
 | CC/Worker remarks audit log | Supabase `public.validations` + `public.validation_remarks` |
 | Push device registry | Supabase `public.fcm_device_tokens` (server-managed) |
 | Sign-in / identity | **Firebase Auth** (+ Google Sign-In). Supabase trusts the Firebase JWT directly (Third-party Auth) |
@@ -63,8 +64,13 @@ Supabase has no passwords here: every REST/Realtime/Function call carries the **
 
 ## Backend reference
 
-### Edge Functions (`supabase/functions/`)
-- **`remark-validations`** (`verify_jwt = false` — it verifies the Firebase JWT itself): `sync_profile`, `register_push_token`, `unregister_push_token`, `backfill_user`, `write`, `report`, `claim_upsert`, `petty_cash_deposit_upsert`, `petty_cash_wallet_balance_upsert`, `admin_list_remarks`, `admin_upsert_remark`, `admin_delete_remark`, `admin_migrate_status_remarks`.
+### Edge Functions (`supabase/functions/` — one domain per function, shared code in `_shared/`)
+- **`remark-validations`** (`verify_jwt = false` — it verifies the Firebase JWT itself): remarks only — `write`, `report`, `admin_list_remarks`, `admin_upsert_remark`, `admin_delete_remark`, `admin_migrate_status_remarks`.
+- **`user-sync`**: `sync_profile`, `register_push_token`, `unregister_push_token`, `backfill_user`.
+- **`directory`**: `branch_upsert`, `branch_delete`, `backfill_branches`, `backfill_stores`.
+- **`claims`**: `claim_upsert`.
+- **`petty-cash`**: `petty_cash_deposit_upsert`, `petty_cash_wallet_balance_upsert`.
+- **`check-ins`**: `checkin`, `checkout`.
 - **`r2-attachment-upload`** (`verify_jwt = false`): `upload` (presigned PUT), `download` (presigned GET).
 
 ### Database

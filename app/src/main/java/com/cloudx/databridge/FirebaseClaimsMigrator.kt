@@ -69,7 +69,7 @@ object FirebaseClaimsMigrator {
             try {
                 val payload = JSONObject().put("action", "backfill_user").put("firebase_uid", uid)
                 val request = Request.Builder()
-                    .url("${SupabaseConfig.PROJECT_URL}/functions/v1/remark-validations")
+                    .url("${SupabaseConfig.PROJECT_URL}/functions/v1/user-sync")
                     .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
                     .addHeader("Authorization", "Bearer $token")
                     .addHeader("Content-Type", "application/json")

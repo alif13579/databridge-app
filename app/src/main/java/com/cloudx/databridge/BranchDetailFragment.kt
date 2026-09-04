@@ -211,30 +211,36 @@ class BranchDetailFragment : Fragment() {
             rvEmployees.visibility = View.GONE
             tvEmpty.visibility = View.GONE
 
-            val branchSnap = db.reference.child("branches/$branchId").get().await()
+            // Branch core reads Supabase now (branch cutover); roles stay on
+            // Firebase. Holder/team names resolve from Firebase user profiles.
+            val branch = SupabaseBranchReader.getBranch(branchId)
             val rolesSnap  = db.reference.child("roles").get().await()
             RoleLevelCache.refresh() // separate get() of the same roles/ node — mirrors
                                       // StatusMetaCache's independently-refreshable pattern
-            val name        = branchSnap.child("name").getValue(String::class.java) ?: "Branch"
-            val code        = branchSnap.child("branch_code").getValue(String::class.java) ?: ""
-            val type        = branchSnap.child("branch_type").getValue(String::class.java) ?: ""
-            val address     = branchSnap.child("address").getValue(String::class.java) ?: ""
-            val managerName = branchSnap.child("manager_name").getValue(String::class.java) ?: "—"
-            val accountantName = branchSnap.child("accountant_name").getValue(String::class.java) ?: "—"
-            val accountantRole = branchSnap.child("accountant_role").getValue(String::class.java) ?: ""
-            val pettyCashPocName = branchSnap.child("petty_cash_poc_name").getValue(String::class.java) ?: "—"
-            val staffName = branchSnap.child("staff_name").getValue(String::class.java) ?: "—"
-            val staffRole = branchSnap.child("staff_role").getValue(String::class.java) ?: ""
-            val email       = branchSnap.child("email").getValue(String::class.java) ?: ""
-            val phone       = branchSnap.child("phone").getValue(String::class.java) ?: ""
-            val status      = branchSnap.child("status").getValue(String::class.java) ?: "active"
-            val parentId    = branchSnap.child("parent_branch_id").getValue(String::class.java) ?: ""
+            val usersSnap = db.reference.child("users").get().await()
+            if (!isAdded) return
+            fun userName(uid: String): String {
+                if (uid.isBlank()) return "—"
+                return usersSnap.child("$uid/profile/name").getValue(String::class.java)
+                    ?: usersSnap.child("$uid/name").getValue(String::class.java) ?: "—"
+            }
+            val name        = branch.name.ifBlank { "Branch" }
+            val code        = branch.branchCode
+            val type        = branch.branchType
+            val address     = branch.address
+            val managerName = userName(branch.managerUid)
+            val accountantName = userName(branch.accountantUid)
+            val accountantRole = branch.accountantRole
+            val pettyCashPocName = userName(branch.pettyCashPocUid)
+            val staffName = userName(branch.staffUid)
+            val staffRole = branch.staffRole
+            val email       = branch.email
+            val phone       = branch.phone
+            val status      = branch.status.ifBlank { "active" }
+            val parentId    = branch.parentBranchId
 
             val parentName = if (parentId.isNotBlank()) {
-                runCatching {
-                    db.reference.child("branches/$parentId/name").get().await()
-                        .getValue(String::class.java) ?: parentId
-                }.getOrDefault(parentId)
+                runCatching { SupabaseBranchReader.getBranch(parentId).name }.getOrDefault(parentId)
             } else ""
 
             if (!isAdded) return
@@ -257,7 +263,7 @@ class BranchDetailFragment : Fragment() {
                 )
             )
 
-            val imageUrl = branchSnap.child("image_url").getValue(String::class.java).orEmpty()
+            val imageUrl = branch.imageUrl
             if (imageUrl.isNotBlank()) {
                 ivBranchImage.load(imageUrl) {
                     crossfade(true)
@@ -275,14 +281,14 @@ class BranchDetailFragment : Fragment() {
                 c.key?.let { it to c.child("name").getValue(String::class.java).orEmpty().trim() }
             }.toMap()
 
-            // Fetch branch employee index → set of user_ids
-            val empIndexSnap = db.reference.child("branches/$branchId/employees").get().await()
-            if (!isAdded) return
-            val branchUserIds = empIndexSnap.children.mapNotNull { it.key }.toSet()
-
-            // Fetch all user profiles and keep only those in the branch index
-            val usersSnap = db.reference.child("users").get().await()
-            if (!isAdded) return
+            // Team = Firebase user profiles whose branch_ids contain this
+            // branch (replaces the removed Firebase employees index).
+            val branchUserIds = usersSnap.children.mapNotNull { child ->
+                val uid = child.key ?: return@mapNotNull null
+                val bids = child.child("profile/company_info/branch_ids").children
+                    .mapNotNull { it.getValue(String::class.java) }
+                if (branchId in bids) uid else null
+            }.toSet()
 
             allEmployees = usersSnap.children.mapNotNull { child ->
                 val uid = child.key ?: return@mapNotNull null
@@ -291,8 +297,7 @@ class BranchDetailFragment : Fragment() {
                 val empName = child.child("profile/name").getValue(String::class.java)
                     ?: child.child("name").getValue(String::class.java) ?: "Unknown"
                 val empEmail = child.child("profile/email").getValue(String::class.java).orEmpty()
-                val empId    = empIndexSnap.child(uid).child("employee_id").getValue(String::class.java)
-                    ?: child.child("profile/company_info/employee_id").getValue(String::class.java).orEmpty()
+                val empId    = child.child("profile/company_info/employee_id").getValue(String::class.java).orEmpty()
                 val desig    = child.child("profile/company_info/designation").getValue(String::class.java).orEmpty()
                 val status   = child.child("profile/company_info/status").getValue(String::class.java).orEmpty()
                 val photoUrl = child.child("profile/photo_url").getValue(String::class.java).orEmpty()

@@ -98,7 +98,7 @@ object SupabasePettyCashWriter {
             val payload = JSONObject().put("action", action)
             body.keys().forEach { key -> payload.put(key, body.get(key)) }
             val request = Request.Builder()
-                .url("${SupabaseConfig.PROJECT_URL}/functions/v1/remark-validations")
+                .url("${SupabaseConfig.PROJECT_URL}/functions/v1/petty-cash")
                 .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
                 .addHeader("Authorization", "Bearer $token")
                 .addHeader("Content-Type", "application/json")

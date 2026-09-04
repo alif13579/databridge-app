@@ -1,10 +1,26 @@
+# Every function below validates the Firebase ID token itself
+# (createRemoteJWKSet/jwtVerify against Firebase's own JWKS via _shared/),
+# not a Supabase Auth JWT. Without verify_jwt = false, Supabase's
+# platform-level JWT check rejects every request before the function's own
+# code ever runs.
+
 [functions.remark-validations]
-# This function validates Firebase ID tokens itself, not Supabase Auth JWTs.
+verify_jwt = false
+
+[functions.user-sync]
+verify_jwt = false
+
+[functions.directory]
+verify_jwt = false
+
+[functions.claims]
+verify_jwt = false
+
+[functions.petty-cash]
+verify_jwt = false
+
+[functions.check-ins]
 verify_jwt = false
 
 [functions.r2-attachment-upload]
-# Same reason as remark-validations above — validates the Firebase ID token
-# itself (createRemoteJWKSet/jwtVerify against Firebase's own JWKS), not a
-# Supabase Auth JWT. Without this, Supabase's platform-level JWT check
-# rejects every request before this function's own code ever runs.
 verify_jwt = false

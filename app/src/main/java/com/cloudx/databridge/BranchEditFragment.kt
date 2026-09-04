@@ -23,7 +23,6 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import coil.load
 import coil.transform.CircleCropTransformation
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.launch
@@ -39,7 +38,6 @@ class BranchEditFragment : Fragment() {
     }
 
     private val db      = FirebaseDatabase.getInstance()
-    private val auth    = FirebaseAuth.getInstance()
     private val storage = FirebaseStorage.getInstance()
 
     data class PickerItem(val id: String, val name: String, val sub: String, val empId: String = "")
@@ -342,12 +340,13 @@ class BranchEditFragment : Fragment() {
         val branchId = arguments?.getString(ARG_ID) ?: return
         try {
             val usersSnap  = db.reference.child("users").get().await()
-            val allSnap    = db.reference.child("branches").get().await()
-            val thisSnap   = db.reference.child("branches/$branchId").get().await()
+            // Branch core + parent list come from Supabase (branch cutover);
+            // employees/users/roles pickers stay on Firebase.
+            val branch = SupabaseBranchReader.getBranch(branchId)
+            val supabaseBranches = runCatching { SupabaseBranchReader.listBranches() }.getOrElse { emptyList() }
 
             allEmployees.clear()
             branchEmployeeUids.clear()
-            thisSnap.child("employees").children.forEach { e -> e.key?.let { branchEmployeeUids.add(it) } }
 
             usersSnap.children.forEach { c ->
                 val uid   = c.key ?: return@forEach
@@ -358,6 +357,12 @@ class BranchEditFragment : Fragment() {
                 val desig = c.child("profile/company_info/designation").getValue(String::class.java)
                            ?: EmployeeFragment.ROLE_LABELS[role] ?: role
                 allEmployees.add(PickerItem(uid, name, desig, empId))
+                // Picker scoping used to come from the Firebase employees
+                // index (removed with the cutover) — users whose profile
+                // branch_ids contain this branch are the equivalent set.
+                val bids = c.child("profile/company_info/branch_ids").children
+                    .mapNotNull { it.getValue(String::class.java) }
+                if (branchId in bids) branchEmployeeUids.add(uid)
             }
 
             // Roles come straight from Firebase (roles/{roleId}, admin-configured via Access
@@ -372,53 +377,51 @@ class BranchEditFragment : Fragment() {
             }
 
             allBranches.clear()
-            allSnap.children.forEach { c ->
-                val id   = c.key ?: return@forEach
-                val name = c.child("name").getValue(String::class.java) ?: id
-                val type = c.child("branch_type").getValue(String::class.java) ?: ""
-                allBranches.add(PickerItem(id, name, type))
+            supabaseBranches.forEach { r ->
+                allBranches.add(PickerItem(r.branchId, r.name, r.branchType))
             }
 
             if (!isAdded) return
-            prefill(thisSnap, branchId)
+            prefill(branch)
         } catch (e: Exception) {
             if (isAdded) toast("Failed to load: ${e.message}")
         }
     }
 
-    private fun prefill(snap: com.google.firebase.database.DataSnapshot, branchId: String) {
+    private fun prefill(branch: SupabaseBranchReader.BranchRow) {
+        val branchId = branch.branchId
         tvId.text = "Branch ID: $branchId"
-        etCode.setText(snap.child("branch_code").getValue(String::class.java) ?: "")
-        etName.setText(snap.child("name").getValue(String::class.java) ?: "")
-        etAddress.setText(snap.child("address").getValue(String::class.java) ?: "")
-        etLat.setText(snap.child("latitude").getValue(Double::class.java)?.toString() ?: "")
-        etLng.setText(snap.child("longitude").getValue(Double::class.java)?.toString() ?: "")
-        etEmail.setText(snap.child("email").getValue(String::class.java) ?: "")
-        etPhone.setText(snap.child("phone").getValue(String::class.java) ?: "")
+        etCode.setText(branch.branchCode)
+        etName.setText(branch.name)
+        etAddress.setText(branch.address)
+        etLat.setText(branch.latitude.takeIf { it != 0.0 }?.toString() ?: "")
+        etLng.setText(branch.longitude.takeIf { it != 0.0 }?.toString() ?: "")
+        etEmail.setText(branch.email)
+        etPhone.setText(branch.phone)
 
         val typeList = listOf("Hub", "Collection Point", "Sub")
-        val typeIdx  = typeList.indexOf(snap.child("branch_type").getValue(String::class.java) ?: "")
+        val typeIdx  = typeList.indexOf(branch.branchType)
         if (typeIdx >= 0) spinnerType.setSelection(typeIdx)
 
         val statusList = listOf("active", "inactive")
-        val statusIdx  = statusList.indexOf(snap.child("status").getValue(String::class.java) ?: "active")
+        val statusIdx  = statusList.indexOf(branch.status.ifBlank { "active" })
         if (statusIdx >= 0) spinnerStatus.setSelection(statusIdx)
 
-        selectedManagerUid  = snap.child("manager_uid").getValue(String::class.java) ?: ""
-        selectedManagerName = snap.child("manager_name").getValue(String::class.java) ?: ""
+        selectedManagerUid  = branch.managerUid
+        selectedManagerName = allEmployees.find { it.id == branch.managerUid }?.name ?: ""
         originalManagerUid  = selectedManagerUid
-        selectedAccountantUid  = snap.child("accountant_uid").getValue(String::class.java) ?: ""
-        selectedAccountantName = snap.child("accountant_name").getValue(String::class.java) ?: ""
-        selectedAccountantRole = snap.child("accountant_role").getValue(String::class.java) ?: ""
+        selectedAccountantUid  = branch.accountantUid
+        selectedAccountantName = allEmployees.find { it.id == branch.accountantUid }?.name ?: ""
+        selectedAccountantRole = branch.accountantRole
         originalAccountantUid  = selectedAccountantUid
-        selectedPettyCashPocUid  = snap.child("petty_cash_poc_uid").getValue(String::class.java) ?: ""
-        selectedPettyCashPocName = snap.child("petty_cash_poc_name").getValue(String::class.java) ?: ""
+        selectedPettyCashPocUid  = branch.pettyCashPocUid
+        selectedPettyCashPocName = allEmployees.find { it.id == branch.pettyCashPocUid }?.name ?: ""
         originalPettyCashPocUid  = selectedPettyCashPocUid
-        selectedStaffUid  = snap.child("staff_uid").getValue(String::class.java) ?: ""
-        selectedStaffName = snap.child("staff_name").getValue(String::class.java) ?: ""
-        selectedStaffRole = snap.child("staff_role").getValue(String::class.java) ?: ""
+        selectedStaffUid  = branch.staffUid
+        selectedStaffName = allEmployees.find { it.id == branch.staffUid }?.name ?: ""
+        selectedStaffRole = branch.staffRole
         originalStaffUid  = selectedStaffUid
-        uploadedImageUrl    = snap.child("image_url").getValue(String::class.java) ?: ""
+        uploadedImageUrl    = branch.imageUrl
         if (uploadedImageUrl.isNotBlank()) {
             ivBranchImage.load(uploadedImageUrl) {
                 crossfade(true)
@@ -460,7 +463,7 @@ class BranchEditFragment : Fragment() {
             btnClearStaff.visibility = View.VISIBLE
         }
 
-        selectedParentId = snap.child("parent_branch_id").getValue(String::class.java) ?: ""
+        selectedParentId = branch.parentBranchId
         if (selectedParentId.isNotBlank()) {
             val parentName = allBranches.find { it.id == selectedParentId }?.name ?: selectedParentId
             btnSelectParentBranch.text = parentName
@@ -481,127 +484,117 @@ class BranchEditFragment : Fragment() {
         if (code.isBlank()) { toast("Branch Code required"); return }
         if (name.isBlank()) { toast("Branch Name required"); return }
 
-        val now    = System.currentTimeMillis()
-        val byUid  = auth.currentUser?.uid ?: ""
-        val byName = auth.currentUser?.displayName ?: byUid.take(8)
-
         lifecycleScope.launch {
             try {
                 btnSave.isEnabled = false
-                val updates = mutableMapOf<String, Any>(
-                    "branches/$branchId/branch_code"     to code,
-                    "branches/$branchId/name"            to name,
-                    "branches/$branchId/branch_type"     to type,
-                    "branches/$branchId/address"         to etAddress.text.toString().trim(),
-                    "branches/$branchId/latitude"        to (etLat.text.toString().toDoubleOrNull() ?: 0.0),
-                    "branches/$branchId/longitude"       to (etLng.text.toString().toDoubleOrNull() ?: 0.0),
-                    "branches/$branchId/email"           to etEmail.text.toString().trim(),
-                    "branches/$branchId/phone"           to etPhone.text.toString().trim(),
-                    "branches/$branchId/manager_uid"     to selectedManagerUid,
-                    "branches/$branchId/manager_name"    to selectedManagerName,
-                    "branches/$branchId/accountant_uid"  to selectedAccountantUid,
-                    "branches/$branchId/accountant_name" to selectedAccountantName,
-                    "branches/$branchId/accountant_role" to selectedAccountantRole,
-                    "branches/$branchId/petty_cash_poc_uid"  to selectedPettyCashPocUid,
-                    "branches/$branchId/petty_cash_poc_name" to selectedPettyCashPocName,
-                    "branches/$branchId/staff_uid"  to selectedStaffUid,
-                    "branches/$branchId/staff_name" to selectedStaffName,
-                    "branches/$branchId/staff_role" to selectedStaffRole,
-                    "branches/$branchId/parent_branch_id" to selectedParentId,
-                    "branches/$branchId/status"          to status,
-                    "branches/$branchId/updated_at"      to now,
-                    "branches/$branchId/updated_log/$now" to mapOf(
-                        "by_uid"  to byUid,
-                        "by_name" to byName,
-                        "action"  to "updated",
-                        "at"      to now
+                val imageUrl = uploadImageIfNeeded(branchId)
+                // Branch directory persists ONLY to Supabase now (branch
+                // cutover) — no Firebase `branches/$branchId` write, no
+                // employees index, no updated_log (none have Supabase
+                // columns). removedUids lets the Edge Function strip the
+                // branch from the RLS membership of unassigned holders.
+                val removedUids = listOf(
+                    originalManagerUid.takeIf { it.isNotBlank() && it != selectedManagerUid },
+                    originalAccountantUid.takeIf { it.isNotBlank() && it != selectedAccountantUid },
+                    originalPettyCashPocUid.takeIf { it.isNotBlank() && it != selectedPettyCashPocUid },
+                    originalStaffUid.takeIf { it.isNotBlank() && it != selectedStaffUid }
+                ).mapNotNull { it }
+                SupabaseBranchWriter.save(
+                    SupabaseBranchWriter.BranchPayload(
+                        branchId = branchId,
+                        branchCode = code,
+                        name = name,
+                        branchType = type,
+                        address = etAddress.text.toString().trim(),
+                        latitude = etLat.text.toString().toDoubleOrNull() ?: 0.0,
+                        longitude = etLng.text.toString().toDoubleOrNull() ?: 0.0,
+                        email = etEmail.text.toString().trim(),
+                        phone = etPhone.text.toString().trim(),
+                        managerUid = selectedManagerUid,
+                        accountantUid = selectedAccountantUid,
+                        accountantRole = selectedAccountantRole,
+                        pettyCashPocUid = selectedPettyCashPocUid,
+                        staffUid = selectedStaffUid,
+                        staffRole = selectedStaffRole,
+                        parentBranchId = selectedParentId,
+                        status = status,
+                        imageUrl = if (imageUrl.isNotBlank()) imageUrl else uploadedImageUrl,
+                        removedUids = removedUids
                     )
                 )
-                val imageUrl = uploadImageIfNeeded(branchId)
-                if (imageUrl.isNotBlank()) updates["branches/$branchId/image_url"] = imageUrl
 
+                // Firebase user-profile branch_ids stay in sync (membership,
+                // not branch data) — same add/remove semantics as before.
+                // Collect into one updateChildren map, applied below.
+                val membershipUpdates = mutableMapOf<String, Any>()
                 if (selectedManagerUid.isNotBlank()) {
-                    // Ensure manager has this branch in branch_ids and index entry exists
+                    // Ensure manager has this branch in branch_ids
                     val idsSnap = db.reference.child("users/$selectedManagerUid/profile/company_info/branch_ids").get().await()
                     val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val newIds = (currentIds + branchId).distinct()
-                    updates["users/$selectedManagerUid/profile/company_info/branch_ids"] = newIds
-                    val empId = allEmployees.find { it.id == selectedManagerUid }?.empId ?: ""
-                    updates["branches/$branchId/employees/$selectedManagerUid"] =
-                        mapOf("user_id" to selectedManagerUid, "employee_id" to empId)
+                    membershipUpdates["users/$selectedManagerUid/profile/company_info/branch_ids"] =
+                        (currentIds + branchId).distinct()
                 }
                 if (selectedAccountantUid.isNotBlank()) {
-                    // Same as manager: ensure accountant has this branch in branch_ids and index entry exists
+                    // Same as manager: ensure accountant has this branch in branch_ids
                     val idsSnap = db.reference.child("users/$selectedAccountantUid/profile/company_info/branch_ids").get().await()
                     val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val newIds = (currentIds + branchId).distinct()
-                    updates["users/$selectedAccountantUid/profile/company_info/branch_ids"] = newIds
-                    val empId = allEmployees.find { it.id == selectedAccountantUid }?.empId ?: ""
-                    updates["branches/$branchId/employees/$selectedAccountantUid"] =
-                        mapOf("user_id" to selectedAccountantUid, "employee_id" to empId)
+                    membershipUpdates["users/$selectedAccountantUid/profile/company_info/branch_ids"] =
+                        (currentIds + branchId).distinct()
                 }
                 if (selectedPettyCashPocUid.isNotBlank()) {
-                    // Same as manager/accountant: ensure POC has this branch in branch_ids and index entry exists
+                    // Same as manager/accountant: ensure POC has this branch in branch_ids
                     val idsSnap = db.reference.child("users/$selectedPettyCashPocUid/profile/company_info/branch_ids").get().await()
                     val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val newIds = (currentIds + branchId).distinct()
-                    updates["users/$selectedPettyCashPocUid/profile/company_info/branch_ids"] = newIds
-                    val empId = allEmployees.find { it.id == selectedPettyCashPocUid }?.empId ?: ""
-                    updates["branches/$branchId/employees/$selectedPettyCashPocUid"] =
-                        mapOf("user_id" to selectedPettyCashPocUid, "employee_id" to empId)
+                    membershipUpdates["users/$selectedPettyCashPocUid/profile/company_info/branch_ids"] =
+                        (currentIds + branchId).distinct()
                 }
                 if (selectedStaffUid.isNotBlank()) {
-                    // Same as manager/accountant/POC: ensure Team Aligned has this branch in branch_ids and index entry exists
+                    // Same as manager/accountant/POC: ensure Staff has this branch in branch_ids
                     val idsSnap = db.reference.child("users/$selectedStaffUid/profile/company_info/branch_ids").get().await()
                     val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val newIds = (currentIds + branchId).distinct()
-                    updates["users/$selectedStaffUid/profile/company_info/branch_ids"] = newIds
-                    val empId = allEmployees.find { it.id == selectedStaffUid }?.empId ?: ""
-                    updates["branches/$branchId/employees/$selectedStaffUid"] =
-                        mapOf("user_id" to selectedStaffUid, "employee_id" to empId)
+                    membershipUpdates["users/$selectedStaffUid/profile/company_info/branch_ids"] =
+                        (currentIds + branchId).distinct()
                 }
-                db.reference.updateChildren(updates).await()
-                // Remove old manager from employees index and update their branch_ids —
-                // but only if they didn't just become the accountant, POC, or Team Aligned instead (still needs access)
+                // Remove an old holder's membership — but only if they didn't
+                // just take another role on this branch (still needs access).
+                // (The Firebase employees index is gone with the cutover, so
+                // only branch_ids is cleaned now.)
                 if (originalManagerUid.isNotBlank() && originalManagerUid != selectedManagerUid &&
                     originalManagerUid != selectedAccountantUid && originalManagerUid != selectedPettyCashPocUid &&
                     originalManagerUid != selectedStaffUid) {
-                    db.reference.child("branches/$branchId/employees/$originalManagerUid").removeValue().await()
                     val oldIdsSnap = db.reference.child("users/$originalManagerUid/profile/company_info/branch_ids").get().await()
                     val oldIds = if (oldIdsSnap.exists()) oldIdsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val filtered = oldIds.filter { it != branchId }
-                    db.reference.child("users/$originalManagerUid/profile/company_info/branch_ids").setValue(filtered).await()
+                    membershipUpdates["users/$originalManagerUid/profile/company_info/branch_ids"] =
+                        oldIds.filter { it != branchId }
                 }
                 // Same guarded cleanup for the old accountant
                 if (originalAccountantUid.isNotBlank() && originalAccountantUid != selectedAccountantUid &&
                     originalAccountantUid != selectedManagerUid && originalAccountantUid != selectedPettyCashPocUid &&
                     originalAccountantUid != selectedStaffUid) {
-                    db.reference.child("branches/$branchId/employees/$originalAccountantUid").removeValue().await()
                     val oldIdsSnap = db.reference.child("users/$originalAccountantUid/profile/company_info/branch_ids").get().await()
                     val oldIds = if (oldIdsSnap.exists()) oldIdsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val filtered = oldIds.filter { it != branchId }
-                    db.reference.child("users/$originalAccountantUid/profile/company_info/branch_ids").setValue(filtered).await()
+                    membershipUpdates["users/$originalAccountantUid/profile/company_info/branch_ids"] =
+                        oldIds.filter { it != branchId }
                 }
                 // Same guarded cleanup for the old Petty Cash POC
                 if (originalPettyCashPocUid.isNotBlank() && originalPettyCashPocUid != selectedPettyCashPocUid &&
                     originalPettyCashPocUid != selectedManagerUid && originalPettyCashPocUid != selectedAccountantUid &&
                     originalPettyCashPocUid != selectedStaffUid) {
-                    db.reference.child("branches/$branchId/employees/$originalPettyCashPocUid").removeValue().await()
                     val oldIdsSnap = db.reference.child("users/$originalPettyCashPocUid/profile/company_info/branch_ids").get().await()
                     val oldIds = if (oldIdsSnap.exists()) oldIdsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val filtered = oldIds.filter { it != branchId }
-                    db.reference.child("users/$originalPettyCashPocUid/profile/company_info/branch_ids").setValue(filtered).await()
+                    membershipUpdates["users/$originalPettyCashPocUid/profile/company_info/branch_ids"] =
+                        oldIds.filter { it != branchId }
                 }
-                // Same guarded cleanup for the old Team Aligned
+                // Same guarded cleanup for the old Staff
                 if (originalStaffUid.isNotBlank() && originalStaffUid != selectedStaffUid &&
                     originalStaffUid != selectedManagerUid && originalStaffUid != selectedAccountantUid &&
                     originalStaffUid != selectedPettyCashPocUid) {
-                    db.reference.child("branches/$branchId/employees/$originalStaffUid").removeValue().await()
                     val oldIdsSnap = db.reference.child("users/$originalStaffUid/profile/company_info/branch_ids").get().await()
                     val oldIds = if (oldIdsSnap.exists()) oldIdsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val filtered = oldIds.filter { it != branchId }
-                    db.reference.child("users/$originalStaffUid/profile/company_info/branch_ids").setValue(filtered).await()
+                    membershipUpdates["users/$originalStaffUid/profile/company_info/branch_ids"] =
+                        oldIds.filter { it != branchId }
                 }
+                if (membershipUpdates.isNotEmpty()) db.reference.updateChildren(membershipUpdates).await()
                 toast("Branch updated ✓")
                 parentFragmentManager.popBackStack()
             } catch (e: Exception) {

@@ -63,7 +63,7 @@ object SupabaseClaimsWriter {
                 .put("action", "claim_upsert")
                 .put("claim", claim.toSupabaseJson())
             val request = Request.Builder()
-                .url("${SupabaseConfig.PROJECT_URL}/functions/v1/remark-validations")
+                .url("${SupabaseConfig.PROJECT_URL}/functions/v1/claims")
                 .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
                 .addHeader("Authorization", "Bearer $token")
                 .addHeader("Content-Type", "application/json")

@@ -17,7 +17,6 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
 import coil.transform.CircleCropTransformation
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -29,7 +28,6 @@ import kotlinx.coroutines.tasks.await
 class BranchListFragment : Fragment() {
 
     private val db = FirebaseDatabase.getInstance()
-    private val auth = FirebaseAuth.getInstance()
 
     private lateinit var rvBranches: RecyclerView
     private lateinit var pbLoading: ProgressBar
@@ -37,7 +35,6 @@ class BranchListFragment : Fragment() {
     private lateinit var ivAddBranch: ImageView
 
     private var allBranches = listOf<BranchEntry>()
-    private val managers = mutableListOf<Pair<String, String>>()
 
     private lateinit var adapter: BranchAdapter
 
@@ -114,49 +111,45 @@ class BranchListFragment : Fragment() {
 
         lifecycleScope.launch {
             try {
-                // Load branches — manager_name is already stored on the branch node,
-                // so no full users/ scan needed. For the rare case it's missing,
-                // fetch only that specific user's name.
-                val branchesSnap = db.reference.child("branches").get().await()
-                val missingManagerUids = mutableSetOf<String>()
-                val rawBranches = branchesSnap.children.mapNotNull { child ->
-                    val branchId   = child.key ?: return@mapNotNull null
-                    val managerUid = child.child("manager_uid").getValue(String::class.java) ?: ""
-                    val cachedName = child.child("manager_name").getValue(String::class.java)
-                    if (cachedName.isNullOrBlank() && managerUid.isNotBlank()) missingManagerUids.add(managerUid)
+                // Branch directory reads ONLY Supabase now (branch cutover).
+                // public.branches has no name columns (manager_name etc. were
+                // Firebase-only copies), so holder names resolve from Firebase
+                // user profiles below — batched per distinct uid, not per row.
+                val rows = SupabaseBranchReader.listBranches()
+                val rawBranches = rows.map { r ->
                     BranchEntry(
-                        branchId      = branchId,
-                        branchCode    = child.child("branch_code").getValue(String::class.java) ?: "",
-                        name          = child.child("name").getValue(String::class.java) ?: branchId,
-                        branchType    = child.child("branch_type").getValue(String::class.java) ?: "",
-                        address       = child.child("address").getValue(String::class.java) ?: "",
-                        latitude      = child.child("latitude").getValue(Double::class.java) ?: 0.0,
-                        longitude     = child.child("longitude").getValue(Double::class.java) ?: 0.0,
-                        email         = child.child("email").getValue(String::class.java) ?: "",
-                        phone         = child.child("phone").getValue(String::class.java) ?: "",
-                        managerUid    = managerUid,
-                        managerName   = cachedName ?: "",
-                        accountantUid = child.child("accountant_uid").getValue(String::class.java) ?: "",
-                        pettyCashPocUid = child.child("petty_cash_poc_uid").getValue(String::class.java) ?: "",
-                        staffUid = child.child("staff_uid").getValue(String::class.java) ?: "",
-                        parentBranchId = child.child("parent_branch_id").getValue(String::class.java) ?: "",
-                        status        = child.child("status").getValue(String::class.java) ?: "active",
-                        imageUrl      = child.child("image_url").getValue(String::class.java) ?: "",
-                        createdAt     = child.child("created_at").getValue(Long::class.java) ?: 0L
+                        branchId      = r.branchId,
+                        branchCode    = r.branchCode,
+                        name          = r.name.ifBlank { r.branchId },
+                        branchType    = r.branchType,
+                        address       = r.address,
+                        latitude      = r.latitude,
+                        longitude     = r.longitude,
+                        email         = r.email,
+                        phone         = r.phone,
+                        managerUid    = r.managerUid,
+                        managerName   = "",
+                        accountantUid = r.accountantUid,
+                        pettyCashPocUid = r.pettyCashPocUid,
+                        staffUid = r.staffUid,
+                        parentBranchId = r.parentBranchId,
+                        status        = r.status,
+                        imageUrl      = r.imageUrl,
+                        createdAt     = r.createdAt
                     )
                 }
-                // Fetch only missing manager names (targeted per-uid, not full scan)
-                managers.clear()
-                missingManagerUids.forEach { uid ->
+                // Resolve manager names (targeted per-uid, not full scan)
+                val nameByUid = mutableMapOf<String, String>()
+                rawBranches.map { it.managerUid }.filter { it.isNotBlank() }.distinct().forEach { uid ->
                     val name = runCatching {
                         db.reference.child("users/$uid/profile/name").get().await()
                             .getValue(String::class.java)
-                    }.getOrNull() ?: uid.take(6)
-                    managers.add(uid to name)
+                    }.getOrNull()?.takeIf { it.isNotBlank() } ?: uid.take(6)
+                    nameByUid[uid] = name
                 }
                 allBranches = rawBranches.map { b ->
-                    if (b.managerName.isBlank() && b.managerUid.isNotBlank())
-                        b.copy(managerName = managers.find { it.first == b.managerUid }?.second ?: "None")
+                    if (b.managerUid.isNotBlank())
+                        b.copy(managerName = nameByUid[b.managerUid] ?: "None")
                     else b
                 }.sortedBy { it.name }
 
@@ -199,6 +192,10 @@ class BranchListFragment : Fragment() {
     private fun deleteBranch(branch: BranchEntry) {
         lifecycleScope.launch {
             try {
+                // Branch row deletes from Supabase (Edge refuses with 409 when
+                // claims still reference it). Firebase user-profile branch_ids
+                // are cleaned alongside (membership, not branch data).
+                SupabaseBranchWriter.delete(branch.branchId)
                 // Remove this branch from manager's branch_ids
                 if (branch.managerUid.isNotBlank()) {
                     val idsSnap = db.reference.child("users/${branch.managerUid}/profile/company_info/branch_ids").get().await()
@@ -223,7 +220,7 @@ class BranchListFragment : Fragment() {
                     db.reference.child("users/${branch.pettyCashPocUid}/profile/company_info/branch_ids").setValue(filtered).await()
                 }
 
-                // Same for Team Aligned's branch_ids
+                // Same for Staff's branch_ids
                 if (branch.staffUid.isNotBlank()) {
                     val idsSnap = db.reference.child("users/${branch.staffUid}/profile/company_info/branch_ids").get().await()
                     val ids = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
@@ -231,7 +228,6 @@ class BranchListFragment : Fragment() {
                     db.reference.child("users/${branch.staffUid}/profile/company_info/branch_ids").setValue(filtered).await()
                 }
 
-                db.reference.child("branches/${branch.branchId}").removeValue().await()
                 Toast.makeText(requireContext(), "Branch deleted ✓", Toast.LENGTH_SHORT).show()
                 loadData()
             } catch (e: Exception) {

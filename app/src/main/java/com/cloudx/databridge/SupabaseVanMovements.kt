@@ -17,7 +17,7 @@ import java.time.ZoneId
  * system_id, so no uid is stored anywhere here).
  *
  * Reads are direct PostgREST (free); writes go through the
- * remark-validations Edge Function's checkin / checkout actions
+ * check-ins Edge Function's checkin / checkout actions
  * (service-role admin client — same posture as SupabaseClaimsWriter.save:
  * throws on any failure, callers surface it via runCatching).
  */
@@ -123,7 +123,7 @@ object SupabaseVanMovements {
         if (!SupabaseConfig.isConfigured) error("Supabase is not configured")
         val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
         val request = Request.Builder()
-            .url("${SupabaseConfig.PROJECT_URL}/functions/v1/remark-validations")
+            .url("${SupabaseConfig.PROJECT_URL}/functions/v1/check-ins")
             .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
             .addHeader("Authorization", "Bearer $token")
             .addHeader("Content-Type", "application/json")

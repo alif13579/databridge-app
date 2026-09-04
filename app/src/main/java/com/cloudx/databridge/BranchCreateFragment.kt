@@ -23,7 +23,6 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import coil.load
 import coil.transform.CircleCropTransformation
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.launch
@@ -33,7 +32,6 @@ import java.util.UUID
 class BranchCreateFragment : Fragment() {
 
     private val db      = FirebaseDatabase.getInstance()
-    private val auth    = FirebaseAuth.getInstance()
     private val storage = FirebaseStorage.getInstance()
 
     private val autoId = UUID.randomUUID().toString().replace("-", "").take(12)
@@ -332,7 +330,6 @@ class BranchCreateFragment : Fragment() {
     private suspend fun loadData() {
         try {
             val usersSnap    = db.reference.child("users").get().await()
-            val branchesSnap = db.reference.child("branches").get().await()
 
             allEmployees.clear()
             usersSnap.children.forEach { child ->
@@ -359,12 +356,16 @@ class BranchCreateFragment : Fragment() {
             }
 
             allBranches.clear()
-            branchesSnap.children.forEach { child ->
-                val id   = child.key ?: return@forEach
-                val name = child.child("name").getValue(String::class.java) ?: id
-                val type = child.child("branch_type").getValue(String::class.java) ?: ""
-                allBranches.add(PickerItem(id, name, type))
-            }
+            // Parent-branch picker reads the Supabase directory (the branch
+            // cutover moved persistence off Firebase `branches/`) — a failed
+            // read only empties this picker, never the employee/role pickers.
+            runCatching { SupabaseBranchReader.listBranches() }
+                .onSuccess { rows ->
+                    rows.forEach { r -> allBranches.add(PickerItem(r.branchId, r.name, r.branchType)) }
+                }
+                .onFailure {
+                    if (isAdded) Toast.makeText(requireContext(), "Couldn't load branch list", Toast.LENGTH_SHORT).show()
+                }
         } catch (e: Exception) {
             if (isAdded) Toast.makeText(requireContext(), "Failed to load data", Toast.LENGTH_SHORT).show()
         }
@@ -384,89 +385,72 @@ class BranchCreateFragment : Fragment() {
         if (code.isBlank()) { toast("Branch Code required"); return }
         if (name.isBlank()) { toast("Branch Name required"); return }
 
-        val now    = System.currentTimeMillis()
-        val byUid  = auth.currentUser?.uid ?: ""
-        val byName = auth.currentUser?.displayName ?: byUid.take(8)
-
         lifecycleScope.launch {
             try {
                 btnCreate.isEnabled = false
 
                 val imageUrl = uploadImageIfNeeded(autoId)
 
-                val logKey = now.toString()
-                val branch = Branch(
-                    branch_id       = autoId,
-                    branch_code     = code,
-                    name            = name,
-                    branch_type     = type,
-                    address         = addr,
-                    latitude        = lat,
-                    longitude       = lng,
-                    email           = email,
-                    phone           = phone,
-                    manager_uid     = selectedManagerUid,
-                    manager_name    = selectedManagerName,
-                    accountant_uid  = selectedAccountantUid,
-                    accountant_name = selectedAccountantName,
-                    accountant_role = selectedAccountantRole,
-                    petty_cash_poc_uid  = selectedPettyCashPocUid,
-                    petty_cash_poc_name = selectedPettyCashPocName,
-                    staff_uid  = selectedStaffUid,
-                    staff_name = selectedStaffName,
-                    staff_role = selectedStaffRole,
-                    parent_branch_id = selectedParentId,
-                    status          = status,
-                    image_url       = imageUrl,
-                    created_by      = byUid,
-                    created_at      = now,
-                    updated_at      = now,
-                    updated_log     = mapOf(logKey to UpdateLogEntry(byUid, byName, "created", now))
+                // Branch directory persists ONLY to Supabase now (branch
+                // cutover) — no Firebase `branches/$autoId` write, no
+                // employees index, no updated_log (none have Supabase
+                // columns). The Edge Function also syncs the assignees'
+                // Supabase users.branch_ids (RLS membership) server-side.
+                SupabaseBranchWriter.save(
+                    SupabaseBranchWriter.BranchPayload(
+                        branchId = autoId,
+                        branchCode = code,
+                        name = name,
+                        branchType = type,
+                        address = addr,
+                        latitude = lat,
+                        longitude = lng,
+                        email = email,
+                        phone = phone,
+                        managerUid = selectedManagerUid,
+                        accountantUid = selectedAccountantUid,
+                        accountantRole = selectedAccountantRole,
+                        pettyCashPocUid = selectedPettyCashPocUid,
+                        staffUid = selectedStaffUid,
+                        staffRole = selectedStaffRole,
+                        parentBranchId = selectedParentId,
+                        status = status,
+                        imageUrl = imageUrl
+                    )
                 )
 
-                db.reference.child("branches/$autoId").setValue(branch).await()
-
+                // Firebase user-profile branch_ids stay in sync (they feed other
+                // Firebase-gated reads and the next sync_profile) — branch
+                // membership, not branch data.
                 if (selectedManagerUid.isNotBlank()) {
-                    // Add branch to manager's branch_ids and ensure branch employees index
+                    // Add branch to manager's branch_ids
                     val idsSnap = db.reference.child("users/$selectedManagerUid/profile/company_info/branch_ids").get().await()
                     val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
                     val newIds = (currentIds + autoId).distinct()
                     db.reference.child("users/$selectedManagerUid/profile/company_info/branch_ids").setValue(newIds).await()
-                    val empId = allEmployees.find { it.id == selectedManagerUid }?.empId ?: ""
-                    db.reference.child("branches/$autoId/employees/$selectedManagerUid")
-                        .setValue(mapOf("user_id" to selectedManagerUid, "employee_id" to empId)).await()
                 }
 
                 if (selectedAccountantUid.isNotBlank()) {
-                    // Same as manager: add branch to accountant's branch_ids and ensure branch employees index
+                    // Same as manager: add branch to accountant's branch_ids
                     val idsSnap = db.reference.child("users/$selectedAccountantUid/profile/company_info/branch_ids").get().await()
                     val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
                     val newIds = (currentIds + autoId).distinct()
                     db.reference.child("users/$selectedAccountantUid/profile/company_info/branch_ids").setValue(newIds).await()
-                    val empId = allEmployees.find { it.id == selectedAccountantUid }?.empId ?: ""
-                    db.reference.child("branches/$autoId/employees/$selectedAccountantUid")
-                        .setValue(mapOf("user_id" to selectedAccountantUid, "employee_id" to empId)).await()
                 }
 
                 if (selectedPettyCashPocUid.isNotBlank()) {
-                    // Same as manager/accountant: add branch to POC's branch_ids and ensure branch employees index
+                    // Same as manager/accountant: add branch to POC's branch_ids
                     val idsSnap = db.reference.child("users/$selectedPettyCashPocUid/profile/company_info/branch_ids").get().await()
                     val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
                     val newIds = (currentIds + autoId).distinct()
                     db.reference.child("users/$selectedPettyCashPocUid/profile/company_info/branch_ids").setValue(newIds).await()
-                    val empId = allEmployees.find { it.id == selectedPettyCashPocUid }?.empId ?: ""
-                    db.reference.child("branches/$autoId/employees/$selectedPettyCashPocUid")
-                        .setValue(mapOf("user_id" to selectedPettyCashPocUid, "employee_id" to empId)).await()
                 }
                 if (selectedStaffUid.isNotBlank()) {
-                    // Same as manager/accountant/POC: add branch to Team Aligned's branch_ids and ensure branch employees index
+                    // Same as manager/accountant/POC: add branch to Staff's branch_ids
                     val idsSnap = db.reference.child("users/$selectedStaffUid/profile/company_info/branch_ids").get().await()
                     val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
                     val newIds = (currentIds + autoId).distinct()
                     db.reference.child("users/$selectedStaffUid/profile/company_info/branch_ids").setValue(newIds).await()
-                    val empId = allEmployees.find { it.id == selectedStaffUid }?.empId ?: ""
-                    db.reference.child("branches/$autoId/employees/$selectedStaffUid")
-                        .setValue(mapOf("user_id" to selectedStaffUid, "employee_id" to empId)).await()
                 }
 
                 toast("Branch created ✓")

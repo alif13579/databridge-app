@@ -58,6 +58,18 @@ class PettyCashReportsFragment : Fragment() {
         // flash of a row that then has to disappear, wait for state instead.
         // Same gating for the Firebase→Supabase claims drain below: it
         // deletes Firebase data, so only Accounts may run it.
+        //
+        // "Sync directory" is deliberately NOT gated on load success: an empty
+        // public.branches is exactly what makes load() fail with
+        // "Branch not found", so the repair must be reachable from the error
+        // state too. The action itself is safe for anyone to run (idempotent
+        // upsert; row content comes from the server-side Firebase read, never
+        // client input — see FirebaseDirectorySync).
+        if (branchId.isNotBlank() && menu.findViewWithTag<View>("directory_sync") == null) {
+            addMenuRow(menu, "\uD83C\uDFE2", "Sync directory", "Copy branches & stores from Firebase to Supabase", tag = "directory_sync") {
+                showDirectorySyncConfirm()
+            }
+        }
         if (branchId.isNotBlank()) {
             viewModel.state.observe(viewLifecycleOwner) { state ->
                 if (state is PettyCashState.Success && state.roles.isAccounts && menu.findViewWithTag<View>("deposit_history") == null) {
@@ -155,8 +167,69 @@ class PettyCashReportsFragment : Fragment() {
             .show()
     }
 
-    private fun addMenuRow(container: LinearLayout, icon: String, title: String, subtitle: String, tag: String? = null, onClick: () -> Unit) {
-        val row = layoutInflater.inflate(R.layout.item_petty_cash_menu_row, container, false)
+    /** Copies the Firebase branch/store directories into Supabase (see
+     *  FirebaseDirectorySync). Needed once when public.branches/public.stores
+     *  are empty — that emptiness is what shows as "Branch not found" /
+     *  "No stores available" — and again after any Firebase directory edit. */
+    private fun showDirectorySyncConfirm() {
+        AlertDialog.Builder(requireContext())
+            .setTitle("Sync directory?")
+            .setMessage(
+                "Reads every branch (branches/) and store (courier/stores/) " +
+                    "from Firebase and copies them into Supabase.\n\n" +
+                    "Safe to re-run any time; existing rows are updated, " +
+                    "nothing is deleted."
+            )
+            .setPositiveButton("Start Sync") { _, _ -> runDirectorySync() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun runDirectorySync() {
+        val progressDialog = AlertDialog.Builder(requireContext())
+            .setTitle("Syncing directory…")
+            .setMessage("Copying branches…")
+            .setCancelable(false)
+            .create()
+            .also { it.show() }
+        lifecycleScope.launch {
+            val result = runCatching {
+                val branches = FirebaseDirectorySync.syncBranches()
+                activity?.runOnUiThread {
+                    if (progressDialog.isShowing) progressDialog.setMessage("Branches done — copying stores…")
+                }
+                val stores = FirebaseDirectorySync.syncStores()
+                branches to stores
+            }
+            runCatching { progressDialog.dismiss() }
+            result
+                .onSuccess { (branches, stores) ->
+                    val body = buildString {
+                        append("Branches synced: ${branches.synced}")
+                        if (branches.failed.isNotEmpty()) {
+                            append("\nBranch failures: ${branches.failed.size}")
+                            branches.failed.take(5).forEach { append("\n• $it") }
+                        }
+                        append("\nStores synced: ${stores.synced}")
+                        if (stores.failed.isNotEmpty()) {
+                            append("\nStore failures: ${stores.failed.size}")
+                            stores.failed.take(5).forEach { append("\n• $it") }
+                        }
+                        append("\n\nGo back and reopen Petty Cash to reload.")
+                    }
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("Directory sync result")
+                        .setMessage(body)
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+                .onFailure {
+                    Toast.makeText(requireContext(), it.message ?: "Sync failed", Toast.LENGTH_LONG).show()
+                }
+        }
+    }
+
+    private fun addMenuRow(container: LinearLayout, icon: String, title: String, subtitle: String, tag: String? = null, onClick: () -> Unit) {        val row = layoutInflater.inflate(R.layout.item_petty_cash_menu_row, container, false)
         row.tag = tag
         row.findViewById<TextView>(R.id.tvPcMenuRowIcon).text = icon
         row.findViewById<TextView>(R.id.tvPcMenuRowTitle).text = title

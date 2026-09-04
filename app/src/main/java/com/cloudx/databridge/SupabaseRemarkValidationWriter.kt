@@ -157,7 +157,8 @@ object SupabaseRemarkValidationWriter {
             JSONObject().put("action", "register_push_token").put("token", token),
             screen = "PushNotifications",
             action = "push_token_register",
-            reference = ""
+            reference = "",
+            function = "user-sync"
         ) { response -> onDone?.invoke(response != null) }
     }
 
@@ -197,7 +198,8 @@ object SupabaseRemarkValidationWriter {
             JSONObject().put("action", "unregister_push_token").put("token", token),
             screen = "PushNotifications",
             action = "push_token_unregister",
-            reference = ""
+            reference = "",
+            function = "user-sync"
         ) { }
     }
 
@@ -213,7 +215,8 @@ object SupabaseRemarkValidationWriter {
             JSONObject().put("action", "sync_profile"),
             screen = "SupabaseProfileSync",
             action = "supabase_profile_sync",
-            reference = ""
+            reference = "",
+            function = "user-sync"
         ) { response ->
             Log.i("SupabaseProfileSync", "sync_profile response=${response?.take(300) ?: "FAILED"}")
             RemarkPushChainLog.log("RemarkPushChain", "sync_profile response=${response?.take(300) ?: "FAILED"}", isWarning = response == null)
@@ -445,6 +448,7 @@ object SupabaseRemarkValidationWriter {
     }
 
     private fun invoke(payload: JSONObject, screen: String, action: String, reference: String,
+                       function: String = "remark-validations",
                        onResult: (String?) -> Unit) {
         if (!SupabaseConfig.isConfigured) {
             log(screen, "${action}_skip_not_configured", "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured", reference)
@@ -458,7 +462,7 @@ object SupabaseRemarkValidationWriter {
                 log(screen, "${action}_token_error", tokenTask.exception?.message ?: "No Firebase ID token", reference)
                 onResult(null); return@addOnCompleteListener
             }
-            val request = Request.Builder().url("${SupabaseConfig.PROJECT_URL}/functions/v1/remark-validations")
+            val request = Request.Builder().url("${SupabaseConfig.PROJECT_URL}/functions/v1/$function")
                 .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY).addHeader("Authorization", "Bearer $token")
                 .addHeader("Content-Type", "application/json").post(payload.toString().toRequestBody(jsonMediaType)).build()
             client.newCall(request).enqueue(object : Callback {
