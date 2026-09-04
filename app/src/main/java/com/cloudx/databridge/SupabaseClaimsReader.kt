@@ -434,9 +434,6 @@ object SupabaseClaimsReader {
             storeId = optString("store_id"),
             storeName = optString("store_name"),
             pickupCount = optInt("pickup_count", 0),
-            priority = optString("priority").ifBlank { PC_PRIORITY_NORMAL },
-            attachmentUrl = optString("attachment_url"),
-            attachmentName = optString("attachment_name"),
             attachments = optJSONArray("attachments")?.let { arr ->
                 List(arr.length()) { i ->
                     val o = arr.optJSONObject(i)

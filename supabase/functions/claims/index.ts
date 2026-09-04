@@ -61,10 +61,11 @@ Deno.serve(async (request) => {
         // re-add it without also adding the column.
         requested_amount: num(c.requested_amount), approved_amount: num(c.approved_amount), settled_amount: num(c.settled_amount),
         payment_method: str(c.payment_method), transaction_id: str(c.transaction_id),
-        status: str(c.status), priority: str(c.priority),
-        attachment_url: str(c.attachment_url), attachment_name: str(c.attachment_name),
-        // Multi-attachment [{key,name,size}] → attachments jsonb. Legacy
-        // single columns stay for old rows. Capped at 5, keys required.
+        status: str(c.status),
+        // Legacy attachment_url/name + priority columns dropped
+        // (202609040006) — attachments jsonb is the store now.
+        // Multi-attachment [{key,name,size}] → attachments jsonb.
+        // Capped at 5, keys required.
         attachments: (() => {
           const raw = Array.isArray(c.attachments) ? c.attachments.slice(0, 5) : []
           return raw.map((a: unknown) => {

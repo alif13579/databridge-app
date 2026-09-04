@@ -141,11 +141,7 @@ object SupabaseClaimsWriter {
             put("payment_method", paymentMethod)
             put("transaction_id", transactionId)
             put("status", status)
-            put("priority", priority)
-            put("attachment_url", attachmentUrl)
-            put("attachment_name", attachmentName)
             // Multi-attachment list → attachments jsonb [{key,name,size}].
-            // Legacy single columns above stay for old rows.
             put("attachments", org.json.JSONArray(attachments.map { a ->
                 JSONObject()
                     .put("key", a.key)

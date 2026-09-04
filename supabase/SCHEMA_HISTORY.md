@@ -187,7 +187,12 @@ legacy attachment_url/name columns stay for old rows. `r2-attachment-upload`
 gains a `delete` action (presigned DELETE so discarded form files leave R2
 too). App: gallery multi-pick uploads immediately with live %, ✕ removes
 row + object, submit gated on in-flight uploads; detail screen opens from a
-list; edit mode still can't change attachments.
+ list; edit mode still can't change attachments.
+31. **202609040006** (applied live via Management API, same as 0001) —
+drop `claims.attachment_url`, `claims.attachment_name` (0 rows used them)
+and `claims.priority` (every row 'normal', never set in UI). App models,
+writer/reader, `claims` Edge Function, migrator compare + both priority
+badges moved off; `attachments` jsonb is the only attachment store.
 
 ---
 

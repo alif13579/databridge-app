@@ -32,10 +32,12 @@
                 android:textStyle="bold"
                 android:textColor="#0F172A" />
 
+            <!-- Priority badge removed with the priority column (202609040006). -->
             <TextView
                 android:id="@+id/tvPsCardPriority"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:visibility="gone"
                 android:textSize="10sp"
                 android:textStyle="bold"
                 android:textColor="#C2410C"

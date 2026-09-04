@@ -53,11 +53,7 @@ data class ClaimInfo(
     val storeId: String = "",
     val storeName: String = "",
     val pickupCount: Int = 0,
-    val priority: String = PC_PRIORITY_NORMAL,
-    val attachmentUrl: String = "",
-    val attachmentName: String = "",
-    // Multi-attachment (new writes). Legacy single attachment_* above stay
-    // for old rows — see allAttachments for the merged view.
+    // Single attachment_url/name + priority columns dropped (202609040006).
     val attachments: List<AttachmentRef> = emptyList(),
     val staffByUid: String = "", val staffBySystemId: String = "", val staffByName: String = "", val staffAt: Long = 0L, val staffComment: String = "",
     val pocApprovedByUid: String = "", val pocApprovedBySystemId: String = "", val pocApprovedByName: String = "", val pocComment: String = "",
@@ -76,20 +72,13 @@ data class EmployeeIndexMigrationResult(
     val unresolved: List<Pair<String, String>>
 )
 
-/** Merged attachment view: new multi-list plus the legacy single file
- *  (old rows), de-duplicated by key. */
+/** Attachment list accessor (kept as extension so call sites read uniformly). */
 val ClaimInfo.allAttachments: List<AttachmentRef>
-    get() = attachments +
-        if (attachmentUrl.isNotBlank() && attachments.none { it.key == attachmentUrl })
-            listOf(AttachmentRef(attachmentUrl, attachmentName.ifBlank { "attachment" }))
-        else emptyList()
+    get() = attachments
 
-/** Same merged view for the UI model (asPettyCashRequest carries both). */
+/** Same view for the UI model (asPettyCashRequest carries the list). */
 val PettyCashRequest.allAttachments: List<AttachmentRef>
-    get() = attachments +
-        if (attachmentUrl.isNotBlank() && attachments.none { it.key == attachmentUrl })
-            listOf(AttachmentRef(attachmentUrl, attachmentName.ifBlank { "attachment" }))
-        else emptyList()
+    get() = attachments
 
 data class ClaimsReportFilter(
     val branchIds: Set<String>,
@@ -123,8 +112,8 @@ fun ClaimInfo.asPettyCashRequest(): PettyCashRequest = PettyCashRequest(
     consignmentId = consignmentId, storeId = storeId, storeName = storeName,
     pickupCount = pickupCount, vehicle = vehicle, fromArea = fromArea, toArea = toArea,
     attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
-    purpose = purpose, amount = requestedAmount, priority = priority,
-    attachmentUrl = attachmentUrl, attachmentName = attachmentName, attachments = attachments,
+    purpose = purpose, amount = requestedAmount,
+    attachments = attachments,
     requestedDate = requestedAt,
     status = status, createdAt = createdAt, updatedAt = updatedAt,
     staffByUid = staffByUid, staffByName = staffByName, staffAt = staffAt, staffComment = staffComment,

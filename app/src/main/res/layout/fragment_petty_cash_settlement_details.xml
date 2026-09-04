@@ -104,10 +104,12 @@
                         android:textStyle="bold"
                         android:textColor="#0F172A" />
 
+                    <!-- Priority badge removed with the priority column (202609040006). -->
                     <TextView
                         android:id="@+id/tvPcDetailPriority"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:visibility="gone"
                         android:text="High"
                         android:textSize="11sp"
                         android:textStyle="bold"

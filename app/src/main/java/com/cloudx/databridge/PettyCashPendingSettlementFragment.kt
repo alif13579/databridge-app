@@ -273,10 +273,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
             card.findViewById<TextView>(R.id.tvPsCardApprovedInfo).text = infoLine
             card.findViewById<TextView>(R.id.tvPsCardApprovedBy).text = byLine
 
-            val tvPriority = card.findViewById<TextView>(R.id.tvPsCardPriority)
-            tvPriority.isVisible = item.priority == PC_PRIORITY_HIGH
-            if (item.priority == PC_PRIORITY_HIGH) tvPriority.text = "High"
-
             // The inline button here just navigates to Settlement Details,
             // which shows whatever action actually fits the request's real
             // stage (Acknowledge/Approve/Mark Ready/Settle Now). Label and

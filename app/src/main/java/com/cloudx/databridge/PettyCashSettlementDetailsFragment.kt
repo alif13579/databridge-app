@@ -240,7 +240,6 @@ class PettyCashSettlementDetailsFragment : Fragment() {
 
     private fun renderRequest(root: View, request: PettyCashRequest, roles: PettyCashUserRoles) {
         root.findViewById<TextView>(R.id.tvPcDetailCode).text = request.requestCode
-        root.findViewById<TextView>(R.id.tvPcDetailPriority).isVisible = request.priority == PC_PRIORITY_HIGH
 
         root.findViewById<TextView>(R.id.tvPcDetailWorkerInitial).text = request.workerName.take(1).uppercase()
         root.findViewById<TextView>(R.id.tvPcDetailWorkerName).text = request.workerName
@@ -287,8 +286,11 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         }
 
         root.findViewById<TextView>(R.id.tvPcDetailPurpose).text = request.purpose
+        val files = request.allAttachments
         root.findViewById<TextView>(R.id.tvPcDetailAttachmentName).text =
-            request.attachmentName.ifBlank { "No attachment" }
+            if (files.isEmpty()) "No attachment"
+            else if (files.size == 1) files.first().name.ifBlank { "attachment" }
+            else "${files.size} attachments"
         bindAttachmentOpener(root, request)
 
         // Settlement Summary: Claimed Amount (the original ask, permanent record —

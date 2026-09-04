@@ -883,7 +883,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         setSaving(true)
         if (isEditMode) {
             // NOTE: updateRequest() has no attachment param — editing an existing
-            // PENDING request cannot currently change its attachment, only create
+            // PENDING request cannot currently change its attachments, only create
             // (submitRequest, below) can. Pre-existing limitation, out of scope
             // for wiring the upload itself; if editing the attachment is wanted
             // later, updateRequest() needs an attachmentUrl/attachmentName param
@@ -926,9 +926,6 @@ class PettyCashRequestCreateFragment : Fragment() {
                     category = selectedCategory,
                     purpose = purpose,
                     amount = finalAmount,
-                    priority = PC_PRIORITY_NORMAL,
-                    attachmentUrl = "",
-                    attachmentName = "",
                     attachments = formAttachments
                         .filter { it.objectKey.isNotBlank() && !it.failed }
                         .map { AttachmentRef(it.objectKey, it.displayName, it.sizeBytes) },

@@ -187,9 +187,6 @@ class PettyCashViewModel : ViewModel() {
         category: String,
         purpose: String,
         amount: Double,
-        priority: String,
-        attachmentUrl: String,
-        attachmentName: String,
         attachments: List<AttachmentRef> = emptyList(),
         workerRole: String = "",
         consignmentId: String = "",
@@ -224,9 +221,6 @@ class PettyCashViewModel : ViewModel() {
             attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
             purpose = purpose,
             requestedAmount = amount,
-            priority = priority,
-            attachmentUrl = attachmentUrl,
-            attachmentName = attachmentName,
             attachments = attachments,
             status = PC_STATUS_PENDING, requestedAt = if (requestedDate != 0L) requestedDate else now
         ), onSupabaseResult)
