@@ -117,25 +117,36 @@ class PettyCashRequestCreateFragment : Fragment() {
         categoryGroups[category]?.let { it == "conveyance" }
             ?: (category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY)
 
-    // Attachment state. attachmentUrl is what actually gets saved onto the
-    // request (empty until upload succeeds) — despite the name, this holds
-    // an R2 *object key*, not a URL: the bucket is private, so there's no
-    // standing public URL for it. Viewing the attachment later means asking
-    // AttachmentUploader.getDownloadUrl() for a fresh presigned URL each
-    // time, using this stored key. attachmentName is shown to the user
-    // immediately on pick, before the upload finishes, so the picker
-    // doesn't look like it did nothing while the network call is in flight.
-    private var attachmentName: String = ""
-    private var attachmentUrl: String = ""
-    private var attachmentUploading = false
+    // Multi-attachment state (max 5). Each picked file uploads IMMEDIATELY
+    // on select (gallery → row with live progress %), not on submit. A row
+    // is submittable once its object key exists; the ✕ deletes the row and
+    // the R2 object too (best-effort). Submit stays disabled while any row
+    // is still uploading. Keys are R2 *object keys*, not URLs — the bucket
+    // is private; viewing later means a fresh presigned URL each time (see
+    // AttachmentUploader.getDownloadUrl).
+    private data class FormAttachment(
+        val rowId: Long,
+        var displayName: String,
+        var progress: Int = 0,
+        var objectKey: String = "",
+        var sizeBytes: Long = 0,
+        var failed: Boolean = false,
+        var job: kotlinx.coroutines.Job? = null,
+        var statusView: TextView? = null,
+    )
+    private val formAttachments = mutableListOf<FormAttachment>()
+    private var attachRowSeq = 0L
+    private lateinit var layoutAttachments: LinearLayout
+
+    private val uploadingCount: Int get() = formAttachments.count { it.objectKey.isBlank() && !it.failed }
 
     private val consignmentPreviewHandler = Handler(Looper.getMainLooper())
     private var consignmentPreviewRunnable: Runnable? = null
 
-    private val attachmentPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri ?: return@registerForActivityResult
-        onAttachmentPicked(uri)
-    }
+    private val attachmentsPicker =
+        registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+            if (!uris.isNullOrEmpty()) onAttachmentsPicked(uris)
+        }
 
     // Same scan mechanism as WorkerSpaceFragment's search-by-scan, but the
     // trim + length validation below matches ScannerFragment's scanLauncher instead
@@ -180,11 +191,12 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var etAmount: EditText
     private lateinit var etPurpose: EditText
     private lateinit var tvPurposeCount: TextView
-    private lateinit var tvAttachmentName: TextView
     private lateinit var btnSubmit: android.widget.Button
     private lateinit var pbSaving: android.widget.ProgressBar
 
     companion object {
+        const val MAX_ATTACHMENTS = 5
+
         private const val ARG_BRANCH_ID = "branch_id"
         private const val ARG_EDIT_REQUEST_ID = "edit_request_id"
 
@@ -261,7 +273,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         view.findViewById<View>(R.id.layoutPcRequestExpenseDate).setOnClickListener { showExpenseDatePicker() }
         etPurpose = view.findViewById(R.id.etPcRequestPurpose)
         tvPurposeCount = view.findViewById(R.id.tvPcRequestPurposeCount)
-        tvAttachmentName = view.findViewById(R.id.tvPcRequestAttachmentName)
+        layoutAttachments = view.findViewById(R.id.layoutPcRequestAttachments)
         btnSubmit = view.findViewById(R.id.btnPcRequestSubmit)
         pbSaving = view.findViewById(R.id.pbPcRequestSaving)
 
@@ -283,10 +295,10 @@ class PettyCashRequestCreateFragment : Fragment() {
         layoutVehicle.setOnClickListener { showVehiclePicker() }
         layoutFromArea.setOnClickListener { showAreaPicker(forFrom = true) }
         layoutToArea.setOnClickListener { showAreaPicker(forFrom = false) }
-        view.findViewById<View>(R.id.layoutPcRequestAttachment).setOnClickListener {
-            if (attachmentUploading) return@setOnClickListener // ignore taps mid-upload
-            attachmentPicker.launch(AttachmentUploader.PICKER_MIME_TYPE)
+        view.findViewById<View>(R.id.layoutPcRequestAttachmentAdd).setOnClickListener {
+            attachmentsPicker.launch(AttachmentUploader.PICKER_MIME_TYPE)
         }
+        renderAttachments()
 
         etPurpose.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -648,62 +660,139 @@ class PettyCashRequestCreateFragment : Fragment() {
             }
     }
 
-    private fun onAttachmentPicked(uri: Uri) {
-        val meta = AttachmentUploader.readFileMeta(requireContext(), uri)
-        // Show the picked name right away so the tap feels responsive, before
-        // the network round trip finishes — attachmentUrl stays blank until
-        // upload actually succeeds, so onSubmit() can't send a URL that
-        // doesn't point at anything.
-        tvAttachmentName.text = meta?.displayName ?: "Uploading…"
-        tvAttachmentName.setTextColor(android.graphics.Color.parseColor("#0F172A"))
-        attachmentName = meta?.displayName.orEmpty()
-        attachmentUrl = ""
-        attachmentUploading = true
-        btnSubmit.isEnabled = false // an in-flight upload shouldn't let Submit fire without it
+    /** Gallery pick → one row per file, each uploading immediately with a
+     *  live % — capped at MAX_ATTACHMENTS (overflow files are skipped with
+     *  a toast, never silently dropped into a broken state). */
+    private fun onAttachmentsPicked(uris: List<Uri>) {
+        val room = MAX_ATTACHMENTS - formAttachments.size
+        if (room <= 0) {
+            Toast.makeText(requireContext(), "Maximum $MAX_ATTACHMENTS attachments", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val accepted = uris.take(room)
+        if (accepted.size < uris.size) {
+            Toast.makeText(requireContext(),
+                "Only $room more allowed (max $MAX_ATTACHMENTS) — extras skipped", Toast.LENGTH_LONG).show()
+        }
+        accepted.forEach { startAttachmentUpload(it) }
+    }
 
-        lifecycleScope.launch {
+    private fun startAttachmentUpload(uri: Uri) {
+        val ctx = requireContext()
+        val meta = AttachmentUploader.readFileMeta(ctx, uri)
+        val row = FormAttachment(
+            rowId = ++attachRowSeq,
+            displayName = meta?.displayName?.ifBlank { "attachment" } ?: "attachment",
+        )
+        formAttachments.add(row)
+        renderAttachments()
+        refreshSubmitEnabled()
+        row.job = lifecycleScope.launch {
             try {
-            when (val result = AttachmentUploader.upload(requireContext(), uri)) {
-                is AttachmentUploader.Result.Success -> {
-                    attachmentUrl = result.objectKey
-                    attachmentName = result.displayName
-                    if (isAdded) {
-                        tvAttachmentName.text = result.displayName
-                        tvAttachmentName.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+                when (val result = AttachmentUploader.upload(ctx, uri, onProgress = { pct ->
+                    row.progress = pct
+                    activity?.runOnUiThread { row.statusView?.text = "$pct%" }
+                })) {
+                    is AttachmentUploader.Result.Success -> {
+                        row.objectKey = result.objectKey
+                        row.sizeBytes = meta?.sizeBytes ?: 0L
+                        // Keep the server-confirmed name (may gain .jpg after compression).
+                        row.displayName = result.displayName
+                    }
+                    is AttachmentUploader.Result.Rejected -> {
+                        row.failed = true
+                        if (isAdded) Toast.makeText(requireContext(), result.reason, Toast.LENGTH_LONG).show()
+                    }
+                    is AttachmentUploader.Result.Failed -> {
+                        row.failed = true
+                        if (isAdded) Toast.makeText(requireContext(), result.message, Toast.LENGTH_LONG).show()
                     }
                 }
-                is AttachmentUploader.Result.Rejected -> {
-                    attachmentName = ""
-                    if (isAdded) {
-                        tvAttachmentName.text = "No file selected"
-                        tvAttachmentName.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
-                        Toast.makeText(requireContext(), result.reason, Toast.LENGTH_LONG).show()
-                    }
-                }
-                is AttachmentUploader.Result.Failed -> {
-                    attachmentName = ""
-                    if (isAdded) {
-                        tvAttachmentName.text = "No file selected"
-                        tvAttachmentName.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
-                        Toast.makeText(requireContext(), result.message, Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
             } catch (t: Throwable) {
-                // upload() must never leave the form bricked: any unexpected
-                // failure (e.g. OOM on a huge file, which is an Error, not an
-                // Exception) used to skip the reset below forever — disabled
-                // Submit, no error, no way forward until the screen reopened.
-                attachmentName = ""
-                if (isAdded) {
-                    tvAttachmentName.text = "No file selected"
-                    tvAttachmentName.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
-                    Toast.makeText(requireContext(),
-                        "Couldn't attach the file — try a smaller photo or PDF", Toast.LENGTH_LONG).show()
-                }
+                // Never brick the form: an unexpected failure just fails this row.
+                row.failed = true
+                if (isAdded) Toast.makeText(requireContext(),
+                    "Couldn't attach ${row.displayName} — try a smaller photo or PDF", Toast.LENGTH_LONG).show()
             }
-            attachmentUploading = false
-            if (isAdded) btnSubmit.isEnabled = true
+            if (isAdded) {
+                renderAttachments()
+                refreshSubmitEnabled()
+            }
+        }
+    }
+
+    /** Submit is enabled only when no row is still uploading. */
+    private fun refreshSubmitEnabled() {
+        if (!isAdded) return
+        btnSubmit.isEnabled = uploadingCount == 0
+    }
+
+    private fun renderAttachments() {
+        val ctx = context ?: return
+        layoutAttachments.removeAllViews()
+        if (formAttachments.isEmpty()) {
+            val tv = TextView(ctx).apply {
+                text = "No file selected"
+                textSize = 14f
+                setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+                setPadding(0, 8, 0, 8)
+            }
+            layoutAttachments.addView(tv)
+            return
+        }
+        formAttachments.toList().forEach { row ->
+            val line = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, 8, 0, 8)
+            }
+            val tvName = TextView(ctx).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                text = row.displayName
+                textSize = 14f
+                setTextColor(android.graphics.Color.parseColor("#0F172A"))
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+            }
+            val tvStatus = TextView(ctx).apply {
+                text = when {
+                    row.objectKey.isNotBlank() -> "✓"
+                    row.failed -> "✗ tap ✕ to remove"
+                    else -> "${row.progress}%"
+                }
+                textSize = 13f
+                setTextColor(android.graphics.Color.parseColor("#059669"))
+                setPadding(16, 0, 16, 0)
+            }
+            row.statusView = tvStatus
+            val tvDel = TextView(ctx).apply {
+                text = "✕"
+                textSize = 16f
+                setTextColor(android.graphics.Color.parseColor("#DC2626"))
+                setPadding(16, 8, 16, 8)
+                setOnClickListener { removeAttachment(row.rowId) }
+            }
+            line.addView(tvName)
+            line.addView(tvStatus)
+            line.addView(tvDel)
+            layoutAttachments.addView(line)
+        }
+    }
+
+    /** ✕ on a row: cancel an in-flight upload, delete the R2 object if one
+     *  was stored (best-effort, never blocks), drop the row. */
+    private fun removeAttachment(rowId: Long) {
+        val row = formAttachments.find { it.rowId == rowId } ?: return
+        row.job?.cancel()
+        row.statusView = null
+        val key = row.objectKey
+        formAttachments.remove(row)
+        renderAttachments()
+        refreshSubmitEnabled()
+        if (key.isNotBlank()) {
+            lifecycleScope.launch {
+                AttachmentUploader.deleteObject(key)
+            }
         }
     }
 
@@ -722,8 +811,8 @@ class PettyCashRequestCreateFragment : Fragment() {
     }
 
     private fun onSubmit() {
-        if (attachmentUploading) {
-            Toast.makeText(requireContext(), "Attachment is still uploading — please wait", Toast.LENGTH_SHORT).show()
+        if (uploadingCount > 0) {
+            Toast.makeText(requireContext(), "Attachments are still uploading — please wait", Toast.LENGTH_SHORT).show()
             return
         }
         val amount = etAmount.text?.toString()?.toDoubleOrNull() ?: 0.0
@@ -838,8 +927,11 @@ class PettyCashRequestCreateFragment : Fragment() {
                     purpose = purpose,
                     amount = finalAmount,
                     priority = PC_PRIORITY_NORMAL,
-                    attachmentUrl = attachmentUrl,
-                    attachmentName = attachmentName,
+                    attachmentUrl = "",
+                    attachmentName = "",
+                    attachments = formAttachments
+                        .filter { it.objectKey.isNotBlank() && !it.failed }
+                        .map { AttachmentRef(it.objectKey, it.displayName, it.sizeBytes) },
                     workerRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId },
                     consignmentId = finalConsignmentId,
                     storeId = finalStoreId,

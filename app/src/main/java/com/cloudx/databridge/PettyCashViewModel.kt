@@ -190,6 +190,7 @@ class PettyCashViewModel : ViewModel() {
         priority: String,
         attachmentUrl: String,
         attachmentName: String,
+        attachments: List<AttachmentRef> = emptyList(),
         workerRole: String = "",
         consignmentId: String = "",
         storeId: String = "",
@@ -226,6 +227,7 @@ class PettyCashViewModel : ViewModel() {
             priority = priority,
             attachmentUrl = attachmentUrl,
             attachmentName = attachmentName,
+            attachments = attachments,
             status = PC_STATUS_PENDING, requestedAt = if (requestedDate != 0L) requestedDate else now
         ), onSupabaseResult)
         claim.claimCode

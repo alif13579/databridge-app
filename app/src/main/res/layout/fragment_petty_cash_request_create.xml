@@ -483,18 +483,27 @@
                     android:textSize="11sp"
                     android:textColor="#94A3B8" />
 
-                <!-- Attachment (optional, name-only for now — file picker upload TODO) -->
+                <!-- Attachments (optional, max 5 — picked files upload
+                     immediately with a live %, ✕ removes the file from
+                     storage too) -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Attachment (Optional)"
+                    android:text="Attachments (Optional, max 5)"
                     android:textSize="12sp"
                     android:textStyle="bold"
                     android:textColor="#334155"
                     android:layout_marginTop="16dp" />
 
                 <LinearLayout
-                    android:id="@+id/layoutPcRequestAttachment"
+                    android:id="@+id/layoutPcRequestAttachments"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="2dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcRequestAttachmentAdd"
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
                     android:orientation="horizontal"
@@ -506,18 +515,17 @@
                     android:focusable="true">
 
                     <TextView
-                        android:id="@+id/tvPcRequestAttachmentName"
                         android:layout_width="0dp"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
-                        android:text="No file selected"
+                        android:text="＋ Add photo / PDF"
                         android:textSize="14sp"
-                        android:textColor="#94A3B8" />
+                        android:textColor="#0F172A" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="\uD83D\uDCCE"
+                        android:text="📎"
                         android:textSize="16sp" />
                 </LinearLayout>
 

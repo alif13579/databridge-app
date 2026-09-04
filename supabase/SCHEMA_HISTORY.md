@@ -179,8 +179,15 @@ the next sync recreates the old row.
 drop `claims.type` (verified type = category on every row first).
 Category (admin catalog) is the single source; app writer/reader, `claims`
 Edge Function, report filter + Top Sheet all moved to category. Dynamic
-date label on the request form (Pickup → "Pickup Date", Bulk Delivery →
-"Delivery Date", else "<Category> Date").
+ date label on the request form (Pickup → "Pickup Date", Bulk Delivery →
+ "Delivery Date", else "<Category> Date").
+30. **202609040005** (applied live via Management API, same as 0001) —
+`claims.attachments` jsonb [{key,name,size}] for multi-attachment (max 5);
+legacy attachment_url/name columns stay for old rows. `r2-attachment-upload`
+gains a `delete` action (presigned DELETE so discarded form files leave R2
+too). App: gallery multi-pick uploads immediately with live %, ✕ removes
+row + object, submit gated on in-flight uploads; detail screen opens from a
+list; edit mode still can't change attachments.
 
 ---
 

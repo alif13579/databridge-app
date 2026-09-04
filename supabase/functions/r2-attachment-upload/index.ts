@@ -9,7 +9,7 @@ import { createRemoteJWKSet, jwtVerify } from 'npm:jose@5'
  * key or the validations table at all. Keeping it isolated means a
  * bug here can't touch remark data, and vice versa.
  *
- * Two actions, both requiring a valid Firebase ID token:
+ * Three actions, all requiring a valid Firebase ID token:
  *   - upload (default, body has no "action" or action: "upload"): Android
  *     sends { file_name, content_type, size_bytes } → this rejects anything
  *     that isn't an image or a PDF or is over 5 MB, then returns a
@@ -20,6 +20,9 @@ import { createRemoteJWKSet, jwtVerify } from 'npm:jose@5'
  *     who can see which request, this function does no extra per-request
  *     role check on top of "is this a valid Firebase user") → this returns
  *     a presigned GET URL for that exact key.
+ *   - delete (action: "delete"): Android sends { object_key } for an upload
+ *     the requester is discarding from the form → this returns a presigned
+ *     DELETE URL so the object goes from R2 too, not just from the claim.
  *
  * The bucket is private — there is no public base URL. Every read goes
  * through a presigned GET, the same way every write goes through a
@@ -116,12 +119,13 @@ function hex(bytes: Uint8Array): string {
 
 /**
  * Builds a presigned SigV4 URL for a single request to R2 — PUT for an
- * upload, GET for a download. R2 supports AWS SigV4 query-parameter
- * presigning identically to S3 (region is always "auto" for R2). Expiry is
- * deliberately short in both cases — these URLs are meant to be used
- * within seconds/minutes of being issued, not stored or replayed.
+ * upload, GET for a download, DELETE for a removal. R2 supports AWS SigV4
+ * query-parameter presigning identically to S3 (region is always "auto"
+ * for R2). Expiry is deliberately short in both cases — these URLs are
+ * meant to be used within seconds/minutes of being issued, not stored or
+ * replayed.
  */
-async function presignR2Url(method: 'PUT' | 'GET', objectKey: string, expirySeconds: number): Promise<string> {
+async function presignR2Url(method: 'PUT' | 'GET' | 'DELETE', objectKey: string, expirySeconds: number): Promise<string> {
   const region = 'auto'
   const service = 's3'
   const host = `${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
@@ -177,6 +181,7 @@ Deno.serve(async (request) => {
 
     if (action === 'download') return await handleDownload(identity, body)
     if (action === 'upload') return await handleUpload(identity, body)
+    if (action === 'delete') return await handleDelete(identity, body)
     return reply({ error: `Unknown action: ${action}` }, 400)
   } catch (error) {
     console.error(error)
@@ -237,4 +242,18 @@ async function handleDownload(identity: { uid: string }, body: Record<string, un
 
   console.info(`r2-attachment-download ok: uid=${identity.uid}, key=${objectKey}`)
   return reply({ ok: true, download_url: downloadUrl, object_key: objectKey })
+}
+
+/** Presigned DELETE for one attachment key — same key guard as download.
+ *  Used when the requester removes a file from the form before submitting:
+ *  the object goes from R2 too, not just from the claim, so storage doesn't
+ *  fill with orphaned uploads. */
+async function handleDelete(identity: { uid: string }, body: Record<string, unknown>): Promise<Response> {
+  const objectKey = typeof body.object_key === 'string' ? body.object_key : ''
+  if (!objectKey.startsWith(ATTACHMENT_KEY_PREFIX) || objectKey.includes('..')) {
+    return reply({ error: 'Invalid object_key' }, 400)
+  }
+  const deleteUrl = await presignR2Url('DELETE', objectKey, 300) // 5-minute window
+  console.info(`r2-attachment-delete ok: uid=${identity.uid}, key=${objectKey}`)
+  return reply({ ok: true, delete_url: deleteUrl, object_key: objectKey })
 }

@@ -63,6 +63,17 @@ Deno.serve(async (request) => {
         payment_method: str(c.payment_method), transaction_id: str(c.transaction_id),
         status: str(c.status), priority: str(c.priority),
         attachment_url: str(c.attachment_url), attachment_name: str(c.attachment_name),
+        // Multi-attachment [{key,name,size}] → attachments jsonb. Legacy
+        // single columns stay for old rows. Capped at 5, keys required.
+        attachments: (() => {
+          const raw = Array.isArray(c.attachments) ? c.attachments.slice(0, 5) : []
+          return raw.map((a: unknown) => {
+            const o = (a ?? {}) as Record<string, unknown>
+            const key = str(o.key)
+            if (!key) throw new Error('attachment key is required')
+            return { key, name: str(o.name), size: num(o.size) }
+          })
+        })(),
         worker_uid: str(c.worker_uid), worker_role: str(c.worker_role),
         requested_at: iso(c.requested_at), approved_at: iso(c.approved_at), settled_at: iso(c.settled_at),
         created_at: iso(c.created_at), updated_at: iso(c.updated_at),

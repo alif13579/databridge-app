@@ -144,6 +144,14 @@ object SupabaseClaimsWriter {
             put("priority", priority)
             put("attachment_url", attachmentUrl)
             put("attachment_name", attachmentName)
+            // Multi-attachment list → attachments jsonb [{key,name,size}].
+            // Legacy single columns above stay for old rows.
+            put("attachments", org.json.JSONArray(attachments.map { a ->
+                JSONObject()
+                    .put("key", a.key)
+                    .put("name", a.name)
+                    .put("size", a.sizeBytes)
+            }))
             put("worker_uid", workerUid)
             put("worker_role", workerRole)
             put("requested_at", millisToIso(requestedAt))

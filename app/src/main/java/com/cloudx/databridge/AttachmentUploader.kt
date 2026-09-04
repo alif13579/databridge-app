@@ -150,8 +150,11 @@ object AttachmentUploader {
      * Full upload flow for one file. Safe to call from any coroutine — internally
      * suspends on the presign network call and the upload PUT, both off the main thread
      * via OkHttp's async callback bridged through suspendCancellableCoroutine.
+     *
+     * [onProgress] (0-100) fires on the PUT body only — presign/compress have
+     * no measurable progress. May be called from a background thread.
      */
-    suspend fun upload(context: Context, uri: Uri): Result {
+    suspend fun upload(context: Context, uri: Uri, onProgress: ((Int) -> Unit)? = null): Result {
         val meta = readFileMeta(context, uri) ?: return Result.Rejected("Couldn't read the selected file")
         if (meta.mimeType !in ALLOWED_MIME_TYPES) return Result.Rejected("Only images or PDF files are allowed")
         if (meta.sizeBytes <= 0) return Result.Rejected("Couldn't determine the file size")
@@ -213,11 +216,85 @@ object AttachmentUploader {
         }
 
         return try {
-            putFile(presignResponse.uploadUrl, bytes, uploadMeta.mimeType)
+            putFile(presignResponse.uploadUrl, bytes, uploadMeta.mimeType, onProgress)
             Result.Success(presignResponse.objectKey, uploadMeta.displayName)
         } catch (e: Exception) {
             log("put_error", e.message ?: "Unknown error", uploadMeta)
             Result.Failed("Upload failed partway through — try again")
+        }
+    }
+
+    /**
+     * Deletes one previously uploaded object from R2 (presigned DELETE via
+     * the Edge Function's `delete` action). Best-effort: returns false on
+     * any failure — callers drop the row from the form either way so a
+     * storage-side failure never blocks the user.
+     */
+    suspend fun deleteObject(objectKey: String): Boolean = withContext(Dispatchers.IO) {
+        if (objectKey.isBlank() || !SupabaseConfig.isConfigured) return@withContext false
+        val user = FirebaseAuth.getInstance().currentUser ?: return@withContext false
+        val token = try {
+            user.getIdToken(false).await().token
+        } catch (e: Exception) {
+            null
+        } ?: return@withContext false
+        try {
+            val payload = JSONObject().put("action", "delete").put("object_key", objectKey)
+            val request = Request.Builder()
+                .url("${SupabaseConfig.PROJECT_URL}/functions/v1/r2-attachment-upload")
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Content-Type", "application/json")
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+            val deleteUrl = suspendCancellableCoroutine<String> { continuation ->
+                val call = client.newCall(request)
+                continuation.invokeOnCancellation { call.cancel() }
+                call.enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (continuation.isActive) continuation.resumeWithException(e)
+                    }
+                    override fun onResponse(call: Call, response: okhttp3.Response) {
+                        response.use {
+                            val text = it.body?.string().orEmpty()
+                            if (!it.isSuccessful) {
+                                if (continuation.isActive) continuation.resumeWithException(
+                                    IOException("HTTP ${it.code}: ${text.take(300)}"))
+                                return
+                            }
+                            try {
+                                val url = JSONObject(text).getString("delete_url")
+                                if (continuation.isActive) continuation.resume(url)
+                            } catch (e: Exception) {
+                                if (continuation.isActive) continuation.resumeWithException(e)
+                            }
+                        }
+                    }
+                })
+            }
+            suspendCancellableCoroutine<Unit> { continuation ->
+                val delCall = client.newCall(Request.Builder().url(deleteUrl).delete().build())
+                continuation.invokeOnCancellation { delCall.cancel() }
+                delCall.enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (continuation.isActive) continuation.resumeWithException(e)
+                    }
+                    override fun onResponse(call: Call, response: okhttp3.Response) {
+                        response.use {
+                            if (it.isSuccessful) {
+                                if (continuation.isActive) continuation.resume(Unit)
+                            } else if (continuation.isActive) {
+                                continuation.resumeWithException(IOException("Delete HTTP ${it.code}"))
+                            }
+                        }
+                    }
+                })
+            }
+            log("delete_ok", objectKey, FileMeta(objectKey.substringAfterLast('/'), "", 0))
+            true
+        } catch (e: Exception) {
+            log("delete_error", e.message ?: "Unknown error", FileMeta(objectKey.substringAfterLast('/'), "", 0))
+            false
         }
     }
 
@@ -420,9 +497,39 @@ object AttachmentUploader {
             })
         }
 
-    private suspend fun putFile(uploadUrl: String, bytes: ByteArray, mimeType: String): Unit =
+    private suspend fun putFile(
+        uploadUrl: String,
+        bytes: ByteArray,
+        mimeType: String,
+        onProgress: ((Int) -> Unit)? = null,
+    ): Unit =
         suspendCancellableCoroutine { continuation ->
-            val body = bytes.toRequestBody(mimeType.toMediaType())
+            val body = if (onProgress == null) {
+                bytes.toRequestBody(mimeType.toMediaType())
+            } else {
+                object : okhttp3.RequestBody() {
+                    override fun contentType() = mimeType.toMediaType()
+                    override fun contentLength() = bytes.size.toLong()
+                    override fun writeTo(sink: okio.BufferedSink) {
+                        var sent = 0L
+                        val total = bytes.size.toLong()
+                        var lastPct = -1
+                        val counting = object : okio.ForwardingSink(sink) {
+                            override fun write(source: okio.Buffer, byteCount: Long) {
+                                super.write(source, byteCount)
+                                sent += byteCount
+                                val pct = if (total > 0) ((sent * 100) / total).toInt().coerceIn(0, 100) else 100
+                                if (pct != lastPct) {
+                                    lastPct = pct
+                                    try { onProgress(pct) } catch (_: Exception) {}
+                                }
+                            }
+                        }
+                        counting.write(okio.Buffer().write(bytes), total)
+                        counting.flush()
+                    }
+                }
+            }
             val request = Request.Builder().url(uploadUrl).put(body).build()
             val call = client.newCall(request)
             continuation.invokeOnCancellation { call.cancel() }

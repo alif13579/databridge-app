@@ -4,6 +4,13 @@ import com.google.firebase.database.IgnoreExtraProperties
 
 /** Canonical, reportable claim document.  It intentionally lives only once. */
 @IgnoreExtraProperties
+data class AttachmentRef(
+    val key: String = "",
+    val name: String = "",
+    val sizeBytes: Long = 0
+)
+
+@IgnoreExtraProperties
 data class ClaimInfo(
     val claimId: String = "",
     val claimCode: String = "",
@@ -49,6 +56,9 @@ data class ClaimInfo(
     val priority: String = PC_PRIORITY_NORMAL,
     val attachmentUrl: String = "",
     val attachmentName: String = "",
+    // Multi-attachment (new writes). Legacy single attachment_* above stay
+    // for old rows — see allAttachments for the merged view.
+    val attachments: List<AttachmentRef> = emptyList(),
     val staffByUid: String = "", val staffBySystemId: String = "", val staffByName: String = "", val staffAt: Long = 0L, val staffComment: String = "",
     val pocApprovedByUid: String = "", val pocApprovedBySystemId: String = "", val pocApprovedByName: String = "", val pocComment: String = "",
     val settleInProcessByUid: String = "", val settleInProcessBySystemId: String = "", val settleInProcessByName: String = "", val settleInProcessAt: Long = 0L,
@@ -65,6 +75,21 @@ data class EmployeeIndexMigrationResult(
     val matched: Int,
     val unresolved: List<Pair<String, String>>
 )
+
+/** Merged attachment view: new multi-list plus the legacy single file
+ *  (old rows), de-duplicated by key. */
+val ClaimInfo.allAttachments: List<AttachmentRef>
+    get() = attachments +
+        if (attachmentUrl.isNotBlank() && attachments.none { it.key == attachmentUrl })
+            listOf(AttachmentRef(attachmentUrl, attachmentName.ifBlank { "attachment" }))
+        else emptyList()
+
+/** Same merged view for the UI model (asPettyCashRequest carries both). */
+val PettyCashRequest.allAttachments: List<AttachmentRef>
+    get() = attachments +
+        if (attachmentUrl.isNotBlank() && attachments.none { it.key == attachmentUrl })
+            listOf(AttachmentRef(attachmentUrl, attachmentName.ifBlank { "attachment" }))
+        else emptyList()
 
 data class ClaimsReportFilter(
     val branchIds: Set<String>,
@@ -99,7 +124,8 @@ fun ClaimInfo.asPettyCashRequest(): PettyCashRequest = PettyCashRequest(
     pickupCount = pickupCount, vehicle = vehicle, fromArea = fromArea, toArea = toArea,
     attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
     purpose = purpose, amount = requestedAmount, priority = priority,
-    attachmentUrl = attachmentUrl, attachmentName = attachmentName, requestedDate = requestedAt,
+    attachmentUrl = attachmentUrl, attachmentName = attachmentName, attachments = attachments,
+    requestedDate = requestedAt,
     status = status, createdAt = createdAt, updatedAt = updatedAt,
     staffByUid = staffByUid, staffByName = staffByName, staffAt = staffAt, staffComment = staffComment,
     pocApprovedByUid = pocApprovedByUid, pocApprovedByName = pocApprovedByName,

@@ -142,29 +142,42 @@ class PettyCashSettlementDetailsFragment : Fragment() {
     private fun bindAttachmentOpener(root: View, request: PettyCashRequest) {
         val tvName = root.findViewById<TextView>(R.id.tvPcDetailAttachmentName)
         val tvView = root.findViewById<TextView>(R.id.btnPcDetailAttachmentView)
-        val hasAttachment = request.attachmentUrl.isNotBlank()
+        val files = request.allAttachments
 
-        tvView.isVisible = hasAttachment
-        tvView.isEnabled = hasAttachment
-        tvName.isEnabled = hasAttachment
+        tvView.isVisible = files.isNotEmpty()
+        tvView.isEnabled = files.isNotEmpty()
+        tvName.isEnabled = files.isNotEmpty()
 
-        if (!hasAttachment) {
+        if (files.isEmpty()) {
             tvName.setOnClickListener(null)
             tvView.setOnClickListener(null)
             return
         }
+        tvName.text = if (files.size == 1) files.first().name.ifBlank { "attachment" }
+        else "${files.size} attachments"
 
-        val openAttachment = View.OnClickListener {
-            if (!isAdded) return@OnClickListener
-            tvView.isEnabled = false // avoid double taps stacking up multiple in-flight requests
-            lifecycleScope.launch {
-                when (val result = AttachmentUploader.getDownloadUrl(request.attachmentUrl)) {
-                    is AttachmentUploader.DownloadResult.Success -> openInViewer(result.downloadUrl, request.attachmentName)
-                    is AttachmentUploader.DownloadResult.Failed ->
-                        if (isAdded) Toast.makeText(requireContext(), result.message, Toast.LENGTH_SHORT).show()
+        val openOne: (AttachmentRef) -> Unit = { file ->
+            if (isAdded) {
+                tvView.isEnabled = false // avoid double taps stacking up multiple in-flight requests
+                lifecycleScope.launch {
+                    when (val result = AttachmentUploader.getDownloadUrl(file.key)) {
+                        is AttachmentUploader.DownloadResult.Success -> openInViewer(result.downloadUrl, file.name)
+                        is AttachmentUploader.DownloadResult.Failed ->
+                            if (isAdded) Toast.makeText(requireContext(), result.message, Toast.LENGTH_SHORT).show()
+                    }
+                    if (isAdded) tvView.isEnabled = true
                 }
-                if (isAdded) tvView.isEnabled = true
             }
+        }
+        val openAttachment = View.OnClickListener {
+            if (files.size == 1) { openOne(files.first()); return@OnClickListener }
+            android.app.AlertDialog.Builder(requireContext())
+                .setTitle("Attachments")
+                .setItems(files.map { it.name.ifBlank { "attachment" } }.toTypedArray()) { _, index ->
+                    openOne(files[index])
+                }
+                .setNegativeButton("Close", null)
+                .show()
         }
         tvName.setOnClickListener(openAttachment)
         tvView.setOnClickListener(openAttachment)

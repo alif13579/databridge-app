@@ -437,6 +437,16 @@ object SupabaseClaimsReader {
             priority = optString("priority").ifBlank { PC_PRIORITY_NORMAL },
             attachmentUrl = optString("attachment_url"),
             attachmentName = optString("attachment_name"),
+            attachments = optJSONArray("attachments")?.let { arr ->
+                List(arr.length()) { i ->
+                    val o = arr.optJSONObject(i)
+                    AttachmentRef(
+                        key = o?.optString("key").orEmpty(),
+                        name = o?.optString("name").orEmpty(),
+                        sizeBytes = o?.optLong("size", 0L) ?: 0L,
+                    )
+                }.filter { it.key.isNotBlank() }
+            } ?: emptyList(),
             staffByUid = optString("staff_by_uid"),
             staffBySystemId = optString("staff_by_system_id"),
             staffByName = embedName("staff_user"),

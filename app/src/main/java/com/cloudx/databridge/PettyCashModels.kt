@@ -80,6 +80,9 @@ data class PettyCashRequest(
     // short-lived presigned URL when someone needs to actually view it.
     val attachmentUrl: String = "",
     val attachmentName: String = "",
+    // Multi-attachment (new writes, max 5); legacy single fields above stay
+    // for old rows.
+    val attachments: List<AttachmentRef> = emptyList(),
     val requestedDate: Long = 0L,           // date the expense was incurred, set by the Requester — separate from createdAt (submission time)
     val status: String = PC_STATUS_PENDING,
     val createdAt: Long = 0L,
