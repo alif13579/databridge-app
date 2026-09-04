@@ -35,8 +35,8 @@ object SupabaseClaimsReader {
         val vehicle: String get() = raw.optString("vehicle")
         val fromArea: String get() = raw.optString("from_area")
         val toArea: String get() = raw.optString("to_area")
-        val attemptQuantity: Int get() = raw.optInt("attempt_quantity", 0)
-        val deliveredQuantity: Int get() = raw.optInt("delivered_quantity", 0)
+        val attemptQuantity: Int get() = raw.optInt("attempted_qty", 0)
+        val deliveredQuantity: Int get() = raw.optInt("successed_qty", 0)
         val cidOrMerchant: String get() = raw.optString("cid_or_merchant")
         // The date the claim/expense request was placed — mandatory on every claim
         // (any category, not just conveyance), user-editable. Renamed from
@@ -417,8 +417,8 @@ object SupabaseClaimsReader {
             vehicle = optString("vehicle"),
             fromArea = optString("from_area"),
             toArea = optString("to_area"),
-            attemptQuantity = optInt("attempt_quantity", 0),
-            deliveredQuantity = optInt("delivered_quantity", 0),
+            attemptQuantity = optInt("attempted_qty", 0),
+            deliveredQuantity = optInt("successed_qty", 0),
             cidOrMerchant = optString("cid_or_merchant"),
             requestedAmount = optDouble("requested_amount", 0.0),
             approvedAmount = optDouble("approved_amount", 0.0),

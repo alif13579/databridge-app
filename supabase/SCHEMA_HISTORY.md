@@ -160,7 +160,13 @@ system_id-only: check_in/out_by_system_id, since users lookups key on
 system_id). Same branch-scoped RLS; partial unique index renamed to
 checkin_open_per_subject (branch_id, subject_type, subject_label). Edge
 Function actions renamed van_checkin/van_checkout → checkin/checkout
-(validations unchanged); app reader/writer moved to check_ins.
+ (validations unchanged); app reader/writer moved to check_ins.
+27. **202609040002** (applied live via Management API, same as 0001) —
+rename `claims.attempt_quantity → attempted_qty`,
+`claims.delivered_quantity → successed_qty` (owner-requested names) +
+backfill migrated rows (Pickup → both = pickup_count; Bulk Delivery →
+both = 1). App writer/reader + `claims` Edge Function redeployed on the
+new names; Kotlin property names unchanged (mapping-only change).
 
 ---
 

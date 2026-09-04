@@ -47,7 +47,7 @@ Deno.serve(async (request) => {
         // always sends them; omitting them here used to silently drop the
         // submitted vehicle/areas/quantities on every conveyance claim.
         vehicle: str(c.vehicle), from_area: str(c.from_area), to_area: str(c.to_area),
-        attempt_quantity: num(c.attempt_quantity), delivered_quantity: num(c.delivered_quantity),
+        attempted_qty: num(c.attempted_qty), successed_qty: num(c.successed_qty),
         cid_or_merchant: str(c.cid_or_merchant),
         // NOTE: there is no placed_date column on public.claims (the expense
         // date lives in requested_at; ClaimRow derives yyyy-MM-dd from it).
