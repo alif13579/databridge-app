@@ -1,9 +1,11 @@
-// remark-validations — compat slug, byte-identical to validations/index.ts
-// (the canonical slug). Kept deployed so old APKs/extension builds keep
-// working — edit BOTH files together until this slug is retired.
-// Call Center / Worker REMARK flows only.
+// validations — Call Center / Worker REMARK flows only.
 // Actions: write, report, admin_list_remarks, admin_upsert_remark,
 // admin_delete_remark, admin_migrate_status_remarks.
+//
+// NOTE: this is the canonical slug (renamed from remark-validations).
+// supabase/functions/remark-validations/index.ts is a byte-identical compat
+// copy kept deployed so old APKs/extension builds keep working — edit BOTH
+// files together until the old slug is retired.
 //
 // Every other domain moved to its own function (see supabase/functions/):
 // user-sync (profile/push-token/backfill_user), directory (branches/stores),

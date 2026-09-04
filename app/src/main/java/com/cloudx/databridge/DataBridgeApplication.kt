@@ -30,6 +30,10 @@ class DataBridgeApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // First: a hard crash (e.g. fresh-install crash) kills the process
+        // before any UI can show it — persist the stack trace now, MainActivity
+        // offers it as a copyable dialog on the next launch (CrashReporter).
+        CrashReporter.install(this)
         // Supabase client — must init before any Fragment uses it
         SupabaseClientManager.init()
 

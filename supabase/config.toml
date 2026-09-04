@@ -7,6 +7,12 @@
 [functions.remark-validations]
 verify_jwt = false
 
+# Canonical slug (renamed from remark-validations). The old slug above stays
+# deployed as a compat copy for old APKs/extension builds — see the NOTE in
+# supabase/functions/validations/index.ts.
+[functions.validations]
+verify_jwt = false
+
 [functions.user-sync]
 verify_jwt = false
 

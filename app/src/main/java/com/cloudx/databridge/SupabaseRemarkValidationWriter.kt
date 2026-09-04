@@ -110,7 +110,7 @@ object SupabaseRemarkValidationWriter {
                     AdminResult.Err(tokenTask.exception?.message ?: "No Firebase ID token")))
                 return@addOnCompleteListener
             }
-            val request = Request.Builder().url("${SupabaseConfig.PROJECT_URL}/functions/v1/remark-validations")
+            val request = Request.Builder().url("${SupabaseConfig.PROJECT_URL}/functions/v1/validations")
                 .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY).addHeader("Authorization", "Bearer $token")
                 .addHeader("Content-Type", "application/json").post(payload.toString().toRequestBody(jsonMediaType)).build()
             client.newCall(request).enqueue(object : Callback {
@@ -459,7 +459,9 @@ object SupabaseRemarkValidationWriter {
     }
 
     private fun invoke(payload: JSONObject, screen: String, action: String, reference: String,
-                       function: String = "remark-validations",
+                       // Canonical slug; the old "remark-validations" slug stays
+                       // deployed as a compat copy for old APKs (see config.toml).
+                       function: String = "validations",
                        onResult: (String?) -> Unit) {
         if (!SupabaseConfig.isConfigured) {
             log(screen, "${action}_skip_not_configured", "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured", reference)

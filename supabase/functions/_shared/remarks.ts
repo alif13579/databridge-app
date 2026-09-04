@@ -1,5 +1,6 @@
 // Remark-specific helpers: Bangla label catalog lookups + remark push.
-// Only imported by the remark-validations function.
+// Only imported by the validations function (plus its remark-validations
+// compat copy — same code).
 
 import { admin } from './supabase.ts'
 import {

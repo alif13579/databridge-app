@@ -3,10 +3,10 @@ import { createRemoteJWKSet, jwtVerify } from 'npm:jose@5'
 /**
  * Presigned-URL issuer for Petty Cash request attachments (Cloudflare R2).
  *
- * Why this exists as its own function, separate from remark-validations:
+ * Why this exists as its own function, separate from validations:
  * this only ever hands out short-lived R2 URLs — it never touches
  * Postgres/validations data, so it doesn't need the Supabase service role
- * key or the remark-validations table at all. Keeping it isolated means a
+ * key or the validations table at all. Keeping it isolated means a
  * bug here can't touch remark data, and vice versa.
  *
  * Two actions, both requiring a valid Firebase ID token:

@@ -1,7 +1,8 @@
 # Supabase deployment: users and validations
 
-The Android app calls the `remark-validations` Edge Function with a Firebase ID
-token. The function derives the canonical `author_system_id` from that verified
+The Android app calls the `validations` Edge Function with a Firebase ID
+token. (The old `remark-validations` slug is still deployed as a compat copy
+for old builds — same code, see `functions/validations/index.ts`.) The function derives the canonical `author_system_id` from that verified
 identity, upserts the master `users` record, and writes the activity to
 `validations`. Names and employee IDs are joined from `users`; they are never
 duplicated in validation rows. Mobile clients have no direct table permissions.
@@ -12,8 +13,8 @@ duplicated in validation rows. Mobile clients have no direct table permissions.
    must apply `202608200006_normalize_users_and_validations.sql` before deploying
    the updated function/app. It starts the normalized `users` and
    `validations` architecture without importing legacy records.
-2. In **Edge Functions**, create a function named `remark-validations`, replace
-   its source with `functions/remark-validations/index.ts`, and deploy it.
+2. In **Edge Functions**, create a function named `validations`, replace
+   its source with `functions/validations/index.ts`, and deploy it.
 3. In **Edge Functions → Secrets**, add these values:
 
    ```text
@@ -47,7 +48,7 @@ After `supabase login` and `supabase link --project-ref <project-ref>`:
 ```sh
 supabase secrets set FIREBASE_PROJECT_ID=databridgebd FIREBASE_DATABASE_URL=https://databridgebd-default-rtdb.asia-southeast1.firebasedatabase.app
 supabase db push
-supabase functions deploy remark-validations
+supabase functions deploy validations
 ```
 
 The Edge Function supports bounded, server-side `report` queries using a

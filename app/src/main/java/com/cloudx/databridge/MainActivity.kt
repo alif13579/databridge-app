@@ -135,6 +135,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         supportActionBar?.hide()
+        // Previous run crashed (e.g. fresh-install crash)? Offer the saved
+        // log as a copyable dialog before anything else runs.
+        CrashReporter.showPending(this)
         AppNotificationManager.initialize(this)
         appPrefs = AppPreferences(this)
         setupGoogleSignIn()

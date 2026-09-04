@@ -25,7 +25,7 @@ import org.json.JSONObject
  *  - Add new remark form (বাংলা + English + target group)
  *
  * Remark options themselves live in Supabase (public.validation_remarks, one row
- * per option, source='WORKER'/'CC') — reached only through the remark-validations
+ * per option, source='WORKER'/'CC') — reached only through the validations
  * Edge Function's admin_list_remarks/admin_upsert_remark/admin_delete_remark
  * actions (see SupabaseRemarkValidationWriter), which check the caller's
  * canAccessConfig permission server-side before writing. This moved off

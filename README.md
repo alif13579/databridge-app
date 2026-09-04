@@ -65,7 +65,7 @@ Supabase has no passwords here: every REST/Realtime/Function call carries the **
 ## Backend reference
 
 ### Edge Functions (`supabase/functions/` — one domain per function, shared code in `_shared/`)
-- **`remark-validations`** (`verify_jwt = false` — it verifies the Firebase JWT itself): remarks only — `write`, `report`, `admin_list_remarks`, `admin_upsert_remark`, `admin_delete_remark`, `admin_migrate_status_remarks`.
+- **`validations`** (`verify_jwt = false` — it verifies the Firebase JWT itself): remarks only — `write`, `report`, `admin_list_remarks`, `admin_upsert_remark`, `admin_delete_remark`, `admin_migrate_status_remarks`. (Old slug `remark-validations` still deployed as a compat copy for old builds.)
 - **`user-sync`**: `sync_profile`, `register_push_token`, `unregister_push_token`, `backfill_user`.
 - **`directory`**: `branch_upsert`, `branch_delete`, `backfill_branches`, `backfill_stores`.
 - **`claims`**: `claim_upsert`.
@@ -94,7 +94,7 @@ Supabase has no passwords here: every REST/Realtime/Function call carries the **
 ### New-machine setup
 1. Clone, then get `google-services.json` into `app/` and create `local.properties` (see `local.properties.example`).
 2. Install tooling without sudo: `supabase` CLI → `~/.local/bin`, Node 20 LTS → `~/.node` (this Mac has no Homebrew; official installer needs an admin password).
-3. `export SUPABASE_ACCESS_TOKEN=<sbp_...>` → `supabase link --project-ref jlmvpozfacpxphftzfvw` → `supabase db push` → `supabase functions deploy remark-validations r2-attachment-upload`.
+3. `export SUPABASE_ACCESS_TOKEN=<sbp_...>` → `supabase link --project-ref jlmvpozfacpxphftzfvw` → `supabase db push` → `supabase functions deploy validations r2-attachment-upload`.
 4. `./gradlew assembleDebug` (first run warms the Gradle cache; ~2 min after that).
 5. Admin adds claim categories via Dashboard → Table Editor → `claim_categories` (no app release needed).
 

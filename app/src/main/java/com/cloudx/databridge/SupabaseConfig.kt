@@ -1,7 +1,7 @@
 package com.cloudx.databridge
 
 /**
- * Supabase project configuration for the remark_validations table.
+ * Supabase project configuration for the validations table.
  *
  * Values are generated from ignored local.properties (development) or Gradle
  * properties (CI/release), rather than being hard-coded in source control.

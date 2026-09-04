@@ -17,7 +17,7 @@ import org.json.JSONObject
  *   branches/{branchId}                    -> [fetchBranch]
  *   users/{uid}/profile/...                -> [fetchCurrentUser]
  *
- * Writes for these same tables go through the remark-validations Edge
+ * Writes for these same tables go through the petty-cash Edge
  * Function's petty_cash_deposit_upsert / petty_cash_wallet_balance_upsert
  * actions (see SupabasePettyCashWriter) — the admin client there bypasses
  * RLS, so writes never depended on read policies. Reads below are direct
