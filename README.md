@@ -2,7 +2,7 @@
 
 **DataBridge** is an Android app for courier/delivery workforce management, built for operations running on Pathao Courier. It connects field agents, call center staff, supervisors, and admins under one platform — with role-based access control, real-time remark sync, Petty Cash management, and Google Sheets integration for delivery data.
 
-App version: **6.0.2** (versionCode 284). Language: Kotlin, minSdk 23, target/compile 34.
+App version: **6.1.0** (versionCode 292). Language: Kotlin, minSdk 23, target/compile 34.
 
 ---
 
