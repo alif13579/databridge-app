@@ -45,6 +45,11 @@ export async function upsertUser(profile: FirebaseProfile, firebaseId: string) {
     branch_ids: profile.branchIds,
     role: profile.roleId || null,
     firebase_id: firebaseId || null,
+    // POC report contact fields — parsed from the Firebase profile by all
+    // three profile readers (were added as columns in 202608270002 but never
+    // written until now, so every row still holds the '' default).
+    phone: profile.phone || '',
+    designation: profile.designation || '',
     updated_at: new Date().toISOString(),
   }
   const { error } = await admin.from('users').upsert(payload, { onConflict: 'system_id' })

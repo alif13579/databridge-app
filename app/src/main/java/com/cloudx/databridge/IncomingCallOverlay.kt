@@ -13,11 +13,22 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.isVisible
+import com.google.firebase.database.FirebaseDatabase
 import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.abs
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 /**
  * Adds/removes the incoming-call popup as a real system overlay (WindowManager.addView),
@@ -38,6 +49,8 @@ object IncomingCallOverlay {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var autoDismissRunnable: Runnable? = null
     private var autoMinimizeRunnable: Runnable? = null
+    private var remarkLoadJob: Job? = null
+    private val overlayScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private const val AUTO_DISMISS_MS = 30_000L
     // Long enough to read the card at a glance, short enough that the screen doesn't
     // stay covered once the agent isn't actively looking at it — auto-collapses to the
@@ -141,6 +154,17 @@ object IncomingCallOverlay {
             dismissInternal()
         }
         view.findViewById<View>(R.id.btnOverlayClose).setOnClickListener { dismissInternal() }
+
+        // Remarks (matched parcel only — saving needs a consignment). Catalog
+        // follows the same CC-priority rule as RemarkPopupOverlay.
+        if (match != null) {
+            val remarkSource = when {
+                RbacManager.hasPermission("nav_call_center") -> "CC"
+                RbacManager.hasPermission("nav_space") -> "WORKER"
+                else -> null
+            }
+            if (remarkSource != null) setupRemarks(context, view, match, rawPhone, remarkSource)
+        }
 
         val overlayType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -310,7 +334,327 @@ object IncomingCallOverlay {
         }
     }
 
+    // ── Remarks from the incoming-call popup ─────────────────────────────
+    // Same catalog + save path as the fragments (CC: Supabase source='CC' +
+    // ccLang with a note box; WORKER: source='WORKER' + workerLang, chips
+    // only, no note box). Fan-out to same-phone sibling parcels asks inline
+    // (Yes/No) since a system overlay can't host a second dialog cleanly.
+
+    private data class OverlayRemarkOption(
+        val label: String,
+        val englishLabel: String,
+        val targetStatus: String,
+        val instructionText: String,
+        val category: String = ""
+    )
+
+    /** Latest validations row for a consignment: who it's assigned to + which
+     *  branch the row carries. Null when the parcel never had a remark. */
+    private data class ParcelRoute(val branchId: String, val agentSystemId: String)
+
+    private suspend fun fetchOverlayRemarkOptions(source: String): List<OverlayRemarkOption> {
+        return try {
+            val db = FirebaseDatabase.getInstance().reference
+            val langPath = if (source == "WORKER") "config/language/workerLang" else "config/language/ccLang"
+            val defaultLang = if (source == "WORKER") "bn_bn" else "bn_en"
+            val langValue = withContext(Dispatchers.IO) {
+                db.child(langPath).get().await().getValue(String::class.java)
+            }?.trim().orEmpty().ifBlank { defaultLang }
+            val remarkLang = langValue.substringBefore("_").ifBlank { "bn" }
+            SupabaseClientManager.fetchRemarkOptions("IncomingCallOverlay", source).mapNotNull { opt ->
+                val label = if (remarkLang == "en") opt.textEn.ifBlank { opt.textBn } else opt.textBn.ifBlank { opt.textEn }
+                if (label.isBlank()) return@mapNotNull null
+                val target = opt.targetStatus.ifBlank { return@mapNotNull null }
+                OverlayRemarkOption(label, opt.textEn.ifBlank { opt.textBn }, target, opt.instructionText, opt.category)
+            }
+        } catch (e: Exception) {
+            FirebaseErrorLogger.log("IncomingCallOverlay", "fetch_remarks_failed", e.message ?: "")
+            emptyList()
+        }
+    }
+
+    private suspend fun resolveParcelRoute(consignmentId: String): ParcelRoute? {
+        return try {
+            val rows = SupabaseClientManager.fetchValidations(
+                "IncomingCallOverlay", "resolve_route", listOf(
+                    "consignment" to "eq.$consignmentId",
+                    "order" to "created_at.desc",
+                    "limit" to "1",
+                )
+            )
+            val row = rows.firstOrNull() ?: return null
+            ParcelRoute(
+                branchId = row.optString("branch_id").trim(),
+                agentSystemId = row.optString("assigned_to_system_id").trim()
+            )
+        } catch (e: Exception) {
+            FirebaseErrorLogger.log(
+                "IncomingCallOverlay", "resolve_route_failed", e.message ?: "",
+                mapOf("consignment" to consignmentId)
+            )
+            null
+        }
+    }
+
+    private suspend fun ownSystemId(): String {
+        return try {
+            val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+            if (uid.isBlank()) return ""
+            withContext(Dispatchers.IO) {
+                FirebaseDatabase.getInstance().reference
+                    .child("users/$uid/profile/company_info/system_id").get().await()
+                    .getValue(String::class.java)
+            }?.trim().orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    /** Other consignment IDs under the same caller number (via the existing
+     *  courier/consignments_by_phone index), excluding the matched one. */
+    private suspend fun siblingConsignmentIds(rawPhone: String, excludeId: String): List<String> {
+        return try {
+            val normalized = ConfigSheetParseUtil.normalizePhone(rawPhone)
+            if (normalized.isBlank()) return emptyList()
+            withContext(Dispatchers.IO) {
+                FirebaseDatabase.getInstance().reference
+                    .child("courier/consignments_by_phone/$normalized").get().await()
+                    .children.mapNotNull { it.key }
+            }.filter { it != excludeId }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun setupRemarks(context: Context, view: View, match: CallerMatch, rawPhone: String, source: String) {
+        val btnSetRemarks = view.findViewById<View>(R.id.btnOverlaySetRemarks)
+        val llRemarkSection = view.findViewById<View>(R.id.llOverlayRemarkSection)
+        val llFanout = view.findViewById<View>(R.id.llOverlayFanout)
+        val tvAgentMissing = view.findViewById<TextView>(R.id.tvOverlayAgentMissing)
+
+        btnSetRemarks.isVisible = true
+        btnSetRemarks.setOnClickListener {
+            btnSetRemarks.isVisible = false
+            llRemarkSection.isVisible = true
+            cancelAutoMinimize() // reading/picking — don't collapse mid-interaction
+            loadRemarkSection(context, view, match, rawPhone, source, source == "CC")
+        }
+        view.findViewById<TextView>(R.id.btnOverlayRemarkCancel).setOnClickListener {
+            llRemarkSection.isVisible = false
+            llFanout.isVisible = false
+            tvAgentMissing.isVisible = false
+            btnSetRemarks.isVisible = true
+        }
+    }
+
+    private fun loadRemarkSection(
+        context: Context, view: View, match: CallerMatch, rawPhone: String, source: String, isCc: Boolean
+    ) {
+        val chipContainer = view.findViewById<LinearLayout>(R.id.llOverlayRemarkChips)
+        val etNote = view.findViewById<EditText>(R.id.etOverlayNote)
+        val btnSave = view.findViewById<TextView>(R.id.btnOverlayRemarkSave)
+        val tvAgentMissing = view.findViewById<TextView>(R.id.tvOverlayAgentMissing)
+
+        remarkLoadJob?.cancel()
+        remarkLoadJob = overlayScope.launch {
+            val options = withContext(Dispatchers.IO) { fetchOverlayRemarkOptions(source) }
+            val route = withContext(Dispatchers.IO) { resolveParcelRoute(match.consignmentId) }
+            val selfSystemId = if (!isCc) withContext(Dispatchers.IO) { ownSystemId() } else ""
+            if (overlayView !== view) return@launch // dismissed while loading
+
+            // Agent resolution: CC saves against the parcel's assigned agent;
+            // WORKER saves against self. Either way a blank id means no safe
+            // save — point at Call Center instead of guessing.
+            val agentId = if (isCc) route?.agentSystemId.orEmpty() else selfSystemId
+            if (agentId.isBlank()) {
+                tvAgentMissing.isVisible = true
+                return@launch
+            }
+
+            renderOverlayChips(context, view, options, isCc)
+
+            btnSave.setOnClickListener {
+                val chosen = overlaySelectedOption
+                val noteText = etNote.text?.toString()?.trim().orEmpty()
+                if (chosen == null && (!isCc || noteText.isBlank())) {
+                    Toast.makeText(context, "একটি রিমার্কস বেছে নিন", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                // CC note-only save (no predefined option picked) mirrors
+                // CallCenterFragment's sheet, which enables Save on note alone.
+                saveFromOverlay(context, view, match, source, isCc, chosen = chosen, noteText = noteText,
+                    agentId = agentId, selfSystemId = selfSystemId, rawPhone = rawPhone)
+            }
+        }
+    }
+
+    private var overlaySelectedOption: OverlayRemarkOption? = null
+
+    private fun renderOverlayChips(context: Context, view: View, options: List<OverlayRemarkOption>, isCc: Boolean) {
+        val chipContainer = view.findViewById<LinearLayout>(R.id.llOverlayRemarkChips)
+        val etNote = view.findViewById<EditText>(R.id.etOverlayNote)
+        chipContainer.removeAllViews()
+        overlaySelectedOption = null
+
+        if (options.isEmpty()) {
+            val tv = TextView(context).apply {
+                text = if (isCc) "⚠ Config-এ কোনো remark সেট করা নেই। নোট হিসেবে লিখতে পারেন:"
+                else "⚠ Config-এ কোনো remark সেট করা নেই। Admin-কে remark যোগ করতে বলুন।"
+                textSize = 12f
+                setTextColor(0xFFF59E0B.toInt())
+            }
+            chipContainer.addView(tv)
+        }
+
+        if (isCc) etNote.isVisible = true
+
+        val chipViews = mutableListOf<TextView>()
+        fun refreshStyles() {
+            chipViews.forEach { chip ->
+                val isSelected = chip.tag == overlaySelectedOption
+                chip.setBackgroundResource(
+                    if (isSelected) R.drawable.bg_overlay_cta else R.drawable.bg_overlay_badge_status
+                )
+                chip.setTextColor(if (isSelected) 0xFFFFFFFF.toInt() else 0xFF0F172A.toInt())
+            }
+        }
+        options.forEach { option ->
+            val chip = TextView(context).apply {
+                text = option.label
+                textSize = 12f
+                setPadding(28, 16, 28, 16)
+                setBackgroundResource(R.drawable.bg_overlay_badge_status)
+                setTextColor(0xFF0F172A.toInt())
+                tag = option
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = 8 }
+                setOnClickListener {
+                    overlaySelectedOption = if (overlaySelectedOption == option) null else option
+                    // CC: selecting fills the admin-written instruction into
+                    // the note box (blank clears) — CallCenterFragment parity.
+                    if (isCc) etNote.setText(overlaySelectedOption?.instructionText.orEmpty())
+                    refreshStyles()
+                }
+            }
+            chipContainer.addView(chip)
+            chipViews.add(chip)
+        }
+    }
+
+    /** Save tap → sibling check → inline Yes/No fan-out (or direct save). */
+    private fun saveFromOverlay(
+        context: Context, view: View, match: CallerMatch, source: String, isCc: Boolean,
+        chosen: OverlayRemarkOption?, noteText: String,
+        agentId: String, selfSystemId: String, rawPhone: String
+    ) {
+        remarkLoadJob?.cancel()
+        remarkLoadJob = overlayScope.launch {
+            val siblings = withContext(Dispatchers.IO) { siblingConsignmentIds(rawPhone, match.consignmentId) }
+            if (overlayView !== view) return@launch
+            if (siblings.isEmpty()) {
+                doOverlaySave(context, view, listOf(match.consignmentId), match, source, isCc,
+                    chosen, noteText, agentId, selfSystemId)
+            } else {
+                showOverlayFanout(context, view, match, siblings, source, isCc,
+                    chosen, noteText, agentId, selfSystemId)
+            }
+        }
+    }
+
+    private fun showOverlayFanout(
+        context: Context, view: View, match: CallerMatch, siblings: List<String>,
+        source: String, isCc: Boolean, chosen: OverlayRemarkOption?, noteText: String,
+        agentId: String, selfSystemId: String
+    ) {
+        val llFanout = view.findViewById<View>(R.id.llOverlayFanout)
+        val tvFanoutText = view.findViewById<TextView>(R.id.tvOverlayFanoutText)
+        val total = siblings.size + 1
+        tvFanoutText.text = "\"${match.consignmentId}\"-এর মতো একই নম্বরের মোট $total টি parcel আছে।\nসবগুলোতে একই remark দিতে চান?"
+        llFanout.isVisible = true
+        view.findViewById<View>(R.id.btnOverlayFanoutYes).setOnClickListener {
+            llFanout.isVisible = false
+            doOverlaySave(context, view, listOf(match.consignmentId) + siblings, match, source, isCc,
+                chosen, noteText, agentId, selfSystemId)
+        }
+        view.findViewById<View>(R.id.btnOverlayFanoutNo).setOnClickListener {
+            llFanout.isVisible = false
+            doOverlaySave(context, view, listOf(match.consignmentId), match, source, isCc,
+                chosen, noteText, agentId, selfSystemId)
+        }
+    }
+
+    private fun doOverlaySave(
+        context: Context, view: View, consignmentIds: List<String>, match: CallerMatch,
+        source: String, isCc: Boolean, chosen: OverlayRemarkOption?, noteText: String,
+        primaryAgentId: String, selfSystemId: String
+    ) {
+        val llRemarkSection = view.findViewById<View>(R.id.llOverlayRemarkSection)
+        val tvConfirmation = view.findViewById<TextView>(R.id.tvOverlayConfirmation)
+        val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
+        if (branchId.isBlank()) {
+            Toast.makeText(context, "Branch তথ্য পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+            return
+        }
+        remarkLoadJob?.cancel()
+        remarkLoadJob = overlayScope.launch {
+            withContext(Dispatchers.IO) {
+                consignmentIds.forEach { cid ->
+                    // Per-parcel route so siblings save under their own branch;
+                    // fall back to the primary parcel's values when a sibling
+                    // has no validations row yet.
+                    val route = resolveParcelRoute(cid)
+                    val targetBranch = route?.branchId?.takeIf { it.isNotBlank() } ?: branchId
+                    if (isCc) {
+                        val targetAgent = route?.agentSystemId?.takeIf { it.isNotBlank() } ?: primaryAgentId
+                        if (targetAgent.isBlank()) return@forEach
+                        SupabaseRemarkValidationWriter.write(
+                            assignedAgentSystemId = targetAgent,
+                            branchId = targetBranch,
+                            consignmentId = cid,
+                            status = chosen?.targetStatus.orEmpty(),
+                            remarksText = chosen?.englishLabel.orEmpty(),
+                            noteText = noteText,
+                            source = "CC",
+                            screen = "IncomingCallOverlay",
+                            remarksBnText = chosen?.let {
+                                it.label.takeIf { label -> label.isNotBlank() && label != it.englishLabel }
+                            } ?: "",
+                            verdictText = chosen?.category.orEmpty(),
+                            appContext = context.applicationContext
+                        )
+                    } else {
+                        if (selfSystemId.isBlank()) return@forEach
+                        SupabaseRemarkValidationWriter.write(
+                            assignedAgentSystemId = selfSystemId,
+                            branchId = targetBranch,
+                            consignmentId = cid,
+                            status = chosen?.targetStatus.orEmpty(),
+                            remarksText = chosen?.englishLabel.orEmpty(),
+                            noteText = "",
+                            source = "WORKER",
+                            screen = "IncomingCallOverlay",
+                            remarksBnText = chosen?.let {
+                                it.label.takeIf { label -> label.isNotBlank() && label != it.englishLabel }
+                            } ?: ""
+                        )
+                    }
+                }
+            }
+            if (overlayView !== view) return@launch
+            tvConfirmation.text = if (consignmentIds.size > 1)
+                "✓ ${consignmentIds.size} টি parcel এ remark save হয়েছে"
+            else "✓ রিমার্কস সেভ হয়েছে"
+            llRemarkSection.isVisible = false
+            view.findViewById<View>(R.id.llOverlayFanout).isVisible = false
+            tvConfirmation.isVisible = true
+            mainHandler.postDelayed({ dismissInternal() }, 2000)
+        }
+    }
+
     private fun dismissInternal() {
+        remarkLoadJob?.cancel()
+        remarkLoadJob = null
         autoDismissRunnable?.let { mainHandler.removeCallbacks(it) }
         autoDismissRunnable = null
         cancelAutoMinimize()

@@ -87,6 +87,7 @@ class ConfigConnectorsFragment : Fragment() {
 
     // Step 4
     private var etScMatchColumn: EditText? = null
+    private var etScDateMatchColumn: EditText? = null
     private var etScWriteColumn: EditText? = null
     private var tvScSummary:     TextView? = null
 
@@ -234,6 +235,7 @@ class ConfigConnectorsFragment : Fragment() {
         tvScTabPreview = view.findViewById(R.id.tvScTabPreview)
 
         etScMatchColumn = view.findViewById(R.id.etScMatchColumn)
+        etScDateMatchColumn = view.findViewById(R.id.etScDateMatchColumn)
         etScWriteColumn = view.findViewById(R.id.etScWriteColumn)
         tvScSummary     = view.findViewById(R.id.tvScSummary)
 
@@ -341,7 +343,9 @@ class ConfigConnectorsFragment : Fragment() {
             title.text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } }
             title.textSize = 14f
             title.setTextColor(ctx.getColor(R.color.theme_text_primary))
-            sub.text = "${conn.sheetName}  •  Match: ${conn.matchColumn}  Write: ${conn.writeColumn}"
+            sub.text = "${conn.sheetName}  •  Match: ${conn.matchColumn}" +
+                (if (conn.dateMatchColumn.isNotBlank()) "+${conn.dateMatchColumn}(date)" else "") +
+                "  Write: ${conn.writeColumn}"
             sub.textSize = 11f
             sub.setTextColor(ctx.getColor(R.color.theme_text_secondary))
             row.setPadding(14, 12, 14, 12)
@@ -389,6 +393,7 @@ class ConfigConnectorsFragment : Fragment() {
         etScNickname?.setText("")
         etScTabPattern?.setText("Day {dd}")
         etScMatchColumn?.setText("")
+        etScDateMatchColumn?.setText("")
         etScWriteColumn?.setText("")
         tvScSelectedSheet?.text = "— Sheet বেছে নিন —"
         enterWizard()
@@ -400,6 +405,7 @@ class ConfigConnectorsFragment : Fragment() {
         etScNickname?.setText(conn.nickname)
         etScTabPattern?.setText(conn.tabPattern.ifBlank { "Day {dd}" })
         etScMatchColumn?.setText(conn.matchColumn)
+        etScDateMatchColumn?.setText(conn.dateMatchColumn)
         etScWriteColumn?.setText(conn.writeColumn)
         tvScSelectedSheet?.text = conn.sheetName.ifBlank { "— Sheet বেছে নিন —" }
         enterWizard()
@@ -648,6 +654,7 @@ class ConfigConnectorsFragment : Fragment() {
     // ── Step 4: Columns ──────────────────────────────────────────────────────
     private fun updateColumnSummary() {
         val match = etScMatchColumn?.text?.toString()?.trim().orEmpty()
+        val dateMatch = etScDateMatchColumn?.text?.toString()?.trim().orEmpty()
         val write = etScWriteColumn?.text?.toString()?.trim().orEmpty()
         if (match.isBlank() || write.isBlank()) {
             tvScSummary?.text = "Column দুটো পূরণ করলে এখানে summary দেখা যাবে।"
@@ -655,16 +662,22 @@ class ConfigConnectorsFragment : Fragment() {
         }
         val matchIdx = ConfigSheetParseUtil.parseColInput(match)
         val writeIdx = ConfigSheetParseUtil.parseColInput(write)
-        if (matchIdx == null || writeIdx == null) {
+        val dateIdx = if (dateMatch.isBlank()) -1 else ConfigSheetParseUtil.parseColInput(dateMatch) ?: -2
+        if (matchIdx == null || writeIdx == null || dateIdx == -2) {
             tvScSummary?.text = "⚠ Column ঠিক আছে কিনা check করুন (যেমন: T অথবা 20)"
             return
         }
         val matchNorm = ConfigSheetParseUtil.colIndexToLetter(matchIdx)
         val writeNorm = ConfigSheetParseUtil.colIndexToLetter(writeIdx)
-        tvScSummary?.text =
+        tvScSummary?.text = if (dateIdx >= 0) {
+            val dateNorm = ConfigSheetParseUtil.colIndexToLetter(dateIdx)
+            "✅ Remark connection: Column $matchNorm-এ consignment + Column $dateNorm-এ আজকের তারিখ মিলিয়ে row খুঁজে " +
+                "Column $writeNorm-এ verdict বসবে। Row না মিললে কিছু লেখা হবে না।"
+        } else {
             "✅ Scan হলে Column $matchNorm-এ agent-এর Employee ID খোঁজা হবে, " +
-            "এবং সেই row-এর Column $writeNorm-এ (যদি খালি থাকে) scan করা data বসবে। " +
-            "সব row ভরা থাকলে নতুন row যোগ হবে।"
+                "এবং সেই row-এর Column $writeNorm-এ (যদি খালি থাকে) scan করা data বসবে। " +
+                "সব row ভরা থাকলে নতুন row যোগ হবে।"
+        }
     }
 
     // ── Save ─────────────────────────────────────────────────────────────────
@@ -676,6 +689,7 @@ class ConfigConnectorsFragment : Fragment() {
         val nickname = etScNickname?.text?.toString()?.trim().orEmpty()
         val tabPattern = etScTabPattern?.text?.toString()?.trim().orEmpty().ifBlank { "Day {dd}" }
         val matchRaw = etScMatchColumn?.text?.toString()?.trim().orEmpty()
+        val dateMatchRaw = etScDateMatchColumn?.text?.toString()?.trim().orEmpty()
         val writeRaw = etScWriteColumn?.text?.toString()?.trim().orEmpty()
 
         val matchIdx = ConfigSheetParseUtil.parseColInput(matchRaw)
@@ -685,6 +699,16 @@ class ConfigConnectorsFragment : Fragment() {
         val matchCol = ConfigSheetParseUtil.colIndexToLetter(matchIdx)
         val writeCol = ConfigSheetParseUtil.colIndexToLetter(writeIdx)
         if (matchCol == writeCol) { showScErr("Match এবং Write column একই হতে পারবে না"); return }
+        // Optional date-match column turns this into a remark connection
+        // (consignment + today match). Must differ from both other columns.
+        val dateMatchCol = if (dateMatchRaw.isBlank()) "" else {
+            val idx = ConfigSheetParseUtil.parseColInput(dateMatchRaw)
+                ?: run { showScErr("Date match column ঠিক নেই (যেমন: A অথবা 1)"); return }
+            ConfigSheetParseUtil.colIndexToLetter(idx)
+        }
+        if (dateMatchCol.isNotBlank() && (dateMatchCol == matchCol || dateMatchCol == writeCol)) {
+            showScErr("Date match column, Match/Write column থেকে আলাদা হতে হবে"); return
+        }
 
         btnScStepConnect?.isEnabled = false
         viewLifecycleOwner.lifecycleScope.launch {
@@ -706,6 +730,7 @@ class ConfigConnectorsFragment : Fragment() {
                     sheetName    = sheet.name,
                     tabPattern   = tabPattern,
                     matchColumn  = matchCol,
+                    dateMatchColumn = dateMatchCol,
                     writeColumn  = writeCol,
                     googleEmail  = acct.email.orEmpty(),
                 )

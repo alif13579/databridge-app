@@ -35,6 +35,11 @@ export async function firebaseIdentity(request: Request): Promise<{ uid: string;
 export type FirebaseProfile = {
   systemId: string; roleId: string; branchIds: string[]; canAccessCallCenter: boolean
   canAccessConfig: boolean; name: string; employeeId: string
+  // POC report contact fields (Top Sheet header reads users.phone/designation
+  // via fetchPocForBranch). Firebase sources: profile/phone (top-level) +
+  // profile/company_info/designation — parsed in all three readers below so
+  // upsertUser keeps them in sync like name/role.
+  phone: string; designation: string
 }
 
 function permissionEnabled(node: unknown, permission: string): boolean {
@@ -99,6 +104,8 @@ export async function firebaseProfile(identity: { uid: string; token: string }):
     canAccessConfig: permissionEnabled(overrideActive ? overridePermissions : rolePermissions, 'nav_config'),
     name: typeof profile?.name === 'string' ? profile.name.trim() : '',
     employeeId: typeof companyInfo?.employee_id === 'string' ? companyInfo.employee_id.trim() : '',
+    phone: typeof profile?.phone === 'string' ? profile.phone.trim() : '',
+    designation: typeof companyInfo?.designation === 'string' ? companyInfo.designation.trim() : '',
   }
 }
 
@@ -128,6 +135,8 @@ export async function firebaseProfileForSystemId(systemId: string, identity: { u
     canAccessCallCenter: false,
     name: typeof profile?.name === 'string' ? profile.name.trim() : '',
     employeeId: typeof info?.employee_id === 'string' ? info.employee_id.trim() : '',
+    phone: typeof profile?.phone === 'string' ? profile.phone.trim() : '',
+    designation: typeof info?.designation === 'string' ? info.designation.trim() : '',
     uid: index.uid,
   }
 }
@@ -166,6 +175,8 @@ export async function firebaseProfileForUid(uid: string, identity: { uid: string
     canAccessConfig: false,
     name: typeof profile?.name === 'string' ? profile.name.trim() : '',
     employeeId: typeof companyInfo?.employee_id === 'string' ? companyInfo.employee_id.trim() : '',
+    phone: typeof profile?.phone === 'string' ? profile.phone.trim() : '',
+    designation: typeof companyInfo?.designation === 'string' ? companyInfo.designation.trim() : '',
     uid,
   }
 }

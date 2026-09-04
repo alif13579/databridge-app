@@ -35,10 +35,16 @@ object SupabaseRemarkValidationWriter {
      *  for a free-typed note, which has no Bangla counterpart. When present, the Edge Function
      *  upserts the pair into validation_remarks so any card showing this English text (via
      *  withRemarkLabels() below, a Realtime push cache lookup, or the Edge Function's own
-     *  report/push paths) can resolve Bangla. */
+     *  report/push paths) can resolve Bangla.
+     *
+     *  [verdictText] is the sheet verdict (validation_remarks.category) for this option.
+     *  CC saves with a non-blank verdict also mirror into the branch's connected remark
+     *  sheet (RemarkSheetMirror, best-effort) — blank means no sheet write. [appContext]
+     *  is required for that mirror (Google token + Firebase); pass null to skip it. */
     fun write(assignedAgentSystemId: String, branchId: String, consignmentId: String,
               status: String, remarksText: String, noteText: String = "", source: String,
-              screen: String, remarksBnText: String = "") {
+              screen: String, remarksBnText: String = "",
+              verdictText: String = "", appContext: android.content.Context? = null) {
         if (assignedAgentSystemId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
             val missing = buildList {
                 if (assignedAgentSystemId.isBlank()) add("assignedAgentSystemId")
@@ -52,7 +58,7 @@ object SupabaseRemarkValidationWriter {
             .put("assigned_to_system_id", assignedAgentSystemId)
             .put("source", source)
             .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)
-            .apply { if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText) }), screen,
+            .apply { if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText) }),             screen,
             "supabase_validation_write", consignmentId) { response ->
                 // The validation write is intentionally independent from push delivery, so
                 // a saved remark can still have push={reason:...}. Keep that outcome in the
@@ -67,6 +73,11 @@ object SupabaseRemarkValidationWriter {
                 Log.i("RemarkPushChain", message)
                 RemarkPushChainLog.log("RemarkPushChain", message,
                     isWarning = reason != "accepted_by_fcm")
+                // CC-only sheet mirror (best-effort, never blocks): a non-blank
+                // verdict goes into the branch's connected remark sheet.
+                if (response != null && source == "CC" && verdictText.isNotBlank() && appContext != null) {
+                    RemarkSheetMirror.mirror(appContext, branchId, consignmentId, verdictText)
+                }
             }
     }
 

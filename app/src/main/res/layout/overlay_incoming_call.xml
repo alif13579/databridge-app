@@ -184,6 +184,169 @@
 
         </LinearLayout>
 
+        <!-- Remarks: only for a matched parcel (saving needs a consignment).
+             Collapsed behind a button like RemarkPopupOverlay's Set Remarks;
+             expands to chips (+ note box for CC only) + save. -->
+        <TextView
+            android:id="@+id/btnOverlaySetRemarks"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="11dp"
+            android:background="@drawable/bg_overlay_badge_status"
+            android:text="📝 রিমার্কস সেট করুন"
+            android:textColor="#0F172A"
+            android:textSize="12.5sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingVertical="10dp"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/llOverlayRemarkSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:scrollbars="none">
+                <LinearLayout
+                    android:id="@+id/llOverlayRemarkChips"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <EditText
+                android:id="@+id/etOverlayNote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_overlay_badge_status"
+                android:hint="নোট লিখুন (ঐচ্ছিক)"
+                android:textSize="12.5sp"
+                android:minLines="2"
+                android:gravity="top|start"
+                android:padding="9dp"
+                android:inputType="textMultiLine"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="10dp">
+
+                <TextView
+                    android:id="@+id/btnOverlayRemarkCancel"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/bg_overlay_badge_status"
+                    android:text="বন্ধ করুন"
+                    android:textColor="#0F172A"
+                    android:textSize="12.5sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:paddingVertical="10dp" />
+
+                <TextView
+                    android:id="@+id/btnOverlayRemarkSave"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_overlay_cta"
+                    android:text="সেভ করুন"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12.5sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:paddingVertical="10dp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Same-phone fan-out confirm (inline — a system overlay can't host a
+             second dialog cleanly). Shown only when sibling parcels exist. -->
+        <LinearLayout
+            android:id="@+id/llOverlayFanout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvOverlayFanoutText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:textColor="#0F172A" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp">
+
+                <TextView
+                    android:id="@+id/btnOverlayFanoutYes"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/bg_overlay_cta"
+                    android:text="Yes, সবগুলোতে"
+                    android:textColor="#FFFFFF"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:paddingVertical="9dp" />
+
+                <TextView
+                    android:id="@+id/btnOverlayFanoutNo"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_overlay_badge_status"
+                    android:text="No, শুধু এটায়"
+                    android:textColor="#0F172A"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:paddingVertical="9dp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvOverlayAgentMissing"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="⚠ এই পার্সেলের এজেন্ট তথ্য পাওয়া যায়নি — Call Center-এ গিয়ে রিমার্ক দিন"
+            android:textSize="11.5sp"
+            android:textColor="#B45309"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvOverlayConfirmation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="✓ রিমার্কস সেভ হয়েছে"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#15803D"
+            android:gravity="center"
+            android:visibility="gone" />
+
     </LinearLayout>
 
 </LinearLayout>

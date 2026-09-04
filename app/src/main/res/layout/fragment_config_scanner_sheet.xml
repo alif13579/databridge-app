@@ -323,6 +323,20 @@
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="DATE MATCH COLUMN (ঐচ্ছিক — Remark sheet-এর জন্য)" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
+                <EditText android:id="@+id/etScDateMatchColumn"
+                    android:layout_width="match_parent" android:layout_height="46dp"
+                    android:background="@drawable/bg_input_rounded"
+                    android:padding="10dp" android:textSize="14sp" android:gravity="center"
+                    android:hint="যেমন: A (Column 1)"
+                    android:inputType="textCapCharacters" android:maxLines="1"
+                    android:layout_marginBottom="4dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Remark sheet হলে: consignment-এর পাশাপাশি এই date column-এ আজকের তারিখ মিলিয়ে row খুঁজবে। Scanner-এর জন্য খালি রাখুন।"
+                    android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="WRITE COLUMN (Scan Data)" android:textSize="10sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
                 <EditText android:id="@+id/etScWriteColumn"

@@ -184,6 +184,7 @@ class ConfigRemarksFragment : Fragment() {
                         instruction_type = r.optString("instruction_type"),
                         instruction_text = r.optString("instruction_text"),
                         is_active = r.optBoolean("is_active", true),
+                        category = r.optString("category"),
                     )
                     // Grouped by target_status for the status-chip picker, same shape
                     // bindStatusChips()/bindRemarksList() already expect — validation_remarks
@@ -497,6 +498,25 @@ class ConfigRemarksFragment : Fragment() {
         layout.addView(etBnEdit)
         layout.addView(etEnEdit)
         layout.addView(android.widget.TextView(ctx).apply {
+            text = "Sheet Verdict (খালি = sheet-এ লিখবে না)"
+            textSize = 10f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, dp(5))
+        })
+        val etVerdictEdit = android.widget.EditText(ctx).apply {
+            hint = "যেমন: Delivered / Failed"
+            setText(remark.category)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            textSize = 13f
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+        }
+        layout.addView(etVerdictEdit)
+        layout.addView(android.widget.TextView(ctx).apply {
             text = "Priority (বেশি = উপরে)"
             textSize = 10f
             setTextColor(ctx.getColor(R.color.theme_text_muted))
@@ -571,7 +591,8 @@ class ConfigRemarksFragment : Fragment() {
                 val newInstructionPos = instructionSpinnerEdit.selectedItemPosition
                 val newInstructionType = if (newInstructionPos <= 0) "" else ConfigState.INSTRUCTION_TYPES.getOrElse(newInstructionPos - 1) { "" }
                 val newInstructionText = if (newInstructionType.isNotBlank()) etInstructionEdit.text.toString().trim() else ""
-                handleEdit(group, remark.id, newBn, newEn, newTemplateId, newTargetStatus, newPriority, newInstructionType, newInstructionText)
+                val newCategory = etVerdictEdit.text.toString().trim()
+                handleEdit(group, remark.id, newBn, newEn, newTemplateId, newTargetStatus, newPriority, newInstructionType, newInstructionText, newCategory)
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -580,6 +601,7 @@ class ConfigRemarksFragment : Fragment() {
     private fun handleEdit(
         group: String, id: String, newBn: String, newEn: String, newTemplateId: String, newTargetStatus: String,
         newPriority: Int = 0, newInstructionType: String = "", newInstructionText: String = "",
+        newCategory: String = "",
     ) {
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Saving...")
@@ -588,6 +610,7 @@ class ConfigRemarksFragment : Fragment() {
                 .put("target_status", newTargetStatus)
                 .put("template_id", newTemplateId).put("priority", newPriority)
                 .put("instruction_type", newInstructionType).put("instruction_text", newInstructionText)
+                .put("category", newCategory)
             when (val result = SupabaseRemarkValidationWriter.adminUpsertRemark(activeScope.source, id, remark)) {
                 is SupabaseRemarkValidationWriter.AdminResult.Ok -> {
                     reloadConfig(); bindAll(); setBusy(false)
@@ -689,6 +712,9 @@ class ConfigRemarksFragment : Fragment() {
         content.addView(bnInput)
         content.addView(label("English"))
         content.addView(enInput)
+        content.addView(label("Sheet Verdict (খালি = sheet-এ লিখবে না)"))
+        val verdictInput = input("যেমন: Delivered / Failed")
+        content.addView(verdictInput)
         content.addView(label("Priority (বেশি = উপরে)"))
         content.addView(priorityInput)
         content.addView(label("Group"))
@@ -743,7 +769,8 @@ class ConfigRemarksFragment : Fragment() {
                     val instructionPos = instructionSpinnerCreate.selectedItemPosition
                     val instructionType = if (instructionPos <= 0) "" else ConfigState.INSTRUCTION_TYPES.getOrElse(instructionPos - 1) { "" }
                     val instructionText = if (instructionType.isNotBlank()) instructionInputCreate.text.toString().trim() else ""
-                    addRemark(bn, en, target, selectedTemplateId, priority, instructionType, instructionText)
+                    val verdict = verdictInput.text.toString().trim()
+                    addRemark(bn, en, target, selectedTemplateId, priority, instructionType, instructionText, verdict)
                 }
             }
         }
@@ -762,6 +789,7 @@ class ConfigRemarksFragment : Fragment() {
         priority: Int = 0,
         instructionType: String = "",
         instructionText: String = "",
+        category: String = "",
         onSuccess: () -> Unit = {},
     ) {
         viewLifecycleOwner.lifecycleScope.launch {
@@ -774,6 +802,7 @@ class ConfigRemarksFragment : Fragment() {
                 .put("priority", priority)
                 .put("instruction_type", instructionType)
                 .put("instruction_text", instructionText)
+                .put("category", category)
             when (val result = SupabaseRemarkValidationWriter.adminUpsertRemark(activeScope.source, "", remark)) {
                 is SupabaseRemarkValidationWriter.AdminResult.Ok -> {
                     activeStatus = target

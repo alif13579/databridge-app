@@ -2747,7 +2747,8 @@ class CallCenterFragment : Fragment() {
                         statusPreview = preview,
                         statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
                         templateId = opt.templateId,
-                        instructionText = opt.instructionText
+                        instructionText = opt.instructionText,
+                        category = opt.category
                     ) to opt.priority
                 }
 
@@ -2897,6 +2898,10 @@ class CallCenterFragment : Fragment() {
         btnSave.setOnClickListener {
             val noteText = etRemarks.text?.toString()?.trim() ?: ""
             if (selectedStatus.isBlank() && noteText.isBlank()) return@setOnClickListener
+            // Sheet verdict for the picked option (blank = no sheet write).
+            val verdictText = options.firstOrNull {
+                it.statusKey == selectedStatus && it.englishLabel == selectedStoredRemarkText
+            }?.category.orEmpty()
 
             // Find other parcels in the current list with the same phone number — same
             // normalization + confirm-dialog pattern as
@@ -2928,7 +2933,8 @@ class CallCenterFragment : Fragment() {
                             selectedStoredRemarkText = selectedStoredRemarkText,
                             noteText = noteText,
                             selectedTemplateId = selectedTemplateId,
-                            triggerItem = item
+                            triggerItem = item,
+                            verdictText = verdictText
                         )
                     }
                     .setNegativeButton("No, শুধু এটায়") { _, _ ->
@@ -2939,7 +2945,8 @@ class CallCenterFragment : Fragment() {
                             selectedStoredRemarkText = selectedStoredRemarkText,
                             noteText = noteText,
                             selectedTemplateId = selectedTemplateId,
-                            triggerItem = item
+                            triggerItem = item,
+                            verdictText = verdictText
                         )
                     }
                     .show()
@@ -2954,7 +2961,8 @@ class CallCenterFragment : Fragment() {
                 selectedStoredRemarkText = selectedStoredRemarkText,
                 noteText = noteText,
                 selectedTemplateId = selectedTemplateId,
-                triggerItem = item
+                triggerItem = item,
+                verdictText = verdictText
             )
             dialog.dismiss()
         }
@@ -3016,7 +3024,8 @@ class CallCenterFragment : Fragment() {
         selectedStoredRemarkText: String,
         noteText: String,
         selectedTemplateId: String,
-        triggerItem: CallCenterParcelItem
+        triggerItem: CallCenterParcelItem,
+        verdictText: String = ""
     ) {
         if (selectedTemplateId.isNotBlank() && WhatsAppSender.isEnabled(requireContext())) {
             val template = whatsappTemplatesCache[selectedTemplateId]
@@ -3054,7 +3063,9 @@ class CallCenterFragment : Fragment() {
                 // Blank when the CC-configured language is already English (selectedRemarkText
                 // == selectedStoredRemarkText) or this was a note-only save with no predefined
                 // option picked — validation_remarks only needs an entry when the two differ.
-                remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedStoredRemarkText } ?: ""
+                remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedStoredRemarkText } ?: "",
+                verdictText = verdictText,
+                appContext = requireContext().applicationContext
             )
 
             EngagedStateManager.clearEngaged(target.id, userId)
@@ -3231,7 +3242,10 @@ class CallCenterFragment : Fragment() {
         // Admin-written per-remark instruction (validation_remarks.instruction_text,
         // e.g. "Try again after 3pm, don't return yet") — filled into the note
         // box on select, saved as the note. Blank = no instruction for this remark.
-        val instructionText: String = ""
+        val instructionText: String = "",
+        // Sheet verdict (validation_remarks.category) — written into the
+        // branch's connected remark sheet on save. Blank = no sheet write.
+        val category: String = ""
     )
 
     // Loaded from config/remarks (+ config/language/ccLang) — see loadCcRemarkOptions().

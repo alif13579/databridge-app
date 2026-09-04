@@ -157,7 +157,7 @@ object RemarkPopupOverlay {
         }
     }
 
-    private data class RemarkOption(val label: String, val englishLabel: String, val targetStatus: String)
+    private data class RemarkOption(val label: String, val englishLabel: String, val targetStatus: String, val category: String = "")
 
     /** Same source used by CallCenterFragment's loadCcRemarkOptions()/WorkerSpaceFragment's
      *  equivalent -- kept intentionally minimal (no templates sorting beyond priority)
@@ -175,7 +175,7 @@ object RemarkPopupOverlay {
                 val label = if (remarkLang == "en") opt.textEn.ifBlank { opt.textBn } else opt.textBn.ifBlank { opt.textEn }
                 if (label.isBlank()) return@mapNotNull null
                 val target = opt.targetStatus.ifBlank { return@mapNotNull null }
-                RemarkOption(label, opt.textEn.ifBlank { opt.textBn }, target)
+                RemarkOption(label, opt.textEn.ifBlank { opt.textBn }, target, opt.category)
             }
         } catch (e: Exception) {
             FirebaseErrorLogger.log("RemarkPopupOverlay", "fetch_remarks_failed", e.message ?: "")
@@ -293,7 +293,9 @@ object RemarkPopupOverlay {
                 screen = "RemarkPopupOverlay",
                 // Blank when chosen.label IS chosen.englishLabel (configured language is
                 // already English) -- same reasoning as CallCenterFragment's saveCcRemarkForItems.
-                remarksBnText = chosen.label.takeIf { it.isNotBlank() && it != chosen.englishLabel } ?: ""
+                remarksBnText = chosen.label.takeIf { it.isNotBlank() && it != chosen.englishLabel } ?: "",
+                verdictText = if (source == "CC") chosen.category else "",
+                appContext = context.applicationContext
             )
             llRemarkSection.isVisible = false
             tvConfirmation.isVisible = true

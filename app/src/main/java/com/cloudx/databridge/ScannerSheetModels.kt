@@ -26,6 +26,11 @@ data class ScannerSheetConn(
     val tabPattern:     String = "Day {dd}",
     /** Column letter to search for a matching employee_id (e.g. "T" for column 20). */
     val matchColumn:    String = "",
+    /** Second match column: a DATE column (e.g. "A"). When non-blank this is a
+     *  REMARK connection — RemarkSheetMirror finds the row where [matchColumn]
+     *  == consignmentId AND this column == today, then writes the verdict into
+     *  [writeColumn]. Blank = scanner connection (single employee_id match). */
+    val dateMatchColumn: String = "",
     /** Column letter to write the scanned value into, on the same row as the match (e.g. "K"
      *  for column 11). */
     val writeColumn:    String = "",

@@ -453,6 +453,10 @@ object SupabaseClientManager {
     data class RemarkOption(
         val id: String, val textBn: String, val textEn: String, val targetStatus: String,
         val templateId: String, val priority: Int, val instructionType: String, val instructionText: String,
+        // Sheet verdict (validation_remarks.category): what RemarkSheetMirror
+        // writes into the branch's connected remark sheet on a CC save.
+        // Blank = no sheet write for this remark.
+        val category: String,
     )
 
     /** Loads every active remark option for [source] ('CC' or 'WORKER') directly from
@@ -471,7 +475,7 @@ object SupabaseClientManager {
             return@withContext emptyList()
         }
         val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/validation_remarks" +
-            "?select=id,remarks_bn,remarks_en,target_status,template_id,priority,instruction_type,instruction_text" +
+            "?select=id,remarks_bn,remarks_en,target_status,template_id,priority,instruction_type,instruction_text,category" +
             "&source=eq.${source.encodeParam()}&is_active=eq.true&order=priority.desc"
         try {
             val response = httpClient.newCall(
@@ -498,6 +502,7 @@ object SupabaseClientManager {
                         targetStatus = row.optString("target_status"), templateId = row.optString("template_id"),
                         priority = row.optInt("priority", 0), instructionType = row.optString("instruction_type"),
                         instructionText = row.optString("instruction_text"),
+                        category = row.optString("category"),
                     )
                 }
             }

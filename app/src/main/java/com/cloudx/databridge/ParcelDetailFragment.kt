@@ -72,7 +72,8 @@ class ParcelDetailFragment : Fragment() {
         val englishLabel: String,
         val statusKey: String,
         val statusPreview: String,
-        val statusColor: Int
+        val statusColor: Int,
+        val category: String = ""
     )
     private var pdRemarkOptions: List<PdRemarkOption> = emptyList()
 
@@ -231,7 +232,8 @@ class ParcelDetailFragment : Fragment() {
                         englishLabel = opt.textEn.ifBlank { opt.textBn },
                         statusKey = target,
                         statusPreview = preview,
-                        statusColor = metaEntry?.color ?: android.graphics.Color.GRAY
+                        statusColor = metaEntry?.color ?: android.graphics.Color.GRAY,
+                        category = opt.category
                     ) to opt.priority
                 }
                 if (isAdded) {
@@ -275,6 +277,7 @@ class ParcelDetailFragment : Fragment() {
         var selectedStatus     = ""
         var selectedRemarkText = ""
         var selectedRemarkTextEn = ""
+        var selectedVerdict    = ""
         val optionViews = mutableListOf<View>()
 
         btnSave.isEnabled = false
@@ -317,6 +320,7 @@ class ParcelDetailFragment : Fragment() {
                 selectedStatus       = opt.statusKey
                 selectedRemarkText   = opt.label
                 selectedRemarkTextEn = opt.englishLabel
+                selectedVerdict      = opt.category
                 tvAutoStatus.text  = opt.statusPreview
                 tvAutoStatus.setTextColor(opt.statusColor)
                 refreshSaveEnabled()
@@ -363,7 +367,9 @@ class ParcelDetailFragment : Fragment() {
                 // Blank when selectedRemarkTextEn == selectedRemarkText (config language is
                 // already English) or this was a note-only save with no option picked — same
                 // reasoning as CallCenterFragment's saveCcRemarkForItems.
-                remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedRemarkTextEn } ?: ""
+                remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedRemarkTextEn } ?: "",
+                verdictText = if (source == "CC") selectedVerdict else "",
+                appContext = requireContext().applicationContext
             )
 
             // Kept alongside the validations write above: these feed CC's push-queue index
