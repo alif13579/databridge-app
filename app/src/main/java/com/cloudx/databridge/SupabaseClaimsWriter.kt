@@ -77,7 +77,13 @@ object SupabaseClaimsWriter {
                         "HTTP ${response.code}: ${text.take(500)}",
                         mapOf("claimId" to claim.claimId)
                     )
-                    error("Failed to save claim to Supabase: HTTP ${response.code}")
+                    // The Edge Function puts the real cause in the body
+                    // ({"error":..., "reason":...} — see _shared/http.ts
+                    // unhandled()), so carry it in the thrown message:
+                    // callers surface it in a copyable dialog (see
+                    // SupabaseErrorDialog), otherwise only "HTTP 401"
+                    // reaches the user and the cause is undebuggable.
+                    error("Supabase save failed (HTTP ${response.code}): ${text.take(600).ifBlank { "empty response" }}")
                 }
             }
         }

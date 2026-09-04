@@ -762,7 +762,10 @@ class PettyCashRequestCreateFragment : Fragment() {
                     parentFragmentManager.popBackStack()
                 } else {
                     btnSubmit.isEnabled = true
-                    Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Update failed", Toast.LENGTH_SHORT).show()
+                    // Exact server reason in a copyable dialog (not a
+                    // transient Toast) so the error can be pasted to chat.
+                    if (isAdded) SupabaseErrorDialog.show(requireContext(), "Request update failed",
+                        result.exceptionOrNull()?.message ?: "Update failed")
                 }
             }
         } else {
@@ -796,7 +799,10 @@ class PettyCashRequestCreateFragment : Fragment() {
                     parentFragmentManager.popBackStack()
                 } else {
                     btnSubmit.isEnabled = true
-                    Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Submit failed", Toast.LENGTH_SHORT).show()
+                    // Exact server reason in a copyable dialog (not a
+                    // transient Toast) so the error can be pasted to chat.
+                    if (isAdded) SupabaseErrorDialog.show(requireContext(), "Request submit failed",
+                        result.exceptionOrNull()?.message ?: "Submit failed")
                 }
             }
         }
