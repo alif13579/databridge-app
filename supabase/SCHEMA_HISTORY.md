@@ -165,8 +165,16 @@ Function actions renamed van_checkin/van_checkout → checkin/checkout
 rename `claims.attempt_quantity → attempted_qty`,
 `claims.delivered_quantity → successed_qty` (owner-requested names) +
 backfill migrated rows (Pickup → both = pickup_count; Bulk Delivery →
-both = 1). App writer/reader + `claims` Edge Function redeployed on the
+ both = 1). App writer/reader + `claims` Edge Function redeployed on the
 new names; Kotlin property names unchanged (mapping-only change).
+28. **202609040003** (applied live via Management API, same as 0001) —
+`change_user_system_id(old, new)` helper: system_id is the users PK with 8
+FK references, so Dashboard PK edits fail while referenced. One call moves
+validations (author/assigned), claims (all 6 actor columns),
+fcm_device_tokens.system_id + the users row atomically, with guards (old
+must exist, new must be free). Use: `SELECT change_user_system_id('3',
+'1704');` — then still fix Firebase profile + users_by_systemId index or
+the next sync recreates the old row.
 
 ---
 
