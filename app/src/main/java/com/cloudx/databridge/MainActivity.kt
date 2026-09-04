@@ -531,9 +531,13 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 }, 1500)
             }
             lifecycleScope.launch {
+                val uidAtCall = user.uid
                 val ciSnap = runCatching {
                     firebaseDb.getReference("users/${user.uid}/profile/company_info").get().await()
                 }.getOrNull()
+                // Stale-response guard: this lookup can finish after logout —
+                // never paint the previous user's ids onto a logged-out drawer.
+                if (auth.currentUser?.uid != uidAtCall) return@launch
                 val empId = ciSnap?.child("employee_id")?.getValue(String::class.java)?.takeIf { it.isNotBlank() }
                 val sysId = ciSnap?.child("system_id")?.getValue(String::class.java)?.takeIf { it.isNotBlank() }
                 if (empId != null || sysId != null) {
@@ -568,6 +572,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             }
             btnCopyUid.visibility  = View.GONE
             tvLastActive.visibility = View.GONE
+            // Fresh state on logout: never leave the previous user's
+            // Emp/Sys ids visible (this view isn't touched otherwise).
+            tvEmpSysId.text = ""
+            tvEmpSysId.visibility = View.GONE
         }
     }
 

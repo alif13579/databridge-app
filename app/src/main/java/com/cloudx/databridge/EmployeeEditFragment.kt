@@ -466,7 +466,13 @@ class EmployeeEditFragment : Fragment() {
         val uid = arguments?.getString(ARG_UID) ?: return
         try {
             val userSnap     = db.reference.child("users/$uid/profile").get().await()
-            val branchesSnap = db.reference.child("branches").get().await()
+            // Branch directory lives in Supabase now — Firebase branches/ was
+            // deleted after migration, so reading it here always came back
+            // empty (blank picker, ids instead of names).
+            val supabaseBranches = runCatching { SupabaseBranchReader.listBranches() }
+            supabaseBranches.exceptionOrNull()?.let {
+                if (isAdded) toast("Branches load failed: ${it.message}")
+            }
             val rolesSnap    = db.reference.child("roles").get().await()
             RoleLevelCache.refresh() // separate get() of the same roles/ node — mirrors
                                       // StatusMetaCache's independently-refreshable pattern
@@ -488,11 +494,8 @@ class EmployeeEditFragment : Fragment() {
             }
 
             allBranches.clear()
-            branchesSnap.children.forEach { c ->
-                val id   = c.key ?: return@forEach
-                val name = c.child("name").getValue(String::class.java) ?: id
-                val type = c.child("branch_type").getValue(String::class.java) ?: ""
-                allBranches.add(BranchItem(id, name, type))
+            supabaseBranches.getOrDefault(emptyList()).forEach { b ->
+                allBranches.add(BranchItem(b.branchId, b.name.ifBlank { b.branchId }, b.branchType))
             }
 
             rolesMap.clear()

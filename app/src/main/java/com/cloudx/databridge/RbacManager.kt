@@ -250,10 +250,12 @@ object RbacManager {
             }
             val roleId = roleIdVal?.trim().orEmpty()
 
+            // Branch directory lives in Supabase now (Firebase branches/ was
+            // deleted after migration) — resolve the display name there,
+            // falling back to the raw id exactly like before.
             val branchName = if (primaryId.isNotBlank()) {
                 runCatching {
-                    db.reference.child("branches/$primaryId/name").get().await()
-                        .getValue(String::class.java) ?: primaryId
+                    SupabaseBranchReader.getBranch(primaryId).name.ifBlank { primaryId }
                 }.getOrDefault(primaryId)
             } else ""
 
