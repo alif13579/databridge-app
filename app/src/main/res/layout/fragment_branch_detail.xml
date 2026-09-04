@@ -154,6 +154,24 @@
                     android:layout_marginTop="2dp"
                     android:visibility="gone"/>
 
+                <TextView
+                    android:id="@+id/tvDetailBranchRegion"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/theme_text_secondary"
+                    android:textSize="11sp"
+                    android:layout_marginTop="2dp"
+                    android:visibility="gone"/>
+
+                <TextView
+                    android:id="@+id/tvDetailBranchPettyCashLimit"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/theme_text_secondary"
+                    android:textSize="11sp"
+                    android:layout_marginTop="2dp"
+                    android:visibility="gone"/>
+
             </LinearLayout>
 
             <!-- Toolbar – pinned at top of CTL, fully opaque, never fades -->

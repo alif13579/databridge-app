@@ -75,6 +75,8 @@ class BranchCreateFragment : Fragment() {
     private lateinit var etLongitude: EditText
     private lateinit var etEmail: EditText
     private lateinit var etPhone: EditText
+    private lateinit var etRegion: EditText
+    private lateinit var etPettyCashLimit: EditText
     private lateinit var btnSelectManager: TextView
     private lateinit var btnClearManager: TextView
     private lateinit var tvManagerSelected: TextView
@@ -115,6 +117,8 @@ class BranchCreateFragment : Fragment() {
         etLongitude          = view.findViewById(R.id.etLongitude)
         etEmail              = view.findViewById(R.id.etBranchEmail)
         etPhone              = view.findViewById(R.id.etBranchPhone)
+        etRegion             = view.findViewById(R.id.etBranchRegion)
+        etPettyCashLimit     = view.findViewById(R.id.etBranchPettyCashLimit)
         btnSelectManager      = view.findViewById(R.id.btnSelectManager)
         btnClearManager       = view.findViewById(R.id.btnClearManager)
         tvManagerSelected     = view.findViewById(R.id.tvManagerSelected)
@@ -380,6 +384,8 @@ class BranchCreateFragment : Fragment() {
         val lng    = etLongitude.text.toString().toDoubleOrNull() ?: 0.0
         val email  = etEmail.text.toString().trim()
         val phone  = etPhone.text.toString().trim()
+        val region = etRegion.text.toString().trim()
+        val pettyCashLimit = etPettyCashLimit.text.toString().trim().toDoubleOrNull() ?: 0.0
         val status = spinnerStatus.selectedItem?.toString() ?: "active"
 
         if (code.isBlank()) { toast("Branch Code required"); return }
@@ -411,9 +417,11 @@ class BranchCreateFragment : Fragment() {
                         accountantUid = selectedAccountantUid,
                         accountantRole = selectedAccountantRole,
                         pettyCashPocUid = selectedPettyCashPocUid,
+                        pettyCashLimit = pettyCashLimit,
                         staffUid = selectedStaffUid,
                         staffRole = selectedStaffRole,
                         parentBranchId = selectedParentId,
+                        region = region,
                         status = status,
                         imageUrl = imageUrl
                     )

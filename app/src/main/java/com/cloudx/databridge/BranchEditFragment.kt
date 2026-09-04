@@ -83,6 +83,8 @@ class BranchEditFragment : Fragment() {
     private lateinit var etLng: EditText
     private lateinit var etEmail: EditText
     private lateinit var etPhone: EditText
+    private lateinit var etRegion: EditText
+    private lateinit var etPettyCashLimit: EditText
     private lateinit var btnSelectManager: TextView
     private lateinit var btnClearManager: TextView
     private lateinit var tvManagerSelected: TextView
@@ -136,6 +138,8 @@ class BranchEditFragment : Fragment() {
         etLng                = v.findViewById(R.id.etLongitude)
         etEmail              = v.findViewById(R.id.etBranchEmail)
         etPhone              = v.findViewById(R.id.etBranchPhone)
+        etRegion             = v.findViewById(R.id.etBranchRegion)
+        etPettyCashLimit     = v.findViewById(R.id.etBranchPettyCashLimit)
         btnSelectManager      = v.findViewById(R.id.btnSelectManager)
         btnClearManager       = v.findViewById(R.id.btnClearManager)
         tvManagerSelected     = v.findViewById(R.id.tvManagerSelected)
@@ -398,6 +402,10 @@ class BranchEditFragment : Fragment() {
         etLng.setText(branch.longitude.takeIf { it != 0.0 }?.toString() ?: "")
         etEmail.setText(branch.email)
         etPhone.setText(branch.phone)
+        etRegion.setText(branch.region)
+        etPettyCashLimit.setText(branch.pettyCashLimit.takeIf { it > 0 }?.let {
+            if (it == kotlin.math.floor(it)) it.toLong().toString() else it.toString()
+        } ?: "")
 
         val typeList = listOf("Hub", "Collection Point", "Sub")
         val typeIdx  = typeList.indexOf(branch.branchType)
@@ -514,9 +522,11 @@ class BranchEditFragment : Fragment() {
                         accountantUid = selectedAccountantUid,
                         accountantRole = selectedAccountantRole,
                         pettyCashPocUid = selectedPettyCashPocUid,
+                        pettyCashLimit = etPettyCashLimit.text.toString().trim().toDoubleOrNull() ?: 0.0,
                         staffUid = selectedStaffUid,
                         staffRole = selectedStaffRole,
                         parentBranchId = selectedParentId,
+                        region = etRegion.text.toString().trim(),
                         status = status,
                         imageUrl = if (imageUrl.isNotBlank()) imageUrl else uploadedImageUrl,
                         removedUids = removedUids

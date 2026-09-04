@@ -58,9 +58,11 @@ object SupabaseBranchWriter {
         val accountantUid: String,
         val accountantRole: String,
         val pettyCashPocUid: String,
+        val pettyCashLimit: Double = 0.0,
         val staffUid: String,
         val staffRole: String,
         val parentBranchId: String,
+        val region: String = "",
         val status: String,
         val imageUrl: String,
         val removedUids: List<String> = emptyList()
@@ -79,9 +81,11 @@ object SupabaseBranchWriter {
             .put("accountant_uid", accountantUid)
             .put("accountant_role", accountantRole)
             .put("petty_cash_poc_uid", pettyCashPocUid)
+            .put("petty_cash_limit", pettyCashLimit)
             .put("staff_uid", staffUid)
             .put("staff_role", staffRole)
             .put("parent_branch_id", parentBranchId)
+            .put("region", region)
             .put("status", status)
             .put("image_url", imageUrl)
             .put("removed_uids", org.json.JSONArray(removedUids))

@@ -277,6 +277,23 @@ class BranchDetailFragment : Fragment() {
                 tvBranchParent.visibility = View.GONE
             }
 
+            val rootView = view ?: return
+            val tvRegion = rootView.findViewById<TextView>(R.id.tvDetailBranchRegion)
+            if (branch.region.isNotBlank()) {
+                tvRegion.text = "🗺 ${branch.region}"
+                tvRegion.visibility = View.VISIBLE
+            } else {
+                tvRegion.visibility = View.GONE
+            }
+            val tvLimit = rootView.findViewById<TextView>(R.id.tvDetailBranchPettyCashLimit)
+            if (branch.pettyCashLimit > 0) {
+                val nf = java.text.NumberFormat.getNumberInstance(java.util.Locale.US)
+                tvLimit.text = "💰 Petty Cash Limit: ৳${nf.format(branch.pettyCashLimit)}"
+                tvLimit.visibility = View.VISIBLE
+            } else {
+                tvLimit.visibility = View.GONE
+            }
+
             roleMap = rolesSnap.children.mapNotNull { c ->
                 c.key?.let { it to c.child("name").getValue(String::class.java).orEmpty().trim() }
             }.toMap()

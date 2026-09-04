@@ -166,6 +166,30 @@
             android:textSize="14sp" android:inputType="phone"
             android:layout_marginBottom="12dp"/>
 
+        <!-- Region -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Region" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <EditText
+            android:id="@+id/etBranchRegion"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:hint="e.g. Dhaka"
+            android:textColor="@color/theme_text_primary" android:textColorHint="@color/theme_text_secondary"
+            android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:textSize="14sp"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Petty Cash Limit -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Petty Cash Limit (৳)" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>
+        <EditText
+            android:id="@+id/etBranchPettyCashLimit"
+            android:layout_width="match_parent" android:layout_height="48dp"
+            android:hint="0 = no limit"
+            android:textColor="@color/theme_text_primary" android:textColorHint="@color/theme_text_secondary"
+            android:background="@color/theme_bg_card" android:paddingStart="12dp" android:paddingEnd="12dp"
+            android:textSize="14sp" android:inputType="numberDecimal"
+            android:layout_marginBottom="12dp"/>
+
         <!-- Branch Manager (dropdown picker) -->
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="Branch Manager" android:textColor="@color/theme_text_secondary" android:textSize="12sp" android:layout_marginBottom="4dp"/>

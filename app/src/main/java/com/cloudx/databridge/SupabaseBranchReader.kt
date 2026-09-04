@@ -36,17 +36,19 @@ object SupabaseBranchReader {
         val accountantUid: String,
         val accountantRole: String,
         val pettyCashPocUid: String,
+        val pettyCashLimit: Double,
         val staffUid: String,
         val staffRole: String,
         val parentBranchId: String,
+        val region: String,
         val status: String,
         val imageUrl: String,
         val createdAt: Long
     )
 
     private const val SELECT = "branch_id,branch_code,name,branch_type,address,latitude,longitude," +
-        "email,phone,manager_uid,accountant_uid,accountant_role,petty_cash_poc_uid," +
-        "staff_uid,staff_role,parent_branch_id,status,image_url,created_at"
+        "email,phone,manager_uid,accountant_uid,accountant_role,petty_cash_poc_uid,petty_cash_limit," +
+        "staff_uid,staff_role,parent_branch_id,region,status,image_url,created_at"
 
     private fun String.encodeParam(): String = java.net.URLEncoder.encode(this, "UTF-8")
 
@@ -70,9 +72,11 @@ object SupabaseBranchReader {
             accountantUid = optString("accountant_uid"),
             accountantRole = optString("accountant_role"),
             pettyCashPocUid = optString("petty_cash_poc_uid"),
+            pettyCashLimit = optDouble("petty_cash_limit", 0.0),
             staffUid = optString("staff_uid"),
             staffRole = optString("staff_role"),
             parentBranchId = optString("parent_branch_id"),
+            region = optString("region"),
             status = optString("status").ifBlank { "active" },
             imageUrl = optString("image_url"),
             createdAt = isoMillis("created_at")
