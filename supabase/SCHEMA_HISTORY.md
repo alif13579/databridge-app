@@ -175,6 +175,12 @@ fcm_device_tokens.system_id + the users row atomically, with guards (old
 must exist, new must be free). Use: `SELECT change_user_system_id('3',
 '1704');` — then still fix Firebase profile + users_by_systemId index or
 the next sync recreates the old row.
+29. **202609040004** (applied live via Management API, same as 0001) —
+drop `claims.type` (verified type = category on every row first).
+Category (admin catalog) is the single source; app writer/reader, `claims`
+Edge Function, report filter + Top Sheet all moved to category. Dynamic
+date label on the request form (Pickup → "Pickup Date", Bulk Delivery →
+"Delivery Date", else "<Category> Date").
 
 ---
 

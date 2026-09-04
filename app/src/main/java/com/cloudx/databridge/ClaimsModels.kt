@@ -13,7 +13,7 @@ data class ClaimInfo(
     // only). HR employee_id is looked up from public.users via this key when needed instead
     // of being stored on the claim itself. See claims_by_systemId in FirebasePaths.
     val agentSystemId: String = "",
-    val type: String = "",
+    // type dropped (202609040004) — it always mirrored category.
     val category: String = "",
     val purpose: String = "",
     val consignmentId: String = "",
@@ -71,7 +71,6 @@ data class ClaimsReportFilter(
     val systemIds: Set<String> = emptySet(),
     val fromMillis: Long,
     val toMillis: Long,
-    val types: Set<String> = emptySet(),
     val categories: Set<String> = emptySet(),
     val statuses: Set<String> = emptySet(),
     val newestFirst: Boolean = true
@@ -88,7 +87,6 @@ data class ClaimsReport(
     val totalPending get() = claims.count { it.status == PC_STATUS_PENDING || it.status == PC_STATUS_ACKNOWLEDGED || it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
     val totalRejected get() = claims.count { it.status == PC_STATUS_REJECTED }
     val totalCancelled get() = claims.count { it.status == PC_STATUS_CANCELLED }
-    val byType get() = claims.groupBy { it.type.ifBlank { "Other" } }
     val byCategory get() = claims.groupBy { it.category.ifBlank { "Other" } }
 }
 

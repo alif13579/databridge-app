@@ -28,7 +28,6 @@ object SupabaseClaimsReader {
         val claimCode: String get() = raw.optString("claim_code")
         val branchId: String get() = raw.optString("branch_id")
         val agentSystemId: String get() = raw.optString("requester_system_id")
-        val type: String get() = raw.optString("type")
         val category: String get() = raw.optString("category")
         val purpose: String get() = raw.optString("remarks")
         val settledAmount: Double get() = raw.optDouble("settled_amount", 0.0)
@@ -410,7 +409,6 @@ object SupabaseClaimsReader {
             branchId = optString("branch_id"),
             employeeName = embedName("requester"),
             agentSystemId = optString("requester_system_id"),
-            type = optString("type"),
             category = optString("category"),
             purpose = optString("remarks"),
             consignmentId = optString("consignment_id"),
@@ -528,9 +526,6 @@ object SupabaseClaimsReader {
         if (filter.systemIds.isNotEmpty()) {
             urlBuilder.append("&requester_system_id=in.(").append(filter.systemIds.joinToString(",") { it.encodeParam() }).append(")")
         }
-        if (filter.types.isNotEmpty()) {
-            urlBuilder.append("&type=in.(").append(filter.types.joinToString(",") { it.encodeParam() }).append(")")
-        }
         if (filter.categories.isNotEmpty()) {
             urlBuilder.append("&category=in.(").append(filter.categories.joinToString(",") { it.encodeParam() }).append(")")
         }
@@ -559,7 +554,9 @@ object SupabaseClaimsReader {
      *  posture as [search] and [getById] above. */
     suspend fun searchMyClaims(systemId: String, fromMillis: Long, toMillis: Long, newestFirst: Boolean = true): ClaimsReport = withContext(Dispatchers.IO) {
         require(systemId.isNotBlank()) { "System ID is required" }
-        val filter = ClaimsReportFilter(emptySet(), setOf(systemId), fromMillis, toMillis, newestFirst = newestFirst)
+        val filter = ClaimsReportFilter(
+            branchIds = emptySet(), systemIds = setOf(systemId),
+            fromMillis = fromMillis, toMillis = toMillis, newestFirst = newestFirst)
         val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
         val url = StringBuilder("${SupabaseConfig.PROJECT_URL}/rest/v1/claims")
             .append("?select=").append(ACTOR_SELECT.encodeParam())

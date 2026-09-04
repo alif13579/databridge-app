@@ -358,48 +358,6 @@
                             android:textColor="#94A3B8" />
                     </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Attempt Quantity"
-                        android:textSize="12sp"
-                        android:textStyle="bold"
-                        android:textColor="#334155"
-                        android:layout_marginTop="14dp" />
-
-                    <EditText
-                        android:id="@+id/etPcRequestAttemptQuantity"
-                        android:layout_width="match_parent"
-                        android:layout_height="52dp"
-                        android:layout_marginTop="6dp"
-                        android:background="@drawable/bg_pc_input"
-                        android:paddingHorizontal="14dp"
-                        android:inputType="number"
-                        android:maxLength="4"
-                        android:textSize="14sp"
-                        android:hint="e.g. 5" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Delivered Quantity"
-                        android:textSize="12sp"
-                        android:textStyle="bold"
-                        android:textColor="#334155"
-                        android:layout_marginTop="14dp" />
-
-                    <EditText
-                        android:id="@+id/etPcRequestDeliveredQuantity"
-                        android:layout_width="match_parent"
-                        android:layout_height="52dp"
-                        android:layout_marginTop="6dp"
-                        android:background="@drawable/bg_pc_input"
-                        android:paddingHorizontal="14dp"
-                        android:inputType="number"
-                        android:maxLength="4"
-                        android:textSize="14sp"
-                        android:hint="e.g. 4" />
-
                 </LinearLayout>
 
                 <!-- Amount — hidden for Pickup: the Requester doesn't know the actual
@@ -455,6 +413,7 @@
                 <!-- Expense Date — defaults to today (the created date); a past
                      date can be picked for backdated expenses. Never future. -->
                 <TextView
+                    android:id="@+id/tvPcRequestDateLabel"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Expense Date"

@@ -213,7 +213,7 @@ class PettyCashViewModel : ViewModel() {
             branchId = branchId,
             employeeName = name,
             agentSystemId = systemId,
-            workerUid = uid, workerRole = workerRole, type = category,
+            workerUid = uid, workerRole = workerRole,
             category = category,
             consignmentId = consignmentId,
             storeId = storeId,

@@ -116,7 +116,7 @@ object SupabaseClaimsWriter {
             put("claim_code", claimCode)
             put("branch_id", branchId)
             put("requester_system_id", agentSystemId)
-            put("type", type)
+            // type dropped (202609040004) — it always mirrored category.
             put("category", category)
             put("remarks", purpose)
             // consignment/store/pickup_count are always sent (blank/0 when the

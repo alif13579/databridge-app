@@ -43,7 +43,8 @@ Deno.serve(async (request) => {
         id: str(c.id), claim_code: str(c.claim_code),
         branch_id: str(c.branch_id), requester_system_id: str(c.requester_system_id),
         // branch_name and employee_name are not stored — joined at read time via FKs.
-        type: str(c.type), category: str(c.category), remarks: str(c.remarks),
+        // type was dropped (202609040004) — it always mirrored category.
+        category: str(c.category), remarks: str(c.remarks),
         consignment_id: str(c.consignment_id), store_id: str(c.store_id), store_name: str(c.store_name),
         pickup_count: num(c.pickup_count),
         // Conveyance fields (Pickup / Bulk Delivery) — real columns on

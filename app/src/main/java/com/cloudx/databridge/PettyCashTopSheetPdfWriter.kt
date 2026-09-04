@@ -43,12 +43,17 @@ object PettyCashTopSheetPdfWriter {
     private val dateDisplayFormat = SimpleDateFormat("dd-MM-yy", Locale.US)
     private val dateIsoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    // Legacy conveyance types (pre-catalog data, e.g. the reference PDF's
-    // InterChange rows): any settled claim whose category isn't in the admin
-    // catalog falls back here — conveyance iff its category or type is in
-    // this set, otherwise the operation group, so page-1 totals always stay
+    // Legacy conveyance categories (pre-catalog data, e.g. the reference
+    // PDF's InterChange rows): any settled claim whose category isn't in the
+    // admin catalog falls back here — conveyance iff its category is in this
+    // set, otherwise the operation group, so page-1 totals always stay
     // balanced (operation + office + utilities == grand total).
     private val legacyConveyanceTypes = setOf("Pickup", "Bulk Delivery", "InterChange", "Inter Change")
+
+    /** Old rows store the "OFFICE" sentinel or a raw area id; new rows store
+     *  the human-readable label. Normalize for display. */
+    private fun areaLabel(value: String): String =
+        if (value.trim().equals("OFFICE", ignoreCase = true)) "Office" else value
 
     /**
      * Builds the full report PDF for one branch over [fromDateIso, toDateIso]
@@ -60,9 +65,8 @@ object PettyCashTopSheetPdfWriter {
      *
      * [categoryGroups] maps category name → group (conveyance / operation /
      * office / utilities) from the admin-managed claim_categories catalog.
-     * Conveyance-group claims are counted via their `type` rows (never also
-     * as a category row — type mirrors category, so counting both would
-     * double up); every other group via its category rows.
+     * Conveyance-group claims are counted via their category rows; every
+     * other group via its own category rows.
      */
     fun generate(
         outFile: File,
@@ -83,13 +87,12 @@ object PettyCashTopSheetPdfWriter {
             categoryGroups[category]
                 ?: if (category in legacyConveyanceTypes) "conveyance" else "operation"
         // A conveyance claim is identified by its category's group — or, for
-        // pre-catalog rows, by a legacy conveyance type saved as `type`
-        // (reference PDF's InterChange rows). Description always shows the
-        // saved type verbatim, however it got here.
+        // pre-catalog rows, by a legacy conveyance category name (reference
+        // PDF's InterChange rows). Description always shows the saved
+        // category verbatim, however it got here.
         fun isConveyanceClaim(row: SupabaseClaimsReader.ClaimRow): Boolean =
-            groupOf(row.category) == "conveyance" || row.type in legacyConveyanceTypes
+            groupOf(row.category) == "conveyance" || row.category in legacyConveyanceTypes
         fun categoryTotal(category: String) = settled.filter { it.category == category }.sumOf { it.settledAmount }
-        fun typeTotal(type: String) = settled.filter { it.type.equals(type, ignoreCase = true) }.sumOf { it.settledAmount }
         val pdf = PdfDocument()
         var pageNum = 1
         var page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create())
@@ -103,9 +106,8 @@ object PettyCashTopSheetPdfWriter {
         }
 
         // ── Page 1: Top Sheet ──────────────────────────────────────────────
-        // Conveyance claims count only via their type rows (never also as a
-        // category row — type mirrors category, counting both would double
-        // up); every other group via its category rows.
+        // Conveyance claims count only via their category rows; every other
+        // group via its own category rows.
         val conveyanceTotal = settled.filter { isConveyanceClaim(it) }.sumOf { it.settledAmount }
         val operationTotal =
             settled.filter { !isConveyanceClaim(it) && groupOf(it.category) == "operation" }.sumOf { it.settledAmount } + conveyanceTotal
@@ -120,13 +122,13 @@ object PettyCashTopSheetPdfWriter {
         // ── Page 2: Petty Cash Expense Summary ──────────────────────────────
         startNewPage()
         // Dynamic rows straight from the data: distinct categories per group
-        // plus one row per saved conveyance type (verbatim — Pickup, Bulk
+        // (conveyance rows show the saved category verbatim — Pickup, Bulk
         // Delivery, InterChange, whatever the table holds).
         val opCategoryRows = settled.map { it.category }.distinct()
             .filter { groupOf(it) == "operation" }.sorted()
             .map { it to categoryTotal(it) }
-        val convTypeRows = settled.filter { isConveyanceClaim(it) }.map { it.type }.distinct()
-            .map { it to typeTotal(it) }
+        val convTypeRows = settled.filter { isConveyanceClaim(it) }.map { it.category }.distinct()
+            .map { it to categoryTotal(it) }
         val officeRows = settled.map { it.category }.distinct()
             .filter { groupOf(it) == "office" }.sorted()
             .map { it to categoryTotal(it) }
@@ -405,7 +407,7 @@ object PettyCashTopSheetPdfWriter {
             y = drawDataRow(
                 canvas, y,
                 listOf(
-                    dateLabel, claim.fromArea, claim.toArea, claim.type, claim.vehicle,
+                    dateLabel, areaLabel(claim.fromArea), areaLabel(claim.toArea), claim.category, claim.vehicle,
                     moneyFormat.format(claim.settledAmount), claim.attemptQuantity.toString(),
                     claim.deliveredQuantity.toString(), claim.cidOrMerchant,
                 ),

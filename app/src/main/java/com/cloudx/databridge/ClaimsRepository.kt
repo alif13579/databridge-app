@@ -92,11 +92,6 @@ class ClaimsRepository {
         updates["agentSystemId"]?.let { c = c.copy(agentSystemId = it as String) }
         updates["status"]?.let { c = c.copy(status = it as String) }
         updates["category"]?.let { c = c.copy(category = it as String) }
-        // type mirrors category at create time (see submitRequest) — an edit
-        // that changes the category moves the type along unless the caller
-        // overrides it explicitly with its own "type" key right after.
-        updates["category"]?.let { c = c.copy(type = it as String) }
-        updates["type"]?.let { c = c.copy(type = it as String) }
         updates["consignmentId"]?.let { c = c.copy(consignmentId = it as String) }
         updates["storeId"]?.let { c = c.copy(storeId = it as String) }
         updates["storeName"]?.let { c = c.copy(storeName = it as String) }

@@ -190,7 +190,7 @@ object FirebaseClaimsMigrator {
         if (a.branchId != b.branchId) add("branchId")
         if (a.employeeName != b.employeeName) add("employeeName")
         if (a.agentSystemId != b.agentSystemId) add("agentSystemId")
-        if (a.type != b.type) add("type")
+        if (a.category != b.category) add("category")
         if (a.category != b.category) add("category")
         if (a.purpose != b.purpose) add("purpose")
         if (a.consignmentId != b.consignmentId) add("consignmentId")

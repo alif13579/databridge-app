@@ -10,9 +10,13 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
@@ -97,6 +101,7 @@ class PettyCashRequestCreateFragment : Fragment() {
     // picked for backdated expenses, never a future one.
     private var selectedExpenseDate: Long = startOfDay(System.currentTimeMillis())
     private lateinit var tvExpenseDateSelected: TextView
+    private lateinit var tvDateLabel: TextView
 
     private fun startOfDay(millis: Long): Long = java.util.Calendar.getInstance().apply {
         timeInMillis = millis
@@ -170,8 +175,6 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var tvFromAreaSelected: TextView
     private lateinit var layoutToArea: View
     private lateinit var tvToAreaSelected: TextView
-    private lateinit var etAttemptQuantity: EditText
-    private lateinit var etDeliveredQuantity: EditText
     private lateinit var groupConveyance: View
     private lateinit var groupAmount: View
     private lateinit var etAmount: EditText
@@ -245,26 +248,15 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvFromAreaSelected = view.findViewById(R.id.tvPcRequestFromAreaSelected)
         layoutToArea = view.findViewById(R.id.layoutPcRequestToArea)
         tvToAreaSelected = view.findViewById(R.id.tvPcRequestToAreaSelected)
-        etAttemptQuantity = view.findViewById(R.id.etPcRequestAttemptQuantity)
-        etDeliveredQuantity = view.findViewById(R.id.etPcRequestDeliveredQuantity)
-        // Always derived for Pickup/Bulk Delivery, never typed directly -- see
-        // applyConveyanceDefaults(): mirrors Number of Pickups for Pickup,
-        // fixed at 1 for Bulk Delivery (exactly one consignment id per
-        // request). applyCategory() re-enables them for any other conveyance
-        // category, which has nothing to mirror from.
-        etAttemptQuantity.isEnabled = false
-        etDeliveredQuantity.isEnabled = false
+        // No quantity fields on the form (removed): quantities are fully
+        // derived at submit — Pickup mirrors the pickup count, Bulk Delivery
+        // is exactly 1 consignment, anything else 0.
 
-        etPickupCount.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                if (selectedCategory == PC_CATEGORY_PICKUP) syncAttemptDeliveredQuantities()
-            }
-        })
         groupAmount = view.findViewById(R.id.groupPcAmount)
         etAmount = view.findViewById(R.id.etPcRequestAmount)
         tvExpenseDateSelected = view.findViewById(R.id.tvPcRequestExpenseDateSelected)
+        tvDateLabel = view.findViewById(R.id.tvPcRequestDateLabel)
+        updateDateLabel()
         updateExpenseDateLabel()
         view.findViewById<View>(R.id.layoutPcRequestExpenseDate).setOnClickListener { showExpenseDatePicker() }
         etPurpose = view.findViewById(R.id.etPcRequestPurpose)
@@ -352,8 +344,6 @@ class PettyCashRequestCreateFragment : Fragment() {
             selectedToAreaLabel = areaLabelFor(request.toArea)
             tvToAreaSelected.text = selectedToAreaLabel
         }
-        if (request.attemptQuantity > 0) etAttemptQuantity.setText(request.attemptQuantity.toString())
-        if (request.deliveredQuantity > 0) etDeliveredQuantity.setText(request.deliveredQuantity.toString())
         if (request.requestedDate > 0L) {
             selectedExpenseDate = request.requestedDate
             updateExpenseDateLabel()
@@ -407,9 +397,22 @@ class PettyCashRequestCreateFragment : Fragment() {
         }.show()
     }
 
+    /** Date field label follows the selected type: Pickup → "Pickup Date",
+     *  Bulk Delivery → "Delivery Date", any other category → "<Category> Date",
+     *  nothing selected yet → "Expense Date". */
+    private fun updateDateLabel() {
+        if (!::tvDateLabel.isInitialized) return
+        tvDateLabel.text = when (selectedCategory) {
+            PC_CATEGORY_PICKUP -> "Pickup Date"
+            PC_CATEGORY_BULK_DELIVERY -> "Delivery Date"
+            else -> if (selectedCategory.isNotBlank()) "${selectedCategory} Date" else "Expense Date"
+        }
+    }
+
     /** Sets the selected category and shows/hides the category-specific field group. */
     private fun applyCategory(category: String) {
         selectedCategory = category
+        updateDateLabel()
         tvCategorySelected.text = category
         tvCategorySelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
 
@@ -425,12 +428,6 @@ class PettyCashRequestCreateFragment : Fragment() {
         // approve/settle time instead. Hidden here, not just unrequired, so
         // it can't look like a forgotten/blank field on the Requester's own screen.
         groupAmount.isVisible = category != PC_CATEGORY_PICKUP
-        // Attempt/Delivered mirror the pickup count for Pickup and stay fixed
-        // at 1 for Bulk Delivery; any other conveyance category types them
-        // directly (nothing to mirror from).
-        val quantitiesLocked = category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY
-        etAttemptQuantity.isEnabled = !quantitiesLocked
-        etDeliveredQuantity.isEnabled = !quantitiesLocked
 
         // Switching category clears the other category's field so a
         // half-filled Consignment ID doesn't silently survive a switch to
@@ -457,17 +454,58 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "No stores available — contact your admin to add some", Toast.LENGTH_LONG).show()
             return
         }
-        val names = stores.map { it.name }.toTypedArray()
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Select Store")
-            .setItems(names) { _, index ->
-                selectedStoreId = stores[index].storeId
-                selectedStoreName = stores[index].name
-                tvStoreSelected.text = selectedStoreName
-                tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
-                applyConveyanceDefaults(PC_CATEGORY_PICKUP)
+        // Searchable single-select (same pattern as the branch picker):
+        // merchant list is long, scrolling without search is unusable.
+        val ctx = requireContext()
+        val dp = resources.displayMetrics.density.toInt()
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp * 16, dp * 8, dp * 16, 0)
+        }
+        val etSearch = EditText(ctx).apply {
+            hint = "Search merchant..."
+            setTextColor(android.graphics.Color.parseColor("#0F172A"))
+            setHintTextColor(android.graphics.Color.parseColor("#94A3B8"))
+        }
+        container.addView(etSearch)
+        val listView = ListView(ctx).apply { choiceMode = ListView.CHOICE_MODE_SINGLE }
+        container.addView(listView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp * 300))
+        var filtered = stores.toMutableList()
+        fun makeAdapter(list: List<Store>) = object : ArrayAdapter<Store>(
+            ctx, android.R.layout.simple_list_item_single_choice, android.R.id.text1, list) {
+            override fun getView(pos: Int, cv: View?, parent: ViewGroup): View {
+                val v = super.getView(pos, cv, parent)
+                (v.findViewById<View>(android.R.id.text1) as? TextView)?.text = list[pos].name
+                return v
             }
-            .show()
+        }
+        listView.adapter = makeAdapter(filtered)
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle("Select Store")
+            .setView(container)
+            .setNegativeButton("Cancel", null)
+            .create()
+        listView.setOnItemClickListener { _, _, pos, _ ->
+            val picked = filtered[pos]
+            selectedStoreId = picked.storeId
+            selectedStoreName = picked.name
+            tvStoreSelected.text = selectedStoreName
+            tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+            applyConveyanceDefaults(PC_CATEGORY_PICKUP)
+            dialog.dismiss()
+        }
+        etSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {
+                val q = s?.toString()?.trim() ?: ""
+                filtered = if (q.isEmpty()) stores.toMutableList()
+                else stores.filter { it.name.contains(q, ignoreCase = true) }.toMutableList()
+                listView.adapter = makeAdapter(filtered)
+            }
+        })
+        dialog.show()
     }
 
     private fun loadStores() {
@@ -574,23 +612,6 @@ class PettyCashRequestCreateFragment : Fragment() {
             selectedFromArea = "OFFICE"; selectedFromAreaLabel = "Office"
             tvFromAreaSelected.text = "Office"
         }
-        syncAttemptDeliveredQuantities()
-    }
-
-    /** Attempt/Delivered Quantity are never typed directly (see the isEnabled = false
-     *  set alongside their findViewById above) -- Pickup: number of pickups IS the
-     *  attempt quantity, so both mirror etPickupCount's value live as it's typed
-     *  (see the TextWatcher added alongside that field). Bulk Delivery: fixed at 1,
-     *  since exactly one consignment id is being submitted per request. */
-    private fun syncAttemptDeliveredQuantities() {
-        val value = when (selectedCategory) {
-            PC_CATEGORY_PICKUP -> etPickupCount.text?.toString()?.trim()?.toIntOrNull() ?: 0
-            PC_CATEGORY_BULK_DELIVERY -> 1
-            else -> 0
-        }
-        val text = if (value > 0) value.toString() else ""
-        etAttemptQuantity.setText(text)
-        etDeliveredQuantity.setText(text)
     }
 
     /** Resolves a stored areaId (or the "OFFICE" sentinel) back to a display label,
@@ -641,6 +662,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         btnSubmit.isEnabled = false // an in-flight upload shouldn't let Submit fire without it
 
         lifecycleScope.launch {
+            try {
             when (val result = AttachmentUploader.upload(requireContext(), uri)) {
                 is AttachmentUploader.Result.Success -> {
                     attachmentUrl = result.objectKey
@@ -665,6 +687,19 @@ class PettyCashRequestCreateFragment : Fragment() {
                         tvAttachmentName.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
                         Toast.makeText(requireContext(), result.message, Toast.LENGTH_LONG).show()
                     }
+                }
+            }
+            } catch (t: Throwable) {
+                // upload() must never leave the form bricked: any unexpected
+                // failure (e.g. OOM on a huge file, which is an Error, not an
+                // Exception) used to skip the reset below forever — disabled
+                // Submit, no error, no way forward until the screen reopened.
+                attachmentName = ""
+                if (isAdded) {
+                    tvAttachmentName.text = "No file selected"
+                    tvAttachmentName.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+                    Toast.makeText(requireContext(),
+                        "Couldn't attach the file — try a smaller photo or PDF", Toast.LENGTH_LONG).show()
                 }
             }
             attachmentUploading = false
@@ -695,8 +730,6 @@ class PettyCashRequestCreateFragment : Fragment() {
         val purpose = etPurpose.text?.toString().orEmpty().trim()
         val consignmentId = etConsignmentId.text?.toString().orEmpty().trim()
         val pickupCount = etPickupCount.text?.toString()?.trim()?.toIntOrNull() ?: 0
-        val attemptQuantity = etAttemptQuantity.text?.toString()?.trim()?.toIntOrNull() ?: 0
-        val deliveredQuantity = etDeliveredQuantity.text?.toString()?.trim()?.toIntOrNull() ?: 0
 
         if (branchId.isBlank()) {
             Toast.makeText(requireContext(), "No branch selected", Toast.LENGTH_SHORT).show()
@@ -736,10 +769,19 @@ class PettyCashRequestCreateFragment : Fragment() {
         // (0 goes in; the settled amount is filled at approve/settle time).
         val finalAmount = if (selectedCategory == PC_CATEGORY_PICKUP) 0.0 else amount
         val finalVehicle = if (isConveyanceSubmit) selectedVehicle else ""
-        val finalFromArea = if (isConveyanceSubmit) selectedFromArea else ""
-        val finalToArea = if (isConveyanceSubmit) selectedToArea else ""
-        val finalAttemptQuantity = if (isConveyanceSubmit) attemptQuantity else 0
-        val finalDeliveredQuantity = if (isConveyanceSubmit) deliveredQuantity else 0
+        // Human-readable area LABELS ("Office", store area name) — from/to
+        // are display-only (Top Sheet/PDF), nothing joins on them, so raw
+        // area ids must never reach the table.
+        val finalFromArea = if (isConveyanceSubmit) selectedFromAreaLabel else ""
+        val finalToArea = if (isConveyanceSubmit) selectedToAreaLabel else ""
+        // Fully derived, never typed (no qty fields on the form): Pickup
+        // mirrors the pickup count, Bulk Delivery is exactly 1 consignment.
+        val finalAttemptQuantity = when {
+            selectedCategory == PC_CATEGORY_PICKUP -> pickupCount
+            isConveyanceSubmit -> 1
+            else -> 0
+        }
+        val finalDeliveredQuantity = finalAttemptQuantity
         // Always derived, never typed directly -- no etCidOrMerchant field exists
         // in the layout anymore. Mirrors Consignment ID for Bulk-like
         // conveyance, the picked store's name for Pickup.
