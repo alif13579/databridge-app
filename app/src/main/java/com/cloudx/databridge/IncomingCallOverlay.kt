@@ -135,6 +135,20 @@ object IncomingCallOverlay {
                 openParcelDetail(context, match.consignmentId)
                 dismissInternal()
             }
+            // Today's assigned agent (from today's run nodes — NOT validations,
+            // which only exists after someone already saved a remark). Async;
+            // the card renders first, this line fills in when ready.
+            overlayScope.launch {
+                val assignee = withContext(Dispatchers.IO) {
+                    IncomingCallerLookup.resolveTodayAssignees(listOf(match.consignmentId))
+                        .values.firstOrNull()
+                }
+                if (overlayView !== view || assignee == null) return@launch
+                view.findViewById<TextView>(R.id.tvOverlayAssignee).apply {
+                    text = "🚚 আজ assign: ${assignee.name}"
+                    isVisible = true
+                }
+            }
         } else {
             // No matching parcel — minimal card: just the raw number and a way to search it.
             view.findViewById<TextView>(R.id.tvOverlayName).text = displayName
@@ -460,12 +474,23 @@ object IncomingCallOverlay {
             val options = withContext(Dispatchers.IO) { fetchOverlayRemarkOptions(source) }
             val route = withContext(Dispatchers.IO) { resolveParcelRoute(match.consignmentId) }
             val selfSystemId = if (!isCc) withContext(Dispatchers.IO) { ownSystemId() } else ""
+            // Today's run assignment for the matched parcel + same-number siblings —
+            // the CC fallback when no validations row exists yet (first remark).
+            val siblingIds = withContext(Dispatchers.IO) { siblingConsignmentIds(rawPhone, match.consignmentId) }
+            val todayAssignees = withContext(Dispatchers.IO) {
+                IncomingCallerLookup.resolveTodayAssignees(listOf(match.consignmentId) + siblingIds)
+            }
             if (overlayView !== view) return@launch // dismissed while loading
 
-            // Agent resolution: CC saves against the parcel's assigned agent;
+            // Agent resolution: CC saves against the parcel's assigned agent —
+            // validations row first, today's run assignment as fallback (a parcel
+            // nobody remarked on yet has no row but usually has a run).
             // WORKER saves against self. Either way a blank id means no safe
             // save — point at Call Center instead of guessing.
-            val agentId = if (isCc) route?.agentSystemId.orEmpty() else selfSystemId
+            val agentId = if (isCc) {
+                route?.agentSystemId?.takeIf { it.isNotBlank() }
+                    ?: todayAssignees[match.consignmentId]?.systemId.orEmpty()
+            } else selfSystemId
             if (agentId.isBlank()) {
                 tvAgentMissing.isVisible = true
                 return@launch
@@ -483,7 +508,8 @@ object IncomingCallOverlay {
                 // CC note-only save (no predefined option picked) mirrors
                 // CallCenterFragment's sheet, which enables Save on note alone.
                 saveFromOverlay(context, view, match, source, isCc, chosen = chosen, noteText = noteText,
-                    agentId = agentId, selfSystemId = selfSystemId, rawPhone = rawPhone)
+                    agentId = agentId, selfSystemId = selfSystemId, rawPhone = rawPhone,
+                    todayAssignees = todayAssignees)
             }
         }
     }
@@ -546,7 +572,8 @@ object IncomingCallOverlay {
     private fun saveFromOverlay(
         context: Context, view: View, match: CallerMatch, source: String, isCc: Boolean,
         chosen: OverlayRemarkOption?, noteText: String,
-        agentId: String, selfSystemId: String, rawPhone: String
+        agentId: String, selfSystemId: String, rawPhone: String,
+        todayAssignees: Map<String, TodayAssignee> = emptyMap()
     ) {
         remarkLoadJob?.cancel()
         remarkLoadJob = overlayScope.launch {
@@ -554,10 +581,10 @@ object IncomingCallOverlay {
             if (overlayView !== view) return@launch
             if (siblings.isEmpty()) {
                 doOverlaySave(context, view, listOf(match.consignmentId), match, source, isCc,
-                    chosen, noteText, agentId, selfSystemId)
+                    chosen, noteText, agentId, selfSystemId, todayAssignees)
             } else {
                 showOverlayFanout(context, view, match, siblings, source, isCc,
-                    chosen, noteText, agentId, selfSystemId)
+                    chosen, noteText, agentId, selfSystemId, todayAssignees)
             }
         }
     }
@@ -565,7 +592,8 @@ object IncomingCallOverlay {
     private fun showOverlayFanout(
         context: Context, view: View, match: CallerMatch, siblings: List<String>,
         source: String, isCc: Boolean, chosen: OverlayRemarkOption?, noteText: String,
-        agentId: String, selfSystemId: String
+        agentId: String, selfSystemId: String,
+        todayAssignees: Map<String, TodayAssignee> = emptyMap()
     ) {
         val llFanout = view.findViewById<View>(R.id.llOverlayFanout)
         val tvFanoutText = view.findViewById<TextView>(R.id.tvOverlayFanoutText)
@@ -575,19 +603,20 @@ object IncomingCallOverlay {
         view.findViewById<View>(R.id.btnOverlayFanoutYes).setOnClickListener {
             llFanout.isVisible = false
             doOverlaySave(context, view, listOf(match.consignmentId) + siblings, match, source, isCc,
-                chosen, noteText, agentId, selfSystemId)
+                chosen, noteText, agentId, selfSystemId, todayAssignees)
         }
         view.findViewById<View>(R.id.btnOverlayFanoutNo).setOnClickListener {
             llFanout.isVisible = false
             doOverlaySave(context, view, listOf(match.consignmentId), match, source, isCc,
-                chosen, noteText, agentId, selfSystemId)
+                chosen, noteText, agentId, selfSystemId, todayAssignees)
         }
     }
 
     private fun doOverlaySave(
         context: Context, view: View, consignmentIds: List<String>, match: CallerMatch,
         source: String, isCc: Boolean, chosen: OverlayRemarkOption?, noteText: String,
-        primaryAgentId: String, selfSystemId: String
+        primaryAgentId: String, selfSystemId: String,
+        todayAssignees: Map<String, TodayAssignee> = emptyMap()
     ) {
         val llRemarkSection = view.findViewById<View>(R.id.llOverlayRemarkSection)
         val tvConfirmation = view.findViewById<TextView>(R.id.tvOverlayConfirmation)
@@ -602,11 +631,14 @@ object IncomingCallOverlay {
                 consignmentIds.forEach { cid ->
                     // Per-parcel route so siblings save under their own branch;
                     // fall back to the primary parcel's values when a sibling
-                    // has no validations row yet.
+                    // has no validations row yet. Agent gets one more fallback —
+                    // today's run assignment — before giving up on the parcel.
                     val route = resolveParcelRoute(cid)
                     val targetBranch = route?.branchId?.takeIf { it.isNotBlank() } ?: branchId
                     if (isCc) {
-                        val targetAgent = route?.agentSystemId?.takeIf { it.isNotBlank() } ?: primaryAgentId
+                        val targetAgent = route?.agentSystemId?.takeIf { it.isNotBlank() }
+                            ?: todayAssignees[cid]?.systemId?.takeIf { it.isNotBlank() }
+                            ?: primaryAgentId
                         if (targetAgent.isBlank()) return@forEach
                         SupabaseRemarkValidationWriter.write(
                             assignedAgentSystemId = targetAgent,
