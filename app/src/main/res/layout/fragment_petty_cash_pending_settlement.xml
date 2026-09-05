@@ -53,6 +53,20 @@
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Settlement History" />
 
+                <TextView
+                    android:id="@+id/btnPcPendingSelect"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:gravity="center"
+                    android:text="Select"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#059669"
+                    android:paddingHorizontal="10dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Bulk select"
+                    android:visibility="gone" />
+
                 <ImageButton
                     android:id="@+id/btnPcPendingFilter"
                     android:layout_width="36dp"
@@ -131,6 +145,56 @@
                     android:paddingHorizontal="16dp"
                     android:paddingTop="12dp" />
             </ScrollView>
+
+            <!-- Bulk-settle bar: visible only in select mode with 1+ picked.
+                 One payment method + one transaction id settles every picked
+                 claim (same bkash transfer covering one agent's total). -->
+            <LinearLayout
+                android:id="@+id/layoutPcBulkBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="#FFFFFF"
+                android:elevation="8dp"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="10dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvPcBulkSummary"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F172A" />
+
+                <TextView
+                    android:id="@+id/btnPcBulkCancel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:gravity="center"
+                    android:text="Cancel"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#374151"
+                    android:backgroundTint="#F3F4F6"
+                    android:paddingHorizontal="14dp"
+                    android:layout_marginEnd="8dp" />
+
+                <TextView
+                    android:id="@+id/btnPcBulkSettle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:gravity="center"
+                    android:text="Settle"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:backgroundTint="#059669"
+                    android:paddingHorizontal="18dp" />
+            </LinearLayout>
 
         </LinearLayout>
     </FrameLayout>

@@ -163,6 +163,12 @@ class PettyCashDashboardFragment : Fragment() {
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
+        view.findViewById<View>(R.id.btnPcDashboardWallet).setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashWalletSummaryFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
 
         swipeRefresh.setOnRefreshListener { viewModel.load(branchId) }
 
@@ -337,6 +343,10 @@ class PettyCashDashboardFragment : Fragment() {
             RoleView.STAFF -> renderApproverSummary(root, state, RoleView.STAFF)
             else -> renderAccountsSummary(root, state)
         }
+
+        // Wallet shortcut lives in the toolbar, but only Accounts may open it
+        // (the summary screen itself re-gates, this just hides the dead end).
+        root.findViewById<View>(R.id.btnPcDashboardWallet)?.isVisible = state.roles.isAccounts
 
         wireQuickActions(root, state.roles)
     }

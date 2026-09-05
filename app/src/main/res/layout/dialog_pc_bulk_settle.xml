@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="4dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="PAYMENT METHOD"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:textColor="#64748B"
+        android:layout_marginBottom="4dp" />
+
+    <Spinner
+        android:id="@+id/spinnerBulkPaymentMethod"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginBottom="10dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="TRANSACTION ID (ONE FOR ALL)"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:textColor="#64748B"
+        android:layout_marginBottom="4dp" />
+
+    <EditText
+        android:id="@+id/etBulkTrxId"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="e.g. TRX9KX2M4P7Q"
+        android:textSize="13sp"
+        android:padding="10dp"
+        android:background="@drawable/bg_input_rounded"
+        android:inputType="textCapCharacters"
+        android:layout_marginBottom="10dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="CLAIMS IN THIS SETTLEMENT"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:textColor="#64748B"
+        android:layout_marginBottom="4dp" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxHeight="220dp">
+
+        <LinearLayout
+            android:id="@+id/layoutBulkClaimList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/tvBulkTotal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="#0F172A"
+        android:gravity="end"
+        android:layout_marginTop="10dp" />
+
+    <TextView
+        android:id="@+id/tvBulkProgress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:textColor="#059669"
+        android:gravity="center"
+        android:layout_marginTop="6dp"
+        android:visibility="gone" />
+</LinearLayout>

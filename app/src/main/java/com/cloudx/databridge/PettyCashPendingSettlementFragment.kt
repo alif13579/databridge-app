@@ -60,6 +60,17 @@ class PettyCashPendingSettlementFragment : Fragment() {
     private var latestState: PettyCashState.Success? = null
     private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
 
+    // Bulk-settle selection (Accounts, approver view only): claim ids picked for
+    // one shared transaction. Eligible = APPROVED or READY_TO_SETTLE.
+    private var selectMode: Boolean = false
+    private val selectedIds = mutableSetOf<String>()
+
+    private fun isBulkEligible(item: PettyCashRequest): Boolean =
+        item.status == PC_STATUS_APPROVED || item.status == PC_STATUS_SETTLE_IN_PROCESS
+
+    private fun bulkDefaultAmount(item: PettyCashRequest): Double =
+        item.approvedAmount.takeIf { it > 0 } ?: item.amount
+
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
         private const val ARG_INITIAL_STATUS = "initial_status"
@@ -116,6 +127,19 @@ class PettyCashPendingSettlementFragment : Fragment() {
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
+        view.findViewById<View>(R.id.btnPcPendingSelect).setOnClickListener {
+            selectMode = !selectMode
+            if (!selectMode) selectedIds.clear()
+            view.findViewById<TextView>(R.id.btnPcPendingSelect).text = if (selectMode) "Done" else "Select"
+            renderList()
+        }
+        view.findViewById<View>(R.id.btnPcBulkCancel).setOnClickListener {
+            selectMode = false
+            selectedIds.clear()
+            view.findViewById<TextView>(R.id.btnPcPendingSelect).text = "Select"
+            renderList()
+        }
+        view.findViewById<View>(R.id.btnPcBulkSettle).setOnClickListener { showBulkSettleDialog() }
 
         swipeRefresh.setOnRefreshListener { if (branchId.isNotBlank()) viewModel.load(branchId) }
 
@@ -174,6 +198,19 @@ class PettyCashPendingSettlementFragment : Fragment() {
                 pbLoading.isVisible = false
                 layoutError.isVisible = false
                 latestState = state
+                // Bulk settle is an Accounts action on the approver view — the
+                // same gate as the inline Settle button below.
+                val canBulk = !myRequestsOnly && state.roles.isAccounts
+                view?.findViewById<View>(R.id.btnPcPendingSelect)?.isVisible = canBulk
+                if (!canBulk) {
+                    selectMode = false
+                    selectedIds.clear()
+                } else {
+                    // Drop picks that are no longer present/eligible after reload.
+                    val eligibleIds = state.requests
+                        .filter { isBulkEligible(it) }.map { it.id }.toSet()
+                    selectedIds.retainAll(eligibleIds)
+                }
                 buildTabs()
                 renderList()
             }
@@ -275,6 +312,19 @@ class PettyCashPendingSettlementFragment : Fragment() {
             card.findViewById<TextView>(R.id.tvPsCardApprovedInfo).text = infoLine
             card.findViewById<TextView>(R.id.tvPsCardApprovedBy).text = byLine
 
+            // Bulk-select checkbox (select mode + eligible only). Tapping the
+            // card toggles the pick instead of opening details in this mode.
+            val checkBox = card.findViewById<android.widget.CheckBox>(R.id.cbPsCardSelect)
+            val selectable = selectMode && isBulkEligible(item)
+            checkBox.isVisible = selectable
+            // Set checked without firing the listener (recycled bind).
+            checkBox.setOnCheckedChangeListener(null)
+            checkBox.isChecked = item.id in selectedIds
+            checkBox.setOnCheckedChangeListener { _, checked ->
+                if (checked) selectedIds.add(item.id) else selectedIds.remove(item.id)
+                updateBulkBar()
+            }
+
             // The inline button here just navigates to Settlement Details,
             // which shows whatever action actually fits the request's real
             // stage (Acknowledge/Approve/Mark Ready/Settle Now). Label and
@@ -298,7 +348,10 @@ class PettyCashPendingSettlementFragment : Fragment() {
                     .addToBackStack(null)
                     .commitAllowingStateLoss()
             }
-            card.setOnClickListener(openDetails)
+            card.setOnClickListener(
+                if (selectable) View.OnClickListener { checkBox.toggle() }
+                else openDetails
+            )
             // Settle (final step) gets a quick inline confirm instead of opening details --
             // Mark Ready has no extra fields to collect, so it still just opens details
             // (which shows the right stage's action, same as tapping the card itself).
@@ -308,6 +361,105 @@ class PettyCashPendingSettlementFragment : Fragment() {
             )
 
             layoutList.addView(card)
+        }
+
+        updateBulkBar()
+    }
+
+    /** Bottom bulk bar: "N selected · Total ৳X", shown only in select mode
+     *  with at least one pick. */
+    private fun updateBulkBar() {
+        val root = view ?: return
+        val bar = root.findViewById<View>(R.id.layoutPcBulkBar)
+        if (!selectMode || selectedIds.isEmpty()) {
+            bar.isVisible = false
+            return
+        }
+        val picked = latestState?.requests.orEmpty().filter { it.id in selectedIds }
+        val total = picked.sumOf { bulkDefaultAmount(it) }
+        root.findViewById<TextView>(R.id.tvPcBulkSummary).text =
+            "${picked.size} selected · Total ${pettyCashTaka(total)}"
+        bar.isVisible = true
+    }
+
+    /** One payment method + one transaction id settles every picked claim —
+     *  the common case of a single bkash transfer covering one agent's total.
+     *  Each claim keeps its own default amount (approved, else requested);
+     *  sequential settleRequest calls share the method/trxId. */
+    private fun showBulkSettleDialog() {
+        val picked = latestState?.requests.orEmpty()
+            .filter { it.id in selectedIds && isBulkEligible(it) }
+        if (picked.isEmpty()) {
+            Toast.makeText(requireContext(), "Select at least one approved request", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val dialogView = layoutInflater.inflate(R.layout.dialog_pc_bulk_settle, null)
+        val spinner = dialogView.findViewById<Spinner>(R.id.spinnerBulkPaymentMethod)
+        spinner.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Cash", "Bank", "bKash", "Nagad"))
+        val etTrxId = dialogView.findViewById<EditText>(R.id.etBulkTrxId)
+        val listContainer = dialogView.findViewById<LinearLayout>(R.id.layoutBulkClaimList)
+        picked.forEach { item ->
+            val row = TextView(requireContext()).apply {
+                text = "${item.requestCode} · ${item.workerName} — ${pettyCashTaka(bulkDefaultAmount(item))}"
+                textSize = 12.5f
+                setTextColor(Color.parseColor("#0F172A"))
+                setPadding(0, 6, 0, 6)
+            }
+            listContainer.addView(row)
+        }
+        val total = picked.sumOf { bulkDefaultAmount(it) }
+        dialogView.findViewById<TextView>(R.id.tvBulkTotal).text = "Total: ${pettyCashTaka(total)}"
+        val tvProgress = dialogView.findViewById<TextView>(R.id.tvBulkProgress)
+
+        var dialog: AlertDialog? = null
+        dialog = AlertDialog.Builder(requireContext())
+            .setTitle("Bulk Settle (${picked.size})")
+            .setView(dialogView)
+            .setPositiveButton("Settle", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog?.show()
+        // Override the positive button: validate first, then run without
+        // auto-dismissing (progress shows on the dialog itself).
+        dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+            val d = dialog ?: return@setOnClickListener
+            val trxId = etTrxId.text?.toString()?.trim().orEmpty()
+            if (trxId.isBlank()) {
+                Toast.makeText(requireContext(), "Enter the transaction ID", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val method = spinner.selectedItem?.toString() ?: "Cash"
+            val positive = d.getButton(AlertDialog.BUTTON_POSITIVE)
+            val negative = d.getButton(AlertDialog.BUTTON_NEGATIVE)
+            positive.isEnabled = false
+            negative.isEnabled = false
+            tvProgress.isVisible = true
+            lifecycleScope.launch {
+                var ok = 0
+                var failed = 0
+                picked.forEachIndexed { index, item ->
+                    tvProgress.text = "⏳ Settling ${index + 1}/${picked.size}…"
+                    val result = viewModel.settleRequest(
+                        branchId, item.id, method, trxId, bulkDefaultAmount(item),
+                        onSupabaseResult = { _ -> }
+                    )
+                    if (result.isSuccess) ok++ else failed++
+                }
+                tvProgress.text = if (failed == 0) "✓ $ok settled" else "✓ $ok settled · ⚠ $failed failed"
+                if (failed == 0) {
+                    Toast.makeText(requireContext(), "✓ ${picked.size} claims settled ($trxId)", Toast.LENGTH_LONG).show()
+                    d.dismiss()
+                    selectMode = false
+                    selectedIds.clear()
+                    view?.findViewById<TextView>(R.id.btnPcPendingSelect)?.text = "Select"
+                    if (branchId.isNotBlank()) viewModel.load(branchId) else renderList()
+                } else {
+                    Toast.makeText(requireContext(), "⚠ $failed failed — list reloaded, retry the rest", Toast.LENGTH_LONG).show()
+                    positive.isEnabled = true
+                    negative.isEnabled = true
+                    if (branchId.isNotBlank()) viewModel.load(branchId)
+                }
+            }
         }
     }
 
