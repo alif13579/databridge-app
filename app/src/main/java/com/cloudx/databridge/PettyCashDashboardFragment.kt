@@ -636,7 +636,9 @@ class PettyCashDashboardFragment : Fragment() {
             row.findViewById<TextView>(R.id.tvQueueRowAvatar).text = item.workerName.take(1).uppercase()
             row.findViewById<TextView>(R.id.tvQueueRowCode).text = item.requestCode
             row.findViewById<TextView>(R.id.tvQueueRowSubtitle).text = "${item.workerName}\n${item.category}"
-            row.findViewById<TextView>(R.id.tvQueueRowAmount).text = taka(item.amount)
+            val (queuePrimary, queueSecondary) = claimCardAmounts(item)
+            row.findViewById<TextView>(R.id.tvQueueRowAmount).text = queuePrimary
+            row.findViewById<TextView>(R.id.tvQueueRowSecondaryAmount).text = queueSecondary
             row.findViewById<TextView>(R.id.tvQueueRowStatus).text = when (item.status) {
                 PC_STATUS_PENDING -> "Pending"
                 PC_STATUS_ACKNOWLEDGED -> "Verified"

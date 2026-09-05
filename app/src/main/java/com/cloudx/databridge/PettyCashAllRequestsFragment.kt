@@ -235,10 +235,9 @@ class PettyCashAllRequestsFragment : Fragment() {
                 row.findViewById<TextView>(R.id.tvAllReqRowIcon).text = item.workerName.take(1).uppercase()
                 row.findViewById<TextView>(R.id.tvAllReqRowCode).text = item.requestCode
                 row.findViewById<TextView>(R.id.tvAllReqRowSubtitle).text = "${item.workerName}\n${item.category}"
-                row.findViewById<TextView>(R.id.tvAllReqRowAmount).text = "Req: " + taka(item.amount)
-                row.findViewById<TextView>(R.id.tvAllReqRowSecondaryAmount).text =
-                    if (item.status == PC_STATUS_SETTLED) "Settled: " + taka(item.settledAmount)
-                    else "Approved: " + taka(item.approvedAmount)
+                val (amountPrimary, amountSecondary) = claimCardAmounts(item)
+                row.findViewById<TextView>(R.id.tvAllReqRowAmount).text = amountPrimary
+                row.findViewById<TextView>(R.id.tvAllReqRowSecondaryAmount).text = amountSecondary
                 row.findViewById<TextView>(R.id.tvAllReqRowDate).text =
                     formatDate(if (item.requestedDate != 0L) item.requestedDate else item.createdAt)
                 row.findViewById<TextView>(R.id.tvAllReqRowStatus).apply {

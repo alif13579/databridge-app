@@ -35,8 +35,7 @@ object SupabaseClaimsWriter {
         .build()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    suspend fun save(claim: ClaimInfo) {
-        withContext(Dispatchers.IO) {
+    suspend fun save(claim: ClaimInfo) {        withContext(Dispatchers.IO) {
             if (!SupabaseConfig.isConfigured) {
                 FirebaseErrorLogger.log(
                     "SupabaseClaimsWriter", "save_not_configured",
@@ -84,6 +83,58 @@ object SupabaseClaimsWriter {
                     // SupabaseErrorDialog), otherwise only "HTTP 401"
                     // reaches the user and the cause is undebuggable.
                     error("Supabase save failed (HTTP ${response.code}): ${text.take(600).ifBlank { "empty response" }}")
+                }
+            }
+        }
+    }
+
+    /** Hard delete via the claims Edge Function's claim_delete action
+     *  (owner + pending gated server-side). Throws on any failure, same
+     *  contract as [save] — no row is removed unless this returns. */
+    suspend fun delete(claimId: String) {
+        withContext(Dispatchers.IO) {
+            if (!SupabaseConfig.isConfigured) {
+                FirebaseErrorLogger.log(
+                    "SupabaseClaimsWriter", "delete_not_configured",
+                    "SUPABASE_URL/SUPABASE_PUBLISHABLE_KEY are not configured",
+                    mapOf("claimId" to claimId)
+                )
+                error("Supabase is not configured")
+            }
+            val user = FirebaseAuth.getInstance().currentUser ?: run {
+                FirebaseErrorLogger.log(
+                    "SupabaseClaimsWriter", "delete_not_signed_in", "No Firebase user",
+                    mapOf("claimId" to claimId)
+                )
+                error("No signed-in user")
+            }
+            val token = user.getIdToken(false).await().token ?: run {
+                FirebaseErrorLogger.log(
+                    "SupabaseClaimsWriter", "delete_token_error", "No Firebase ID token",
+                    mapOf("claimId" to claimId)
+                )
+                error("Could not get an ID token")
+            }
+            val payload = JSONObject()
+                .put("action", "claim_delete")
+                .put("claim_id", claimId)
+            val request = Request.Builder()
+                .url("${SupabaseConfig.PROJECT_URL}/functions/v1/claims")
+                .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Content-Type", "application/json")
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val text = response.body?.string().orEmpty()
+                    FirebaseErrorLogger.log(
+                        "SupabaseClaimsWriter", "delete_http_error",
+                        "HTTP ${response.code}: ${text.take(500)}",
+                        mapOf("claimId" to claimId)
+                    )
+                    val reason = runCatching { JSONObject(text).optString("error") }.getOrNull()
+                    error(reason?.takeIf { it.isNotBlank() } ?: "Delete failed: HTTP ${response.code}")
                 }
             }
         }

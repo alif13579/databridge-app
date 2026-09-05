@@ -57,8 +57,7 @@ class ClaimsRepository {
         return true
     }
 
-    suspend fun update(claimId: String, updates: Map<String, Any?>, onSupabaseResult: (Boolean) -> Unit = {}): ClaimInfo {
-        val old = get(claimId) ?: error("Claim not found")
+    suspend fun update(claimId: String, updates: Map<String, Any?>, onSupabaseResult: (Boolean) -> Unit = {}): ClaimInfo {        val old = get(claimId) ?: error("Claim not found")
         // public.claims is written by full-row upsert (see SupabaseClaimsWriter.
         // save() / claim_upsert in the Edge Function), not a partial patch —
         // so the caller's partial map is applied onto the already-loaded full
@@ -69,6 +68,22 @@ class ClaimsRepository {
         SupabaseClaimsWriter.save(updated)
         onSupabaseResult(true)
         return updated
+    }
+
+    /** Hard delete: the Supabase row goes away entirely (claim_delete, owner +
+     *  pending gated server-side), then every R2 attachment object is purged
+     *  best-effort. R2 first so a row-delete failure never strands files with
+     *  no row pointing at them unnoticed — a row failure still throws (caller
+     *  retries; R2 deletes are idempotent). Returns the purged attachment keys. */
+    suspend fun delete(claimId: String, onSupabaseResult: (Boolean) -> Unit = {}): List<String> {
+        val existing = get(claimId) ?: error("Request not found")
+        val keys = existing.attachments.map { it.key }.filter { it.isNotBlank() }
+        keys.forEach { key ->
+            runCatching { AttachmentUploader.deleteObject(key) }
+        }
+        SupabaseClaimsWriter.delete(claimId)
+        onSupabaseResult(true)
+        return keys
     }
 
     suspend fun search(filter: ClaimsReportFilter): ClaimsReport {

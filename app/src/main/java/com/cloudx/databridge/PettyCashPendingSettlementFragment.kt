@@ -267,7 +267,9 @@ class PettyCashPendingSettlementFragment : Fragment() {
             card.findViewById<TextView>(R.id.tvPsCardCode).text = item.requestCode
             card.findViewById<TextView>(R.id.tvPsCardWorker).text = item.workerName
             card.findViewById<TextView>(R.id.tvPsCardCategory).text = item.category
-            card.findViewById<TextView>(R.id.tvPsCardAmount).text = taka(item.amount)
+            val (psPrimary, psSecondary) = claimCardAmounts(item)
+            card.findViewById<TextView>(R.id.tvPsCardAmount).text = psPrimary
+            card.findViewById<TextView>(R.id.tvPsCardSecondaryAmount).text = psSecondary
 
             val (infoLine, byLine) = statusInfoLine(item)
             card.findViewById<TextView>(R.id.tvPsCardApprovedInfo).text = infoLine

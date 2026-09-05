@@ -46,14 +46,28 @@
                 android:textColor="#64748B" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tvQueueRowAmount"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:textStyle="bold"
-            android:textSize="14sp"
-            android:textColor="#0F172A" />
+            android:orientation="vertical"
+            android:gravity="end">
+
+            <TextView
+                android:id="@+id/tvQueueRowAmount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textStyle="bold"
+                android:textSize="14sp"
+                android:textColor="#0F172A" />
+
+            <TextView
+                android:id="@+id/tvQueueRowSecondaryAmount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="11sp"
+                android:textColor="#64748B" />
+        </LinearLayout>
     </LinearLayout>
 
     <LinearLayout

@@ -91,6 +91,35 @@ Deno.serve(async (request) => {
       return reply({ ok: true })
     }
 
+    if (action === 'claim_delete') {
+      // Hard delete of a PENDING request by its own requester: the row goes
+      // away entirely (no cancelled tombstone). Gated on worker_uid (the
+      // Firebase uid stored at submit) + pending status — anything else is
+      // someone else's or already in the approval chain. R2 objects are purged
+      // app-side (AttachmentUploader.deleteObject per key); the row delete is
+      // the atomic point of no return.
+      const claimId = typeof body.claim_id === 'string' ? body.claim_id.trim() : ''
+      if (!claimId) return reply({ error: 'claim_id is required' }, 400)
+      const { data: row, error: readError } = await admin.from('claims')
+        .select('id,worker_uid,status').eq('id', claimId).maybeSingle()
+      if (readError) throw readError
+      if (!row) return reply({ error: 'Claim not found' }, 404)
+      if (row.worker_uid !== identity.uid) {
+        errLog('claim_delete', 'forbidden', { claim_id: claimId })
+        return reply({ error: 'You can only delete your own requests' }, 403)
+      }
+      if (row.status !== 'pending') {
+        return reply({ error: 'Only pending requests can be deleted' }, 409)
+      }
+      const { error } = await admin.from('claims').delete().eq('id', claimId)
+      if (error) {
+        errLog('claim_delete', 'db_delete_failed', { claim_id: claimId, pg_code: error.code, pg_message: error.message })
+        throw error
+      }
+      console.info(`claim_delete ok: claim=${claimId}`)
+      return reply({ ok: true })
+    }
+
     return reply({ error: 'Unknown action' }, 400)
   } catch (error) {
     return unhandled(action, identity, error)

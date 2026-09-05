@@ -106,9 +106,25 @@ data class PettyCashRequest(
 )
 
 /**
- * The amount settlement should actually move -- the Cash POC's approved
- * amount, set at the Approve step.
+ * Card amount pair, same rule on every claim list card: until settled the card
+ * shows Requested + Approved; once settled it shows Requested + Settled.
+ * Approved reads "—" until POC actually approves (0.0) — same convention as
+ * the details screen's summary, so 0 never looks approved/paid.
  */
+fun claimCardAmounts(item: PettyCashRequest): Pair<String, String> {
+    val primary = "Requested: " + pettyCashTaka(item.amount)
+    val secondary = if (item.status == PC_STATUS_SETTLED) {
+        "Settled: " + pettyCashTaka(item.settledAmount)
+    } else {
+        "Approved: " + (if (item.approvedAmount > 0) pettyCashTaka(item.approvedAmount) else "—")
+    }
+    return primary to secondary
+}
+
+fun pettyCashTaka(amount: Double): String {
+    val whole = Math.round(amount)
+    return "\u09F3${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(whole)}"
+}
 val PettyCashRequest.settlementAmount: Double
     get() = approvedAmount
 

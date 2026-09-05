@@ -281,8 +281,11 @@ class PettyCashViewModel : ViewModel() {
         if (existing.workerUid != uid) throw IllegalStateException("You can only delete your own requests")
         if (existing.status != PC_STATUS_PENDING) throw IllegalStateException("This request can no longer be deleted")
 
-        // Claims are never deleted: cancellation keeps audit and reporting intact.
-        claims.update(requestId, mapOf("status" to PC_STATUS_CANCELLED), onSupabaseResult)
+        // Hard delete — the row AND every R2 attachment object go away, no
+        // cancelled tombstone left behind. (An earlier version only flipped
+        // status to cancelled, which is why "delete" never actually deleted.)
+        // R2 purge lives in ClaimsRepository.delete alongside the row delete.
+        claims.delete(requestId, onSupabaseResult)
     }
 
     // ── Reviewer (any role EXCEPT the original requester): correct the requested
