@@ -16,7 +16,6 @@ import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -48,7 +47,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     private val viewModel: PettyCashViewModel by viewModels()
 
-    private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var layoutTabs: LinearLayout
     private lateinit var layoutList: LinearLayout
     private lateinit var pbLoading: View
@@ -98,7 +96,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
         selectedStatus = arguments?.getString(ARG_INITIAL_STATUS).orEmpty().ifBlank { FILTER_ALL }
         myRequestsOnly = arguments?.getBoolean(ARG_MY_REQUESTS_ONLY) ?: false
 
-        swipeRefresh = view.findViewById(R.id.swipeRefreshPcPending)
         layoutTabs   = view.findViewById(R.id.layoutPcPendingTabs)
         layoutList   = view.findViewById(R.id.layoutPcPendingList)
         pbLoading    = view.findViewById(R.id.pbPcPendingLoading)
@@ -141,8 +138,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
         }
         view.findViewById<View>(R.id.btnPcBulkSettle).setOnClickListener { showBulkSettleDialog() }
 
-        swipeRefresh.setOnRefreshListener { if (branchId.isNotBlank()) viewModel.load(branchId) }
-
         parentFragmentManager.setFragmentResultListener(PettyCashFilterState.FRAGMENT_RESULT_KEY, viewLifecycleOwner) { _, bundle ->
             val stateBundle = bundle.getBundle(PettyCashFilterState.BUNDLE_KEY_STATE)
             advancedFilter = stateBundle?.let { PettyCashFilterState.fromBundle(it) } ?: PettyCashFilterState()
@@ -173,7 +168,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
     }
 
     private fun render(state: PettyCashState) {
-        swipeRefresh.isRefreshing = false
         when (state) {
             is PettyCashState.Loading -> {
                 pbLoading.isVisible = true

@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+<!-- No pull-to-refresh here by request: the swipe gesture kept stealing
+     upward scrolls, making the list impossible to scroll up. The list reloads
+     on resume, tab/filter changes, and after every action instead. -->
+<FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/swipeRefreshPcPending"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
@@ -198,4 +200,4 @@
 
         </LinearLayout>
     </FrameLayout>
-</androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+</FrameLayout>

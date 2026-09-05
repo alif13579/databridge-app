@@ -80,7 +80,7 @@
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
             android:textStyle="bold"
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:textColor="#0F172A" />
 
         <TextView
@@ -88,7 +88,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
-            android:textSize="11sp"
+            android:textSize="13sp"
             android:textColor="#64748B"
             android:layout_marginTop="2dp" />
     </LinearLayout>

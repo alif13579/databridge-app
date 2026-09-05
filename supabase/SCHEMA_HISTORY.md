@@ -201,6 +201,12 @@ non-editable; store picker shows ৳ amount. App: Config Stores tab
 (create/edit/list), fetchStores select, store_upsert/store_delete Edge
 actions (admin/manager-gated), backfill_stores preserves the value
 (Firebase has no such field).
+33. **202609050001** (applied live via Management API, same as 0007) —
+`users_branch_read` SELECT policy on `public.users` (anon+authenticated,
+`branch_ids && my_branch_ids()`): claim/validation actor-name embeds
+(requester/staff/poc/...) were null for anyone but self under the old
+own-row-only policies, so cards/details/steps showed blank names. Own-row
+policies untouched.
 
 ---
 

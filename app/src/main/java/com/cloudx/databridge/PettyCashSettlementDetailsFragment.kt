@@ -253,8 +253,11 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         // guess, and report generation needs it accurate. Not the requester, and
         // any of the reviewing roles — not tied to one specific pipeline stage,
         // since the date can still need fixing at any point before reporting.
+        // Owner included too: the requester and everyone downstream in the chain
+        // (Staff / Cash POC / Accounts) may correct it at any stage.
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-        val canEditRequestedDate = request.workerUid != myUid && (roles.isStaff || roles.isCashPoc || roles.isAccounts)
+        val canEditRequestedDate = request.workerUid == myUid ||
+            (roles.isStaff || roles.isCashPoc || roles.isAccounts)
         val requestedOnRow = root.findViewById<View>(R.id.rowPcRequestedOn)
         if (canEditRequestedDate) {
             requestedOnRow.isClickable = true
@@ -353,18 +356,29 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             Stage(pettyCashStatusLabel(PC_STATUS_SETTLED), request.settledByName, request.settledAt)
         )
 
+        // The first not-done stage is the CURRENT one — highlighted so it's
+        // obvious at a glance which step the claim is sitting at and whose
+        // action is awaited (subtitle carries that actor's name).
+        val currentIndex = stages.indexOfFirst { it.at == 0L }
         stages.forEachIndexed { index, stage ->
             val stepView = layoutInflater.inflate(R.layout.item_petty_cash_approval_step, container, false)
             val isDone = stage.at != 0L
             val isLast = index == stages.lastIndex
+            val isCurrent = index == currentIndex
 
-            stepView.findViewById<TextView>(R.id.tvStepTitle).text = stage.title
-            stepView.findViewById<TextView>(R.id.tvStepSubtitle).text = stage.subtitle
+            val tvTitle = stepView.findViewById<TextView>(R.id.tvStepTitle)
+            tvTitle.text = stage.title + if (isCurrent) " ◀" else ""
+            if (isCurrent) tvTitle.setTextColor(android.graphics.Color.parseColor("#059669"))
+            stepView.findViewById<TextView>(R.id.tvStepSubtitle).text =
+                stage.subtitle.ifBlank { if (isCurrent) "অপেক্ষমাণ" else "" }
             stepView.findViewById<TextView>(R.id.tvStepTime).text = if (isDone) formatDateTime(stage.at) else ""
 
             val tvDot = stepView.findViewById<TextView>(R.id.tvStepDot)
             if (isDone) {
                 tvDot.text = "\u2713"
+                tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_done)
+            } else if (isCurrent) {
+                tvDot.text = "●"
                 tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_done)
             } else {
                 tvDot.text = ""

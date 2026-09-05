@@ -288,21 +288,19 @@ class PettyCashViewModel : ViewModel() {
         claims.delete(requestId, onSupabaseResult)
     }
 
-    // ── Reviewer (any role EXCEPT the original requester): correct the requested
-    //    date ──────────────────────────────────────────────────────────────────
+    // ── Correct the requested date ──────────────────────────────────────────
     // The requester's own date entry (submitRequest()/updateRequest(), while still
     // pending) can be wrong or simply a rough guess. This is the counterpart for
     // whoever reviews the request afterward — Staff, Cash POC, or Accounts — to
     // correct it so report generation's "Requested Date" is accurate. Deliberately
     // not status-restricted, unlike updateRequest(): the date can still need fixing
     // at any stage before/around report generation, not just while pending.
+    // The requester themselves may also correct it at any stage (not only while
+    // pending via the edit screen) — anyone with the claim open can fix the date.
 
     suspend fun updateRequestedDate(requestId: String, requestedDate: Long, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         require(requestedDate > 0L) { "A valid date is required" }
-        val uid = auth.currentUser?.uid.orEmpty()
         val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
-
-        if (existing.workerUid == uid) throw IllegalStateException("The requester can't edit this — only another reviewer can")
 
         claims.update(requestId, mapOf("requestedAt" to requestedDate), onSupabaseResult)
     }

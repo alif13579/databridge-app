@@ -372,6 +372,10 @@ object SupabaseRemarkValidationWriter {
         return runCatching { Instant.parse(raw).toEpochMilli() }
             .recoverCatching { OffsetDateTime.parse(raw).toInstant().toEpochMilli() }
             .recoverCatching { LocalDateTime.parse(raw).toInstant(ZoneOffset.UTC).toEpochMilli() }
+            // DATE-only values (e.g. an old requested_at stored as 'YYYY-MM-DD'
+            // by a CURRENT_DATE default) parse to start of day, never 0 — a 0
+            // renders as a blank "—" date on cards/details.
+            .recoverCatching { LocalDate.parse(raw).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }
             .getOrDefault(0L)
     }
 
