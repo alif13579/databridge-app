@@ -54,29 +54,29 @@ object SupabaseBranchReader {
 
     private fun org.json.JSONObject.toBranchRow(): BranchRow {
         fun isoMillis(key: String): Long {
-            return SupabaseRemarkValidationWriter.parseDbTimestampMillis(optString(key, ""))
+            return SupabaseRemarkValidationWriter.parseDbTimestampMillis(optStr(key))
         }
         return BranchRow(
-            branchId = optString("branch_id"),
-            branchCode = optString("branch_code"),
-            name = optString("name"),
-            branchType = optString("branch_type"),
-            address = optString("address"),
+            branchId = optStr("branch_id"),
+            branchCode = optStr("branch_code"),
+            name = optStr("name"),
+            branchType = optStr("branch_type"),
+            address = optStr("address"),
             latitude = optDouble("latitude", 0.0),
             longitude = optDouble("longitude", 0.0),
-            email = optString("email"),
-            phone = optString("phone"),
-            managerUid = optString("manager_uid"),
-            accountantUid = optString("accountant_uid"),
-            accountantRole = optString("accountant_role"),
-            pettyCashPocUid = optString("petty_cash_poc_uid"),
+            email = optStr("email"),
+            phone = optStr("phone"),
+            managerUid = optStr("manager_uid"),
+            accountantUid = optStr("accountant_uid"),
+            accountantRole = optStr("accountant_role"),
+            pettyCashPocUid = optStr("petty_cash_poc_uid"),
             pettyCashLimit = optDouble("petty_cash_limit", 0.0),
-            staffUid = optString("staff_uid"),
-            staffRole = optString("staff_role"),
-            parentBranchId = optString("parent_branch_id"),
-            region = optString("region"),
-            status = optString("status").ifBlank { "active" },
-            imageUrl = optString("image_url"),
+            staffUid = optStr("staff_uid"),
+            staffRole = optStr("staff_role"),
+            parentBranchId = optStr("parent_branch_id"),
+            region = optStr("region"),
+            status = optStr("status").ifBlank { "active" },
+            imageUrl = optStr("image_url"),
             createdAt = isoMillis("created_at")
         )
     }

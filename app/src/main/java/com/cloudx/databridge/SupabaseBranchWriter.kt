@@ -146,7 +146,7 @@ object SupabaseBranchWriter {
                     )
                     // Surface the server's reason (e.g. the claims-blocked
                     // 409 or the admin/manager 403) instead of a bare code.
-                    val reason = runCatching { JSONObject(text).optString("error") }.getOrNull()
+                    val reason = runCatching { JSONObject(text).optStr("error") }.getOrNull()
                     error(reason?.takeIf { it.isNotBlank() } ?: "Failed to save branch: HTTP ${response.code}")
                 }
             }

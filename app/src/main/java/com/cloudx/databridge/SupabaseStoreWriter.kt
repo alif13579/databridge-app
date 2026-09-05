@@ -90,7 +90,7 @@ object SupabaseStoreWriter {
                         "SupabaseStoreWriter", "${action}_http_error",
                         "HTTP ${response.code}: ${text.take(500)}", mapOf("id" to idForLog)
                     )
-                    val reason = runCatching { JSONObject(text).optString("error") }.getOrNull()
+                    val reason = runCatching { JSONObject(text).optStr("error") }.getOrNull()
                     error(reason?.takeIf { it.isNotBlank() } ?: "Failed to save store: HTTP ${response.code}")
                 }
             }

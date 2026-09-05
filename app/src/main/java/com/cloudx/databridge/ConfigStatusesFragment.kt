@@ -145,13 +145,13 @@ class ConfigStatusesFragment : Fragment() {
                 val arr = result.body.optJSONArray("remarks") ?: org.json.JSONArray()
                 for (i in 0 until arr.length()) {
                     val r = arr.getJSONObject(i)
-                    val targetStatus = r.optString("target_status")
+                    val targetStatus = r.optStr("target_status")
                     if (targetStatus.isBlank()) continue
                     loaded.getOrPut(targetStatus) { mutableListOf() }.add(ConfigState.Remark(
-                        id = r.optString("id"), text_bn = r.optString("remarks_bn"), text_en = r.optString("remarks_en"),
-                        target_status = targetStatus, template_id = r.optString("template_id"),
-                        priority = r.optInt("priority", 0), instruction_type = r.optString("instruction_type"),
-                        instruction_text = r.optString("instruction_text"), is_active = r.optBoolean("is_active", true),
+                        id = r.optStr("id"), text_bn = r.optStr("remarks_bn"), text_en = r.optStr("remarks_en"),
+                        target_status = targetStatus, template_id = r.optStr("template_id"),
+                        priority = r.optInt("priority", 0), instruction_type = r.optStr("instruction_type"),
+                        instruction_text = r.optStr("instruction_text"), is_active = r.optBoolean("is_active", true),
                     ))
                 }
             }

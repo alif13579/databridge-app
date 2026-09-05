@@ -24,37 +24,37 @@ object SupabaseClaimsReader {
     /** One claims row with its embedded branch/employee fields flattened in —
      *  callers read this instead of re-parsing the nested embed shape each time. */
     data class ClaimRow(val raw: JSONObject) {
-        val id: String get() = raw.optString("id")
-        val claimCode: String get() = raw.optString("claim_code")
-        val branchId: String get() = raw.optString("branch_id")
-        val agentSystemId: String get() = raw.optString("requester_system_id")
-        val category: String get() = raw.optString("category")
-        val purpose: String get() = raw.optString("remarks")
+        val id: String get() = raw.optStr("id")
+        val claimCode: String get() = raw.optStr("claim_code")
+        val branchId: String get() = raw.optStr("branch_id")
+        val agentSystemId: String get() = raw.optStr("requester_system_id")
+        val category: String get() = raw.optStr("category")
+        val purpose: String get() = raw.optStr("remarks")
         val settledAmount: Double get() = raw.optDouble("settled_amount", 0.0)
-        val vehicle: String get() = raw.optString("vehicle")
-        val fromArea: String get() = raw.optString("from_area")
-        val toArea: String get() = raw.optString("to_area")
+        val vehicle: String get() = raw.optStr("vehicle")
+        val fromArea: String get() = raw.optStr("from_area")
+        val toArea: String get() = raw.optStr("to_area")
         val attemptQuantity: Int get() = raw.optInt("attempted_qty", 0)
         val deliveredQuantity: Int get() = raw.optInt("successed_qty", 0)
-        val cidOrMerchant: String get() = raw.optString("cid_or_merchant")
+        val cidOrMerchant: String get() = raw.optStr("cid_or_merchant")
         // The date the claim/expense request was placed — mandatory on every claim
         // (any category, not just conveyance), user-editable. Renamed from
         // expense_date; see SCHEMA_HISTORY.md's "public.claims — now live" entry
         // for why (it was originally conveyance-only, blank on other categories).
-        val placedDate: String get() = raw.optString("requested_at").take(10) // yyyy-MM-dd derived from requested_at
-        val status: String get() = raw.optString("status")
+        val placedDate: String get() = raw.optStr("requested_at").take(10) // yyyy-MM-dd derived from requested_at
+        val status: String get() = raw.optStr("status")
 
         // Embedded via the FK — PostgREST nests these as single objects (not arrays)
         // for a many-to-one embed like claims->branches / claims->users.
         private val branch: JSONObject? get() = raw.optJSONObject("branches")
         private val agent: JSONObject? get() = raw.optJSONObject("users")
-        val branchName: String get() = branch?.optString("name").orEmpty()
-        val branchRegion: String get() = branch?.optString("region").orEmpty()
+        val branchName: String get() = branch?.optStr("name").orEmpty()
+        val branchRegion: String get() = branch?.optStr("region").orEmpty()
         val branchPettyCashLimit: Double get() = branch?.optDouble("petty_cash_limit", 0.0) ?: 0.0
-        val agentName: String get() = agent?.optString("name").orEmpty()
-        val agentEmployeeId: String get() = agent?.optString("employee_id").orEmpty()
-        val agentPhone: String get() = agent?.optString("phone").orEmpty()
-        val agentDesignation: String get() = agent?.optString("designation").orEmpty()
+        val agentName: String get() = agent?.optStr("name").orEmpty()
+        val agentEmployeeId: String get() = agent?.optStr("employee_id").orEmpty()
+        val agentPhone: String get() = agent?.optStr("phone").orEmpty()
+        val agentDesignation: String get() = agent?.optStr("designation").orEmpty()
     }
 
     /** A branch entry for the report's branch-selector dropdown. */
@@ -104,8 +104,8 @@ object SupabaseClaimsReader {
                 List(arr.length()) { i ->
                     val row = arr.getJSONObject(i)
                     ClaimCategory(
-                        name = row.optString("name"),
-                        group = row.optString("category_group").ifBlank { "operation" },
+                        name = row.optStr("name"),
+                        group = row.optStr("category_group").ifBlank { "operation" },
                         sortOrder = row.optInt("sort_order", 0)
                     )
                 }.filter { it.name.isNotBlank() }
@@ -146,7 +146,7 @@ object SupabaseClaimsReader {
                 val arr = JSONArray(text)
                 List(arr.length()) { i ->
                     val row = arr.getJSONObject(i)
-                    BranchOption(row.optString("branch_id"), row.optString("name"))
+                    BranchOption(row.optStr("branch_id"), row.optStr("name"))
                 }
             }
         } catch (e: Exception) {
@@ -179,7 +179,7 @@ object SupabaseClaimsReader {
             if (!it.isSuccessful) error("fetchPocForBranch (branch) HTTP ${it.code}: ${text.take(1_000)}")
             val arr = JSONArray(text)
             if (arr.length() == 0) error("Branch not found")
-            arr.getJSONObject(0).optString("petty_cash_poc_uid").trim()
+            arr.getJSONObject(0).optStr("petty_cash_poc_uid").trim()
         }
         if (pocUid.isBlank()) return@withContext null
         val userUrl = "${SupabaseConfig.PROJECT_URL}/rest/v1/users" +
@@ -197,10 +197,10 @@ object SupabaseClaimsReader {
             if (arr.length() == 0) return@withContext null
             val row = arr.getJSONObject(0)
             PocInfo(
-                name = row.optString("name"),
-                employeeId = row.optString("employee_id"),
-                designation = row.optString("designation"),
-                phone = row.optString("phone")
+                name = row.optStr("name"),
+                employeeId = row.optStr("employee_id"),
+                designation = row.optStr("designation"),
+                phone = row.optStr("phone")
             )
         }
     }
@@ -229,13 +229,13 @@ object SupabaseClaimsReader {
                 List(arr.length()) { i ->
                     val row = arr.getJSONObject(i)
                     Store(
-                        id = row.optString("store_id"),
-                        storeId = row.optString("store_id"),
-                        name = row.optString("name"),
-                        address = row.optString("address"),
-                        areaId = row.optString("area_id"),
-                        areaName = row.optString("area_name"),
-                        phone = row.optString("phone"),
+                        id = row.optStr("store_id"),
+                        storeId = row.optStr("store_id"),
+                        name = row.optStr("name"),
+                        address = row.optStr("address"),
+                        areaId = row.optStr("area_id"),
+                        areaName = row.optStr("area_name"),
+                        phone = row.optStr("phone"),
                         conveyanceAmount = row.optDouble("conveyance_amount", 0.0)
                     )
                 }
@@ -287,14 +287,14 @@ object SupabaseClaimsReader {
                 val arr = JSONArray(text)
                 List(arr.length()) { i ->
                     val row = arr.getJSONObject(i)
-                    val type = row.optString("area_type").ifBlank { "both" }
+                    val type = row.optStr("area_type").ifBlank { "both" }
                     Area(
-                        id = row.optString("branch_id") + "::" + row.optString("area_id"),
-                        areaId = row.optString("area_id"),
-                        name = row.optString("name"),
-                        branchId = row.optString("branch_id"),
+                        id = row.optStr("branch_id") + "::" + row.optStr("area_id"),
+                        areaId = row.optStr("area_id"),
+                        name = row.optStr("name"),
+                        branchId = row.optStr("branch_id"),
                         areaType = type,
-                        zone = row.optString("zone"),
+                        zone = row.optStr("zone"),
                     )
                 }.filter { a ->
                     a.areaId.isNotBlank() && a.name.isNotBlank() &&
@@ -343,7 +343,7 @@ object SupabaseClaimsReader {
                 val arr = JSONArray(text)
                 val values = LinkedHashSet<String>()
                 for (i in 0 until arr.length()) {
-                    val v = arr.getJSONObject(i).optString(column).trim()
+                    val v = arr.getJSONObject(i).optStr(column).trim()
                     if (v.isNotBlank()) values.add(v)
                 }
                 values.sorted()
@@ -453,78 +453,77 @@ object SupabaseClaimsReader {
      *  `staff_user:staff_by_system_id(name)` → `{"staff_user":{"name":"..."}}`
      *  Returns blank when the actor hasn't acted yet (null embed = no FK match). */
     private fun JSONObject.embedName(alias: String): String =
-        optJSONObject(alias)?.optString("name").orEmpty()
+        optJSONObject(alias)?.optStr("name").orEmpty()
 
     private fun JSONObject.toClaimInfo(): ClaimInfo {
         fun isoMillis(key: String): Long {
-            // Central tolerant parser — PostgREST's space-shaped timestamptz
-            // must round-trip, or re-upserts null created_at (23502).
-            return SupabaseRemarkValidationWriter.parseDbTimestampMillis(optString(key, ""))
+            // Central tolerant parser — see optStr below on NULL handling.
+            return SupabaseRemarkValidationWriter.parseDbTimestampMillis(optStr(key))
         }
         // Actor names are joined via PostgREST embed (see ACTOR_SELECT constant) —
         // not stored as columns. Requester name comes from the `requester` embed
         // (agent_system_id → users); branch name from the `branch` embed
         // (branch_id → branches). Actor system_ids are plain columns.
         return ClaimInfo(
-            claimId = optString("id"),
-            claimCode = optString("claim_code"),
-            branchId = optString("branch_id"),
+            claimId = optStr("id"),
+            claimCode = optStr("claim_code"),
+            branchId = optStr("branch_id"),
             employeeName = embedName("requester"),
-            agentSystemId = optString("requester_system_id"),
-            category = optString("category"),
-            purpose = optString("remarks"),
-            consignmentId = optString("consignment_id"),
-            vehicle = optString("vehicle"),
-            fromArea = optString("from_area"),
-            toArea = optString("to_area"),
+            agentSystemId = optStr("requester_system_id"),
+            category = optStr("category"),
+            purpose = optStr("remarks"),
+            consignmentId = optStr("consignment_id"),
+            vehicle = optStr("vehicle"),
+            fromArea = optStr("from_area"),
+            toArea = optStr("to_area"),
             attemptQuantity = optInt("attempted_qty", 0),
             deliveredQuantity = optInt("successed_qty", 0),
-            cidOrMerchant = optString("cid_or_merchant"),
+            cidOrMerchant = optStr("cid_or_merchant"),
             requestedAmount = optDouble("requested_amount", 0.0),
             approvedAmount = optDouble("approved_amount", 0.0),
             settledAmount = optDouble("settled_amount", 0.0),
-            paymentMethod = optString("payment_method"),
-            transactionId = optString("transaction_id"),
-            status = optString("status").ifBlank { PC_STATUS_PENDING },
+            paymentMethod = optStr("payment_method"),
+            transactionId = optStr("transaction_id"),
+            status = optStr("status").ifBlank { PC_STATUS_PENDING },
             requestedAt = isoMillis("requested_at"),
             approvedAt = isoMillis("approved_at"),
             settledAt = isoMillis("settled_at"),
             createdAt = isoMillis("created_at"),
             updatedAt = isoMillis("updated_at"),
-            workerUid = optString("worker_uid"),
-            workerRole = optString("worker_role"),
-            storeId = optString("store_id"),
-            storeName = optString("store_name"),
+            workerUid = optStr("worker_uid"),
+            workerRole = optStr("worker_role"),
+            storeId = optStr("store_id"),
+            storeName = optStr("store_name"),
             pickupCount = optInt("pickup_count", 0),
             attachments = optJSONArray("attachments")?.let { arr ->
                 List(arr.length()) { i ->
                     val o = arr.optJSONObject(i)
                     AttachmentRef(
-                        key = o?.optString("key").orEmpty(),
-                        name = o?.optString("name").orEmpty(),
+                        key = o?.optStr("key").orEmpty(),
+                        name = o?.optStr("name").orEmpty(),
                         sizeBytes = o?.optLong("size", 0L) ?: 0L,
                     )
                 }.filter { it.key.isNotBlank() }
             } ?: emptyList(),
-            staffByUid = optString("staff_by_uid"),
-            staffBySystemId = optString("staff_by_system_id"),
+            staffByUid = optStr("staff_by_uid"),
+            staffBySystemId = optStr("staff_by_system_id"),
             staffByName = embedName("staff_user"),
-            staffAt = isoMillis("staff_at"), staffComment = optString("staff_comment"),
-            pocApprovedByUid = optString("poc_approved_by_uid"),
-            pocApprovedBySystemId = optString("poc_approved_by_system_id"),
+            staffAt = isoMillis("staff_at"), staffComment = optStr("staff_comment"),
+            pocApprovedByUid = optStr("poc_approved_by_uid"),
+            pocApprovedBySystemId = optStr("poc_approved_by_system_id"),
             pocApprovedByName = embedName("poc_user"),
-            pocComment = optString("poc_comment"),
-            settleInProcessByUid = optString("settle_in_process_by_uid"),
-            settleInProcessBySystemId = optString("settle_in_process_by_system_id"),
+            pocComment = optStr("poc_comment"),
+            settleInProcessByUid = optStr("settle_in_process_by_uid"),
+            settleInProcessBySystemId = optStr("settle_in_process_by_system_id"),
             settleInProcessByName = embedName("settle_user"),
             settleInProcessAt = isoMillis("settle_in_process_at"),
-            settledByUid = optString("settled_by_uid"),
-            settledBySystemId = optString("settled_by_system_id"),
+            settledByUid = optStr("settled_by_uid"),
+            settledBySystemId = optStr("settled_by_system_id"),
             settledByName = embedName("settled_user"),
-            rejectedByUid = optString("rejected_by_uid"),
-            rejectedBySystemId = optString("rejected_by_system_id"),
+            rejectedByUid = optStr("rejected_by_uid"),
+            rejectedBySystemId = optStr("rejected_by_system_id"),
             rejectedByName = embedName("rejected_user"),
-            rejectedAt = isoMillis("rejected_at"), rejectReason = optString("reject_reason")
+            rejectedAt = isoMillis("rejected_at"), rejectReason = optStr("reject_reason")
         )
     }
 

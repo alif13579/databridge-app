@@ -2,6 +2,17 @@ package com.cloudx.databridge
 
 import com.google.firebase.database.IgnoreExtraProperties
 
+/**
+ * NULL-safe string read for PostgREST/Supabase JSON. org.json's optString()
+ * returns the literal string "null" for an explicit JSON null (only a MISSING
+ * key yields "") — that "null" then round-trips into DB writes (Edge fk()
+ * treats it as a real id → 23503) and into UI text. Use this everywhere a
+ * nullable text column is read. (Numbers are unaffected: optDouble/optInt/
+ * optLong fall back to their default on NULL.)
+ */
+fun org.json.JSONObject.optStr(key: String): String =
+    if (isNull(key)) "" else optString(key, "")
+
 /** Canonical, reportable claim document.  It intentionally lives only once. */
 @IgnoreExtraProperties
 data class AttachmentRef(

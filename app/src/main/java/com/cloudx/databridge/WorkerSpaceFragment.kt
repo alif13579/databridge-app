@@ -536,9 +536,9 @@ class WorkerSpaceFragment : Fragment() {
      * missed that step, instead of degrading straight to English.
      */
     private fun resolveRemarkBn(row: JSONObject): String {
-        val raw = row.optString("remarks").trim()
+        val raw = row.optStr("remarks").trim()
         if (raw.isBlank()) return raw
-        return if (row.has("remarks_bn")) row.optString("remarks_bn").trim().ifBlank { raw }
+        return if (row.has("remarks_bn")) row.optStr("remarks_bn").trim().ifBlank { raw }
         else resolveRemarkBn(raw)
     }
 
@@ -994,7 +994,7 @@ class WorkerSpaceFragment : Fragment() {
                             // Supabase validation rows contain author_system_id, not a nested Firebase
                             // profile object — resolve it against users_by_systemId the same way
                             // CallCenterFragment.buildHistoryEntries() does, instead of showing the raw id.
-                            val authorIds = fetched.mapNotNull { it.optString("author_system_id")?.trim()?.takeIf { id -> id.isNotBlank() } }.distinct()
+                            val authorIds = fetched.mapNotNull { it.optStr("author_system_id")?.trim()?.takeIf { id -> id.isNotBlank() } }.distinct()
                             val (names, photos) = resolveSystemIdNamesAndPhotos(authorIds)
                             Triple(fetched, names, photos)
                         }
@@ -1198,24 +1198,24 @@ class WorkerSpaceFragment : Fragment() {
     ): List<HistoryEntry> {
         val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
         return remarkRows.mapNotNull { r ->
-            val rStatus = r.optString("remarks_status")?.trim().orEmpty()
-            val rNoteRaw = r.optString("note").trim()
+            val rStatus = r.optStr("remarks_status")?.trim().orEmpty()
+            val rNoteRaw = r.optStr("note").trim()
             val rRemarks = listOf(
                 resolveRemarkBn(r),
                 rNoteRaw.takeIf { it.isNotBlank() }?.let { "Note: $it" }
             ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
             if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
 
-            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
+            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optStr("created_at"))
             val timeStr = if (createdAt > 0L) fullFmt.format(java.util.Date(createdAt)) else ""
-            val authorSystemId = r.optString("author_system_id")?.trim().orEmpty()
+            val authorSystemId = r.optStr("author_system_id")?.trim().orEmpty()
             val isFromDeliveryAgent = authorSystemId.isNotBlank() && authorSystemId == systemId
             val authorRole = if (isFromDeliveryAgent) "agent" else "cc"
             val authorUser = r.optJSONObject("author")
-            val resolvedAuthorName = authorUser?.optString("name")?.trim().orEmpty()
+            val resolvedAuthorName = authorUser?.optStr("name")?.trim().orEmpty()
                 .ifBlank { nameMap[authorSystemId].orEmpty() }
                 .ifBlank { authorSystemId }
-            val authorEmployeeId = authorUser?.optString("employee_id")?.trim().orEmpty()
+            val authorEmployeeId = authorUser?.optStr("employee_id")?.trim().orEmpty()
             val authorLabel = if (authorEmployeeId.isBlank()) resolvedAuthorName else "$resolvedAuthorName ($authorEmployeeId)"
             val author = if (isFromDeliveryAgent) authorLabel else "$authorLabel · CC"
 
@@ -1225,7 +1225,7 @@ class WorkerSpaceFragment : Fragment() {
                 time = timeStr,
                 author = author,
                 authorRole = authorRole,
-                authorPhotoUrl = authorUser?.optString("photo_url")?.trim().orEmpty()
+                authorPhotoUrl = authorUser?.optStr("photo_url")?.trim().orEmpty()
                     .ifBlank { photoMap[authorSystemId].orEmpty() },
                 createdAt = createdAt,
                 cardBadgeText = rRemarks
@@ -1398,9 +1398,9 @@ class WorkerSpaceFragment : Fragment() {
             filter     = "assigned_to_system_id" to systemId,
             scope      = viewLifecycleOwner.lifecycleScope,
         ) { row ->
-            val cId = row.optString("consignment")
+            val cId = row.optStr("consignment")
             if (cId.isBlank() || cId !in workerTrackedRemarkIds) return@subscribeValidations
-            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
+            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optStr("created_at"))
             val previous = workerLastSeenRemarkAt[cId] ?: 0L
             workerLastSeenRemarkAt[cId] = maxOf(createdAt, previous)
             viewLifecycleOwner.lifecycleScope.launch {
@@ -1408,8 +1408,8 @@ class WorkerSpaceFragment : Fragment() {
                 // isn't a fetchValidations() REST read) — resolve it here, cached, before
                 // the card renders, so a WebSocket-pushed remark shows Bangla immediately
                 // rather than falling back to the (possibly stale) local remarkOptions match.
-                val source = row.optString("source").trim()
-                row.optString("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
+                val source = row.optStr("source").trim()
+                row.optStr("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
                     SupabaseClientManager.resolveRemarkBnCached("WorkerSpaceFragment", source, en)?.let { bn ->
                         row.put("remarks_bn", bn)
                     }
@@ -1429,9 +1429,9 @@ class WorkerSpaceFragment : Fragment() {
             if (rows.isEmpty()) return@fetchNewRemarksSince
             viewLifecycleOwner.lifecycleScope.launch {
                 if (!isAdded) return@launch
-                rows.groupBy { it.optString("consignment") }.forEach { (cId, group) ->
+                rows.groupBy { it.optStr("consignment") }.forEach { (cId, group) ->
                     val latest = group.maxByOrNull {
-                        SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+                        SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optStr("created_at"))
                     } ?: return@forEach
                     refreshOneWorkerParcelFromSupabase(cId, latest)
                 }
@@ -1444,16 +1444,16 @@ class WorkerSpaceFragment : Fragment() {
      *  history dialog in buildHistoryEntries() already uses). */
     private fun cardRemarkText(row: org.json.JSONObject): String = listOf(
         resolveRemarkBn(row),
-        row.optString("note").trim().takeIf { it.isNotBlank() }?.let { "Note: $it" }
+        row.optStr("note").trim().takeIf { it.isNotBlank() }?.let { "Note: $it" }
     ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
 
     /** Updates one visible worker card from a Supabase validation row without reloading the run. */
     private fun refreshOneWorkerParcelFromSupabase(cId: String, latestRemarkRow: org.json.JSONObject) {
         if (!isAdded || allParcels.none { it.id == cId }) return
         val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(
-            latestRemarkRow.optString("created_at")
+            latestRemarkRow.optStr("created_at")
         )
-        val status = latestRemarkRow.optString("remarks_status").trim()
+        val status = latestRemarkRow.optStr("remarks_status").trim()
         val remarkText = cardRemarkText(latestRemarkRow)
         if (status.isBlank() && remarkText.isBlank()) return
 
@@ -1512,11 +1512,11 @@ class WorkerSpaceFragment : Fragment() {
                     return@fetchHistory
                 }
                 val latest = rows.maxByOrNull {
-                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optStr("created_at"))
                 } ?: return@fetchHistory
                 android.util.Log.d("WorkerSpaceFragment",
                     "refreshWorkerParcelFromPush: updating $consignmentId from push — " +
-                    "source=${latest.optString("source")} status=${latest.optString("remarks_status")}")
+                    "source=${latest.optStr("source")} status=${latest.optStr("remarks_status")}")
                 viewLifecycleOwner.lifecycleScope.launch {
                     if (isAdded) refreshOneWorkerParcelFromSupabase(consignmentId, latest)
                 }
@@ -1711,7 +1711,7 @@ class WorkerSpaceFragment : Fragment() {
             ) { rows -> deferred.complete(rows) }
             deferred.await()
         }
-        val todayRowsByConsignment = todayRemarkRows.groupBy { it.optString("consignment") }
+        val todayRowsByConsignment = todayRemarkRows.groupBy { it.optStr("consignment") }
 
         // Step 3: fetch consignment details for EVERY consignment IN PARALLEL. Full Supabase
         // history is intentionally not fetched here; the journey sheet loads it on demand.
@@ -1755,7 +1755,7 @@ class WorkerSpaceFragment : Fragment() {
             }
 
             fun rowCreatedAtMillisBulk(row: org.json.JSONObject): Long =
-                SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
+                SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optStr("created_at"))
 
             // Card badge: today-only, same rule as the live-listener path — a remark from a
             // prior day isn't actionable for today's work, so it shouldn't linger on the card.
@@ -1767,7 +1767,7 @@ class WorkerSpaceFragment : Fragment() {
             val latestTodayRawEntry = remarkRows
                 .filter { rowCreatedAtMillisBulk(it) >= todayStartBulk }
                 .maxByOrNull { rowCreatedAtMillisBulk(it) }
-            val lastRemarkStatus = latestTodayRawEntry?.optString("remarks_status")?.trim().orEmpty()
+            val lastRemarkStatus = latestTodayRawEntry?.optStr("remarks_status")?.trim().orEmpty()
             // Card badge: TODAY's TRUE latest entry, any author — Supabase rows carry no role
             // label (see history-building comment above), so the old "only show if from CC"
             // gate has no equivalent left; the badge always shows the latest remark's text now.
@@ -2026,7 +2026,7 @@ class WorkerSpaceFragment : Fragment() {
 
             val counts = mutableMapOf<String, Int>()
             rows.forEach { row ->
-                val status = row.optString("remarks_status")?.trim()?.ifBlank { "(no status)" } ?: "(no status)"
+                val status = row.optStr("remarks_status")?.trim()?.ifBlank { "(no status)" } ?: "(no status)"
                 counts[status] = (counts[status] ?: 0) + 1
             }
 

@@ -950,15 +950,15 @@ class CallCenterFragment : Fragment() {
                         val nameMap = systemIdToName
                         val timeFmt = java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.ENGLISH)
                         rows.mapNotNull { r ->
-                            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
+                            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optStr("created_at"))
                             if (createdAt < todayStart) return@mapNotNull null
                             val remarksText = resolveRemarkBn(r)
-                            val noteText = r.optString("note").trim()
+                            val noteText = r.optStr("note").trim()
                             if (remarksText.isBlank() && noteText.isBlank()) return@mapNotNull null
-                            val authorSystemId = r.optString("author_system_id").trim()
-                            val fromWorker = r.optString("source").trim().equals("WORKER", ignoreCase = true)
+                            val authorSystemId = r.optStr("author_system_id").trim()
+                            val fromWorker = r.optStr("source").trim().equals("WORKER", ignoreCase = true)
                             val roleLabel = if (fromWorker) "Agent" else "CC"
-                            val authorName = r.optJSONObject("author")?.optString("name")?.trim().orEmpty()
+                            val authorName = r.optJSONObject("author")?.optStr("name")?.trim().orEmpty()
                                 .ifBlank { nameMap[authorSystemId].orEmpty() }
                                 .ifBlank { authorSystemId }
                             createdAt to buildString {
@@ -1138,24 +1138,24 @@ class CallCenterFragment : Fragment() {
     private fun buildHistoryEntries(item: CallCenterParcelItem, rows: List<org.json.JSONObject>): List<HistoryEntry> {
         val nameMap = systemIdToName
         return rows.mapNotNull { r ->
-            val status = r.optString("remarks_status").trim()
-            val noteRaw = r.optString("note").trim()
+            val status = r.optStr("remarks_status").trim()
+            val noteRaw = r.optStr("note").trim()
             val remarks = listOf(
                 resolveRemarkBn(r),
                 noteRaw.takeIf { it.isNotBlank() }?.let { "Note: $it" }
             ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
             if (status.isBlank() && remarks.isBlank()) return@mapNotNull null
-            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
-            val authorSystemId = r.optString("author_system_id").trim()
+            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optStr("created_at"))
+            val authorSystemId = r.optStr("author_system_id").trim()
             // The writer stores the authoritative actor type in `source`. The assigned
             // worker can also submit a CC-originated note, so comparing system IDs here
             // mislabels those entries as WORKER actions.
-            val fromWorker = r.optString("source").trim().equals("WORKER", ignoreCase = true)
+            val fromWorker = r.optStr("source").trim().equals("WORKER", ignoreCase = true)
             val authorUser = r.optJSONObject("author")
-            val authorName = authorUser?.optString("name")?.trim().orEmpty()
+            val authorName = authorUser?.optStr("name")?.trim().orEmpty()
                 .ifBlank { nameMap[authorSystemId].orEmpty() }
                 .ifBlank { authorSystemId }
-            val authorEmployeeId = authorUser?.optString("employee_id")?.trim().orEmpty()
+            val authorEmployeeId = authorUser?.optStr("employee_id")?.trim().orEmpty()
                 .ifBlank { systemIdToEmployeeId[authorSystemId].orEmpty() }
             val authorLabel = if (authorEmployeeId.isBlank()) authorName else "$authorName ($authorEmployeeId)"
             HistoryEntry(
@@ -1165,7 +1165,7 @@ class CallCenterFragment : Fragment() {
                     .format(java.util.Date(createdAt)),
                 author = authorLabel + if (fromWorker) "" else " · CC",
                 authorRole = if (fromWorker) "agent" else "cc",
-                authorPhotoUrl = authorUser?.optString("photo_url")?.trim().orEmpty()
+                authorPhotoUrl = authorUser?.optStr("photo_url")?.trim().orEmpty()
                     .ifBlank { systemIdToPhotoUrl[authorSystemId].orEmpty() },
                 createdAt = createdAt,
                 callLogCount = 0,
@@ -2373,7 +2373,7 @@ class CallCenterFragment : Fragment() {
             ) { rows -> deferred.complete(rows) }
             deferred.await()
         }
-        val todayRowsByConsignment = todayRemarkRows.groupBy { it.optString("consignment") }
+        val todayRowsByConsignment = todayRemarkRows.groupBy { it.optStr("consignment") }
         // The initial batch is the baseline. Later push-triggered fallback fetches ask only
         // for rows written after this point, rather than fetching all historical rows again.
         ccRemarkFallbackCursorMs = todayBatchRequestedAtMs
@@ -2472,9 +2472,9 @@ class CallCenterFragment : Fragment() {
                         // fresh attempt (new run_id), so a stale prior-day remark shouldn't
                         // silently linger into today's state.
                         fun rowCreatedAtMillis(row: org.json.JSONObject): Long =
-                            SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
+                            SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optStr("created_at"))
                         val latestTodayEntry = remarkRows.firstOrNull { rowCreatedAtMillis(it) >= todayStartForBadges }
-                        val remarkStatus = latestTodayEntry?.optString("remarks_status")?.trim().orEmpty()
+                        val remarkStatus = latestTodayEntry?.optStr("remarks_status")?.trim().orEmpty()
                         // Supabase rows don't carry a "who wrote this" role label the way
                         // Firebase's remarked_by ("support" vs a worker uid) did — authorSystemId
                         // is always a system_id now, for either a CC agent or a worker, with no
@@ -2483,7 +2483,7 @@ class CallCenterFragment : Fragment() {
                         // dropped: the badge always shows the latest remark's text now,
                         // regardless of who wrote it.
                         val entryRemarksText = latestTodayEntry?.let { row ->
-                            listOf(resolveRemarkBn(row), row.optString("note").trim())
+                            listOf(resolveRemarkBn(row), row.optStr("note").trim())
                                 .filter { it.isNotBlank() }.joinToString("\n")
                         }.orEmpty()
                         val remarkLabelNote = entryRemarksText
@@ -2575,7 +2575,7 @@ class CallCenterFragment : Fragment() {
                 filter     = "branch_id" to branchId,
                 scope      = viewLifecycleOwner.lifecycleScope,
             ) { row ->
-                val cId = row.optString("consignment")
+                val cId = row.optStr("consignment")
                 if (cId.isBlank() || cId !in ccRemarkTrackedIds) {
                     RemarkPushChainLog.log("RemarkPushChain",
                         "CallCenterFragment: onInsert DROPPED — consignment='$cId' blank=${cId.isBlank()} " +
@@ -2590,8 +2590,8 @@ class CallCenterFragment : Fragment() {
                     // isn't a fetchValidations() REST read) — resolve it here, cached, before
                     // the card renders, so a WebSocket-pushed remark shows Bangla immediately
                     // rather than falling back to the (possibly stale) local ccRemarkOptions match.
-                    val source = row.optString("source").trim()
-                    row.optString("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
+                    val source = row.optStr("source").trim()
+                    row.optStr("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
                         SupabaseClientManager.resolveRemarkBnCached("CallCenterFragment", source, en)?.let { bn ->
                             row.put("remarks_bn", bn)
                         }
@@ -2647,8 +2647,8 @@ class CallCenterFragment : Fragment() {
             SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids.toList(), cursorMs, "CallCenterFragment") { rows ->
                 ccRemarkFallbackCursorMs = requestedAtMs
                 if (rows.isEmpty()) return@fetchNewRemarksSince
-                val latestByConsignment = rows.groupBy { it.optString("consignment") }
-                    .mapValues { (_, g) -> g.maxByOrNull { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) } }
+                val latestByConsignment = rows.groupBy { it.optStr("consignment") }
+                    .mapValues { (_, g) -> g.maxByOrNull { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optStr("created_at")) } }
                 viewLifecycleOwner.lifecycleScope.launch {
                     if (!isAdded) return@launch
                     latestByConsignment.forEach { (cId, latest) ->
@@ -2682,11 +2682,11 @@ class CallCenterFragment : Fragment() {
                     return@fetchHistory
                 }
                 val latest = rows.maxByOrNull {
-                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optStr("created_at"))
                 } ?: return@fetchHistory
                 RemarkPushChainLog.log("RemarkPushChain",
                     "CallCenterFragment: refreshCcParcelFromPush updating $consignmentId from push — " +
-                        "source=${latest.optString("source")} status=${latest.optString("remarks_status")}")
+                        "source=${latest.optStr("source")} status=${latest.optStr("remarks_status")}")
                 viewLifecycleOwner.lifecycleScope.launch {
                     if (isAdded) refreshOneCcParcelFromSupabase(consignmentId, latest)
                 }
@@ -2708,10 +2708,10 @@ class CallCenterFragment : Fragment() {
             if (idx != -1) {
                 val oldStatus = allParcels[idx].effectiveStatus
                 val createdAt = SupabaseRemarkValidationWriter
-                    .parseCreatedAtMillis(latestRemarkRow.optString("created_at"))
-                val liveRemarkStatus = latestRemarkRow.optString("remarks_status").trim()
+                    .parseCreatedAtMillis(latestRemarkRow.optStr("created_at"))
+                val liveRemarkStatus = latestRemarkRow.optStr("remarks_status").trim()
                 val latestRemark = listOf(
-                    resolveRemarkBn(latestRemarkRow), latestRemarkRow.optString("note").trim()
+                    resolveRemarkBn(latestRemarkRow), latestRemarkRow.optStr("note").trim()
                 ).filter { it.isNotBlank() }.joinToString("\n")
                 allParcels = allParcels.toMutableList().also {
                     it[idx] = it[idx].copy(
@@ -2828,9 +2828,9 @@ class CallCenterFragment : Fragment() {
      * missed that step, instead of degrading straight to English.
      */
     private fun resolveRemarkBn(row: org.json.JSONObject): String {
-        val raw = row.optString("remarks").trim()
+        val raw = row.optStr("remarks").trim()
         if (raw.isBlank()) return raw
-        return if (row.has("remarks_bn")) row.optString("remarks_bn").trim().ifBlank { raw }
+        return if (row.has("remarks_bn")) row.optStr("remarks_bn").trim().ifBlank { raw }
         else resolveRemarkBn(raw)
     }
 

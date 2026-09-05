@@ -158,10 +158,10 @@ object IncomingCallOverlay {
                 if (overlayView !== view || rows.isEmpty()) return@launch
                 val names = resolveHistoryAuthorNames(rows)
                 val sorted = rows.sortedByDescending {
-                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optStr("created_at"))
                 }
                 sorted.firstOrNull {
-                    it.optString("source").trim().equals("CC", ignoreCase = true)
+                    it.optStr("source").trim().equals("CC", ignoreCase = true)
                 }?.let { lastCc ->
                     view.findViewById<TextView>(R.id.tvOverlayLastCc).apply {
                         text = "🏷️ Last CC: ${historyRowText(lastCc)} · ${historyRowTime(lastCc)}" +
@@ -402,14 +402,14 @@ object IncomingCallOverlay {
      *  first, Firebase profile second, raw id last — same fallback chain as CC). */
     private suspend fun resolveHistoryAuthorNames(rows: List<org.json.JSONObject>): Map<String, String> =
         withContext(Dispatchers.IO) {
-            val ids = rows.map { it.optString("author_system_id").trim() }
+            val ids = rows.map { it.optStr("author_system_id").trim() }
                 .filter { it.isNotBlank() }.distinct()
             if (ids.isEmpty()) return@withContext emptyMap()
             val out = mutableMapOf<String, String>()
             rows.forEach { r ->
-                val sys = r.optString("author_system_id").trim()
+                val sys = r.optStr("author_system_id").trim()
                 if (sys.isNotBlank() && sys !in out) {
-                    r.optJSONObject("author")?.optString("name")?.trim()
+                    r.optJSONObject("author")?.optStr("name")?.trim()
                         ?.takeIf { it.isNotBlank() }?.let { out[sys] = it }
                 }
             }
@@ -438,25 +438,25 @@ object IncomingCallOverlay {
         }
 
     private fun historyRowText(row: org.json.JSONObject): String {
-        val remarks = row.optString("remarks_bn").trim()
-            .ifBlank { row.optString("remarks").trim() }
-        val note = row.optString("note").trim()
+        val remarks = row.optStr("remarks_bn").trim()
+            .ifBlank { row.optStr("remarks").trim() }
+        val note = row.optStr("note").trim()
         return listOf(remarks, note.takeIf { it.isNotBlank() }?.let { "Note: $it" })
             .filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
-            .ifBlank { row.optString("remarks_status").trim().ifBlank { "—" } }
+            .ifBlank { row.optStr("remarks_status").trim().ifBlank { "—" } }
     }
 
     private fun historyRowTime(row: org.json.JSONObject): String {
-        val ms = SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
+        val ms = SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optStr("created_at"))
         if (ms <= 0L) return ""
         return java.text.SimpleDateFormat("dd-MM-yy hh:mm a", java.util.Locale.getDefault())
             .format(java.util.Date(ms))
     }
 
     private fun historyAuthorSuffix(row: org.json.JSONObject, names: Map<String, String>): String? {
-        val sys = row.optString("author_system_id").trim()
+        val sys = row.optStr("author_system_id").trim()
         if (sys.isBlank()) return null
-        val src = row.optString("source").trim().ifBlank { null }?.uppercase()
+        val src = row.optStr("source").trim().ifBlank { null }?.uppercase()
         val base = names[sys] ?: sys
         return if (src != null) "$base · $src" else base
     }
@@ -469,7 +469,7 @@ object IncomingCallOverlay {
         container.removeAllViews()
         val shown = rows.take(15)
         shown.forEachIndexed { index, row ->
-            val status = row.optString("remarks_status").trim().ifBlank { "NOTE" }.uppercase()
+            val status = row.optStr("remarks_status").trim().ifBlank { "NOTE" }.uppercase()
             val line = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, 10, 0, 10)
@@ -565,8 +565,8 @@ object IncomingCallOverlay {
             )
             val row = rows.firstOrNull() ?: return null
             ParcelRoute(
-                branchId = row.optString("branch_id").trim(),
-                agentSystemId = row.optString("assigned_to_system_id").trim()
+                branchId = row.optStr("branch_id").trim(),
+                agentSystemId = row.optStr("assigned_to_system_id").trim()
             )
         } catch (e: Exception) {
             FirebaseErrorLogger.log(

@@ -134,8 +134,8 @@ object SupabaseClientManager {
                     return@withContext false
                 }
                 val json = JSONObject(text)
-                val accessToken = json.optString("access_token")
-                val refreshToken = json.optString("refresh_token")
+                val accessToken = json.optStr("access_token")
+                val refreshToken = json.optStr("refresh_token")
                 if (accessToken.isBlank() || refreshToken.isBlank()) {
                     Log.e(TAG, "Firebase token exchange response was missing access_token or refresh_token")
                     FirebaseErrorLogger.log(
@@ -379,8 +379,8 @@ object SupabaseClientManager {
                 val fresh = buildMap {
                     for (i in 0 until arr.length()) {
                         val row = arr.getJSONObject(i)
-                        val en = row.optString("remarks_en")
-                        val bn = row.optString("remarks_bn")
+                        val en = row.optStr("remarks_en")
+                        val bn = row.optStr("remarks_bn")
                         if (en.isNotBlank() && bn.isNotBlank()) put(en, bn)
                     }
                 }
@@ -450,11 +450,11 @@ object SupabaseClientManager {
                 List(arr.length()) { i ->
                     val row = arr.getJSONObject(i)
                     RemarkOption(
-                        id = row.optString("id"), textBn = row.optString("remarks_bn"), textEn = row.optString("remarks_en"),
-                        targetStatus = row.optString("target_status"), templateId = row.optString("template_id"),
-                        priority = row.optInt("priority", 0), instructionType = row.optString("instruction_type"),
-                        instructionText = row.optString("instruction_text"),
-                        category = row.optString("category"),
+                        id = row.optStr("id"), textBn = row.optStr("remarks_bn"), textEn = row.optStr("remarks_en"),
+                        targetStatus = row.optStr("target_status"), templateId = row.optStr("template_id"),
+                        priority = row.optInt("priority", 0), instructionType = row.optStr("instruction_type"),
+                        instructionText = row.optStr("instruction_text"),
+                        category = row.optStr("category"),
                     )
                 }
             }

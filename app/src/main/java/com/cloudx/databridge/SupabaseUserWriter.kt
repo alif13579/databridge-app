@@ -97,7 +97,7 @@ object SupabaseUserWriter {
                         "SupabaseUserWriter", "save_http_error",
                         "HTTP ${response.code}: ${text.take(500)}", mapOf("id" to systemId)
                     )
-                    val reason = runCatching { JSONObject(text).optString("error") }.getOrNull()
+                    val reason = runCatching { JSONObject(text).optStr("error") }.getOrNull()
                     error(reason?.takeIf { it.isNotBlank() } ?: "Failed to save user: HTTP ${response.code}")
                 }
             }

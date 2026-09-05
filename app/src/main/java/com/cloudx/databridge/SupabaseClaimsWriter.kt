@@ -133,7 +133,7 @@ object SupabaseClaimsWriter {
                         "HTTP ${response.code}: ${text.take(500)}",
                         mapOf("claimId" to claimId)
                     )
-                    val reason = runCatching { JSONObject(text).optString("error") }.getOrNull()
+                    val reason = runCatching { JSONObject(text).optStr("error") }.getOrNull()
                     error(reason?.takeIf { it.isNotBlank() } ?: "Delete failed: HTTP ${response.code}")
                 }
             }

@@ -549,8 +549,8 @@ class ParcelDetailFragment : Fragment() {
         ) { row ->
             viewLifecycleOwner.lifecycleScope.launch {
                 if (!isAdded || view == null) return@launch
-                val source = row.optString("source").trim()
-                row.optString("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
+                val source = row.optStr("source").trim()
+                row.optStr("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
                     SupabaseClientManager.resolveRemarkBnCached("ParcelDetailFragment", source, en)?.let { bn ->
                         row.put("remarks_bn", bn)
                     }
@@ -576,11 +576,11 @@ class ParcelDetailFragment : Fragment() {
      *  and caches it in currentAgentPhone for the WhatsApp button. */
     private suspend fun resolveAgentPhoneIfNeeded() {
         val latestSystemId = timelineRows
-            .filter { it.optString("source").trim().equals("WORKER", ignoreCase = true) }
+            .filter { it.optStr("source").trim().equals("WORKER", ignoreCase = true) }
             .mapNotNull { r ->
-                val sysId = r.optString("assigned_to_system_id").trim()
+                val sysId = r.optStr("assigned_to_system_id").trim()
                 if (sysId.isBlank()) return@mapNotNull null
-                val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
+                val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optStr("created_at"))
                 sysId to createdAt
             }
             .maxByOrNull { it.second }
@@ -626,7 +626,7 @@ class ParcelDetailFragment : Fragment() {
         // validations.author_system_id is the lookup key here (not a Firebase uid like the
         // old courier/remarks_by_consignment rows carried), resolved via users_by_systemId.
         val systemIdsToResolve = timelineRows
-            .mapNotNull { it.optString("author_system_id").trim().takeIf { id -> id.isNotBlank() } }
+            .mapNotNull { it.optStr("author_system_id").trim().takeIf { id -> id.isNotBlank() } }
             .filter { !uidNameCache.containsKey(it) }
             .distinct()
 
@@ -647,15 +647,15 @@ class ParcelDetailFragment : Fragment() {
 
         val entries = timelineRows
             .mapNotNull { r ->
-                val rStatus = r.optString("remarks_status").trim()
-                val rRemarksRaw = r.optString("remarks").trim()
-                val rRemarks = if (r.has("remarks_bn")) r.optString("remarks_bn").trim().ifBlank { rRemarksRaw } else rRemarksRaw
-                val rNoteOnly = r.optString("note").trim()
+                val rStatus = r.optStr("remarks_status").trim()
+                val rRemarksRaw = r.optStr("remarks").trim()
+                val rRemarks = if (r.has("remarks_bn")) r.optStr("remarks_bn").trim().ifBlank { rRemarksRaw } else rRemarksRaw
+                val rNoteOnly = r.optStr("note").trim()
                 if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
-                val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
+                val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optStr("created_at"))
                 val timeStr = if (createdAt > 0) sdf.format(Date(createdAt)) else "—"
-                val fromWorker = r.optString("source").trim().equals("WORKER", ignoreCase = true)
-                val authorSystemId = r.optString("author_system_id").trim()
+                val fromWorker = r.optStr("source").trim().equals("WORKER", ignoreCase = true)
+                val authorSystemId = r.optStr("author_system_id").trim()
                 val photoUrl = uidPhotoCache[authorSystemId].orEmpty()
 
                 val resolvedName = uidNameCache[authorSystemId]?.takeIf { it.isNotBlank() && it != authorSystemId }

@@ -40,7 +40,7 @@ object SupabasePettyCashReader {
     private fun isoToMillis(value: String): Long =
         SupabaseRemarkValidationWriter.parseDbTimestampMillis(value)
 
-    private fun JSONObject.isoMillis(key: String): Long = isoToMillis(optString(key, ""))
+    private fun JSONObject.isoMillis(key: String): Long = isoToMillis(optStr(key))
 
     /** Newest-first deposits for [branchId]. Throws on auth/network/HTTP error. */
     suspend fun fetchDeposits(branchId: String): List<PettyCashDeposit> = withContext(Dispatchers.IO) {
@@ -66,14 +66,14 @@ object SupabasePettyCashReader {
             List(arr.length()) { i ->
                 val row = arr.getJSONObject(i)
                 PettyCashDeposit(
-                    id = row.optString("id"),
+                    id = row.optStr("id"),
                     amount = row.optDouble("amount", 0.0),
-                    source = row.optString("source"),
-                    reference = row.optString("reference"),
-                    remarks = row.optString("remarks"),
+                    source = row.optStr("source"),
+                    reference = row.optStr("reference"),
+                    remarks = row.optStr("remarks"),
                     balanceAfter = row.optDouble("balance_after", 0.0),
                     timestamp = row.isoMillis("created_at"),
-                    enteredByUid = row.optString("entered_by_uid"),
+                    enteredByUid = row.optStr("entered_by_uid"),
                     enteredByName = ""
                 )
             }.sortedByDescending { d -> d.timestamp }
@@ -129,29 +129,29 @@ object SupabasePettyCashReader {
             if (arr.length() == 0) error("Branch not found")
             val row = arr.getJSONObject(0)
             Branch(
-                branch_id = row.optString("branch_id").ifBlank { branchId },
-                branch_code = row.optString("branch_code"),
-                name = row.optString("name"),
-                branch_type = row.optString("branch_type"),
-                address = row.optString("address"),
+                branch_id = row.optStr("branch_id").ifBlank { branchId },
+                branch_code = row.optStr("branch_code"),
+                name = row.optStr("name"),
+                branch_type = row.optStr("branch_type"),
+                address = row.optStr("address"),
                 latitude = row.optDouble("latitude", 0.0),
                 longitude = row.optDouble("longitude", 0.0),
-                email = row.optString("email"),
-                phone = row.optString("phone"),
-                manager_uid = row.optString("manager_uid"),
-                manager_name = row.optString("manager_name"),
-                accountant_uid = row.optString("accountant_uid"),
-                accountant_name = row.optString("accountant_name"),
-                accountant_role = row.optString("accountant_role"),
-                petty_cash_poc_uid = row.optString("petty_cash_poc_uid"),
-                petty_cash_poc_name = row.optString("petty_cash_poc_name"),
-                staff_uid = row.optString("staff_uid"),
-                staff_name = row.optString("staff_name"),
-                staff_role = row.optString("staff_role"),
-                parent_branch_id = row.optString("parent_branch_id"),
-                status = row.optString("status").ifBlank { "active" },
-                image_url = row.optString("image_url"),
-                created_by = row.optString("created_by"),
+                email = row.optStr("email"),
+                phone = row.optStr("phone"),
+                manager_uid = row.optStr("manager_uid"),
+                manager_name = row.optStr("manager_name"),
+                accountant_uid = row.optStr("accountant_uid"),
+                accountant_name = row.optStr("accountant_name"),
+                accountant_role = row.optStr("accountant_role"),
+                petty_cash_poc_uid = row.optStr("petty_cash_poc_uid"),
+                petty_cash_poc_name = row.optStr("petty_cash_poc_name"),
+                staff_uid = row.optStr("staff_uid"),
+                staff_name = row.optStr("staff_name"),
+                staff_role = row.optStr("staff_role"),
+                parent_branch_id = row.optStr("parent_branch_id"),
+                status = row.optStr("status").ifBlank { "active" },
+                image_url = row.optStr("image_url"),
+                created_by = row.optStr("created_by"),
                 created_at = row.isoMillis("created_at"),
                 updated_at = row.isoMillis("updated_at")
             )
@@ -190,8 +190,8 @@ object SupabasePettyCashReader {
             } else {
                 val row = arr.getJSONObject(0)
                 CurrentUser(
-                    name = row.optString("name").ifBlank { firebaseUser.displayName.orEmpty() },
-                    systemId = row.optString("system_id").trim()
+                    name = row.optStr("name").ifBlank { firebaseUser.displayName.orEmpty() },
+                    systemId = row.optStr("system_id").trim()
                 )
             }
         }
