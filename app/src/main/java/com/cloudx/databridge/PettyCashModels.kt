@@ -49,9 +49,9 @@ data class PettyCashRequest(
     val id: String = "",
     val branchId: String = "",
     val requestCode: String = "",          // e.g. REQ-2401
-    val workerUid: String = "",
-    val workerName: String = "",
-    val workerRole: String = "",           // e.g. "Delivery Agent"
+    val requesterUid: String = "",
+    val requesterName: String = "",
+    val requesterRole: String = "",           // e.g. "Delivery Agent"
     val category: String = "",             // Bulk Delivery, Pickup
     val consignmentId: String = "",        // set when category == Bulk Delivery
     val storeId: String = "",              // set when category == Pickup
@@ -79,18 +79,18 @@ data class PettyCashRequest(
     val status: String = PC_STATUS_PENDING,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
-    val staffByUid: String = "",
-    val staffByName: String = "",
-    val staffAt: Long = 0L,
-    val staffComment: String = "",
-    val pocApprovedByUid: String = "",
-    val pocApprovedByName: String = "",
-    val pocApprovedAt: Long = 0L,
-    val pocComment: String = "",
+    val verifiedByUid: String = "",
+    val verifiedByName: String = "",
+    val verifiedAt: Long = 0L,
+    val verifiedComment: String = "",
+    val approvedByUid: String = "",
+    val approvedByName: String = "",
+    val approvedAt: Long = 0L,
+    val approvedComment: String = "",
     val approvedAmount: Double = 0.0,        // set by Cash POC at approval time; may differ from `amount` (partial approval) — 0.0 until approved
-    val settleInProcessByUid: String = "",
-    val settleInProcessByName: String = "",
-    val settleInProcessAt: Long = 0L,
+    val readyToSettleByUid: String = "",
+    val readyToSettleByName: String = "",
+    val readyToSettleAt: Long = 0L,
     val settledAmount: Double = 0.0,        // set by Accounts at the Settle step; defaults to
                                              // approvedAmount but Accounts can adjust it once more —
                                              // the true final figure actually paid out. 0.0 until settled.
@@ -181,7 +181,7 @@ data class PettyCashFilterState(
     val statuses: Set<String> = emptySet(), // subset of PC_STATUS_* constants
     val category: String = "",              // "" or "All Categories" = no restriction
     val workerCategory: String = "",        // "" or "All Categories" = no restriction
-    val requesterName: String = ""          // free-text, matched case-insensitively against workerName
+    val requesterName: String = ""          // free-text, matched case-insensitively against requesterName
 ) {
     val isActive: Boolean get() =
         dateFromMillis != 0L || dateToMillis != 0L || statuses.isNotEmpty() ||
@@ -200,8 +200,8 @@ data class PettyCashFilterState(
         if (dateToMillis != 0L && reqDate > dateToMillis) return false
         if (statuses.isNotEmpty() && request.status !in statuses) return false
         if (category.isNotBlank() && category != "All Categories" && request.category != category) return false
-        if (workerCategory.isNotBlank() && workerCategory != "All Categories" && request.workerRole != workerCategory) return false
-        if (requesterName.isNotBlank() && !request.workerName.contains(requesterName.trim(), ignoreCase = true)) return false
+        if (workerCategory.isNotBlank() && workerCategory != "All Categories" && request.requesterRole != workerCategory) return false
+        if (requesterName.isNotBlank() && !request.requesterName.contains(requesterName.trim(), ignoreCase = true)) return false
         return true
     }
 

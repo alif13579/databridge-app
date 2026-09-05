@@ -160,7 +160,7 @@ class PettyCashMyRequestsFragment : Fragment() {
     private fun refreshMyClaimsSummaryIfLoaded() {
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         (viewModel.state.value as? PettyCashState.Success)?.let { state ->
-            renderMyClaimsSummary(state.requests.filter { it.workerUid == myUid })
+            renderMyClaimsSummary(state.requests.filter { it.requesterUid == myUid })
         }
     }
 
@@ -336,7 +336,7 @@ class PettyCashMyRequestsFragment : Fragment() {
 
     private fun renderMyRequests(root: View, state: PettyCashState.Success) {
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-        val mine = state.requests.filter { it.workerUid == myUid }.sortedByDescending { it.createdAt }
+        val mine = state.requests.filter { it.requesterUid == myUid }.sortedByDescending { it.createdAt }
 
         // My Claims Summary card -- same shape as PettyCashDashboardFragment's
         // Claims Summary, scoped to this requester's own claims (mine) and filtered by

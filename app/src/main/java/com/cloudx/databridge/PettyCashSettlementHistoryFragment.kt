@@ -223,7 +223,7 @@ class PettyCashSettlementHistoryFragment : Fragment() {
                 )
             }
             row.findViewById<TextView>(R.id.tvSetHistRowCode).text = item.requestCode
-            row.findViewById<TextView>(R.id.tvSetHistRowWorker).text = item.workerName
+            row.findViewById<TextView>(R.id.tvSetHistRowWorker).text = item.requesterName
             row.findViewById<TextView>(R.id.tvSetHistRowBalanceAfter).text = taka(item.amount)
 
             row.setOnClickListener {

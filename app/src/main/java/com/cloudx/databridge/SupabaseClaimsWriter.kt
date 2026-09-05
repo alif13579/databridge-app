@@ -143,14 +143,14 @@ object SupabaseClaimsWriter {
     /** Maps ClaimInfo's camelCase fields to public.claims' snake_case columns
      *  (see SCHEMA_HISTORY.md's "public.claims" entry). Millis timestamps
      *  convert to ISO-8601; a 0L/not-yet-reached-that-stage timestamp
-     *  (staffAt, approvedAt, etc.) is sent as null, matching the column's
+     *  (verifiedAt, approvedAt, etc.) is sent as null, matching the column's
      *  nullable timestamptz type.
      *
-     *  Name fields (branchName, employeeName, staffByName, pocApprovedByName,
-     *  settleInProcessByName, settledByName, rejectedByName) ARE sent as of
+     *  Name fields (branchName, employeeName, verifiedByName, approvedByName,
+     *  readyToSettleByName, settledByName, rejectedByName) ARE sent as of
      *  the Supabase-only cutover — added as real columns for this (see
-     *  SCHEMA_HISTORY.md), since staff_by_uid/poc_approved_by_uid/
-     *  settle_in_process_by_uid/settled_by_uid/rejected_by_uid have no FK to
+     *  SCHEMA_HISTORY.md), since verified_by_uid/approved_by_uid/
+     *  ready_to_settle_by_uid/settled_by_uid/rejected_by_uid have no FK to
      *  join through for a name, unlike branch_id/agent_system_id. Before the
      *  cutover these were deliberately omitted (Firebase was source of truth,
      *  this was only a best-effort mirror; the report screen reconstructed
@@ -169,7 +169,7 @@ object SupabaseClaimsWriter {
             put("requester_system_id", agentSystemId)
             // type dropped (202609040004) — it always mirrored category.
             put("category", category)
-            put("remarks", purpose)
+            put("purpose", purpose)
             // consignment/store/pickup_count are always sent (blank/0 when the
             // category doesn't use them) — the columns are NOT NULL, and the
             // Edge Function's claim_upsert already accepts all four. They were
@@ -184,7 +184,7 @@ object SupabaseClaimsWriter {
             put("from_area", fromArea)
             put("to_area", toArea)
             put("attempted_qty", attemptQuantity)
-            put("successed_qty", deliveredQuantity)
+            put("succeeded_qty", deliveredQuantity)
             put("cid_or_merchant", cidOrMerchant)
             put("requested_amount", requestedAmount)
             put("approved_amount", approvedAmount)
@@ -199,23 +199,23 @@ object SupabaseClaimsWriter {
                     .put("name", a.name)
                     .put("size", a.sizeBytes)
             }))
-            put("worker_uid", workerUid)
-            put("worker_role", workerRole)
+            put("requester_uid", requesterUid)
+            put("requester_role", requesterRole)
             put("requested_at", millisToIso(requestedAt))
             put("approved_at", millisToIso(approvedAt))
             put("settled_at", millisToIso(settledAt))
             put("created_at", millisToIso(createdAt))
             put("updated_at", millisToIso(updatedAt))
-            put("staff_by_uid", staffByUid)
-            put("staff_by_system_id", staffBySystemId)
-            put("staff_at", millisToIso(staffAt))
-            put("staff_comment", staffComment)
-            put("poc_approved_by_uid", pocApprovedByUid)
-            put("poc_approved_by_system_id", pocApprovedBySystemId)
-            put("poc_comment", pocComment)
-            put("settle_in_process_by_uid", settleInProcessByUid)
-            put("settle_in_process_by_system_id", settleInProcessBySystemId)
-            put("settle_in_process_at", millisToIso(settleInProcessAt))
+            put("verified_by_uid", verifiedByUid)
+            put("verified_by_system_id", verifiedBySystemId)
+            put("verified_at", millisToIso(verifiedAt))
+            put("verified_comment", verifiedComment)
+            put("approved_by_uid", approvedByUid)
+            put("approved_by_system_id", approvedBySystemId)
+            put("approved_comment", approvedComment)
+            put("ready_to_settle_by_uid", readyToSettleByUid)
+            put("ready_to_settle_by_system_id", readyToSettleBySystemId)
+            put("ready_to_settle_at", millisToIso(readyToSettleAt))
             put("settled_by_uid", settledByUid)
             put("settled_by_system_id", settledBySystemId)
             put("rejected_by_uid", rejectedByUid)

@@ -201,6 +201,13 @@ non-editable; store picker shows ৳ amount. App: Config Stores tab
 (create/edit/list), fetchStores select, store_upsert/store_delete Edge
 actions (admin/manager-gated), backfill_stores preserves the value
 (Firebase has no such field).
+33. **202609050003** (applied live via Management API) — claims column
+renames, data-preserving (ALTER ... RENAME, FK names follow):
+`successed_qty→succeeded_qty` (typo), `staff_*→verified_*`,
+`poc_approved_*→approved_*`, `settle_in_process_*→ready_to_settle_*`,
+`worker_uid/role→requester_uid/role`, `remarks→purpose`. change_user_
+system_id() re-created on the new names. Claims Edge accepts both old and
+new payload keys, so old APK builds keep writing without data loss.
 33. **202609050001** (applied live via Management API, same as 0007) —
 `users_branch_read` SELECT policy on `public.users` (anon+authenticated,
 `branch_ids && my_branch_ids()`): claim/validation actor-name embeds

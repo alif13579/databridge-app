@@ -126,19 +126,19 @@ class ClaimsRepository {
         updates["requestedAt"]?.let { c = c.copy(requestedAt = it as Long) }
         updates["approvedAt"]?.let { c = c.copy(approvedAt = it as Long) }
         updates["settledAt"]?.let { c = c.copy(settledAt = it as Long) }
-        updates["staffByUid"]?.let { c = c.copy(staffByUid = it as String) }
-        updates["staffBySystemId"]?.let { c = c.copy(staffBySystemId = it as String) }
-        updates["staffByName"]?.let { c = c.copy(staffByName = it as String) }
-        updates["staffAt"]?.let { c = c.copy(staffAt = it as Long) }
-        updates["staffComment"]?.let { c = c.copy(staffComment = it as String) }
-        updates["pocApprovedByUid"]?.let { c = c.copy(pocApprovedByUid = it as String) }
-        updates["pocApprovedBySystemId"]?.let { c = c.copy(pocApprovedBySystemId = it as String) }
-        updates["pocApprovedByName"]?.let { c = c.copy(pocApprovedByName = it as String) }
-        updates["pocComment"]?.let { c = c.copy(pocComment = it as String) }
-        updates["settleInProcessByUid"]?.let { c = c.copy(settleInProcessByUid = it as String) }
-        updates["settleInProcessBySystemId"]?.let { c = c.copy(settleInProcessBySystemId = it as String) }
-        updates["settleInProcessByName"]?.let { c = c.copy(settleInProcessByName = it as String) }
-        updates["settleInProcessAt"]?.let { c = c.copy(settleInProcessAt = it as Long) }
+        updates["verifiedByUid"]?.let { c = c.copy(verifiedByUid = it as String) }
+        updates["verifiedBySystemId"]?.let { c = c.copy(verifiedBySystemId = it as String) }
+        updates["verifiedByName"]?.let { c = c.copy(verifiedByName = it as String) }
+        updates["verifiedAt"]?.let { c = c.copy(verifiedAt = it as Long) }
+        updates["verifiedComment"]?.let { c = c.copy(verifiedComment = it as String) }
+        updates["approvedByUid"]?.let { c = c.copy(approvedByUid = it as String) }
+        updates["approvedBySystemId"]?.let { c = c.copy(approvedBySystemId = it as String) }
+        updates["approvedByName"]?.let { c = c.copy(approvedByName = it as String) }
+        updates["approvedComment"]?.let { c = c.copy(approvedComment = it as String) }
+        updates["readyToSettleByUid"]?.let { c = c.copy(readyToSettleByUid = it as String) }
+        updates["readyToSettleBySystemId"]?.let { c = c.copy(readyToSettleBySystemId = it as String) }
+        updates["readyToSettleByName"]?.let { c = c.copy(readyToSettleByName = it as String) }
+        updates["readyToSettleAt"]?.let { c = c.copy(readyToSettleAt = it as Long) }
         updates["settledByUid"]?.let { c = c.copy(settledByUid = it as String) }
         updates["settledBySystemId"]?.let { c = c.copy(settledBySystemId = it as String) }
         updates["settledByName"]?.let { c = c.copy(settledByName = it as String) }

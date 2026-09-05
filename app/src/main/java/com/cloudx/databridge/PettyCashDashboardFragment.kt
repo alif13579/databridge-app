@@ -377,7 +377,7 @@ class PettyCashDashboardFragment : Fragment() {
 
     // Display label and internal name are both "Staff" now (renamed from
     // "Team Aligned" -- includes RoleView.STAFF, isStaff, staff_uid,
-    // staff_role, staffByUid/staffByName/staffAt). No production data
+    // staff_role, verifiedByUid/verifiedByName/verifiedAt). No production data
     // existed under the old names, so this was a full rename rather than
     // a display-label-only change kept separate from the data model.
     private fun roleLabel(roleView: RoleView): String = when (roleView) {
@@ -643,9 +643,9 @@ class PettyCashDashboardFragment : Fragment() {
         }
         items.take(5).forEach { item ->
             val row = layoutInflater.inflate(R.layout.item_petty_cash_queue_row, layoutQueueList, false)
-            row.findViewById<TextView>(R.id.tvQueueRowAvatar).text = item.workerName.take(1).uppercase()
+            row.findViewById<TextView>(R.id.tvQueueRowAvatar).text = item.requesterName.take(1).uppercase()
             row.findViewById<TextView>(R.id.tvQueueRowCode).text = item.requestCode
-            row.findViewById<TextView>(R.id.tvQueueRowSubtitle).text = "${item.workerName}\n${item.category}"
+            row.findViewById<TextView>(R.id.tvQueueRowSubtitle).text = "${item.requesterName}\n${item.category}"
             val (queuePrimary, queueSecondary) = claimCardAmounts(item)
             row.findViewById<TextView>(R.id.tvQueueRowAmount).text = queuePrimary
             row.findViewById<TextView>(R.id.tvQueueRowSecondaryAmount).text = queueSecondary

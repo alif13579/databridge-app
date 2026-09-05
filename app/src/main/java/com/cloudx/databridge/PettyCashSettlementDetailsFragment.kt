@@ -55,12 +55,12 @@ import java.util.Locale
  * already earmarked; Accounts either settles it or handles it manually
  * outside this flow.
  *
- * Edit/Delete: the request's own submitter (workerUid) can edit or delete
+ * Edit/Delete: the request's own submitter (requesterUid) can edit or delete
  * it, but only while status == PENDING — before Staff has even looked at
  * it. Once acknowledged, the request is "in the system" and shouldn't be
  * silently changed or removed out from under an approver.
  *
- * Note: "Staff" (isStaff, staff_uid, staff_role, staffByName, staffAt) was
+ * Note: "Staff" (isStaff, staff_uid, staff_role, verifiedByName, verifiedAt) was
  * formerly named "Team Aligned" throughout the codebase — fully renamed,
  * both display label and internal names, since no production data existed
  * under the old names yet.
@@ -241,9 +241,9 @@ class PettyCashSettlementDetailsFragment : Fragment() {
     private fun renderRequest(root: View, request: PettyCashRequest, roles: PettyCashUserRoles) {
         root.findViewById<TextView>(R.id.tvPcDetailCode).text = request.requestCode
 
-        root.findViewById<TextView>(R.id.tvPcDetailWorkerInitial).text = request.workerName.take(1).uppercase()
-        root.findViewById<TextView>(R.id.tvPcDetailWorkerName).text = request.workerName
-        root.findViewById<TextView>(R.id.tvPcDetailWorkerRole).text = request.workerRole
+        root.findViewById<TextView>(R.id.tvPcDetailWorkerInitial).text = request.requesterName.take(1).uppercase()
+        root.findViewById<TextView>(R.id.tvPcDetailWorkerName).text = request.requesterName
+        root.findViewById<TextView>(R.id.tvPcDetailWorkerRole).text = request.requesterRole
 
         bindRow(root, R.id.rowPcCategory, "Category", request.category)
         bindRow(root, R.id.rowPcAmount, "Amount", taka(request.amount))
@@ -256,7 +256,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         // Owner included too: the requester and everyone downstream in the chain
         // (Staff / Cash POC / Accounts) may correct it at any stage.
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-        val canEditRequestedDate = request.workerUid == myUid ||
+        val canEditRequestedDate = request.requesterUid == myUid ||
             (roles.isStaff || roles.isCashPoc || roles.isAccounts)
         val requestedOnRow = root.findViewById<View>(R.id.rowPcRequestedOn)
         if (canEditRequestedDate) {
@@ -305,11 +305,11 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         // its own stage is actually reached, so it doesn't look like 0 was
         // approved/paid for a still-in-flight request.
         val cardSummary = root.findViewById<View>(R.id.cardPcSettlementSummary)
-        val canSeeSummary = roles.isAccounts || request.workerUid == myUid
+        val canSeeSummary = roles.isAccounts || request.requesterUid == myUid
 
         cardSummary.isVisible = canSeeSummary
         if (canSeeSummary) {
-            val approvedAmountText = if (request.pocApprovedAt != 0L) taka(request.approvedAmount) else "—"
+            val approvedAmountText = if (request.approvedAt != 0L) taka(request.approvedAmount) else "—"
             val settledAmountText = if (request.status == PC_STATUS_SETTLED) taka(request.settledAmount) else "—"
             bindRow(root, R.id.rowPcSummaryRequestAmount, "Claimed Amount", taka(request.amount))
             bindRow(root, R.id.rowPcSummaryApprovedAmount, "Approved Amount", approvedAmountText)
@@ -320,9 +320,9 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         // approval-flow subtitle) once it exists — this is what Accounts
         // sees just before settling, matching the mockup's "POC Comment" row.
         val rowPoc = root.findViewById<View>(R.id.rowPcPocComment)
-        if (request.pocApprovedAt != 0L && request.pocComment.isNotBlank()) {
+        if (request.approvedAt != 0L && request.approvedComment.isNotBlank()) {
             rowPoc.isVisible = true
-            bindRow(root, R.id.rowPcPocComment, "POC Comment", request.pocComment)
+            bindRow(root, R.id.rowPcPocComment, "POC Comment", request.approvedComment)
         } else {
             rowPoc.isVisible = false
         }
@@ -349,10 +349,10 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         // request still at PENDING correctly shows only step 1 as done.
         data class Stage(val title: String, val subtitle: String, val at: Long)
         val stages = listOf(
-            Stage("Request Submitted", request.workerName, request.createdAt),
-            Stage(pettyCashStatusLabel(PC_STATUS_ACKNOWLEDGED), nameWithComment(request.staffByName, request.staffComment), request.staffAt),
-            Stage(pettyCashStatusLabel(PC_STATUS_APPROVED), nameWithComment(request.pocApprovedByName, request.pocComment), request.pocApprovedAt),
-            Stage(pettyCashStatusLabel(PC_STATUS_SETTLE_IN_PROCESS), request.settleInProcessByName, request.settleInProcessAt),
+            Stage("Request Submitted", request.requesterName, request.createdAt),
+            Stage(pettyCashStatusLabel(PC_STATUS_ACKNOWLEDGED), nameWithComment(request.verifiedByName, request.verifiedComment), request.verifiedAt),
+            Stage(pettyCashStatusLabel(PC_STATUS_APPROVED), nameWithComment(request.approvedByName, request.approvedComment), request.approvedAt),
+            Stage(pettyCashStatusLabel(PC_STATUS_SETTLE_IN_PROCESS), request.readyToSettleByName, request.readyToSettleAt),
             Stage(pettyCashStatusLabel(PC_STATUS_SETTLED), request.settledByName, request.settledAt)
         )
 
@@ -414,7 +414,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         val cardSettleForm = root.findViewById<View>(R.id.cardPcDetailSettleForm)
 
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-        val isOwner = request.workerUid == myUid
+        val isOwner = request.requesterUid == myUid
 
         val canAcknowledge = request.status == PC_STATUS_PENDING && roles.isStaff
         val canApprove = request.status == PC_STATUS_ACKNOWLEDGED && roles.isCashPoc

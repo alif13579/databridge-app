@@ -29,13 +29,13 @@ object SupabaseClaimsReader {
         val branchId: String get() = raw.optStr("branch_id")
         val agentSystemId: String get() = raw.optStr("requester_system_id")
         val category: String get() = raw.optStr("category")
-        val purpose: String get() = raw.optStr("remarks")
+        val purpose: String get() = raw.optStr("purpose")
         val settledAmount: Double get() = raw.optDouble("settled_amount", 0.0)
         val vehicle: String get() = raw.optStr("vehicle")
         val fromArea: String get() = raw.optStr("from_area")
         val toArea: String get() = raw.optStr("to_area")
         val attemptQuantity: Int get() = raw.optInt("attempted_qty", 0)
-        val deliveredQuantity: Int get() = raw.optInt("successed_qty", 0)
+        val deliveredQuantity: Int get() = raw.optInt("succeeded_qty", 0)
         val cidOrMerchant: String get() = raw.optStr("cid_or_merchant")
         // The date the claim/expense request was placed — mandatory on every claim
         // (any category, not just conveyance), user-editable. Renamed from
@@ -450,7 +450,7 @@ object SupabaseClaimsReader {
      *  below, which back ClaimsRepository's live get()/search()/
      *  searchMyClaims() post-cutover. */
     /** Extracts `name` from a PostgREST aliased embed object, e.g.
-     *  `staff_user:staff_by_system_id(name)` → `{"staff_user":{"name":"..."}}`
+     *  `staff_user:verified_by_system_id(name)` → `{"staff_user":{"name":"..."}}`
      *  Returns blank when the actor hasn't acted yet (null embed = no FK match). */
     private fun JSONObject.embedName(alias: String): String =
         optJSONObject(alias)?.optStr("name").orEmpty()
@@ -471,13 +471,13 @@ object SupabaseClaimsReader {
             employeeName = embedName("requester"),
             agentSystemId = optStr("requester_system_id"),
             category = optStr("category"),
-            purpose = optStr("remarks"),
+            purpose = optStr("purpose"),
             consignmentId = optStr("consignment_id"),
             vehicle = optStr("vehicle"),
             fromArea = optStr("from_area"),
             toArea = optStr("to_area"),
             attemptQuantity = optInt("attempted_qty", 0),
-            deliveredQuantity = optInt("successed_qty", 0),
+            deliveredQuantity = optInt("succeeded_qty", 0),
             cidOrMerchant = optStr("cid_or_merchant"),
             requestedAmount = optDouble("requested_amount", 0.0),
             approvedAmount = optDouble("approved_amount", 0.0),
@@ -490,8 +490,8 @@ object SupabaseClaimsReader {
             settledAt = isoMillis("settled_at"),
             createdAt = isoMillis("created_at"),
             updatedAt = isoMillis("updated_at"),
-            workerUid = optStr("worker_uid"),
-            workerRole = optStr("worker_role"),
+            requesterUid = optStr("requester_uid"),
+            requesterRole = optStr("requester_role"),
             storeId = optStr("store_id"),
             storeName = optStr("store_name"),
             pickupCount = optInt("pickup_count", 0),
@@ -505,18 +505,18 @@ object SupabaseClaimsReader {
                     )
                 }.filter { it.key.isNotBlank() }
             } ?: emptyList(),
-            staffByUid = optStr("staff_by_uid"),
-            staffBySystemId = optStr("staff_by_system_id"),
-            staffByName = embedName("staff_user"),
-            staffAt = isoMillis("staff_at"), staffComment = optStr("staff_comment"),
-            pocApprovedByUid = optStr("poc_approved_by_uid"),
-            pocApprovedBySystemId = optStr("poc_approved_by_system_id"),
-            pocApprovedByName = embedName("poc_user"),
-            pocComment = optStr("poc_comment"),
-            settleInProcessByUid = optStr("settle_in_process_by_uid"),
-            settleInProcessBySystemId = optStr("settle_in_process_by_system_id"),
-            settleInProcessByName = embedName("settle_user"),
-            settleInProcessAt = isoMillis("settle_in_process_at"),
+            verifiedByUid = optStr("verified_by_uid"),
+            verifiedBySystemId = optStr("verified_by_system_id"),
+            verifiedByName = embedName("staff_user"),
+            verifiedAt = isoMillis("verified_at"), verifiedComment = optStr("verified_comment"),
+            approvedByUid = optStr("approved_by_uid"),
+            approvedBySystemId = optStr("approved_by_system_id"),
+            approvedByName = embedName("poc_user"),
+            approvedComment = optStr("approved_comment"),
+            readyToSettleByUid = optStr("ready_to_settle_by_uid"),
+            readyToSettleBySystemId = optStr("ready_to_settle_by_system_id"),
+            readyToSettleByName = embedName("settle_user"),
+            readyToSettleAt = isoMillis("ready_to_settle_at"),
             settledByUid = optStr("settled_by_uid"),
             settledBySystemId = optStr("settled_by_system_id"),
             settledByName = embedName("settled_user"),
@@ -529,7 +529,7 @@ object SupabaseClaimsReader {
 
     /** PostgREST select that joins names for all actor system_id FKs.
      *  Each alias maps to a `users` row via FK on that column:
-     *  requester=agent_system_id, staff_user=staff_by_system_id, etc.
+     *  requester=agent_system_id, staff_user=verified_by_system_id, etc.
      *  branch joins branches via branch_id FK.
      *  Used by getById/search/searchMyClaims — report methods keep their own
      *  separate select (fetchClaimsForReport) unchanged. */
@@ -537,9 +537,9 @@ object SupabaseClaimsReader {
         "*," +
         "branch:branch_id(name)," +
         "requester:requester_system_id(name)," +
-        "staff_user:staff_by_system_id(name)," +
-        "poc_user:poc_approved_by_system_id(name)," +
-        "settle_user:settle_in_process_by_system_id(name)," +
+        "staff_user:verified_by_system_id(name)," +
+        "poc_user:approved_by_system_id(name)," +
+        "settle_user:ready_to_settle_by_system_id(name)," +
         "settled_user:settled_by_system_id(name)," +
         "rejected_user:rejected_by_system_id(name)"
 

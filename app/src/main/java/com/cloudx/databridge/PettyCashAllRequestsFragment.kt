@@ -203,7 +203,7 @@ class PettyCashAllRequestsFragment : Fragment() {
         val all = latestState?.requests.orEmpty()
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         val tabFiltered = when (selectedFilter) {
-            FILTER_MINE -> all.filter { it.workerUid == myUid }
+            FILTER_MINE -> all.filter { it.requesterUid == myUid }
             FILTER_PENDING, FILTER_APPROVED, FILTER_SETTLED -> all.filter { statusDisplay(it).bucket == selectedFilter }
             else -> all
         }
@@ -232,9 +232,9 @@ class PettyCashAllRequestsFragment : Fragment() {
             pageItems.forEach { item ->
                 val status = statusDisplay(item)
                 val row = layoutInflater.inflate(R.layout.item_petty_cash_all_request_row, layoutList, false)
-                row.findViewById<TextView>(R.id.tvAllReqRowIcon).text = item.workerName.take(1).uppercase()
+                row.findViewById<TextView>(R.id.tvAllReqRowIcon).text = item.requesterName.take(1).uppercase()
                 row.findViewById<TextView>(R.id.tvAllReqRowCode).text = item.requestCode
-                row.findViewById<TextView>(R.id.tvAllReqRowSubtitle).text = "${item.workerName}\n${item.category}"
+                row.findViewById<TextView>(R.id.tvAllReqRowSubtitle).text = "${item.requesterName}\n${item.category}"
                 val (amountPrimary, amountSecondary) = claimCardAmounts(item)
                 row.findViewById<TextView>(R.id.tvAllReqRowAmount).text = amountPrimary
                 row.findViewById<TextView>(R.id.tvAllReqRowSecondaryAmount).text = amountSecondary

@@ -29,6 +29,20 @@ Deno.serve(async (request) => {
     if (action === 'claim_upsert') {
       const c = body.claim
       const str = (v: unknown) => typeof v === 'string' ? v : ''
+      // First non-blank wins: new claim-column keys, then legacy pre-rename
+      // keys, so old APK builds keep writing without data loss.
+      const pick = (...vs: unknown[]) => {
+        for (const v of vs) { const s = str(v).trim(); if (s) return s }
+        return ''
+      }
+      const pickNum = (...vs: unknown[]) => {
+        for (const v of vs) { if (typeof v === 'number' && Number.isFinite(v)) return v }
+        return 0
+      }
+      const pickIso = (...vs: unknown[]) => {
+        for (const v of vs) { if (typeof v === 'string' && v.trim()) return v }
+        return null
+      }
       // Actor system_id columns are FKs → users(system_id). A blank actor
       // (e.g. staff on a brand-new pending claim) must go as NULL — ''
       // matches no users row and every insert fails with 23503.
@@ -44,7 +58,7 @@ Deno.serve(async (request) => {
         branch_id: str(c.branch_id), requester_system_id: str(c.requester_system_id),
         // branch_name and employee_name are not stored — joined at read time via FKs.
         // type was dropped (202609040004) — it always mirrored category.
-        category: str(c.category), remarks: str(c.remarks),
+        category: str(c.category), purpose: pick(c.purpose, c.remarks),
         consignment_id: str(c.consignment_id), store_id: str(c.store_id), store_name: str(c.store_name),
         pickup_count: num(c.pickup_count),
         // Conveyance fields (Pickup / Bulk Delivery) — real columns on
@@ -52,7 +66,7 @@ Deno.serve(async (request) => {
         // always sends them; omitting them here used to silently drop the
         // submitted vehicle/areas/quantities on every conveyance claim.
         vehicle: str(c.vehicle), from_area: str(c.from_area), to_area: str(c.to_area),
-        attempted_qty: num(c.attempted_qty), successed_qty: num(c.successed_qty),
+        attempted_qty: num(c.attempted_qty), succeeded_qty: pickNum(c.succeeded_qty, c.successed_qty),
         cid_or_merchant: str(c.cid_or_merchant),
         // NOTE: there is no placed_date column on public.claims (the expense
         // date lives in requested_at; ClaimRow derives yyyy-MM-dd from it).
@@ -75,12 +89,18 @@ Deno.serve(async (request) => {
             return { key, name: str(o.name), size: num(o.size) }
           })
         })(),
-        worker_uid: str(c.worker_uid), worker_role: str(c.worker_role),
+        requester_uid: pick(c.requester_uid, c.worker_uid), requester_role: pick(c.requester_role, c.worker_role),
         requested_at: iso(c.requested_at), approved_at: iso(c.approved_at), settled_at: iso(c.settled_at),
         created_at: iso(c.created_at), updated_at: iso(c.updated_at),
-        staff_by_uid: str(c.staff_by_uid), staff_by_system_id: fk(c.staff_by_system_id), staff_at: iso(c.staff_at), staff_comment: str(c.staff_comment),
-        poc_approved_by_uid: str(c.poc_approved_by_uid), poc_approved_by_system_id: fk(c.poc_approved_by_system_id), poc_comment: str(c.poc_comment),
-        settle_in_process_by_uid: str(c.settle_in_process_by_uid), settle_in_process_by_system_id: fk(c.settle_in_process_by_system_id), settle_in_process_at: iso(c.settle_in_process_at),
+        verified_by_uid: pick(c.verified_by_uid, c.staff_by_uid),
+        verified_by_system_id: fk(pick(c.verified_by_system_id, c.staff_by_system_id)),
+        verified_at: pickIso(c.verified_at, c.staff_at), verified_comment: pick(c.verified_comment, c.staff_comment),
+        approved_by_uid: pick(c.approved_by_uid, c.poc_approved_by_uid),
+        approved_by_system_id: fk(pick(c.approved_by_system_id, c.poc_approved_by_system_id)),
+        approved_comment: pick(c.approved_comment, c.poc_comment),
+        ready_to_settle_by_uid: pick(c.ready_to_settle_by_uid, c.settle_in_process_by_uid),
+        ready_to_settle_by_system_id: fk(pick(c.ready_to_settle_by_system_id, c.settle_in_process_by_system_id)),
+        ready_to_settle_at: pickIso(c.ready_to_settle_at, c.settle_in_process_at),
         settled_by_uid: str(c.settled_by_uid), settled_by_system_id: fk(c.settled_by_system_id),
         rejected_by_uid: str(c.rejected_by_uid), rejected_by_system_id: fk(c.rejected_by_system_id), rejected_at: iso(c.rejected_at), reject_reason: str(c.reject_reason),
       }, { onConflict: 'id' })
@@ -101,10 +121,10 @@ Deno.serve(async (request) => {
       const claimId = typeof body.claim_id === 'string' ? body.claim_id.trim() : ''
       if (!claimId) return reply({ error: 'claim_id is required' }, 400)
       const { data: row, error: readError } = await admin.from('claims')
-        .select('id,worker_uid,status').eq('id', claimId).maybeSingle()
+        .select('id,requester_uid,status').eq('id', claimId).maybeSingle()
       if (readError) throw readError
       if (!row) return reply({ error: 'Claim not found' }, 404)
-      if (row.worker_uid !== identity.uid) {
+      if (row.requester_uid !== identity.uid) {
         errLog('claim_delete', 'forbidden', { claim_id: claimId })
         return reply({ error: 'You can only delete your own requests' }, 403)
       }

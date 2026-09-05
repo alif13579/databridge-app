@@ -987,7 +987,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                     attachments = formAttachments
                         .filter { it.objectKey.isNotBlank() && !it.failed }
                         .map { AttachmentRef(it.objectKey, it.displayName, it.sizeBytes) },
-                    workerRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId },
+                    requesterRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId },
                     consignmentId = finalConsignmentId,
                     storeId = finalStoreId,
                     storeName = finalStoreName,

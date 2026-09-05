@@ -68,7 +68,7 @@ sealed class PettyCashState {
         /** Requests Accounts can act on right now — either mark ready-to-settle (approved) or hand over cash (settle_in_process). */
         val pendingSettlementQueue: List<PettyCashRequest> get() =
             requests.filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
-                .sortedByDescending { if (it.status == PC_STATUS_SETTLE_IN_PROCESS) it.settleInProcessAt else it.pocApprovedAt }
+                .sortedByDescending { if (it.status == PC_STATUS_SETTLE_IN_PROCESS) it.readyToSettleAt else it.approvedAt }
     }
     data class Error(val message: String) : PettyCashState()
 }
@@ -188,7 +188,7 @@ class PettyCashViewModel : ViewModel() {
         purpose: String,
         amount: Double,
         attachments: List<AttachmentRef> = emptyList(),
-        workerRole: String = "",
+        requesterRole: String = "",
         consignmentId: String = "",
         storeId: String = "",
         storeName: String = "",
@@ -211,7 +211,7 @@ class PettyCashViewModel : ViewModel() {
             branchId = branchId,
             employeeName = name,
             agentSystemId = systemId,
-            workerUid = uid, workerRole = workerRole,
+            requesterUid = uid, requesterRole = requesterRole,
             category = category,
             consignmentId = consignmentId,
             storeId = storeId,
@@ -251,7 +251,7 @@ class PettyCashViewModel : ViewModel() {
         val uid = auth.currentUser?.uid.orEmpty()
         val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
 
-        if (existing.workerUid != uid) throw IllegalStateException("You can only edit your own requests")
+        if (existing.requesterUid != uid) throw IllegalStateException("You can only edit your own requests")
         if (existing.status != PC_STATUS_PENDING) throw IllegalStateException("This request can no longer be edited")
 
         claims.update(requestId, mapOf(
@@ -278,7 +278,7 @@ class PettyCashViewModel : ViewModel() {
         val uid = auth.currentUser?.uid.orEmpty()
         val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
 
-        if (existing.workerUid != uid) throw IllegalStateException("You can only delete your own requests")
+        if (existing.requesterUid != uid) throw IllegalStateException("You can only delete your own requests")
         if (existing.status != PC_STATUS_PENDING) throw IllegalStateException("This request can no longer be deleted")
 
         // Hard delete — the row AND every R2 attachment object go away, no
@@ -307,7 +307,7 @@ class PettyCashViewModel : ViewModel() {
 
     // ── Staff (formerly "Team Aligned"): acknowledge a request (1st approval) ──
     // Both the display label AND the field/variable names are now "Staff"
-    // (staff_uid, staff_role, isStaff, staffByUid, staffByName, staffAt) --
+    // (staff_uid, staff_role, isStaff, verifiedByUid, verifiedByName, verifiedAt) --
     // this was previously a UI-only rename with old field names kept for
     // data compatibility, but since there was no production data yet, the
     // underlying names were renamed too instead of staying permanently
@@ -327,11 +327,11 @@ class PettyCashViewModel : ViewModel() {
         claims.get(requestId) ?: throw IllegalStateException("Request not found")
         val updates = mutableMapOf<String, Any?>(
                 "status" to PC_STATUS_ACKNOWLEDGED,
-                "staffByUid" to uid,
-                "staffBySystemId" to actorSystemId,
-                "staffByName" to name,
-                "staffAt" to now,
-                "staffComment" to comment,
+                "verifiedByUid" to uid,
+                "verifiedBySystemId" to actorSystemId,
+                "verifiedByName" to name,
+                "verifiedAt" to now,
+                "verifiedComment" to comment,
                 "updatedAt" to now
             )
         // Staff can optionally pre-set the amount here -- Cash POC's Approve step still
@@ -355,11 +355,11 @@ class PettyCashViewModel : ViewModel() {
 
         claims.update(requestId, mapOf(
                 "status" to PC_STATUS_APPROVED,
-                "pocApprovedByUid" to uid,
-                "pocApprovedBySystemId" to actorSystemId,
-                "pocApprovedByName" to name,
+                "approvedByUid" to uid,
+                "approvedBySystemId" to actorSystemId,
+                "approvedByName" to name,
                 "approvedAt" to now,
-                "pocComment" to comment,
+                "approvedComment" to comment,
                 "approvedAmount" to finalApprovedAmount,
                 "updatedAt" to now
             ), onSupabaseResult)
@@ -375,10 +375,10 @@ class PettyCashViewModel : ViewModel() {
         claims.get(requestId) ?: throw IllegalStateException("Request not found")
         claims.update(requestId, mapOf(
                 "status" to PC_STATUS_SETTLE_IN_PROCESS,
-                "settleInProcessByUid" to uid,
-                "settleInProcessBySystemId" to actorSystemId,
-                "settleInProcessByName" to name,
-                "settleInProcessAt" to now,
+                "readyToSettleByUid" to uid,
+                "readyToSettleBySystemId" to actorSystemId,
+                "readyToSettleByName" to name,
+                "readyToSettleAt" to now,
                 "updatedAt" to now
             ), onSupabaseResult)
     }

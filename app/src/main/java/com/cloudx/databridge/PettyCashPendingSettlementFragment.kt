@@ -36,7 +36,7 @@ import java.util.Locale
  *
  * myRequestsOnly (see newInstance): when true, this is a Requester's own
  * "My Requests" list rather than the branch-wide approver view --
- * requests are pre-filtered to workerUid == current user before tabs/counts
+ * requests are pre-filtered to requesterUid == current user before tabs/counts
  * are built (so tab counts reflect only their own requests), the
  * approver-only access gate is skipped, the title reads "My Requests", and
  * Settlement History is hidden (that screen is branch-wide/unscoped, same
@@ -216,7 +216,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
         val all = latestState?.requests.orEmpty()
         if (!myRequestsOnly) return all
         val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-        return all.filter { it.workerUid == myUid }
+        return all.filter { it.requesterUid == myUid }
     }
 
     private fun buildTabs() {
@@ -266,13 +266,13 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     /** Status-appropriate secondary line — what to show instead of a hardcoded "POC Approved:" for every card. */
     private fun statusInfoLine(item: PettyCashRequest): Pair<String, String> = when (item.status) {
-        PC_STATUS_PENDING -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.workerName}"
-        PC_STATUS_ACKNOWLEDGED -> "Acknowledged: ${formatDateTime(item.staffAt)}" to "By: ${item.staffByName.ifBlank { "—" }}"
-        PC_STATUS_APPROVED -> "Approved: ${formatDateTime(item.pocApprovedAt)}" to "By: ${item.pocApprovedByName.ifBlank { "—" }}"
-        PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle: ${formatDateTime(item.settleInProcessAt)}" to "By: ${item.settleInProcessByName.ifBlank { "—" }}"
+        PC_STATUS_PENDING -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.requesterName}"
+        PC_STATUS_ACKNOWLEDGED -> "Acknowledged: ${formatDateTime(item.verifiedAt)}" to "By: ${item.verifiedByName.ifBlank { "—" }}"
+        PC_STATUS_APPROVED -> "Approved: ${formatDateTime(item.approvedAt)}" to "By: ${item.approvedByName.ifBlank { "—" }}"
+        PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle: ${formatDateTime(item.readyToSettleAt)}" to "By: ${item.readyToSettleByName.ifBlank { "—" }}"
         PC_STATUS_SETTLED -> "Settled: ${formatDateTime(item.settledAt)}" to "By: ${item.settledByName.ifBlank { "—" }}"
         PC_STATUS_REJECTED -> "Rejected: ${formatDateTime(item.rejectedAt)}" to "By: ${item.rejectedByName.ifBlank { "—" }}"
-        else -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.workerName}"
+        else -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.requesterName}"
     }
 
     private fun renderList() {
@@ -296,7 +296,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
         filtered.sortedByDescending { it.updatedAt }.forEach { item ->
             val card = layoutInflater.inflate(R.layout.item_petty_cash_settlement_card, layoutList, false)
             card.findViewById<TextView>(R.id.tvPsCardCode).text = item.requestCode
-            card.findViewById<TextView>(R.id.tvPsCardWorker).text = item.workerName
+            card.findViewById<TextView>(R.id.tvPsCardWorker).text = item.requesterName
             card.findViewById<TextView>(R.id.tvPsCardCategory).text = item.category
             val (psPrimary, psSecondary) = claimCardAmounts(item)
             card.findViewById<TextView>(R.id.tvPsCardAmount).text = psPrimary
@@ -394,7 +394,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
         val listContainer = dialogView.findViewById<LinearLayout>(R.id.layoutBulkClaimList)
         picked.forEach { item ->
             val row = TextView(requireContext()).apply {
-                text = "${item.requestCode} · ${item.workerName} — ${pettyCashTaka(bulkDefaultAmount(item))}"
+                text = "${item.requestCode} · ${item.requesterName} — ${pettyCashTaka(bulkDefaultAmount(item))}"
                 textSize = 12.5f
                 setTextColor(Color.parseColor("#0F172A"))
                 setPadding(0, 6, 0, 6)

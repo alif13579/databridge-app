@@ -59,16 +59,16 @@ data class ClaimInfo(
     val updatedAt: Long = 0L,
     // Detail/audit fields are not copied to indexes; they remain part of the
     // single canonical info document.
-    val workerUid: String = "",
-    val workerRole: String = "",
+    val requesterUid: String = "",
+    val requesterRole: String = "",
     val storeId: String = "",
     val storeName: String = "",
     val pickupCount: Int = 0,
     // Single attachment_url/name + priority columns dropped (202609040006).
     val attachments: List<AttachmentRef> = emptyList(),
-    val staffByUid: String = "", val staffBySystemId: String = "", val staffByName: String = "", val staffAt: Long = 0L, val staffComment: String = "",
-    val pocApprovedByUid: String = "", val pocApprovedBySystemId: String = "", val pocApprovedByName: String = "", val pocComment: String = "",
-    val settleInProcessByUid: String = "", val settleInProcessBySystemId: String = "", val settleInProcessByName: String = "", val settleInProcessAt: Long = 0L,
+    val verifiedByUid: String = "", val verifiedBySystemId: String = "", val verifiedByName: String = "", val verifiedAt: Long = 0L, val verifiedComment: String = "",
+    val approvedByUid: String = "", val approvedBySystemId: String = "", val approvedByName: String = "", val approvedComment: String = "",
+    val readyToSettleByUid: String = "", val readyToSettleBySystemId: String = "", val readyToSettleByName: String = "", val readyToSettleAt: Long = 0L,
     val settledByUid: String = "", val settledBySystemId: String = "", val settledByName: String = "",
     val rejectedByUid: String = "", val rejectedBySystemId: String = "", val rejectedByName: String = "", val rejectedAt: Long = 0L, val rejectReason: String = ""
 )
@@ -118,8 +118,8 @@ data class ClaimsReport(
 /** Temporary presentation adapter: existing Petty Cash screens can consume
  * v2 claims while the report UI is introduced incrementally. */
 fun ClaimInfo.asPettyCashRequest(): PettyCashRequest = PettyCashRequest(
-    id = claimId, branchId = branchId, requestCode = claimCode, workerUid = workerUid,
-    workerName = employeeName, workerRole = workerRole, category = category,
+    id = claimId, branchId = branchId, requestCode = claimCode, requesterUid = requesterUid,
+    requesterName = employeeName, requesterRole = requesterRole, category = category,
     consignmentId = consignmentId, storeId = storeId, storeName = storeName,
     pickupCount = pickupCount, vehicle = vehicle, fromArea = fromArea, toArea = toArea,
     attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
@@ -127,11 +127,11 @@ fun ClaimInfo.asPettyCashRequest(): PettyCashRequest = PettyCashRequest(
     attachments = attachments,
     requestedDate = requestedAt,
     status = status, createdAt = createdAt, updatedAt = updatedAt,
-    staffByUid = staffByUid, staffByName = staffByName, staffAt = staffAt, staffComment = staffComment,
-    pocApprovedByUid = pocApprovedByUid, pocApprovedByName = pocApprovedByName,
-    pocApprovedAt = approvedAt, pocComment = pocComment, approvedAmount = approvedAmount,
-    settleInProcessByUid = settleInProcessByUid, settleInProcessByName = settleInProcessByName,
-    settleInProcessAt = settleInProcessAt, settledAmount = settledAmount,
+    verifiedByUid = verifiedByUid, verifiedByName = verifiedByName, verifiedAt = verifiedAt, verifiedComment = verifiedComment,
+    approvedByUid = approvedByUid, approvedByName = approvedByName,
+    approvedAt = this.approvedAt, approvedComment = approvedComment, approvedAmount = approvedAmount,
+    readyToSettleByUid = readyToSettleByUid, readyToSettleByName = readyToSettleByName,
+    readyToSettleAt = readyToSettleAt, settledAmount = settledAmount,
     settledByUid = settledByUid, settledByName = settledByName, settledAt = settledAt,
     settledPaymentMethod = paymentMethod, settledTrxId = transactionId,
     rejectedByUid = rejectedByUid, rejectedByName = rejectedByName, rejectedAt = rejectedAt,
