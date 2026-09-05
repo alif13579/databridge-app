@@ -523,7 +523,10 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                     .addToBackStack(null)
                     .commitAllowingStateLoss()
             } else {
-                Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Settlement failed", Toast.LENGTH_SHORT).show()
+                val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
+                Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                SupabaseErrorDialog.show(requireContext(), friendly,
+                    result.exceptionOrNull()?.message ?: "Settlement failed")
             }
         }
     }
@@ -575,7 +578,10 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                         Toast.makeText(requireContext(), "✓ $requestCode rejected", Toast.LENGTH_SHORT).show()
                         parentFragmentManager.popBackStack()
                     } else {
-                        Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Reject failed", Toast.LENGTH_SHORT).show()
+                        val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
+                        Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                        SupabaseErrorDialog.show(requireContext(), friendly,
+                            result.exceptionOrNull()?.message ?: "Reject failed")
                     }
                 }
             }
@@ -602,7 +608,10 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                         Toast.makeText(requireContext(), "✓ $requestCode deleted", Toast.LENGTH_SHORT).show()
                         parentFragmentManager.popBackStack()
                     } else {
-                        Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Delete failed", Toast.LENGTH_SHORT).show()
+                        val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
+                        Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                        SupabaseErrorDialog.show(requireContext(), friendly,
+                            result.exceptionOrNull()?.message ?: "Delete failed")
                     }
                 }
             }
@@ -638,7 +647,14 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 Toast.makeText(requireContext(), "✓ Done", Toast.LENGTH_SHORT).show()
                 if (branchId.isNotBlank()) viewModel.load(branchId)
             } else {
-                Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Action failed", Toast.LENGTH_SHORT).show()
+                // Toast fades before anyone can read/copy it — human-readable
+                // toast PLUS the exact reason in a copyable dialog.
+                val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
+                if (isAdded) {
+                    Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                    SupabaseErrorDialog.show(requireContext(), friendly,
+                        result.exceptionOrNull()?.message ?: "Action failed")
+                }
             }
         }
     }

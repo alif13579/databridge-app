@@ -436,15 +436,17 @@ class PettyCashPendingSettlementFragment : Fragment() {
             tvProgress.isVisible = true
             lifecycleScope.launch {
                 var ok = 0
-                var failed = 0
+                val failures = mutableListOf<String>()
                 picked.forEachIndexed { index, item ->
                     tvProgress.text = "⏳ Settling ${index + 1}/${picked.size}…"
                     val result = viewModel.settleRequest(
                         branchId, item.id, method, trxId, bulkDefaultAmount(item),
                         onSupabaseResult = { _ -> }
                     )
-                    if (result.isSuccess) ok++ else failed++
+                    if (result.isSuccess) ok++
+                    else failures.add("${item.requestCode}: ${result.exceptionOrNull()?.message ?: "failed"}")
                 }
+                val failed = failures.size
                 tvProgress.text = if (failed == 0) "✓ $ok settled" else "✓ $ok settled · ⚠ $failed failed"
                 if (failed == 0) {
                     Toast.makeText(requireContext(), "✓ ${picked.size} claims settled ($trxId)", Toast.LENGTH_LONG).show()
@@ -454,7 +456,11 @@ class PettyCashPendingSettlementFragment : Fragment() {
                     view?.findViewById<TextView>(R.id.btnPcPendingSelect)?.text = "Select"
                     if (branchId.isNotBlank()) viewModel.load(branchId) else renderList()
                 } else {
-                    Toast.makeText(requireContext(), "⚠ $failed failed — list reloaded, retry the rest", Toast.LENGTH_LONG).show()
+                    val friendly = "⚠ $failed failed — list reloaded, retry the rest"
+                    Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                    if (isAdded) {
+                        SupabaseErrorDialog.show(requireContext(), friendly, failures.joinToString("\n"))
+                    }
                     positive.isEnabled = true
                     negative.isEnabled = true
                     if (branchId.isNotBlank()) viewModel.load(branchId)
@@ -500,9 +506,14 @@ class PettyCashPendingSettlementFragment : Fragment() {
                             }
                         })
                     if (isAdded) {
-                        Toast.makeText(requireContext(),
-                            if (result.isSuccess) "✓ Settled" else "⚠ Settle failed: ${result.exceptionOrNull()?.message}",
-                            Toast.LENGTH_SHORT).show()
+                        if (result.isSuccess) {
+                            Toast.makeText(requireContext(), "✓ Settled", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
+                            Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                            SupabaseErrorDialog.show(requireContext(), friendly,
+                                result.exceptionOrNull()?.message ?: "Settle failed")
+                        }
                     }
                 }
             }
