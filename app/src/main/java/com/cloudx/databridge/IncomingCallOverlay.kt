@@ -23,12 +23,14 @@ import java.text.NumberFormat
 import java.util.Locale
 import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 /**
  * Adds/removes the incoming-call popup as a real system overlay (WindowManager.addView),
@@ -147,6 +149,39 @@ object IncomingCallOverlay {
                 view.findViewById<TextView>(R.id.tvOverlayAssignee).apply {
                     text = "🚚 আজ assign: ${assignee.name}"
                     isVisible = true
+                }
+            }
+            // Supabase remark history (same rows as CC's journey log): a last-CC
+            // banner against duplicate remarks + an expander for the full trail.
+            overlayScope.launch {
+                val rows = fetchHistoryRows(match.consignmentId)
+                if (overlayView !== view || rows.isEmpty()) return@launch
+                val names = resolveHistoryAuthorNames(rows)
+                val sorted = rows.sortedByDescending {
+                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at"))
+                }
+                sorted.firstOrNull {
+                    it.optString("source").trim().equals("CC", ignoreCase = true)
+                }?.let { lastCc ->
+                    view.findViewById<TextView>(R.id.tvOverlayLastCc).apply {
+                        text = "🏷️ Last CC: ${historyRowText(lastCc)} · ${historyRowTime(lastCc)}" +
+                            historyAuthorSuffix(lastCc, names)?.let { " ($it)" }.orEmpty()
+                        isVisible = true
+                    }
+                }
+                view.findViewById<TextView>(R.id.btnOverlayHistoryToggle).apply {
+                    text = "▼ Remarks history (${sorted.size})"
+                    isVisible = true
+                    setOnClickListener {
+                        val list = view.findViewById<LinearLayout>(R.id.llOverlayHistoryList)
+                        val expanding = !list.isVisible
+                        if (expanding) {
+                            renderHistoryList(view, sorted, names)
+                            cancelAutoMinimize() // reading — don't collapse mid-read
+                        }
+                        list.isVisible = expanding
+                        text = (if (expanding) "▲" else "▼") + " Remarks history (${sorted.size})"
+                    }
                 }
             }
         } else {
@@ -345,6 +380,138 @@ object IncomingCallOverlay {
             val cardCenterX = params.x + view.width / 2
             params.x = if (cardCenterX < screenWidth / 2) margin else screenWidth - view.width - margin
             try { wm.updateViewLayout(view, params) } catch (_: Exception) { }
+        }
+    }
+
+    // ── Supabase history for the popup (compact journey log) ─────────────
+    // Same rows as CallCenterFragment's journey dialog (fetchHistory = newest
+    // first, Bangla labels injected). Rendered as plain rows — a system overlay
+    // can't host dialogs or lists cleanly. Capped so a long trail can't blow up
+    // the card.
+
+    private suspend fun fetchHistoryRows(consignmentId: String): List<org.json.JSONObject> =
+        withContext(Dispatchers.IO) {
+            val deferred = CompletableDeferred<List<org.json.JSONObject>>()
+            SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "IncomingCallOverlay") {
+                deferred.complete(it)
+            }
+            runCatching { withTimeout(20_000) { deferred.await() } }.getOrDefault(emptyList())
+        }
+
+    /** author_system_id → display name for history rows (embedded author object
+     *  first, Firebase profile second, raw id last — same fallback chain as CC). */
+    private suspend fun resolveHistoryAuthorNames(rows: List<org.json.JSONObject>): Map<String, String> =
+        withContext(Dispatchers.IO) {
+            val ids = rows.map { it.optString("author_system_id").trim() }
+                .filter { it.isNotBlank() }.distinct()
+            if (ids.isEmpty()) return@withContext emptyMap()
+            val out = mutableMapOf<String, String>()
+            rows.forEach { r ->
+                val sys = r.optString("author_system_id").trim()
+                if (sys.isNotBlank() && sys !in out) {
+                    r.optJSONObject("author")?.optString("name")?.trim()
+                        ?.takeIf { it.isNotBlank() }?.let { out[sys] = it }
+                }
+            }
+            val missing = ids.filter { it !in out }
+            if (missing.isEmpty()) return@withContext out
+            try {
+                val indexSnap = FirebaseDatabase.getInstance().reference
+                    .child("users_by_systemId").get().await()
+                val sysToUid = mutableMapOf<String, String>()
+                indexSnap.children.forEach { child ->
+                    val sys = child.key?.trim()
+                    val uid = child.child("uid").getValue(String::class.java)?.trim()
+                    if (!sys.isNullOrBlank() && sys in missing && !uid.isNullOrBlank()) {
+                        sysToUid[sys] = uid
+                    }
+                }
+                sysToUid.forEach { (sys, uid) ->
+                    runCatching {
+                        FirebaseDatabase.getInstance().reference
+                            .child("users/$uid/profile/name").get().await()
+                            .getValue(String::class.java)?.trim()
+                    }.getOrNull()?.takeIf { it.isNotBlank() }?.let { out[sys] = it }
+                }
+            } catch (_: Exception) { }
+            out
+        }
+
+    private fun historyRowText(row: org.json.JSONObject): String {
+        val remarks = row.optString("remarks_bn").trim()
+            .ifBlank { row.optString("remarks").trim() }
+        val note = row.optString("note").trim()
+        return listOf(remarks, note.takeIf { it.isNotBlank() }?.let { "Note: $it" })
+            .filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
+            .ifBlank { row.optString("remarks_status").trim().ifBlank { "—" } }
+    }
+
+    private fun historyRowTime(row: org.json.JSONObject): String {
+        val ms = SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
+        if (ms <= 0L) return ""
+        return java.text.SimpleDateFormat("dd-MM-yy hh:mm a", java.util.Locale.getDefault())
+            .format(java.util.Date(ms))
+    }
+
+    private fun historyAuthorSuffix(row: org.json.JSONObject, names: Map<String, String>): String? {
+        val sys = row.optString("author_system_id").trim()
+        if (sys.isBlank()) return null
+        val src = row.optString("source").trim().ifBlank { null }?.uppercase()
+        val base = names[sys] ?: sys
+        return if (src != null) "$base · $src" else base
+    }
+
+    private fun renderHistoryList(
+        view: View, rows: List<org.json.JSONObject>, names: Map<String, String>
+    ) {
+        val context = view.context
+        val container = view.findViewById<LinearLayout>(R.id.llOverlayHistoryList)
+        container.removeAllViews()
+        val shown = rows.take(15)
+        shown.forEachIndexed { index, row ->
+            val status = row.optString("remarks_status").trim().ifBlank { "NOTE" }.uppercase()
+            val line = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 10, 0, 10)
+            }
+            val tvHead = TextView(context).apply {
+                text = "• $status — ${historyRowTime(row)}"
+                textSize = 11f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(0xFF0F172A.toInt())
+            }
+            line.addView(tvHead)
+            val tvBody = TextView(context).apply {
+                text = historyRowText(row)
+                textSize = 11.5f
+                setTextColor(0xFF334155.toInt())
+            }
+            line.addView(tvBody)
+            historyAuthorSuffix(row, names)?.let { author ->
+                line.addView(TextView(context).apply {
+                    text = "✍ $author"
+                    textSize = 10.5f
+                    setTextColor(0xFF64748B.toInt())
+                })
+            }
+            container.addView(line)
+            if (index < shown.size - 1) {
+                container.addView(View(context).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, 1
+                    )
+                    setBackgroundColor(0xFFE2E8F0.toInt())
+                })
+            }
+        }
+        if (rows.size > shown.size) {
+            container.addView(TextView(context).apply {
+                text = "…আরও ${rows.size - shown.size}টি পুরনো"
+                textSize = 11f
+                setTextColor(0xFF64748B.toInt())
+                gravity = android.view.Gravity.CENTER
+                setPadding(0, 8, 0, 0)
+            })
         }
     }
 

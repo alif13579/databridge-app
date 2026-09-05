@@ -149,6 +149,37 @@
             android:visibility="gone" />
 
         <TextView
+            android:id="@+id/tvOverlayLastCc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="11.5sp"
+            android:textColor="#7C3AED"
+            android:background="@drawable/bg_overlay_badge_status"
+            android:padding="8dp"
+            android:layout_marginTop="8dp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/btnOverlayHistoryToggle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="#0F172A"
+            android:gravity="center"
+            android:paddingVertical="8dp"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/llOverlayHistoryList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="4dp"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/tvOverlayNoMatch"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
