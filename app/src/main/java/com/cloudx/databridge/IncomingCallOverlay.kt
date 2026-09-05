@@ -714,37 +714,55 @@ object IncomingCallOverlay {
 
         if (isCc) etNote.isVisible = true
 
-        val chipViews = mutableListOf<TextView>()
+        // Vertical full-width rows like the CC sheet's option list (label +
+        // status tag, selected highlight) — not a horizontal chip row.
+        data class OptRow(val root: View, val label: TextView, val tag: TextView?)
+        val rowViews = mutableListOf<OptRow>()
         fun refreshStyles() {
-            chipViews.forEach { chip ->
-                val isSelected = chip.tag == overlaySelectedOption
-                chip.setBackgroundResource(
+            rowViews.forEach { (root, label, tag) ->
+                val isSelected = root.tag == overlaySelectedOption
+                root.setBackgroundResource(
                     if (isSelected) R.drawable.bg_overlay_cta else R.drawable.bg_overlay_badge_status
                 )
-                chip.setTextColor(if (isSelected) 0xFFFFFFFF.toInt() else 0xFF0F172A.toInt())
+                label.setTextColor(if (isSelected) 0xFFFFFFFF.toInt() else 0xFF0F172A.toInt())
+                tag?.setTextColor(if (isSelected) 0xFFFFFFFF.toInt() else 0xFF64748B.toInt())
             }
         }
         options.forEach { option ->
-            val chip = TextView(context).apply {
-                text = option.label
-                textSize = 12f
-                setPadding(28, 16, 28, 16)
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
                 setBackgroundResource(R.drawable.bg_overlay_badge_status)
-                setTextColor(0xFF0F172A.toInt())
-                tag = option
+                setPadding(28, 20, 28, 20)
                 layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { marginEnd = 8 }
-                setOnClickListener {
-                    overlaySelectedOption = if (overlaySelectedOption == option) null else option
-                    // CC: selecting fills the admin-written instruction into
-                    // the note box (blank clears) — CallCenterFragment parity.
-                    if (isCc) etNote.setText(overlaySelectedOption?.instructionText.orEmpty())
-                    refreshStyles()
-                }
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = 8 }
+                tag = option
             }
-            chipContainer.addView(chip)
-            chipViews.add(chip)
+            val tvLabel = TextView(context).apply {
+                text = option.label
+                textSize = 12.5f
+                setTextColor(0xFF0F172A.toInt())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            row.addView(tvLabel)
+            val tagText = option.targetStatus.trim().uppercase().ifBlank { null }
+            val tvTag: TextView? = if (tagText != null) {
+                TextView(context).apply {
+                    text = "→$tagText"
+                    textSize = 10.5f
+                    setTextColor(0xFF64748B.toInt())
+                }.also { row.addView(it) }
+            } else null
+            row.setOnClickListener {
+                overlaySelectedOption = if (overlaySelectedOption == option) null else option
+                // CC: selecting fills the admin-written instruction into
+                // the note box (blank clears) — CallCenterFragment parity.
+                if (isCc) etNote.setText(overlaySelectedOption?.instructionText.orEmpty())
+                refreshStyles()
+            }
+            chipContainer.addView(row)
+            rowViews.add(OptRow(row, tvLabel, tvTag))
         }
     }
 
@@ -800,27 +818,44 @@ object IncomingCallOverlay {
     ) {
         val llRemarkSection = view.findViewById<View>(R.id.llOverlayRemarkSection)
         val tvConfirmation = view.findViewById<TextView>(R.id.tvOverlayConfirmation)
+        val btnSave = view.findViewById<TextView>(R.id.btnOverlayRemarkSave)
+        val btnCancel = view.findViewById<View>(R.id.btnOverlayRemarkCancel)
         val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
         if (branchId.isBlank()) {
             Toast.makeText(context, "Branch তথ্য পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
             return
         }
+        // Saving state until the server answers: disabled buttons + spinner text,
+        // so a slow network never looks like a dead tap (and never double-saves).
+        btnSave.isEnabled = false
+        btnCancel.isEnabled = false
+        val saveLabel = btnSave.text
+        btnSave.text = "⏳ Saving..."
+        fun restoreSaveButton() {
+            if (overlayView !== view) return
+            btnSave.isEnabled = true
+            btnCancel.isEnabled = true
+            btnSave.text = saveLabel
+        }
         remarkLoadJob?.cancel()
         remarkLoadJob = overlayScope.launch {
-            withContext(Dispatchers.IO) {
-                consignmentIds.forEach { cid ->
-                    // Per-parcel route so siblings save under their own branch;
-                    // fall back to the primary parcel's values when a sibling
-                    // has no validations row yet. Agent gets one more fallback —
-                    // today's run assignment — before giving up on the parcel.
-                    val route = resolveParcelRoute(cid)
-                    val targetBranch = route?.branchId?.takeIf { it.isNotBlank() } ?: branchId
-                    if (isCc) {
-                        val targetAgent = route?.agentSystemId?.takeIf { it.isNotBlank() }
-                            ?: todayAssignees[cid]?.systemId?.takeIf { it.isNotBlank() }
-                            ?: primaryAgentId
-                        if (targetAgent.isBlank()) return@forEach
-                        SupabaseRemarkValidationWriter.write(
+            var okCount = 0
+            var failCount = 0
+            consignmentIds.forEach { cid ->
+                // Per-parcel route so siblings save under their own branch;
+                // fall back to the primary parcel's values when a sibling
+                // has no validations row yet. Agent gets one more fallback —
+                // today's run assignment — before giving up on the parcel.
+                val route = withContext(Dispatchers.IO) { resolveParcelRoute(cid) }
+                val targetBranch = route?.branchId?.takeIf { it.isNotBlank() } ?: branchId
+                val ok = if (isCc) {
+                    val targetAgent = route?.agentSystemId?.takeIf { it.isNotBlank() }
+                        ?: todayAssignees[cid]?.systemId?.takeIf { it.isNotBlank() }
+                        ?: primaryAgentId
+                    if (targetAgent.isBlank()) {
+                        false
+                    } else {
+                        SupabaseRemarkValidationWriter.writeAwait(
                             assignedAgentSystemId = targetAgent,
                             branchId = targetBranch,
                             consignmentId = cid,
@@ -835,9 +870,12 @@ object IncomingCallOverlay {
                             verdictText = chosen?.category.orEmpty(),
                             appContext = context.applicationContext
                         )
+                    }
+                } else {
+                    if (selfSystemId.isBlank()) {
+                        false
                     } else {
-                        if (selfSystemId.isBlank()) return@forEach
-                        SupabaseRemarkValidationWriter.write(
+                        SupabaseRemarkValidationWriter.writeAwait(
                             assignedAgentSystemId = selfSystemId,
                             branchId = targetBranch,
                             consignmentId = cid,
@@ -852,15 +890,27 @@ object IncomingCallOverlay {
                         )
                     }
                 }
+                if (ok) okCount++ else failCount++
             }
             if (overlayView !== view) return@launch
-            tvConfirmation.text = if (consignmentIds.size > 1)
-                "✓ ${consignmentIds.size} টি parcel এ remark save হয়েছে"
-            else "✓ রিমার্কস সেভ হয়েছে"
-            llRemarkSection.isVisible = false
-            view.findViewById<View>(R.id.llOverlayFanout).isVisible = false
-            tvConfirmation.isVisible = true
-            mainHandler.postDelayed({ dismissInternal() }, 2000)
+            if (failCount == 0) {
+                tvConfirmation.text = if (consignmentIds.size > 1)
+                    "✓ ${consignmentIds.size} টি parcel এ remark save হয়েছে"
+                else "✓ রিমার্কস সেভ হয়েছে"
+                tvConfirmation.setTextColor(0xFF15803D.toInt())
+                llRemarkSection.isVisible = false
+                view.findViewById<View>(R.id.llOverlayFanout).isVisible = false
+                tvConfirmation.isVisible = true
+                mainHandler.postDelayed({ dismissInternal() }, 2000)
+            } else {
+                restoreSaveButton()
+                Toast.makeText(
+                    context,
+                    if (okCount > 0) "⚠ $okCount টি save হয়েছে, $failCount টি হয়নি — আবার চেষ্টা করুন"
+                    else "⚠ Save হয়নি — network দেখে আবার চেষ্টা করুন",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 

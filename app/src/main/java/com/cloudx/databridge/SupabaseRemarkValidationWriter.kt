@@ -81,6 +81,55 @@ object SupabaseRemarkValidationWriter {
             }
     }
 
+    /**
+     * Suspend version of [write] for callers that must show a saving state until
+     * the server actually answers (overlay popups). Same payload + mirror
+     * behavior; returns true only on HTTP success (response != null).
+     * Existing fire-and-forget callers keep using [write] unchanged.
+     */
+    suspend fun writeAwait(assignedAgentSystemId: String, branchId: String, consignmentId: String,
+              status: String, remarksText: String, noteText: String = "", source: String,
+              screen: String, remarksBnText: String = "",
+              verdictText: String = "", appContext: android.content.Context? = null): Boolean {
+        if (assignedAgentSystemId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
+            val missing = buildList {
+                if (assignedAgentSystemId.isBlank()) add("assignedAgentSystemId")
+                if (branchId.isBlank()) add("branchId")
+                if (consignmentId.isBlank()) add("consignmentId")
+            }.joinToString(",")
+            log(screen, "supabase_validation_skip_missing_ids", "Missing required IDs: $missing", consignmentId)
+            return false
+        }
+        val deferred = kotlinx.coroutines.CompletableDeferred<String?>()
+        invoke(JSONObject().put("action", "write").put("row", JSONObject()
+            .put("consignment", consignmentId).put("branch_id", branchId)
+            .put("assigned_to_system_id", assignedAgentSystemId)
+            .put("source", source)
+            .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)
+            .apply { if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText) }), screen,
+            "supabase_validation_write", consignmentId) { response ->
+                deferred.complete(response)
+            }
+        val response = runCatching {
+            kotlinx.coroutines.withTimeout(25_000) { deferred.await() }
+        }.getOrNull()
+        if (response == null) return false
+        val push = runCatching { JSONObject(response).optJSONObject("push") }.getOrNull()
+        val reason = push?.optString("reason").orEmpty().ifBlank { "missing_push_result" }
+        val scope = push?.optString("recipient_scope").orEmpty()
+        val matched = push?.optInt("matched_devices", 0) ?: 0
+        val accepted = push?.optInt("accepted", 0) ?: 0
+        val message = "write push result: consignment=$consignmentId source=$source " +
+            "scope=$scope matched=$matched accepted=$accepted reason=$reason"
+        Log.i("RemarkPushChain", message)
+        RemarkPushChainLog.log("RemarkPushChain", message,
+            isWarning = reason != "accepted_by_fcm")
+        if (source == "CC" && verdictText.isNotBlank() && appContext != null) {
+            RemarkSheetMirror.mirror(appContext, branchId, consignmentId, verdictText)
+        }
+        return true
+    }
+
     // ── Admin remark-option config (ConfigRemarksFragment) ──────────────────────
     // Distinct from write() above: these manage validation_remarks rows as the
     // OPTIONS themselves (what shows in the CC/Worker remark picker), gated

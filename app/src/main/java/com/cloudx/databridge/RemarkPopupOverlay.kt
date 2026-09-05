@@ -55,9 +55,10 @@ object RemarkPopupOverlay {
     private var overlayView: View? = null
     private var loadJob: Job? = null
 
-    /** [isAutoDialing] controls whether the "Calling…" badge shows and whether the call
-     *  is fired automatically -- true when triggered by the auto_dial background path,
-     *  false when the agent will tap Call themselves. */
+    /** [isAutoDialing] controls whether the call is fired automatically -- true
+     *  when triggered by the auto_dial background path, false when the agent will
+     *  tap Call themselves. The "Calling…" badge itself follows the REAL telephony
+     *  call state (see startCallBadgeTracking), not this flag. */
     fun show(context: Context, match: CallerMatch, isAutoDialing: Boolean) {
         val appContext = context.applicationContext
         if (!android.provider.Settings.canDrawOverlays(appContext)) return
@@ -90,7 +91,10 @@ object RemarkPopupOverlay {
         view.findViewById<TextView>(R.id.tvHrAddress).text = match.address.ifBlank { "—" }
         val nf = NumberFormat.getNumberInstance(Locale.US)
         view.findViewById<TextView>(R.id.tvHrCod).text = if (match.cod > 0) "৳" + nf.format(match.cod) else "—"
-        view.findViewById<TextView>(R.id.tvHrCallingBadge).isVisible = isAutoDialing
+        // Badge follows the REAL call state (tracked below) — without phone-state
+        // permission it falls back to the static auto-dial hint.
+        view.findViewById<TextView>(R.id.tvHrCallingBadge).isVisible =
+            isAutoDialing && !CallStateWatcher.hasPermission(context)
 
         view.findViewById<View>(R.id.btnHrClose).setOnClickListener { dismissInternal() }
         view.findViewById<View>(R.id.btnHrDismiss).setOnClickListener { dismissInternal() }
@@ -120,6 +124,7 @@ object RemarkPopupOverlay {
         }
         windowManager = wm
         overlayView = view
+        startCallBadgeTracking(context, view)
 
         // Auto-dial: fire the call immediately, popup stays up alongside it.
         if (isAutoDialing) placeCall(context, match.phone)
@@ -220,38 +225,54 @@ object RemarkPopupOverlay {
         val tvConfirmation = view.findViewById<TextView>(R.id.tvHrConfirmation)
 
         var selected: RemarkOption? = null
-        val chipViews = mutableListOf<TextView>()
+        data class OptRow(val root: View, val label: TextView, val tag: TextView?)
+        val rowViews = mutableListOf<OptRow>()
 
         fun refreshChipStyles() {
-            chipViews.forEach { chip ->
-                val isSelected = chip.tag == selected
-                chip.setBackgroundResource(
+            rowViews.forEach { (root, label, tag) ->
+                val isSelected = root.tag == selected
+                root.setBackgroundResource(
                     if (isSelected) R.drawable.bg_overlay_cta else R.drawable.bg_overlay_badge_status
                 )
-                chip.setTextColor(if (isSelected) 0xFFFFFFFF.toInt() else 0xFF0F172A.toInt())
+                label.setTextColor(if (isSelected) 0xFFFFFFFF.toInt() else 0xFF0F172A.toInt())
+                tag?.setTextColor(if (isSelected) 0xFFFFFFFF.toInt() else 0xFF64748B.toInt())
             }
         }
 
+        // Vertical full-width rows like the CC sheet's option list (label +
+        // status tag, selected highlight) — not a horizontal chip row.
         options.forEach { option ->
-            val chip = TextView(context).apply {
-                text = option.label
-                textSize = 12f
-                setPadding(28, 16, 28, 16)
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
                 setBackgroundResource(R.drawable.bg_overlay_badge_status)
-                setTextColor(0xFF0F172A.toInt())
+                setPadding(28, 20, 28, 20)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = 8 }
                 tag = option
-                (layoutParams as? LinearLayout.LayoutParams)?.marginEnd = 8
             }
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginEnd = 8 }
-            chip.layoutParams = lp
-            chip.setOnClickListener {
+            val tvLabel = TextView(context).apply {
+                text = option.label
+                textSize = 12.5f
+                setTextColor(0xFF0F172A.toInt())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            row.addView(tvLabel)
+            val tagText = option.targetStatus.trim().uppercase().ifBlank { null }
+            val tvTag: TextView? = if (tagText != null) {
+                TextView(context).apply {
+                    text = "→$tagText"
+                    textSize = 10.5f
+                    setTextColor(0xFF64748B.toInt())
+                }.also { row.addView(it) }
+            } else null
+            row.setOnClickListener {
                 selected = if (selected == option) null else option
                 refreshChipStyles()
             }
-            chipContainer.addView(chip)
-            chipViews.add(chip)
+            chipContainer.addView(row)
+            rowViews.add(OptRow(row, tvLabel, tvTag))
         }
 
         if (assignedAgentSystemId.isNullOrBlank()) {
@@ -282,30 +303,101 @@ object RemarkPopupOverlay {
                 android.widget.Toast.makeText(context, "Branch তথ্য পাওয়া যায়নি", android.widget.Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            SupabaseRemarkValidationWriter.write(
-                assignedAgentSystemId = assignedAgentSystemId,
-                branchId = branchId,
-                consignmentId = match.consignmentId,
-                status = chosen.targetStatus,
-                remarksText = chosen.englishLabel,
-                noteText = etNote.text?.toString()?.trim().orEmpty(),
-                source = source,
-                screen = "RemarkPopupOverlay",
-                // Blank when chosen.label IS chosen.englishLabel (configured language is
-                // already English) -- same reasoning as CallCenterFragment's saveCcRemarkForItems.
-                remarksBnText = chosen.label.takeIf { it.isNotBlank() && it != chosen.englishLabel } ?: "",
-                verdictText = if (source == "CC") chosen.category else "",
-                appContext = context.applicationContext
-            )
-            llRemarkSection.isVisible = false
-            tvConfirmation.isVisible = true
-            mainHandler.postDelayed({ dismissInternal() }, 2000)
+            // Saving state until the server answers — no dead-tap look, no double-save.
+            btnSave.isEnabled = false
+            val saveLabel = btnSave.text
+            btnSave.text = "⏳ Saving..."
+            loadJob?.cancel()
+            loadJob = overlayScope.launch {
+                val ok = SupabaseRemarkValidationWriter.writeAwait(
+                    assignedAgentSystemId = assignedAgentSystemId,
+                    branchId = branchId,
+                    consignmentId = match.consignmentId,
+                    status = chosen.targetStatus,
+                    remarksText = chosen.englishLabel,
+                    noteText = etNote.text?.toString()?.trim().orEmpty(),
+                    source = source,
+                    screen = "RemarkPopupOverlay",
+                    // Blank when chosen.label IS chosen.englishLabel (configured language is
+                    // already English) -- same reasoning as CallCenterFragment's saveCcRemarkForItems.
+                    remarksBnText = chosen.label.takeIf { it.isNotBlank() && it != chosen.englishLabel } ?: "",
+                    verdictText = if (source == "CC") chosen.category else "",
+                    appContext = context.applicationContext
+                )
+                if (overlayView !== view) return@launch
+                if (ok) {
+                    llRemarkSection.isVisible = false
+                    tvConfirmation.isVisible = true
+                    mainHandler.postDelayed({ dismissInternal() }, 2000)
+                } else {
+                    btnSave.isEnabled = true
+                    btnSave.text = saveLabel
+                    android.widget.Toast.makeText(
+                        context, "⚠ Save হয়নি — network দেখে আবার চেষ্টা করুন",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
         }
+    }
+
+    private var stopCallTracking: (() -> Unit)? = null
+
+    /** Shows the "Calling…" badge only while a call is actually OFFHOOK — never
+     *  from the auto-dial flag alone (a failed dial or an ended call would leave
+     *  a stale badge otherwise). No-permission fallback is the static hint set
+     *  in showInternal. Listener lives only while this popup is up. */
+    private fun startCallBadgeTracking(context: Context, view: View) {
+        stopCallTracking?.invoke()
+        stopCallTracking = null
+        if (!CallStateWatcher.hasPermission(context)) return
+        try {
+            val telephony = context.getSystemService(Context.TELEPHONY_SERVICE)
+                as? android.telephony.TelephonyManager ?: return
+            val badge = view.findViewById<TextView>(R.id.tvHrCallingBadge)
+            badge.isVisible =
+                telephony.callState == android.telephony.TelephonyManager.CALL_STATE_OFFHOOK
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                val executor = java.util.concurrent.Executor { mainHandler.post(it) }
+                val callback = object : android.telephony.TelephonyCallback(),
+                    android.telephony.TelephonyCallback.CallStateListener {
+                    override fun onCallStateChanged(state: Int) {
+                        if (overlayView === view) {
+                            badge.isVisible =
+                                state == android.telephony.TelephonyManager.CALL_STATE_OFFHOOK
+                        }
+                    }
+                }
+                telephony.registerTelephonyCallback(executor, callback)
+                stopCallTracking = { runCatching { telephony.unregisterTelephonyCallback(callback) } }
+            } else {
+                @Suppress("DEPRECATION")
+                val listener = object : android.telephony.PhoneStateListener() {
+                    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+                    override fun onCallStateChanged(state: Int, phoneNumber: String?) {
+                        if (overlayView === view) {
+                            badge.isVisible =
+                                state == android.telephony.TelephonyManager.CALL_STATE_OFFHOOK
+                        }
+                    }
+                }
+                @Suppress("DEPRECATION")
+                telephony.listen(listener, android.telephony.PhoneStateListener.LISTEN_CALL_STATE)
+                stopCallTracking = {
+                    runCatching {
+                        @Suppress("DEPRECATION")
+                        telephony.listen(listener, android.telephony.PhoneStateListener.LISTEN_NONE)
+                    }
+                }
+            }
+        } catch (_: Exception) { }
     }
 
     private fun dismissInternal() {
         loadJob?.cancel()
         loadJob = null
+        stopCallTracking?.invoke()
+        stopCallTracking = null
         val view = overlayView ?: return
         try {
             windowManager?.removeView(view)

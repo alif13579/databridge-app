@@ -167,17 +167,17 @@
             android:textSize="11.5sp"
             android:textColor="#64748B" />
 
-        <HorizontalScrollView
+        <ScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
             android:scrollbars="none">
             <LinearLayout
                 android:id="@+id/llHrRemarkChips"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
+                android:orientation="vertical" />
+        </ScrollView>
 
         <EditText
             android:id="@+id/etHrNote"
