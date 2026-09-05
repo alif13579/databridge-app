@@ -39,18 +39,39 @@ object SupabaseVanMovements {
         .toInstant().toString()
 
     /**
-     * Today's movements for [branchId], plus any still-inside rows from
-     * earlier days (a van checked in yesterday and never checked out must
-     * still show as inside). Newest check-in first. Throws on failure —
-     * the fragment surfaces it as an error state, same as PettyCashViewModel.
+     * Still-inside rows for [branchId] — check_out_at NULL, any day (a van
+     * checked in yesterday and never checked out must still show as inside).
+     * Newest check-in first. Throws on failure.
      */
-    suspend fun fetchMovements(branchId: String): List<VanMovement> = withContext(Dispatchers.IO) {
+    suspend fun fetchOpen(branchId: String): List<VanMovement> = withContext(Dispatchers.IO) {
         require(branchId.isNotBlank()) { "A branch is required" }
         val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
         val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/check_ins" +
             "?select=*&branch_id=eq.${branchId.encodeParam()}" +
-            "&or=(check_in_at.gte.${bangladeshTodayStartIso().encodeParam()},check_out_at.is.null)" +
+            "&check_out_at=is.null" +
             "&order=check_in_at.desc"
+        fetchList(url, token)
+    }
+
+    /**
+     * Completed visits for [branchId], newest check-in first, paged.
+     * [limit]/[offset] drive the See-more pagination; pass limit+1 from the
+     * caller is unnecessary — hasMore is derived by the fragment requesting
+     * one extra row (see CheckInFragment.HISTORY_PAGE_SIZE usage). Throws.
+     */
+    suspend fun fetchHistory(branchId: String, limit: Int, offset: Int): List<VanMovement> =
+        withContext(Dispatchers.IO) {
+            require(branchId.isNotBlank()) { "A branch is required" }
+            val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
+            val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/check_ins" +
+                "?select=*&branch_id=eq.${branchId.encodeParam()}" +
+                "&check_out_at=not.is.null" +
+                "&order=check_in_at.desc" +
+                "&limit=$limit&offset=$offset"
+            fetchList(url, token)
+        }
+
+    private fun fetchList(url: String, token: String): List<VanMovement> {
         val response = SupabaseClientManager.httpClient.newCall(
             Request.Builder().url(url)
                 .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
@@ -61,11 +82,11 @@ object SupabaseVanMovements {
         response.use {
             val text = it.body?.string().orEmpty()
             if (!it.isSuccessful) {
-                Log.e(TAG, "fetchMovements HTTP ${it.code}: ${text.take(1_000)}")
+                Log.e(TAG, "fetchList HTTP ${it.code}: ${text.take(1_000)}")
                 error("Couldn't load van movements: HTTP ${it.code}")
             }
             val arr = JSONArray(text)
-            List(arr.length()) { i ->
+            return List(arr.length()) { i ->
                 val row = arr.getJSONObject(i)
                 VanMovement(
                     id = row.optString("id"),
@@ -79,6 +100,26 @@ object SupabaseVanMovements {
                 )
             }
         }
+    }
+
+    /**
+     * Today's movements for [branchId], plus any still-inside rows from
+     * earlier days (a van checked in yesterday and never checked out must
+     * still show as inside). Newest check-in first. Throws on failure —
+     * the fragment surfaces it as an error state, same as PettyCashViewModel.
+     *
+     * Kept for callers that need one combined list; the fragment itself reads
+     * [fetchOpen] + [fetchHistory] separately so a checked-out row can never
+     * hide in (or linger from) a combined date filter.
+     */
+    suspend fun fetchMovements(branchId: String): List<VanMovement> = withContext(Dispatchers.IO) {
+        require(branchId.isNotBlank()) { "A branch is required" }
+        val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
+        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/check_ins" +
+            "?select=*&branch_id=eq.${branchId.encodeParam()}" +
+            "&or=(check_in_at.gte.${bangladeshTodayStartIso().encodeParam()},check_out_at.is.null)" +
+            "&order=check_in_at.desc"
+        fetchList(url, token)
     }
 
     /** Opens a movement row (van arrival). [checkInAtMillis] defaults to now —

@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -41,8 +42,16 @@ class CheckInFragment : Fragment() {
     private lateinit var layoutInside: LinearLayout
     private lateinit var layoutHistory: LinearLayout
     private lateinit var tvInsideHeader: TextView
+    private lateinit var btnSeeMore: TextView
     private lateinit var pbLoading: View
     private lateinit var layoutError: View
+
+    // History pagination: newest check-in first, all dates. First page is
+    // HISTORY_PAGE_SIZE rows; each See-more fetches the next page and appends.
+    // One extra row is requested per page purely to know whether more exists.
+    private val historyRows = mutableListOf<VanMovement>()
+    private var historyExhausted = false
+    private var historyLoadingMore = false
 
     private val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
     private val dayFormat = SimpleDateFormat("dd MMM", Locale.getDefault())
@@ -50,6 +59,7 @@ class CheckInFragment : Fragment() {
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
         private const val ARG_BRANCH_NAME = "branch_name"
+        private const val HISTORY_PAGE_SIZE = 5
         fun newInstance(branchId: String, branchName: String = ""): CheckInFragment {
             val f = CheckInFragment()
             f.arguments = Bundle().apply {
@@ -77,12 +87,14 @@ class CheckInFragment : Fragment() {
         layoutInside = view.findViewById(R.id.layoutVanInside)
         layoutHistory = view.findViewById(R.id.layoutVanHistory)
         tvInsideHeader = view.findViewById(R.id.tvVanInsideHeader)
+        btnSeeMore = view.findViewById(R.id.btnVanSeeMore)
         pbLoading = view.findViewById(R.id.pbVanLoading)
         layoutError = view.findViewById(R.id.layoutVanError)
         view.findViewById<View>(R.id.btnVanRetry).setOnClickListener {
             if (branchId.isNotBlank()) load()
         }
         view.findViewById<Button>(R.id.btnVanCheckIn).setOnClickListener { showCheckInSheet() }
+        btnSeeMore.setOnClickListener { loadMoreHistory() }
 
         if (branchId.isBlank()) {
             showError("No branch assigned to this account")
@@ -94,14 +106,60 @@ class CheckInFragment : Fragment() {
     private fun load() {
         pbLoading.isVisible = true
         layoutError.isVisible = false
+        historyRows.clear()
+        historyExhausted = false
+        historyLoadingMore = false
         lifecycleScope.launch {
-            runCatching { SupabaseVanMovements.fetchMovements(branchId) }
-                .onSuccess { render(it) }
-                .onFailure {
-                    pbLoading.isVisible = false
-                    showError(it.message ?: "Couldn't load van movements")
-                }
+            // Inside + first history page together: a checked-out row can never
+            // hide in (or linger from) one combined date filter — the two lists
+            // come from two explicit queries (open vs closed).
+            val open = async { runCatching { SupabaseVanMovements.fetchOpen(branchId) } }
+            val hist = async {
+                runCatching { SupabaseVanMovements.fetchHistory(branchId, HISTORY_PAGE_SIZE + 1, 0) }
+            }
+            val openResult = open.await()
+            val histResult = hist.await()
+            val failed = openResult.exceptionOrNull() ?: histResult.exceptionOrNull()
+            if (failed != null) {
+                if (!isAdded) return@launch
+                pbLoading.isVisible = false
+                showError(failed.message ?: "Couldn't load van movements")
+                return@launch
+            }
+            if (!isAdded) return@launch
+            renderInside(openResult.getOrDefault(emptyList()))
+            appendHistoryPage(histResult.getOrDefault(emptyList()))
         }
+    }
+
+    /** Next history page appended under the list; no-op when exhausted/loading. */
+    private fun loadMoreHistory() {
+        if (historyExhausted || historyLoadingMore || branchId.isBlank()) return
+        historyLoadingMore = true
+        btnSeeMore.text = "Loading…"
+        lifecycleScope.launch {
+            runCatching {
+                SupabaseVanMovements.fetchHistory(branchId, HISTORY_PAGE_SIZE + 1, historyRows.size)
+            }.onSuccess {
+                if (!isAdded) return@launch
+                appendHistoryPage(it)
+            }.onFailure {
+                if (!isAdded) return@launch
+                Toast.makeText(requireContext(), it.message ?: "Couldn't load more", Toast.LENGTH_SHORT).show()
+                btnSeeMore.text = "See more ↓"
+            }
+            historyLoadingMore = false
+        }
+    }
+
+    /** Adds one fetched page (limit+1 rows: the extra only signals more). */
+    private fun appendHistoryPage(page: List<VanMovement>) {
+        pbLoading.isVisible = false
+        layoutError.isVisible = false
+        val visible = page.take(HISTORY_PAGE_SIZE)
+        historyExhausted = page.size <= HISTORY_PAGE_SIZE
+        historyRows.addAll(visible)
+        renderHistory()
     }
 
     private fun showError(message: String) {
@@ -109,26 +167,28 @@ class CheckInFragment : Fragment() {
         layoutError.isVisible = true
     }
 
-    private fun render(movements: List<VanMovement>) {
+    private fun renderInside(inside: List<VanMovement>) {
         pbLoading.isVisible = false
         layoutError.isVisible = false
-        val inside = movements.filter { it.isInside }.sortedByDescending { it.checkInAt }
-        val done = movements.filter { !it.isInside }.sortedByDescending { it.checkInAt }
-
-        tvInsideHeader.text = "Inside now (${inside.size})"
+        val sorted = inside.sortedByDescending { it.checkInAt }
+        tvInsideHeader.text = "Inside now (${sorted.size})"
         layoutInside.removeAllViews()
-        if (inside.isEmpty()) {
+        if (sorted.isEmpty()) {
             layoutInside.addView(emptyRow("No vans inside right now."))
         } else {
-            inside.forEach { layoutInside.addView(insideRow(it)) }
+            sorted.forEach { layoutInside.addView(insideRow(it)) }
         }
+    }
 
+    private fun renderHistory() {
         layoutHistory.removeAllViews()
-        if (done.isEmpty()) {
-            layoutHistory.addView(emptyRow("No completed visits today yet."))
+        if (historyRows.isEmpty()) {
+            layoutHistory.addView(emptyRow("No completed visits yet."))
         } else {
-            done.forEach { layoutHistory.addView(historyRow(it)) }
+            historyRows.forEach { layoutHistory.addView(historyRow(it)) }
         }
+        btnSeeMore.isVisible = !historyExhausted && historyRows.isNotEmpty()
+        if (btnSeeMore.isVisible && !historyLoadingMore) btnSeeMore.text = "See more ↓"
     }
 
     private fun emptyRow(text: String): TextView = TextView(requireContext()).apply {
@@ -319,7 +379,10 @@ class CheckInFragment : Fragment() {
         pbLoading.isVisible = true
         lifecycleScope.launch {
             runCatching { SupabaseVanMovements.checkOut(m.id, atMillis) }
-                .onSuccess { load() }
+                .onSuccess {
+                    Toast.makeText(requireContext(), "✓ ${m.vehicleNumber} checked out", Toast.LENGTH_SHORT).show()
+                    load()
+                }
                 .onFailure {
                     pbLoading.isVisible = false
                     Toast.makeText(requireContext(), it.message ?: "Check-out failed", Toast.LENGTH_LONG).show()
