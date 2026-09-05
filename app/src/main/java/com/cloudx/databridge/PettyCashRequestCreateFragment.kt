@@ -515,12 +515,14 @@ class PettyCashRequestCreateFragment : Fragment() {
             setHintTextColor(android.graphics.Color.parseColor("#94A3B8"))
         }
         container.addView(etSearch)
-        val listView = ListView(ctx).apply { choiceMode = ListView.CHOICE_MODE_SINGLE }
+        val listView = ListView(ctx)
         container.addView(listView, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, dp * 300))
         var filtered = stores.toMutableList()
+        // Plain rows (no radio): a tap selects immediately + dismisses, so a
+        // single-choice radio indicator serves no purpose — it only confuses.
         fun makeAdapter(list: List<Store>) = object : ArrayAdapter<Store>(
-            ctx, android.R.layout.simple_list_item_single_choice, android.R.id.text1, list) {
+            ctx, android.R.layout.simple_list_item_1, android.R.id.text1, list) {
             override fun getView(pos: Int, cv: View?, parent: ViewGroup): View {
                 val v = super.getView(pos, cv, parent)
                 val s = list[pos]
