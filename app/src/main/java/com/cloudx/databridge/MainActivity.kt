@@ -169,7 +169,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private fun handleNotificationIntent(intent: Intent?) {
         val searchPhone = intent?.getStringExtra(AppNotificationManager.EXTRA_SEARCH_PHONE)
         if (!searchPhone.isNullOrBlank()) {
-            navigateToCallCenterWithSearch(searchPhone)
+            navigateToCallCenterWithSearch(
+                searchPhone,
+                force = intent.getBooleanExtra(AppNotificationManager.EXTRA_FORCE_CC_SEARCH, false)
+            )
             return
         }
         // FCM's system-rendered background notification carries the raw data keys;
@@ -1020,9 +1023,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
      *  already attached; only fall back to the resume-time flag when a tab switch is
      *  actually about to happen -- and in that case, validate the search actually found
      *  a match before leaving the agent there (see onCcSearchValidated). */
-    fun navigateToCallCenterWithSearch(phone: String) {
+    fun navigateToCallCenterWithSearch(phone: String, force: Boolean = false) {
         val toggles = getSharedPreferences("databridge_toggles", MODE_PRIVATE)
-        if (!toggles.getBoolean("lookup_from_cc", false)) return
+        // The agent-missing finder passes force=true (explicit tap) — it must work
+        // even with the lookup toggle off. The regular search button stays gated.
+        if (!force && !toggles.getBoolean("lookup_from_cc", false)) return
         if (!RbacManager.hasPermission("nav_call_center")) return
 
         val alreadyOnCc = supportFragmentManager.findFragmentById(R.id.container) is CallCenterFragment

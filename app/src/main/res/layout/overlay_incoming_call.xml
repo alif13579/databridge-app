@@ -345,6 +345,20 @@
             android:visibility="gone" />
 
         <TextView
+            android:id="@+id/btnOverlayAgentMissingSearch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_overlay_badge_status"
+            android:text="🔍 CC-তে খুঁজুন"
+            android:textColor="#0F172A"
+            android:textSize="12.5sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingVertical="10dp"
+            android:visibility="gone" />
+
+        <TextView
             android:id="@+id/tvOverlayConfirmation"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

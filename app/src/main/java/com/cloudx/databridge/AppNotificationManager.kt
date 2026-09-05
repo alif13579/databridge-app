@@ -31,6 +31,9 @@ object AppNotificationManager {
     const val EXTRA_PARCEL_ID = "notif_parcel_id"
     const val EXTRA_SCOPE = "notif_scope"
     const val EXTRA_SEARCH_PHONE = "search_phone"
+    // Agent-missing finder bypasses the "lookup_from_cc" settings toggle (the
+    // agent explicitly asked to search this number) — permission still checked.
+    const val EXTRA_FORCE_CC_SEARCH = "force_cc_search"
 
     data class NotifItem(
         val id: String = System.currentTimeMillis().toString() + (Math.random() * 1000).toInt(),

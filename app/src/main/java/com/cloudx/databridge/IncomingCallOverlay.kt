@@ -457,6 +457,7 @@ object IncomingCallOverlay {
             llRemarkSection.isVisible = false
             llFanout.isVisible = false
             tvAgentMissing.isVisible = false
+            view.findViewById<View>(R.id.btnOverlayAgentMissingSearch).isVisible = false
             btnSetRemarks.isVisible = true
         }
     }
@@ -493,6 +494,18 @@ object IncomingCallOverlay {
             } else selfSystemId
             if (agentId.isBlank()) {
                 tvAgentMissing.isVisible = true
+                // No run + no validations row: offer a one-tap jump into CC with
+                // this number pre-filled in search — no manual typing. Force flag
+                // bypasses the lookup toggle (explicit tap), permission still gated.
+                if (RbacManager.hasPermission("nav_call_center")) {
+                    view.findViewById<TextView>(R.id.btnOverlayAgentMissingSearch).apply {
+                        isVisible = true
+                        setOnClickListener {
+                            openCallCenterSearch(context, rawPhone, force = true)
+                            dismissInternal()
+                        }
+                    }
+                }
                 return@launch
             }
 
@@ -709,11 +722,13 @@ object IncomingCallOverlay {
      *  call-center scenario. */
     /** Opens the app straight into CallCenterFragment with [rawPhone] pre-filled in the
      *  search box -- for calls with no matched parcel (or when the agent wants to search
-     *  manually instead of jumping to the auto-matched one). */
-    private fun openCallCenterSearch(context: Context, rawPhone: String) {
+     *  manually instead of jumping to the auto-matched one). [force] bypasses the
+     *  lookup toggle (agent-missing finder) — permission still checked inside. */
+    private fun openCallCenterSearch(context: Context, rawPhone: String, force: Boolean = false) {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(AppNotificationManager.EXTRA_SEARCH_PHONE, rawPhone)
+            if (force) putExtra(AppNotificationManager.EXTRA_FORCE_CC_SEARCH, true)
         }
         try {
             context.startActivity(intent)
