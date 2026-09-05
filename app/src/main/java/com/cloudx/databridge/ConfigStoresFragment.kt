@@ -199,14 +199,17 @@ class ConfigStoresFragment : Fragment() {
         // Label with zone where present — same area name can exist in several
         // branches. Saves the human area_id (not the row id): the claim form
         // matches store areas against the area directory by area_id.
-        val labels = pickupAreas.map { a ->
-            if (a.zone.isNotBlank()) "${a.name} · ${a.zone}" else a.name
-        }.toTypedArray()
+        // Deduped by name+type: cross-branch copies collapse, while a Pickup
+        // twin and a Delivery twin sharing a name stay as two tagged entries.
+        val options = dedupeAreasForPicker(pickupAreas)
+        val multiNames = options.groupingBy { it.name.lowercase() }.eachCount()
+            .filterValues { it > 1 }.keys
+        val labels = options.map { areaPickerLabel(it, it.name.lowercase() in multiNames) }.toTypedArray()
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Select Area")
             .setItems(labels) { _, index ->
-                selectedAreaId = pickupAreas[index].areaId
-                selectedAreaName = pickupAreas[index].name
+                selectedAreaId = options[index].areaId
+                selectedAreaName = options[index].name
                 tvStoreAreaSelected.text = selectedAreaName
                 tvStoreAreaSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
             }

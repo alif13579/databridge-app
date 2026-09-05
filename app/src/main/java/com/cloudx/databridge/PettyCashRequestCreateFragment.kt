@@ -628,7 +628,10 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "Still loading area list, try again in a moment", Toast.LENGTH_SHORT).show()
             return
         }
-        val areas = if (selectedCategory == PC_CATEGORY_PICKUP) pickupAreas else deliveryAreas
+        val usage = if (selectedCategory == PC_CATEGORY_PICKUP) "pickup" else "delivery"
+        val rawAreas = if (selectedCategory == PC_CATEGORY_PICKUP) pickupAreas else deliveryAreas
+        // usage collapse: one name never shows twice in a single-usage list.
+        val areas = dedupeAreasForPicker(rawAreas, usage)
         val labels = listOf("Office") + areas.map { it.name }
         android.app.AlertDialog.Builder(requireContext())
             .setTitle(if (forFrom) "Select From" else "Select Destination")

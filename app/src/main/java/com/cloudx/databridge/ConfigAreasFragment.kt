@@ -33,6 +33,47 @@ data class Area(
 }
 
 /**
+ * Picker dedupe: the same area can exist in several branches (backfill copies
+ * courier-wide areas everywhere), so a multi-branch picker would list one name
+ * many times. Rule: same name collapses — EXCEPT across types, where a Pickup
+ * row and a Delivery row sharing a name stay as two entries (one delivery,
+ * one pickup), since they serve different pickers. Keeps first-seen order.
+ *
+ * [usage] set (claim pickers): collapse strictly by name, preferring the
+ * usage-specific row over a 'both'/legacy twin — a single-usage list must
+ * never show one name twice. Blank (store picker): bucket by name+type.
+ */
+fun dedupeAreasForPicker(areas: List<Area>, usage: String = ""): List<Area> {
+    if (usage.isBlank()) {
+        val out = mutableListOf<Area>()
+        val seen = mutableSetOf<String>()
+        for (a in areas) {
+            // 'both' is its own bucket, so a both-row never hides a
+            // pickup/delivery-specific twin.
+            val bucket = a.name.lowercase() + "::" + a.areaType.ifBlank { "both" }.lowercase()
+            if (seen.add(bucket)) out.add(a)
+        }
+        return out
+    }
+    return areas.groupBy { it.name.lowercase() }.values.mapNotNull { group ->
+        group.firstOrNull { it.areaType == usage }
+            ?: group.firstOrNull { it.areaType.isBlank() || it.areaType == "both" }
+            ?: group.firstOrNull()
+    }
+}
+
+/** Display label with zone + a type tag only when the same name needed two
+ *  entries (twin types) — keeps ordinary single rows exactly as before. */
+fun areaPickerLabel(a: Area, needsTypeTag: Boolean): String {
+    var label = a.name
+    if (a.zone.isNotBlank()) label += " · ${a.zone}"
+    if (needsTypeTag && a.areaType.isNotBlank() && a.areaType != "both") {
+        label += " · " + a.areaType.replaceFirstChar { it.uppercase() }
+    }
+    return label
+}
+
+/**
  * Config — Areas tab. Manages the branch-wise area directory
  * (public.areas, Supabase-first since the areas cutover):
  *   branch  — which branch this area belongs to (branch picker on top)
