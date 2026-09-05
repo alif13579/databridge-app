@@ -736,8 +736,7 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
         val agentBranchCache = mutableMapOf<String, List<String>>()
         val branchResolveFailures = mutableListOf<String>()     // the lookup itself threw
 
-        suspend fun resolveAgentBranchIds(systemId: String): List<String> {
-            agentBranchCache[systemId]?.let { return it }
+        suspend fun resolveAgentBranchIds(systemId: String): List<String> {            agentBranchCache[systemId]?.let { return it }
             val branchIds = try {
                 val uid = withContext(Dispatchers.IO) {
                     db.reference.child("users_by_systemId/$systemId/uid").get().await()
@@ -760,6 +759,62 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
             }
             agentBranchCache[systemId] = branchIds
             return branchIds
+        }
+
+        // ── runs_by_consignmentId + phone-index run pointers ──────────────
+        // courier/runs_by_consignmentId/{cid}/{runType}/{runId} = status lets the
+        // caller popup jump cid → today's run without scanning branch indexes.
+        // courier/consignments_by_phone/{phone}/{cid} carries "{runType}/{runId}"
+        // (NOT the old courier status) for the same reason — one read total.
+        // Keyed by (runType, runId) pair: one agent can own delivery_run +
+        // pickup_run under the SAME runId on the same day, runType differs.
+        // Collected across rows, flushed ONCE after the loop (see below).
+        val runIndexUpdates = mutableMapOf<String, Any>()
+        var runIndexCount = 0
+        val consignmentPhoneCache = mutableMapOf<String, String>()
+
+        suspend fun resolveConsignmentPhone(cid: String): String {
+            consignmentPhoneCache[cid]?.let { return it }
+            // recipientPhone is stored normalized (see insert path below), but
+            // older rows may hold raw text — normalize again to match the index key.
+            val phone = try {
+                val raw = withContext(Dispatchers.IO) {
+                    db.reference.child("courier/consignments/$cid/recipientPhone").get().await()
+                        .getValue(String::class.java)?.trim().orEmpty()
+                }
+                normalizePhone(raw)
+            } catch (_: Exception) { "" }
+            consignmentPhoneCache[cid] = phone
+            return phone
+        }
+
+        suspend fun queueRunConsignmentIndex(runType: String, runId: String, status: String, cids: List<String>) {
+            cids.forEach { cid ->
+                runIndexUpdates["courier/runs_by_consignmentId/$cid/$runType/$runId"] = status
+                runIndexCount++
+                val phone = resolveConsignmentPhone(cid)
+                if (phone.isNotBlank()) {
+                    runIndexUpdates["courier/consignments_by_phone/$phone/$cid"] = "$runType/$runId"
+                }
+            }
+        }
+
+        // Consignment-flow writes must never clobber a run pointer back to a
+        // courier status: run syncs usually land BEFORE later consignment status
+        // re-syncs. Write the status only when the slot is absent or still holds
+        // an old status string. On read failure return false (preserve whatever
+        // is there rather than risk wiping a runId).
+        suspend fun shouldWritePhoneStatus(phone: String, cid: String): Boolean {
+            return try {
+                val snap = withContext(Dispatchers.IO) {
+                    db.reference.child("courier/consignments_by_phone/$phone/$cid").get().await()
+                }
+                if (!snap.exists()) return true
+                val v = snap.getValue(String::class.java)?.trim().orEmpty()
+                !(v.contains("/run_") || v.startsWith("run_"))
+            } catch (_: Exception) {
+                false
+            }
         }
 
         for (row in dataRows) {
@@ -868,12 +923,18 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                 // INSERT
                 fieldMap.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
                 objectFieldWrites.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
-                // consignments_by_phone — legacy secondary index, only relevant for the
-                // default courier/consignments flow. Guarded so other sheet types
-                // (e.g. courier/run_routes/...) never write into this unrelated index.
+                // consignments_by_phone — reverse phone → consignment index. The VALUE
+                // used to be the courier status (never read anywhere — readers only
+                // use keys); run syncs now store "{runType}/{runId}" here instead
+                // (see queueRunConsignmentIndex), so guard consignment-flow writes
+                // from overwriting a run pointer back to a status.
+                // Guarded so other sheet types (e.g. courier/run_routes/...) never
+                // write into this unrelated index.
                 if (basePath == "courier/consignments" && normalizedPhone.isNotBlank()) {
                     val status = fieldMap["status"]?.toString() ?: ""
-                    multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] = status
+                    if (shouldWritePhoneStatus(normalizedPhone, conId)) {
+                        multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] = status
+                    }
                 }
                 // runs_by_agentSystemId — same reverse-index pattern, generalized for ANY run type
                 // under courier/run_routes/{runType}/ (delivery_run, pickup_run, return_run, etc.)
@@ -884,6 +945,19 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                     val status = fieldMap["status"]?.toString() ?: ""
                     multiUpdate["courier/runs_by_agentSystemId/$userSystemId/$runType/$conId"] = status
 
+                    // runs_by_consignmentId + phone run pointer for every consignment
+                    // riding this run (INSERT sees the full row).
+                    val runCids = objectFieldWrites.keys.mapNotNull { k ->
+                        if (k.substringBefore("/") == "consignments") {
+                            k.substringAfter("/").takeIf { it.isNotBlank() }
+                        } else null
+                    }
+                    if (runCids.isNotEmpty()) {
+                        val runStatus = fieldMap["status"]?.toString() ?: ""
+                        if (runStatus.isNotBlank()) {
+                            queueRunConsignmentIndex(runType, conId, runStatus, runCids)
+                        }
+                    }
                     // runs_by_branchId — branch is resolved ONCE at run-creation time (the agent's
                     // branch_ids *right now*), then locked in via resolvedBranchIds on the run
                     // node itself. If the agent switches branch tomorrow, tomorrow's runId is a
@@ -940,10 +1014,13 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
 
                 if (changedFields.isNotEmpty()) {
                     changedFields.forEach { (k, v) -> multiUpdate["$basePath/$conId/$k"] = v }
-                    // Update consignments_by_phone if status changed (guarded, see note above)
+                    // Update consignments_by_phone if status changed (guarded, see note above).
+                    // Must not overwrite a "{runType}/{runId}" pointer a run sync wrote.
                     if (basePath == "courier/consignments" && "status" in changedFields && normalizedPhone.isNotBlank()) {
-                        multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] =
-                            changedFields["status"].toString()
+                        if (shouldWritePhoneStatus(normalizedPhone, conId)) {
+                            multiUpdate["courier/consignments_by_phone/$normalizedPhone/$conId"] =
+                                changedFields["status"].toString()
+                        }
                     }
                     // Update runs_by_agentSystemId if status changed (same guarded pattern, generalized run type)
                     if (runTypeMatchUpd != null && "status" in changedFields && userSystemId.isNotBlank()) {
@@ -968,6 +1045,37 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                         branchIdsForIndex.forEach { branchId ->
                             multiUpdate["courier/runs_by_branchId/$branchId/$runType/$conId"] =
                                 statusForIndex
+                        }
+                    }
+                }
+
+                // runs_by_consignmentId + phone run pointers for run rows — same rule
+                // as the branch propagation below: on status change, or on first
+                // resolvedBranchIds backfill (a pre-index run gets its consignments
+                // indexed from the live node then). Changed-only cids come from
+                // objectFieldWrites; the backfill case reads the node's map.
+                if (runTypeMatchUpd != null && userSystemId.isNotBlank() &&
+                    ("status" in changedFields || branchBackfilled)) {
+                    val runType = runTypeMatchUpd.groupValues[1]
+                    val updStatus = (changedFields["status"] as? String)
+                        ?: fieldMap["status"]?.toString()
+                        ?: existSnap.child("status").getValue(String::class.java) ?: ""
+                    if (updStatus.isNotBlank()) {
+                        var updCids = objectFieldWrites.keys.mapNotNull { k ->
+                            if (k.substringBefore("/") == "consignments") {
+                                k.substringAfter("/").takeIf { it.isNotBlank() }
+                            } else null
+                        }
+                        if (updCids.isEmpty() && branchBackfilled) {
+                            updCids = try {
+                                withContext(Dispatchers.IO) {
+                                    db.reference.child("$basePath/$conId/consignments").get().await()
+                                        .children.mapNotNull { it.key?.takeIf { id -> id.isNotBlank() } }
+                                }
+                            } catch (_: Exception) { emptyList() }
+                        }
+                        if (updCids.isNotEmpty()) {
+                            queueRunConsignmentIndex(runType, conId, updStatus, updCids)
                         }
                     }
                 }
@@ -1045,6 +1153,22 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
             )
         }
 
+        // ── Run-consignment index flush (ISOLATED batch — deliberately NOT merged
+        // into any row multiUpdate above: updateChildren is atomic, and until the
+        // new runs_by_consignmentId rule is deployed this write can be
+        // permission-denied. Mixed in, it would fail the whole row. Failures land
+        // in writeFailures (shown below) without touching inserted/updated counts.
+        if (runIndexUpdates.isNotEmpty()) {
+            setBusy(true, "Run index লিখছে... ($runIndexCount)")
+            withContext(Dispatchers.IO) {
+                try {
+                    db.reference.updateChildren(runIndexUpdates).await()
+                } catch (e: Exception) {
+                    writeFailures.add("run-index batch → ${e.message?.take(80) ?: e.javaClass.simpleName}")
+                }
+            }
+        }
+
         // ── 5. Summary dialog ─────────────────────────────────────
         setBusy(false)
         if (!isAdded) return
@@ -1086,6 +1210,7 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                 "Updated  : $updated\n" +
                 "Skipped  : $skipped\n" +
                 "Total    : ${dataRows.size}" +
+                (if (runIndexCount > 0) "\nRun index: $runIndexCount" else "") +
                 issuesText + failuresText + branchlessText
             )
             .setPositiveButton("OK", null)

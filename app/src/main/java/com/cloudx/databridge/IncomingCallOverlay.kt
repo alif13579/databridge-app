@@ -140,7 +140,7 @@ object IncomingCallOverlay {
             // the card renders first, this line fills in when ready.
             overlayScope.launch {
                 val assignee = withContext(Dispatchers.IO) {
-                    IncomingCallerLookup.resolveTodayAssignees(listOf(match.consignmentId))
+                    IncomingCallerLookup.resolveTodayAssignees(listOf(match.consignmentId), rawPhone)
                         .values.firstOrNull()
                 }
                 if (overlayView !== view || assignee == null) return@launch
@@ -479,7 +479,7 @@ object IncomingCallOverlay {
             // the CC fallback when no validations row exists yet (first remark).
             val siblingIds = withContext(Dispatchers.IO) { siblingConsignmentIds(rawPhone, match.consignmentId) }
             val todayAssignees = withContext(Dispatchers.IO) {
-                IncomingCallerLookup.resolveTodayAssignees(listOf(match.consignmentId) + siblingIds)
+                IncomingCallerLookup.resolveTodayAssignees(listOf(match.consignmentId) + siblingIds, rawPhone)
             }
             if (overlayView !== view) return@launch // dismissed while loading
 

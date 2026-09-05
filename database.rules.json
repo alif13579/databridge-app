@@ -249,6 +249,12 @@
           ".write": "auth != null"
         }
       },
+      "runs_by_consignmentId": {
+        "$consignmentId": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      },
       "remarks_by_consignment": {
         ".read": "auth != null",
         ".write": "auth != null",
