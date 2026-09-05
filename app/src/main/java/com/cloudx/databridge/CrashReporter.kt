@@ -12,8 +12,12 @@ package com.cloudx.databridge
  *     kills the process as usual). File I/O is fully guarded — the handler
  *     itself must never throw.
  *  2. [showPending] (called from MainActivity.onCreate on the next launch)
- *     shows the saved log in a scrollable dialog with Copy / Clear / Close.
- *     Close keeps the file so it shows again next launch; Clear deletes it.
+ *     shows the saved log in a scrollable dialog with Copy again / Clear /
+ *     Close. The log is ALSO auto-copied to the clipboard the moment the
+ *     dialog shows — the manual Copy button proved unreliable on some devices
+ *     (tap → toast, but nothing lands in the clipboard), so the dialog no
+ *     longer depends on that tap working. Close keeps the file so it shows
+ *     again next launch; Clear deletes it.
  *
  * Copy the text straight into chat — it pinpoints the crash line.
  */
@@ -72,18 +76,42 @@ object CrashReporter {
         }
         val scroll = android.widget.ScrollView(activity).apply { addView(tv) }
         android.app.AlertDialog.Builder(activity)
-            .setTitle("App crash হয়েছিল — log")
+            .setTitle("App crash হয়েছিল — log (auto-copied ✓)")
             .setView(scroll)
-            .setPositiveButton("Copy") { _, _ ->
-                val clipboard = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("DataBridgeCrash", text))
-                android.widget.Toast.makeText(activity, "Copied — chat-এ paste করে দিন", android.widget.Toast.LENGTH_SHORT).show()
+            .setPositiveButton("Copy again") { _, _ ->
+                if (copyToClipboard(activity, text)) {
+                    android.widget.Toast.makeText(activity, "Copied — chat-এ paste করে দিন", android.widget.Toast.LENGTH_SHORT).show()
+                } else {
+                    android.widget.Toast.makeText(activity, "⚠ Copy failed — text select করে manually copy করুন", android.widget.Toast.LENGTH_LONG).show()
+                }
             }
             .setNeutralButton("Clear") { _, _ ->
                 try { activity.deleteFile(FILE_NAME) } catch (_: Exception) {}
             }
             .setNegativeButton("Close", null)
             .show()
+        // Auto-copy on show: the manual button alone proved unreliable (tap →
+        // success toast, but nothing in the clipboard on some devices), so paste
+        // must work even if the user never taps anything.
+        if (copyToClipboard(activity, text)) {
+            android.widget.Toast.makeText(activity, "Crash log auto-copied — chat-এ paste করে দিন", android.widget.Toast.LENGTH_LONG).show()
+        } else {
+            android.widget.Toast.makeText(activity, "⚠ Auto-copy failed — Copy again চাপুন বা select করে copy করুন", android.widget.Toast.LENGTH_LONG).show()
+        }
         return true
+    }
+
+    /** Best-effort clipboard write. Returns false (instead of throwing) so every
+     *  caller can fall back to manual selection — clipboard writes can be
+     *  rejected on some OEM builds even from a foreground activity. */
+    private fun copyToClipboard(activity: android.app.Activity, text: String): Boolean {
+        return try {
+            val clipboard = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("DataBridgeCrash", text))
+            // Verify it actually landed — the reported bug was a silent no-op.
+            clipboard.primaryClip?.getItemAt(0)?.text?.toString() == text
+        } catch (_: Exception) {
+            false
+        }
     }
 }
