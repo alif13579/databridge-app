@@ -27,10 +27,8 @@ object SupabaseVanMovements {
 
     private fun String.encodeParam(): String = java.net.URLEncoder.encode(this, "UTF-8")
 
-    private fun isoToMillis(value: String): Long {
-        if (value.isBlank()) return 0L
-        return runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
-    }
+    private fun isoToMillis(value: String): Long =
+        SupabaseRemarkValidationWriter.parseDbTimestampMillis(value)
 
     /** Operations day follows Bangladesh time regardless of the phone's zone. */
     fun bangladeshTodayStartIso(): String = java.time.LocalDate

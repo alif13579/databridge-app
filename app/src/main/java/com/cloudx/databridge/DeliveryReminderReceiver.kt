@@ -92,9 +92,7 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
             cod = (cons?.get("collectableAmount") as? Number)?.toDouble() ?: 0.0,
             ccRemarkText = row.optString("remarks_bn").ifBlank { row.optString("remarks") },
             ccAuthorName = author?.optString("name").orEmpty(),
-            ccRemarkAtMs = try {
-                java.time.Instant.parse(row.optString("created_at")).toEpochMilli()
-            } catch (_: Exception) { 0L },
+            ccRemarkAtMs = SupabaseRemarkValidationWriter.parseDbTimestampMillis(row.optString("created_at")),
             otherPendingCount = otherPendingCount,
         )
     }

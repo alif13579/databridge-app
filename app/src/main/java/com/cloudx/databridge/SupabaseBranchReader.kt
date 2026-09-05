@@ -54,9 +54,7 @@ object SupabaseBranchReader {
 
     private fun org.json.JSONObject.toBranchRow(): BranchRow {
         fun isoMillis(key: String): Long {
-            val v = optString(key, "")
-            return if (v.isBlank()) 0L
-            else runCatching { java.time.Instant.parse(v).toEpochMilli() }.getOrDefault(0L)
+            return SupabaseRemarkValidationWriter.parseDbTimestampMillis(optString(key, ""))
         }
         return BranchRow(
             branchId = optString("branch_id"),

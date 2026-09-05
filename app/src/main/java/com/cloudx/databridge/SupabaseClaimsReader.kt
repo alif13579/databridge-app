@@ -457,8 +457,9 @@ object SupabaseClaimsReader {
 
     private fun JSONObject.toClaimInfo(): ClaimInfo {
         fun isoMillis(key: String): Long {
-            val v = optString(key, "")
-            return if (v.isBlank()) 0L else runCatching { java.time.Instant.parse(v).toEpochMilli() }.getOrDefault(0L)
+            // Central tolerant parser — PostgREST's space-shaped timestamptz
+            // must round-trip, or re-upserts null created_at (23502).
+            return SupabaseRemarkValidationWriter.parseDbTimestampMillis(optString(key, ""))
         }
         // Actor names are joined via PostgREST embed (see ACTOR_SELECT constant) —
         // not stored as columns. Requester name comes from the `requester` embed

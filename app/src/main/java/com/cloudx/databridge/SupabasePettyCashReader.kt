@@ -37,10 +37,8 @@ object SupabasePettyCashReader {
 
     private fun String.encodeParam(): String = java.net.URLEncoder.encode(this, "UTF-8")
 
-    private fun isoToMillis(value: String): Long {
-        if (value.isBlank()) return 0L
-        return runCatching { java.time.Instant.parse(value).toEpochMilli() }.getOrDefault(0L)
-    }
+    private fun isoToMillis(value: String): Long =
+        SupabaseRemarkValidationWriter.parseDbTimestampMillis(value)
 
     private fun JSONObject.isoMillis(key: String): Long = isoToMillis(optString(key, ""))
 

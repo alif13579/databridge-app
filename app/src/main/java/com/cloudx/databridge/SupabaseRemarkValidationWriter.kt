@@ -363,20 +363,37 @@ object SupabaseRemarkValidationWriter {
     }
 
     /** Parses Supabase/PostgREST timestamp output without turning a parse failure into 1970. */
-    fun parseCreatedAtMillis(value: String?): Long {
+    fun parseCreatedAtMillis(value: String?): Long = parseDbTimestampMillis(value)
+
+    /**
+     * Single tolerant parser for every DB timestamp the app reads. PostgREST
+     * returns timestamptz in Postgres text shape ("2026-09-05 10:42:23.872+00",
+     * space + short offset) as often as strict ISO ("...T...+00:00") — the old
+     * Instant.parse-only readers turned the space shape into 0L, which blanked
+     * dates AND nulled created_at/requested_at on claim re-upserts (acknowledge
+     * died with 23502 null-created_at). Never returns 1970 for garbage — 0L.
+     */
+    fun parseDbTimestampMillis(value: String?): Long {
         val raw = value?.trim().orEmpty()
         if (raw.isBlank()) return 0L
         raw.toLongOrNull()?.let { number ->
             return if (kotlin.math.abs(number) < 100_000_000_000L) number * 1000L else number
         }
-        return runCatching { Instant.parse(raw).toEpochMilli() }
-            .recoverCatching { OffsetDateTime.parse(raw).toInstant().toEpochMilli() }
-            .recoverCatching { LocalDateTime.parse(raw).toInstant(ZoneOffset.UTC).toEpochMilli() }
+        // Normalized variants: space→T, short "+00" offset → "+00:00".
+        // (Offset regex only runs on strings that already contain 'T', so a
+        // bare date's "-05" tail can never match.)
+        val isoSpaced = raw.replace(' ', 'T')
+        val isoOffset = if ('T' in isoSpaced) isoSpaced.replace(Regex("([+-]\\d{2})$"), "$1:00") else isoSpaced
+        for (candidate in linkedSetOf(raw, isoSpaced, isoOffset)) {
+            runCatching { Instant.parse(candidate).toEpochMilli() }.getOrNull()?.let { return it }
+            runCatching { OffsetDateTime.parse(candidate).toInstant().toEpochMilli() }.getOrNull()?.let { return it }
+            runCatching { LocalDateTime.parse(candidate).toInstant(ZoneOffset.UTC).toEpochMilli() }.getOrNull()?.let { return it }
             // DATE-only values (e.g. an old requested_at stored as 'YYYY-MM-DD'
             // by a CURRENT_DATE default) parse to start of day, never 0 — a 0
             // renders as a blank "—" date on cards/details.
-            .recoverCatching { LocalDate.parse(raw).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }
-            .getOrDefault(0L)
+            runCatching { LocalDate.parse(candidate).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli() }.getOrNull()?.let { return it }
+        }
+        return 0L
     }
 
     // ── Read functions — direct PostgREST REST API (unlimited, zero invocations) ──

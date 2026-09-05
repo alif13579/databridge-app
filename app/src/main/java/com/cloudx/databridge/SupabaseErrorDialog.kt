@@ -21,6 +21,8 @@ object UserErrorText {
                 "Internet সংযোগে সমস্যা — connection check করে আবার চেষ্টা করুন"
             "foreign key" in m || "23503" in m ->
                 "তথ্য sync-এ সমস্যা হয়েছে — আবার চেষ্টা করুন, না হলে admin-কে জানান"
+            "23502" in m || "null value in column" in m ->
+                "তথ্য sync-এ সমস্যা হয়েছে (খালি date/field) — app update করে আবার চেষ্টা করুন"
             "http 400" in m || "missing" in m || "is required" in m ->
                 "কিছু তথ্য বাকি আছে — form check করে আবার চেষ্টা করুন"
             "http 401" in m || "unauthorized" in m ->
