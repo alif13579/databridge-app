@@ -205,8 +205,7 @@ object SupabaseClaimsReader {
         }
     }
 
-    suspend fun fetchStores(): List<Store> = withContext(Dispatchers.IO) {
-        val token = SupabaseClientManager.getAccessToken()
+    suspend fun fetchStores(): List<Store> = withContext(Dispatchers.IO) {        val token = SupabaseClientManager.getAccessToken()
         if (token == null) {
             Log.e(TAG, "fetchStores skipped: no Firebase bearer token")
             return@withContext emptyList()
@@ -243,6 +242,67 @@ object SupabaseClaimsReader {
             }
         } catch (e: Exception) {
             Log.e(TAG, "fetchStores failed", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * Branch-wise area directory (public.areas) for claim From/To pickers,
+     * store form area pickers, and the Config Areas tab. Empty [branchIds] =
+     * all branches; empty [usages] = both pickup+delivery. Usage matching is
+     * client-side (a 'both' row serves either picker) — see Area.matchesUsage.
+     */
+    suspend fun fetchAreas(
+        branchIds: List<String> = emptyList(),
+        usages: List<String> = emptyList(),
+    ): List<Area> = withContext(Dispatchers.IO) {
+        val token = SupabaseClientManager.getAccessToken()
+        if (token == null) {
+            Log.e(TAG, "fetchAreas skipped: no Firebase bearer token")
+            return@withContext emptyList()
+        }
+        val url = buildString {
+            append("${SupabaseConfig.PROJECT_URL}/rest/v1/areas")
+            append("?select=branch_id,area_id,name,area_type,zone&order=branch_id.asc,name.asc")
+            if (branchIds.isNotEmpty()) {
+                append("&branch_id=in.(")
+                append(branchIds.joinToString(",") { it.encodeParam() })
+                append(")")
+            }
+        }
+        try {
+            val response = SupabaseClientManager.httpClient.newCall(
+                Request.Builder().url(url)
+                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                    .addHeader("Authorization", "Bearer $token")
+                    .addHeader("Accept", "application/json")
+                    .get().build()
+            ).execute()
+            response.use {
+                val text = it.body?.string().orEmpty()
+                if (!it.isSuccessful) {
+                    Log.e(TAG, "fetchAreas HTTP ${it.code}: ${text.take(1_000)}")
+                    return@withContext emptyList()
+                }
+                val arr = JSONArray(text)
+                List(arr.length()) { i ->
+                    val row = arr.getJSONObject(i)
+                    val type = row.optString("area_type").ifBlank { "both" }
+                    Area(
+                        id = row.optString("branch_id") + "::" + row.optString("area_id"),
+                        areaId = row.optString("area_id"),
+                        name = row.optString("name"),
+                        branchId = row.optString("branch_id"),
+                        areaType = type,
+                        zone = row.optString("zone"),
+                    )
+                }.filter { a ->
+                    a.areaId.isNotBlank() && a.name.isNotBlank() &&
+                        (usages.isEmpty() || usages.any { a.matchesUsage(it) })
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchAreas failed", e)
             emptyList()
         }
     }

@@ -11,86 +11,74 @@ import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.IgnoreExtraProperties
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 @IgnoreExtraProperties
 data class Area(
     val id: String = "",
     val areaId: String = "",
-    val name: String = ""
-)
+    val name: String = "",
+    // Supabase public.areas (branch-wise directory). Firebase rows predate
+    // these fields, so everything below blanks there — never rely on them
+    // for Firebase reads.
+    val branchId: String = "",
+    val branchName: String = "",
+    val areaType: String = "",
+    val zone: String = ""
+) {
+    /** True for pickers of this usage ("pickup" matches pickup+both, etc.). */
+    fun matchesUsage(usage: String): Boolean =
+        areaType.isBlank() || areaType == "both" || areaType == usage
+}
 
 /**
- * Config — Areas tab. Manages the two courier-wide area directories:
- *   courier/areas/delivery_area — destinations a parcel can be routed to;
- *     this is what Virtual Routing's Select Area picker is meant to read
- *     once it's wired to real data (it currently uses DemoAreaCatalog — see
- *     VirtualRoutingFragment's class doc).
- *   courier/areas/pickup_area   — zones a pickup run collects from.
- * Same admin/manager Firebase-rules write restriction as Stores (see
- * database.rules.json) — this fragment doesn't duplicate that check itself,
- * since an unprivileged write would just get rejected by the rules
- * regardless of what this screen shows.
+ * Config — Areas tab. Manages the branch-wise area directory
+ * (public.areas, Supabase-first since the areas cutover):
+ *   branch  — which branch this area belongs to (branch picker on top)
+ *   type    — pickup | delivery | both (which pickers list it)
+ *   zone    — free-text zone/group label for area grip
+ *   area id + name — same human-assigned shape as Store ID.
  *
- * One tab, not two — a Delivery/Pickup segmented toggle (AreaType below)
- * switches which of the two directories the list reads/writes; both sides
- * share the exact same list-render/add/edit/delete code, parameterized by
- * activeType, rather than duplicating this fragment per category. Follows
- * the same inline-panel add/edit pattern as ConfigStoresFragment.
+ * One tab, two usages — a Delivery/Pickup segmented toggle filters which
+ * rows are shown; the type picker in the panel decides what a row serves.
+ * Claims (From/To) and pickup Stores read from here, scoped to the branch.
  *
- * Each Area now carries an Area ID (human-assigned identifier, distinct
- * from the Firebase push key stored in `id`) alongside its name — same
- * shape as Store's Store ID, added per Alif's request, and the same field
- * set applies to BOTH Delivery and Pickup (AreaType doesn't change what
- * fields an entry has, only which of the two directories it's stored in).
- * Area ID and name are each duplicate-checked case-insensitively, scoped
- * to the current type only.
+ * Same inline-panel add/edit pattern as ConfigStoresFragment. Writes go
+ * through SupabaseAreaWriter (admin/manager-gated server-side, Firebase
+ * backup mirror included) — the old Firebase courier/areas writes are gone.
  */
 class ConfigAreasFragment : Fragment() {
 
-    private val db = FirebaseDatabase.getInstance()
-
-    private enum class AreaType(
-        val label: String,
-        val description: String,
-        val listPath: String,
-        val itemPath: (String) -> String
-    ) {
-        DELIVERY(
-            "Delivery Areas",
-            "Destinations a parcel can be routed to for delivery — read by Virtual Routing's Select Area picker.",
-            FirebasePaths.deliveryAreas(),
-            { id -> FirebasePaths.deliveryArea(id) }
-        ),
-        PICKUP(
-            "Pickup Areas",
-            "Zones a pickup run collects from.",
-            FirebasePaths.pickupAreas(),
-            { id -> FirebasePaths.pickupArea(id) }
-        )
+    private enum class AreaType(val label: String, val usage: String) {
+        DELIVERY("Delivery Areas", "delivery"),
+        PICKUP("Pickup Areas", "pickup"),
     }
 
     private var activeType = AreaType.DELIVERY
+    private var selectedBranchId: String = ""
+    private var branchNames: Map<String, String> = emptyMap()
+    private var selectedAreaType: String = "both"
 
     private lateinit var tvSegDelivery: TextView
     private lateinit var tvSegPickup: TextView
     private lateinit var tvListTitle: TextView
     private lateinit var tvDescription: TextView
+    private lateinit var tvBranchSelected: TextView
     private lateinit var listContainer: LinearLayout
     private lateinit var tvEmpty: TextView
     private lateinit var inlinePanel: View
     private lateinit var tvPanelTitle: TextView
     private lateinit var etAreaId: EditText
     private lateinit var etName: EditText
+    private lateinit var tvTypeSelected: TextView
+    private lateinit var etZone: EditText
     private lateinit var tvError: TextView
     private lateinit var busyOverlay: View
     private lateinit var tvBusy: TextView
 
     private var areas: List<Area> = emptyList()
-    private var editingAreaDbKey: String = "" // Firebase push key of the area being edited; blank = creating new
+    private var editingAreaId: String = "" // area_id being edited; blank = creating new
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_config_areas, container, false)
@@ -102,12 +90,15 @@ class ConfigAreasFragment : Fragment() {
         tvSegPickup = view.findViewById(R.id.tvAreaSegPickup)
         tvListTitle = view.findViewById(R.id.tvAreaListTitle)
         tvDescription = view.findViewById(R.id.tvAreaDescription)
+        tvBranchSelected = view.findViewById(R.id.tvAreaBranchSelected)
         listContainer = view.findViewById(R.id.areaListContainer)
         tvEmpty = view.findViewById(R.id.tvAreaEmpty)
         inlinePanel = view.findViewById(R.id.inlineCreateAreaPanel)
         tvPanelTitle = view.findViewById(R.id.tvCreateAreaTitle)
         etAreaId = view.findViewById(R.id.etAreaId)
         etName = view.findViewById(R.id.etAreaName)
+        tvTypeSelected = view.findViewById(R.id.tvAreaTypeSelected)
+        etZone = view.findViewById(R.id.etAreaZone)
         tvError = view.findViewById(R.id.tvCreateAreaError)
         busyOverlay = view.findViewById(R.id.areaBusyOverlay)
         tvBusy = view.findViewById(R.id.tvAreaBusy)
@@ -115,11 +106,67 @@ class ConfigAreasFragment : Fragment() {
         view.findViewById<View>(R.id.btnOpenCreateArea).setOnClickListener { openCreatePanel() }
         view.findViewById<View>(R.id.btnCancelCreateArea).setOnClickListener { closePanel() }
         view.findViewById<View>(R.id.btnSaveArea).setOnClickListener { saveArea() }
+        view.findViewById<View>(R.id.layoutAreaBranch).setOnClickListener { showBranchPicker() }
+        view.findViewById<View>(R.id.layoutAreaType).setOnClickListener { showTypePicker() }
 
         tvSegDelivery.setOnClickListener { switchType(AreaType.DELIVERY) }
         tvSegPickup.setOnClickListener { switchType(AreaType.PICKUP) }
 
+        initBranch()
         switchType(activeType)
+    }
+
+    private fun initBranch() {
+        val branchIds = RbacManager.current.branchIds
+        selectedBranchId = branchIds.firstOrNull().orEmpty()
+        if (RbacManager.current.branchName.isNotBlank() && selectedBranchId.isNotBlank()) {
+            branchNames = mapOf(selectedBranchId to RbacManager.current.branchName)
+        }
+        updateBranchLabel()
+        lifecycleScope.launch {
+            runCatching { SupabaseClaimsReader.fetchBranches() }.onSuccess { options ->
+                val byId = options.associate { it.branchId to it.name }
+                branchNames = branchNames + branchIds
+                    .filter { it !in branchNames }
+                    .associateWith { id -> byId[id]?.takeIf { it.isNotBlank() } ?: id }
+                updateBranchLabel()
+            }
+        }
+    }
+
+    private fun updateBranchLabel() {
+        tvBranchSelected.text = branchNames[selectedBranchId] ?: selectedBranchId.ifBlank { "Select Branch" }
+        tvBranchSelected.setTextColor(
+            android.graphics.Color.parseColor(if (selectedBranchId.isBlank()) "#94A3B8" else "#0F172A")
+        )
+    }
+
+    private fun showBranchPicker() {
+        val branchIds = RbacManager.current.branchIds
+        if (branchIds.isEmpty()) {
+            Toast.makeText(requireContext(), "No branch assigned — contact your admin", Toast.LENGTH_LONG).show()
+            return
+        }
+        val labels = branchIds.map { branchNames[it] ?: it }.toTypedArray()
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Select Branch")
+            .setItems(labels) { _, index ->
+                selectedBranchId = branchIds[index]
+                updateBranchLabel()
+                loadAreas()
+            }
+            .show()
+    }
+
+    private fun showTypePicker() {
+        val options = arrayOf("Pickup", "Delivery", "Both")
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Area Type")
+            .setItems(options) { _, index ->
+                selectedAreaType = options[index].lowercase()
+                tvTypeSelected.text = options[index]
+            }
+            .show()
     }
 
     private fun switchType(type: AreaType) {
@@ -136,7 +183,10 @@ class ConfigAreasFragment : Fragment() {
         tvSegPickup.setBackgroundResource(if (type == AreaType.PICKUP) R.drawable.bg_area_segment_active else 0)
 
         tvListTitle.text = type.label
-        tvDescription.text = type.description
+        tvDescription.text = if (type == AreaType.DELIVERY)
+            "Branch areas served for delivery — claim To picker reads these."
+        else
+            "Branch areas served for pickup — store form + claim From picker read these."
 
         loadAreas()
     }
@@ -147,22 +197,31 @@ class ConfigAreasFragment : Fragment() {
     }
 
     private fun loadAreas() {
+        if (selectedBranchId.isBlank()) {
+            areas = emptyList()
+            renderList()
+            return
+        }
         setBusy(true, "Loading areas...")
-        val requestedType = activeType // captured so a late response can't clobber a since-switched tab
+        val requestedBranch = selectedBranchId
+        val requestedUsage = activeType.usage
         lifecycleScope.launch {
             try {
-                val snap = db.reference.child(requestedType.listPath).get().await()
-                if (activeType != requestedType) return@launch
-                areas = snap.children
-                    .mapNotNull { it.getValue(Area::class.java)?.copy(id = it.key.orEmpty()) }
-                    .sortedBy { it.name.lowercase() }
+                // Areas live in Supabase now (public.areas, branch-wise) — same
+                // screen the claim/store pickers read from.
+                val result = SupabaseClaimsReader.fetchAreas(
+                    branchIds = listOf(requestedBranch),
+                    usages = listOf(requestedUsage),
+                )
+                if (selectedBranchId != requestedBranch || activeType.usage != requestedUsage) return@launch
+                areas = result.sortedBy { it.name.lowercase() }
                 renderList()
             } catch (e: Exception) {
-                if (activeType == requestedType) {
+                if (selectedBranchId == requestedBranch && activeType.usage == requestedUsage) {
                     Toast.makeText(requireContext(), "Failed to load areas: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             } finally {
-                if (activeType == requestedType) setBusy(false)
+                if (selectedBranchId == requestedBranch && activeType.usage == requestedUsage) setBusy(false)
             }
         }
     }
@@ -174,7 +233,12 @@ class ConfigAreasFragment : Fragment() {
         areas.forEach { area ->
             val row = layoutInflater.inflate(R.layout.item_area_row, listContainer, false)
             row.findViewById<TextView>(R.id.tvAreaName).text = area.name
-            row.findViewById<TextView>(R.id.tvAreaSubtitle).text = area.areaId
+            val subtitleParts = listOfNotNull(
+                area.areaId.takeIf { it.isNotBlank() },
+                area.areaType.takeIf { it.isNotBlank() && it != "both" },
+                area.zone.takeIf { it.isNotBlank() },
+            )
+            row.findViewById<TextView>(R.id.tvAreaSubtitle).text = subtitleParts.joinToString(" · ")
             row.findViewById<View>(R.id.btnEditArea).setOnClickListener { openEditPanel(area) }
             row.findViewById<View>(R.id.btnDeleteArea).setOnClickListener { confirmDelete(area) }
             listContainer.addView(row)
@@ -182,31 +246,47 @@ class ConfigAreasFragment : Fragment() {
     }
 
     private fun openCreatePanel() {
-        editingAreaDbKey = ""
+        editingAreaId = ""
         tvPanelTitle.text = "+ New ${if (activeType == AreaType.DELIVERY) "Delivery" else "Pickup"} Area"
         etAreaId.setText("")
         etName.setText("")
+        etZone.setText("")
+        selectedAreaType = if (activeType == AreaType.DELIVERY) "delivery" else "pickup"
+        tvTypeSelected.text = if (activeType == AreaType.DELIVERY) "Delivery" else "Pickup"
         tvError.isVisible = false
         inlinePanel.isVisible = true
     }
 
     private fun openEditPanel(area: Area) {
-        editingAreaDbKey = area.id
+        editingAreaId = area.areaId
         tvPanelTitle.text = "Edit Area"
         etAreaId.setText(area.areaId)
         etName.setText(area.name)
+        etZone.setText(area.zone)
+        selectedAreaType = area.areaType.ifBlank { "both" }
+        tvTypeSelected.text = when (selectedAreaType) {
+            "pickup" -> "Pickup"
+            "delivery" -> "Delivery"
+            else -> "Both"
+        }
         tvError.isVisible = false
         inlinePanel.isVisible = true
     }
 
     private fun closePanel() {
         inlinePanel.isVisible = false
-        editingAreaDbKey = ""
+        editingAreaId = ""
     }
 
     private fun saveArea() {
         val areaId = etAreaId.text?.toString()?.trim().orEmpty()
         val name = etName.text?.toString()?.trim().orEmpty()
+        val zone = etZone.text?.toString()?.trim().orEmpty()
+        if (selectedBranchId.isBlank()) {
+            tvError.text = "Select a branch first"
+            tvError.isVisible = true
+            return
+        }
         if (areaId.isBlank()) {
             tvError.text = "Enter an area ID"
             tvError.isVisible = true
@@ -217,31 +297,28 @@ class ConfigAreasFragment : Fragment() {
             tvError.isVisible = true
             return
         }
-        // Guard against accidental duplicate entries WITHIN the current type
-        // — the same Area ID or name is fine across delivery vs pickup,
-        // since those are two separate directories serving different
-        // purposes. Area ID checked case-insensitively, same as Store ID.
-        val duplicateId = areas.any { it.areaId.equals(areaId, ignoreCase = true) && it.id != editingAreaDbKey }
-        if (duplicateId) {
-            tvError.text = "An area with this Area ID already exists"
-            tvError.isVisible = true
-            return
-        }
-        val duplicateName = areas.any { it.name.equals(name, ignoreCase = true) && it.id != editingAreaDbKey }
-        if (duplicateName) {
-            tvError.text = "An area with this name already exists"
+        // Area ID is unique per branch across types (DB constraint) — check
+        // against the branch's full list, not just this usage tab.
+        if (areas.any { it.areaId.equals(areaId, ignoreCase = true) } &&
+            !editingAreaId.equals(areaId, ignoreCase = true)) {
+            tvError.text = "This branch already has this Area ID"
             tvError.isVisible = true
             return
         }
         tvError.isVisible = false
 
-        val type = activeType
         setBusy(true, "Saving...")
         lifecycleScope.launch {
             try {
-                val dbKey = editingAreaDbKey.ifBlank { db.reference.child(type.listPath).push().key.orEmpty() }
-                if (dbKey.isBlank()) throw IllegalStateException("Could not generate area id")
-                db.reference.child(type.itemPath(dbKey)).setValue(Area(id = dbKey, areaId = areaId, name = name)).await()
+                // Supabase-first (area_upsert, admin/manager-gated server-side,
+                // Firebase backup mirror included).
+                SupabaseAreaWriter.save(
+                    branchId = selectedBranchId,
+                    areaId = areaId,
+                    name = name,
+                    areaType = selectedAreaType,
+                    zone = zone,
+                )
                 closePanel()
                 loadAreas()
             } catch (e: Exception) {
@@ -253,25 +330,19 @@ class ConfigAreasFragment : Fragment() {
     }
 
     private fun confirmDelete(area: Area) {
-        val target = activeType
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Delete ${area.name}?")
-            .setMessage(
-                if (target == AreaType.DELIVERY)
-                    "This removes the area from Virtual Routing's Select Area picker. Parcels already routed to it are unaffected."
-                else
-                    "This removes the area from the Pickup Areas list."
-            )
-            .setPositiveButton("Delete") { _, _ -> deleteArea(area, target) }
+            .setMessage("This removes the area from this branch's pickers. Existing claims/stores that already reference it keep their saved names.")
+            .setPositiveButton("Delete") { _, _ -> deleteArea(area) }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun deleteArea(area: Area, type: AreaType) {
+    private fun deleteArea(area: Area) {
         setBusy(true, "Deleting...")
         lifecycleScope.launch {
             try {
-                db.reference.child(type.itemPath(area.id)).removeValue().await()
+                SupabaseAreaWriter.delete(selectedBranchId, area.areaId)
                 loadAreas()
             } catch (e: Exception) {
                 setBusy(false)

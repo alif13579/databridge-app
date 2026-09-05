@@ -13,7 +13,40 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-        <!-- Delivery / Pickup — one tab, two directories (see
+        <!-- Branch scope: areas are branch-wise (public.areas). -->
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="BRANCH" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+            android:textStyle="bold" android:layout_marginBottom="4dp" />
+        <LinearLayout
+            android:id="@+id/layoutAreaBranch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_input_rounded"
+            android:padding="10dp"
+            android:layout_marginBottom="12dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/tvAreaBranchSelected"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Select Branch"
+                android:textSize="13sp"
+                android:textColor="@color/theme_text_muted" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="▼"
+                android:textSize="10sp"
+                android:textColor="@color/theme_text_muted" />
+        </LinearLayout>
+
+        <!-- Delivery / Pickup — one tab, two usages (see
              ConfigAreasFragment's class doc for why this isn't two tabs). -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -137,6 +170,47 @@
                 android:textStyle="bold" android:layout_marginBottom="4dp" />
             <EditText android:id="@+id/etAreaName" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:hint="e.g. Dhanmondi 27"
+                android:textSize="13sp" android:padding="8dp"
+                android:background="@drawable/bg_input_rounded"
+                android:inputType="textCapWords" android:layout_marginBottom="10dp" />
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="TYPE" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:textStyle="bold" android:layout_marginBottom="4dp" />
+            <LinearLayout
+                android:id="@+id/layoutAreaType"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_input_rounded"
+                android:padding="10dp"
+                android:layout_marginBottom="10dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <TextView
+                    android:id="@+id/tvAreaTypeSelected"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="Both"
+                    android:textSize="13sp"
+                    android:textColor="@color/theme_text_primary" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="▼"
+                    android:textSize="10sp"
+                    android:textColor="@color/theme_text_muted" />
+            </LinearLayout>
+
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="ZONE (OPTIONAL)" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:textStyle="bold" android:layout_marginBottom="4dp" />
+            <EditText android:id="@+id/etAreaZone" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="e.g. Zone A"
                 android:textSize="13sp" android:padding="8dp"
                 android:background="@drawable/bg_input_rounded"
                 android:inputType="textCapWords" android:layout_marginBottom="10dp" />

@@ -11,9 +11,7 @@ import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
-import com.google.firebase.database.FirebaseDatabase
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 /**
  * Config — Stores tab (renamed and expanded from the earlier "Merchants"
@@ -27,21 +25,18 @@ import kotlinx.coroutines.tasks.await
  * get rejected by the rules regardless of what this screen shows them.
  *
  * Unlike the old Merchant (name only), a Store carries a full address
- * book entry: a human-assigned Store ID (distinct from the Firebase push
- * key in `id` — the push key is just a stable database reference, the
- * Store ID is what field/ops staff actually recognize a store by),
- * name, address, an Area picked from the existing Pickup Area directory
- * (ConfigAreasFragment's AreaType.PICKUP list — a store is a place a
- * pickup run collects from, so Pickup Area is the correct directory to
- * scope it against rather than Delivery Area), and a phone number.
+ * book entry: a human-assigned Store ID (distinct from the Supabase row id —
+ * the Store ID is what field/ops staff actually recognize a store by),
+ * name, address, an Area picked from this branch set's Pickup areas
+ * (public.areas via SupabaseClaimsReader.fetchAreas — a store is a place a
+ * pickup run collects from, so Pickup usage is the correct scope rather
+ * than Delivery), and a phone number.
  *
  * Follows the same inline-panel add/edit pattern as
  * ConfigMerchantsFragment/ConfigAreasFragment did, just with more fields
  * per entry and one dropdown (Area) instead of all plain text fields.
  */
 class ConfigStoresFragment : Fragment() {
-
-    private val db = FirebaseDatabase.getInstance()
 
     private lateinit var listContainer: LinearLayout
     private lateinit var tvEmpty: TextView
@@ -102,10 +97,13 @@ class ConfigStoresFragment : Fragment() {
     private fun loadPickupAreas() {
         lifecycleScope.launch {
             try {
-                val snap = db.reference.child(FirebasePaths.pickupAreas()).get().await()
-                pickupAreas = snap.children
-                    .mapNotNull { it.getValue(Area::class.java)?.copy(id = it.key.orEmpty()) }
-                    .sortedBy { it.name.lowercase() }
+                // Pickup areas come from Supabase now (public.areas, pickup
+                // usage across the admin's branches) — same directory the
+                // claim form reads. A store's area is a display snapshot.
+                pickupAreas = SupabaseClaimsReader.fetchAreas(
+                    branchIds = RbacManager.current.branchIds,
+                    usages = listOf("pickup"),
+                ).sortedBy { it.name.lowercase() }
             } catch (e: Exception) {
                 Toast.makeText(requireContext(), "Failed to load pickup areas: ${e.message}", Toast.LENGTH_LONG).show()
             }
@@ -198,11 +196,16 @@ class ConfigStoresFragment : Fragment() {
             Toast.makeText(requireContext(), "No pickup areas configured yet — add one in the Areas tab first", Toast.LENGTH_LONG).show()
             return
         }
-        val names = pickupAreas.map { it.name }.toTypedArray()
+        // Label with zone where present — same area name can exist in several
+        // branches. Saves the human area_id (not the row id): the claim form
+        // matches store areas against the area directory by area_id.
+        val labels = pickupAreas.map { a ->
+            if (a.zone.isNotBlank()) "${a.name} · ${a.zone}" else a.name
+        }.toTypedArray()
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Select Area")
-            .setItems(names) { _, index ->
-                selectedAreaId = pickupAreas[index].id
+            .setItems(labels) { _, index ->
+                selectedAreaId = pickupAreas[index].areaId
                 selectedAreaName = pickupAreas[index].name
                 tvStoreAreaSelected.text = selectedAreaName
                 tvStoreAreaSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))

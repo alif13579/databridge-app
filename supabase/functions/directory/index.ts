@@ -1,6 +1,6 @@
-// directory — branch + store directories. Actions: branch_upsert,
-// branch_delete, store_upsert, store_delete, backfill_branches,
-// backfill_stores.
+// directory — branch + store + area directories. Actions: branch_upsert,
+// branch_delete, store_upsert, store_delete, area_upsert, area_delete,
+// backfill_branches, backfill_stores, backfill_areas.
 //
 // The branch directory persists ONLY to Supabase (branch_upsert /
 // branch_delete, admin-or-manager gated server-side). backfill_* are one-way
@@ -242,6 +242,78 @@ Deno.serve(async (request) => {
       return reply({ ok: true })
     }
 
+    if (action === 'area_upsert') {
+      // Authoritative area write: the branch-wise area directory (Config →
+      // Areas) persists ONLY to Supabase — same posture as store_upsert
+      // (admin-or-manager gated, client supplies form fields). Same
+      // (branch_id, area_id) twice = update. Claims/stores keep display
+      // snapshots (names), so renames never rewrite history.
+      const profile = await firebaseProfile(identity)
+      if (profile.roleId !== 'admin' && profile.roleId !== 'manager') {
+        errLog('area_upsert', 'forbidden', { role: profile.roleId })
+        return reply({ error: 'Only admin or manager can save areas' }, 403)
+      }
+      const a = body.area
+      const str = (v: unknown) => typeof v === 'string' ? v : ''
+      const branchId = a ? str(a.branch_id).trim() : ''
+      const areaId = a ? str(a.area_id).trim() : ''
+      if (!branchId) return reply({ error: 'branch_id is required' }, 400)
+      if (!areaId) return reply({ error: 'area_id is required' }, 400)
+      if (!str(a?.name).trim()) return reply({ error: 'Area name is required' }, 400)
+      const areaType = ['pickup', 'delivery', 'both'].includes(str(a?.area_type).trim())
+        ? str(a.area_type).trim() : 'both'
+      const { data: branch } = await admin.from('branches').select('branch_id').eq('branch_id', branchId).maybeSingle()
+      if (!branch) return reply({ error: 'Unknown branch_id' }, 400)
+      const now = new Date().toISOString()
+      const { data: existing } = await admin.from('areas').select('created_at').eq('branch_id', branchId).eq('area_id', areaId).maybeSingle()
+      const { error } = await admin.from('areas').upsert({
+        branch_id: branchId, area_id: areaId,
+        name: str(a.name).trim(), area_type: areaType, zone: str(a.zone).trim(),
+        updated_at: now, ...(existing?.created_at ? { created_at: existing.created_at } : {}),
+      }, { onConflict: 'branch_id,area_id' })
+      if (error) {
+        errLog('area_upsert', 'db_upsert_failed', { branch_id: branchId, area_id: areaId, pg_code: error.code, pg_message: error.message })
+        throw error
+      }
+      console.info(`area_upsert ok: branch=${branchId} area=${areaId}`)
+      try {
+        await firebaseUpdatePaths({
+          [`courier/areas_backup/${branchId}/${areaId}/name`]: str(a.name).trim(),
+          [`courier/areas_backup/${branchId}/${areaId}/area_type`]: areaType,
+          [`courier/areas_backup/${branchId}/${areaId}/zone`]: str(a.zone).trim(),
+        })
+      } catch (e) {
+        errLog('area_upsert', 'mirror_failed', {
+          branch_id: branchId, area_id: areaId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+        })
+      }
+      return reply({ ok: true, branch_id: branchId, area_id: areaId })
+    }
+
+    if (action === 'area_delete') {
+      // Same admin/manager gate. No FK references areas (claims/stores keep
+      // name snapshots), so a plain delete is safe.
+      const profile = await firebaseProfile(identity)
+      if (profile.roleId !== 'admin' && profile.roleId !== 'manager') {
+        errLog('area_delete', 'forbidden', { role: profile.roleId })
+        return reply({ error: 'Only admin or manager can delete areas' }, 403)
+      }
+      const branchId = typeof body.branch_id === 'string' ? body.branch_id.trim() : ''
+      const areaId = typeof body.area_id === 'string' ? body.area_id.trim() : ''
+      if (!branchId || !areaId) return reply({ error: 'branch_id and area_id are required' }, 400)
+      const { error } = await admin.from('areas').delete().eq('branch_id', branchId).eq('area_id', areaId)
+      if (error) throw error
+      console.info(`area_delete ok: branch=${branchId} area=${areaId}`)
+      try {
+        await firebaseDelete(`courier/areas_backup/${branchId}/${areaId}`)
+      } catch (e) {
+        errLog('area_delete', 'mirror_failed', {
+          branch_id: branchId, area_id: areaId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+        })
+      }
+      return reply({ ok: true })
+    }
+
     if (action === 'backfill_branches') {
       // One-way directory drain: Firebase `branches/{id}` → Supabase
       // public.branches. Run from Reports → Sync directory.
@@ -340,6 +412,68 @@ Deno.serve(async (request) => {
         }
       }
       console.info(`backfill_stores ok: synced=${synced} failed=${failed.length}`)
+      return reply({ ok: true, synced, failed })
+    }
+
+    if (action === 'backfill_areas') {
+      // One-way drain for the area picker directories: Firebase
+      // `courier/areas/{delivery_area,pickup_area}` → Supabase public.areas.
+      // Firebase areas are courier-wide (no branch), Supabase areas are
+      // branch-wise — so every Firebase area is copied into EVERY branch
+      // (preserves the old behavior where all branches saw the same areas;
+      // admins then curate per branch). An area_id present in both Firebase
+      // dirs lands once per branch as type 'both'. Idempotent upsert on
+      // (branch_id, area_id) — safe to re-run any time; existing rows keep
+      // their admin-set zone (Firebase has no such field).
+      const { data: branches } = await admin.from('branches').select('branch_id')
+      const branchIds = (branches ?? []).map((b) => b.branch_id as string).filter(Boolean)
+      if (branchIds.length === 0) return reply({ ok: true, synced: 0 })
+      const { data: existing } = await admin.from('areas').select('branch_id,area_id,area_type,zone')
+      const kept = new Map((existing ?? []).map((r) => [
+        `${r.branch_id as string}::${r.area_id as string}`,
+        { type: r.area_type as string, zone: r.zone as string },
+      ]))
+      const str = (v: unknown) => typeof v === 'string' ? v : ''
+      // area_id -> {name, types} merged across both Firebase dirs first, so
+      // each id is written once per branch (never clobbering its own type).
+      const merged = new Map<string, { name: string; types: Set<string> }>()
+      for (const [dir, type] of [['courier/areas/delivery_area', 'delivery'], ['courier/areas/pickup_area', 'pickup']] as const) {
+        const all = await firebaseRead(identity, dir) as Record<string, Record<string, unknown>> | null
+        if (!all || typeof all !== 'object') continue
+        for (const [, s] of Object.entries(all)) {
+          if (!s || typeof s !== 'object') continue
+          const areaId = str(s.areaId).trim() || str(s.area_id).trim()
+          const name = str(s.name).trim()
+          if (!areaId || !name) continue
+          const entry = merged.get(areaId) ?? { name, types: new Set<string>() }
+          entry.types.add(type)
+          if (!entry.name) entry.name = name
+          merged.set(areaId, entry)
+        }
+      }
+      let synced = 0
+      const failed: string[] = []
+      const now = new Date().toISOString()
+      for (const branchId of branchIds) {
+        for (const [areaId, entry] of merged) {
+          try {
+            const prev = kept.get(`${branchId}::${areaId}`)
+            const type = prev?.type ?? (entry.types.size > 1 ? 'both' : [...entry.types][0])
+            const { error } = await admin.from('areas').upsert({
+              branch_id: branchId, area_id: areaId, name: entry.name,
+              area_type: type, zone: prev?.zone ?? '',
+              updated_at: now,
+            }, { onConflict: 'branch_id,area_id' })
+            if (error) throw error
+            synced++
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            errLog('backfill_areas', 'row_upsert_failed', { branch_id: branchId, area_id: areaId, err: msg.slice(0, 200) })
+            if (failed.length < 20) failed.push(`${branchId}/${areaId}: ${msg.slice(0, 120)}`)
+          }
+        }
+      }
+      console.info(`backfill_areas ok: synced=${synced} failed=${failed.length}`)
       return reply({ ok: true, synced, failed })
     }
 

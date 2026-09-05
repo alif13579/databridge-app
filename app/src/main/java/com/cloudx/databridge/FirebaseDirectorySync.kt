@@ -10,14 +10,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
 /**
- * One-way directory drain: Firebase → Supabase public.branches / public.stores.
+ * One-way directory drain: Firebase → Supabase public.branches /
+ * public.stores / public.areas.
  *
- * Petty Cash reads both directories ONLY from Supabase now
- * (SupabasePettyCashReader.fetchBranch, SupabaseClaimsReader.fetchStores), so
+ * Petty Cash reads these directories ONLY from Supabase now, so
  * empty tables surface in-app as "Branch not found" / "No stores available"
- * and block the whole flow — including claim submit (claims.branch_id is a
- * real FK). Run from Reports → "Sync directory", re-run after any Firebase
- * directory edit. Idempotent (upsert on branch_id/store_id).
+ * / "No areas configured" and block the whole flow — including claim submit
+ * (claims.branch_id is a real FK). Run from Reports → "Sync directory",
+ * re-run after any Firebase directory edit. Idempotent.
  *
  * Same no-client-content posture as FirebaseClaimsMigrator.backfillUsers:
  * the app sends only the action trigger; every row comes from the Edge
@@ -57,4 +57,6 @@ object FirebaseDirectorySync {
     suspend fun syncBranches(): SyncResult = call("backfill_branches")
 
     suspend fun syncStores(): SyncResult = call("backfill_stores")
+
+    suspend fun syncAreas(): SyncResult = call("backfill_areas")
 }

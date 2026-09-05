@@ -88,10 +88,11 @@ class PettyCashRequestCreateFragment : Fragment() {
     // below for the Office-default/store-area-prefill logic.
     private val vehicleOptions = listOf("CNG", "Paddle Van", "Auto")
     private var selectedVehicle: String = ""
-    // "OFFICE" is a sentinel, not a real courier/areas entry — see
-    // applyConveyanceDefaults(). pickupAreas/deliveryAreas load once and are reused
-    // for both From and To pickers (Pickup uses pickup_area for From, Bulk Delivery
-    // uses delivery_area for To — see FirebasePaths.deliveryAreas()/pickupAreas()).
+    // "OFFICE" is a sentinel, not a real areas-table entry — see
+    // applyConveyanceDefaults(). pickupAreas/deliveryAreas load once from
+    // Supabase (branch-scoped) and are reused for both From and To pickers
+    // (Pickup uses pickup_area for From, Bulk Delivery uses delivery_area
+    // for To — see SupabaseClaimsReader.fetchAreas()).
     private var pickupAreas: List<Area> = emptyList()
     private var deliveryAreas: List<Area> = emptyList()
     private var areasLoaded = false
@@ -564,9 +565,9 @@ class PettyCashRequestCreateFragment : Fragment() {
     private fun loadStores() {
         // Stores live in Supabase's public.stores (see
         // SupabaseClaimsReader.fetchStores) — the old Firebase
-        // courier/stores read is removed. Areas + consignment preview below
-        // stay on Firebase: courier-directory data, out of scope for the
-        // Petty Cash cutover.
+        // courier/stores read is removed. Areas below come from Supabase too
+        // (public.areas via loadAreas); only the consignment preview stays on
+        // Firebase: courier-directory data, out of scope for the cutover.
         lifecycleScope.launch {
             runCatching { SupabaseClaimsReader.fetchStores() }
                 .onSuccess { result ->
@@ -589,24 +590,24 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
     }
 
-    /** Loads both area directories once. Pickup areas populate Pickup's From
-     *  picker; delivery areas populate Bulk Delivery's To picker. */
+    /** Loads this branch's area directory once from Supabase (public.areas).
+     *  Pickup areas populate Pickup's From picker; delivery areas populate
+     *  Bulk Delivery's To picker. A 'both' row serves either side. */
     private fun loadAreas() {
-        val db = FirebaseDatabase.getInstance().reference
-        db.child(FirebasePaths.pickupAreas()).get()
-            .addOnSuccessListener { snap ->
-                pickupAreas = snap.children
-                    .mapNotNull { it.getValue(Area::class.java)?.copy(id = it.key.orEmpty()) }
-                    .sortedBy { it.name }
-                areasLoaded = true
+        lifecycleScope.launch {
+            val result = runCatching {
+                SupabaseClaimsReader.fetchAreas(
+                    branchIds = listOf(branchId).filter { it.isNotBlank() },
+                    usages = listOf("pickup", "delivery"),
+                )
+            }.getOrElse {
+                Toast.makeText(requireContext(), "Couldn't load area list: ${it.message}", Toast.LENGTH_SHORT).show()
+                emptyList()
             }
-            .addOnFailureListener { areasLoaded = true }
-        db.child(FirebasePaths.deliveryAreas()).get()
-            .addOnSuccessListener { snap ->
-                deliveryAreas = snap.children
-                    .mapNotNull { it.getValue(Area::class.java)?.copy(id = it.key.orEmpty()) }
-                    .sortedBy { it.name }
-            }
+            pickupAreas = result.filter { it.matchesUsage("pickup") }.sortedBy { it.name }
+            deliveryAreas = result.filter { it.matchesUsage("delivery") }.sortedBy { it.name }
+            areasLoaded = true
+        }
     }
 
     private fun showVehiclePicker() {

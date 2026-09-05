@@ -167,16 +167,18 @@ class PettyCashReportsFragment : Fragment() {
             .show()
     }
 
-    /** Copies the Firebase branch/store directories into Supabase (see
-     *  FirebaseDirectorySync). Needed once when public.branches/public.stores
-     *  are empty — that emptiness is what shows as "Branch not found" /
-     *  "No stores available" — and again after any Firebase directory edit. */
+    /** Copies the Firebase branch/store/area directories into Supabase (see
+     *  FirebaseDirectorySync). Needed once when the tables are empty — that
+     *  emptiness is what shows as "Branch not found" / "No stores available" /
+     *  "No areas configured" — and again after any Firebase directory edit.
+     *  Areas copy into EVERY branch (Firebase areas are courier-wide); curate
+     *  per branch afterwards in Config → Areas. */
     private fun showDirectorySyncConfirm() {
         AlertDialog.Builder(requireContext())
             .setTitle("Sync directory?")
             .setMessage(
-                "Reads every branch (branches/) and store (courier/stores/) " +
-                    "from Firebase and copies them into Supabase.\n\n" +
+                "Reads every branch (branches/), store (courier/stores/) and area " +
+                    "(courier/areas/) from Firebase and copies them into Supabase.\n\n" +
                     "Safe to re-run any time; existing rows are updated, " +
                     "nothing is deleted."
             )
@@ -199,11 +201,15 @@ class PettyCashReportsFragment : Fragment() {
                     if (progressDialog.isShowing) progressDialog.setMessage("Branches done — copying stores…")
                 }
                 val stores = FirebaseDirectorySync.syncStores()
-                branches to stores
+                activity?.runOnUiThread {
+                    if (progressDialog.isShowing) progressDialog.setMessage("Stores done — copying areas…")
+                }
+                val areas = FirebaseDirectorySync.syncAreas()
+                Triple(branches, stores, areas)
             }
             runCatching { progressDialog.dismiss() }
             result
-                .onSuccess { (branches, stores) ->
+                .onSuccess { (branches, stores, areas) ->
                     val body = buildString {
                         append("Branches synced: ${branches.synced}")
                         if (branches.failed.isNotEmpty()) {
@@ -214,6 +220,11 @@ class PettyCashReportsFragment : Fragment() {
                         if (stores.failed.isNotEmpty()) {
                             append("\nStore failures: ${stores.failed.size}")
                             stores.failed.take(5).forEach { append("\n• $it") }
+                        }
+                        append("\nAreas synced: ${areas.synced}")
+                        if (areas.failed.isNotEmpty()) {
+                            append("\nArea failures: ${areas.failed.size}")
+                            areas.failed.take(5).forEach { append("\n• $it") }
                         }
                         append("\n\nGo back and reopen Petty Cash to reload.")
                     }
