@@ -208,6 +208,10 @@ renames, data-preserving (ALTER ... RENAME, FK names follow):
 `worker_uid/role→requester_uid/role`, `remarks→purpose`. change_user_
 system_id() re-created on the new names. Claims Edge accepts both old and
 new payload keys, so old APK builds keep writing without data loss.
+34. **202609050004** — `ready_to_settle_*` columns back to
+`settle_in_process_*`, status value `ready_to_settle`→`settle_in_process`
+(15 live rows moved), change_user_system_id() follows. Claims Edge
+normalizes old `ready_to_settle` payloads (6.9.5 builds) on write.
 33. **202609050001** (applied live via Management API, same as 0007) —
 `users_branch_read` SELECT policy on `public.users` (anon+authenticated,
 `branch_ids && my_branch_ids()`): claim/validation actor-name embeds

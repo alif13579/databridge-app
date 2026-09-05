@@ -68,7 +68,7 @@ data class ClaimInfo(
     val attachments: List<AttachmentRef> = emptyList(),
     val verifiedByUid: String = "", val verifiedBySystemId: String = "", val verifiedByName: String = "", val verifiedAt: Long = 0L, val verifiedComment: String = "",
     val approvedByUid: String = "", val approvedBySystemId: String = "", val approvedByName: String = "", val approvedComment: String = "",
-    val readyToSettleByUid: String = "", val readyToSettleBySystemId: String = "", val readyToSettleByName: String = "", val readyToSettleAt: Long = 0L,
+    val settleInProcessByUid: String = "", val settleInProcessBySystemId: String = "", val settleInProcessByName: String = "", val settleInProcessAt: Long = 0L,
     val settledByUid: String = "", val settledBySystemId: String = "", val settledByName: String = "",
     val rejectedByUid: String = "", val rejectedBySystemId: String = "", val rejectedByName: String = "", val rejectedAt: Long = 0L, val rejectReason: String = ""
 )
@@ -130,8 +130,8 @@ fun ClaimInfo.asPettyCashRequest(): PettyCashRequest = PettyCashRequest(
     verifiedByUid = verifiedByUid, verifiedByName = verifiedByName, verifiedAt = verifiedAt, verifiedComment = verifiedComment,
     approvedByUid = approvedByUid, approvedByName = approvedByName,
     approvedAt = this.approvedAt, approvedComment = approvedComment, approvedAmount = approvedAmount,
-    readyToSettleByUid = readyToSettleByUid, readyToSettleByName = readyToSettleByName,
-    readyToSettleAt = readyToSettleAt, settledAmount = settledAmount,
+    settleInProcessByUid = settleInProcessByUid, settleInProcessByName = settleInProcessByName,
+    settleInProcessAt = settleInProcessAt, settledAmount = settledAmount,
     settledByUid = settledByUid, settledByName = settledByName, settledAt = settledAt,
     settledPaymentMethod = paymentMethod, settledTrxId = transactionId,
     rejectedByUid = rejectedByUid, rejectedByName = rejectedByName, rejectedAt = rejectedAt,

@@ -652,7 +652,7 @@ class PettyCashDashboardFragment : Fragment() {
             row.findViewById<TextView>(R.id.tvQueueRowStatus).text = when (item.status) {
                 PC_STATUS_PENDING -> "Pending"
                 PC_STATUS_ACKNOWLEDGED -> "Verified"
-                PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle"
+                PC_STATUS_SETTLE_IN_PROCESS -> "Settle in Process"
                 PC_STATUS_APPROVED -> "Approved"
                 else -> "Approved"
             }

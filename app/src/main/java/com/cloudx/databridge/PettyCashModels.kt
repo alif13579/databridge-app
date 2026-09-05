@@ -20,7 +20,7 @@ import com.google.firebase.database.IgnoreExtraProperties
 const val PC_STATUS_PENDING = "pending"                       // just submitted by the Requester
 const val PC_STATUS_ACKNOWLEDGED = "verified"                 // Staff has verified it
 const val PC_STATUS_APPROVED = "approved"                      // Cash POC has approved it
-const val PC_STATUS_SETTLE_IN_PROCESS = "ready_to_settle"      // Accounts has queued it for cash handover
+const val PC_STATUS_SETTLE_IN_PROCESS = "settle_in_process"      // Accounts has queued it for cash handover
 const val PC_STATUS_SETTLED = "settled"                        // cash handed over, done
 const val PC_STATUS_REJECTED = "rejected"
 const val PC_STATUS_CANCELLED = "cancelled"
@@ -34,7 +34,7 @@ fun pettyCashStatusLabel(status: String): String = when (status) {
     PC_STATUS_PENDING -> "Pending"
     PC_STATUS_ACKNOWLEDGED -> "Verified"
     PC_STATUS_APPROVED -> "Approved"
-    PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle"
+    PC_STATUS_SETTLE_IN_PROCESS -> "Settle in Process"
     PC_STATUS_SETTLED -> "Settled"
     PC_STATUS_REJECTED -> "Rejected"
     PC_STATUS_CANCELLED -> "Cancelled"
@@ -88,9 +88,9 @@ data class PettyCashRequest(
     val approvedAt: Long = 0L,
     val approvedComment: String = "",
     val approvedAmount: Double = 0.0,        // set by Cash POC at approval time; may differ from `amount` (partial approval) — 0.0 until approved
-    val readyToSettleByUid: String = "",
-    val readyToSettleByName: String = "",
-    val readyToSettleAt: Long = 0L,
+    val settleInProcessByUid: String = "",
+    val settleInProcessByName: String = "",
+    val settleInProcessAt: Long = 0L,
     val settledAmount: Double = 0.0,        // set by Accounts at the Settle step; defaults to
                                              // approvedAmount but Accounts can adjust it once more —
                                              // the true final figure actually paid out. 0.0 until settled.

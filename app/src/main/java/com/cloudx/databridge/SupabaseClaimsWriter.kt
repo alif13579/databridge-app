@@ -147,7 +147,7 @@ object SupabaseClaimsWriter {
      *  nullable timestamptz type.
      *
      *  Name fields (branchName, employeeName, verifiedByName, approvedByName,
-     *  readyToSettleByName, settledByName, rejectedByName) ARE sent as of
+     *  settleInProcessByName, settledByName, rejectedByName) ARE sent as of
      *  the Supabase-only cutover — added as real columns for this (see
      *  SCHEMA_HISTORY.md), since verified_by_uid/approved_by_uid/
      *  ready_to_settle_by_uid/settled_by_uid/rejected_by_uid have no FK to
@@ -213,9 +213,9 @@ object SupabaseClaimsWriter {
             put("approved_by_uid", approvedByUid)
             put("approved_by_system_id", approvedBySystemId)
             put("approved_comment", approvedComment)
-            put("ready_to_settle_by_uid", readyToSettleByUid)
-            put("ready_to_settle_by_system_id", readyToSettleBySystemId)
-            put("ready_to_settle_at", millisToIso(readyToSettleAt))
+            put("settle_in_process_by_uid", settleInProcessByUid)
+            put("settle_in_process_by_system_id", settleInProcessBySystemId)
+            put("settle_in_process_at", millisToIso(settleInProcessAt))
             put("settled_by_uid", settledByUid)
             put("settled_by_system_id", settledBySystemId)
             put("rejected_by_uid", rejectedByUid)

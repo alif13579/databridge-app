@@ -68,7 +68,7 @@ sealed class PettyCashState {
         /** Requests Accounts can act on right now — either mark ready-to-settle (approved) or hand over cash (settle_in_process). */
         val pendingSettlementQueue: List<PettyCashRequest> get() =
             requests.filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
-                .sortedByDescending { if (it.status == PC_STATUS_SETTLE_IN_PROCESS) it.readyToSettleAt else it.approvedAt }
+                .sortedByDescending { if (it.status == PC_STATUS_SETTLE_IN_PROCESS) it.settleInProcessAt else it.approvedAt }
     }
     data class Error(val message: String) : PettyCashState()
 }
@@ -375,10 +375,10 @@ class PettyCashViewModel : ViewModel() {
         claims.get(requestId) ?: throw IllegalStateException("Request not found")
         claims.update(requestId, mapOf(
                 "status" to PC_STATUS_SETTLE_IN_PROCESS,
-                "readyToSettleByUid" to uid,
-                "readyToSettleBySystemId" to actorSystemId,
-                "readyToSettleByName" to name,
-                "readyToSettleAt" to now,
+                "settleInProcessByUid" to uid,
+                "settleInProcessBySystemId" to actorSystemId,
+                "settleInProcessByName" to name,
+                "settleInProcessAt" to now,
                 "updatedAt" to now
             ), onSupabaseResult)
     }

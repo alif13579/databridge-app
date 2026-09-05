@@ -58,6 +58,7 @@ Deno.serve(async (request) => {
         branch_id: str(c.branch_id), requester_system_id: str(c.requester_system_id),
         // branch_name and employee_name are not stored — joined at read time via FKs.
         // type was dropped (202609040004) — it always mirrored category.
+        // status 'ready_to_settle' (6.9.5 builds) normalizes to 'settle_in_process'.
         category: str(c.category), purpose: pick(c.purpose, c.remarks),
         consignment_id: str(c.consignment_id), store_id: str(c.store_id), store_name: str(c.store_name),
         pickup_count: num(c.pickup_count),
@@ -75,7 +76,7 @@ Deno.serve(async (request) => {
         // re-add it without also adding the column.
         requested_amount: num(c.requested_amount), approved_amount: num(c.approved_amount), settled_amount: num(c.settled_amount),
         payment_method: str(c.payment_method), transaction_id: str(c.transaction_id),
-        status: str(c.status),
+        status: str(c.status) === 'ready_to_settle' ? 'settle_in_process' : str(c.status),
         // Legacy attachment_url/name + priority columns dropped
         // (202609040006) — attachments jsonb is the store now.
         // Multi-attachment [{key,name,size}] → attachments jsonb.
@@ -98,9 +99,9 @@ Deno.serve(async (request) => {
         approved_by_uid: pick(c.approved_by_uid, c.poc_approved_by_uid),
         approved_by_system_id: fk(pick(c.approved_by_system_id, c.poc_approved_by_system_id)),
         approved_comment: pick(c.approved_comment, c.poc_comment),
-        ready_to_settle_by_uid: pick(c.ready_to_settle_by_uid, c.settle_in_process_by_uid),
-        ready_to_settle_by_system_id: fk(pick(c.ready_to_settle_by_system_id, c.settle_in_process_by_system_id)),
-        ready_to_settle_at: pickIso(c.ready_to_settle_at, c.settle_in_process_at),
+        settle_in_process_by_uid: pick(c.settle_in_process_by_uid, c.ready_to_settle_by_uid),
+        settle_in_process_by_system_id: fk(pick(c.settle_in_process_by_system_id, c.ready_to_settle_by_system_id)),
+        settle_in_process_at: pickIso(c.settle_in_process_at, c.ready_to_settle_at),
         settled_by_uid: str(c.settled_by_uid), settled_by_system_id: fk(c.settled_by_system_id),
         rejected_by_uid: str(c.rejected_by_uid), rejected_by_system_id: fk(c.rejected_by_system_id), rejected_at: iso(c.rejected_at), reject_reason: str(c.reject_reason),
       }, { onConflict: 'id' })

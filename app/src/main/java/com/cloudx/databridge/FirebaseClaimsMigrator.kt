@@ -130,7 +130,7 @@ object FirebaseClaimsMigrator {
         val actorUids = infos.flatMap { (_, info) ->
             listOf(
                 info.requesterUid, info.verifiedByUid, info.approvedByUid,
-                info.readyToSettleByUid, info.settledByUid, info.rejectedByUid
+                info.settleInProcessByUid, info.settledByUid, info.rejectedByUid
             )
         }.filter { it.isNotBlank() }.toSet()
         val (usersEnsured, userErrors) = backfillUsers(actorUids)
@@ -226,10 +226,10 @@ object FirebaseClaimsMigrator {
         if (a.approvedBySystemId != b.approvedBySystemId) add("approvedBySystemId")
         if (a.approvedByName != b.approvedByName) add("approvedByName")
         if (a.approvedComment != b.approvedComment) add("approvedComment")
-        if (a.readyToSettleByUid != b.readyToSettleByUid) add("readyToSettleByUid")
-        if (a.readyToSettleBySystemId != b.readyToSettleBySystemId) add("readyToSettleBySystemId")
-        if (a.readyToSettleByName != b.readyToSettleByName) add("readyToSettleByName")
-        if (a.readyToSettleAt != b.readyToSettleAt) add("readyToSettleAt")
+        if (a.settleInProcessByUid != b.settleInProcessByUid) add("settleInProcessByUid")
+        if (a.settleInProcessBySystemId != b.settleInProcessBySystemId) add("settleInProcessBySystemId")
+        if (a.settleInProcessByName != b.settleInProcessByName) add("settleInProcessByName")
+        if (a.settleInProcessAt != b.settleInProcessAt) add("settleInProcessAt")
         if (a.settledByUid != b.settledByUid) add("settledByUid")
         if (a.settledBySystemId != b.settledBySystemId) add("settledBySystemId")
         if (a.settledByName != b.settledByName) add("settledByName")

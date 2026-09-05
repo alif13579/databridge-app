@@ -513,10 +513,10 @@ object SupabaseClaimsReader {
             approvedBySystemId = optStr("approved_by_system_id"),
             approvedByName = embedName("poc_user"),
             approvedComment = optStr("approved_comment"),
-            readyToSettleByUid = optStr("ready_to_settle_by_uid"),
-            readyToSettleBySystemId = optStr("ready_to_settle_by_system_id"),
-            readyToSettleByName = embedName("settle_user"),
-            readyToSettleAt = isoMillis("ready_to_settle_at"),
+            settleInProcessByUid = optStr("settle_in_process_by_uid"),
+            settleInProcessBySystemId = optStr("settle_in_process_by_system_id"),
+            settleInProcessByName = embedName("settle_user"),
+            settleInProcessAt = isoMillis("settle_in_process_at"),
             settledByUid = optStr("settled_by_uid"),
             settledBySystemId = optStr("settled_by_system_id"),
             settledByName = embedName("settled_user"),
@@ -539,7 +539,7 @@ object SupabaseClaimsReader {
         "requester:requester_system_id(name)," +
         "staff_user:verified_by_system_id(name)," +
         "poc_user:approved_by_system_id(name)," +
-        "settle_user:ready_to_settle_by_system_id(name)," +
+        "settle_user:settle_in_process_by_system_id(name)," +
         "settled_user:settled_by_system_id(name)," +
         "rejected_user:rejected_by_system_id(name)"
 

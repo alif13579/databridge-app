@@ -135,10 +135,10 @@ class ClaimsRepository {
         updates["approvedBySystemId"]?.let { c = c.copy(approvedBySystemId = it as String) }
         updates["approvedByName"]?.let { c = c.copy(approvedByName = it as String) }
         updates["approvedComment"]?.let { c = c.copy(approvedComment = it as String) }
-        updates["readyToSettleByUid"]?.let { c = c.copy(readyToSettleByUid = it as String) }
-        updates["readyToSettleBySystemId"]?.let { c = c.copy(readyToSettleBySystemId = it as String) }
-        updates["readyToSettleByName"]?.let { c = c.copy(readyToSettleByName = it as String) }
-        updates["readyToSettleAt"]?.let { c = c.copy(readyToSettleAt = it as Long) }
+        updates["settleInProcessByUid"]?.let { c = c.copy(settleInProcessByUid = it as String) }
+        updates["settleInProcessBySystemId"]?.let { c = c.copy(settleInProcessBySystemId = it as String) }
+        updates["settleInProcessByName"]?.let { c = c.copy(settleInProcessByName = it as String) }
+        updates["settleInProcessAt"]?.let { c = c.copy(settleInProcessAt = it as Long) }
         updates["settledByUid"]?.let { c = c.copy(settledByUid = it as String) }
         updates["settledBySystemId"]?.let { c = c.copy(settledBySystemId = it as String) }
         updates["settledByName"]?.let { c = c.copy(settledByName = it as String) }

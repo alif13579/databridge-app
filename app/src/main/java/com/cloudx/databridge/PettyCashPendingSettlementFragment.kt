@@ -161,7 +161,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
         PC_STATUS_PENDING -> "Pending"
         PC_STATUS_ACKNOWLEDGED -> "Verified"
         PC_STATUS_APPROVED -> "Approved"
-        PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle"
+        PC_STATUS_SETTLE_IN_PROCESS -> "Settle in Process"
         PC_STATUS_SETTLED -> "Settled"
         PC_STATUS_REJECTED -> "Rejected"
         else -> status
@@ -269,7 +269,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
         PC_STATUS_PENDING -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.requesterName}"
         PC_STATUS_ACKNOWLEDGED -> "Acknowledged: ${formatDateTime(item.verifiedAt)}" to "By: ${item.verifiedByName.ifBlank { "—" }}"
         PC_STATUS_APPROVED -> "Approved: ${formatDateTime(item.approvedAt)}" to "By: ${item.approvedByName.ifBlank { "—" }}"
-        PC_STATUS_SETTLE_IN_PROCESS -> "Ready to Settle: ${formatDateTime(item.readyToSettleAt)}" to "By: ${item.readyToSettleByName.ifBlank { "—" }}"
+        PC_STATUS_SETTLE_IN_PROCESS -> "Settle in Process: ${formatDateTime(item.settleInProcessAt)}" to "By: ${item.settleInProcessByName.ifBlank { "—" }}"
         PC_STATUS_SETTLED -> "Settled: ${formatDateTime(item.settledAt)}" to "By: ${item.settledByName.ifBlank { "—" }}"
         PC_STATUS_REJECTED -> "Rejected: ${formatDateTime(item.rejectedAt)}" to "By: ${item.rejectedByName.ifBlank { "—" }}"
         else -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.requesterName}"

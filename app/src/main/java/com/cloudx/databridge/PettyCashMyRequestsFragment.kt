@@ -328,7 +328,7 @@ class PettyCashMyRequestsFragment : Fragment() {
         PC_STATUS_PENDING -> Triple("Pending", R.drawable.bg_pc_status_pending, "#C2410C")
         PC_STATUS_ACKNOWLEDGED -> Triple("Verified", R.drawable.bg_pc_status_pending, "#C2410C")
         PC_STATUS_APPROVED -> Triple("Approved", R.drawable.bg_pc_status_approved, "#6D28D9")
-        PC_STATUS_SETTLE_IN_PROCESS -> Triple("Ready to Settle", R.drawable.bg_pc_status_approved, "#6D28D9")
+        PC_STATUS_SETTLE_IN_PROCESS -> Triple("Settle in Process", R.drawable.bg_pc_status_approved, "#6D28D9")
         PC_STATUS_SETTLED -> Triple("Settled", R.drawable.bg_pc_status_settled, "#059669")
         PC_STATUS_REJECTED -> Triple("Rejected", R.drawable.bg_pc_status_pending, "#B91C1C")
         else -> Triple(request.status, R.drawable.bg_pc_status_pending, "#64748B")

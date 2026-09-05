@@ -37,14 +37,14 @@ import java.util.Locale
  *                                           plus an editable Approved Amount field
  *                                           prefilled with the requested amount --
  *                                           lets Cash POC approve less than asked)
- *   APPROVED            + isAccounts    -> "Mark Ready to Settle" (confirm dialog)
+ *   APPROVED            + isAccounts    -> "Mark Settle in Process" (confirm dialog)
  *   SETTLE_IN_PROCESS   + isAccounts    -> "Mark as Settled" (inline settlement form:
  *                                           Payment Method, Settle Amount, Settlement
  *                                           Date, Transaction ID/Ref)
  *   anything else                       -> no primary action, read-only
  *
  * Matches the mockup's inline forms rather than AlertDialogs for the two
- * decision stages and Settle -- Mark Ready to Settle and Reject stayed as
+ * decision stages and Settle -- Mark Settle in Process and Reject stayed as
  * confirm dialogs since the mockup doesn't show extra fields for either.
  *
  * "Hold / Return" (Accounts, at the settle stage) exists as a button to
@@ -352,7 +352,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             Stage("Request Submitted", request.requesterName, request.createdAt),
             Stage(pettyCashStatusLabel(PC_STATUS_ACKNOWLEDGED), nameWithComment(request.verifiedByName, request.verifiedComment), request.verifiedAt),
             Stage(pettyCashStatusLabel(PC_STATUS_APPROVED), nameWithComment(request.approvedByName, request.approvedComment), request.approvedAt),
-            Stage(pettyCashStatusLabel(PC_STATUS_SETTLE_IN_PROCESS), request.readyToSettleByName, request.readyToSettleAt),
+            Stage(pettyCashStatusLabel(PC_STATUS_SETTLE_IN_PROCESS), request.settleInProcessByName, request.settleInProcessAt),
             Stage(pettyCashStatusLabel(PC_STATUS_SETTLED), request.settledByName, request.settledAt)
         )
 
@@ -475,7 +475,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             }
             canMarkReady -> {
                 btnPrimary.isVisible = true
-                btnPrimary.text = "Mark Ready to Settle"
+                btnPrimary.text = "Mark Settle in Process"
                 btnPrimary.setOnClickListener { confirmMarkReady() }
             }
             canSettle -> {
@@ -562,7 +562,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
 
     private fun confirmMarkReady() {
         android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Mark $requestCode ready to settle?")
+            .setTitle("Mark $requestCode settle in process?")
             .setMessage("This moves the request into your cash handover queue.")
             .setPositiveButton("Mark Ready") { _, _ -> runAction { onSupa -> viewModel.markReadyToSettle(branchId, requestIdFor(requestCode), onSupabaseResult = onSupa) } }
             .setNegativeButton("Cancel", null)
