@@ -1398,6 +1398,16 @@ class CallCenterFragment : Fragment() {
         }
         tvBranchDropdown.visibility = View.VISIBLE
         viewLifecycleOwner.lifecycleScope.launch {
+            // Branches live in Supabase now (branch cutover) — one directory read
+            // fills every name. Firebase branches/$id/name is only a legacy
+            // fallback for ids missing from Supabase; without the Supabase read
+            // every label falls back to the raw branch id.
+            runCatching { SupabaseClaimsReader.fetchBranches() }.getOrNull().orEmpty()
+                .forEach { opt ->
+                    if (opt.branchId.isNotBlank() && opt.name.isNotBlank()) {
+                        branchIdToName[opt.branchId] = opt.name
+                    }
+                }
             val db = com.google.firebase.database.FirebaseDatabase.getInstance()
             branches.forEach { branchId ->
                 if (!branchIdToName.containsKey(branchId)) {
@@ -1608,6 +1618,7 @@ class CallCenterFragment : Fragment() {
     private fun loadData() {
         pbProgress.visibility = View.VISIBLE
         tvLoadingPercent.visibility = View.VISIBLE
+        ccShownPercent = 0
         tvLoadingPercent.text = "লোড হচ্ছে... 0%"
         tvEmpty.visibility    = View.GONE
         detachRunsListener()
@@ -2114,17 +2125,36 @@ class CallCenterFragment : Fragment() {
         else 1f // nothing to wait for — every reporting branch genuinely has zero run-types
         if (!stage2Done) return 30 + (stage2Pct * 40).toInt().coerceIn(0, 39)
 
-        if (ccStableCandidateKeys.isEmpty()) return 100 // stage 2 done, genuinely nothing to fetch
+        if (ccStableCandidateKeys.isEmpty()) {
+            // Stage 2 done but onBranchIndexesLoaded hasn't set this cycle's keys
+            // yet: stage 3 is just STARTING, not finished. Claiming 100 here then
+            // dropping back to 70 on the next update is the visible "percent goes
+            // backwards" glitch — report 70 (stage-3 entry) instead, 100 only when
+            // every branch + range query has genuinely reported empty.
+            val allReported = ccReportedBranchIds.size >= ccExpectedBranchCount &&
+                (ccExpectedPhase2Keys.isEmpty() ||
+                    ccBranchRangeSnapshots.keys.containsAll(ccExpectedPhase2Keys))
+            return if (allReported) 100 else 70
+        }
         val stage3Pct = (ccRunNodeSnapshots.keys.count { key ->
             ccStableCandidateKeys.any { "${it.first}/${it.second}" == key }
         }.toFloat() / ccStableCandidateKeys.size).coerceIn(0f, 1f)
         return 70 + (stage3Pct * 30).toInt().coerceIn(0, 30)
     }
 
+    // Highest percent shown in the current loadData() cycle. Firebase callbacks
+    // arrive in bursts out of order, so a raw recompute can step BACKWARDS
+    // (e.g. a late phase-2 fire after stage 3 started) — clamp to monotonic so
+    // the user always sees 0→100 climbing. Reset in loadData().
+    private var ccShownPercent = 0
+
     private fun updateCcLoadingPercentDisplay() {
         if (!isAdded || !::tvLoadingPercent.isInitialized) return
         if (tvLoadingPercent.visibility != View.VISIBLE) return
-        tvLoadingPercent.text = "লোড হচ্ছে... ${computeCcLoadingPercent()}%"
+        val target = computeCcLoadingPercent().coerceIn(0, 100)
+        if (target <= ccShownPercent) return
+        ccShownPercent = target
+        tvLoadingPercent.text = "লোড হচ্ছে... $target%"
     }
 
     // Guards the "no run" empty state against a race: each assigned branch's Phase 1
@@ -2347,6 +2377,17 @@ class CallCenterFragment : Fragment() {
         // The initial batch is the baseline. Later push-triggered fallback fetches ask only
         // for rows written after this point, rather than fetching all historical rows again.
         ccRemarkFallbackCursorMs = todayBatchRequestedAtMs
+
+        // Branch names live in Supabase now (branch cutover) — one directory read
+        // per reprocess feeds the same branchIdToName cache the parcel cards and
+        // the branch dropdown read, so cards show "Banar" not the raw branch id.
+        // putIfAbsent: a name resolved earlier in this session stays (stable).
+        runCatching { SupabaseClaimsReader.fetchBranches() }.getOrNull().orEmpty()
+            .forEach { opt ->
+                if (opt.branchId.isNotBlank() && opt.name.isNotBlank()) {
+                    branchIdToName.putIfAbsent(opt.branchId, opt.name)
+                }
+            }
 
         // Parallel fetch consignment details (remark history is intentionally omitted here).
         val parcels = coroutineScope {
