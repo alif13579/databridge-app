@@ -120,7 +120,11 @@ data class Store(
     val address: String = "",
     val areaId: String = "",
     val areaName: String = "",
-    val phone: String = ""
+    val phone: String = "",
+    // Fixed pickup conveyance payout. 0/null = not set (request form keeps
+    // old behavior: amount hidden + 0). Set = prefills requested amount,
+    // non-editable.
+    val conveyanceAmount: Double = 0.0
 )
 
 @IgnoreExtraProperties

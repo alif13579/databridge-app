@@ -193,6 +193,14 @@ drop `claims.attachment_url`, `claims.attachment_name` (0 rows used them)
 and `claims.priority` (every row 'normal', never set in UI). App models,
 writer/reader, `claims` Edge Function, migrator compare + both priority
 badges moved off; `attachments` jsonb is the only attachment store.
+32. **202609040007** (applied live via Management API, same as 0001) —
+`stores.conveyance_amount` numeric NULL (fixed pickup payout per store).
+NULL/0 = not set (request form keeps old behavior: amount hidden + 0).
+Set (>0) = Pickup request form prefills it as requested_amount,
+non-editable; store picker shows ৳ amount. App: Config Stores tab
+(create/edit/list), fetchStores select, store_upsert/store_delete Edge
+actions (admin/manager-gated), backfill_stores preserves the value
+(Firebase has no such field).
 
 ---
 

@@ -79,6 +79,9 @@ class PettyCashRequestCreateFragment : Fragment() {
     private var selectedCategory: String = ""
     private var selectedStoreId: String = ""
     private var selectedStoreName: String = ""
+    // Fixed payout from the picked store's conveyance_amount (>0 = set).
+    // Drives the readonly requested-amount prefill for Pickup (below).
+    private var selectedStoreAmount: Double = 0.0
 
     // Conveyance fields — see the layout's groupPcRequestConveyance comment for why
     // these apply to both Pickup and Bulk Delivery, and applyConveyanceDefaults()
@@ -339,6 +342,10 @@ class PettyCashRequestCreateFragment : Fragment() {
             selectedStoreName = request.storeName
             tvStoreSelected.text = request.storeName
             tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+            // Amount resolves once the store directory loads (below) —
+            // refresh then so edit shows the same readonly prefill.
+            selectedStoreAmount = stores.find { it.storeId == request.storeId }?.conveyanceAmount ?: 0.0
+            refreshPickupAmount()
         }
         if (request.pickupCount > 0) etPickupCount.setText(request.pickupCount.toString())
         if (request.vehicle.isNotBlank()) {
@@ -436,10 +443,13 @@ class PettyCashRequestCreateFragment : Fragment() {
         groupStore.isVisible = category == PC_CATEGORY_PICKUP
         groupConveyance.isVisible = isConveyance
         // Pickup: the Requester submits quantities only, no money amount yet
-        // (that comes back from the store) — the settled amount is filled at
-        // approve/settle time instead. Hidden here, not just unrequired, so
-        // it can't look like a forgotten/blank field on the Requester's own screen.
+        // (that comes back from the store) — UNLESS the picked store defines
+        // a fixed conveyance_amount: then the amount shows prefilled and
+        // non-editable (see refreshPickupAmount). Hidden otherwise, not just
+        // unrequired, so it can't look like a forgotten/blank field on the
+        // Requester's own screen.
         groupAmount.isVisible = category != PC_CATEGORY_PICKUP
+        refreshPickupAmount()
 
         // Switching category clears the other category's field so a
         // half-filled Consignment ID doesn't silently survive a switch to
@@ -448,6 +458,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         if (category != PC_CATEGORY_PICKUP) {
             selectedStoreId = ""
             selectedStoreName = ""
+            selectedStoreAmount = 0.0
             tvStoreSelected.text = "Select Store"
             tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
             etPickupCount.setText("")
@@ -456,6 +467,30 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
         if (groupConveyance.isVisible) applyConveyanceDefaults(category)
     }
+
+    /** Pickup requested amount comes from the picked store's fixed
+     *  conveyance_amount: shown prefilled and NON-editable when set (>0),
+     *  hidden + 0 exactly like before when the store defines none.
+     *  Non-Pickup categories always keep a free amount field. */
+    private fun refreshPickupAmount() {
+        if (selectedCategory != PC_CATEGORY_PICKUP) {
+            groupAmount.isVisible = true
+            etAmount.isEnabled = true
+            return
+        }
+        if (selectedStoreAmount > 0) {
+            groupAmount.isVisible = true
+            etAmount.isEnabled = false
+            etAmount.setText(formatAmount(selectedStoreAmount))
+        } else {
+            groupAmount.isVisible = false
+            etAmount.isEnabled = true
+            etAmount.setText("")
+        }
+    }
+
+    private fun formatAmount(v: Double): String =
+        if (v % 1.0 == 0.0) v.toLong().toString() else v.toString()
 
     private fun showStorePicker() {
         if (!storesLoaded) {
@@ -488,7 +523,9 @@ class PettyCashRequestCreateFragment : Fragment() {
             ctx, android.R.layout.simple_list_item_single_choice, android.R.id.text1, list) {
             override fun getView(pos: Int, cv: View?, parent: ViewGroup): View {
                 val v = super.getView(pos, cv, parent)
-                (v.findViewById<View>(android.R.id.text1) as? TextView)?.text = list[pos].name
+                val s = list[pos]
+                val label = if (s.conveyanceAmount > 0) "${s.name}  (৳${formatAmount(s.conveyanceAmount)})" else s.name
+                (v.findViewById<View>(android.R.id.text1) as? TextView)?.text = label
                 return v
             }
         }
@@ -502,9 +539,11 @@ class PettyCashRequestCreateFragment : Fragment() {
             val picked = filtered[pos]
             selectedStoreId = picked.storeId
             selectedStoreName = picked.name
+            selectedStoreAmount = picked.conveyanceAmount
             tvStoreSelected.text = selectedStoreName
             tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
             applyConveyanceDefaults(PC_CATEGORY_PICKUP)
+            refreshPickupAmount()
             dialog.dismiss()
         }
         etSearch.addTextChangedListener(object : TextWatcher {
@@ -533,6 +572,12 @@ class PettyCashRequestCreateFragment : Fragment() {
                     storesLoaded = true
                     if (result.isEmpty()) {
                         Toast.makeText(requireContext(), "Couldn't load store list", Toast.LENGTH_SHORT).show()
+                    } else if (selectedCategory == PC_CATEGORY_PICKUP && selectedStoreId.isNotBlank()) {
+                        // Directory arrived after prefill/selection — resolve
+                        // the fixed amount now so the readonly prefill shows.
+                        selectedStoreAmount =
+                            stores.find { it.storeId == selectedStoreId }?.conveyanceAmount ?: 0.0
+                        refreshPickupAmount()
                     }
                 }
                 .onFailure {
@@ -856,7 +901,14 @@ class PettyCashRequestCreateFragment : Fragment() {
         val finalPickupCount = if (selectedCategory == PC_CATEGORY_PICKUP) pickupCount else 0
         // Pickup carries quantities only, never a money amount at request time
         // (0 goes in; the settled amount is filled at approve/settle time).
-        val finalAmount = if (selectedCategory == PC_CATEGORY_PICKUP) 0.0 else amount
+        // Pickup carries quantities only, never a TYPED money amount —
+        // but a store with a fixed conveyance_amount sets the requested
+        // amount (readonly prefill above); without one it's 0 as before.
+        val finalAmount = when {
+            selectedCategory == PC_CATEGORY_PICKUP && selectedStoreAmount > 0 -> selectedStoreAmount
+            selectedCategory == PC_CATEGORY_PICKUP -> 0.0
+            else -> amount
+        }
         val finalVehicle = if (isConveyanceSubmit) selectedVehicle else ""
         // Human-readable area LABELS ("Office", store area name) — from/to
         // are display-only (Top Sheet/PDF), nothing joins on them, so raw

@@ -1,5 +1,6 @@
 // directory — branch + store directories. Actions: branch_upsert,
-// branch_delete, backfill_branches, backfill_stores.
+// branch_delete, store_upsert, store_delete, backfill_branches,
+// backfill_stores.
 //
 // The branch directory persists ONLY to Supabase (branch_upsert /
 // branch_delete, admin-or-manager gated server-side). backfill_* are one-way
@@ -146,6 +147,54 @@ Deno.serve(async (request) => {
       return reply({ ok: true })
     }
 
+    if (action === 'store_upsert') {
+      // Authoritative store write: the store directory (Config → Stores)
+      // persists ONLY to Supabase now — same posture as branch_upsert above
+      // (admin-or-manager gated, client supplies form fields). conveyance_amount
+      // is the fixed pickup payout prefetched by the request form; null/0 =
+      // not set (old behavior: amount hidden + 0).
+      const profile = await firebaseProfile(identity)
+      if (profile.roleId !== 'admin' && profile.roleId !== 'manager') {
+        errLog('store_upsert', 'forbidden', { role: profile.roleId })
+        return reply({ error: 'Only admin or manager can save stores' }, 403)
+      }
+      const s = body.store
+      const str = (v: unknown) => typeof v === 'string' ? v : ''
+      const storeId = s ? str(s.store_id).trim() : ''
+      if (!storeId) return reply({ error: 'store_id is required' }, 400)
+      if (!str(s?.name).trim()) return reply({ error: 'Store name is required' }, 400)
+      const amountRaw = s?.conveyance_amount
+      const amount = typeof amountRaw === 'number' && Number.isFinite(amountRaw) && amountRaw > 0 ? amountRaw : null
+      const { error } = await admin.from('stores').upsert({
+        store_id: storeId,
+        name: str(s.name).trim(), address: str(s.address),
+        area_id: str(s.area_id).trim(), area_name: str(s.area_name).trim(),
+        phone: str(s.phone), conveyance_amount: amount,
+      }, { onConflict: 'store_id' })
+      if (error) {
+        errLog('store_upsert', 'db_upsert_failed', { store_id: storeId, pg_code: error.code, pg_message: error.message })
+        throw error
+      }
+      console.info(`store_upsert ok: store=${storeId}`)
+      return reply({ ok: true, store_id: storeId })
+    }
+
+    if (action === 'store_delete') {
+      // Same admin/manager gate. No FK references stores, so a plain delete
+      // is safe — existing claims keep their copied store_name snapshot.
+      const profile = await firebaseProfile(identity)
+      if (profile.roleId !== 'admin' && profile.roleId !== 'manager') {
+        errLog('store_delete', 'forbidden', { role: profile.roleId })
+        return reply({ error: 'Only admin or manager can delete stores' }, 403)
+      }
+      const storeId = typeof body.store_id === 'string' ? body.store_id.trim() : ''
+      if (!storeId) return reply({ error: 'store_id is required' }, 400)
+      const { error } = await admin.from('stores').delete().eq('store_id', storeId)
+      if (error) throw error
+      console.info(`store_delete ok: store=${storeId}`)
+      return reply({ ok: true })
+    }
+
     if (action === 'backfill_branches') {
       // One-way directory drain: Firebase `branches/{id}` → Supabase
       // public.branches. Run from Reports → Sync directory.
@@ -216,6 +265,10 @@ Deno.serve(async (request) => {
       const all = await firebaseRead(identity, 'courier/stores') as Record<string, Record<string, unknown>> | null
       if (!all || typeof all !== 'object') return reply({ ok: true, synced: 0 })
       const str = (v: unknown) => typeof v === 'string' ? v : ''
+      // Preserve admin-set conveyance_amount across re-runs: Firebase has
+      // no such field, so a blind upsert would wipe it back to null.
+      const { data: existing } = await admin.from('stores').select('store_id,conveyance_amount')
+      const kept = new Map((existing ?? []).map((r) => [r.store_id as string, r.conveyance_amount as number | null]))
       let synced = 0
       const failed: string[] = []
       for (const [key, s] of Object.entries(all)) {
@@ -229,6 +282,7 @@ Deno.serve(async (request) => {
             area_id: str(s.areaId).trim() || str(s.area_id).trim(),
             area_name: str(s.areaName).trim() || str(s.area_name).trim(),
             phone: str(s.phone),
+            conveyance_amount: kept.get(storeId) ?? null,
           }, { onConflict: 'store_id' })
           if (error) throw error
           synced++

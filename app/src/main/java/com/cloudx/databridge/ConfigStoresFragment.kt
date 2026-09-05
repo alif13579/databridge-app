@@ -53,6 +53,7 @@ class ConfigStoresFragment : Fragment() {
     private lateinit var layoutStoreArea: View
     private lateinit var tvStoreAreaSelected: TextView
     private lateinit var etStorePhone: EditText
+    private lateinit var etStoreConveyanceAmount: EditText
     private lateinit var tvError: TextView
     private lateinit var busyOverlay: View
     private lateinit var tvBusy: TextView
@@ -79,6 +80,7 @@ class ConfigStoresFragment : Fragment() {
         layoutStoreArea = view.findViewById(R.id.layoutStoreArea)
         tvStoreAreaSelected = view.findViewById(R.id.tvStoreAreaSelected)
         etStorePhone = view.findViewById(R.id.etStorePhone)
+        etStoreConveyanceAmount = view.findViewById(R.id.etStoreConveyanceAmount)
         tvError = view.findViewById(R.id.tvCreateStoreError)
         busyOverlay = view.findViewById(R.id.storeBusyOverlay)
         tvBusy = view.findViewById(R.id.tvStoreBusy)
@@ -114,10 +116,9 @@ class ConfigStoresFragment : Fragment() {
         setBusy(true, "Loading stores...")
         lifecycleScope.launch {
             try {
-                val snap = db.reference.child(FirebasePaths.stores()).get().await()
-                stores = snap.children
-                    .mapNotNull { it.getValue(Store::class.java)?.copy(id = it.key.orEmpty()) }
-                    .sortedBy { it.name.lowercase() }
+                // Store directory lives in Supabase now (public.stores) —
+                // same screen the request form's picker reads from.
+                stores = SupabaseClaimsReader.fetchStores()
                 renderList()
             } catch (e: Exception) {
                 Toast.makeText(requireContext(), "Failed to load stores: ${e.message}", Toast.LENGTH_LONG).show()
@@ -136,7 +137,8 @@ class ConfigStoresFragment : Fragment() {
             row.findViewById<TextView>(R.id.tvStoreName).text = store.name
             val subtitleParts = listOfNotNull(
                 store.storeId.takeIf { it.isNotBlank() },
-                store.areaName.takeIf { it.isNotBlank() }
+                store.areaName.takeIf { it.isNotBlank() },
+                store.conveyanceAmount.takeIf { it > 0 }?.let { "৳${it.toLong()}" }
             )
             row.findViewById<TextView>(R.id.tvStoreSubtitle).text = subtitleParts.joinToString(" · ")
             row.findViewById<View>(R.id.btnEditStore).setOnClickListener { openEditPanel(store) }
@@ -152,6 +154,7 @@ class ConfigStoresFragment : Fragment() {
         etStoreName.setText("")
         etStoreAddress.setText("")
         etStorePhone.setText("")
+        etStoreConveyanceAmount.setText("")
         clearAreaSelection()
         tvError.isVisible = false
         inlinePanel.isVisible = true
@@ -164,6 +167,8 @@ class ConfigStoresFragment : Fragment() {
         etStoreName.setText(store.name)
         etStoreAddress.setText(store.address)
         etStorePhone.setText(store.phone)
+        etStoreConveyanceAmount.setText(
+            if (store.conveyanceAmount > 0) store.conveyanceAmount.toLong().toString() else "")
         if (store.areaId.isNotBlank()) {
             selectedAreaId = store.areaId
             selectedAreaName = store.areaName
@@ -210,6 +215,9 @@ class ConfigStoresFragment : Fragment() {
         val name = etStoreName.text?.toString()?.trim().orEmpty()
         val address = etStoreAddress.text?.toString()?.trim().orEmpty()
         val phone = etStorePhone.text?.toString()?.trim().orEmpty()
+        // Fixed pickup conveyance payout (optional): blank/0 = not set —
+        // the request form then keeps old behavior for this store.
+        val conveyanceAmount = etStoreConveyanceAmount.text?.toString()?.trim()?.toDoubleOrNull() ?: 0.0
 
         if (storeId.isBlank()) {
             tvError.text = "Enter a store ID"
@@ -252,18 +260,20 @@ class ConfigStoresFragment : Fragment() {
         setBusy(true, "Saving...")
         lifecycleScope.launch {
             try {
-                val pk = editingStorePK.ifBlank { db.reference.child(FirebasePaths.stores()).push().key.orEmpty() }
-                if (pk.isBlank()) throw IllegalStateException("Could not generate store id")
+                // Store directory persists ONLY to Supabase now (store_upsert,
+                // admin/manager-gated server-side) — the old Firebase
+                // courier/stores write is removed, same as the branch cutover.
                 val store = Store(
-                    id = pk,
+                    id = storeId,
                     storeId = storeId,
                     name = name,
                     address = address,
                     areaId = selectedAreaId,
                     areaName = selectedAreaName,
-                    phone = phone
+                    phone = phone,
+                    conveyanceAmount = conveyanceAmount
                 )
-                db.reference.child(FirebasePaths.store(pk)).setValue(store).await()
+                SupabaseStoreWriter.save(store)
                 closePanel()
                 loadStores()
             } catch (e: Exception) {
@@ -287,7 +297,7 @@ class ConfigStoresFragment : Fragment() {
         setBusy(true, "Deleting...")
         lifecycleScope.launch {
             try {
-                db.reference.child(FirebasePaths.store(store.id)).removeValue().await()
+                SupabaseStoreWriter.delete(store.storeId)
                 loadStores()
             } catch (e: Exception) {
                 setBusy(false)

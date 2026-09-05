@@ -153,6 +153,15 @@
                 android:background="@drawable/bg_input_rounded"
                 android:inputType="phone" android:layout_marginBottom="10dp" />
 
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="CONVEYANCE AMOUNT (OPTIONAL)" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                android:textStyle="bold" android:layout_marginBottom="4dp" />
+            <EditText android:id="@+id/etStoreConveyanceAmount" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:hint="e.g. 10 — Pickup payout, blank = none"
+                android:textSize="13sp" android:padding="8dp"
+                android:background="@drawable/bg_input_rounded"
+                android:inputType="numberDecimal" android:layout_marginBottom="10dp" />
+
             <TextView android:id="@+id/tvCreateStoreError" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:textSize="12sp"
                 android:textColor="#EF4444" android:visibility="gone" android:layout_marginBottom="8dp" />

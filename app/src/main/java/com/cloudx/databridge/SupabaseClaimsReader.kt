@@ -211,7 +211,7 @@ object SupabaseClaimsReader {
             Log.e(TAG, "fetchStores skipped: no Firebase bearer token")
             return@withContext emptyList()
         }
-        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/stores?select=store_id,name,address,area_id,area_name,phone&order=name.asc"
+        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/stores?select=store_id,name,address,area_id,area_name,phone,conveyance_amount&order=name.asc"
         try {
             val response = SupabaseClientManager.httpClient.newCall(
                 Request.Builder().url(url)
@@ -236,7 +236,8 @@ object SupabaseClaimsReader {
                         address = row.optString("address"),
                         areaId = row.optString("area_id"),
                         areaName = row.optString("area_name"),
-                        phone = row.optString("phone")
+                        phone = row.optString("phone"),
+                        conveyanceAmount = row.optDouble("conveyance_amount", 0.0)
                     )
                 }
             }
