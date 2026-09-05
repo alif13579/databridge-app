@@ -41,8 +41,10 @@ data class VerifyDeliveryFunnelState(
  *         -> Confirmed / Delivered / Pending (worker's next remark after delivery_request,
  *            or no further remark at all = Pending)
  *
- * Total Assign comes from Firebase (courier/runs_by_branchId/{branchId}/{runType}/
- * run_{yyyyMMdd}_{systemId}, same structure CallCenterFragment reads) -- run keys are
+ * Total Assign comes from Firebase in two stages (same as CallCenterFragment):
+ * runs_by_branchId/{branchId}/{runType} gives run-ID keys in the date range
+ * (index values are plain status strings), then courier/run_routes/{runType}/
+ * {runId} gives agentSystemId + consignments — run keys are
  * lexicographically sortable by their date prefix, so the whole date range is one
  * startAt/endAt query per (branch, runType) pair rather than one query per day.
  *
@@ -119,12 +121,18 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
         val endKey = fmt.format(Date(rangeEndMs))
         val branchIds = RbacManager.current.branchIds
 
-        branchIds.map { branchId ->
+        // Stage 1 — index only gives (runType, runId) KEYS in range. The index
+        // value itself is just a status string (written by ConfigSheetWizardSteps),
+        // NOT a run node — so agentSystemId/consignments must come from
+        // courier/run_routes below (same two-stage pattern CallCenterFragment uses).
+        // Reading them off the index snapshot always yields blank/empty, i.e. a
+        // permanently-zero dashboard — the bug this fixes.
+        val runKeys: List<Pair<String, String>> = branchIds.map { branchId ->
             async(Dispatchers.IO) {
-                val entries = mutableListOf<RunEntry>()
+                val keys = mutableListOf<Pair<String, String>>()
                 val runTypesSnap = runCatching {
                     db.reference.child("courier/runs_by_branchId/$branchId").get().await()
-                }.getOrNull() ?: return@async entries
+                }.getOrNull() ?: return@async keys
                 val runTypes = runTypesSnap.children.mapNotNull { it.key }
 
                 runTypes.forEach { runType ->
@@ -137,15 +145,35 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
                     }.getOrNull() ?: return@forEach
 
                     rangeSnap.children.forEach { runSnap ->
-                        val agentSystemId = runSnap.child("agentSystemId").getValue(String::class.java)?.trim().orEmpty()
-                        if (agentSystemId.isBlank()) return@forEach
-                        val consignmentIds = runSnap.child("consignments").children.mapNotNull { it.key }.toSet()
-                        if (consignmentIds.isNotEmpty()) entries.add(RunEntry(agentSystemId, consignmentIds))
+                        val runId = runSnap.key?.trim().orEmpty()
+                        if (runId.isNotBlank()) keys.add(runType to runId)
                     }
                 }
-                entries
+                keys
             }
-        }.awaitAll().flatten()
+        }.awaitAll().flatten().distinct()
+        if (runKeys.isEmpty()) return@coroutineScope emptyList()
+
+        // Stage 2 — actual run nodes carry agentSystemId + consignments map.
+        runKeys.map { (runType, runId) ->
+            async(Dispatchers.IO) {
+                val snap = runCatching {
+                    db.reference.child("courier/run_routes/$runType/$runId").get().await()
+                }.getOrNull() ?: return@async null
+                if (!snap.exists()) return@async null
+                var agentSystemId = snap.child("agentSystemId").getValue(String::class.java)?.trim().orEmpty()
+                if (agentSystemId.isBlank()) {
+                    // Fallback: runId is run_{yyyyMMdd}_{systemId} by construction
+                    // (WorkerSpaceFragment.computeTodayRunId), so the suffix parses.
+                    val parts = runId.split("_")
+                    if (parts.size >= 3) agentSystemId = parts.drop(2).joinToString("_").trim()
+                }
+                if (agentSystemId.isBlank()) return@async null
+                val consignmentIds = snap.child("consignments").children.mapNotNull { it.key }.toSet()
+                if (consignmentIds.isEmpty()) return@async null
+                RunEntry(agentSystemId, consignmentIds)
+            }
+        }.awaitAll().filterNotNull()
     }
 
     private suspend fun resolveAgentNames(systemIds: List<String>): Map<String, String> {
