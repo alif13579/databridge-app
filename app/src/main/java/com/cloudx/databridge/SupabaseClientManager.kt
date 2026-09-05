@@ -187,61 +187,13 @@ object SupabaseClientManager {
     }
 
     // ── User sync ─────────────────────────────────────────────────────────────
-
-    /**
-     * Upserts the current user into public.users so RLS branch checks work.
-     * Safe to call every login — UPSERT is idempotent.
-     */
-    suspend fun syncUser(
-        firebaseId: String,
-        systemId: String,
-        name: String,
-        employeeId: String,
-        branchId: String,
-    ) {
-        val token = getAccessToken() ?: return
-        val body = JSONObject().apply {
-            put("firebase_id", firebaseId)
-            put("system_id", systemId)
-            put("name", name)
-            put("employee_id", employeeId.ifBlank { JSONObject.NULL })
-            put("branch_id", branchId)
-            // branch_ids (text[]) was added in migration 202608220001 for
-            // multi-branch RLS. syncUser only has a single branchId parameter,
-            // so keep branch_ids in sync with branch_id. Without this, new
-            // users get branch_ids='{}' (column default), my_branch_ids()
-            // returns an empty array, and every RLS-gated SELECT (fetchHistory,
-            // Realtime) silently returns nothing — this is why CC→Worker remark
-            // updates were not appearing after the migration.
-            put("branch_ids", org.json.JSONArray().put(branchId))
-        }
-        withContext(Dispatchers.IO) {
-            try {
-                val request = Request.Builder()
-                    .url("${SupabaseConfig.PROJECT_URL}/rest/v1/users")
-                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
-                    .addHeader("Authorization", "Bearer $token")
-                    .addHeader("Content-Type", "application/json")
-                    .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
-                    .post(body.toString().toRequestBody(json))
-                    .build()
-                httpClient.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        Log.i(TAG, "syncUser OK — firebase_id=$firebaseId system_id=$systemId " +
-                            "branch_id=$branchId branch_ids=[$branchId]")
-                    } else {
-                        val body = response.body?.string().orEmpty().take(300)
-                        Log.e(TAG, "syncUser HTTP ${response.code} — $body")
-                        FirebaseErrorLogger.log(TAG, "sync_user_http_error",
-                            "HTTP ${response.code}: $body", mapOf("systemId" to systemId))
-                    }
-                }
-            } catch (e: Exception) {
-                FirebaseErrorLogger.log("SupabaseClientManager", "sync_user",
-                    e.message ?: "Sync failed", mapOf("systemId" to systemId))
-            }
-        }
-    }
+    // REMOVED (Supabase-first): the old direct-REST syncUser() upsert lived here.
+    // It wrote name = Google displayName, employee_id = NULL and a SINGLE branch
+    // into public.users on every launch — clobbering the authoritative row
+    // whenever it ran as `authenticated`. RLS identity mapping is established
+    // by the user-sync Edge Function's sync_profile action instead
+    // (SupabaseRemarkValidationWriter.ensureProfileSynced, before RLS-gated
+    // reads), and employee create/edit goes through SupabaseUserWriter.
 
     // ── Direct REST reads (unlimited — replaces Edge Function read actions) ───
 

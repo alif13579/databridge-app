@@ -435,21 +435,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 ensureNavMatchesRole(info.roleId)
                 updateBottomNavVisibility()
 
-                // Sync user profile to Supabase users table so RLS branch checks work.
-                // systemId lives in Firebase RTDB under users/$uid/profile/company_info/system_id.
-                val systemId = com.google.firebase.database.FirebaseDatabase.getInstance()
-                    .getReference("users/$uid/profile/company_info/system_id")
-                    .get().await().getValue(String::class.java).orEmpty()
-                val branchId = info.branchIds.firstOrNull().orEmpty()
-                if (systemId.isNotBlank() && branchId.isNotBlank()) {
-                    SupabaseClientManager.syncUser(
-                        firebaseId  = uid,
-                        systemId    = systemId,
-                        name        = auth.currentUser?.displayName.orEmpty(),
-                        employeeId  = "",   // optional; populated later via EmployeeFragment edits
-                        branchId    = branchId,
-                    )
-                }
+                // NOTE: no direct Supabase users upsert here (Supabase-first).
+                // The old syncUser() wrote displayName/NULL employee/single branch
+                // over the authoritative row. RLS identity comes from the
+                // user-sync Edge Function (sync_profile) instead.
             }
         } else {
             lifecycleScope.launch {

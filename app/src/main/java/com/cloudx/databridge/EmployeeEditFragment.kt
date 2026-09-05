@@ -799,6 +799,26 @@ class EmployeeEditFragment : Fragment() {
             try {
                 btnSave.isEnabled = false
                 val empId = etEmployeeId.text.toString().trim()
+                // Supabase FIRST (authoritative users row + server-side Firebase
+                // mirror). Firebase extras below have no Supabase columns yet.
+                SupabaseUserWriter.save(
+                    firebaseUid = uid,
+                    systemId = sysId,
+                    employeeId = empId,
+                    name = name,
+                    branchIds = selectedBranchIds.toList(),
+                    role = roleId,
+                    phone = phoneText,
+                    designation = etDesignation.text.toString().trim(),
+                    status = status,
+                    previousSystemId = originalSystemId,
+                )
+                // Firebase extras + profile-index maintenance. Profile fields below
+                // intentionally repeat the Edge mirror's values (same content):
+                // if the server-side mirror ever fails, Firebase still matches
+                // Supabase instead of going stale and clobbering it on the next
+                // sync. Salary/reports/branch-employee extras have no Supabase
+                // columns — Firebase is their only store for now.
                 val updates = mutableMapOf<String, Any?>(
                     "users/$uid/profile/company_info/system_id"    to sysId,
                     "users/$uid/profile/company_info/employee_id"  to empId,

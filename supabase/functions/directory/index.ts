@@ -8,6 +8,7 @@
 
 import { admin } from '../_shared/supabase.ts'
 import { errLog, guardRequest, reply, unhandled } from '../_shared/http.ts'
+import { firebaseDelete, firebaseUpdatePaths } from '../_shared/firebase-mirror.ts'
 import {
   firebaseIdentity,
   firebaseProfile,
@@ -116,6 +117,24 @@ Deno.serve(async (request) => {
         }
       }
       console.info(`branch_upsert ok: branch=${branchId} membership_errors=${membershipErrors.length}`)
+      // Best-effort Firebase backup mirror (Supabase is authoritative).
+      try {
+        await firebaseUpdatePaths({
+          [`branches/${branchId}/name`]: row.name,
+          [`branches/${branchId}/branch_code`]: row.branch_code,
+          [`branches/${branchId}/branch_type`]: row.branch_type,
+          [`branches/${branchId}/region`]: row.region,
+          [`branches/${branchId}/address`]: row.address,
+          [`branches/${branchId}/phone`]: row.phone,
+          [`branches/${branchId}/email`]: row.email,
+          [`branches/${branchId}/status`]: row.status,
+          [`branches/${branchId}/petty_cash_limit`]: row.petty_cash_limit,
+        })
+      } catch (e) {
+        errLog('branch_upsert', 'mirror_failed', {
+          branch_id: branchId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+        })
+      }
       return reply({ ok: true, branch_id: branchId })
     }
 
@@ -144,6 +163,13 @@ Deno.serve(async (request) => {
       const { error } = await admin.from('branches').delete().eq('branch_id', branchId)
       if (error) throw error
       console.info(`branch_delete ok: branch=${branchId}`)
+      try {
+        await firebaseDelete(`branches/${branchId}`)
+      } catch (e) {
+        errLog('branch_delete', 'mirror_failed', {
+          branch_id: branchId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+        })
+      }
       return reply({ ok: true })
     }
 
@@ -176,6 +202,20 @@ Deno.serve(async (request) => {
         throw error
       }
       console.info(`store_upsert ok: store=${storeId}`)
+      try {
+        await firebaseUpdatePaths({
+          [`courier/stores/${storeId}/name`]: str(s.name).trim(),
+          [`courier/stores/${storeId}/address`]: str(s.address),
+          [`courier/stores/${storeId}/area_id`]: str(s.area_id).trim(),
+          [`courier/stores/${storeId}/area_name`]: str(s.area_name).trim(),
+          [`courier/stores/${storeId}/phone`]: str(s.phone),
+          [`courier/stores/${storeId}/conveyance_amount`]: amount,
+        })
+      } catch (e) {
+        errLog('store_upsert', 'mirror_failed', {
+          store_id: storeId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+        })
+      }
       return reply({ ok: true, store_id: storeId })
     }
 
@@ -192,6 +232,13 @@ Deno.serve(async (request) => {
       const { error } = await admin.from('stores').delete().eq('store_id', storeId)
       if (error) throw error
       console.info(`store_delete ok: store=${storeId}`)
+      try {
+        await firebaseDelete(`courier/stores/${storeId}`)
+      } catch (e) {
+        errLog('store_delete', 'mirror_failed', {
+          store_id: storeId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+        })
+      }
       return reply({ ok: true })
     }
 
