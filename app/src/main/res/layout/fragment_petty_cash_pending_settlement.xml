@@ -97,6 +97,51 @@
                     android:paddingBottom="10dp" />
             </HorizontalScrollView>
 
+            <!-- Agent filter + filtered total: specific requester + status
+                 diye list, total amount, ar select-all bulk update. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="#FFFFFF"
+                android:paddingHorizontal="16dp"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:id="@+id/tvPcPendingAgent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:gravity="center_vertical"
+                    android:text="👥 All Agents"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#6D28D9"
+                    android:background="@drawable/bg_pc_tab_inactive"
+                    android:paddingHorizontal="12dp" />
+
+                <TextView
+                    android:id="@+id/tvPcPendingSelectAll"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:gravity="center_vertical"
+                    android:text="Select all"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#059669"
+                    android:paddingHorizontal="10dp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/tvPcPendingSummary"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:gravity="end"
+                    android:textSize="12sp"
+                    android:textColor="#64748B" />
+            </LinearLayout>
+
             <ProgressBar
                 android:id="@+id/pbPcPendingLoading"
                 android:layout_width="wrap_content"

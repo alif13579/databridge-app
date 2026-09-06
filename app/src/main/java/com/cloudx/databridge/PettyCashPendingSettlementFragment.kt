@@ -54,6 +54,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     private var branchId: String = ""
     private var selectedStatus: String = FILTER_ALL // FILTER_ALL or one of the PC_STATUS_* constants
+    private var selectedAgentUid: String = "" // "" = all agents; else requesterUid
     private var myRequestsOnly: Boolean = false
     private var latestState: PettyCashState.Success? = null
     private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
@@ -130,6 +131,8 @@ class PettyCashPendingSettlementFragment : Fragment() {
             view.findViewById<TextView>(R.id.btnPcPendingSelect).text = if (selectMode) "Done" else "Select"
             renderList()
         }
+        view.findViewById<View>(R.id.tvPcPendingAgent).setOnClickListener { showAgentPicker() }
+        view.findViewById<View>(R.id.tvPcPendingSelectAll).setOnClickListener { selectAllFiltered() }
         view.findViewById<View>(R.id.btnPcBulkCancel).setOnClickListener {
             selectMode = false
             selectedIds.clear()
@@ -242,6 +245,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
             tab.setOnClickListener {
                 selectedStatus = key
                 buildTabs()
+                selectedIds.retainAll(currentFiltered().filter { isBulkEligible(it) }.map { it.id }.toSet())
                 renderList()
             }
             styleTab(tab, key == selectedStatus)
@@ -264,7 +268,84 @@ class PettyCashPendingSettlementFragment : Fragment() {
         return SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
     }
 
-    /** Status-appropriate secondary line — what to show instead of a hardcoded "POC Approved:" for every card. */
+    /** Status-appropriate amount for totals: the stage figure, not requested. */
+    private fun stageAmount(item: PettyCashRequest): Double = when (item.status) {
+        PC_STATUS_SETTLED -> item.settledAmount.takeIf { it > 0 } ?: item.amount
+        PC_STATUS_APPROVED, PC_STATUS_SETTLE_IN_PROCESS -> item.approvedAmount.takeIf { it > 0 } ?: item.amount
+        else -> item.amount
+    }
+
+    /** Agent options from the scoped list: (uid, display name, count), sorted by name. */
+    private fun agentOptions(): List<Triple<String, String, Int>> =
+        scopedRequests().groupBy { it.requesterUid.ifBlank { "unknown" } }
+            .map { (uid, items) ->
+                val name = items.firstOrNull()?.requesterName?.takeIf { it.isNotBlank() } ?: uid
+                Triple(uid, name, items.size)
+            }.sortedBy { it.second.lowercase() }
+
+    /** Status ∩ agent ∩ advanced — the working set for list, summary and select-all. */
+    private fun currentFiltered(): List<PettyCashRequest> {
+        val all = scopedRequests()
+        val statusFiltered = if (selectedStatus == FILTER_ALL) all else all.filter { it.status == selectedStatus }
+        val agentFiltered = if (selectedAgentUid.isBlank()) statusFiltered
+            else statusFiltered.filter { it.requesterUid.ifBlank { "unknown" } == selectedAgentUid }
+        return if (advancedFilter.isActive) agentFiltered.filter { advancedFilter.matches(it) } else agentFiltered
+    }
+
+    private fun updateAgentRow() {
+        val root = view ?: return
+        val chip = root.findViewById<TextView>(R.id.tvPcPendingAgent)
+        // My-Requests view is already one agent — no picker needed.
+        chip.isVisible = !myRequestsOnly
+        if (myRequestsOnly) return
+        val options = agentOptions()
+        val current = options.find { it.first == selectedAgentUid }
+        chip.text = if (current == null) "👥 All Agents" else "👥 ${current.second}"
+    }
+
+    private fun updateSummary(filtered: List<PettyCashRequest>) {
+        val root = view ?: return
+        val total = filtered.sumOf { stageAmount(it) }
+        root.findViewById<TextView>(R.id.tvPcPendingSummary).text =
+            if (filtered.isEmpty()) "No requests" else "${filtered.size} requests · Total ${pettyCashTaka(total)}"
+    }
+
+    private fun showAgentPicker() {
+        val options = agentOptions()
+        if (options.isEmpty()) {
+            Toast.makeText(requireContext(), "No requests to filter", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = listOf("All Agents (${scopedRequests().size})") +
+            options.map { "${it.second} (${it.third})" }
+        val checked = if (selectedAgentUid.isBlank()) 0
+            else options.indexOfFirst { it.first == selectedAgentUid } + 1
+        var picked = checked.coerceAtLeast(0)
+        AlertDialog.Builder(requireContext())
+            .setTitle("Filter by agent")
+            .setSingleChoiceItems(labels.toTypedArray(), checked.coerceAtLeast(0)) { _, which -> picked = which }
+            .setPositiveButton("Apply") { _, _ ->
+                selectedAgentUid = if (picked <= 0) "" else options[picked - 1].first
+                // Drop picks outside the new filter.
+                val eligibleIds = currentFiltered().filter { isBulkEligible(it) }.map { it.id }.toSet()
+                selectedIds.retainAll(eligibleIds)
+                updateAgentRow()
+                renderList()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Pick every bulk-eligible request in the current status+agent filter. */
+    private fun selectAllFiltered() {
+        val eligible = currentFiltered().filter { isBulkEligible(it) }
+        if (eligible.isEmpty()) {
+            Toast.makeText(requireContext(), "No bulk-eligible requests in this filter", Toast.LENGTH_SHORT).show()
+            return
+        }
+        selectedIds.addAll(eligible.map { it.id })
+        renderList()
+    }    /** Status-appropriate secondary line — what to show instead of a hardcoded "POC Approved:" for every card. */
     private fun statusInfoLine(item: PettyCashRequest): Pair<String, String> = when (item.status) {
         PC_STATUS_PENDING -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.requesterName}"
         PC_STATUS_ACKNOWLEDGED -> "Acknowledged: ${formatDateTime(item.verifiedAt)}" to "By: ${item.verifiedByName.ifBlank { "—" }}"
@@ -277,10 +358,12 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     private fun renderList() {
         val state = latestState ?: return
-        val all = scopedRequests()
-        val statusFiltered = if (selectedStatus == FILTER_ALL) all else all.filter { it.status == selectedStatus }
-        val filtered = if (advancedFilter.isActive) statusFiltered.filter { advancedFilter.matches(it) } else statusFiltered
+        val filtered = currentFiltered()
         val canSettle = state.roles.isAccounts
+        updateAgentRow()
+        updateSummary(filtered)
+        view?.findViewById<View>(R.id.tvPcPendingSelectAll)?.isVisible =
+            selectMode && state.roles.isAccounts
 
         layoutList.removeAllViews()
         if (filtered.isEmpty()) {
@@ -430,6 +513,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
             tvProgress.isVisible = true
             lifecycleScope.launch {
                 var ok = 0
+                var neg = 0
                 val failures = mutableListOf<String>()
                 picked.forEachIndexed { index, item ->
                     tvProgress.text = "⏳ Settling ${index + 1}/${picked.size}…"
@@ -437,13 +521,16 @@ class PettyCashPendingSettlementFragment : Fragment() {
                         branchId, item.id, method, trxId, bulkDefaultAmount(item),
                         onSupabaseResult = { _ -> }
                     )
-                    if (result.isSuccess) ok++
-                    else failures.add("${item.requestCode}: ${result.exceptionOrNull()?.message ?: "failed"}")
+                    if (result.isSuccess) {
+                        ok++
+                        if (result.getOrNull()?.negativeWarning == true) neg++
+                    } else failures.add("${item.requestCode}: ${result.exceptionOrNull()?.message ?: "failed"}")
                 }
                 val failed = failures.size
                 tvProgress.text = if (failed == 0) "✓ $ok settled" else "✓ $ok settled · ⚠ $failed failed"
                 if (failed == 0) {
-                    Toast.makeText(requireContext(), "✓ ${picked.size} claims settled ($trxId)", Toast.LENGTH_LONG).show()
+                    val negNote = if (neg > 0) " · ⚠ $neg went negative" else ""
+                    Toast.makeText(requireContext(), "✓ ${picked.size} claims settled ($trxId)$negNote", Toast.LENGTH_LONG).show()
                     d.dismiss()
                     selectMode = false
                     selectedIds.clear()
