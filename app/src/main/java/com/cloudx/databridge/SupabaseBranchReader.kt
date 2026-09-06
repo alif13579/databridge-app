@@ -120,4 +120,49 @@ object SupabaseBranchReader {
             arr.getJSONObject(0).toBranchRow()
         }
     }
+
+    /**
+     * Branch-ID rescue: legacy Firebase data sometimes carries a branch NAME
+     * where an ID belongs (deliveryHub="Madanpur", old resolvedBranchIds) —
+     * saving that into validations.branch_id breaks branch filtering/reporting
+     * (RLS + report queries match on branch_id). Pure function so hot paths
+     * (card builds) stay synchronous:
+     * - known ID → kept as-is
+     * - known name (ignore-case exact, e.g. "Madanpur Hub") → its ID
+     * - unique first-word match (e.g. "Madanpur" → "Madanpur Hub") → its ID
+     * - anything else → returned unchanged (callers must not invent IDs;
+     *   ambiguous multi-match also stays unchanged).
+     */
+    fun canonicalBranchIdLocal(token: String, idToName: Map<String, String>): String {
+        val t = token.trim()
+        if (t.isEmpty() || idToName.containsKey(t)) return t
+        val byName = idToName.entries.firstOrNull { it.value.equals(t, ignoreCase = true) }?.key
+        if (byName != null) return byName
+        val prefixHits = idToName.entries
+            .filter { it.value.lowercase().startsWith(t.lowercase() + " ") }
+            .map { it.key }
+            .distinct()
+        return if (prefixHits.size == 1) prefixHits.first() else t
+    }
+
+    @Volatile private var canonicalDir: Map<String, String>? = null
+    @Volatile private var canonicalDirAt: Long = 0
+
+    /** Network version (10-min cached directory) for save paths without a
+     *  warm id→name map (e.g. the caller-ID overlay). Never throws — on any
+     *  failure the original token comes back unchanged. */
+    suspend fun canonicalBranchId(token: String): String {
+        val t = token.trim()
+        if (t.isEmpty()) return t
+        return try {
+            val now = System.currentTimeMillis()
+            var dir = canonicalDir
+            if (dir == null || now - canonicalDirAt > 10 * 60 * 1000L) {
+                dir = listBranches().associate { it.branchId to it.name }
+                canonicalDir = dir
+                canonicalDirAt = now
+            }
+            canonicalBranchIdLocal(t, dir ?: emptyMap())
+        } catch (_: Exception) { t }
+    }
 }

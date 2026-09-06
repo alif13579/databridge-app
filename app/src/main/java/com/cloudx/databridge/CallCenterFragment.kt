@@ -2519,9 +2519,14 @@ class CallCenterFragment : Fragment() {
                         // choose the currently selected branch for display while retaining all
                         // IDs in branchIds so filtering can match every valid branch.
                         val fallbackHub = snap.child("deliveryHub").getValue(String::class.java)?.trim().orEmpty()
+                        // Legacy Firebase rows sometimes carry a branch NAME here
+                        // (deliveryHub="Madanpur", old resolvedBranchIds) — rescue to
+                        // the canonical ID so validations.branch_id never stores a name.
                         val scopedBranchIds = info.branchIds.ifEmpty {
                             listOf(fallbackHub).filter { it.isNotBlank() }
-                        }
+                        }.map { SupabaseBranchReader.canonicalBranchIdLocal(it, branchIdToName) }
+                            .filter { it.isNotBlank() }
+                            .distinct()
                         val hub = selectedBranchIds.firstOrNull { it in scopedBranchIds }
                             ?: scopedBranchIds.firstOrNull().orEmpty()
                         // Resolve to a display name (not the raw id) — reuses/feeds the same
@@ -3237,9 +3242,19 @@ class CallCenterFragment : Fragment() {
         val validatorName = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
             ?.displayName.orEmpty().ifBlank { "CC Agent" }
         items.forEach { target ->
+            // Belt-and-suspenders: items are normalized at build, but a stale
+            // cached card could still carry a legacy branch NAME — rescue to ID
+            // (and log it) so validations.branch_id never stores a name.
+            val rawBranch = target.branchIds.firstOrNull().orEmpty()
+            val saveBranch = SupabaseBranchReader.canonicalBranchIdLocal(rawBranch, branchIdToName)
+            if (saveBranch != rawBranch) {
+                FirebaseErrorLogger.log("CallCenterFragment", "branch_name_rescued",
+                    "Branch name '$rawBranch' rescued to ID '$saveBranch'",
+                    mapOf("consignment" to target.id))
+            }
             SupabaseRemarkValidationWriter.write(
                 assignedAgentSystemId = target.workerSystemId,
-                branchId = target.branchIds.firstOrNull().orEmpty(),
+                branchId = saveBranch,
                 consignmentId = target.id,
                 status = selectedStatus,
                 remarksText = selectedStoredRemarkText,
@@ -3570,10 +3585,14 @@ class CallCenterFragment : Fragment() {
                         ?.trim().orEmpty()
                     val fallbackHub = snap.child("deliveryHub").getValue(String::class.java)
                         ?.trim().orEmpty()
-                    val scopedBranchIds = if (fallbackHub.isNotBlank()) listOf(fallbackHub)
+                    // Same name→ID rescue as the Request pipeline (see above).
+                    val scopedBranchIds = (if (fallbackHub.isNotBlank()) listOf(fallbackHub)
                     else latestAny?.optString("branch_id")?.trim()
                         ?.takeIf { it.isNotBlank() }?.let { listOf(it) }
-                        ?: cidBranch[cId]?.takeIf { it.isNotBlank() }?.let { listOf(it) }.orEmpty()
+                        ?: cidBranch[cId]?.takeIf { it.isNotBlank() }?.let { listOf(it) }.orEmpty())
+                        .map { SupabaseBranchReader.canonicalBranchIdLocal(it, branchIdToName) }
+                        .filter { it.isNotBlank() }
+                        .distinct()
                     val hub = selectedBranchIds.firstOrNull { it in scopedBranchIds }
                         ?: scopedBranchIds.firstOrNull().orEmpty()
                     val name = snap.child("recipientName").getValue(String::class.java) ?: ""

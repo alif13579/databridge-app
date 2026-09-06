@@ -895,7 +895,10 @@ object IncomingCallOverlay {
                 // has no validations row yet. Agent gets one more fallback —
                 // today's run assignment — before giving up on the parcel.
                 val route = withContext(Dispatchers.IO) { resolveParcelRoute(cid) }
-                val targetBranch = route?.branchId?.takeIf { it.isNotBlank() } ?: branchId
+                // resolveParcelRoute reads the latest validation row, which may
+                // itself hold a legacy branch NAME — rescue to ID (cached dir).
+                val targetBranch = SupabaseBranchReader.canonicalBranchId(
+                    route?.branchId?.takeIf { it.isNotBlank() } ?: branchId)
                 val validatorName = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
                     ?.displayName?.trim().orEmpty().ifBlank { "CC Agent" }
                 val ok = if (isCc) {
