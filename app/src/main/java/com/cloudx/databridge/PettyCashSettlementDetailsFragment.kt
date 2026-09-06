@@ -534,8 +534,10 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             return
         }
 
+        showActionLoading("Settling…")
         lifecycleScope.launch {
-            val result = viewModel.settleRequest(branchId, requestIdFor(requestCode), paymentMethod, trxId, typedAmount,
+            try {
+                val result = viewModel.settleRequest(branchId, requestIdFor(requestCode), paymentMethod, trxId, typedAmount,
                 onSupabaseResult = { ok ->
                     activity?.runOnUiThread {
                         if (isAdded) Toast.makeText(requireContext(),
@@ -561,6 +563,9 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
                 SupabaseErrorDialog.show(requireContext(), friendly,
                     result.exceptionOrNull()?.message ?: "Settlement failed")
+                }
+            } finally {
+                hideActionLoading()
             }
         }
     }
@@ -607,22 +612,28 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             .setView(input)
             .setPositiveButton("Reject") { _, _ ->
                 val reason = input.text?.toString()?.trim().orEmpty()
+                showActionLoading("Rejecting…")
                 lifecycleScope.launch {
-                    val result = viewModel.rejectRequest(branchId, requestIdFor(requestCode), reason,
+                    try {
+                        val result = viewModel.rejectRequest(branchId, requestIdFor(requestCode), reason,
                         onSupabaseResult = { ok ->
                             activity?.runOnUiThread {
                                 if (isAdded) Toast.makeText(requireContext(),
                                     if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
                             }
                         })
-                    if (result.isSuccess) {
-                        Toast.makeText(requireContext(), "✓ $requestCode rejected", Toast.LENGTH_SHORT).show()
-                        parentFragmentManager.popBackStack()
-                    } else {
-                        val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
-                        Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
-                        SupabaseErrorDialog.show(requireContext(), friendly,
-                            result.exceptionOrNull()?.message ?: "Reject failed")
+                        if (result.isSuccess) {
+                            Toast.makeText(requireContext(), "✓ $requestCode rejected", Toast.LENGTH_SHORT).show()
+                            parentFragmentManager.popBackStack()
+                        } else {
+                            val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
+                            Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                            SupabaseErrorDialog.show(requireContext(), friendly,
+                                result.exceptionOrNull()?.message ?: "Reject failed")
+                        }
+                    } finally {
+                        // Popped above on success — dismiss is still safe (no-op if gone).
+                        hideActionLoading()
                     }
                 }
             }
@@ -660,22 +671,27 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             .setTitle("Delete $requestCode?")
             .setMessage("This permanently removes the request. This can't be undone.")
             .setPositiveButton("Delete") { _, _ ->
+                showActionLoading("Deleting…")
                 lifecycleScope.launch {
-                    val result = viewModel.deleteRequest(branchId, requestIdFor(requestCode),
+                    try {
+                        val result = viewModel.deleteRequest(branchId, requestIdFor(requestCode),
                         onSupabaseResult = { ok ->
                             activity?.runOnUiThread {
                                 if (isAdded) Toast.makeText(requireContext(),
                                     if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
                             }
                         })
-                    if (result.isSuccess) {
-                        Toast.makeText(requireContext(), "✓ $requestCode deleted", Toast.LENGTH_SHORT).show()
-                        parentFragmentManager.popBackStack()
-                    } else {
-                        val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
-                        Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
-                        SupabaseErrorDialog.show(requireContext(), friendly,
-                            result.exceptionOrNull()?.message ?: "Delete failed")
+                        if (result.isSuccess) {
+                            Toast.makeText(requireContext(), "✓ $requestCode deleted", Toast.LENGTH_SHORT).show()
+                            parentFragmentManager.popBackStack()
+                        } else {
+                            val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
+                            Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                            SupabaseErrorDialog.show(requireContext(), friendly,
+                                result.exceptionOrNull()?.message ?: "Delete failed")
+                        }
+                    } finally {
+                        hideActionLoading()
                     }
                 }
             }
@@ -699,26 +715,62 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         ).show()
     }
 
-    private fun runAction(block: suspend ((Boolean) -> Unit) -> Result<Unit>) {
-        lifecycleScope.launch {
-            val result = block { ok ->
-                activity?.runOnUiThread {
-                    if (isAdded) Toast.makeText(requireContext(),
-                        if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
-                }
+    private var actionLoading: android.app.AlertDialog? = null
+
+    /** Non-cancelable "Saving…" spinner — every save path (runAction, settle,
+     *  reject, delete) shows this while the Supabase round-trip runs, so the
+     *  screen never looks stuck/frozen between tap and result toast. */
+    private fun showActionLoading(message: String = "Saving…") {
+        if (!isAdded) return
+        if (actionLoading == null) {
+            val row = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(dp(24), dp(20), dp(24), dp(20))
             }
-            if (result.isSuccess) {
-                Toast.makeText(requireContext(), "✓ Done", Toast.LENGTH_SHORT).show()
-                if (branchId.isNotBlank()) viewModel.load(branchId)
-            } else {
-                // Toast fades before anyone can read/copy it — human-readable
-                // toast PLUS the exact reason in a copyable dialog.
-                val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
-                if (isAdded) {
-                    Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
-                    SupabaseErrorDialog.show(requireContext(), friendly,
-                        result.exceptionOrNull()?.message ?: "Action failed")
+            row.addView(android.widget.ProgressBar(requireContext()))
+            row.addView(TextView(requireContext()).apply {
+                text = message
+                textSize = 15f
+                setPadding(dp(16), 0, 0, 0)
+            })
+            actionLoading = android.app.AlertDialog.Builder(requireContext())
+                .setView(row)
+                .setCancelable(false)
+                .create()
+        }
+        actionLoading?.takeIf { !it.isShowing }?.show()
+    }
+
+    private fun hideActionLoading() {
+        actionLoading?.takeIf { it.isShowing }?.dismiss()
+    }
+
+    private fun runAction(block: suspend ((Boolean) -> Unit) -> Result<Unit>) {
+        showActionLoading()
+        lifecycleScope.launch {
+            try {
+                val result = block { ok ->
+                    activity?.runOnUiThread {
+                        if (isAdded) Toast.makeText(requireContext(),
+                            if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
+                    }
                 }
+                if (result.isSuccess) {
+                    Toast.makeText(requireContext(), "✓ Done", Toast.LENGTH_SHORT).show()
+                    if (branchId.isNotBlank()) viewModel.load(branchId)
+                } else {
+                    // Toast fades before anyone can read/copy it — human-readable
+                    // toast PLUS the exact reason in a copyable dialog.
+                    val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
+                    if (isAdded) {
+                        Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                        SupabaseErrorDialog.show(requireContext(), friendly,
+                            result.exceptionOrNull()?.message ?: "Action failed")
+                    }
+                }
+            } finally {
+                hideActionLoading()
             }
         }
     }

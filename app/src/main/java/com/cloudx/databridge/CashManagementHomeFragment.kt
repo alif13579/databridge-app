@@ -22,11 +22,7 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.datepicker.MaterialDatePicker
-import com.google.firebase.database.FirebaseDatabase
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import java.io.File
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
@@ -73,7 +69,6 @@ class CashManagementHomeFragment : Fragment() {
     private lateinit var layoutSpeedDialItems: LinearLayout
 
     private var branchId: String = ""
-    private val db = FirebaseDatabase.getInstance()
     private var branchNames: Map<String, String> = emptyMap()
     private val dateFmt = SimpleDateFormat("dd MMM, h:mm a", Locale.getDefault())
     private val rangeLabelFmt = SimpleDateFormat("dd MMM", Locale.getDefault())
@@ -181,14 +176,12 @@ class CashManagementHomeFragment : Fragment() {
         tvHomeBranchName.text = branchNames[branchId] ?: "Branch"
 
         viewLifecycleOwner.lifecycleScope.launch {
-            val resolved = coroutineScope {
-                branchIds.filter { it !in branchNames }.associateWith { id ->
-                    async {
-                        runCatching {
-                            db.reference.child("branches/$id/name").get().await().getValue(String::class.java)
-                        }.getOrNull()
-                    }
-                }.mapValues { (id, deferred) -> deferred.await()?.takeIf { it.isNotBlank() } ?: id }
+            // Branch directory is Supabase (source of truth) — one read for
+            // every id; unknown ids fall back to the raw id (no Firebase).
+            val dir = runCatching { SupabaseBranchReader.listBranches() }
+                .getOrNull().orEmpty().associate { it.branchId to it.name }
+            val resolved = branchIds.filter { it !in branchNames }.associateWith { id ->
+                dir[id]?.takeIf { it.isNotBlank() } ?: id
             }
             branchNames = branchNames + resolved
             tvHomeBranchName.text = branchNames[branchId] ?: branchId

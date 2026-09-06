@@ -337,20 +337,13 @@ class ConfigConnectorsFragment : Fragment() {
         tvScBranchEmpty?.visibility = View.GONE
 
         viewLifecycleOwner.lifecycleScope.launch {
-            // Names from Supabase (source of truth) — the Firebase branches
-            // mirror no longer carries them, so this fell back to raw ids.
+            // Names from Supabase (source of truth); unknown ids fall back
+            // to the raw id (no Firebase — the branches mirror is legacy).
             val supaNames = runCatching { SupabaseBranchReader.listBranches() }
                 .getOrNull().orEmpty().associate { it.branchId to it.name }
-            val db = com.google.firebase.database.FirebaseDatabase.getInstance()
             val resolved = ids.map { id ->
-                async(Dispatchers.IO) {
-                    val name = supaNames[id]?.takeIf { it.isNotBlank() } ?: try {
-                        db.reference.child("branches/$id/name").get().await()
-                            .getValue(String::class.java).orEmpty().ifBlank { id }
-                    } catch (_: Exception) { id }
-                    id to name
-                }
-            }.map { it.await() }
+                id to (supaNames[id]?.takeIf { it.isNotBlank() } ?: id)
+            }
             if (!isAdded) return@launch
             myBranches = resolved
             val adapter = ArrayAdapter(

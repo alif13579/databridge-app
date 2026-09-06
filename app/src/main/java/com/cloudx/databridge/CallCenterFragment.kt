@@ -1428,26 +1428,18 @@ class CallCenterFragment : Fragment() {
         }
         tvBranchDropdown.visibility = View.VISIBLE
         viewLifecycleOwner.lifecycleScope.launch {
-            // Branches live in Supabase now (branch cutover) — one directory read
-            // fills every name. Firebase branches/$id/name is only a legacy
-            // fallback for ids missing from Supabase; without the Supabase read
-            // every label falls back to the raw branch id.
+            // Branches live in Supabase now (branch cutover) — one directory
+            // read fills every name; unknown ids fall back to the raw id
+            // (no Firebase — the branches mirror is legacy).
             runCatching { SupabaseClaimsReader.fetchBranches() }.getOrNull().orEmpty()
                 .forEach { opt ->
                     if (opt.branchId.isNotBlank() && opt.name.isNotBlank()) {
                         branchIdToName[opt.branchId] = opt.name
                     }
                 }
-            val db = com.google.firebase.database.FirebaseDatabase.getInstance()
             branches.forEach { branchId ->
                 if (!branchIdToName.containsKey(branchId)) {
-                    val name = withContext(Dispatchers.IO) {
-                        runCatching {
-                            db.reference.child("branches/$branchId/name").get().await()
-                                .getValue(String::class.java) ?: branchId
-                        }.getOrDefault(branchId)
-                    }
-                    branchIdToName[branchId] = name
+                    branchIdToName[branchId] = branchId
                 }
             }
             updateBranchDropdownLabel()
@@ -2594,14 +2586,14 @@ class CallCenterFragment : Fragment() {
                         // Resolve to a display name (not the raw id) — reuses/feeds the same
                         // branchIdToName cache the branch-filter dropdown uses, and self-heals
                         // (fetches + caches on demand) instead of depending on that dropdown's
-                        // own async population having already finished.
+                        // own async population having already finished. Supabase is the
+                        // source of truth (no Firebase — the branches mirror is legacy).
                         val hubName = when {
                             hub.isBlank() -> hub
                             branchIdToName.containsKey(hub) -> branchIdToName[hub] ?: hub
                             else -> {
                                 val resolved = runCatching {
-                                    db.reference.child("branches/$hub/name").get().await()
-                                        .getValue(String::class.java)
+                                    SupabaseBranchReader.getBranch(hub).name
                                 }.getOrNull()?.takeIf { it.isNotBlank() } ?: hub
                                 branchIdToName[hub] = resolved
                                 resolved

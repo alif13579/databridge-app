@@ -7,11 +7,7 @@ import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.LifecycleCoroutineScope
-import com.google.firebase.database.FirebaseDatabase
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 
 /**
  * Shared "switch branch" chip behavior for Leave Management screens
@@ -109,15 +105,12 @@ object LeaveBranchSwitcher {
         if (unresolved.isEmpty()) return
 
         scope.launch {
-            val db = FirebaseDatabase.getInstance()
-            val resolved = coroutineScope {
-                unresolved.associateWith { id ->
-                    async {
-                        runCatching {
-                            db.reference.child("branches/$id/name").get().await().getValue(String::class.java)
-                        }.getOrNull()
-                    }
-                }.mapValues { (id, deferred) -> deferred.await()?.takeIf { it.isNotBlank() } ?: id }
+            // Branch directory is Supabase (source of truth) — one read for
+            // every id; unknown ids fall back to the raw id (no Firebase).
+            val dir = runCatching { SupabaseBranchReader.listBranches() }
+                .getOrNull().orEmpty().associate { it.branchId to it.name }
+            val resolved = unresolved.associateWith { id ->
+                dir[id]?.takeIf { it.isNotBlank() } ?: id
             }
             resolvedNames = resolvedNames + resolved
             chip.text = resolvedNames[currentBranchId] ?: currentBranchId
