@@ -90,6 +90,8 @@ class ConfigConnectorsFragment : Fragment() {
     private var etScDateMatchColumn: EditText? = null
     private var etScWriteColumn: EditText? = null
     private var tvScSummary:     TextView? = null
+    private var layoutRuleLookups: android.widget.LinearLayout? = null
+    private var layoutRuleWrites: android.widget.LinearLayout? = null
 
     private var tvScConnectError: TextView? = null
     private var btnScStepBack:    Button? = null
@@ -237,6 +239,14 @@ class ConfigConnectorsFragment : Fragment() {
         etScMatchColumn = view.findViewById(R.id.etScMatchColumn)
         etScDateMatchColumn = view.findViewById(R.id.etScDateMatchColumn)
         etScWriteColumn = view.findViewById(R.id.etScWriteColumn)
+        layoutRuleLookups = view.findViewById(R.id.layoutRuleLookups)
+        layoutRuleWrites = view.findViewById(R.id.layoutRuleWrites)
+        view.findViewById<View>(R.id.btnAddLookupRule)?.setOnClickListener {
+            addLookupRow(SheetLookupRule("", SheetLookupKind.CONSIGNMENT))
+        }
+        view.findViewById<View>(R.id.btnAddWriteRule)?.setOnClickListener {
+            addWriteRow(SheetWriteRule("", SheetWriteKind.VERDICT))
+        }
         tvScSummary     = view.findViewById(R.id.tvScSummary)
 
         tvScConnectError = view.findViewById(R.id.tvScConnectError)
@@ -343,9 +353,14 @@ class ConfigConnectorsFragment : Fragment() {
             title.text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } }
             title.textSize = 14f
             title.setTextColor(ctx.getColor(R.color.theme_text_primary))
-            sub.text = "${conn.sheetName}  •  Match: ${conn.matchColumn}" +
-                (if (conn.dateMatchColumn.isNotBlank()) "+${conn.dateMatchColumn}(date)" else "") +
-                "  Write: ${conn.writeColumn}"
+            sub.text = buildString {
+                append("${conn.sheetName}  •  Match: ${conn.matchColumn}")
+                if (conn.dateMatchColumn.isNotBlank()) append("+${conn.dateMatchColumn}(date)")
+                append("  Write: ${conn.writeColumn}")
+                if (conn.lookups.any { it.colRef.isNotBlank() } || conn.writes.any { it.colRef.isNotBlank() }) {
+                    append("  [${conn.lookups.count { it.colRef.isNotBlank() }} lookup, ${conn.writes.count { it.colRef.isNotBlank() }} write]")
+                }
+            }
             sub.textSize = 11f
             sub.setTextColor(ctx.getColor(R.color.theme_text_secondary))
             row.setPadding(14, 12, 14, 12)
@@ -361,7 +376,7 @@ class ConfigConnectorsFragment : Fragment() {
 
     private fun connectionLongPress(conn: ScannerSheetConn) {
         val ctx = context ?: return
-        val isRemark = conn.dateMatchColumn.isNotBlank()
+        val isRemark = conn.isRemarkConnection()
         val items = if (isRemark) arrayOf("🔍 Test (dry-run)", "Delete") else arrayOf("Delete")
         android.app.AlertDialog.Builder(ctx)
             .setTitle(conn.nickname.ifBlank { conn.sheetName })
@@ -380,7 +395,9 @@ class ConfigConnectorsFragment : Fragment() {
             setPadding(48, 28, 48, 28)
         }
         val resultView = android.widget.TextView(ctx).apply {
-            text = "যে consignment-এর verdict যাবে, তার ID লিখুন।\nMatch: ${conn.matchColumn} + ${conn.dateMatchColumn}(আজ) → Write: ${conn.writeColumn}"
+            val ruleText = conn.effectiveLookups().joinToString(" + ") { "${it.colRef.trim()}(${it.kind})" } +
+                " → " + conn.effectiveWrites().joinToString(", ") { "${it.colRef.trim()}(${it.kind})" }
+            text = "যে consignment-এর verdict যাবে, তার ID লিখুন।\n$ruleText"
             textSize = 13f
             setPadding(48, 20, 48, 8)
         }
@@ -442,6 +459,111 @@ class ConfigConnectorsFragment : Fragment() {
             .show()
     }
 
+    // ── Dynamic lookup/write rule rows (Step 4) ────────────────────────────
+    // One row = [column ref EditText][kind Spinner][✕]. colRef accepts a letter
+    // (C) or a header text (Consignment ID) — resolved at mirror time.
+
+    private fun addLookupRow(rule: SheetLookupRule) {
+        val ctx = context ?: return
+        val row = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        val et = EditText(ctx).apply {
+            setText(rule.colRef)
+            hint = "C বা Consignment ID"
+            textSize = 13f
+            setSingleLine()
+            layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val spinner = android.widget.Spinner(ctx).apply {
+            adapter = android.widget.ArrayAdapter(ctx,
+                android.R.layout.simple_spinner_dropdown_item, SheetLookupKind.ALL)
+            setSelection(SheetLookupKind.ALL.indexOf(rule.kind).coerceAtLeast(0))
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        val del = TextView(ctx).apply {
+            text = "✕"; textSize = 16f
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            setPadding(16, 12, 8, 12)
+            setOnClickListener { layoutRuleLookups?.removeView(row) }
+        }
+        row.addView(et); row.addView(spinner); row.addView(del)
+        row.setTag(R.id.layoutRuleLookups, Pair(et, spinner))
+        layoutRuleLookups?.addView(row)
+    }
+
+    private fun addWriteRow(rule: SheetWriteRule) {
+        val ctx = context ?: return
+        val row = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        val et = EditText(ctx).apply {
+            setText(rule.colRef)
+            hint = "K বা Verdict"
+            textSize = 13f
+            setSingleLine()
+            layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val spinner = android.widget.Spinner(ctx).apply {
+            adapter = android.widget.ArrayAdapter(ctx,
+                android.R.layout.simple_spinner_dropdown_item, SheetWriteKind.ALL)
+            setSelection(SheetWriteKind.ALL.indexOf(rule.kind).coerceAtLeast(0))
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        val del = TextView(ctx).apply {
+            text = "✕"; textSize = 16f
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            setPadding(16, 12, 8, 12)
+            setOnClickListener { layoutRuleWrites?.removeView(row) }
+        }
+        row.addView(et); row.addView(spinner); row.addView(del)
+        row.setTag(R.id.layoutRuleWrites, Pair(et, spinner))
+        layoutRuleWrites?.addView(row)
+    }
+
+    private fun clearRuleRows() {
+        layoutRuleLookups?.removeAllViews()
+        layoutRuleWrites?.removeAllViews()
+    }
+
+    private fun collectLookups(): List<SheetLookupRule> {
+        val out = mutableListOf<SheetLookupRule>()
+        val parent = layoutRuleLookups ?: return out
+        for (i in 0 until parent.childCount) {
+            val tag = parent.getChildAt(i).getTag(R.id.layoutRuleLookups)
+                as? Pair<*, *> ?: continue
+            val et = tag.first as? EditText ?: continue
+            val sp = tag.second as? android.widget.Spinner ?: continue
+            val ref = et.text?.toString()?.trim().orEmpty()
+            if (ref.isBlank()) continue
+            out.add(SheetLookupRule(ref, sp.selectedItem?.toString() ?: SheetLookupKind.CONSIGNMENT))
+        }
+        return out
+    }
+
+    private fun collectWrites(): List<SheetWriteRule> {
+        val out = mutableListOf<SheetWriteRule>()
+        val parent = layoutRuleWrites ?: return out
+        for (i in 0 until parent.childCount) {
+            val tag = parent.getChildAt(i).getTag(R.id.layoutRuleWrites)
+                as? Pair<*, *> ?: continue
+            val et = tag.first as? EditText ?: continue
+            val sp = tag.second as? android.widget.Spinner ?: continue
+            val ref = et.text?.toString()?.trim().orEmpty()
+            if (ref.isBlank()) continue
+            out.add(SheetWriteRule(ref, sp.selectedItem?.toString() ?: SheetWriteKind.VERDICT))
+        }
+        return out
+    }
+
     // ── Wizard entry/exit ────────────────────────────────────────────────────
     private fun startNewConnection() {
         editingConnectionId = ""
@@ -451,6 +573,7 @@ class ConfigConnectorsFragment : Fragment() {
         etScMatchColumn?.setText("")
         etScDateMatchColumn?.setText("")
         etScWriteColumn?.setText("")
+        clearRuleRows()
         tvScSelectedSheet?.text = "— Sheet বেছে নিন —"
         enterWizard()
     }
@@ -463,6 +586,11 @@ class ConfigConnectorsFragment : Fragment() {
         etScMatchColumn?.setText(conn.matchColumn)
         etScDateMatchColumn?.setText(conn.dateMatchColumn)
         etScWriteColumn?.setText(conn.writeColumn)
+        clearRuleRows()
+        // Stored dynamic rules; legacy 3-field conns show their fixed fields
+        // above (auto-converted at mirror time, nothing to re-type).
+        conn.lookups.forEach { addLookupRow(it) }
+        conn.writes.forEach { addWriteRow(it) }
         tvScSelectedSheet?.text = conn.sheetName.ifBlank { "— Sheet বেছে নিন —" }
         enterWizard()
     }
@@ -788,6 +916,8 @@ class ConfigConnectorsFragment : Fragment() {
                     matchColumn  = matchCol,
                     dateMatchColumn = dateMatchCol,
                     writeColumn  = writeCol,
+                    lookups      = collectLookups(),
+                    writes       = collectWrites(),
                     googleEmail  = acct.email.orEmpty(),
                 )
                 ScannerSheetRepository.saveConnection(conn, uid, actingName, isNew)

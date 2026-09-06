@@ -64,12 +64,16 @@ object RemarkSheetMirror {
         } catch (_: Exception) { }
     }
 
-    fun mirror(appContext: Context, branchId: String, consignmentId: String, verdict: String) {
+    fun mirror(
+        appContext: Context, branchId: String, consignmentId: String, verdict: String,
+        remark: String = "", note: String = "", status: String = ""
+    ) {
         if (branchId.isBlank() || consignmentId.isBlank() || verdict.isBlank()) return
+        val ctx = MirrorCtx(consignmentId.trim(), verdict, remark, note, status, LocalDate.now(opsZone))
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 val conns = ScannerSheetRepository.loadConnections(branchId)
-                    .filter { it.dateMatchColumn.isNotBlank() && it.matchColumn.isNotBlank() && it.writeColumn.isNotBlank() }
+                    .filter { it.isRemarkConnection() }
                 if (conns.isEmpty()) {
                     FirebaseErrorLogger.log("RemarkSheetMirror", "no_remark_connection",
                         "No remark sheet connection for branch", mapOf("branchId" to branchId))
@@ -84,11 +88,10 @@ object RemarkSheetMirror {
                     toastMain(appContext, "Sheet: Google account not connected — verdict not mirrored")
                     return@launch
                 }
-                val today = LocalDate.now(opsZone)
                 var okRows = 0
                 var lastSkip = ""
                 conns.forEach { conn ->
-                    when (val out = mirrorOneWithRetry(conn, token, consignmentId, verdict, today)) {
+                    when (val out = mirrorOneWithRetry(conn, token, ctx)) {
                         is MirrorOutcome.Done -> okRows++
                         is MirrorOutcome.Skipped -> {
                             lastSkip = out.reason
@@ -107,17 +110,67 @@ object RemarkSheetMirror {
         }
     }
 
+    /** Values available to lookup/write rules for one remark save. */
+    data class MirrorCtx(
+        val consignmentId: String,
+        val verdict: String,
+        val remark: String,
+        val note: String,
+        val status: String,
+        val today: LocalDate,
+    )
+
+    private val LETTER_RE = Regex("^[A-Za-z]{1,3}$")
+
+    /** Resolves a column ref to a letter: "C" passes through, anything else is
+     *  matched (case-insensitive, trimmed) against row-1 headers — INDEX/MATCH
+     *  style. Returns null when a header text finds no column. */
+    private suspend fun resolveLetter(
+        accessToken: String, sheetId: String, tab: String, ref: String,
+        headerCache: MutableMap<String, List<String>>
+    ): String? {
+        val t = ref.trim()
+        if (t.isEmpty()) return null
+        if (LETTER_RE.matches(t)) return t.uppercase()
+        val headers = headerCache.getOrPut(tab) {
+            ConfigSheetDriveApi.fetchRowValues(accessToken, sheetId, tab, 1, httpClient)
+        }
+        val idx = headers.indexOfFirst { it.trim().equals(t, ignoreCase = true) }
+        if (idx < 0) return null
+        return ConfigSheetParseUtil.colIndexToLetter(idx + 1) // 1-based
+    }
+
+    private fun lookupMatches(kind: String, cell: String, ctx: MirrorCtx): Boolean = when (kind) {
+        SheetLookupKind.CONSIGNMENT -> cell.trim() == ctx.consignmentId
+        SheetLookupKind.TODAY -> isToday(cell, ctx.today)
+        else -> false
+    }
+
+    private fun lookupWant(kind: String, ctx: MirrorCtx): String = when (kind) {
+        SheetLookupKind.CONSIGNMENT -> ctx.consignmentId
+        SheetLookupKind.TODAY -> "আজকের তারিখ"
+        else -> kind
+    }
+
+    private fun writeValue(kind: String, ctx: MirrorCtx): String = when (kind) {
+        SheetWriteKind.VERDICT -> ctx.verdict
+        SheetWriteKind.REMARK -> ctx.remark
+        SheetWriteKind.NOTE -> ctx.note
+        SheetWriteKind.STATUS -> ctx.status
+        SheetWriteKind.TODAY -> ctx.today.toString() // yyyy-MM-dd
+        else -> ""
+    }
+
     /** mirrorOne with retry: transient transport/write failures get 3 attempts
      *  (2s, 4s backoff). Deliberate skips (no matching row) throw nothing and
      *  are returned at once — retrying changes nothing. */
     private suspend fun mirrorOneWithRetry(
-        conn: ScannerSheetConn, accessToken: String, consignmentId: String,
-        verdict: String, today: LocalDate, attempts: Int = 3
+        conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx, attempts: Int = 3
     ): MirrorOutcome {
         var lastError = ""
         repeat(attempts) { n ->
             try {
-                return mirrorOne(conn, accessToken, consignmentId, verdict, today)
+                return mirrorOne(conn, accessToken, ctx)
             } catch (e: Exception) {
                 lastError = e.message?.take(120) ?: "sheet write failed"
                 if (n < attempts - 1) delay(if (n == 0) 2000L else 4000L)
@@ -129,58 +182,86 @@ object RemarkSheetMirror {
     // mirrorOne throws on transport/write failures (retried above) and returns
     // Skipped only for deliberate no-match skips.
     private suspend fun mirrorOne(
-        conn: ScannerSheetConn,
-        accessToken: String,
-        consignmentId: String,
-        verdict: String,
-        today: LocalDate
+        conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx
     ): MirrorOutcome = withContext(Dispatchers.IO) {
-        when (val found = findTargetRow(conn, accessToken, consignmentId, today)) {
+        when (val found = findTargetRow(conn, accessToken, ctx)) {
             is FindResult.Miss -> MirrorOutcome.Skipped(found.reason)
             is FindResult.Hit -> {
-                ConfigSheetDriveApi.writeCellValue(
-                    accessToken, conn.sheetId, found.tab, conn.writeColumn, found.row, verdict, httpClient
-                )
+                found.writes.forEach { (letter, value) ->
+                    ConfigSheetDriveApi.writeCellValue(
+                        accessToken, conn.sheetId, found.tab, letter, found.row, value, httpClient
+                    )
+                }
                 MirrorOutcome.Done(found.row)
             }
         }
     }
 
     private sealed class FindResult {
-        data class Hit(val tab: String, val row: Int, val dateCell: String, val scanned: Int) : FindResult()
+        data class Hit(
+            val tab: String, val row: Int,
+            val writes: List<Pair<String, String>>, // (letter, value) actually written
+            val detail: String, // per-rule match diagnostics
+            val scanned: Int
+        ) : FindResult()
         data class Miss(val reason: String) : FindResult()
     }
 
     /** Shared row-match used by both the live mirror and the dry-run test:
-     *  today's tab → consignment column + date column → row where
-     *  matchColumn == consignmentId AND dateMatchColumn == today. */
+     *  today's tab → resolve every lookup colRef (letter or header) → fetch
+     *  each column once → first row where ALL rules match exactly. Each write
+     *  colRef resolves the same way; unresolvable write columns fail the whole
+     *  match (writing half the rules would corrupt the row). Exact match or
+     *  nothing — never appended. */
     private suspend fun findTargetRow(
-        conn: ScannerSheetConn, accessToken: String, consignmentId: String, today: LocalDate
+        conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx
     ): FindResult = withContext(Dispatchers.IO) {
+        val lookups = conn.effectiveLookups()
+        val writes = conn.effectiveWrites()
+        if (lookups.isEmpty() || writes.isEmpty()) {
+            return@withContext FindResult.Miss("lookup/write rule নেই — connection configure করুন")
+        }
         val tabName = ScannerSheetRepository.resolveTabName(conn.tabPattern)
-        val consignmentValues = ConfigSheetDriveApi.fetchColumnValues(
-            accessToken, conn.sheetId, tabName, conn.matchColumn, httpClient
-        )
-        val dateValues = ConfigSheetDriveApi.fetchColumnValues(
-            accessToken, conn.sheetId, tabName, conn.dateMatchColumn, httpClient
-        )
-        if (consignmentValues.isEmpty()) {
-            return@withContext FindResult.Miss(
-                "tab '$tabName'-এ ${conn.matchColumn} কলাম খালি — tab/column মিলছে না")
+        val headerCache = mutableMapOf<String, List<String>>()
+        // Resolve lookup columns first (fail fast with WHICH ref broke).
+        val lookupCols = lookups.map { rule ->
+            val letter = resolveLetter(accessToken, conn.sheetId, tabName, rule.colRef, headerCache)
+                ?: return@withContext FindResult.Miss(
+                    "lookup column '${rule.colRef.trim()}' পাওয়া যায়নি (letter বা header text)")
+            rule to letter
         }
-        var consignmentHits = 0
-        for (i in consignmentValues.indices) {
-            if (consignmentValues[i].trim() != consignmentId.trim()) continue
-            consignmentHits++
-            if (!isToday(dateValues.getOrNull(i).orEmpty(), today)) continue
-            return@withContext FindResult.Hit(tabName, i + 1, dateValues.getOrNull(i).orEmpty(), consignmentValues.size)
+        val writeCols = writes.map { rule ->
+            val letter = resolveLetter(accessToken, conn.sheetId, tabName, rule.colRef, headerCache)
+                ?: return@withContext FindResult.Miss(
+                    "write column '${rule.colRef.trim()}' পাওয়া যায়নি (letter বা header text)")
+            rule to letter
         }
-        if (consignmentHits == 0) {
-            return@withContext FindResult.Miss(
-                "consignment $consignmentId tab '$tabName'-এ পাওয়া যায়নি (${consignmentValues.size} row দেখা হয়েছে)")
+        val columns = lookupCols.map { (_, letter) ->
+            letter to ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tabName, letter, httpClient)
+        }.toMap()
+        val scanned = columns.values.maxOfOrNull { it.size } ?: 0
+        if (scanned == 0) {
+            return@withContext FindResult.Miss("tab '$tabName' খালি — tab/column মিলছে না")
+        }
+        val diag = StringBuilder()
+        for (i in 0 until scanned) {
+            val fails = lookupCols.filter { (rule, letter) ->
+                !lookupMatches(rule.kind, columns[letter].orEmpty().getOrNull(i).orEmpty(), ctx)
+            }
+            if (fails.isEmpty()) {
+                val writePairs = writeCols.map { (rule, letter) -> letter to writeValue(rule.kind, ctx) }
+                lookupCols.forEach { (rule, letter) ->
+                    diag.append("${rule.colRef.trim()}(${letter})='${lookupWant(rule.kind, ctx)}' ✓; ")
+                }
+                return@withContext FindResult.Hit(tabName, i + 1, writePairs, diag.toString(), scanned)
+            }
+        }
+        // No exact row: say WHICH rule never matched (first failing rule's want).
+        val wantList = lookupCols.joinToString(", ") { (rule, _) ->
+            "${rule.colRef.trim()}='${lookupWant(rule.kind, ctx)}'"
         }
         return@withContext FindResult.Miss(
-            "consignment পাওয়া গেছে কিন্তু আজকের তারিখের row নেই — কখনো append হয় না")
+            "exact match নেই ($wantList — $scanned row দেখা হয়েছে)। কখনো append হয় না")
     }
 
     /** True when a Sheets date cell (formatted text) falls on [today]. */
@@ -195,16 +276,21 @@ object RemarkSheetMirror {
 
     /** Dry-run for the Connectors Test button: same match as the live mirror
      *  but writes NOTHING. Returns a human-readable report. */
-    suspend fun dryRunReport(appContext: Context, conn: ScannerSheetConn, consignmentId: String): String =
+    suspend fun dryRunReport(
+        appContext: Context, conn: ScannerSheetConn, consignmentId: String,
+        verdict: String = "TEST", remark: String = "", note: String = "", status: String = ""
+    ): String =
         withContext(Dispatchers.IO) {
             if (consignmentId.isBlank()) return@withContext "Consignment ID দিন"
             val token = silentWriteToken(appContext.applicationContext)
                 ?: return@withContext "Google account connected নেই — Connectors থেকে account connect করুন"
-            val today = LocalDate.now(opsZone)
+            val ctx = MirrorCtx(consignmentId.trim(), verdict, remark, note, status, LocalDate.now(opsZone))
             try {
-                when (val found = findTargetRow(conn, token, consignmentId.trim(), today)) {
-                    is FindResult.Hit ->
-                        "✓ Row ${found.row} (tab '${found.tab}') — verdict যাবে ${conn.writeColumn}${found.row}-এ।\nDate cell: '${found.dateCell}'\n${found.scanned} row দেখা হয়েছে।"
+                when (val found = findTargetRow(conn, token, ctx)) {
+                    is FindResult.Hit -> {
+                        val w = found.writes.joinToString(", ") { (l, v) -> "$l$v='${v.ifBlank { "(খালি)" }}'" }
+                        "✓ Row ${found.row} (tab '${found.tab}') মিলেছে\n${found.detail}\nলিখবে: $w\n${found.scanned} row দেখা হয়েছে। (কিছু লেখা হয়নি)"
+                    }
                     is FindResult.Miss -> "✕ ${found.reason}"
                 }
             } catch (e: Exception) {

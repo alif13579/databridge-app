@@ -125,6 +125,37 @@ object ConfigSheetDriveApi {
     }
 
     /**
+     * Reads one full row (header row 1 by default) as cell texts. Used to
+     * resolve a header-text column reference to its letter (INDEX/MATCH style).
+     * Throws [IOException] on HTTP error.
+     */
+    fun fetchRowValues(
+        accessToken: String,
+        sheetId: String,
+        tabName: String,
+        row: Int,
+        httpClient: OkHttpClient
+    ): List<String> {
+        val range = java.net.URLEncoder.encode("$tabName!$row:$row", "UTF-8")
+        val url = "https://sheets.googleapis.com/v4/spreadsheets/$sheetId/values/$range"
+
+        val req = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $accessToken")
+            .build()
+
+        httpClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw IOException("Sheets API ${resp.code}: ${resp.body?.string()}")
+            val body = resp.body?.string() ?: return emptyList()
+            val rows = JSONObject(body).optJSONArray("values") ?: return emptyList()
+            val first = rows.optJSONArray(0) ?: return emptyList()
+            return buildList {
+                for (i in 0 until first.length()) add(first.optString(i, "") ?: "")
+            }
+        }
+    }
+
+    /**
      * Writes a single value into one cell, e.g. Column K (11) at a specific row. 1-indexed
      * row number, matching how rows are numbered in the Sheets UI itself.
      * Uses valueInputOption=RAW — the value is stored exactly as given, no formula parsing

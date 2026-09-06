@@ -76,7 +76,8 @@ object SupabaseRemarkValidationWriter {
                 // CC-only sheet mirror (best-effort, never blocks): a non-blank
                 // verdict goes into the branch's connected remark sheet.
                 if (response != null && source == "CC" && verdictText.isNotBlank() && appContext != null) {
-                    RemarkSheetMirror.mirror(appContext, branchId, consignmentId, verdictText)
+                    RemarkSheetMirror.mirror(appContext, branchId, consignmentId, verdictText,
+                        remark = remarksText, note = noteText, status = status)
                 }
             }
     }
@@ -125,7 +126,8 @@ object SupabaseRemarkValidationWriter {
         RemarkPushChainLog.log("RemarkPushChain", message,
             isWarning = reason != "accepted_by_fcm")
         if (source == "CC" && verdictText.isNotBlank() && appContext != null) {
-            RemarkSheetMirror.mirror(appContext, branchId, consignmentId, verdictText)
+            RemarkSheetMirror.mirror(appContext, branchId, consignmentId, verdictText,
+                remark = remarksText, note = noteText, status = status)
         }
         return true
     }

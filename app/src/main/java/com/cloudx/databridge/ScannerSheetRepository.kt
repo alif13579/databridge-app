@@ -44,6 +44,22 @@ object ScannerSheetRepository {
                 connectedBy     = child.child("connectedBy").getValue(String::class.java).orEmpty(),
                 connectedByName = child.child("connectedByName").getValue(String::class.java).orEmpty(),
                 connectedAt     = child.child("connectedAt").getValue(Long::class.java) ?: 0L,
+                lookups         = child.child("lookups").children.mapNotNull { r ->
+                    val ref = r.child("colRef").getValue(String::class.java).orEmpty()
+                    if (ref.isBlank()) null else SheetLookupRule(
+                        colRef = ref,
+                        kind = r.child("kind").getValue(String::class.java)
+                            ?.takeIf { it in SheetLookupKind.ALL } ?: SheetLookupKind.CONSIGNMENT,
+                    )
+                },
+                writes          = child.child("writes").children.mapNotNull { r ->
+                    val ref = r.child("colRef").getValue(String::class.java).orEmpty()
+                    if (ref.isBlank()) null else SheetWriteRule(
+                        colRef = ref,
+                        kind = r.child("kind").getValue(String::class.java)
+                            ?.takeIf { it in SheetWriteKind.ALL } ?: SheetWriteKind.VERDICT,
+                    )
+                },
             )
         }
     }
@@ -69,6 +85,10 @@ object ScannerSheetRepository {
             "matchColumn"     to conn.matchColumn,
             "dateMatchColumn" to conn.dateMatchColumn,
             "writeColumn"     to conn.writeColumn,
+            "lookups"         to conn.lookups.filter { it.colRef.isNotBlank() }
+                .map { mapOf("colRef" to it.colRef.trim(), "kind" to it.kind) },
+            "writes"          to conn.writes.filter { it.colRef.isNotBlank() }
+                .map { mapOf("colRef" to it.colRef.trim(), "kind" to it.kind) },
             "googleEmail"     to conn.googleEmail,
             "connectedBy"     to actingUid,
             "connectedByName" to actingName,

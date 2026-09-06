@@ -38,4 +38,64 @@ data class ScannerSheetConn(
     val connectedBy:    String = "",
     val connectedByName: String = "",
     val connectedAt:    Long = 0L,
+    /** Dynamic lookup rules (remark mirror). Empty = legacy 3-field mode:
+     *  effective rules auto-convert from [matchColumn]/[dateMatchColumn]
+     *  (see effectiveLookups). Scanner connections keep these empty. */
+    val lookups: List<SheetLookupRule> = emptyList(),
+    /** Dynamic write rules (remark mirror). Empty = legacy [writeColumn]. */
+    val writes: List<SheetWriteRule> = emptyList(),
+) {
+    /** Lookup rules actually used: dynamic list, else legacy conversion
+     *  (matchColumn→consignment, dateMatchColumn→today) for remark conns. */
+    fun effectiveLookups(): List<SheetLookupRule> {
+        val dynamic = lookups.filter { it.colRef.isNotBlank() }
+        if (dynamic.isNotEmpty()) return dynamic
+        if (dateMatchColumn.isBlank()) return emptyList()
+        return buildList {
+            if (matchColumn.isNotBlank()) add(SheetLookupRule(matchColumn, SheetLookupKind.CONSIGNMENT))
+            add(SheetLookupRule(dateMatchColumn, SheetLookupKind.TODAY))
+        }
+    }
+
+    /** Write rules actually used: dynamic list, else legacy [writeColumn]. */
+    fun effectiveWrites(): List<SheetWriteRule> {
+        val dynamic = writes.filter { it.colRef.isNotBlank() }
+        if (dynamic.isNotEmpty()) return dynamic
+        if (dateMatchColumn.isBlank() || writeColumn.isBlank()) return emptyList()
+        return listOf(SheetWriteRule(writeColumn, SheetWriteKind.VERDICT))
+    }
+
+    /** True when the mirror should process this connection. */
+    fun isRemarkConnection(): Boolean =
+        effectiveLookups().isNotEmpty() && effectiveWrites().isNotEmpty()
+}
+
+/** Lookup value sources for dynamic remark-connection rules. */
+object SheetLookupKind {
+    const val CONSIGNMENT = "consignment"
+    const val TODAY = "today"
+    val ALL = listOf(CONSIGNMENT, TODAY)
+}
+
+/** Write value sources for dynamic remark-connection rules. */
+object SheetWriteKind {
+    const val VERDICT = "verdict"
+    const val REMARK = "remark"
+    const val NOTE = "note"
+    const val STATUS = "status"
+    const val TODAY = "today"
+    val ALL = listOf(VERDICT, REMARK, NOTE, STATUS, TODAY)
+}
+
+/** One lookup criterion: column [colRef] (letter like "C" or header text like
+ *  "Consignment ID") must match [kind] (consignment/today) on the same row. */
+data class SheetLookupRule(
+    val colRef: String = "",
+    val kind: String = SheetLookupKind.CONSIGNMENT,
+)
+
+/** One write target: [kind] value goes into column [colRef] on the matched row. */
+data class SheetWriteRule(
+    val colRef: String = "",
+    val kind: String = SheetWriteKind.VERDICT,
 )

@@ -350,6 +350,36 @@
                     android:text="Match পাওয়া row-এর blank cell-এ scan করা data এখানে বসবে"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
 
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="LOOKUP RULES — Remark (dynamic, ঐচ্ছিক)" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="এক বা একাধিক শর্ত (সবগুলো একই row-তে মিলতে হবে)। Column: letter (C) বা header text (Consignment ID)। থাকলে উপরের 3 field-এর বদলে এগুলোই চলবে।"
+                    android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="5dp" />
+                <LinearLayout android:id="@+id/layoutRuleLookups"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:layout_marginBottom="4dp" />
+                <TextView android:id="@+id/btnAddLookupRule"
+                    android:layout_width="wrap_content" android:layout_height="36dp"
+                    android:gravity="center" android:text="+ Add lookup"
+                    android:textSize="13sp" android:textStyle="bold" android:textColor="#6D28D9"
+                    android:paddingHorizontal="12dp" android:layout_marginBottom="16dp" />
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="WRITE RULES — Remark (dynamic, ঐচ্ছিক)" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="এক বা একাধিক column-এ লিখবে। Value: verdict / remark / note / status / today।"
+                    android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="5dp" />
+                <LinearLayout android:id="@+id/layoutRuleWrites"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:layout_marginBottom="4dp" />
+                <TextView android:id="@+id/btnAddWriteRule"
+                    android:layout_width="wrap_content" android:layout_height="36dp"
+                    android:gravity="center" android:text="+ Add write"
+                    android:textSize="13sp" android:textStyle="bold" android:textColor="#059669"
+                    android:paddingHorizontal="12dp" android:layout_marginBottom="16dp" />
+
                 <TextView android:id="@+id/tvScSummary"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
                     android:textSize="13sp" android:textColor="#166534"
