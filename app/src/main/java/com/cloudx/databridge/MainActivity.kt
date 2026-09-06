@@ -127,6 +127,80 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             }
         }
 
+    // ── One-time Sheet auth (no Config access needed) ──────────────────────
+    // Agents without Config access still need a Sheets write grant on their own
+    // device, or every remark mirror silently skips. When a CC save finds no
+    // grant, it calls promptSheetAuthOnce() (via RemarkSheetMirror's
+    // onAuthNeeded) — a first-time popup that connects their OWN Gmail with
+    // the SAME scopes + prefs file Connectors uses, so all save sites
+    // (fragment, popups, bulk) start working device-wide from then on.
+    // Once per process run max; connected devices never see it.
+    private var sheetAuthPromptShown = false
+    private val sheetAuthClient: GoogleSignInClient by lazy {
+        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(
+                com.google.android.gms.common.api.Scope(ConfigSheetDriveApi.SCOPE_DRIVE_FILE),
+                com.google.android.gms.common.api.Scope(ConfigSheetDriveApi.SCOPE_SHEETS_WRITE)
+            )
+            .build()
+        GoogleSignIn.getClient(this, gso)
+    }
+    private val sheetAuthLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val account = GoogleSignInHelper.parseSignInResult(result.data) { msg ->
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+            } ?: return@registerForActivityResult
+            // Same prefs file Connectors reads device-wide — this IS the grant.
+            GoogleSignInHelper.rememberConnectedEmail(
+                this, "connectors_google_account", account.email)
+            Toast.makeText(this,
+                "✓ Google connected — ekhon theke remarks sheet-e auto save hobe",
+                Toast.LENGTH_LONG).show()
+        }
+
+    /** Thread-safe: mirror callbacks fire from IO coroutines. */
+    fun promptSheetAuthOnce() {
+        if (sheetAuthPromptShown) return
+        // Already connected on this device → nothing to ask.
+        val connected = try {
+            GoogleSignInHelper.restoreOwnAccountIfMatching(
+                this, "connectors_google_account",
+                listOf(
+                    com.google.android.gms.common.api.Scope(ConfigSheetDriveApi.SCOPE_DRIVE_FILE),
+                    com.google.android.gms.common.api.Scope(ConfigSheetDriveApi.SCOPE_SHEETS_WRITE)
+                )
+            ) != null
+        } catch (_: Exception) { false }
+        if (connected) return
+        sheetAuthPromptShown = true
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            AlertDialog.Builder(this)
+                .setTitle("📄 Sheet sync")
+                .setMessage("Remarks sheet-e auto save-er jonno ekbar Google connect korun (nijer Gmail, one-time).")
+                .setPositiveButton("Connect") { _, _ ->
+                    try {
+                        sheetAuthClient.signOut().addOnCompleteListener {
+                            try {
+                                sheetAuthLauncher.launch(sheetAuthClient.signInIntent)
+                            } catch (e: Exception) {
+                                Toast.makeText(this,
+                                    "Sign-In launch failed: ${e.message}",
+                                    Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(this,
+                            "Sign-In shuru kora jayni: ${e.message}",
+                            Toast.LENGTH_LONG).show()
+                    }
+                }
+                .setNegativeButton("Pore", null)
+                .show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val togglePrefs = getSharedPreferences("databridge_toggles", MODE_PRIVATE)
         // Fresh installs start in light mode (default false) — a saved

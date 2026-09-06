@@ -371,7 +371,8 @@ class ParcelDetailFragment : Fragment() {
                 remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedRemarkTextEn } ?: "",
                 feedback = if (source == "CC") selectedFeedback else "",
                 validatorName = if (source == "CC") validatorName else "",
-                appContext = requireContext().applicationContext
+                appContext = requireContext().applicationContext,
+                onSheetAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() }
             )
 
             // Kept alongside the validations write above: these feed CC's push-queue index

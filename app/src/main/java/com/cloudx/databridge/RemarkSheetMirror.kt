@@ -69,6 +69,7 @@ object RemarkSheetMirror {
     fun mirror(
         appContext: Context, branchId: String, consignmentId: String,
         feedback: String, validatorName: String,
+        onAuthNeeded: (() -> Unit)? = null,
     ) {
         if (branchId.isBlank() || consignmentId.isBlank()) return
         val fb = feedback.trim()
@@ -90,9 +91,12 @@ object RemarkSheetMirror {
                 val token = silentWriteToken(appContext.applicationContext)
                 if (token.isNullOrBlank()) {
                     FirebaseErrorLogger.log("RemarkSheetMirror", "no_write_token",
-                        "No silent Sheets write token (connect a Google account in Config → Connectors)",
+                        "No silent Sheets write token (one-time Google auth pending)",
                         mapOf("branchId" to branchId))
-                    toastMain(appContext, "Sheet: Google account not connected — feedback not mirrored")
+                    // Config access charai one-time auth popup (MainActivity) —
+                    // na thakle ager toast- i thakbe.
+                    if (onAuthNeeded != null) onAuthNeeded()
+                    else toastMain(appContext, "Sheet: Google account not connected — feedback not mirrored")
                     return@launch
                 }
                 var okRows = 0
@@ -437,11 +441,15 @@ object RemarkSheetMirror {
         appContext: Context,
         branchIds: List<String>,
         onProgress: (String) -> Unit = {},
+        onAuthNeeded: (() -> Unit)? = null,
     ): String = withContext(Dispatchers.IO) {
         val branches = branchIds.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         if (branches.isEmpty()) return@withContext "কোনো branch পাওয়া যায়নি"
         val token = silentWriteToken(appContext.applicationContext)
-            ?: return@withContext "Google account connected নেই — Connectors থেকে account connect করুন"
+        if (token.isNullOrBlank()) {
+            if (onAuthNeeded != null) onAuthNeeded()
+            return@withContext "Google account connected নেই — connect kore abar Sync chapun"
+        }
         val today = LocalDate.now(opsZone)
         val todayStartIso = today.atStartOfDay(opsZone).toInstant().toString()
 

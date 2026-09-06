@@ -46,7 +46,8 @@ object SupabaseRemarkValidationWriter {
               status: String, remarksText: String, noteText: String = "", source: String,
               screen: String, remarksBnText: String = "",
               feedback: String = "", validatorName: String = "",
-              appContext: android.content.Context? = null) {
+              appContext: android.content.Context? = null,
+              onSheetAuthNeeded: (() -> Unit)? = null) {
         if (assignedAgentSystemId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
             val missing = buildList {
                 if (assignedAgentSystemId.isBlank()) add("assignedAgentSystemId")
@@ -79,7 +80,8 @@ object SupabaseRemarkValidationWriter {
                 // Validation / Validator Name go into the branch's connected
                 // remark sheet (blank stays blank).
                 if (response != null && source == "CC" && appContext != null) {
-                    RemarkSheetMirror.mirror(appContext, branchId, consignmentId, feedback, validatorName)
+                    RemarkSheetMirror.mirror(appContext, branchId, consignmentId, feedback, validatorName,
+                        onAuthNeeded = onSheetAuthNeeded)
                 }
             }
     }
@@ -94,7 +96,8 @@ object SupabaseRemarkValidationWriter {
               status: String, remarksText: String, noteText: String = "", source: String,
               screen: String, remarksBnText: String = "",
               feedback: String = "", validatorName: String = "",
-              appContext: android.content.Context? = null): Boolean {
+              appContext: android.content.Context? = null,
+              onSheetAuthNeeded: (() -> Unit)? = null): Boolean {
         if (assignedAgentSystemId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
             val missing = buildList {
                 if (assignedAgentSystemId.isBlank()) add("assignedAgentSystemId")
@@ -129,7 +132,8 @@ object SupabaseRemarkValidationWriter {
         RemarkPushChainLog.log("RemarkPushChain", message,
             isWarning = reason != "accepted_by_fcm")
         if (source == "CC" && appContext != null) {
-            RemarkSheetMirror.mirror(appContext, branchId, consignmentId, feedback, validatorName)
+            RemarkSheetMirror.mirror(appContext, branchId, consignmentId, feedback, validatorName,
+                onAuthNeeded = onSheetAuthNeeded)
         }
         return true
     }

@@ -3222,7 +3222,10 @@ class CallCenterFragment : Fragment() {
                 remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedStoredRemarkText } ?: "",
                 feedback = feedback,
                 validatorName = validatorName,
-                appContext = requireContext().applicationContext
+                appContext = requireContext().applicationContext,
+                // No Config access needed: first save without a Sheets grant pops
+                // a one-time Google auth dialog (MainActivity, own Gmail).
+                onSheetAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() }
             )
 
             EngagedStateManager.clearEngaged(target.id, userId)
@@ -3275,7 +3278,10 @@ class CallCenterFragment : Fragment() {
                                 btnSyncSheet.text = "⏳ $label".take(18)
                             }
                         }
-                    }
+                    },
+                    onAuthNeeded = { activity?.runOnUiThread {
+                        (activity as? MainActivity)?.promptSheetAuthOnce()
+                    } }
                 )
             } catch (e: Exception) {
                 "✕ Sync failed: ${e.message?.take(80) ?: "error"}"
