@@ -1619,6 +1619,9 @@ class CallCenterFragment : Fragment() {
         pbProgress.visibility = View.VISIBLE
         tvLoadingPercent.visibility = View.VISIBLE
         ccShownPercent = 0
+        ccIsLoading = true
+        ccReprocessTotal = 0
+        ccReprocessDone = 0
         tvLoadingPercent.text = "লোড হচ্ছে... 0%"
         tvEmpty.visibility    = View.GONE
         detachRunsListener()
@@ -1673,6 +1676,7 @@ class CallCenterFragment : Fragment() {
             saveFilterPreferences()
         }
         if (myBranchIds.isEmpty()) {
+            ccIsLoading = false
             pbProgress.visibility = View.GONE
             tvLoadingPercent.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
@@ -1740,6 +1744,7 @@ class CallCenterFragment : Fragment() {
                 }
                 override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
                     if (!isAdded) return
+                    ccIsLoading = false
                     pbProgress.visibility = View.GONE
                     tvLoadingPercent.visibility = View.GONE
                     tvEmpty.visibility    = View.VISIBLE
@@ -2009,13 +2014,24 @@ class CallCenterFragment : Fragment() {
 
         val typesToWatch = if (ccSelectedRunType == CC_RUN_TYPE_ALL) runTypes else listOf(ccSelectedRunType)
         if (typesToWatch.isEmpty()) {
-            if (ccReportedBranchIds.size < ccExpectedBranchCount) {
-                // Not every assigned branch has reported yet — an empty result right now
-                // could just mean the branches that DO have runs haven't responded yet.
-                // Leave the loading spinner (already showing since loadData()) as-is rather
-                // than flashing "No Run" and then correcting it a moment later.
+            // runTypes here is derived ONLY from phase-2 snapshots that have
+            // arrived so far — empty can mean "a branch with runs hasn't had
+            // its range queries report yet", not "no runs today". E.g. branch B
+            // (empty) reports Phase 1 while branch A's Phase-2 listeners are
+            // still in flight: allTypes is [] at this instant. So the branch
+            // gate alone is not enough — also require every attached Phase-2
+            // query to have reported (same rule as the consignment gate below).
+            val allPhase2Reported = ccExpectedPhase2Keys.isEmpty() ||
+                ccBranchRangeSnapshots.keys.containsAll(ccExpectedPhase2Keys)
+            if (ccReportedBranchIds.size < ccExpectedBranchCount || !allPhase2Reported) {
+                // Same as the gates below: leave the loading spinner as-is
+                // rather than flashing "No Run" and correcting a moment later.
+                // (Late data used to arrive AFTER the premature empty state had
+                // already hidden the spinner+percent — parcels popping in with
+                // no loading UI, which is exactly the reported bug.)
                 return
             }
+            ccIsLoading = false
             pbProgress.visibility = View.GONE
             tvLoadingPercent.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
@@ -2053,6 +2069,7 @@ class CallCenterFragment : Fragment() {
                 // now doesn't mean genuinely nothing today — leave the loading state alone.
                 return
             }
+            ccIsLoading = false
             pbProgress.visibility = View.GONE
             tvLoadingPercent.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
@@ -2104,13 +2121,17 @@ class CallCenterFragment : Fragment() {
      *  (and would keep growing) on every onBranchIndexesLoaded() call before that point. */
     private var ccStableCandidateKeys: Set<Pair<String, String>> = emptySet()
 
-    /** 3-stage sequential progress (0-30% branch discovery, 30-70% run-type range queries,
-     *  70-100% individual run-node fetches) rather than a naive completed/expected ratio,
-     *  because each later stage's denominator only becomes known/stable once the stage
-     *  before it fully completes — a naive ratio would grow its own denominator as more
-     *  branches/run-types are discovered and could make the shown percentage go backwards.
-     *  A stage is capped at not-yet-started (0% of its own share) until the stage before it
-     *  is done, so the number only ever moves forward. */
+    /** 4-stage sequential progress (0-30% branch discovery, 30-70% run-type range queries,
+     *  70-80% individual run-node fetches, 80-100% per-consignment detail fetch) rather than
+     *  a naive completed/expected ratio, because each later stage's denominator only becomes
+     *  known/stable once the stage before it fully completes — a naive ratio would grow its
+     *  own denominator as more branches/run-types are discovered and could make the shown
+     *  percentage go backwards. A stage is capped at not-yet-started (0% of its own share)
+     *  until the stage before it is done, so the number only ever moves forward.
+     *
+     *  Stage 4 matters most: the per-consignment fetch (courier/consignments reads + Supabase
+     *  batch) is the slowest phase, and it used to run entirely at a frozen 100% — the
+     *  reported "percent bare na" while the spinner kept spinning. */
     private fun computeCcLoadingPercent(): Int {
         if (ccExpectedBranchCount <= 0) return 0
         val stage1Pct = (ccReportedBranchIds.size.toFloat() / ccExpectedBranchCount).coerceIn(0f, 1f)
@@ -2128,18 +2149,23 @@ class CallCenterFragment : Fragment() {
         if (ccStableCandidateKeys.isEmpty()) {
             // Stage 2 done but onBranchIndexesLoaded hasn't set this cycle's keys
             // yet: stage 3 is just STARTING, not finished. Claiming 100 here then
-            // dropping back to 70 on the next update is the visible "percent goes
-            // backwards" glitch — report 70 (stage-3 entry) instead, 100 only when
-            // every branch + range query has genuinely reported empty.
-            val allReported = ccReportedBranchIds.size >= ccExpectedBranchCount &&
-                (ccExpectedPhase2Keys.isEmpty() ||
-                    ccBranchRangeSnapshots.keys.containsAll(ccExpectedPhase2Keys))
-            return if (allReported) 100 else 70
+            // dropping back on the next update is the visible "percent goes
+            // backwards" glitch — report 80 (stage-3 entry) instead, 100 only via
+            // stage 4 below once consignment details actually arrive.
+            // (Used to return 100 here when all reported — freezing the display
+            // at 100% through the whole slow consignment-fetch tail.)
+            return 80
         }
         val stage3Pct = (ccRunNodeSnapshots.keys.count { key ->
             ccStableCandidateKeys.any { "${it.first}/${it.second}" == key }
         }.toFloat() / ccStableCandidateKeys.size).coerceIn(0f, 1f)
-        return 70 + (stage3Pct * 30).toInt().coerceIn(0, 30)
+        if (stage3Pct < 1f) return 70 + (stage3Pct * 10).toInt().coerceIn(0, 10)
+        // Stage 3 done — run nodes in, consignment details still fetching.
+        if (ccReprocessTotal > 0) {
+            val stage4Pct = (ccReprocessDone.toFloat() / ccReprocessTotal).coerceIn(0f, 1f)
+            return 80 + (stage4Pct * 20).toInt().coerceIn(0, 20)
+        }
+        return 80
     }
 
     // Highest percent shown in the current loadData() cycle. Firebase callbacks
@@ -2147,6 +2173,15 @@ class CallCenterFragment : Fragment() {
     // (e.g. a late phase-2 fire after stage 3 started) — clamp to monotonic so
     // the user always sees 0→100 climbing. Reset in loadData().
     private var ccShownPercent = 0
+    // True from loadData() until this cycle reaches a terminal state (parcels
+    // rendered or a trusted empty/error state). While true, applyFilters() must
+    // not show tvEmpty — any "empty" in this window is just "not loaded yet",
+    // and showing it flashes stale text ("No Run", ...) before parcels arrive.
+    private var ccIsLoading = false
+    // Stage-4 (per-consignment detail fetch) progress — set when
+    // reprocessAllCachedRuns() builds its fetch list, reset in loadData().
+    private var ccReprocessTotal = 0
+    private var ccReprocessDone = 0
 
     private fun updateCcLoadingPercentDisplay() {
         if (!isAdded || !::tvLoadingPercent.isInitialized) return
@@ -2355,6 +2390,7 @@ class CallCenterFragment : Fragment() {
 
         if (consignmentInfo.isEmpty()) {
             if (!isAdded || generation != ccLoadGeneration) return
+            ccIsLoading = false
             pbProgress.visibility = View.GONE
             tvLoadingPercent.visibility = View.GONE
             tvEmpty.visibility    = View.VISIBLE
@@ -2398,6 +2434,14 @@ class CallCenterFragment : Fragment() {
             // common warm-cache path where attachRootRunTypesListener()'s early fire-and-forget
             // call already finished.)
             val nameMapDeferred = async { ensureAgentNameMap() }
+
+            // Stage-4 denominator: the per-consignment tail is the slowest phase,
+            // so each completed fetch below advances the bar 80→100.
+            if (generation == ccLoadGeneration) {
+                ccReprocessTotal = consignmentInfo.size.coerceAtLeast(1)
+                ccReprocessDone = 0
+                updateCcLoadingPercentDisplay()
+            }
 
             val fetches = consignmentInfo.entries.map { entry ->
                 val cId = entry.key
@@ -2521,7 +2565,17 @@ class CallCenterFragment : Fragment() {
                         )
                     } catch (e: Exception) { null }
                 }
-            }.mapNotNull { it.await() }
+            }.mapNotNull {
+                val item = it.await()
+                // Stage-4 progress — this await loop resumes on Main (children
+                // are IO), so views are safe. Stale generations must not push
+                // the new cycle's bar.
+                if (generation == ccLoadGeneration) {
+                    ccReprocessDone++
+                    updateCcLoadingPercentDisplay()
+                }
+                item
+            }
 
             // `remarkRows` intentionally stays out of CallCenterParcelItem.history. The
             // complete journey is fetched only from showActionHistoryDialog() on demand.
@@ -2531,6 +2585,7 @@ class CallCenterFragment : Fragment() {
         if (!isAdded || generation != ccLoadGeneration) return
         allParcels = parcels.sortedBy { it.id }
         hasLoadedCcDataOnce = true
+        ccIsLoading = false
         pendingSearchValidation?.let { it(); pendingSearchValidation = null }
         // Branch chips reflect the CC agent's OWN assignment (RbacManager), not whatever
         // branches happen to show up in the fetched parcels — Karim (Sonargaon only) never
@@ -2538,6 +2593,9 @@ class CallCenterFragment : Fragment() {
         branches = myBranchIds
         setupBranchDropdown()
         setupFilterTabs()
+        // All detail fetches came back null (e.g. consignments deleted after
+        // the run index listed them) — same meaning as the consignment gate.
+        if (parcels.isEmpty()) tvEmpty.text = "📭\n\nআজকের কোনো consignment নেই"
         applyFilters()
         pbProgress.visibility = View.GONE
         tvLoadingPercent.visibility = View.GONE
@@ -3224,7 +3282,10 @@ class CallCenterFragment : Fragment() {
             // the Call/Remarks buttons would flash open then snap shut.
             adapter.collapseExpanded()
         }
-        tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
+        // While a load cycle is in flight, "empty" only means "not loaded yet" —
+        // never show the empty state (it would flash stale text like "No Run"
+        // from a previous cycle, or the layout default, before parcels arrive).
+        tvEmpty.visibility = if (!ccIsLoading && filtered.isEmpty()) View.VISIBLE else View.GONE
 
         // Split-assignment conflicts: same customer, parcels assigned to different agents.
         // Computed against allParcels (not filtered) so a conflict still shows even if one
