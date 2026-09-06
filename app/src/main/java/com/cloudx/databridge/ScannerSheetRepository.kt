@@ -125,6 +125,48 @@ object ScannerSheetRepository {
         connectionId
     }
 
+    /** Live CC source per branch: which connector sheet the Call Center Live
+     *  mode reads today's consignment IDs from. Set from Config → Connectors
+     *  (LIVE CC SHEET dropdown, branch-wise). Null/blank = not set. */
+    data class LiveCcRef(
+        val connectionId: String = "",
+        val sheetName: String = "",
+    )
+
+    suspend fun loadLiveCc(branchId: String): LiveCcRef? = withContext(Dispatchers.IO) {
+        try {
+            val snap = db.reference.child("config/liveCc/$branchId").get().await()
+            if (!snap.exists()) return@withContext null
+            val cid = snap.child("connectionId").getValue(String::class.java).orEmpty().trim()
+            if (cid.isBlank()) return@withContext null
+            LiveCcRef(cid, snap.child("sheetName").getValue(String::class.java).orEmpty())
+        } catch (_: Exception) { null }
+    }
+
+    suspend fun saveLiveCc(branchId: String, ref: LiveCcRef, actingUid: String) =
+        withContext(Dispatchers.IO) {
+            val node = db.reference.child("config/liveCc/$branchId")
+            if (ref.connectionId.isBlank()) {
+                node.removeValue().await()
+            } else {
+                node.setValue(
+                    mapOf(
+                        "connectionId" to ref.connectionId,
+                        "sheetName" to ref.sheetName,
+                        "updatedAt" to System.currentTimeMillis(),
+                        "updatedBy" to actingUid,
+                    )
+                ).await()
+            }
+        }
+
+    suspend fun loadConnection(branchId: String, connectionId: String): ScannerSheetConn? =
+        withContext(Dispatchers.IO) {
+            try {
+                loadConnections(branchId).firstOrNull { it.connectionId == connectionId }
+            } catch (_: Exception) { null }
+        }
+
     /** Partial field update (enable/disable toggle) with audit-history entry. */
     suspend fun saveConnectionFields(
         branchId: String, connectionId: String, fields: Map<String, Any?>, actingUid: String

@@ -333,7 +333,8 @@ class CallCenterFragment : Fragment() {
         setupFilterTabs()
         setupAdapter()
         loadCcRemarkOptions()
-        loadData()
+        updateDataSourceToggle()
+        if (ccDataSource == "live") loadLiveMode() else loadData()
     }
 
     // ── Filter preference persistence ──────────────────────────────────────
@@ -358,6 +359,8 @@ class CallCenterFragment : Fragment() {
         selectedAgentFilters.clear()
         selectedAgentFilters.addAll(prefs.getStringSet("cc_filter_agent_names", emptySet()) ?: emptySet())
         sortMode = prefs.getString("cc_sort_mode", "attempt") ?: "attempt"
+        ccDataSource = prefs.getString("cc_data_source", "request") ?: "request"
+        if (ccDataSource != "live") ccDataSource = "request"
     }
 
     private fun saveFilterPreferences() {
@@ -366,6 +369,7 @@ class CallCenterFragment : Fragment() {
             .putStringSet("cc_filter_branch_ids", selectedBranchIds.toSet())
             .putStringSet("cc_filter_agent_names", selectedAgentFilters.toSet())
             .putString("cc_sort_mode", sortMode)
+            .putString("cc_data_source", ccDataSource)
             .apply()
     }
 
@@ -393,6 +397,13 @@ class CallCenterFragment : Fragment() {
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
         btnSyncSheet = view.findViewById(R.id.btnCcaSyncSheet)
         btnSyncSheet.setOnClickListener { startBulkSheetSync() }
+        btnLiveCc = view.findViewById(R.id.btnCcaLiveCc)
+        btnRequest = view.findViewById(R.id.btnCcaRequest)
+        scrollLiveMissing = view.findViewById(R.id.scrollCcaLiveMissing)
+        layoutLiveMissing = view.findViewById(R.id.layoutCcaLiveMissing)
+        btnLiveCc.setOnClickListener { setDataSource("live") }
+        btnRequest.setOnClickListener { setDataSource("request") }
+        updateDataSourceToggle()
 
         etSearch = view.findViewById(R.id.twCcaSearchInput)
         tvSearchClear = view.findViewById(R.id.twCcaSearchClear)
@@ -1623,6 +1634,19 @@ class CallCenterFragment : Fragment() {
 
     // ── Header Sync to Sheet (bulk — same as the extension's ⇪ Sheet) ────
     private lateinit var btnSyncSheet: TextView
+
+    // ── Data source toggle: Request (runs) vs Live CC (sheet IDs) ──────────
+    // Live CC reads today's consignment IDs from the branch's live sheet
+    // (Config → Connectors → LIVE CC SHEET) and builds the SAME parcel cards
+    // from Firebase + Supabase. Sheet IDs missing in Firebase become ID-only
+    // chips (liveMissingIds). Remarks save the same way in both modes.
+    private lateinit var btnLiveCc: TextView
+    private lateinit var btnRequest: TextView
+    private lateinit var scrollLiveMissing: View
+    private lateinit var layoutLiveMissing: LinearLayout
+    private var ccDataSource: String = "request" // "request" | "live"
+    private var liveMissingIds: List<String> = emptyList()
+    private var liveGeneration: Int = 0
 
     // ── Run type selection (mirrors WorkerSpaceFragment pattern) ──────
     private lateinit var spinnerCcRunType: Spinner
@@ -3297,6 +3321,251 @@ class CallCenterFragment : Fragment() {
         }
     }
 
+
+    // ── Data source toggle: Request vs Live CC ────────────────────────────
+    private fun updateDataSourceToggle() {
+        if (!::btnLiveCc.isInitialized) return
+        val live = ccDataSource == "live"
+        btnLiveCc.setBackgroundResource(
+            if (live) R.drawable.bg_filter_chip_active else R.drawable.bg_filter_chip_inactive)
+        btnLiveCc.setTextColor(if (live) android.graphics.Color.WHITE
+            else requireContext().getColor(R.color.theme_text_secondary))
+        btnRequest.setBackgroundResource(
+            if (!live) R.drawable.bg_filter_chip_active else R.drawable.bg_filter_chip_inactive)
+        btnRequest.setTextColor(if (!live) android.graphics.Color.WHITE
+            else requireContext().getColor(R.color.theme_text_secondary))
+        renderLiveMissingChips()
+    }
+
+    private fun setDataSource(mode: String) {
+        if (mode != "live" && mode != "request") return
+        if (ccDataSource == mode) return
+        ccDataSource = mode
+        saveFilterPreferences()
+        updateDataSourceToggle()
+        if (mode == "live") loadLiveMode() else {
+            liveMissingIds = emptyList()
+            renderLiveMissingChips()
+            loadData()
+        }
+    }
+
+    /**
+     * Live CC: today's consignment IDs come from the branch's live sheet
+     * (Config → Connectors → LIVE CC SHEET), cards are built from Firebase +
+     * Supabase exactly like Request mode. Sheet IDs missing in Firebase become
+     * ID-only chips above the list. Remarks save the same way in both modes.
+     */
+    private fun loadLiveMode() {
+        val gen = ++liveGeneration
+        pbProgress.visibility = View.VISIBLE
+        tvLoadingPercent.visibility = View.VISIBLE
+        tvLoadingPercent.text = "Live sheet পড়ছে..."
+        tvEmpty.visibility = View.GONE
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val appCtx = requireContext().applicationContext
+                val branches = selectedBranchIds.ifEmpty { myBranchIds.toSet() }.toList()
+                if (branches.isEmpty()) {
+                    if (gen != liveGeneration || !isAdded) return@launch
+                    showLiveError("⚠ কোনো branch assigned নেই — admin-এর সাথে যোগাযোগ করুন")
+                    return@launch
+                }
+                val token = withContext(Dispatchers.IO) {
+                    RemarkSheetMirror.readToken(appCtx)
+                }
+                if (gen != liveGeneration || !isAdded) return@launch
+                if (token.isNullOrBlank()) {
+                    (activity as? MainActivity)?.promptSheetAuthOnce()
+                    showLiveError("Sheet auth নেই — popup থেকে Google connect করে Live-তে আবার চাপুন")
+                    return@launch
+                }
+                val sheetRes = withContext(Dispatchers.IO) {
+                    RemarkSheetMirror.fetchLiveConsignments(token, branches)
+                }
+                if (gen != liveGeneration || !isAdded) return@launch
+                val ids = sheetRes.flatMap { it.ids }.distinct()
+                val notes = sheetRes.mapNotNull { r ->
+                    r.note?.takeIf { it.isNotBlank() }?.let { "${branchIdToName[r.branchId] ?: r.branchId}: $it" }
+                }
+                if (ids.isEmpty()) {
+                    val why = notes.firstOrNull() ?: "Live sheet-e ajker kono consignment nei"
+                    showLiveError("Live sheet খালি — $why")
+                    return@launch
+                }
+                tvLoadingPercent.text = "Firebase থেকে ${ids.size} parcel আনছে..."
+                val cidBranch = mutableMapOf<String, String>()
+                sheetRes.forEach { r -> r.ids.forEach { cidBranch.putIfAbsent(it, r.branchId) } }
+                val (items, missing) = withContext(Dispatchers.IO) {
+                    buildLiveParcels(ids, cidBranch)
+                }
+                if (gen != liveGeneration || !isAdded) return@launch
+                allParcels = items
+                liveMissingIds = missing
+                pbProgress.visibility = View.GONE
+                tvLoadingPercent.visibility = View.GONE
+                if (items.isEmpty() && missing.isNotEmpty()) {
+                    tvEmpty.visibility = View.VISIBLE
+                    tvEmpty.text = "Sheet-er ID-gulo Firebase-e paini — upore chip দেখুন"
+                } else {
+                    tvEmpty.visibility = View.GONE
+                }
+                setupFilterTabs()
+                applyFilters()
+                renderLiveMissingChips()
+                if (notes.isNotEmpty()) {
+                    Toast.makeText(requireContext(),
+                        "Live: " + notes.joinToString("; ").take(200),
+                        Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                if (gen != liveGeneration || !isAdded) return@launch
+                showLiveError("✕ Live load failed: ${e.message?.take(80) ?: "error"}")
+            }
+        }
+    }
+
+    private fun showLiveError(msg: String) {
+        pbProgress.visibility = View.GONE
+        tvLoadingPercent.visibility = View.GONE
+        tvEmpty.visibility = View.VISIBLE
+        tvEmpty.text = msg
+    }
+
+    /** Same card fields as the Request pipeline, keyed by sheet consignment ID.
+     *  [cidBranch] is the sheet's branch per ID (fallback scope when neither
+     *  the consignment node nor validations name a branch). */
+    private suspend fun buildLiveParcels(
+        ids: List<String>,
+        cidBranch: Map<String, String> = emptyMap(),
+    ): Pair<List<CallCenterParcelItem>, List<String>> = coroutineScope {
+        val db = com.google.firebase.database.FirebaseDatabase.getInstance()
+        val todayStartMs = bangladeshTodayStartMillis()
+        val todayStartIso = java.time.Instant.ofEpochMilli(todayStartMs).toString()
+        // One batched Supabase read for all IDs (today only), grouped below.
+        val chunks = ids.distinct().chunked(200)
+        val allRows = mutableListOf<org.json.JSONObject>()
+        chunks.forEach { chunk ->
+            allRows += SupabaseClientManager.fetchValidations(
+                "CallCenterFragment", "live_cc", listOf(
+                    "consignment" to "in.(${chunk.joinToString(",")})",
+                    "created_at" to "gte.$todayStartIso",
+                    "order" to "created_at.desc",
+                )
+            )
+        }
+        val rowsByCid = allRows.groupBy { it.optString("consignment") }
+        val nameMap = ensureAgentNameMap()
+        val missing = mutableListOf<String>()
+        val items = ids.distinct().map { cId ->
+            async(Dispatchers.IO) {
+                try {
+                    val snap = db.reference.child("courier/consignments/$cId").get().await()
+                    if (!snap.exists()) {
+                        synchronized(missing) { missing.add(cId) }
+                        return@async null
+                    }
+                    val remarkRows = rowsByCid[cId].orEmpty()
+                    fun rowMs(row: org.json.JSONObject): Long =
+                        SupabaseRemarkValidationWriter.parseCreatedAtMillis(row.optString("created_at"))
+                    val latestToday = remarkRows.firstOrNull { rowMs(it) >= todayStartMs }
+                    val latestAny = remarkRows.firstOrNull()
+                    val remarkStatus = latestToday?.optString("remarks_status")?.trim().orEmpty()
+                    val entryText = latestToday?.let { row ->
+                        listOf(resolveRemarkBn(row),
+                            row.optString("note").trim().takeIf { it.isNotBlank() }?.let { "Note: $it" })
+                            .filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
+                    }.orEmpty()
+                    val agentSystemId = latestAny?.optString("assigned_to_system_id")
+                        ?.trim().orEmpty()
+                    val fallbackHub = snap.child("deliveryHub").getValue(String::class.java)
+                        ?.trim().orEmpty()
+                    val scopedBranchIds = if (fallbackHub.isNotBlank()) listOf(fallbackHub)
+                    else latestAny?.optString("branch_id")?.trim()
+                        ?.takeIf { it.isNotBlank() }?.let { listOf(it) }
+                        ?: cidBranch[cId]?.takeIf { it.isNotBlank() }?.let { listOf(it) }.orEmpty()
+                    val hub = selectedBranchIds.firstOrNull { it in scopedBranchIds }
+                        ?: scopedBranchIds.firstOrNull().orEmpty()
+                    val name = snap.child("recipientName").getValue(String::class.java) ?: ""
+                    val phone = snap.child("recipientPhone").getValue(String::class.java) ?: ""
+                    val address = snap.child("recipientAddress").getValue(String::class.java) ?: ""
+                    val cod = snap.child("collectableAmount").getValue(String::class.java)
+                        ?.toDoubleOrNull()?.toInt()
+                        ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0
+                    val engaged = try {
+                        EngagedStateManager.parseEngagedAgents(
+                            db.reference.child(EngagedStateManager.nodePath(cId)).get().await())
+                    } catch (_: Exception) { emptyList() }
+                    CallCenterParcelItem(
+                        id = cId,
+                        customer = name,
+                        phone = phone,
+                        address = address,
+                        cod = cod,
+                        status = snap.child("status").getValue(String::class.java) ?: "",
+                        remarks = entryText,
+                        remarkStatus = remarkStatus,
+                        validationRequest = isVerifyRequestStatus(remarkStatus),
+                        validationNote = if (isVerifyRequestStatus(remarkStatus)) entryText else "",
+                        time = "",
+                        worker = nameMap[agentSystemId] ?: agentSystemId,
+                        workerSystemId = agentSystemId,
+                        workerPhotoUrl = systemIdToPhotoUrl[agentSystemId] ?: "",
+                        workerPhone = systemIdToPhone[agentSystemId] ?: "",
+                        branch = branchIdToName[hub] ?: hub,
+                        branchIds = scopedBranchIds,
+                        remarksAt = latestToday?.let { rowMs(it) } ?: 0L,
+                        createdAt = snap.child("createdAt").getValue(Long::class.java) ?: 0L,
+                        updatedAt = snap.child("updatedAt").getValue(Long::class.java) ?: 0L,
+                        engagedAgents = engaged,
+                        attemptCount = readCcAttempt(snap),
+                    )
+                } catch (_: Exception) {
+                    synchronized(missing) { if (cId !in missing) missing.add(cId) }
+                    null
+                }
+            }
+        }.mapNotNull { it.await() }
+        // Sheet order preserve + missing in sheet order.
+        val order = ids.distinct()
+        items.sortedBy { order.indexOf(it.id) } to order.filter { it in missing }
+    }
+
+    /** ID-only chips for sheet IDs missing in Firebase (Live mode only). */
+    private fun renderLiveMissingChips() {
+        val ctx = context
+        val box = if (::layoutLiveMissing.isInitialized) layoutLiveMissing else null
+        val scroller = if (::scrollLiveMissing.isInitialized) scrollLiveMissing else null
+        if (ctx == null || box == null || scroller == null) return
+        box.removeAllViews()
+        if (ccDataSource != "live" || liveMissingIds.isEmpty()) {
+            scroller.visibility = View.GONE
+            return
+        }
+        scroller.visibility = View.VISIBLE
+        box.addView(TextView(ctx).apply {
+            text = "⚠ Firebase-e nei:"
+            textSize = 11f
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            setPadding(0, 8, 12, 8)
+        })
+        liveMissingIds.forEach { id ->
+            box.addView(TextView(ctx).apply {
+                text = id
+                textSize = 11f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(android.graphics.Color.parseColor("#B45309"))
+                setBackgroundColor(android.graphics.Color.parseColor("#FEF3C7"))
+                setPadding(20, 8, 20, 8)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = 12 }
+                setOnClickListener {
+                    Toast.makeText(ctx, "$id — Firebase-e paini (sheet ID)", Toast.LENGTH_SHORT).show()
+                }
+            })
+        }
+    }
 
     private fun applyFilters() {
         // Access mode / branch / agent — same scope the chips and stat summary use,

@@ -63,6 +63,30 @@
                 android:padding="10dp"
                 android:layout_marginBottom="16dp" />
 
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="LIVE CC SHEET (Call Center Live mode)"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_text_secondary"
+                android:layout_marginBottom="5dp" />
+
+            <Spinner android:id="@+id/spinnerScLiveCc"
+                android:layout_width="match_parent"
+                android:layout_height="46dp"
+                android:background="@drawable/bg_input_rounded"
+                android:padding="10dp"
+                android:layout_marginBottom="4dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Live CC mode-e ei sheet theke ajker consignment asbe"
+                android:textSize="11sp"
+                android:textColor="@color/theme_text_muted"
+                android:layout_marginBottom="16dp" />
+
             <!-- Existing connections for the selected branch — rows injected programmatically -->
             <TextView
                 android:id="@+id/tvScConnectionsLabel"

@@ -652,6 +652,80 @@ object RemarkSheetMirror {
             }
         }
 
+    /** Read token for Live CC mode (Call Center reads today's consignment IDs
+     *  from the branch's live sheet). The write scope includes read. */
+    suspend fun readToken(appContext: Context): String? = silentWriteToken(appContext)
+
+    /** Today's consignment IDs from one branch's live sheet ([config/liveCc]).
+     *  [note] explains skips (no live sheet set, conn gone, no consignment
+     *  lookup, empty) — callers surface it, never crash. */
+    data class LiveBranchIds(
+        val branchId: String,
+        val ids: List<String>,
+        val note: String?,
+    )
+
+    suspend fun fetchLiveConsignments(
+        accessToken: String,
+        branchIds: List<String>,
+    ): List<LiveBranchIds> = withContext(Dispatchers.IO) {
+        val today = LocalDate.now(opsZone)
+        branchIds.map { it.trim() }.filter { it.isNotBlank() }.distinct().map { branchId ->
+            try {
+                val ref = ScannerSheetRepository.loadLiveCc(branchId)
+                    ?: return@map LiveBranchIds(branchId, emptyList(), "Live sheet set kora nei")
+                val conn = ScannerSheetRepository.loadConnection(branchId, ref.connectionId)
+                    ?: return@map LiveBranchIds(branchId, emptyList(), "Live sheet connection paini")
+                if (!conn.enabled)
+                    return@map LiveBranchIds(branchId, emptyList(), "Live sheet disabled")
+                val lookups = conn.effectiveLookups()
+                val cidRule = lookups.firstOrNull { it.kind == SheetLookupKind.CONSIGNMENT }
+                    ?: return@map LiveBranchIds(branchId, emptyList(), "Consignment lookup nei")
+                val tabName = ScannerSheetRepository.resolveTabName(conn.tabPattern)
+                val headerRow = conn.resolvedHeaderRow()
+                val headerCache = mutableMapOf<String, List<String>>()
+                val cidLetter = resolveLetter(accessToken, conn.sheetId, tabName,
+                    cidRule.colRef, cidRule.mode, headerRow, headerCache)
+                    ?: return@map LiveBranchIds(branchId, emptyList(),
+                        "Consignment column '${cidRule.colRef.trim()}' paini")
+                val dateRules = lookups.filter {
+                    it.kind == SheetLookupKind.TODAY || it.kind == SheetLookupKind.CREATED_AT
+                }
+                val dateCols = mutableMapOf<String, List<String>>()
+                dateRules.map { it to resolveLetter(accessToken, conn.sheetId, tabName,
+                    it.colRef, it.mode, headerRow, headerCache) }.forEach { (rule, letter) ->
+                    if (letter == null) return@map LiveBranchIds(branchId, emptyList(),
+                        "Lookup column '${rule.colRef.trim()}' paini")
+                    if (!dateCols.containsKey(letter)) {
+                        dateCols[letter] = ConfigSheetDriveApi.fetchColumnValues(
+                            accessToken, conn.sheetId, tabName, letter, httpClient)
+                    }
+                }
+                // dateLetters in rule order for row checks:
+                val dateLetters = dateRules.map { rule ->
+                    resolveLetter(accessToken, conn.sheetId, tabName,
+                        rule.colRef, rule.mode, headerRow, headerCache)!!
+                }
+                val cidCol = ConfigSheetDriveApi.fetchColumnValues(
+                    accessToken, conn.sheetId, tabName, cidLetter, httpClient)
+                val ids = mutableListOf<String>()
+                cidCol.forEachIndexed { i, cell ->
+                    val cid = cell.trim()
+                    if (cid.isEmpty()) return@forEachIndexed
+                    val dateOk = dateLetters.all { letter ->
+                        isToday((dateCols[letter].orEmpty().getOrNull(i).orEmpty()).trim(), today)
+                    }
+                    if (dateOk && cid !in ids) ids.add(cid)
+                }
+                if (ids.isEmpty()) LiveBranchIds(branchId, emptyList(), "Ajker kono consignment nei")
+                else LiveBranchIds(branchId, ids, null)
+            } catch (e: Exception) {
+                LiveBranchIds(branchId, emptyList(),
+                    e.message?.take(80) ?: "sheet পড়া যায়নি")
+            }
+        }
+    }
+
     /** Write-scope token for the connectors feature's own connected account —
      *  silent only. Any failure (no account, scope revoked, network) → null. */
     private suspend fun silentWriteToken(appContext: Context): String? = withContext(Dispatchers.IO) {

@@ -54,6 +54,11 @@ class ConfigConnectorsFragment : Fragment() {
     private var containerScConnections: LinearLayout? = null
     private var tvScNoConnections:     TextView? = null
     private var btnScAddConnection:    Button?   = null
+    // Panel 1: LIVE CC SHEET — branch-wise dropdown of ALL connector sheets.
+    private var spinnerScLiveCc: Spinner? = null
+    private var liveCcOptions: List<Pair<String, String>> = emptyList() // (connectionId, label)
+    private var liveCcLoadedId: String = ""
+    private var liveCcArmed: Boolean = false // false while programmatically seeding
 
     // ── Panel 2: Connect wizard ─────────────────────────────────────────────
     private var btnScCancelConnect: View? = null
@@ -226,6 +231,16 @@ class ConfigConnectorsFragment : Fragment() {
         containerScConnections = view.findViewById(R.id.containerScConnections)
         tvScNoConnections      = view.findViewById(R.id.tvScNoConnections)
         btnScAddConnection     = view.findViewById(R.id.btnScAddConnection)
+        spinnerScLiveCc        = view.findViewById(R.id.spinnerScLiveCc)
+        spinnerScLiveCc?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
+                if (!liveCcArmed) return
+                val picked = liveCcOptions.getOrNull(position)?.first.orEmpty()
+                if (picked == liveCcLoadedId) return
+                saveLiveCcSelection(picked)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
 
         btnScCancelConnect = view.findViewById(R.id.btnScCancelConnect)
         tvScConnBranchSub  = view.findViewById(R.id.tvScConnBranchSub)
@@ -363,6 +378,62 @@ class ConfigConnectorsFragment : Fragment() {
             }
             if (!isAdded) return@launch
             renderConnectionsList()
+            refreshLiveCcSpinner()
+        }
+    }
+
+    /** LIVE CC SHEET dropdown: ALL connector sheets of this branch (any
+     *  purpose/scope). Persists to config/liveCc/{branchId}. */
+    private fun refreshLiveCcSpinner() {
+        val ctx = context ?: return
+        viewLifecycleOwner.lifecycleScope.launch {
+            val savedId = try {
+                ScannerSheetRepository.loadLiveCc(selectedBranchId)?.connectionId.orEmpty()
+            } catch (_: Exception) { "" }
+            if (!isAdded) return@launch
+            liveCcArmed = false
+            liveCcOptions = listOf("" to "— Select —") + branchConnections.map { conn ->
+                val name = conn.nickname.ifBlank { conn.sheetName.ifBlank { conn.connectionId } }
+                val scope = SheetScope.badge(conn.scopeType, conn.scopeMonth, conn.scopeFrom, conn.scopeTo)
+                conn.connectionId to "$name • ${conn.purposeLabel()} • $scope"
+            }
+            liveCcLoadedId = savedId
+            spinnerScLiveCc?.adapter = ArrayAdapter(
+                ctx, android.R.layout.simple_spinner_item,
+                liveCcOptions.map { it.second }
+            ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            val pos = liveCcOptions.indexOfFirst { it.first == savedId }.takeIf { it >= 0 } ?: 0
+            spinnerScLiveCc?.setSelection(pos)
+            liveCcArmed = true
+        }
+    }
+
+    private fun saveLiveCcSelection(connectionId: String) {
+        val branchId = selectedBranchId
+        if (branchId.isBlank()) return
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                val conn = branchConnections.firstOrNull { it.connectionId == connectionId }
+                ScannerSheetRepository.saveLiveCc(
+                    branchId,
+                    ScannerSheetRepository.LiveCcRef(connectionId, conn?.sheetName.orEmpty()),
+                    uid,
+                )
+                liveCcLoadedId = connectionId
+                if (isAdded) Toast.makeText(context,
+                    if (connectionId.isBlank()) "Live CC sheet cleared"
+                    else "✓ Live CC sheet set", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                if (isAdded) {
+                    Toast.makeText(context, "Save failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    liveCcArmed = false
+                    val pos = liveCcOptions.indexOfFirst { it.first == liveCcLoadedId }
+                        .takeIf { it >= 0 } ?: 0
+                    spinnerScLiveCc?.setSelection(pos)
+                    liveCcArmed = true
+                }
+            }
         }
     }
 
