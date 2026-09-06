@@ -283,6 +283,17 @@ class CallCenterFragment : Fragment() {
                 applySearchPhone(phone) { hasResults -> main.onCcSearchValidated(hasResults) }
             }
         }
+        // Realtime channels authenticate with the Firebase ID token, which expires
+        // hourly — plus any single subscribe failure used to be permanent until the
+        // fragment was recreated. Resubscribing on resume (fresh token each time)
+        // self-heals both: teardown + syncCcRemarkListeners() re-creates. Skipped
+        // before the first load (nothing to track yet) and while a load is in
+        // flight (its own sync at the end wins).
+        if (hasLoadedCcDataOnce && !ccIsLoading && isAdded) {
+            ccRealtimeJobs.values.forEach { it.cancel() }
+            ccRealtimeJobs.clear()
+            syncCcRemarkListeners(allParcels.map { it.id }.toSet())
+        }
     }
 
     override fun onDestroyView() {
@@ -2601,9 +2612,33 @@ class CallCenterFragment : Fragment() {
         tvLoadingPercent.visibility = View.GONE
         syncCcRemarkListeners(allParcels.map { it.id }.toSet())
         syncCcEngagedAtListeners(allParcels.map { it.id }.toSet())
+        drainPendingRealtime()
+    }
+
+    /** Applies parked mid-load realtime events (see pendingRealtimeCids): full
+     *  history fetch per cid still in our list — same proven path as the push
+     *  fallback — then clears the park. Cids not in our list are dropped. */
+    private fun drainPendingRealtime() {
+        if (pendingRealtimeCids.isEmpty() || !isAdded) {
+            pendingRealtimeCids.clear()
+            return
+        }
+        val live = allParcels.map { it.id }.toSet()
+        val due = pendingRealtimeCids.filter { it in live }
+        pendingRealtimeCids.clear()
+        if (due.isEmpty()) return
+        RemarkPushChainLog.log("RemarkPushChain",
+            "CallCenterFragment: drainPendingRealtime — applying ${due.size} parked event(s)")
+        due.forEach { refreshCcParcelFromPush(it) }
     }
 
     private var ccRemarkTrackedIds: Set<String> = emptySet()
+    // Realtime INSERTs that arrive while trackedIds is empty (mid-reprocess —
+    // ccRemarkTrackedIds is cleared at reprocess start and restored at the end,
+    // a window of seconds on every live run-node fire) used to be dropped
+    // forever, so B never saw A's remark. Parked here, drained via history
+    // fetch once the new list lands (see drainPendingRealtime below).
+    private val pendingRealtimeCids = mutableSetOf<String>()
 
     /** Starts one Supabase Realtime subscription for every assigned branch. */
     private fun syncCcRemarkListeners(currentIds: Set<String>) {
@@ -2634,11 +2669,24 @@ class CallCenterFragment : Fragment() {
                 scope      = viewLifecycleOwner.lifecycleScope,
             ) { row ->
                 val cId = row.optStr("consignment")
-                if (cId.isBlank() || cId !in ccRemarkTrackedIds) {
+                if (cId.isBlank()) {
                     RemarkPushChainLog.log("RemarkPushChain",
-                        "CallCenterFragment: onInsert DROPPED — consignment='$cId' blank=${cId.isBlank()} " +
-                        "in ccRemarkTrackedIds=${cId in ccRemarkTrackedIds} (tracked set size=${ccRemarkTrackedIds.size})",
-                        isWarning = true)
+                        "CallCenterFragment: onInsert DROPPED — blank consignment", isWarning = true)
+                    return@subscribeValidations
+                }
+                if (cId !in ccRemarkTrackedIds) {
+                    // Mid-reprocess (trackedIds cleared until the new list lands)?
+                    // Park it — drainPendingRealtime() picks it up right after.
+                    // Anything else (parcel genuinely not in our list) stays dropped.
+                    if (ccIsLoading) {
+                        pendingRealtimeCids.add(cId)
+                        RemarkPushChainLog.log("RemarkPushChain",
+                            "CallCenterFragment: onInsert PARKED (mid-load) — consignment=$cId, will drain after reprocess")
+                    } else {
+                        RemarkPushChainLog.log("RemarkPushChain",
+                            "CallCenterFragment: onInsert DROPPED — consignment='$cId' " +
+                            "not in tracked set (size=${ccRemarkTrackedIds.size})", isWarning = true)
+                    }
                     return@subscribeValidations
                 }
                 RemarkPushChainLog.log("RemarkPushChain",
