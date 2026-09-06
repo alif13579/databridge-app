@@ -65,6 +65,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private var disconnectGraceJob: kotlinx.coroutines.Job? = null  // grace period before treating "disconnected" as real
     private var isExtensionConnected = false  // last value passed to updateConnectionStatus(); combined with Google auth state in refreshConnectionDot()
     private var permissionStep = 0
+    // True while the overlay-settings screen (step 3 Allow) is open — the only
+    // reason onResume may need to advance the chain. Without this flag, any
+    // background/foreground cycle mid-chain could double-launch a step.
+    private var overlaySettingsOpened = false
 
     private var layoutNoInternet: View? = null
     private var layoutFragmentLoading: View? = null
@@ -153,6 +157,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             maybeRequestNotificationPermission()
         } else {
             permissionStep = 0
+            overlaySettingsOpened = false
             nextPermissionStep()
         }
     }
@@ -272,9 +277,12 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         if (appPrefs.isPermissionsSetupComplete()) {
             refreshAuthUi()
         }
-        if (permissionStep == 3 && !appPrefs.isPermissionsSetupComplete()) {
+        // Overlay-settings return: the only onResume-driven advance (guarded by
+        // the flag, never by step number — backgrounding mid-chain must not
+        // re-launch anything). Granted → continue; denied → finish without it.
+        if (overlaySettingsOpened && !appPrefs.isPermissionsSetupComplete()) {
+            overlaySettingsOpened = false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
-                permissionStep++
                 nextPermissionStep()
             } else {
                 appPrefs.setPermissionsSetupComplete(true)
@@ -771,20 +779,39 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     }
 
     private fun nextPermissionStep() {
-        when (permissionStep) {
-            0 -> callLauncher.launch(android.Manifest.permission.CALL_PHONE)
-            1 -> phoneStateLauncher.launch(android.Manifest.permission.READ_PHONE_STATE)
-            2 -> cameraLauncher.launch(android.Manifest.permission.CAMERA)
+        // Increment FIRST, launch second: a launcher whose permission is already
+        // granted resolves synchronously on this same call stack
+        // (RequestPermission.getSynchronousResult → ActivityResultRegistry
+        // dispatches immediately), so its callback re-enters here BEFORE a
+        // trailing permissionStep++ would run — same step launches again,
+        // forever, until StackOverflowError on the main thread (crashed 6.9.6
+        // on a device with READ_CALL_LOG already granted). Increment-first
+        // makes every entry strictly advance, so the chain always terminates.
+        // Already-granted steps are skipped without launching at all (no
+        // pointless system round-trip, and returning users see no dialogs).
+        val step = permissionStep
+        permissionStep++
+        when (step) {
+            0 -> if (isGranted(android.Manifest.permission.CALL_PHONE)) nextPermissionStep()
+                 else callLauncher.launch(android.Manifest.permission.CALL_PHONE)
+            1 -> if (isGranted(android.Manifest.permission.READ_PHONE_STATE)) nextPermissionStep()
+                 else phoneStateLauncher.launch(android.Manifest.permission.READ_PHONE_STATE)
+            2 -> if (isGranted(android.Manifest.permission.CAMERA)) nextPermissionStep()
+                 else cameraLauncher.launch(android.Manifest.permission.CAMERA)
             3 -> requestOverlayPermission()
-            4 -> callLogLauncher.launch(android.Manifest.permission.READ_CALL_LOG)
+            4 -> if (isGranted(android.Manifest.permission.READ_CALL_LOG)) nextPermissionStep()
+                 else callLogLauncher.launch(android.Manifest.permission.READ_CALL_LOG)
             5 -> requestNotificationPermission()
-            6 -> {
+            else -> {
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)
             }
         }
-        permissionStep++
     }
+
+    private fun isGranted(perm: String): Boolean =
+        ContextCompat.checkSelfPermission(this, perm) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
 
     private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -802,6 +829,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                     .setTitle("Overlay Permission Required")
                     .setMessage("ব্যাকগ্রাউন্ডে অটো ডায়ালার ওপেন করতে 'Draw over other apps' পারমিশন প্রয়োজন।")
                     .setPositiveButton("Allow") { _, _ ->
+                        overlaySettingsOpened = true
                         startActivity(
                             Intent(
                                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -810,7 +838,6 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                         )
                     }
                     .setNegativeButton("Skip") { _, _ ->
-                        permissionStep++
                         nextPermissionStep()
                     }
                     .setCancelable(false)
