@@ -31,6 +31,8 @@ object AppNotificationManager {
     const val EXTRA_PARCEL_ID = "notif_parcel_id"
     const val EXTRA_SCOPE = "notif_scope"
     const val EXTRA_SEARCH_PHONE = "search_phone"
+    const val EXTRA_CLAIM_BRANCH = "notif_claim_branch"
+    const val EXTRA_CLAIM_CODE = "notif_claim_code"
     // Agent-missing finder bypasses the "lookup_from_cc" settings toggle (the
     // agent explicitly asked to search this number) — permission still checked.
     const val EXTRA_FORCE_CC_SEARCH = "force_cc_search"
@@ -40,9 +42,11 @@ object AppNotificationManager {
         val title: String,
         val message: String,
         val timestamp: Long = System.currentTimeMillis(),
-        val type: String = "remark",   // "remark" | "alert" | etc.
+        val type: String = "remark",   // "remark" | "claim" | "alert" | etc.
         val parcelId: String = "",     // consignment ID — for tap-to-navigate
-        val scope: String = "cc",      // "cc" | "worker" — which fragment to open
+        val scope: String = "cc",      // "cc" | "worker" | "claim" — which fragment to open
+        val claimBranchId: String = "", // claim push only — detail needs branch + code
+        val claimCode: String = "",
         var read: Boolean = false
     )
 
@@ -160,6 +164,10 @@ object AppNotificationManager {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra(EXTRA_PARCEL_ID, item.parcelId)
                 putExtra(EXTRA_SCOPE, item.scope)
+                if (item.scope == "claim") {
+                    putExtra(EXTRA_CLAIM_BRANCH, item.claimBranchId)
+                    putExtra(EXTRA_CLAIM_CODE, item.claimCode)
+                }
             }
             val pendingIntent = PendingIntent.getActivity(
                 appCtx,

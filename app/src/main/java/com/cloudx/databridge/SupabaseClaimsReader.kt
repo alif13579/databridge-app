@@ -467,6 +467,7 @@ object SupabaseClaimsReader {
         return ClaimInfo(
             claimId = optStr("id"),
             claimCode = optStr("claim_code"),
+            clientSubmitId = optStr("client_submit_id"),
             branchId = optStr("branch_id"),
             employeeName = embedName("requester"),
             agentSystemId = optStr("requester_system_id"),

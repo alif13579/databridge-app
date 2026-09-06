@@ -25,6 +25,10 @@ data class AttachmentRef(
 data class ClaimInfo(
     val claimId: String = "",
     val claimCode: String = "",
+    // Idempotency key: one UUID per claim form (fragment instance), reused
+    // across submit retries — the claims Edge returns the existing row instead
+    // of a duplicate when the key repeats (audit #5).
+    val clientSubmitId: String = "",
     val branchId: String = "",
     val employeeName: String = "",
     // Canonical unique filter/index key (users/{uid}/profile/company_info/system_id — digits

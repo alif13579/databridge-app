@@ -21,7 +21,7 @@ import java.util.Locale
 class NotificationListBottomSheet : BottomSheetDialogFragment() {
 
     /** Called when the user taps a notification that has a linked parcel. */
-    var onParcelClick: ((parcelId: String, scope: String) -> Unit)? = null
+    var onParcelClick: ((item: AppNotificationManager.NotifItem) -> Unit)? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -131,7 +131,8 @@ class NotificationListBottomSheet : BottomSheetDialogFragment() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).also { it.bottomMargin = (8 * dp).toInt() }
-            // Tappable only when the notification links to a specific parcel
+            // Tappable when the notification links somewhere (parcel, or a claim
+            // via scope='claim' + branch/code — parcelId holds the claim id there).
             if (item.parcelId.isNotBlank()) {
                 isClickable = true
                 isFocusable = true
@@ -140,14 +141,12 @@ class NotificationListBottomSheet : BottomSheetDialogFragment() {
                     // before MainActivity tries to load ParcelDetailFragment.
                     // Invoking onParcelClick while the sheet is still attached causes a
                     // concurrent fragment-manager transaction crash (state loss / IAE).
-                    val pid   = item.parcelId
-                    val scope = item.scope
                     dismissAllowingStateLoss()
                     // Post the navigation onto the main looper so it runs after the
                     // dismiss transaction commits. Using Handler(mainLooper) instead of
                     // view?.post because the view may already be null by the time the
                     // BottomSheet detaches, which would silently drop the navigation.
-                    Handler(Looper.getMainLooper()).post { onParcelClick?.invoke(pid, scope) }
+                    Handler(Looper.getMainLooper()).post { onParcelClick?.invoke(item) }
                 }
             }
         }
@@ -160,6 +159,7 @@ class NotificationListBottomSheet : BottomSheetDialogFragment() {
 
         val icon = when (item.type) {
             "remark" -> "💬"
+            "claim"  -> "💰"
             "alert"  -> "⚠️"
             else     -> "🔔"
         }

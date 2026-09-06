@@ -212,6 +212,12 @@ new payload keys, so old APK builds keep writing without data loss.
 `settle_in_process_*`, status value `ready_to_settle`→`settle_in_process`
 (15 live rows moved), change_user_system_id() follows. Claims Edge
 normalizes old `ready_to_settle` payloads (6.9.5 builds) on write.
+35. **202609050005** (applied live via Management API) — claim-lifecycle audit
+guards: `claims.client_submit_id` (submit idempotency key) +
+`settle_claim()` RPC (atomic settle: row locks, balance check, same-tx retry
+returns duplicate) + `wallet_deposit()` RPC (atomic deposit, idempotent on
+deposit id). Claims/petty-cash Edges enforce stage auth, transition table,
+amount floors, branch limit, conveyance override, settled freeze server-side.
 33. **202609050001** (applied live via Management API, same as 0007) —
 `users_branch_read` SELECT policy on `public.users` (anon+authenticated,
 `branch_ids && my_branch_ids()`): claim/validation actor-name embeds

@@ -21,6 +21,10 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
         super.onMessageReceived(message)
         val data = message.data
         RemarkPushChainLog.log("RemarkPushChain", "onMessageReceived: data=$data")
+        if (data["type"] == "claim") {
+            onClaimMessage(data)
+            return
+        }
         if (data["type"] != "remark") {
             RemarkPushChainLog.log("RemarkPushChain", "onMessageReceived: ignored, type=${data["type"]}")
             return
@@ -53,6 +57,25 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
                 type = "remark",
                 parcelId = parcelId,
                 scope = scope
+            )
+        )
+    }
+
+    /** Claim-status push (audit #7): a requester's claim moved stage. Tap opens
+     *  the claim detail via scope='claim' + branch/code extras. */
+    private fun onClaimMessage(data: Map<String, String>) {
+        val title = data["title"]?.takeIf { it.isNotBlank() } ?: "Claim update"
+        val body = data["body"]?.takeIf { it.isNotBlank() } ?: "Your request moved a stage"
+        AppNotificationManager.add(
+            applicationContext,
+            AppNotificationManager.NotifItem(
+                title = title,
+                message = body,
+                type = "claim",
+                parcelId = data["claim_id"].orEmpty(),
+                scope = "claim",
+                claimBranchId = data["branch_id"].orEmpty(),
+                claimCode = data["claim_code"].orEmpty()
             )
         )
     }

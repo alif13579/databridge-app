@@ -177,16 +177,30 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         }
         // FCM's system-rendered background notification carries the raw data keys;
         // AppNotificationManager's in-process notification uses its namespaced keys.
+        val scope = intent?.getStringExtra(AppNotificationManager.EXTRA_SCOPE)
+            ?: intent?.getStringExtra("notif_scope")
+            ?: intent?.getStringExtra("scope")
+        // Claim-status push (audit #7): open the claim detail directly.
+        if (scope == "claim") {
+            val branch = intent?.getStringExtra(AppNotificationManager.EXTRA_CLAIM_BRANCH)
+                ?: intent?.getStringExtra("branch_id")
+            val code = intent?.getStringExtra(AppNotificationManager.EXTRA_CLAIM_CODE)
+                ?: intent?.getStringExtra("claim_code")
+            if (!branch.isNullOrBlank() && !code.isNullOrBlank()) navigateToClaimDetail(branch, code)
+            return
+        }
         val parcelId = intent?.getStringExtra(AppNotificationManager.EXTRA_PARCEL_ID)
             ?: intent?.getStringExtra("notif_parcel_id")
             ?: intent?.getStringExtra("consignment_id")
         if (parcelId.isNullOrBlank()) return
-        when (intent?.getStringExtra(AppNotificationManager.EXTRA_SCOPE)
-            ?: intent?.getStringExtra("notif_scope")
-            ?: intent?.getStringExtra("scope")) {
+        when (scope) {
             "worker" -> navigateToWorkerSpaceWithParcel(parcelId)
             else     -> navigateToCallCenterWithParcel(parcelId)
         }
+    }
+
+    private fun navigateToClaimDetail(branchId: String, requestCode: String) {
+        loadFragment(PettyCashSettlementDetailsFragment.newInstance(branchId, requestCode))
     }
 
     /** One-time ask for existing users — they already have isPermissionsSetupComplete()
@@ -302,10 +316,12 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             AppNotificationManager.markAllRead()
             tvNotifBadge?.visibility = View.GONE
             val sheet = NotificationListBottomSheet()
-            sheet.onParcelClick = { parcelId, scope ->
-                when (scope) {
-                    "worker" -> navigateToWorkerSpaceWithParcel(parcelId)
-                    else     -> navigateToCallCenterWithParcel(parcelId)
+            sheet.onParcelClick = { item ->
+                if (item.scope == "claim" && item.claimBranchId.isNotBlank() && item.claimCode.isNotBlank()) {
+                    navigateToClaimDetail(item.claimBranchId, item.claimCode)
+                } else when (item.scope) {
+                    "worker" -> navigateToWorkerSpaceWithParcel(item.parcelId)
+                    else     -> navigateToCallCenterWithParcel(item.parcelId)
                 }
             }
             sheet.show(supportFragmentManager, "notif_list")

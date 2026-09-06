@@ -41,14 +41,15 @@ import java.util.Locale
  *   SETTLE_IN_PROCESS   + isAccounts    -> "Mark as Settled" (inline settlement form:
  *                                           Payment Method, Settle Amount, Settlement
  *                                           Date, Transaction ID/Ref)
+ *   REJECTED            + owner       -> "Resubmit Request" (back to pending)
  *   anything else                       -> no primary action, read-only
  *
  * Matches the mockup's inline forms rather than AlertDialogs for the two
  * decision stages and Settle -- Mark Settle in Process and Reject stayed as
  * confirm dialogs since the mockup doesn't show extra fields for either.
  *
- * "Hold / Return" (Accounts, at the settle stage) exists as a button to
- * match the mockup's shape but isn't implemented -- says so on tap.
+ * "Hold / Return" slot is now "Send Back": APPROVED + isCashPoc returns the
+ * request to verified, SETTLE_IN_PROCESS + isAccounts returns it to approved.
  *
  * Reject is available at PENDING (Staff) and ACKNOWLEDGED (Cash POC) stages
  * only. Once POC has approved, rejecting no longer makes sense — money is
@@ -249,15 +250,14 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         bindRow(root, R.id.rowPcAmount, "Amount", taka(request.amount))
         bindRow(root, R.id.rowPcRequestedOn, "Requested On", formatDate(if (request.requestedDate != 0L) request.requestedDate else request.createdAt))
 
-        // Reviewer-only date correction: the requester's own entry can be a rough
-        // guess, and report generation needs it accurate. Not the requester, and
-        // any of the reviewing roles — not tied to one specific pipeline stage,
-        // since the date can still need fixing at any point before reporting.
-        // Owner included too: the requester and everyone downstream in the chain
-        // (Staff / Cash POC / Accounts) may correct it at any stage.
+        // Reviewer-only date correction while the request is still pending:
+        // the requester's own entry can be a rough guess, and report
+        // generation needs it accurate. Locked once the request leaves pending
+        // (server rejects later edits with 409) so settled reports can't shift
+        // silently (audit #9).
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-        val canEditRequestedDate = request.requesterUid == myUid ||
-            (roles.isStaff || roles.isCashPoc || roles.isAccounts)
+        val canEditRequestedDate = request.status == PC_STATUS_PENDING &&
+            (request.requesterUid == myUid || roles.isStaff || roles.isCashPoc || roles.isAccounts)
         val requestedOnRow = root.findViewById<View>(R.id.rowPcRequestedOn)
         if (canEditRequestedDate) {
             requestedOnRow.isClickable = true
@@ -423,18 +423,25 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         val canReject = (request.status == PC_STATUS_PENDING && roles.isStaff) ||
             (request.status == PC_STATUS_ACKNOWLEDGED && roles.isCashPoc)
         val canEditOrDelete = isOwner && request.status == PC_STATUS_PENDING
+        // Resubmit a rejected request back to the queue (audit #8 — rejected
+        // is no longer a dead-end; server wipes the reject slate).
+        val canResubmit = request.status == PC_STATUS_REJECTED && isOwner
+        // Send one stage back (audit #8): approved→verified by POC,
+        // settle_in_process→approved by Accounts. Reuses the Hold/Return
+        // button slot, which had no real destination.
+        val sendBackTarget = when {
+            request.status == PC_STATUS_APPROVED && roles.isCashPoc -> PC_STATUS_ACKNOWLEDGED
+            request.status == PC_STATUS_SETTLE_IN_PROCESS && roles.isAccounts -> PC_STATUS_APPROVED
+            else -> null
+        }
 
         btnReject.isVisible = canReject
         btnReject.setOnClickListener { confirmReject() }
 
-        // "Hold / Return" only has a real destination at the settle stage —
-        // sending money back to the requester before that doesn't fit the
-        // model (nothing has been set aside yet). Not implemented beyond the
-        // button existing to match the mockup's shape; says so on tap rather
-        // than silently doing nothing.
-        btnHoldReturn.isVisible = canSettle
-        btnHoldReturn.setOnClickListener {
-            Toast.makeText(requireContext(), "Hold / Return isn't implemented yet", Toast.LENGTH_SHORT).show()
+        btnHoldReturn.isVisible = sendBackTarget != null
+        if (sendBackTarget != null) {
+            btnHoldReturn.text = "Send Back"
+            btnHoldReturn.setOnClickListener { confirmSendBack(sendBackTarget) }
         }
 
         layoutComment.isVisible = canAcknowledge || canApprove
@@ -482,6 +489,11 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 btnPrimary.isVisible = true
                 btnPrimary.text = "Mark as Settled"
                 btnPrimary.setOnClickListener { submitSettle(root, request) }
+            }
+            canResubmit -> {
+                btnPrimary.isVisible = true
+                btnPrimary.text = "Resubmit Request"
+                btnPrimary.setOnClickListener { confirmResubmit() }
             }
             else -> {
                 btnPrimary.isVisible = false
@@ -571,7 +583,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
 
     private fun confirmReject() {
         val input = android.widget.EditText(requireContext()).apply {
-            hint = "Reason (optional)"
+            hint = "Reason (required)"
             setPadding(dp(20), dp(12), dp(20), dp(12))
         }
         android.app.AlertDialog.Builder(requireContext())
@@ -598,6 +610,29 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                             result.exceptionOrNull()?.message ?: "Reject failed")
                     }
                 }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmResubmit() {
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Resubmit $requestCode?")
+            .setMessage("This sends the request back to pending for review.")
+            .setPositiveButton("Resubmit") { _, _ ->
+                runAction { onSupa -> viewModel.resubmitRequest(branchId, requestIdFor(requestCode), onSupabaseResult = onSupa) }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmSendBack(target: String) {
+        val label = if (target == PC_STATUS_ACKNOWLEDGED) "verify" else "approved"
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Send $requestCode back?")
+            .setMessage("This returns the request to $label for a redo.")
+            .setPositiveButton("Send Back") { _, _ ->
+                runAction { onSupa -> viewModel.sendBackRequest(branchId, requestIdFor(requestCode), onSupabaseResult = onSupa) }
             }
             .setNegativeButton("Cancel", null)
             .show()

@@ -200,6 +200,7 @@ class PettyCashViewModel : ViewModel() {
         deliveredQuantity: Int = 0,
         cidOrMerchant: String = "",
         requestedDate: Long = 0L,
+        clientSubmitId: String = "",
         onSupabaseResult: (Boolean) -> Unit = {}
     ): Result<String> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
@@ -218,10 +219,11 @@ class PettyCashViewModel : ViewModel() {
             storeName = storeName,
             pickupCount = pickupCount,
             vehicle = vehicle, fromArea = fromArea, toArea = toArea,
-            attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity, cidOrMerchant = cidOrMerchant,
+            attemptQuantity = attemptQuantity, deliveredQuantity = deliveredQuantity,             cidOrMerchant = cidOrMerchant,
             purpose = purpose,
             requestedAmount = amount,
             attachments = attachments,
+            clientSubmitId = clientSubmitId.ifBlank { java.util.UUID.randomUUID().toString() },
             status = PC_STATUS_PENDING, requestedAt = if (requestedDate != 0L) requestedDate else now
         ), onSupabaseResult)
         claim.claimCode
@@ -291,16 +293,14 @@ class PettyCashViewModel : ViewModel() {
     // ── Correct the requested date ──────────────────────────────────────────
     // The requester's own date entry (submitRequest()/updateRequest(), while still
     // pending) can be wrong or simply a rough guess. This is the counterpart for
-    // whoever reviews the request afterward — Staff, Cash POC, or Accounts — to
-    // correct it so report generation's "Requested Date" is accurate. Deliberately
-    // not status-restricted, unlike updateRequest(): the date can still need fixing
-    // at any stage before/around report generation, not just while pending.
-    // The requester themselves may also correct it at any stage (not only while
-    // pending via the edit screen) — anyone with the claim open can fix the date.
-
+    // Date correction is pending-only: the server locks requested_at once the
+    // request leaves pending (409 on later edits) so settled reports can't
+    // shift silently (audit #9). The detail screen hides the picker past
+    // pending; this require is the second line of defense.
     suspend fun updateRequestedDate(requestId: String, requestedDate: Long, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
         require(requestedDate > 0L) { "A valid date is required" }
         val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
+        require(existing.status == PC_STATUS_PENDING) { "Expense date can only be changed while pending" }
 
         claims.update(requestId, mapOf("requestedAt" to requestedDate), onSupabaseResult)
     }
@@ -402,14 +402,10 @@ class PettyCashViewModel : ViewModel() {
         // claim if POC didn't touch it) when Accounts settles as-is without adjusting.
         val finalSettledAmount = settledAmount ?: existing.approvedAmount.takeIf { it > 0 } ?: existing.amount
 
-        // Read-compute-write on the Supabase wallet row (see
-        // SupabasePettyCashWriter's doc comment for the concurrency note —
-        // Firebase's atomic transaction has no direct equivalent here).
-        // Balance first, then the claim update, matching the original order.
-        val currentBalance = SupabasePettyCashReader.fetchWalletBalance(branchId)
-        val newBalance = currentBalance - finalSettledAmount
-        SupabasePettyCashWriter.saveWalletBalance(branchId, newBalance)
-
+        // No direct wallet write here: the claims Edge routes EVERY
+        // settle_in_process→settled transition through the atomic settle_claim
+        // RPC (row locks + balance check + retry idempotency). Writing the
+        // balance here too would deduct twice.
         claims.update(requestId, mapOf(
                 "status" to PC_STATUS_SETTLED,
                 "settledByUid" to uid,
@@ -442,6 +438,50 @@ class PettyCashViewModel : ViewModel() {
             ), onSupabaseResult)
     }
 
+    // ── Requester: resubmit a rejected request (audit #8 — no more dead-end) ──
+    // Back to pending with the reject slate wiped; the server re-validates
+    // ownership and amounts. History of the rejection is intentionally NOT kept
+    // on the row (single reject_* columns) — a future audit-trail table can
+    // record it if needed.
+
+    suspend fun resubmitRequest(branchId: String, requestId: String, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
+        val uid = auth.currentUser?.uid.orEmpty()
+        val now = System.currentTimeMillis()
+        val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
+        if (existing.status != PC_STATUS_REJECTED) throw IllegalStateException("Only rejected requests can be resubmitted")
+        if (existing.requesterUid != uid) throw IllegalStateException("Only the requester can resubmit")
+        claims.update(requestId, mapOf(
+                "status" to PC_STATUS_PENDING,
+                "rejectedByUid" to "",
+                "rejectedBySystemId" to "",
+                "rejectedByName" to "",
+                "rejectedAt" to 0L,
+                "rejectReason" to "",
+                "updatedAt" to now
+            ), onSupabaseResult)
+    }
+
+    // ── Send-back one stage (audit #8): approved→verified by POC,
+    // settle_in_process→approved by Accounts. The undone stage's actor slate is
+    // wiped for a clean redo; the server enforces the same.
+
+    suspend fun sendBackRequest(branchId: String, requestId: String, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
+        val now = System.currentTimeMillis()
+        val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
+        val updates = when (existing.status) {
+            PC_STATUS_APPROVED -> mapOf(
+                "status" to PC_STATUS_ACKNOWLEDGED,
+                "approvedByUid" to "", "approvedBySystemId" to "", "approvedByName" to "",
+                "approvedAt" to 0L, "approvedComment" to "", "updatedAt" to now)
+            PC_STATUS_SETTLE_IN_PROCESS -> mapOf(
+                "status" to PC_STATUS_APPROVED,
+                "settleInProcessByUid" to "", "settleInProcessBySystemId" to "",
+                "settleInProcessByName" to "", "settleInProcessAt" to 0L, "updatedAt" to now)
+            else -> throw IllegalStateException("This request cannot be sent back from ${existing.status}")
+        }
+        claims.update(requestId, updates, onSupabaseResult)
+    }
+
     // ── Accounts: deposit fund into the branch wallet ────────────────────────
 
     suspend fun depositFund(
@@ -456,28 +496,25 @@ class PettyCashViewModel : ViewModel() {
         val name = currentUserName().ifBlank { "Accounts" }
         val now = System.currentTimeMillis()
 
-        // Read-compute-write on the Supabase wallet row (same concurrency
-        // note as settleRequest above).
-        val currentBalance = SupabasePettyCashReader.fetchWalletBalance(branchId)
-        val newBalance = currentBalance + amount
-        SupabasePettyCashWriter.saveWalletBalance(branchId, newBalance)
-
+        // No direct wallet write: the petty-cash Edge's deposit_upsert runs the
+        // atomic wallet_deposit RPC (insert + bump under lock, idempotent on the
+        // deposit id). Writing the balance here too would credit twice.
         // Supabase id column is uuid (see SupabasePettyCashWriter's doc
         // comment) — a random UUID keeps inserts unique without needing the
-        // old Firebase push-id scheme.
+        // old Firebase push-id scheme, and doubles as the retry idempotency key.
         val deposit = PettyCashDeposit(
             id = java.util.UUID.randomUUID().toString(),
             amount = amount,
             source = source,
             reference = reference,
             remarks = remarks,
-            balanceAfter = newBalance,
+            balanceAfter = 0.0, // ignored server-side — the RPC stamps the authoritative post-deposit balance
             timestamp = now,
             enteredByUid = uid,
             enteredByName = name
         )
         SupabasePettyCashWriter.saveDeposit(branchId, deposit)
-        // Both saves above throw on failure, so reaching here means Supabase
+        // The save above throws on failure, so reaching here means Supabase
         // has the write — same posture as ClaimsRepository (fires true; a
         // failure throws before reaching this line and surfaces via the
         // Result). Keeps PettyCashDepositFundFragment's "✓ Supabase saved"

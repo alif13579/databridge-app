@@ -140,6 +140,10 @@ class PettyCashRequestCreateFragment : Fragment() {
     )
     private val formAttachments = mutableListOf<FormAttachment>()
     private var attachRowSeq = 0L
+    // One idempotency key per form instance (audit #5): every submit tap —
+    // first or retry-after-failure — sends the SAME key, so the Edge returns
+    // the existing row instead of a duplicate claim.
+    private val formSubmitId: String = java.util.UUID.randomUUID().toString()
     private lateinit var layoutAttachments: LinearLayout
 
     private val uploadingCount: Int get() = formAttachments.count { it.objectKey.isBlank() && !it.failed }
@@ -996,6 +1000,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                     attemptQuantity = finalAttemptQuantity, deliveredQuantity = finalDeliveredQuantity,
                     cidOrMerchant = finalCidOrMerchant,
                     requestedDate = selectedExpenseDate,
+                    clientSubmitId = formSubmitId,
                     onSupabaseResult = { ok ->
                         activity?.runOnUiThread {
                             if (isAdded) Toast.makeText(requireContext(),

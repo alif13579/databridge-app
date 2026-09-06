@@ -165,6 +165,7 @@ object SupabaseClaimsWriter {
         return JSONObject().apply {
             put("id", claimId)
             put("claim_code", claimCode)
+            put("client_submit_id", clientSubmitId)
             put("branch_id", branchId)
             put("requester_system_id", agentSystemId)
             // type dropped (202609040004) — it always mirrored category.
