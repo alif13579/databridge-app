@@ -1234,3 +1234,118 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
  * day-vs-month order can't be reliably determined — better to skip than guess wrong.
  */
 // parseSheetTimestamp / normalizePhone → ConfigSheetParseUtil
+
+/**
+ * Rebuilds courier/runs_by_consignmentId for TODAY's runs across the admin's
+ * branches. Ongoing sheet syncs only write the index for new/changed run rows,
+ * so runs synced before the index existed never got entries — the caller
+ * popup's fast path then finds nothing and the node looks absent in console.
+ * Reads today's run ids from the branch indexes, then each run node's
+ * consignments + status, and flushes in isolated batches (a denied batch
+ * fails loudly here instead of silently — if rules are missing, the summary
+ * says permission-denied).
+ */
+internal suspend fun ConfigSheetFragment.rebuildRunConsignmentIndex() {
+    try {
+        setBusy(true, "Run index rebuild…\n\nBranch খুঁজছে...")
+        val db = com.google.firebase.database.FirebaseDatabase.getInstance()
+        var branchIds = RbacManager.current.branchIds.filter { it.isNotBlank() }.distinct()
+        if (branchIds.isEmpty()) {
+            // Admin with no explicit assignment — fall back to the branch
+            // directory keys (small node) instead of scanning the index root.
+            val dirSnap = withContext(Dispatchers.IO) {
+                db.reference.child("branches").get().await()
+            }
+            branchIds = dirSnap.children.mapNotNull { it.key?.takeIf { k -> k.isNotBlank() } }
+        }
+        if (branchIds.isEmpty()) {
+            setBusy(false)
+            toast("No branches found")
+            return
+        }
+        val today = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH)
+            .format(java.util.Date())
+        // Today's (runType, runId) from each branch index (server-side prefix range).
+        setBusy(true, "Run index rebuild…\n\nআজকের run খুঁজছে...")
+        val runKeys = mutableSetOf<Pair<String, String>>()
+        for (branchId in branchIds) {
+            val typesSnap = try {
+                withContext(Dispatchers.IO) {
+                    db.reference.child("courier/runs_by_branchId/$branchId").get().await()
+                }
+            } catch (_: Exception) { continue }
+            typesSnap.children.mapNotNull { it.key }.forEach { runType ->
+                try {
+                    val rangeSnap = withContext(Dispatchers.IO) {
+                        db.reference.child("courier/runs_by_branchId/$branchId/$runType")
+                            .orderByKey()
+                            .startAt("run_${today}_")
+                            .endAt("run_${today}_\uf8ff")
+                            .get().await()
+                    }
+                    rangeSnap.children.mapNotNull { it.key?.trim()?.takeIf { k -> k.isNotBlank() } }
+                        .forEach { runId -> runKeys.add(runType to runId) }
+                } catch (_: Exception) { /* this type unreadable — skip */ }
+            }
+        }
+        if (runKeys.isEmpty()) {
+            setBusy(false)
+            toast("আজকের কোনো run পাওয়া যায়নি")
+            return
+        }
+        // Per run: status + consignment ids → index paths.
+        var indexed = 0
+        var batch = mutableMapOf<String, Any>()
+        var failures = 0
+        var firstError = ""
+        suspend fun flush() {
+            if (batch.isEmpty()) return
+            val n = batch.size
+            try {
+                withContext(Dispatchers.IO) {
+                    db.reference.updateChildren(batch).await()
+                }
+                indexed += n
+            } catch (e: Exception) {
+                failures++
+                if (firstError.isBlank()) firstError = e.message?.take(100) ?: e.javaClass.simpleName
+            }
+            batch = mutableMapOf()
+        }
+        var done = 0
+        for ((runType, runId) in runKeys) {
+            done++
+            setBusy(true, "Run index rebuild…\n\n$done / ${runKeys.size} run")
+            try {
+                val runSnap = withContext(Dispatchers.IO) {
+                    db.reference.child("courier/run_routes/$runType/$runId").get().await()
+                }
+                if (!runSnap.exists()) continue
+                val status = runSnap.child("status").getValue(String::class.java)?.trim().orEmpty()
+                if (status.isBlank()) continue
+                runSnap.child("consignments").children.mapNotNull {
+                    it.key?.trim()?.takeIf { k -> k.isNotBlank() }
+                }.forEach { cid ->
+                    batch["courier/runs_by_consignmentId/$cid/$runType/$runId"] = status
+                    if (batch.size >= 400) flush()
+                }
+            } catch (_: Exception) { /* unreadable run — skip */ }
+        }
+        flush()
+        setBusy(false)
+        if (!isAdded) return
+        val msg = if (failures == 0) {
+            "✓ Run index rebuild শেষ\n\n${runKeys.size} run থেকে $indexed টি entry লেখা হয়েছে।"
+        } else {
+            "⚠ $indexed টি entry লেখা হয়েছে, $failures টি batch ব্যর্থ।\n\nপ্রথম error: $firstError\n\nসাধারণত Firebase Rules-এ write permission নেই।"
+        }
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Run index rebuild")
+            .setMessage(msg)
+            .setPositiveButton("OK", null)
+            .show()
+    } catch (e: Exception) {
+        setBusy(false)
+        toast("⚠ Rebuild error: ${e.message?.take(60)}")
+    }
+}

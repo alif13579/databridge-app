@@ -1004,6 +1004,15 @@
                     android:text="🔄 Sync এখনই করুন" android:textSize="13sp"
                     android:textStyle="bold" android:backgroundTint="#E8380D" android:textColor="@color/theme_bg_card" />
 
+                <!-- Run-index rebuild: backfills courier/runs_by_consignmentId for
+                     runs synced before the index existed (ongoing syncs only write
+                     it for new/changed runs). -->
+                <Button android:id="@+id/btnRebuildRunIndex"
+                    android:layout_width="match_parent" android:layout_height="44dp"
+                    android:layout_marginTop="8dp"
+                    android:text="🧱 Run index rebuild" android:textSize="13sp"
+                    android:textStyle="bold" android:backgroundTint="#6D28D9" android:textColor="@color/theme_bg_card" />
+
             </LinearLayout>
 
         </LinearLayout>

@@ -242,6 +242,7 @@ class ConfigSheetFragment : Fragment() {
     internal var btnManReconnect: Button? = null;   internal var btnManDisconn: Button? = null
     internal var btnManBack:      View? = null
     internal var btnSyncNow:      Button? = null
+    internal var btnRebuildRunIndex: Button? = null
     internal var switchAutoSync:  android.widget.Switch? = null
     internal var btnSyncGear:     android.widget.ImageView? = null
     internal var tvSyncIntervalLabel: TextView? = null
@@ -465,6 +466,7 @@ class ConfigSheetFragment : Fragment() {
         btnManReconnect  = view.findViewById(R.id.btnManReconnect); btnManDisconn = view.findViewById(R.id.btnManDisconnect)
         btnManBack       = view.findViewById(R.id.btnManBack)
         btnSyncNow           = view.findViewById(R.id.btnSyncNow)
+        btnRebuildRunIndex   = view.findViewById(R.id.btnRebuildRunIndex)
         switchAutoSync       = view.findViewById(R.id.switchAutoSync)
         btnSyncGear          = view.findViewById(R.id.btnSyncGear)
         tvSyncIntervalLabel  = view.findViewById(R.id.tvSyncIntervalLabel)
@@ -554,6 +556,16 @@ class ConfigSheetFragment : Fragment() {
         btnSyncNow?.setOnClickListener {
             val conn = activeConn() ?: return@setOnClickListener
             viewLifecycleOwner.lifecycleScope.launch { syncSheetToFirebase(conn) }
+        }
+        btnRebuildRunIndex?.setOnClickListener {
+            android.app.AlertDialog.Builder(requireContext())
+                .setTitle("Run index rebuild?")
+                .setMessage("আজকের সব run-এর consignment index (runs_by_consignmentId) আবার লিখবে। পুরনো sync-এ যেগুলো বাদ পড়েছে সেগুলো ঠিক হবে।")
+                .setPositiveButton("Rebuild") { _, _ ->
+                    viewLifecycleOwner.lifecycleScope.launch { rebuildRunConsignmentIndex() }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
         }
 
         switchAutoSync?.setOnCheckedChangeListener { _, isChecked ->
