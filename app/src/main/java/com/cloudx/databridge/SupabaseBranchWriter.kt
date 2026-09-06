@@ -22,8 +22,10 @@ import java.util.concurrent.TimeUnit
  * runCatching. Writes go through the directory Edge Function's
  * `branch_upsert` / `branch_delete` actions (service-role admin client,
  * bypasses RLS) so no write policy is needed. The Edge Function also gates
- * on admin/manager role server-side and keeps the assignees' Supabase
- * users.branch_ids (RLS membership) in sync.
+ * on admin/manager role server-side. NOTE: branch saves never touch
+ * public.users — RLS membership (users.branch_ids) is maintained ONLY via
+ * admin employee edit, so assign the person there too or they won't see the
+ * new branch.
  *
  * Firebase `users/.../branch_ids` membership writes stay app-side alongside
  * these calls (see the fragments) — Firebase profiles still feed other

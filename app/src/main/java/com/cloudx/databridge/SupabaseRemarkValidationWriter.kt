@@ -280,6 +280,18 @@ object SupabaseRemarkValidationWriter {
         ) { response ->
             Log.i("SupabaseProfileSync", "sync_profile response=${response?.take(300) ?: "FAILED"}")
             RemarkPushChainLog.log("RemarkPushChain", "sync_profile response=${response?.take(300) ?: "FAILED"}", isWarning = response == null)
+            // public.users is admin-onboarded only (employee edit) — sync NEVER
+            // creates the row. A missing row means admin hasn't onboarded this
+            // account: reads will be RLS-empty, so flag it loudly instead of a
+            // silent empty screen.
+            lastSyncMissingUsersRow = response?.contains("\"users_row_missing\":true") == true
+            if (lastSyncMissingUsersRow) {
+                FirebaseErrorLogger.log(
+                    "SupabaseProfileSync", "users_row_missing",
+                    "No public.users row — ask admin to onboard in employee edit",
+                    mapOf("response" to (response?.take(300) ?: "null"))
+                )
+            }
             // The Edge Function just set the role:authenticated custom claim server-side (or
             // confirmed it's already set) — but per Firebase/Supabase docs, a claim set this way
             // does NOT apply to a token already cached client-side; the SDK must be told to fetch
@@ -308,6 +320,9 @@ object SupabaseRemarkValidationWriter {
     }
 
     @Volatile private var profileSyncConfirmed = false
+    /** Last sync_profile said the admin-onboarded users row is missing. */
+    @Volatile var lastSyncMissingUsersRow: Boolean = false
+        private set
     private val profileSyncLock = Any()
     private var profileSyncInFlight = false
     private val profileSyncWaiters = mutableListOf<() -> Unit>()

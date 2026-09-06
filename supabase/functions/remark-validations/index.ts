@@ -16,10 +16,9 @@ import {
   ensureAuthenticatedRoleClaim,
   firebaseIdentity,
   firebaseProfile,
-  firebaseProfileForSystemId,
   firebaseRead,
 } from '../_shared/firebase-auth.ts'
-import { upsertUser } from '../_shared/users.ts'
+import { requireUsersRow } from '../_shared/users.ts'
 import {
   sendRemarkPush,
   upsertRemarkLabel,
@@ -48,8 +47,13 @@ Deno.serve(async (request) => {
       }
       // Author fields come exclusively from the verified Firebase identity; Android
       // never supplies them, so a caller cannot impersonate another employee.
+      // users rows are admin-onboarded only (employee edit) — a remark NEVER
+      // creates one. Fail fast with a contact-admin message when missing.
       const authorProfile = await firebaseProfile(identity)
-      await upsertUser(authorProfile, identity.uid)
+      if (!await requireUsersRow(authorProfile.systemId)) {
+        errLog('write', 'author_users_row_missing', { system_id: authorProfile.systemId })
+        return reply({ error: 'Your employee profile is missing — ask admin to add you in employee edit' }, 403)
+      }
       // Keep this device fleet's push routing fresh: branch transfers and
       // role changes otherwise leave fcm_device_tokens.branch_ids /
       // can_access_call_center stale until the next login (register_push_token
@@ -68,13 +72,11 @@ Deno.serve(async (request) => {
       }
       await ensureAuthenticatedRoleClaim(identity.uid) // defensive: covers a user who writes before ever syncing
       if (row.assigned_to_system_id === authorProfile.systemId) {
-        // Already upserted above; avoids a duplicate Firebase profile request.
+        // Author row already verified above; avoids a duplicate lookup.
       } else {
-        const assignedProfile = await firebaseProfileForSystemId(row.assigned_to_system_id, identity)
-        // Best-effort: upsert the assigned user if we can resolve their profile.
-        // A missing/stale index entry must NOT block the remark from saving — the
-        // remark row is valid and the CC agent saving it has already been verified.
-        if (assignedProfile) await upsertUser(assignedProfile, assignedProfile.uid)
+        // No FK here (unlike validations), so a missing assigned row must NOT
+        // block the save — and must NOT auto-create one either. The name/badge
+        // resolves once admin onboards them via employee edit.
       }
       const parcelPromise = firebaseRead(
         identity, `courier/consignments/${encodeURIComponent(row.consignment)}`

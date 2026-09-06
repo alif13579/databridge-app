@@ -15,6 +15,7 @@
 import { admin } from '../_shared/supabase.ts'
 import { errLog, guardRequest, reply, unhandled } from '../_shared/http.ts'
 import { firebaseIdentity, firebaseProfile } from '../_shared/firebase-auth.ts'
+import { requireUsersRow } from '../_shared/users.ts'
 import { sendClaimPush, type ClaimPushEvent } from '../_shared/claim-push.ts'
 
 // Legal status moves. Anything not listed here is rejected server-side — the
@@ -81,6 +82,13 @@ Deno.serve(async (request) => {
       if (!callerSystemId) {
         errLog('claim_upsert', 'no_system_id', { claim_id: c.id })
         return reply({ error: 'Signed-in user has no system_id' }, 403)
+      }
+      // users rows are admin-onboarded only (employee edit) — claim writes
+      // NEVER create one. Actor/requester FKs require the row; fail fast with
+      // a contact-admin message instead of a cryptic FK error.
+      if (!await requireUsersRow(callerSystemId)) {
+        errLog('claim_upsert', 'caller_users_row_missing', { system_id: callerSystemId })
+        return reply({ error: 'Your employee profile is missing — ask admin to add you in employee edit' }, 403)
       }
       const isAdmin = callerRole === 'admin' || callerRole === 'manager'
       const { data: branch } = await admin.from('branches')

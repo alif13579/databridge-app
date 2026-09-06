@@ -159,8 +159,8 @@ object SupabasePettyCashReader {
     }
 
     /** Signed-in user's display name + system_id from public.users (keyed by
-     *  Firebase uid — the same identity the Edge Function's upsertUser keeps
-     *  current on every sync_profile/write). A missing users row returns a
+     *  Firebase uid — the row admin maintains via employee edit; login/sync
+     *  never writes it). A missing users row returns a
      *  blank systemId (callers' require() then fails with the same "system ID
      *  is missing" message the old Firebase read produced) and falls back to
      *  the FirebaseAuth display name, same as before. Throws on

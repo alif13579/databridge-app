@@ -190,10 +190,11 @@ object SupabaseClientManager {
     // REMOVED (Supabase-first): the old direct-REST syncUser() upsert lived here.
     // It wrote name = Google displayName, employee_id = NULL and a SINGLE branch
     // into public.users on every launch — clobbering the authoritative row
-    // whenever it ran as `authenticated`. RLS identity mapping is established
-    // by the user-sync Edge Function's sync_profile action instead
+    // whenever it ran as `authenticated`. RLS identity mapping is verified
+    // (never written) by the user-sync Edge Function's sync_profile action instead
     // (SupabaseRemarkValidationWriter.ensureProfileSynced, before RLS-gated
-    // reads), and employee create/edit goes through SupabaseUserWriter.
+    // reads) — public.users is written ONLY by admin employee edit, and employee
+    // create/edit goes through SupabaseUserWriter.
 
     // ── Direct REST reads (unlimited — replaces Edge Function read actions) ───
 

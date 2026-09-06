@@ -12,10 +12,8 @@ import { firebaseDelete, firebaseUpdatePaths } from '../_shared/firebase-mirror.
 import {
   firebaseIdentity,
   firebaseProfile,
-  firebaseProfileForUid,
   firebaseRead,
 } from '../_shared/firebase-auth.ts'
-import { upsertUser } from '../_shared/users.ts'
 
 Deno.serve(async (request) => {
   const guard = guardRequest(request)
@@ -75,48 +73,12 @@ Deno.serve(async (request) => {
         errLog('branch_upsert', 'db_upsert_failed', { branch_id: branchId, pg_code: error.code, pg_message: error.message })
         throw error
       }
-      // Keep RLS membership working immediately: the app also maintains the
-      // Firebase profile branch_ids (which sync_profile picks up on next
-      // login), but a newly assigned manager opening Petty Cash right now
-      // would otherwise fail the branch-scoped reads until then. Best-effort
-      // — a failure here never fails the branch save itself.
-      const assignedUids = [str(b.manager_uid), str(b.accountant_uid), str(b.petty_cash_poc_uid), str(b.staff_uid)]
-        .map((u) => u.trim()).filter(Boolean)
-      const removedUids = Array.isArray(b.removed_uids)
-        ? b.removed_uids.filter((u: unknown): u is string => typeof u === 'string' && !!u.trim()).map((u: string) => u.trim())
-        : []
-      const membershipErrors: string[] = []
-      for (const uid of assignedUids) {
-        try {
-          const p = await firebaseProfileForUid(uid, identity)
-          if (!p) continue
-          const merged = [...new Set([...p.branchIds, branchId])]
-          if (merged.length !== p.branchIds.length) await upsertUser({ ...p, branchIds: merged }, uid)
-        } catch (e) {
-          membershipErrors.push(uid)
-        }
-      }
-      for (const uid of removedUids) {
-        if (assignedUids.includes(uid)) continue
-        try {
-          const p = await firebaseProfileForUid(uid, identity)
-          if (p) {
-            const filtered = p.branchIds.filter((id) => id !== branchId)
-            if (filtered.length !== p.branchIds.length) await upsertUser({ ...p, branchIds: filtered }, uid)
-          } else {
-            // Orphaned uid (no Firebase profile): strip the branch from
-            // whatever users row still carries this firebase_id.
-            const { data: rows } = await admin.from('users').select('system_id,branch_ids').eq('firebase_id', uid)
-            for (const r of rows ?? []) {
-              const ids = Array.isArray(r.branch_ids) ? r.branch_ids.filter((id: unknown) => id !== branchId) : []
-              await admin.from('users').update({ branch_ids: ids }).eq('system_id', r.system_id)
-            }
-          }
-        } catch (e) {
-          membershipErrors.push(uid)
-        }
-      }
-      console.info(`branch_upsert ok: branch=${branchId} membership_errors=${membershipErrors.length}`)
+      // Branch membership (users.branch_ids) is maintained ONLY via employee
+      // edit (user_upsert) — branch saves NEVER touch public.users, which is
+      // source of truth. A newly assigned person gets access once admin sets
+      // their branches in employee edit; assigning them on the branch form
+      // alone does not grant it.
+      console.info(`branch_upsert ok: branch=${branchId}`)
       // Best-effort Firebase backup mirror (Supabase is authoritative).
       try {
         await firebaseUpdatePaths({
@@ -154,12 +116,9 @@ Deno.serve(async (request) => {
       if (refs && refs.length > 0) {
         return reply({ error: 'This branch has claims and cannot be deleted. Mark it inactive instead.' }, 409)
       }
-      // Strip RLS membership first so no one keeps access via a deleted branch.
-      const { data: members } = await admin.from('users').select('system_id,branch_ids').contains('branch_ids', [branchId])
-      for (const m of members ?? []) {
-        const ids = Array.isArray(m.branch_ids) ? m.branch_ids.filter((id: unknown) => id !== branchId) : []
-        await admin.from('users').update({ branch_ids: ids }).eq('system_id', m.system_id)
-      }
+      // No users-table write here: branch membership lives ONLY in employee
+      // edit. A deleted branch_id may linger in some users.branch_ids until
+      // admin cleans it there — harmless (no branch row, no data under it).
       const { error } = await admin.from('branches').delete().eq('branch_id', branchId)
       if (error) throw error
       console.info(`branch_delete ok: branch=${branchId}`)

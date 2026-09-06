@@ -1,6 +1,9 @@
-// Shared master-users upsert. Every function that needs a public.users row
-// (profile sync, remark writes, branch membership, backfills) goes through
-// here so the firebase_id-must-never-be-NULL invariant lives in one place.
+// Shared master-users upsert. The ONLY writer is user-sync's user_upsert
+// (admin employee create/edit screen) — public.users is source of truth and
+// NOTHING else (login sync, remark writes, branch edits, backfills) may write
+// it. Every other function that needs a users row uses requireUsersRow()
+// below (read-only) and fails with a clear "ask admin" message when the row
+// is missing, instead of silently creating/repairing it.
 
 import { admin } from './supabase.ts'
 import { errLog } from './http.ts'
@@ -85,4 +88,17 @@ export async function upsertUser(profile: FirebaseProfile, firebaseId: string) {
   })
   const { error: fallbackError } = await admin.from('users').upsert(payload, { onConflict: 'employee_id' })
   if (fallbackError) throw fallbackError
+}
+
+/**
+ * Read-only users-row check. Returns the row (system_id, firebase_id,
+ * branch_ids) or null — NEVER writes. Callers fail fast with an
+ * admin-contact message when null instead of auto-creating the row.
+ */
+export async function requireUsersRow(systemId: string): Promise<Record<string, unknown> | null> {
+  if (!systemId) return null
+  const { data, error } = await admin.from('users')
+    .select('system_id,firebase_id,branch_ids').eq('system_id', systemId).maybeSingle()
+  if (error) throw error
+  return data
 }
