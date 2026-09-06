@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="4dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="NEXT STATUS"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:textColor="#64748B"
+        android:layout_marginBottom="4dp" />
+
+    <Spinner
+        android:id="@+id/spinnerBulkUpdateTarget"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginBottom="10dp" />
+
+    <!-- Comment / reject-reason group — label + hint change with the target. -->
+    <LinearLayout
+        android:id="@+id/layoutBulkUpdateCommentGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvBulkUpdateCommentLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="COMMENT (OPTIONAL, ONE FOR ALL)"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:textColor="#64748B"
+            android:layout_marginBottom="4dp" />
+
+        <EditText
+            android:id="@+id/etBulkUpdateComment"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Shared note for every claim"
+            android:textSize="13sp"
+            android:padding="10dp"
+            android:background="@drawable/bg_input_rounded"
+            android:inputType="textMultiLine"
+            android:minLines="2"
+            android:layout_marginBottom="10dp" />
+    </LinearLayout>
+
+    <!-- Settle-only group: one method + one transaction id for every claim. -->
+    <LinearLayout
+        android:id="@+id/layoutBulkUpdateSettleGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="PAYMENT METHOD"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:textColor="#64748B"
+            android:layout_marginBottom="4dp" />
+
+        <Spinner
+            android:id="@+id/spinnerBulkUpdateMethod"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginBottom="10dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="TRANSACTION ID (ONE FOR ALL)"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:textColor="#64748B"
+            android:layout_marginBottom="4dp" />
+
+        <EditText
+            android:id="@+id/etBulkUpdateTrxId"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g. TRX9KX2M4P7Q"
+            android:textSize="13sp"
+            android:padding="10dp"
+            android:background="@drawable/bg_input_rounded"
+            android:inputType="textCapCharacters"
+            android:layout_marginBottom="10dp" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="CLAIMS IN THIS UPDATE"
+        android:textSize="10sp"
+        android:textStyle="bold"
+        android:textColor="#64748B"
+        android:layout_marginBottom="4dp" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxHeight="220dp">
+
+        <LinearLayout
+            android:id="@+id/layoutBulkUpdateClaimList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/tvBulkUpdateTotal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="#0F172A"
+        android:gravity="end"
+        android:layout_marginTop="10dp" />
+
+    <TextView
+        android:id="@+id/tvBulkUpdateProgress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:textColor="#059669"
+        android:gravity="center"
+        android:layout_marginTop="6dp"
+        android:visibility="gone" />
+</LinearLayout>

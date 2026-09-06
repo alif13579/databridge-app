@@ -54,18 +54,44 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     private var branchId: String = ""
     private var selectedStatus: String = FILTER_ALL // FILTER_ALL or one of the PC_STATUS_* constants
-    private var selectedAgentUid: String = "" // "" = all agents; else requesterUid
+    private var selectedAgentUids: MutableSet<String> = mutableSetOf() // empty = all agents
     private var myRequestsOnly: Boolean = false
     private var latestState: PettyCashState.Success? = null
     private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
 
-    // Bulk-settle selection (Accounts, approver view only): claim ids picked for
-    // one shared transaction. Eligible = APPROVED or READY_TO_SETTLE.
+    // Whether the bulk Select UI is available at all (any approver role,
+    // set fresh on every render). Per-claim eligibility additionally depends
+    // on the claim's status (see isBulkEligible).
+    private var canBulkSelect: Boolean = false
+
+    // Bulk-update selection (approver view only): claim ids picked for one
+    // shared status move (see showBulkUpdateDialog).
     private var selectMode: Boolean = false
     private val selectedIds = mutableSetOf<String>()
 
-    private fun isBulkEligible(item: PettyCashRequest): Boolean =
-        item.status == PC_STATUS_APPROVED || item.status == PC_STATUS_SETTLE_IN_PROCESS
+    /** Forward transitions the signed-in user may bulk-apply from [status].
+     *  Mirrors the single-claim gates in PettyCashSettlementDetailsFragment
+     *  (canAcknowledge/canApprove/canMarkReady/canSettle/canReject) — send-back
+     *  stays single-claim only, so it is intentionally absent here. */
+    private fun bulkTargetsForStatus(status: String, roles: PettyCashUserRoles): List<String> = when (status) {
+        PC_STATUS_PENDING -> listOfNotNull(
+            PC_STATUS_ACKNOWLEDGED.takeIf { roles.isStaff },
+            PC_STATUS_REJECTED.takeIf { roles.isStaff })
+        PC_STATUS_ACKNOWLEDGED -> listOfNotNull(
+            PC_STATUS_APPROVED.takeIf { roles.isCashPoc },
+            PC_STATUS_REJECTED.takeIf { roles.isCashPoc })
+        PC_STATUS_APPROVED -> listOfNotNull(
+            PC_STATUS_SETTLE_IN_PROCESS.takeIf { roles.isAccounts })
+        PC_STATUS_SETTLE_IN_PROCESS -> listOfNotNull(
+            PC_STATUS_SETTLED.takeIf { roles.isAccounts })
+        else -> emptyList() // settled / rejected / cancelled are terminal
+    }
+
+    private fun isBulkEligible(item: PettyCashRequest): Boolean {
+        if (myRequestsOnly) return false
+        val roles = latestState?.roles ?: return false
+        return bulkTargetsForStatus(item.status, roles).isNotEmpty()
+    }
 
     private fun bulkDefaultAmount(item: PettyCashRequest): Double =
         item.approvedAmount.takeIf { it > 0 } ?: item.amount
@@ -132,14 +158,14 @@ class PettyCashPendingSettlementFragment : Fragment() {
             renderList()
         }
         view.findViewById<View>(R.id.tvPcPendingAgent).setOnClickListener { showAgentPicker() }
-        view.findViewById<View>(R.id.tvPcPendingSelectAll).setOnClickListener { selectAllFiltered() }
+        view.findViewById<View>(R.id.tvPcPendingSelectAll).setOnClickListener { toggleSelectAllFiltered() }
         view.findViewById<View>(R.id.btnPcBulkCancel).setOnClickListener {
             selectMode = false
             selectedIds.clear()
             view.findViewById<TextView>(R.id.btnPcPendingSelect).text = "Select"
             renderList()
         }
-        view.findViewById<View>(R.id.btnPcBulkSettle).setOnClickListener { showBulkSettleDialog() }
+        view.findViewById<View>(R.id.btnPcBulkUpdate).setOnClickListener { showBulkUpdateDialog() }
 
         parentFragmentManager.setFragmentResultListener(PettyCashFilterState.FRAGMENT_RESULT_KEY, viewLifecycleOwner) { _, bundle ->
             val stateBundle = bundle.getBundle(PettyCashFilterState.BUNDLE_KEY_STATE)
@@ -195,9 +221,12 @@ class PettyCashPendingSettlementFragment : Fragment() {
                 pbLoading.isVisible = false
                 layoutError.isVisible = false
                 latestState = state
-                // Bulk settle is an Accounts action on the approver view — the
-                // same gate as the inline Settle button below.
-                val canBulk = !myRequestsOnly && state.roles.isAccounts
+                // Bulk update is available to every approver role — Staff moves
+                // pending→verified, POC moves verified→approved, Accounts moves
+                // approved→settle_in_process→settled. Same gate as the inline
+                // action buttons below (canSettle is Accounts-only there).
+                val canBulk = !myRequestsOnly && state.roles.isAnyApprover
+                canBulkSelect = canBulk
                 view?.findViewById<View>(R.id.btnPcPendingSelect)?.isVisible = canBulk
                 if (!canBulk) {
                     selectMode = false
@@ -244,6 +273,11 @@ class PettyCashPendingSettlementFragment : Fragment() {
             tab.text = label
             tab.setOnClickListener {
                 selectedStatus = key
+                // Agent counts are status-wise: drop picks that have zero
+                // claims under the newly selected status tab.
+                val uidsInStatus = statusFiltered()
+                    .map { it.requesterUid.ifBlank { "unknown" } }.toSet()
+                selectedAgentUids.retainAll(uidsInStatus)
                 buildTabs()
                 selectedIds.retainAll(currentFiltered().filter { isBulkEligible(it) }.map { it.id }.toSet())
                 renderList()
@@ -275,21 +309,31 @@ class PettyCashPendingSettlementFragment : Fragment() {
         else -> item.amount
     }
 
-    /** Agent options from the scoped list: (uid, display name, count), sorted by name. */
+    /** Status tab (+ advanced search) applied, agent filter NOT applied —
+     *  the working set agent counts and the agent picker are built from. */
+    private fun statusFiltered(): List<PettyCashRequest> {
+        val all = scopedRequests()
+        val byStatus = if (selectedStatus == FILTER_ALL) all
+            else all.filter { it.status == selectedStatus }
+        return if (advancedFilter.isActive) byStatus.filter { advancedFilter.matches(it) } else byStatus
+    }
+
+    /** Agent options under the current status tab: (uid, display name,
+     *  status-wise count), sorted by name. E.g. the Verified tab shows
+     *  "Shahin (3)" when Shahin has 3 verified claims — even if he has 5
+     *  lifetime claims in total. */
     private fun agentOptions(): List<Triple<String, String, Int>> =
-        scopedRequests().groupBy { it.requesterUid.ifBlank { "unknown" } }
+        statusFiltered().groupBy { it.requesterUid.ifBlank { "unknown" } }
             .map { (uid, items) ->
                 val name = items.firstOrNull()?.requesterName?.takeIf { it.isNotBlank() } ?: uid
                 Triple(uid, name, items.size)
             }.sortedBy { it.second.lowercase() }
 
-    /** Status ∩ agent ∩ advanced — the working set for list, summary and select-all. */
+    /** Status ∩ agents ∩ advanced — the working set for list, summary and select-all. */
     private fun currentFiltered(): List<PettyCashRequest> {
-        val all = scopedRequests()
-        val statusFiltered = if (selectedStatus == FILTER_ALL) all else all.filter { it.status == selectedStatus }
-        val agentFiltered = if (selectedAgentUid.isBlank()) statusFiltered
-            else statusFiltered.filter { it.requesterUid.ifBlank { "unknown" } == selectedAgentUid }
-        return if (advancedFilter.isActive) agentFiltered.filter { advancedFilter.matches(it) } else agentFiltered
+        val byStatus = statusFiltered()
+        if (selectedAgentUids.isEmpty()) return byStatus
+        return byStatus.filter { it.requesterUid.ifBlank { "unknown" } in selectedAgentUids }
     }
 
     private fun updateAgentRow() {
@@ -298,9 +342,20 @@ class PettyCashPendingSettlementFragment : Fragment() {
         // My-Requests view is already one agent — no picker needed.
         chip.isVisible = !myRequestsOnly
         if (myRequestsOnly) return
+        // Prune stale picks (e.g. after reload moved claims to another status).
         val options = agentOptions()
-        val current = options.find { it.first == selectedAgentUid }
-        chip.text = if (current == null) "👥 All Agents" else "👥 ${current.second}"
+        selectedAgentUids.retainAll(options.map { it.first }.toSet())
+        chip.text = when {
+            selectedAgentUids.isEmpty() -> "👥 All Agents"
+            selectedAgentUids.size == 1 -> {
+                val opt = options.find { it.first in selectedAgentUids }
+                if (opt == null) "👥 All Agents" else "👥 ${opt.second} (${opt.third})"
+            }
+            else -> {
+                val total = options.filter { it.first in selectedAgentUids }.sumOf { it.third }
+                "👥 ${selectedAgentUids.size} agents ($total)"
+            }
+        }
     }
 
     private fun updateSummary(filtered: List<PettyCashRequest>) {
@@ -310,23 +365,84 @@ class PettyCashPendingSettlementFragment : Fragment() {
             if (filtered.isEmpty()) "No requests" else "${filtered.size} requests · Total ${pettyCashTaka(total)}"
     }
 
+    /** Multi-select agent picker scoped to the current status tab (counts are
+     *  status-wise). Empty pick = All Agents. */
     private fun showAgentPicker() {
         val options = agentOptions()
         if (options.isEmpty()) {
             Toast.makeText(requireContext(), "No requests to filter", Toast.LENGTH_SHORT).show()
             return
         }
-        val labels = listOf("All Agents (${scopedRequests().size})") +
-            options.map { "${it.second} (${it.third})" }
-        val checked = if (selectedAgentUid.isBlank()) 0
-            else options.indexOfFirst { it.first == selectedAgentUid } + 1
-        var picked = checked.coerceAtLeast(0)
-        AlertDialog.Builder(requireContext())
+        val ctx = requireContext()
+        val checked = options.map { it.first in selectedAgentUids }.toMutableList()
+        val checkBoxes = mutableListOf<android.widget.CheckBox>()
+
+        val root = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(4), dp(24), dp(4))
+        }
+        val scopeLabel = if (selectedStatus == FILTER_ALL) "All statuses"
+            else statusLabel(selectedStatus)
+        root.addView(TextView(ctx).apply {
+            text = "Agents · $scopeLabel (${statusFiltered().size}) — empty = all"
+            textSize = 12f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, 0, 0, dp(8))
+        })
+        val topRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val tvSelectAll = TextView(ctx).apply {
+            text = "Select all"
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(Color.parseColor("#059669"))
+            setPadding(0, dp(4), dp(20), dp(4))
+        }
+        val tvClear = TextView(ctx).apply {
+            text = "Clear"
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(Color.parseColor("#B91C1C"))
+            setPadding(0, dp(4), 0, dp(4))
+        }
+        topRow.addView(tvSelectAll)
+        topRow.addView(tvClear)
+        root.addView(topRow)
+
+        val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        options.forEachIndexed { index, opt ->
+            val cb = android.widget.CheckBox(ctx).apply {
+                text = "${opt.second} (${opt.third})"
+                textSize = 14f
+                setTextColor(Color.parseColor("#0F172A"))
+                isChecked = checked[index]
+                setOnCheckedChangeListener { _, isChecked -> checked[index] = isChecked }
+            }
+            checkBoxes.add(cb)
+            list.addView(cb)
+        }
+        val scroll = android.widget.ScrollView(ctx).apply { addView(list) }
+        root.addView(scroll)
+
+        tvSelectAll.setOnClickListener {
+            for (i in checked.indices) {
+                checked[i] = true
+                checkBoxes[i].isChecked = true
+            }
+        }
+        tvClear.setOnClickListener {
+            for (i in checked.indices) {
+                checked[i] = false
+                checkBoxes[i].isChecked = false
+            }
+        }
+
+        AlertDialog.Builder(ctx)
             .setTitle("Filter by agent")
-            .setSingleChoiceItems(labels.toTypedArray(), checked.coerceAtLeast(0)) { _, which -> picked = which }
+            .setView(root)
             .setPositiveButton("Apply") { _, _ ->
-                selectedAgentUid = if (picked <= 0) "" else options[picked - 1].first
-                // Drop picks outside the new filter.
+                selectedAgentUids = options.filterIndexed { i, _ -> checked[i] }
+                    .map { it.first }.toMutableSet()
+                // Drop claim picks outside the new filter.
                 val eligibleIds = currentFiltered().filter { isBulkEligible(it) }.map { it.id }.toSet()
                 selectedIds.retainAll(eligibleIds)
                 updateAgentRow()
@@ -336,14 +452,19 @@ class PettyCashPendingSettlementFragment : Fragment() {
             .show()
     }
 
-    /** Pick every bulk-eligible request in the current status+agent filter. */
-    private fun selectAllFiltered() {
+    /** Toggles between picking every bulk-eligible request in the current
+     *  status+agents filter and clearing the pick (label flips accordingly). */
+    private fun toggleSelectAllFiltered() {
         val eligible = currentFiltered().filter { isBulkEligible(it) }
         if (eligible.isEmpty()) {
             Toast.makeText(requireContext(), "No bulk-eligible requests in this filter", Toast.LENGTH_SHORT).show()
             return
         }
-        selectedIds.addAll(eligible.map { it.id })
+        if (eligible.all { it.id in selectedIds }) {
+            selectedIds.removeAll(eligible.map { it.id }.toSet())
+        } else {
+            selectedIds.addAll(eligible.map { it.id })
+        }
         renderList()
     }    /** Status-appropriate secondary line — what to show instead of a hardcoded "POC Approved:" for every card. */
     private fun statusInfoLine(item: PettyCashRequest): Pair<String, String> = when (item.status) {
@@ -362,8 +483,12 @@ class PettyCashPendingSettlementFragment : Fragment() {
         val canSettle = state.roles.isAccounts
         updateAgentRow()
         updateSummary(filtered)
-        view?.findViewById<View>(R.id.tvPcPendingSelectAll)?.isVisible =
-            selectMode && state.roles.isAccounts
+        val eligibleInFilter = filtered.filter { isBulkEligible(it) }
+        view?.findViewById<TextView>(R.id.tvPcPendingSelectAll)?.apply {
+            isVisible = selectMode && canBulkSelect
+            text = if (eligibleInFilter.isNotEmpty() && eligibleInFilter.all { it.id in selectedIds })
+                "Clear all" else "Select all"
+        }
 
         layoutList.removeAllViews()
         if (filtered.isEmpty()) {
@@ -459,40 +584,95 @@ class PettyCashPendingSettlementFragment : Fragment() {
         bar.isVisible = true
     }
 
-    /** One payment method + one transaction id settles every picked claim —
-     *  the common case of a single bkash transfer covering one agent's total.
-     *  Each claim keeps its own default amount (approved, else requested);
-     *  sequential settleRequest calls share the method/trxId. */
-    private fun showBulkSettleDialog() {
+    /** Next-status options for the picked claims, in pipeline order — only
+     *  transitions the signed-in user may actually perform (role-gated via
+     *  bulkTargetsForStatus). A target appears when at least one picked claim
+     *  can move to it; claims that can't take the chosen target are skipped
+     *  (counted, not failed) at apply time. */
+    private fun bulkTargetOptions(picked: List<PettyCashRequest>): List<String> {
+        val roles = latestState?.roles ?: return emptyList()
+        val order = listOf(
+            PC_STATUS_ACKNOWLEDGED, PC_STATUS_APPROVED, PC_STATUS_SETTLE_IN_PROCESS,
+            PC_STATUS_SETTLED, PC_STATUS_REJECTED)
+        return order.filter { target ->
+            picked.any { it.status != target && target in bulkTargetsForStatus(it.status, roles) }
+        }
+    }
+
+    private fun bulkTargetLabel(target: String): String = when (target) {
+        PC_STATUS_ACKNOWLEDGED -> "Verified"
+        PC_STATUS_APPROVED -> "Approved"
+        PC_STATUS_SETTLE_IN_PROCESS -> "Settle in Process"
+        PC_STATUS_SETTLED -> "Settled"
+        PC_STATUS_REJECTED -> "Rejected"
+        else -> target
+    }
+
+    /** Generic bulk update: one next-status for every picked claim, with the
+     *  fields that status needs (shared comment / reject reason / one payment
+     *  method + one transaction id for settle). Amounts stay per-claim
+     *  (each claim's own stage default) — the dialog never forces one amount
+     *  onto claims that were approved for different figures. */
+    private fun showBulkUpdateDialog() {
         val picked = latestState?.requests.orEmpty()
             .filter { it.id in selectedIds && isBulkEligible(it) }
         if (picked.isEmpty()) {
-            Toast.makeText(requireContext(), "Select at least one approved request", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Select at least one request first", Toast.LENGTH_SHORT).show()
             return
         }
-        val dialogView = layoutInflater.inflate(R.layout.dialog_pc_bulk_settle, null)
-        val spinner = dialogView.findViewById<Spinner>(R.id.spinnerBulkPaymentMethod)
-        spinner.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Cash", "Bank", "bKash", "Nagad"))
-        val etTrxId = dialogView.findViewById<EditText>(R.id.etBulkTrxId)
-        val listContainer = dialogView.findViewById<LinearLayout>(R.id.layoutBulkClaimList)
+        val options = bulkTargetOptions(picked)
+        if (options.isEmpty()) {
+            Toast.makeText(requireContext(), "No bulk action available for your role on these", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val dialogView = layoutInflater.inflate(R.layout.dialog_pc_bulk_update, null)
+        val spinnerTarget = dialogView.findViewById<Spinner>(R.id.spinnerBulkUpdateTarget)
+        spinnerTarget.adapter = ArrayAdapter(
+            requireContext(), android.R.layout.simple_spinner_dropdown_item,
+            options.map { bulkTargetLabel(it) })
+        val commentGroup = dialogView.findViewById<View>(R.id.layoutBulkUpdateCommentGroup)
+        val tvCommentLabel = dialogView.findViewById<TextView>(R.id.tvBulkUpdateCommentLabel)
+        val etComment = dialogView.findViewById<EditText>(R.id.etBulkUpdateComment)
+        val settleGroup = dialogView.findViewById<View>(R.id.layoutBulkUpdateSettleGroup)
+        val spinnerMethod = dialogView.findViewById<Spinner>(R.id.spinnerBulkUpdateMethod)
+        spinnerMethod.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Cash", "Bank", "bKash", "Nagad"))
+        val etTrxId = dialogView.findViewById<EditText>(R.id.etBulkUpdateTrxId)
+
+        fun refreshFieldGroups(target: String) {
+            settleGroup.isVisible = target == PC_STATUS_SETTLED
+            commentGroup.isVisible = target != PC_STATUS_SETTLED && target != PC_STATUS_SETTLE_IN_PROCESS
+            tvCommentLabel.text = if (target == PC_STATUS_REJECTED)
+                "REJECT REASON (REQUIRED, ONE FOR ALL)" else "COMMENT (OPTIONAL, ONE FOR ALL)"
+            etComment.hint = if (target == PC_STATUS_REJECTED)
+                "Why are these being rejected?" else "Shared note for every claim"
+        }
+        refreshFieldGroups(options.first())
+        spinnerTarget.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                refreshFieldGroups(options[pos])
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) = Unit
+        }
+
+        val listContainer = dialogView.findViewById<LinearLayout>(R.id.layoutBulkUpdateClaimList)
         picked.forEach { item ->
             val row = TextView(requireContext()).apply {
-                text = "${item.requestCode} · ${item.requesterName} — ${pettyCashTaka(bulkDefaultAmount(item))}"
+                text = "${item.requestCode} · ${item.requesterName} · ${pettyCashStatusLabel(item.status)} — ${pettyCashTaka(stageAmount(item))}"
                 textSize = 12.5f
                 setTextColor(Color.parseColor("#0F172A"))
                 setPadding(0, 6, 0, 6)
             }
             listContainer.addView(row)
         }
-        val total = picked.sumOf { bulkDefaultAmount(it) }
-        dialogView.findViewById<TextView>(R.id.tvBulkTotal).text = "Total: ${pettyCashTaka(total)}"
-        val tvProgress = dialogView.findViewById<TextView>(R.id.tvBulkProgress)
+        val total = picked.sumOf { stageAmount(it) }
+        dialogView.findViewById<TextView>(R.id.tvBulkUpdateTotal).text = "Total: ${pettyCashTaka(total)}"
+        val tvProgress = dialogView.findViewById<TextView>(R.id.tvBulkUpdateProgress)
 
         var dialog: AlertDialog? = null
         dialog = AlertDialog.Builder(requireContext())
-            .setTitle("Bulk Settle (${picked.size})")
+            .setTitle("Bulk Update (${picked.size})")
             .setView(dialogView)
-            .setPositiveButton("Settle", null)
+            .setPositiveButton("Update", null)
             .setNegativeButton("Cancel", null)
             .create()
         dialog?.show()
@@ -500,12 +680,23 @@ class PettyCashPendingSettlementFragment : Fragment() {
         // auto-dismissing (progress shows on the dialog itself).
         dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
             val d = dialog ?: return@setOnClickListener
+            val target = options[spinnerTarget.selectedItemPosition]
+            val comment = etComment.text?.toString()?.trim().orEmpty()
+            if (target == PC_STATUS_REJECTED && comment.isBlank()) {
+                Toast.makeText(requireContext(), "Enter the reject reason", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             val trxId = etTrxId.text?.toString()?.trim().orEmpty()
-            if (trxId.isBlank()) {
+            if (target == PC_STATUS_SETTLED && trxId.isBlank()) {
                 Toast.makeText(requireContext(), "Enter the transaction ID", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            val method = spinner.selectedItem?.toString() ?: "Cash"
+            val method = spinnerMethod.selectedItem?.toString() ?: "Cash"
+            val roles = latestState?.roles
+            if (roles == null) {
+                Toast.makeText(requireContext(), "Still loading — try again", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             val positive = d.getButton(AlertDialog.BUTTON_POSITIVE)
             val negative = d.getButton(AlertDialog.BUTTON_NEGATIVE)
             positive.isEnabled = false
@@ -513,24 +704,42 @@ class PettyCashPendingSettlementFragment : Fragment() {
             tvProgress.isVisible = true
             lifecycleScope.launch {
                 var ok = 0
+                var skipped = 0
                 var neg = 0
                 val failures = mutableListOf<String>()
                 picked.forEachIndexed { index, item ->
-                    tvProgress.text = "⏳ Settling ${index + 1}/${picked.size}…"
-                    val result = viewModel.settleRequest(
-                        branchId, item.id, method, trxId, bulkDefaultAmount(item),
-                        onSupabaseResult = { _ -> }
-                    )
+                    tvProgress.text = "⏳ Updating ${index + 1}/${picked.size}…"
+                    if (target !in bulkTargetsForStatus(item.status, roles)) {
+                        skipped++
+                        return@forEachIndexed
+                    }
+                    val result: Result<*> = when (target) {
+                        PC_STATUS_ACKNOWLEDGED ->
+                            viewModel.acknowledgeRequest(branchId, item.id, comment)
+                        PC_STATUS_APPROVED ->
+                            viewModel.approveRequest(branchId, item.id, comment, null)
+                        PC_STATUS_SETTLE_IN_PROCESS ->
+                            viewModel.markReadyToSettle(branchId, item.id)
+                        PC_STATUS_SETTLED ->
+                            viewModel.settleRequest(branchId, item.id, method, trxId, null)
+                        PC_STATUS_REJECTED ->
+                            viewModel.rejectRequest(branchId, item.id, comment)
+                        else -> Result.failure<Any>(IllegalStateException("Unsupported target"))
+                    }
                     if (result.isSuccess) {
                         ok++
-                        if (result.getOrNull()?.negativeWarning == true) neg++
+                        if ((result.getOrNull() as? PettyCashViewModel.SettleOutcome)?.negativeWarning == true) neg++
                     } else failures.add("${item.requestCode}: ${result.exceptionOrNull()?.message ?: "failed"}")
                 }
                 val failed = failures.size
-                tvProgress.text = if (failed == 0) "✓ $ok settled" else "✓ $ok settled · ⚠ $failed failed"
+                val label = bulkTargetLabel(target)
+                tvProgress.text = if (failed == 0 && skipped == 0) "✓ $ok → $label"
+                    else "✓ $ok → $label · ⚠ $failed failed · $skipped skipped"
                 if (failed == 0) {
+                    val skipNote = if (skipped > 0) " · $skipped skipped (wrong stage)" else ""
                     val negNote = if (neg > 0) " · ⚠ $neg went negative" else ""
-                    Toast.makeText(requireContext(), "✓ ${picked.size} claims settled ($trxId)$negNote", Toast.LENGTH_LONG).show()
+                    val trxNote = if (target == PC_STATUS_SETTLED) " ($trxId)" else ""
+                    Toast.makeText(requireContext(), "✓ $ok claims → $label$trxNote$skipNote$negNote", Toast.LENGTH_LONG).show()
                     d.dismiss()
                     selectMode = false
                     selectedIds.clear()
@@ -549,6 +758,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
             }
         }
     }
+
 
     /** Quick inline confirm for the final Settle step, straight from the list card --
      *  skips opening PettyCashSettlementDetailsFragment. Collects the same three fields

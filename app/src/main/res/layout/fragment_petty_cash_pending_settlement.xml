@@ -193,9 +193,10 @@
                     android:paddingTop="12dp" />
             </ScrollView>
 
-            <!-- Bulk-settle bar: visible only in select mode with 1+ picked.
-                 One payment method + one transaction id settles every picked
-                 claim (same bkash transfer covering one agent's total). -->
+            <!-- Bulk-update bar: visible only in select mode with 1+ picked.
+                  One next-status for every picked claim (Settle keeps one
+                  payment method + one transaction id, e.g. a single bkash
+                  transfer covering one agent's total). -->
             <LinearLayout
                 android:id="@+id/layoutPcBulkBar"
                 android:layout_width="match_parent"
@@ -231,11 +232,11 @@
                     android:layout_marginEnd="8dp" />
 
                 <TextView
-                    android:id="@+id/btnPcBulkSettle"
+                    android:id="@+id/btnPcBulkUpdate"
                     android:layout_width="wrap_content"
                     android:layout_height="40dp"
                     android:gravity="center"
-                    android:text="Settle"
+                    android:text="Update"
                     android:textSize="13sp"
                     android:textStyle="bold"
                     android:textColor="#FFFFFF"
