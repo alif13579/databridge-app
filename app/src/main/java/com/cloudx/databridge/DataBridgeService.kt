@@ -78,7 +78,10 @@ class DataBridgeService : Service() {
         // with a lower importance would silently no-op for anyone who already has the app
         // installed. NOTIFICATION_ID also moved with it since startForeground() needs a
         // notification built against this channel.
-        const val SERVICE_STATUS_CHANNEL_ID = "databridge_service_status_channel"
+        const val SERVICE_STATUS_CHANNEL_ID = "databridge_service_status_channel_v2"
+        // Superseded LOW-importance channel (pre-6.9.20): deleted on create so the
+        // old status-bar icon goes away with it. See createNotificationChannel().
+        private const val LEGACY_STATUS_CHANNEL_ID = "databridge_service_status_channel"
         const val NOTIFICATION_ID = 1
         private const val PREFS_NAME = "databridge_toggles"
 
@@ -471,7 +474,7 @@ class DataBridgeService : Service() {
             .setContentTitle("DataBridge Active")
             .setContentText("Listening for incoming data...")
             .setSmallIcon(android.R.drawable.ic_menu_call)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .setSilent(true)
             .setOngoing(true)
             .build()
@@ -530,10 +533,14 @@ class DataBridgeService : Service() {
             }
             nm?.createNotificationChannel(callChannel)
 
+            // MIN (not LOW): no status-bar icon on most devices, collapsed to the
+            // shade bottom. A foreground service MUST post an ongoing
+            // notification (system rule — fully hiding it is impossible while
+            // the service runs), so MIN is the quietest legal posture.
             val statusChannel = NotificationChannel(
                 SERVICE_STATUS_CHANNEL_ID,
                 "DataBridge Status",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_MIN
             ).apply {
                 description = "Ongoing 'DataBridge is active' indicator — required by Android while the background sync service is running"
                 enableLights(false)
@@ -541,6 +548,13 @@ class DataBridgeService : Service() {
                 setSound(null, null)
             }
             nm?.createNotificationChannel(statusChannel)
+            // Drop the superseded LOW channel so its icon disappears for
+            // existing installs (importance is locked at first creation, hence
+            // the v2 id above instead of editing in place).
+            try {
+                nm?.deleteNotificationChannel(LEGACY_STATUS_CHANNEL_ID)
+            } catch (_: Exception) {
+            }
         }
     }
 

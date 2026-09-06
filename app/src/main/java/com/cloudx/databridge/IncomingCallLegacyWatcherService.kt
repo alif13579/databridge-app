@@ -102,6 +102,7 @@ class IncomingCallLegacyWatcherService : Service() {
             .setContentTitle("DataBridge Caller ID is active")
             .setSmallIcon(android.R.drawable.ic_menu_call)
             .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setSilent(true)
             .setOngoing(true)
             .setContentIntent(openIntent)
             .build()
