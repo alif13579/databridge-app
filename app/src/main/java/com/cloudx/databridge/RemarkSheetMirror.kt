@@ -9,7 +9,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.time.LocalDate
@@ -209,24 +208,14 @@ object RemarkSheetMirror {
 
     private fun String.encodeParam(): String = java.net.URLEncoder.encode(this, "UTF-8")
 
-    /** system_id → display name via the users_by_systemId index + Firebase
-     *  profile (cached). Falls back to the raw system_id — never blank. */
+    /** system_id → display name via Supabase users (source of truth) with
+     *  Firebase fallback (shared resolver, cached). Falls back to the raw
+     *  system_id — never blank. */
     private suspend fun resolveAgentName(systemId: String): String {
         val sid = systemId.trim()
         if (sid.isEmpty()) return ""
         nameCache[sid]?.let { return it }
-        val name = try {
-            val db = com.google.firebase.database.FirebaseDatabase.getInstance()
-            val uid = withContext(Dispatchers.IO) {
-                db.reference.child("users_by_systemId/$sid/uid").get().await()
-                    .getValue(String::class.java)?.trim().orEmpty()
-            }
-            val full = if (uid.isBlank()) "" else withContext(Dispatchers.IO) {
-                db.reference.child("users/$uid/profile/name").get().await()
-                    .getValue(String::class.java)?.trim().orEmpty()
-            }
-            full.ifBlank { sid }
-        } catch (_: Exception) { sid }
+        val name = UserNameResolver.resolveNameBySystemId(sid).ifBlank { sid }
         nameCache[sid] = name
         return name
     }

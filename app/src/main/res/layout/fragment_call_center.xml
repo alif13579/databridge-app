@@ -609,23 +609,6 @@
                 android:paddingBottom="100dp"
                 android:clipToPadding="false">
 
-                <ProgressBar
-                    android:id="@+id/twCcaProgressBar"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:visibility="gone" />
-
-                <TextView
-                    android:id="@+id/twCcaLoadingPercent"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:layout_marginTop="8dp"
-                    android:textSize="12sp"
-                    android:textColor="@color/theme_text_secondary"
-                    android:visibility="gone" />
-
                 <TextView
                     android:id="@+id/twCcaEmptyState"
                     android:layout_width="match_parent"
@@ -652,6 +635,45 @@
                     android:layout_gravity="end"
                     android:alpha="0"
                     android:visibility="invisible" />
+
+                <!-- Loading scrim + spinner — LAST children so they draw ABOVE
+                     the parcel list (with fade, so it's clear loading isn't done).
+                     Taps pass through (clickable=false); visibility is driven
+                     together with the spinner via showCcLoading/hideCcLoading. -->
+                <View
+                    android:id="@+id/viewCcaLoadingDim"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="#80000000"
+                    android:clickable="false"
+                    android:focusable="false"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:orientation="vertical"
+                    android:gravity="center">
+
+                    <ProgressBar
+                        android:id="@+id/twCcaProgressBar"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/twCcaLoadingPercent"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:layout_marginTop="8dp"
+                        android:gravity="center"
+                        android:textSize="12sp"
+                        android:textColor="@android:color/white"
+                        android:visibility="gone" />
+                </LinearLayout>
             </FrameLayout>
 
             </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>

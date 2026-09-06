@@ -61,6 +61,9 @@ class CallCenterFragment : Fragment() {
     private lateinit var pbProgress: ProgressBar
     private lateinit var tvLoadingPercent: TextView
     private lateinit var tvEmpty: TextView
+    // Loading scrim drawn ABOVE the parcel list (see layout order) — always
+    // toggled together with the spinner via showCcLoading()/hideCcLoading().
+    private lateinit var loadingDim: View
     private lateinit var swipeRefresh: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
     private lateinit var switchAutoCall: Switch
     private lateinit var btnAutoCallStartPause: android.widget.Button
@@ -393,6 +396,7 @@ class CallCenterFragment : Fragment() {
         rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
         tvLoadingPercent = view.findViewById(R.id.twCcaLoadingPercent)
+        loadingDim = view.findViewById(R.id.viewCcaLoadingDim)
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
         btnSyncSheet = view.findViewById(R.id.btnCcaSyncSheet)
@@ -1660,14 +1664,30 @@ class CallCenterFragment : Fragment() {
     private var ccSelectedRunType = CC_RUN_TYPE_ALL
     private var ccRunTypeOptions = listOf(CcRunTypeOption(CC_RUN_TYPE_ALL, "All"))
 
-    private fun loadData() {
+    /** Loading overlay (scrim + spinner + percent, drawn ABOVE the list).
+     *  Single choke point — every show/hide site below goes through these so
+     *  the dim can never get stuck on or lag behind the spinner. */
+    private fun showCcLoading(text: String) {
+        if (!isAdded || !::loadingDim.isInitialized) return
+        loadingDim.visibility = View.VISIBLE
         pbProgress.visibility = View.VISIBLE
         tvLoadingPercent.visibility = View.VISIBLE
+        tvLoadingPercent.text = text
+    }
+
+    private fun hideCcLoading() {
+        if (!isAdded || !::loadingDim.isInitialized) return
+        loadingDim.visibility = View.GONE
+        pbProgress.visibility = View.GONE
+        tvLoadingPercent.visibility = View.GONE
+    }
+
+    private fun loadData() {
+        showCcLoading("লোড হচ্ছে... 0%")
         ccShownPercent = 0
         ccIsLoading = true
         ccReprocessTotal = 0
         ccReprocessDone = 0
-        tvLoadingPercent.text = "লোড হচ্ছে... 0%"
         tvEmpty.visibility    = View.GONE
         detachRunsListener()
         // Validation reads and Realtime are RLS-gated. Unlike Worker Space, Call
@@ -1722,8 +1742,7 @@ class CallCenterFragment : Fragment() {
         }
         if (myBranchIds.isEmpty()) {
             ccIsLoading = false
-            pbProgress.visibility = View.GONE
-            tvLoadingPercent.visibility = View.GONE
+            hideCcLoading()
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "⚠ কোনো branch assigned নেই — admin-এর সাথে যোগাযোগ করুন"
             return
@@ -1790,8 +1809,7 @@ class CallCenterFragment : Fragment() {
                 override fun onCancelled(error: com.google.firebase.database.DatabaseError) {
                     if (!isAdded) return
                     ccIsLoading = false
-                    pbProgress.visibility = View.GONE
-                    tvLoadingPercent.visibility = View.GONE
+                    hideCcLoading()
                     tvEmpty.visibility    = View.VISIBLE
                     tvEmpty.text          = "⚠ Load failed: ${error.message.take(60)}"
                 }
@@ -2077,8 +2095,7 @@ class CallCenterFragment : Fragment() {
                 return
             }
             ccIsLoading = false
-            pbProgress.visibility = View.GONE
-            tvLoadingPercent.visibility = View.GONE
+            hideCcLoading()
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nকোনো run নেই"
             syncCcEngagedAtListeners(emptySet())
@@ -2115,8 +2132,7 @@ class CallCenterFragment : Fragment() {
                 return
             }
             ccIsLoading = false
-            pbProgress.visibility = View.GONE
-            tvLoadingPercent.visibility = View.GONE
+            hideCcLoading()
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
             syncCcEngagedAtListeners(emptySet())
@@ -2381,10 +2397,19 @@ class CallCenterFragment : Fragment() {
                     }
                 }.awaitAll()
             }
-            val nameMap  = results.filter { !it.name.isNullOrBlank()  }.associate { it.sysId to it.name!! }
-            val empIdMap = results.filter { !it.empId.isNullOrBlank() }.associate { it.sysId to it.empId!! }
-            val photoMap = results.filter { !it.photoUrl.isNullOrBlank() }.associate { it.sysId to it.photoUrl!! }
-            val phoneMap = results.filter { !it.phone.isNullOrBlank() }.associate { it.sysId to it.phone!! }
+            val nameMap  = results.filter { !it.name.isNullOrBlank()  }.associate { it.sysId to it.name!! }.toMutableMap()
+            val empIdMap = results.filter { !it.empId.isNullOrBlank() }.associate { it.sysId to it.empId!! }.toMutableMap()
+            val photoMap = results.filter { !it.photoUrl.isNullOrBlank() }.associate { it.sysId to it.photoUrl!! }.toMutableMap()
+            val phoneMap = results.filter { !it.phone.isNullOrBlank() }.associate { it.sysId to it.phone!! }.toMutableMap()
+            // Source of truth first: Supabase users rows override Firebase
+            // profile values for name/employee/phone (photos stay
+            // Firebase-only — no photo column in users). Firebase remains the
+            // fallback for rows RLS hides (cross-branch) and legacy rows.
+            runCatching { fetchSupabaseUserMaps() }.getOrNull()?.let { (supaNames, supaEmpIds, supaPhones) ->
+                supaNames.forEach { (k, v) -> nameMap[k] = v }
+                supaEmpIds.forEach { (k, v) -> empIdMap[k] = v }
+                supaPhones.forEach { (k, v) -> phoneMap[k] = v }
+            }
             systemIdToName       = nameMap
             systemIdToEmployeeId = empIdMap
             systemIdToPhotoUrl   = photoMap
@@ -2394,6 +2419,44 @@ class CallCenterFragment : Fragment() {
             emptyMap()
         }
     }
+
+    /**
+     * Batched Supabase users read (source of truth) for name/employee/phone by
+     * system_id — one query, RLS branch-scoped. Null on any failure (callers
+     * keep Firebase values). Photos are NOT here (no column) — those stay
+     * Firebase-only in ensureAgentNameMap().
+     */
+    private suspend fun fetchSupabaseUserMaps(): Triple<Map<String, String>, Map<String, String>, Map<String, String>>? =
+        withContext(Dispatchers.IO) {
+            try {
+                val token = SupabaseClientManager.getAccessToken() ?: return@withContext null
+                val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/users" +
+                    "?select=system_id,name,employee_id,phone&limit=1000"
+                val text = SupabaseClientManager.httpClient.newCall(
+                    okhttp3.Request.Builder().url(url)
+                        .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                        .addHeader("Authorization", "Bearer $token")
+                        .addHeader("Accept", "application/json")
+                        .get().build()
+                ).execute().use { resp ->
+                    if (!resp.isSuccessful) return@withContext null
+                    resp.body?.string().orEmpty()
+                }
+                val arr = org.json.JSONArray(text)
+                val names = mutableMapOf<String, String>()
+                val empIds = mutableMapOf<String, String>()
+                val phones = mutableMapOf<String, String>()
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val sid = o.optString("system_id").trim()
+                    if (sid.isEmpty()) continue
+                    o.optString("name").trim().takeIf { it.isNotEmpty() }?.let { names[sid] = it }
+                    o.optString("employee_id").trim().takeIf { it.isNotEmpty() }?.let { empIds[sid] = it }
+                    o.optString("phone").trim().takeIf { it.isNotEmpty() }?.let { phones[sid] = it }
+                }
+                Triple(names, empIds, phones)
+            } catch (_: Exception) { null }
+        }
 
     /** Rebuilds the full parcel list from ccRunNodeSnapshots (every currently-attached run
      *  node's latest snapshot) — called whenever any one of those run nodes changes. Today/branch
@@ -2436,8 +2499,7 @@ class CallCenterFragment : Fragment() {
         if (consignmentInfo.isEmpty()) {
             if (!isAdded || generation != ccLoadGeneration) return
             ccIsLoading = false
-            pbProgress.visibility = View.GONE
-            tvLoadingPercent.visibility = View.GONE
+            hideCcLoading()
             tvEmpty.visibility    = View.VISIBLE
             tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
             return
@@ -2649,8 +2711,7 @@ class CallCenterFragment : Fragment() {
         // the run index listed them) — same meaning as the consignment gate.
         if (parcels.isEmpty()) tvEmpty.text = "📭\n\nআজকের কোনো consignment নেই"
         applyFilters()
-        pbProgress.visibility = View.GONE
-        tvLoadingPercent.visibility = View.GONE
+        hideCcLoading()
         syncCcRemarkListeners(allParcels.map { it.id }.toSet())
         syncCcEngagedAtListeners(allParcels.map { it.id }.toSet())
         drainPendingRealtime()
@@ -3467,9 +3528,7 @@ class CallCenterFragment : Fragment() {
      */
     private fun loadLiveMode() {
         val gen = ++liveGeneration
-        pbProgress.visibility = View.VISIBLE
-        tvLoadingPercent.visibility = View.VISIBLE
-        tvLoadingPercent.text = "Live sheet পড়ছে..."
+        showCcLoading("Live sheet পড়ছে...")
         tvEmpty.visibility = View.GONE
         viewLifecycleOwner.lifecycleScope.launch {
             try {
@@ -3511,8 +3570,7 @@ class CallCenterFragment : Fragment() {
                 if (gen != liveGeneration || !isAdded) return@launch
                 allParcels = items
                 liveMissingIds = missing
-                pbProgress.visibility = View.GONE
-                tvLoadingPercent.visibility = View.GONE
+                hideCcLoading()
                 if (items.isEmpty() && missing.isNotEmpty()) {
                     tvEmpty.visibility = View.VISIBLE
                     tvEmpty.text = "Sheet-er ID-gulo Firebase-e paini — upore chip দেখুন"
@@ -3535,8 +3593,7 @@ class CallCenterFragment : Fragment() {
     }
 
     private fun showLiveError(msg: String) {
-        pbProgress.visibility = View.GONE
-        tvLoadingPercent.visibility = View.GONE
+        hideCcLoading()
         tvEmpty.visibility = View.VISIBLE
         tvEmpty.text = msg
     }
