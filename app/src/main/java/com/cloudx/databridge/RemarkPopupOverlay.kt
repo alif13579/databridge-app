@@ -309,8 +309,8 @@ object RemarkPopupOverlay {
             btnSave.text = "⏳ Saving..."
             loadJob?.cancel()
             loadJob = overlayScope.launch {
-                val validatorName = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-                    ?.displayName?.trim().orEmpty().ifBlank { "CC Agent" }
+                // users lookup (cached) — NOT the Gmail displayName.
+                val validatorName = UserNameResolver.resolveOwnValidatorName()
                 val ok = SupabaseRemarkValidationWriter.writeAwait(
                     assignedAgentSystemId = assignedAgentSystemId,
                     branchId = branchId,

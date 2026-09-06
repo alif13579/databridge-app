@@ -899,8 +899,8 @@ object IncomingCallOverlay {
                 // itself hold a legacy branch NAME — rescue to ID (cached dir).
                 val targetBranch = SupabaseBranchReader.canonicalBranchId(
                     route?.branchId?.takeIf { it.isNotBlank() } ?: branchId)
-                val validatorName = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-                    ?.displayName?.trim().orEmpty().ifBlank { "CC Agent" }
+                // users lookup (cached) — NOT the Gmail displayName.
+                val validatorName = UserNameResolver.resolveOwnValidatorName()
                 val ok = if (isCc) {
                     val targetAgent = route?.agentSystemId?.takeIf { it.isNotBlank() }
                         ?: todayAssignees[cid]?.systemId?.takeIf { it.isNotBlank() }

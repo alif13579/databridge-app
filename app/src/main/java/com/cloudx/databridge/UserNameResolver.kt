@@ -46,6 +46,23 @@ object UserNameResolver {
         return photoCache[uid].orEmpty()
     }
 
+    /**
+     * Own validator name for sheet writes: users profile name via lookup
+     * (cached per uid), Firebase displayName fallback, "CC Agent" last resort
+     * — so sheets show the employee name, not the Gmail name.
+     */
+    suspend fun resolveOwnValidatorName(): String {
+        val user = try {
+            com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+        } catch (_: Exception) { null }
+        val fallback = user?.displayName?.trim().orEmpty().ifBlank { "CC Agent" }
+        val uid = user?.uid.orEmpty()
+        if (uid.isBlank()) return fallback
+        return try {
+            resolveName(uid).trim().takeIf { it.isNotBlank() && it != uid } ?: fallback
+        } catch (_: Exception) { fallback }
+    }
+
     /** Clears all caches — call on pull-to-refresh or session reset. */
     fun clearCache() {
         nameCache.clear()

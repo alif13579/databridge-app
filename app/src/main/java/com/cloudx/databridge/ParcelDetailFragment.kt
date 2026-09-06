@@ -355,25 +355,29 @@ class ParcelDetailFragment : Fragment() {
                 return@setOnClickListener
             }
 
-            val validatorName = auth.currentUser?.displayName?.trim().orEmpty().ifBlank { "CC Agent" }
-            SupabaseRemarkValidationWriter.write(
-                assignedAgentSystemId = assignedAgentSystemId,
-                branchId = branchId,
-                consignmentId = parcelId,
-                status = selectedStatus,
-                remarksText = selectedRemarkTextEn.ifBlank { noteText },
-                noteText = noteText,
-                source = source,
-                screen = "ParcelDetailFragment",
-                // Blank when selectedRemarkTextEn == selectedRemarkText (config language is
-                // already English) or this was a note-only save with no option picked — same
-                // reasoning as CallCenterFragment's saveCcRemarkForItems.
-                remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedRemarkTextEn } ?: "",
-                feedback = if (source == "CC") selectedFeedback else "",
-                validatorName = if (source == "CC") validatorName else "",
-                appContext = requireContext().applicationContext,
-                onSheetAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() }
-            )
+            // users lookup (cached) — NOT the Gmail displayName.
+            viewLifecycleOwner.lifecycleScope.launch {
+                val validatorName = UserNameResolver.resolveOwnValidatorName()
+                if (!isAdded) return@launch
+                SupabaseRemarkValidationWriter.write(
+                    assignedAgentSystemId = assignedAgentSystemId,
+                    branchId = branchId,
+                    consignmentId = parcelId,
+                    status = selectedStatus,
+                    remarksText = selectedRemarkTextEn.ifBlank { noteText },
+                    noteText = noteText,
+                    source = source,
+                    screen = "ParcelDetailFragment",
+                    // Blank when selectedRemarkTextEn == selectedRemarkText (config language is
+                    // already English) or this was a note-only save with no option picked — same
+                    // reasoning as CallCenterFragment's saveCcRemarkForItems.
+                    remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedRemarkTextEn } ?: "",
+                    feedback = if (source == "CC") selectedFeedback else "",
+                    validatorName = if (source == "CC") validatorName else "",
+                    appContext = requireContext().applicationContext,
+                    onSheetAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() }
+                )
+            }
 
             // Kept alongside the validations write above: these feed CC's push-queue index
             // (courier/remarks_by_userId) and per-day dedup (courier/users_by_consignment),

@@ -3239,9 +3239,12 @@ class CallCenterFragment : Fragment() {
         // users_by_consignment writes (see SupabaseRemarkValidationWriter's
         // doc comment). One INSERT per target, no read-before-write needed
         // since every remark is its own row.
-        val validatorName = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-            ?.displayName.orEmpty().ifBlank { "CC Agent" }
-        items.forEach { target ->
+        viewLifecycleOwner.lifecycleScope.launch {
+            // users lookup (cached) — NOT the Gmail displayName.
+            val validatorName = UserNameResolver.resolveOwnValidatorName()
+            if (!isAdded) return@launch
+            val appCtx = requireContext().applicationContext
+            items.forEach { target ->
             // Belt-and-suspenders: items are normalized at build, but a stale
             // cached card could still carry a legacy branch NAME — rescue to ID
             // (and log it) so validations.branch_id never stores a name.
@@ -3267,13 +3270,14 @@ class CallCenterFragment : Fragment() {
                 remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedStoredRemarkText } ?: "",
                 feedback = feedback,
                 validatorName = validatorName,
-                appContext = requireContext().applicationContext,
+                appContext = appCtx,
                 // No Config access needed: first save without a Sheets grant pops
                 // a one-time Google auth dialog (MainActivity, own Gmail).
                 onSheetAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() }
             )
 
             EngagedStateManager.clearEngaged(target.id, userId)
+        }
         }
 
         // Parcel status (courier/consignments/{id}/status) is a SEPARATE concept from
