@@ -31,6 +31,7 @@ object AppNotificationManager {
     const val EXTRA_PARCEL_ID = "notif_parcel_id"
     const val EXTRA_SCOPE = "notif_scope"
     const val EXTRA_SEARCH_PHONE = "search_phone"
+    const val EXTRA_SEARCH_SCOPE = "search_scope" // "worker" → worker space search, else call center
     const val EXTRA_CLAIM_BRANCH = "notif_claim_branch"
     const val EXTRA_CLAIM_CODE = "notif_claim_code"
     // Agent-missing finder bypasses the "lookup_from_cc" settings toggle (the

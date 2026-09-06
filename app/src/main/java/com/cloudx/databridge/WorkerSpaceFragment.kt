@@ -151,6 +151,33 @@ class WorkerSpaceFragment : Fragment() {
         loadRemarkOptions()
         loadData()
         loadTodayRemarksStats()
+        // Popup finder handoff (see MainActivity.navigateToWorkerSpaceWithSearch).
+        (activity as? MainActivity)?.pendingWorkerSearchPhone?.takeIf { it.isNotBlank() }?.let {
+            (activity as? MainActivity)?.pendingWorkerSearchPhone = null
+            applySearchPhone(it)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Popup finder handoff for the tab-switch path (the already-on-tab
+        // case is applied directly by MainActivity, mirroring CallCenter).
+        (activity as? MainActivity)?.pendingWorkerSearchPhone?.takeIf { it.isNotBlank() }?.let {
+            (activity as? MainActivity)?.pendingWorkerSearchPhone = null
+            applySearchPhone(it)
+        }
+    }
+
+    /** Pre-fills and applies the search box (popup finder handoff). Resets the
+     *  status filter to "all" first so a leftover chip can't hide the match. */
+    fun applySearchPhone(phone: String) {
+        if (phone.isBlank() || !isAdded) return
+        activeFilter = "all"
+        if (!::etSearch.isInitialized) return
+        etSearch.setText(phone)
+        etSearch.setSelection(phone.length)
+        setupFilterTabs()
+        applyFilters()
     }
 
     override fun onDestroyView() {

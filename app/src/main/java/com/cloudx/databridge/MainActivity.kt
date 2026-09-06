@@ -176,10 +176,14 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private fun handleNotificationIntent(intent: Intent?) {
         val searchPhone = intent?.getStringExtra(AppNotificationManager.EXTRA_SEARCH_PHONE)
         if (!searchPhone.isNullOrBlank()) {
-            navigateToCallCenterWithSearch(
-                searchPhone,
-                force = intent.getBooleanExtra(AppNotificationManager.EXTRA_FORCE_CC_SEARCH, false)
-            )
+            if (intent?.getStringExtra(AppNotificationManager.EXTRA_SEARCH_SCOPE) == "worker") {
+                navigateToWorkerSpaceWithSearch(searchPhone)
+            } else {
+                navigateToCallCenterWithSearch(
+                    searchPhone,
+                    force = intent.getBooleanExtra(AppNotificationManager.EXTRA_FORCE_CC_SEARCH, false)
+                )
+            }
             return
         }
         // FCM's system-rendered background notification carries the raw data keys;
@@ -1090,6 +1094,25 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
 
     fun navigateToWorkerSpaceWithParcel(parcelId: String) {
         loadFragment(ParcelDetailFragment.newInstance(parcelId, "worker"))
+    }
+
+    /** Worker mirror of navigateToCallCenterWithSearch: opens Worker Space with
+     *  [phone] pre-filled in its search box (filter reset to all). No toggle —
+     *  the popup finder is always an explicit tap. */
+    var pendingWorkerSearchPhone: String? = null
+
+    fun navigateToWorkerSpaceWithSearch(phone: String) {
+        if (!RbacManager.hasPermission("nav_space")) return
+
+        val alreadyOnWorker = supportFragmentManager.findFragmentById(R.id.container) is WorkerSpaceFragment
+        if (alreadyOnWorker) {
+            (supportFragmentManager.findFragmentById(R.id.container) as? WorkerSpaceFragment)
+                ?.applySearchPhone(phone)
+            return
+        }
+
+        pendingWorkerSearchPhone = phone
+        bottomNav.selectedItemId = R.id.nav_space
     }
 
     fun navigateToChangelog() {

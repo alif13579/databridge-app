@@ -101,12 +101,16 @@ object IncomingCallOverlay {
         val displayName = if (match != null) match.name.ifBlank { "Unknown customer" } else "অজানা নম্বর"
         tvMinimizedLabel.text = "📞 $displayName"
 
-        // Both remaining navigation paths from this popup (View Full Details, Search in CC)
-        // land in CallCenterFragment — gate them on the same permission that screen itself
-        // requires, so a user without CC access never gets sent into a fragment they can't
-        // actually use. hasPermission() reads an in-memory cache synchronously, safe to call
-        // from this Service context with no Firebase round-trip.
+        // Both remaining navigation paths from this popup land in CallCenter or
+        // Worker Space — gate them on the same permissions those screens
+        // require, so a user without access never gets sent into a fragment
+        // they can't use. hasPermission() reads an in-memory cache
+        // synchronously, safe from this Service context.
         val hasCcAccess = RbacManager.hasPermission("nav_call_center")
+        val hasWorkerAccess = RbacManager.hasPermission("nav_space")
+        // CC agents go to Call Center search; workers (no CC access) go to
+        // their own space's search — both pre-filled, filter all.
+        val useWorkerSearch = !hasCcAccess && hasWorkerAccess
 
         if (match != null) {
             view.findViewById<TextView>(R.id.tvOverlayName).text = displayName
@@ -216,11 +220,17 @@ object IncomingCallOverlay {
         // CC permission still checked — the toggle only gates the unmatched
         // card and background behaviors, never an explicit finder tap.
         // Unmatched card keeps the old gate (without a match it exists only
-        // to offer the shortcut).
-        val showFinder = if (match != null) hasCcAccess else lookupFromCcEnabled && hasCcAccess
+        // to offer the shortcut). Workers get the same finder into their own
+        // space's search.
+        val hasAnySearchAccess = hasCcAccess || hasWorkerAccess
+        val showFinder = if (match != null) hasAnySearchAccess else lookupFromCcEnabled && hasAnySearchAccess
         btnSearch.isVisible = showFinder
+        if (showFinder && useWorkerSearch) {
+            (btnSearch as? TextView)?.text = "🔍 খুঁজুন"
+        }
         btnSearch.setOnClickListener {
-            openCallCenterSearch(context, rawPhone, force = match != null)
+            if (useWorkerSearch) openWorkerSearch(context, rawPhone)
+            else openCallCenterSearch(context, rawPhone, force = match != null)
             dismissInternal()
         }
         view.findViewById<View>(R.id.btnOverlayClose).setOnClickListener { dismissInternal() }
@@ -685,14 +695,20 @@ object IncomingCallOverlay {
             } else selfSystemId
             if (agentId.isBlank()) {
                 tvAgentMissing.isVisible = true
-                // No run + no validations row: offer a one-tap jump into CC with
-                // this number pre-filled in search — no manual typing. Force flag
-                // bypasses the lookup toggle (explicit tap), permission still gated.
-                if (RbacManager.hasPermission("nav_call_center")) {
+                // No run + no validations row: offer a one-tap jump into search
+                // with this number pre-filled — no manual typing. Force flag
+                // bypasses the lookup toggle (explicit tap), permission still
+                // gated. Workers land in their own space's search instead.
+                val ccAccess = RbacManager.hasPermission("nav_call_center")
+                val workerAccess = RbacManager.hasPermission("nav_space")
+                if (ccAccess || workerAccess) {
+                    val workerRoute = !ccAccess && workerAccess
                     view.findViewById<TextView>(R.id.btnOverlayAgentMissingSearch).apply {
+                        if (workerRoute) text = "🔍 খুঁজুন"
                         isVisible = true
                         setOnClickListener {
-                            openCallCenterSearch(context, rawPhone, force = true)
+                            if (workerRoute) openWorkerSearch(context, rawPhone)
+                            else openCallCenterSearch(context, rawPhone, force = true)
                             dismissInternal()
                         }
                     }
@@ -1025,6 +1041,20 @@ object IncomingCallOverlay {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(AppNotificationManager.EXTRA_SEARCH_PHONE, rawPhone)
             if (force) putExtra(AppNotificationManager.EXTRA_FORCE_CC_SEARCH, true)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Worker mirror of openCallCenterSearch: same pre-filled search handoff
+     *  into Worker Space (filter reset to all there). */
+    private fun openWorkerSearch(context: Context, rawPhone: String) {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(AppNotificationManager.EXTRA_SEARCH_PHONE, rawPhone)
+            putExtra(AppNotificationManager.EXTRA_SEARCH_SCOPE, "worker")
         }
         try {
             context.startActivity(intent)
