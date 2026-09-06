@@ -515,17 +515,11 @@ class ConfigConnectorsFragment : Fragment() {
     ) {
         val ctx = context ?: return
         val parent = container ?: return
+        // Vertical: ref input always full-width on line 1 (a wide kind label
+        // in a horizontal row used to crush the input to zero width), mode +
+        // kind spinners share line 2.
         val row = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-        }
-        val spMode = android.widget.Spinner(ctx).apply {
-            adapter = android.widget.ArrayAdapter(ctx,
-                android.R.layout.simple_spinner_dropdown_item, listOf("Text", "Column Index"))
-            setSelection(if (mode == SheetColMode.TEXT) 0 else 1)
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+            orientation = android.widget.LinearLayout.VERTICAL
         }
         val et = EditText(ctx).apply {
             setText(refText)
@@ -537,6 +531,18 @@ class ConfigConnectorsFragment : Fragment() {
                 override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                 override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             })
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        val line2 = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        val spMode = android.widget.Spinner(ctx).apply {
+            adapter = android.widget.ArrayAdapter(ctx,
+                android.R.layout.simple_spinner_dropdown_item, listOf("Text", "Column Index"))
+            setSelection(if (mode == SheetColMode.TEXT) 0 else 1)
             layoutParams = android.widget.LinearLayout.LayoutParams(0,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
@@ -550,9 +556,8 @@ class ConfigConnectorsFragment : Fragment() {
                 }
                 override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
             }
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+            layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         // Mode switch re-hints the input so Text vs Index is unambiguous.
         spMode.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
@@ -567,7 +572,8 @@ class ConfigConnectorsFragment : Fragment() {
             setPadding(16, 12, 8, 12)
             setOnClickListener { parent.removeView(row); updateColumnSummary() }
         }
-        row.addView(spMode); row.addView(et); row.addView(spinner); row.addView(del)
+        line2.addView(spMode); line2.addView(spinner); line2.addView(del)
+        row.addView(et); row.addView(line2)
         row.setTag(tagKey, Triple(et, spMode, spinner))
         parent.addView(row)
     }
