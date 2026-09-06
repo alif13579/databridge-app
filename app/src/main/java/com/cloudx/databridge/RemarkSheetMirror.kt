@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import java.time.LocalDate
@@ -110,7 +111,11 @@ object RemarkSheetMirror {
         }
     }
 
-    /** Values available to lookup/write rules for one remark save. */
+    /** Values available to lookup/write rules for one remark save. verdict /
+     *  remark / note / status ride along from the caller (guaranteed fresh —
+     *  the just-saved row may not be readable yet); everything else comes
+     *  from [extras], fetched from the latest validations row after the
+     *  sheet row matches. */
     data class MirrorCtx(
         val consignmentId: String,
         val verdict: String,
@@ -118,6 +123,7 @@ object RemarkSheetMirror {
         val note: String,
         val status: String,
         val today: LocalDate,
+        val extras: Map<String, String> = emptyMap(),
     )
 
     private val LETTER_RE = Regex("^[A-Za-z]{1,3}$")
@@ -166,7 +172,94 @@ object RemarkSheetMirror {
         SheetWriteKind.NOTE -> ctx.note
         SheetWriteKind.STATUS -> ctx.status
         SheetWriteKind.TODAY -> ctx.today.toString() // yyyy-MM-dd
-        else -> ""
+        SheetWriteKind.CONSIGNMENT -> ctx.consignmentId
+        // Row extras ("" when the fetch failed); caller values stay primary.
+        SheetWriteKind.REMARKS_STATUS_COL -> ctx.extras[kind] ?: ctx.status
+        SheetWriteKind.REMARKS_COL -> ctx.extras[kind] ?: ctx.remark
+        SheetWriteKind.NOTE_COL -> ctx.extras[kind] ?: ctx.note
+        else -> ctx.extras[kind].orEmpty()
+    }
+
+    private val nameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun String.encodeParam(): String = java.net.URLEncoder.encode(this, "UTF-8")
+
+    /** system_id → display name via the users_by_systemId index + Firebase
+     *  profile (cached). Falls back to the raw system_id — never blank. */
+    private suspend fun resolveAgentName(systemId: String): String {
+        val sid = systemId.trim()
+        if (sid.isEmpty()) return ""
+        nameCache[sid]?.let { return it }
+        val name = try {
+            val db = com.google.firebase.database.FirebaseDatabase.getInstance()
+            val uid = withContext(Dispatchers.IO) {
+                db.reference.child("users_by_systemId/$sid/uid").get().await()
+                    .getValue(String::class.java)?.trim().orEmpty()
+            }
+            val full = if (uid.isBlank()) "" else withContext(Dispatchers.IO) {
+                db.reference.child("users/$uid/profile/name").get().await()
+                    .getValue(String::class.java)?.trim().orEmpty()
+            }
+            full.ifBlank { sid }
+        } catch (_: Exception) { sid }
+        nameCache[sid] = name
+        return name
+    }
+
+    /** Latest validations row for [cid] → extras map (row columns + resolved
+     *  names). Best-effort: empty map on any failure (caller values cover the
+     *  core kinds). */
+    private suspend fun fetchRowExtras(cid: String): Map<String, String> {
+        return try {
+            val token = SupabaseClientManager.getAccessToken() ?: return emptyMap()
+            // Plain columns only: names resolve via Firebase (resolveAgentName)
+            // so an RLS-sensitive users join can never sink this read.
+            val plainUrl = "${SupabaseConfig.PROJECT_URL}/rest/v1/validations" +
+                "?select=consignment,branch_id,assigned_to_system_id,author_system_id," +
+                "remarks_status,remarks,created_at,customer_phone,note,source,consignment_status" +
+                "&consignment=eq.${cid.encodeParam()}" +
+                "&order=created_at.desc&limit=1"
+            val text = withContext(Dispatchers.IO) {
+                SupabaseClientManager.httpClient.newCall(
+                    okhttp3.Request.Builder().url(plainUrl)
+                        .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                        .addHeader("Authorization", "Bearer $token")
+                        .addHeader("Accept", "application/json")
+                        .get().build()
+                ).execute().use { resp ->
+                    if (!resp.isSuccessful) return@withContext null
+                    resp.body?.string()
+                }
+            } ?: return emptyMap()
+            val arr = org.json.JSONArray(text)
+            if (arr.length() == 0) return emptyMap()
+            val o = arr.getJSONObject(0)
+            fun s(k: String) = o.optString(k, "")
+            val createdIso = s("created_at")
+            val createdDhaka = runCatching {
+                val instant = java.time.Instant.parse(createdIso)
+                java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm")
+                    .withZone(java.time.ZoneId.of("Asia/Dhaka")).format(instant)
+            }.getOrDefault(createdIso)
+            val authorSid = s("author_system_id")
+            val assignedSid = s("assigned_to_system_id")
+            mapOf(
+                SheetWriteKind.REMARKS_STATUS_COL to s("remarks_status"),
+                SheetWriteKind.REMARKS_COL to s("remarks"),
+                SheetWriteKind.NOTE_COL to s("note"),
+                SheetWriteKind.SOURCE_COL to s("source"),
+                SheetWriteKind.CREATED_AT to createdDhaka,
+                SheetWriteKind.CUSTOMER_PHONE to s("customer_phone"),
+                SheetWriteKind.CONSIGNMENT_STATUS to s("consignment_status"),
+                SheetWriteKind.BRANCH_ID to s("branch_id"),
+                SheetWriteKind.AUTHOR_SYSTEM_ID to authorSid,
+                SheetWriteKind.ASSIGNED_TO_SYSTEM_ID to assignedSid,
+                SheetWriteKind.AUTHOR_NAME to resolveAgentName(authorSid),
+                SheetWriteKind.ASSIGNED_NAME to resolveAgentName(assignedSid),
+            )
+        } catch (_: Exception) {
+            emptyMap()
+        }
     }
 
     /** mirrorOne with retry: transient transport/write failures get 3 attempts
@@ -195,9 +288,14 @@ object RemarkSheetMirror {
         when (val found = findTargetRow(conn, accessToken, ctx)) {
             is FindResult.Miss -> MirrorOutcome.Skipped(found.reason)
             is FindResult.Hit -> {
-                found.writes.forEach { (letter, value) ->
+                // Row extras AFTER the sheet row matches (needs the cid, which
+                // we only trust once matched — same cid, but ordering keeps a
+                // failed match from costing a Supabase read).
+                val ctx2 = ctx.copy(extras = fetchRowExtras(ctx.consignmentId))
+                found.writes.forEach { (letter, kind) ->
                     ConfigSheetDriveApi.writeCellValue(
-                        accessToken, conn.sheetId, found.tab, letter, found.row, value, httpClient
+                        accessToken, conn.sheetId, found.tab, letter, found.row,
+                        writeValue(kind, ctx2), httpClient
                     )
                 }
                 MirrorOutcome.Done(found.row)
@@ -208,7 +306,7 @@ object RemarkSheetMirror {
     private sealed class FindResult {
         data class Hit(
             val tab: String, val row: Int,
-            val writes: List<Pair<String, String>>, // (letter, value) actually written
+            val writes: List<Pair<String, String>>, // (letter, source kind)
             val detail: String, // per-rule match diagnostics
             val scanned: Int
         ) : FindResult()
@@ -264,7 +362,7 @@ object RemarkSheetMirror {
                 !lookupMatches(rule.kind, columns[letter].orEmpty().getOrNull(i).orEmpty(), ctx)
             }
             if (fails.isEmpty()) {
-                val writePairs = writeCols.map { (rule, letter) -> letter to writeValue(rule.kind, ctx) }
+                val writePairs = writeCols.map { (rule, letter) -> letter to rule.kind }
                 lookupCols.forEach { (rule, letter) ->
                     diag.append("${rule.colRef.trim()}(${letter})='${lookupWant(rule.kind, ctx)}' ✓; ")
                 }
@@ -303,7 +401,12 @@ object RemarkSheetMirror {
             try {
                 when (val found = findTargetRow(conn, token, ctx)) {
                     is FindResult.Hit -> {
-                        val w = found.writes.joinToString(", ") { (l, v) -> "$l$v='${v.ifBlank { "(খালি)" }}'" }
+                        val extras = fetchRowExtras(ctx.consignmentId)
+                        val ctx2 = ctx.copy(extras = extras)
+                        val w = found.writes.joinToString(", ") { (l, k) ->
+                            val v = writeValue(k, ctx2)
+                            "$l$k='${v.ifBlank { "(খালি)" }}'"
+                        }
                         "✓ Row ${found.row} (tab '${found.tab}') মিলেছে\n${found.detail}\nলিখবে: $w\n${found.scanned} row দেখা হয়েছে। (কিছু লেখা হয়নি)"
                     }
                     is FindResult.Miss -> "✕ ${found.reason}"

@@ -112,16 +112,42 @@ object SheetLookupKind {
     val REMARK_KINDS = listOf(CONSIGNMENT, TODAY)
 }
 
-/** Write value sources for dynamic connection rules. */
+/** Write value sources for dynamic connection rules. Either caller-passed
+ *  semantic values (verdict/remark/note/status/today/consignment), live
+ *  validations-table columns, resolved names, or the scanner's value. */
 object SheetWriteKind {
-    const val VERDICT = "verdict"
-    const val REMARK = "remark"
-    const val NOTE = "note"
-    const val STATUS = "status"
-    const val TODAY = "today"
+    const val VERDICT = "verdict" // caller-passed (validation_remarks.category — not a validations column)
+    const val REMARK = "remark" // caller-passed english remarks
+    const val NOTE = "note" // caller-passed note
+    const val STATUS = "status" // caller-passed remarks_status
+    const val TODAY = "today" // yyyy-MM-dd (device, Asia/Dhaka)
+    const val CONSIGNMENT = "consignment"
+    // Live validations row columns (fetched at mirror time):
+    const val REMARKS_STATUS_COL = "remarks_status"
+    const val REMARKS_COL = "remarks"
+    const val NOTE_COL = "note"
+    const val SOURCE_COL = "source"
+    const val CREATED_AT = "created_at"
+    const val CUSTOMER_PHONE = "customer_phone"
+    const val CONSIGNMENT_STATUS = "consignment_status"
+    const val BRANCH_ID = "branch_id"
+    const val AUTHOR_SYSTEM_ID = "author_system_id"
+    const val ASSIGNED_TO_SYSTEM_ID = "assigned_to_system_id"
+    // Resolved via users index (fallback: raw system_id):
+    const val AUTHOR_NAME = "author_name"
+    const val ASSIGNED_NAME = "assigned_name"
     const val VALUE = "value" // scanner: the scanned value
-    val ALL = listOf(VERDICT, REMARK, NOTE, STATUS, TODAY, VALUE)
-    val REMARK_KINDS = listOf(VERDICT, REMARK, NOTE, STATUS, TODAY)
+    val ALL = listOf(
+        VERDICT, REMARK, NOTE, STATUS, TODAY, CONSIGNMENT,
+        AUTHOR_NAME, ASSIGNED_NAME,
+        REMARKS_STATUS_COL, REMARKS_COL, NOTE_COL, SOURCE_COL, CREATED_AT,
+        CUSTOMER_PHONE, CONSIGNMENT_STATUS, BRANCH_ID,
+        AUTHOR_SYSTEM_ID, ASSIGNED_TO_SYSTEM_ID,
+        VALUE,
+    )
+    /** Sources the mirror processes (everything except the scanner's value —
+     *  value rules are skipped, never blank-written). */
+    val REMARK_KINDS = ALL - VALUE
 }
 
 /** One lookup criterion: column [colRef] (per [mode]) must match [kind] on the

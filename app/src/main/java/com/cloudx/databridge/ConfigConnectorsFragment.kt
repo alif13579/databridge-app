@@ -495,7 +495,9 @@ class ConfigConnectorsFragment : Fragment() {
             refText = rule.colRef,
             mode = rule.mode,
             kinds = SheetWriteKind.ALL,
-            kindLabels = listOf("verdict", "remark", "note", "status", "today", "scanned value"),
+            // Labels track ALL 1:1 (raw source names — validations columns +
+            // semantic). "scanned value" is scanner-only; the mirror skips it.
+            kindLabels = SheetWriteKind.ALL.map { if (it == SheetWriteKind.VALUE) "scanned value" else it },
             kind = rule.kind,
             refHint = "K / 11 / Verdict",
         )
