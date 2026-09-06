@@ -303,58 +303,29 @@
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="2dp" />
             </LinearLayout>
 
-            <!-- ── Step 4: Match Column + Write Column ── -->
+            <!-- ── Step 4: dynamic lookup + write rules ── -->
             <LinearLayout android:id="@+id/scStepView4"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:layout_marginTop="16dp" android:visibility="gone">
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="MATCH COLUMN (Employee ID)" android:textSize="10sp" android:textStyle="bold"
+                    android:text="HEADER ROW" android:textSize="10sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
-                <EditText android:id="@+id/etScMatchColumn"
-                    android:layout_width="match_parent" android:layout_height="46dp"
+                <EditText android:id="@+id/etScHeaderRow"
+                    android:layout_width="120dp" android:layout_height="46dp"
                     android:background="@drawable/bg_input_rounded"
                     android:padding="10dp" android:textSize="14sp" android:gravity="center"
-                    android:hint="যেমন: T (Column 20)"
-                    android:inputType="textCapCharacters" android:maxLines="1"
+                    android:hint="1" android:inputType="number" android:maxLines="1"
                     android:layout_marginBottom="4dp" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="যে column-এ agent-এর Employee ID খুঁজে match করা হবে"
+                    android:text="Text-mode column যেই row-তে header খুঁজবে (সাধারণত 1)"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="DATE MATCH COLUMN (ঐচ্ছিক — Remark sheet-এর জন্য)" android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
-                <EditText android:id="@+id/etScDateMatchColumn"
-                    android:layout_width="match_parent" android:layout_height="46dp"
-                    android:background="@drawable/bg_input_rounded"
-                    android:padding="10dp" android:textSize="14sp" android:gravity="center"
-                    android:hint="যেমন: A (Column 1)"
-                    android:inputType="textCapCharacters" android:maxLines="1"
-                    android:layout_marginBottom="4dp" />
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Remark sheet হলে: consignment-এর পাশাপাশি এই date column-এ আজকের তারিখ মিলিয়ে row খুঁজবে। Scanner-এর জন্য খালি রাখুন।"
-                    android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
-
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="WRITE COLUMN (Scan Data)" android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
-                <EditText android:id="@+id/etScWriteColumn"
-                    android:layout_width="match_parent" android:layout_height="46dp"
-                    android:background="@drawable/bg_input_rounded"
-                    android:padding="10dp" android:textSize="14sp" android:gravity="center"
-                    android:hint="যেমন: K (Column 11)"
-                    android:inputType="textCapCharacters" android:maxLines="1"
-                    android:layout_marginBottom="4dp" />
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Match পাওয়া row-এর blank cell-এ scan করা data এখানে বসবে"
-                    android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
-
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="LOOKUP RULES — Remark (dynamic, ঐচ্ছিক)" android:textSize="10sp" android:textStyle="bold"
+                    android:text="LOOKUP RULES (সবগুলো একই row-তে মিলতে হবে)" android:textSize="10sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="এক বা একাধিক শর্ত (সবগুলো একই row-তে মিলতে হবে)। Column: letter (C) বা header text (Consignment ID)। থাকলে উপরের 3 field-এর বদলে এগুলোই চলবে।"
+                    android:text="Mode: Text = exact header, Column Index = letter/number। Kind: consignment/today (remark), employee (scanner)।"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="5dp" />
                 <LinearLayout android:id="@+id/layoutRuleLookups"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -366,10 +337,10 @@
                     android:paddingHorizontal="12dp" android:layout_marginBottom="16dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="WRITE RULES — Remark (dynamic, ঐচ্ছিক)" android:textSize="10sp" android:textStyle="bold"
+                    android:text="WRITE RULES (মিলে যাওয়া row-তে লিখবে)" android:textSize="10sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="এক বা একাধিক column-এ লিখবে। Value: verdict / remark / note / status / today।"
+                    android:text="এক বা একাধিক column। Value: verdict / remark / note / status / today (remark), scanned value (scanner)।"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="5dp" />
                 <LinearLayout android:id="@+id/layoutRuleWrites"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -379,6 +350,25 @@
                     android:gravity="center" android:text="+ Add write"
                     android:textSize="13sp" android:textStyle="bold" android:textColor="#059669"
                     android:paddingHorizontal="12dp" android:layout_marginBottom="16dp" />
+
+                <TextView android:id="@+id/btnScPreviewRules"
+                    android:layout_width="wrap_content" android:layout_height="36dp"
+                    android:gravity="center" android:text="👁 Preview sheet"
+                    android:textSize="13sp" android:textStyle="bold" android:textColor="#1D4ED8"
+                    android:paddingHorizontal="12dp" android:layout_marginBottom="8dp" />
+                <TextView android:id="@+id/tvScRulePreview"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:textSize="12sp" android:textColor="@color/theme_text_secondary"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="12dp" android:lineSpacingMultiplier="1.4"
+                    android:visibility="gone" />
+                <HorizontalScrollView android:id="@+id/scrollScRulePreview"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp" android:visibility="gone">
+                    <TableLayout android:id="@+id/tableScRulePreview"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:stretchColumns="*" />
+                </HorizontalScrollView>
 
                 <TextView android:id="@+id/tvScSummary"
                     android:layout_width="match_parent" android:layout_height="wrap_content"

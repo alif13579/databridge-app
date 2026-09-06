@@ -86,12 +86,13 @@ class ConfigConnectorsFragment : Fragment() {
     private var tvScTabPreview: TextView? = null
 
     // Step 4
-    private var etScMatchColumn: EditText? = null
-    private var etScDateMatchColumn: EditText? = null
-    private var etScWriteColumn: EditText? = null
+    private var etScHeaderRow: EditText? = null
     private var tvScSummary:     TextView? = null
     private var layoutRuleLookups: android.widget.LinearLayout? = null
     private var layoutRuleWrites: android.widget.LinearLayout? = null
+    private var tvScRulePreview: TextView? = null
+    private var scrollScRulePreview: android.widget.HorizontalScrollView? = null
+    private var tableScRulePreview: android.widget.TableLayout? = null
 
     private var tvScConnectError: TextView? = null
     private var btnScStepBack:    Button? = null
@@ -236,17 +237,19 @@ class ConfigConnectorsFragment : Fragment() {
         etScTabPattern = view.findViewById(R.id.etScTabPattern)
         tvScTabPreview = view.findViewById(R.id.tvScTabPreview)
 
-        etScMatchColumn = view.findViewById(R.id.etScMatchColumn)
-        etScDateMatchColumn = view.findViewById(R.id.etScDateMatchColumn)
-        etScWriteColumn = view.findViewById(R.id.etScWriteColumn)
+        etScHeaderRow = view.findViewById(R.id.etScHeaderRow)
         layoutRuleLookups = view.findViewById(R.id.layoutRuleLookups)
         layoutRuleWrites = view.findViewById(R.id.layoutRuleWrites)
+        tvScRulePreview = view.findViewById(R.id.tvScRulePreview)
+        scrollScRulePreview = view.findViewById(R.id.scrollScRulePreview)
+        tableScRulePreview = view.findViewById(R.id.tableScRulePreview)
         view.findViewById<View>(R.id.btnAddLookupRule)?.setOnClickListener {
-            addLookupRow(SheetLookupRule("", SheetLookupKind.CONSIGNMENT))
+            addLookupRow(SheetLookupRule("", SheetLookupKind.CONSIGNMENT, SheetColMode.INDEX))
         }
         view.findViewById<View>(R.id.btnAddWriteRule)?.setOnClickListener {
-            addWriteRow(SheetWriteRule("", SheetWriteKind.VERDICT))
+            addWriteRow(SheetWriteRule("", SheetWriteKind.VERDICT, SheetColMode.INDEX))
         }
+        view.findViewById<View>(R.id.btnScPreviewRules)?.setOnClickListener { previewRules() }
         tvScSummary     = view.findViewById(R.id.tvScSummary)
 
         tvScConnectError = view.findViewById(R.id.tvScConnectError)
@@ -464,73 +467,127 @@ class ConfigConnectorsFragment : Fragment() {
     }
 
     // ── Dynamic lookup/write rule rows (Step 4) ────────────────────────────
-    // One row = [column ref EditText][kind Spinner][✕]. colRef accepts a letter
-    // (C) or a header text (Consignment ID) — resolved at mirror time.
+    // One row = [mode Spinner: Text/Column Index][column ref EditText][kind
+    // Spinner][✕]. Text = exact header in the connection's header row;
+    // Column Index = letter (C) or 1-based number (3).
+
+    private val RULE_MODES = listOf(SheetColMode.TEXT, SheetColMode.INDEX)
+    private fun modeLabel(mode: String) = if (mode == SheetColMode.TEXT) "Text" else "Column Index"
+    private fun modeOf(label: String) = if (label == "Text") SheetColMode.TEXT else SheetColMode.INDEX
 
     private fun addLookupRow(rule: SheetLookupRule) {
-        val ctx = context ?: return
-        val row = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-        }
-        val et = EditText(ctx).apply {
-            setText(rule.colRef)
-            hint = "C বা Consignment ID"
-            textSize = 13f
-            setSingleLine()
-            layoutParams = android.widget.LinearLayout.LayoutParams(0,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val spinner = android.widget.Spinner(ctx).apply {
-            adapter = android.widget.ArrayAdapter(ctx,
-                android.R.layout.simple_spinner_dropdown_item, SheetLookupKind.ALL)
-            setSelection(SheetLookupKind.ALL.indexOf(rule.kind).coerceAtLeast(0))
-            layoutParams = android.widget.LinearLayout.LayoutParams(
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-        val del = TextView(ctx).apply {
-            text = "✕"; textSize = 16f
-            setTextColor(ctx.getColor(R.color.theme_text_secondary))
-            setPadding(16, 12, 8, 12)
-            setOnClickListener { layoutRuleLookups?.removeView(row) }
-        }
-        row.addView(et); row.addView(spinner); row.addView(del)
-        row.setTag(R.id.layoutRuleLookups, Pair(et, spinner))
-        layoutRuleLookups?.addView(row)
+        addRuleRow(
+            container = layoutRuleLookups,
+            tagKey = R.id.layoutRuleLookups,
+            refText = rule.colRef,
+            mode = rule.mode,
+            kinds = SheetLookupKind.ALL,
+            kindLabels = listOf("consignment", "today", "employee"),
+            kind = rule.kind,
+            refHint = "C / 3 / Consignment ID",
+        )
     }
 
     private fun addWriteRow(rule: SheetWriteRule) {
+        addRuleRow(
+            container = layoutRuleWrites,
+            tagKey = R.id.layoutRuleWrites,
+            refText = rule.colRef,
+            mode = rule.mode,
+            kinds = SheetWriteKind.ALL,
+            kindLabels = listOf("verdict", "remark", "note", "status", "today", "scanned value"),
+            kind = rule.kind,
+            refHint = "K / 11 / Verdict",
+        )
+    }
+
+    private fun addRuleRow(
+        container: android.widget.LinearLayout?,
+        tagKey: Int,
+        refText: String,
+        mode: String,
+        kinds: List<String>,
+        kindLabels: List<String>,
+        kind: String,
+        refHint: String,
+    ) {
         val ctx = context ?: return
+        val parent = container ?: return
         val row = android.widget.LinearLayout(ctx).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
+        val spMode = android.widget.Spinner(ctx).apply {
+            adapter = android.widget.ArrayAdapter(ctx,
+                android.R.layout.simple_spinner_dropdown_item, listOf("Text", "Column Index"))
+            setSelection(if (mode == SheetColMode.TEXT) 0 else 1)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
         val et = EditText(ctx).apply {
-            setText(rule.colRef)
-            hint = "K বা Verdict"
+            setText(refText)
+            hint = refHint
             textSize = 13f
             setSingleLine()
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun afterTextChanged(s: android.text.Editable?) = updateColumnSummary()
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            })
             layoutParams = android.widget.LinearLayout.LayoutParams(0,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val spinner = android.widget.Spinner(ctx).apply {
             adapter = android.widget.ArrayAdapter(ctx,
-                android.R.layout.simple_spinner_dropdown_item, SheetWriteKind.ALL)
-            setSelection(SheetWriteKind.ALL.indexOf(rule.kind).coerceAtLeast(0))
+                android.R.layout.simple_spinner_dropdown_item, kindLabels)
+            setSelection(kinds.indexOf(kind).coerceAtLeast(0))
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    updateColumnSummary()
+                }
+                override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+            }
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        // Mode switch re-hints the input so Text vs Index is unambiguous.
+        spMode.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                et.hint = if (pos == 0) "exact header text" else "letter / number"
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
         }
         val del = TextView(ctx).apply {
             text = "✕"; textSize = 16f
             setTextColor(ctx.getColor(R.color.theme_text_secondary))
             setPadding(16, 12, 8, 12)
-            setOnClickListener { layoutRuleWrites?.removeView(row) }
+            setOnClickListener { parent.removeView(row); updateColumnSummary() }
         }
-        row.addView(et); row.addView(spinner); row.addView(del)
-        row.setTag(R.id.layoutRuleWrites, Pair(et, spinner))
-        layoutRuleWrites?.addView(row)
+        row.addView(spMode); row.addView(et); row.addView(spinner); row.addView(del)
+        row.setTag(tagKey, Triple(et, spMode, spinner))
+        parent.addView(row)
+    }
+
+    private fun readRuleRows(
+        parent: android.widget.LinearLayout?,
+        tagKey: Int,
+        kinds: List<String>,
+    ): List<Triple<String, String, String>> { // (ref, mode, kind)
+        val out = mutableListOf<Triple<String, String, String>>()
+        if (parent == null) return out
+        for (i in 0 until parent.childCount) {
+            val tag = parent.getChildAt(i).getTag(tagKey) as? Triple<*, *, *> ?: continue
+            val et = tag.first as? EditText ?: continue
+            val spMode = tag.second as? android.widget.Spinner ?: continue
+            val sp = tag.third as? android.widget.Spinner ?: continue
+            val ref = et.text?.toString()?.trim().orEmpty()
+            if (ref.isBlank()) continue
+            val mode = modeOf(spMode.selectedItem?.toString() ?: "Column Index")
+            out.add(Triple(ref, mode, kinds[sp.selectedItemPosition.coerceIn(kinds.indices)]))
+        }
+        return out
     }
 
     private fun clearRuleRows() {
@@ -538,35 +595,16 @@ class ConfigConnectorsFragment : Fragment() {
         layoutRuleWrites?.removeAllViews()
     }
 
-    private fun collectLookups(): List<SheetLookupRule> {
-        val out = mutableListOf<SheetLookupRule>()
-        val parent = layoutRuleLookups ?: return out
-        for (i in 0 until parent.childCount) {
-            val tag = parent.getChildAt(i).getTag(R.id.layoutRuleLookups)
-                as? Pair<*, *> ?: continue
-            val et = tag.first as? EditText ?: continue
-            val sp = tag.second as? android.widget.Spinner ?: continue
-            val ref = et.text?.toString()?.trim().orEmpty()
-            if (ref.isBlank()) continue
-            out.add(SheetLookupRule(ref, sp.selectedItem?.toString() ?: SheetLookupKind.CONSIGNMENT))
-        }
-        return out
-    }
+    private fun collectLookups(): List<SheetLookupRule> =
+        readRuleRows(layoutRuleLookups, R.id.layoutRuleLookups, SheetLookupKind.ALL)
+            .map { (ref, mode, kind) -> SheetLookupRule(ref, kind, mode) }
 
-    private fun collectWrites(): List<SheetWriteRule> {
-        val out = mutableListOf<SheetWriteRule>()
-        val parent = layoutRuleWrites ?: return out
-        for (i in 0 until parent.childCount) {
-            val tag = parent.getChildAt(i).getTag(R.id.layoutRuleWrites)
-                as? Pair<*, *> ?: continue
-            val et = tag.first as? EditText ?: continue
-            val sp = tag.second as? android.widget.Spinner ?: continue
-            val ref = et.text?.toString()?.trim().orEmpty()
-            if (ref.isBlank()) continue
-            out.add(SheetWriteRule(ref, sp.selectedItem?.toString() ?: SheetWriteKind.VERDICT))
-        }
-        return out
-    }
+    private fun collectWrites(): List<SheetWriteRule> =
+        readRuleRows(layoutRuleWrites, R.id.layoutRuleWrites, SheetWriteKind.ALL)
+            .map { (ref, mode, kind) -> SheetWriteRule(ref, kind, mode) }
+
+    private fun collectHeaderRow(): Int =
+        etScHeaderRow?.text?.toString()?.trim()?.toIntOrNull()?.coerceIn(1, 20) ?: 1
 
     // ── Wizard entry/exit ────────────────────────────────────────────────────
     private fun startNewConnection() {
@@ -574,9 +612,7 @@ class ConfigConnectorsFragment : Fragment() {
         selectedSheet = null
         etScNickname?.setText("")
         etScTabPattern?.setText("Day {dd}")
-        etScMatchColumn?.setText("")
-        etScDateMatchColumn?.setText("")
-        etScWriteColumn?.setText("")
+        etScHeaderRow?.setText("1")
         clearRuleRows()
         tvScSelectedSheet?.text = "— Sheet বেছে নিন —"
         enterWizard()
@@ -587,14 +623,23 @@ class ConfigConnectorsFragment : Fragment() {
         selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
         etScNickname?.setText(conn.nickname)
         etScTabPattern?.setText(conn.tabPattern.ifBlank { "Day {dd}" })
-        etScMatchColumn?.setText(conn.matchColumn)
-        etScDateMatchColumn?.setText(conn.dateMatchColumn)
-        etScWriteColumn?.setText(conn.writeColumn)
+        etScHeaderRow?.setText(conn.resolvedHeaderRow().toString())
         clearRuleRows()
-        // Stored dynamic rules; legacy 3-field conns show their fixed fields
-        // above (auto-converted at mirror time, nothing to re-type).
-        conn.lookups.forEach { addLookupRow(it) }
-        conn.writes.forEach { addWriteRow(it) }
+        // Stored dynamic rules. Legacy conns (no stored rules) seed equivalent
+        // rows so nothing is lost and everything stays editable — remark
+        // legacy via effective*, scanner legacy (match+write, no dateMatch).
+        val seedLookups = conn.lookups.ifEmpty {
+            val eff = conn.effectiveLookups().map { it.copy(mode = SheetColMode.INDEX) }
+            if (eff.isNotEmpty()) eff
+            else conn.effectiveScannerLookup()?.let { listOf(it.copy(mode = SheetColMode.INDEX)) }.orEmpty()
+        }
+        val seedWrites = conn.writes.ifEmpty {
+            val eff = conn.effectiveWrites().map { it.copy(mode = SheetColMode.INDEX) }
+            if (eff.isNotEmpty()) eff
+            else conn.effectiveScannerWrite()?.let { listOf(it.copy(mode = SheetColMode.INDEX)) }.orEmpty()
+        }
+        seedLookups.forEach { addLookupRow(it) }
+        seedWrites.forEach { addWriteRow(it) }
         tvScSelectedSheet?.text = conn.sheetName.ifBlank { "— Sheet বেছে নিন —" }
         enterWizard()
     }
@@ -841,31 +886,25 @@ class ConfigConnectorsFragment : Fragment() {
 
     // ── Step 4: Columns ──────────────────────────────────────────────────────
     private fun updateColumnSummary() {
-        val match = etScMatchColumn?.text?.toString()?.trim().orEmpty()
-        val dateMatch = etScDateMatchColumn?.text?.toString()?.trim().orEmpty()
-        val write = etScWriteColumn?.text?.toString()?.trim().orEmpty()
-        if (match.isBlank() || write.isBlank()) {
-            tvScSummary?.text = "Column দুটো পূরণ করলে এখানে summary দেখা যাবে।"
+        val lookups = collectLookups()
+        val writes = collectWrites()
+        if (lookups.isEmpty() || writes.isEmpty()) {
+            tvScSummary?.text = "Lookup + Write rule অন্তত 1টা করে দিন — নিচে + Add চাপুন।"
             return
         }
-        val matchIdx = ConfigSheetParseUtil.parseColInput(match)
-        val writeIdx = ConfigSheetParseUtil.parseColInput(write)
-        val dateIdx = if (dateMatch.isBlank()) -1 else ConfigSheetParseUtil.parseColInput(dateMatch) ?: -2
-        if (matchIdx == null || writeIdx == null || dateIdx == -2) {
-            tvScSummary?.text = "⚠ Column ঠিক আছে কিনা check করুন (যেমন: T অথবা 20)"
-            return
-        }
-        val matchNorm = ConfigSheetParseUtil.colIndexToLetter(matchIdx)
-        val writeNorm = ConfigSheetParseUtil.colIndexToLetter(writeIdx)
-        tvScSummary?.text = if (dateIdx >= 0) {
-            val dateNorm = ConfigSheetParseUtil.colIndexToLetter(dateIdx)
-            "✅ Remark connection: Column $matchNorm-এ consignment + Column $dateNorm-এ আজকের তারিখ মিলিয়ে row খুঁজে " +
-                "Column $writeNorm-এ verdict বসবে। Row না মিললে কিছু লেখা হবে না।"
-        } else {
-            "✅ Scan হলে Column $matchNorm-এ agent-এর Employee ID খোঁজা হবে, " +
-                "এবং সেই row-এর Column $writeNorm-এ (যদি খালি থাকে) scan করা data বসবে। " +
-                "সব row ভরা থাকলে নতুন row যোগ হবে।"
-        }
+        fun fmtRef(ref: String, mode: String) =
+            if (mode == SheetColMode.TEXT) "header “$ref”" else "column $ref"
+        val lookTxt = lookups.joinToString(" + ") { "${fmtRef(it.colRef, it.mode)}=${it.kind}" }
+        val writeTxt = writes.joinToString(", ") { "${fmtRef(it.colRef, it.mode)}←${it.kind}" }
+        val remark = lookups.any { it.kind in SheetLookupKind.REMARK_KINDS } &&
+            writes.any { it.kind in SheetWriteKind.REMARK_KINDS }
+        val scanner = lookups.any { it.kind == SheetLookupKind.EMPLOYEE } &&
+            writes.any { it.kind == SheetWriteKind.VALUE }
+        val roles = listOfNotNull(
+            "Remark".takeIf { remark },
+            "Scanner".takeIf { scanner },
+        ).joinToString(" + ").ifBlank { "custom" }
+        tvScSummary?.text = "✅ $roles connection: $lookTxt মিলিয়ে row খুঁজে $writeTxt বসবে। Row না মিললে কিছু লেখা হবে না।"
     }
 
     // ── Save ─────────────────────────────────────────────────────────────────
@@ -876,26 +915,24 @@ class ConfigConnectorsFragment : Fragment() {
 
         val nickname = etScNickname?.text?.toString()?.trim().orEmpty()
         val tabPattern = etScTabPattern?.text?.toString()?.trim().orEmpty().ifBlank { "Day {dd}" }
-        val matchRaw = etScMatchColumn?.text?.toString()?.trim().orEmpty()
-        val dateMatchRaw = etScDateMatchColumn?.text?.toString()?.trim().orEmpty()
-        val writeRaw = etScWriteColumn?.text?.toString()?.trim().orEmpty()
-
-        val matchIdx = ConfigSheetParseUtil.parseColInput(matchRaw)
-        val writeIdx = ConfigSheetParseUtil.parseColInput(writeRaw)
-        if (matchIdx == null) { showScErr("Match column ঠিক নেই (যেমন: T অথবা 20)"); return }
-        if (writeIdx == null) { showScErr("Write column ঠিক নেই (যেমন: K অথবা 11)"); return }
-        val matchCol = ConfigSheetParseUtil.colIndexToLetter(matchIdx)
-        val writeCol = ConfigSheetParseUtil.colIndexToLetter(writeIdx)
-        if (matchCol == writeCol) { showScErr("Match এবং Write column একই হতে পারবে না"); return }
-        // Optional date-match column turns this into a remark connection
-        // (consignment + today match). Must differ from both other columns.
-        val dateMatchCol = if (dateMatchRaw.isBlank()) "" else {
-            val idx = ConfigSheetParseUtil.parseColInput(dateMatchRaw)
-                ?: run { showScErr("Date match column ঠিক নেই (যেমন: A অথবা 1)"); return }
-            ConfigSheetParseUtil.colIndexToLetter(idx)
+        val headerRow = collectHeaderRow()
+        val lookups = collectLookups()
+        val writes = collectWrites()
+        if (lookups.isEmpty()) { showScErr("Lookup rule অন্তত 1টা দিন (+ Add lookup)"); return }
+        if (writes.isEmpty()) { showScErr("Write rule অন্তত 1টা দিন (+ Add write)"); return }
+        // INDEX-mode refs must be valid letters/numbers now (TEXT refs resolve
+        // against live headers at mirror time, with per-ref errors then).
+        fun normRef(ref: String, mode: String, what: String): String? {
+            if (mode == SheetColMode.TEXT) return ref.trim()
+            val idx = ConfigSheetParseUtil.parseColInput(ref.trim())
+            if (idx == null) { showScErr("$what “$ref” ঠিক নেই (letter যেমন C, বা number যেমন 3)"); return null }
+            return ConfigSheetParseUtil.colIndexToLetter(idx)
         }
-        if (dateMatchCol.isNotBlank() && (dateMatchCol == matchCol || dateMatchCol == writeCol)) {
-            showScErr("Date match column, Match/Write column থেকে আলাদা হতে হবে"); return
+        val normLookups = lookups.map { r ->
+            SheetLookupRule(normRef(r.colRef, r.mode, "Lookup") ?: return, r.kind, r.mode)
+        }
+        val normWrites = writes.map { r ->
+            SheetWriteRule(normRef(r.colRef, r.mode, "Write") ?: return, r.kind, r.mode)
         }
 
         btnScStepConnect?.isEnabled = false
@@ -917,11 +954,9 @@ class ConfigConnectorsFragment : Fragment() {
                     sheetId      = sheet.id,
                     sheetName    = sheet.name,
                     tabPattern   = tabPattern,
-                    matchColumn  = matchCol,
-                    dateMatchColumn = dateMatchCol,
-                    writeColumn  = writeCol,
-                    lookups      = collectLookups(),
-                    writes       = collectWrites(),
+                    headerRow    = headerRow,
+                    lookups      = normLookups,
+                    writes       = normWrites,
                     googleEmail  = acct.email.orEmpty(),
                 )
                 ScannerSheetRepository.saveConnection(conn, uid, actingName, isNew)
@@ -933,6 +968,130 @@ class ConfigConnectorsFragment : Fragment() {
             } finally {
                 btnScStepConnect?.isEnabled = true
             }
+        }
+    }
+
+    // ── Rule preview (like the config/sheets tab): resolves every rule
+    // against the live tab and renders header row + 5 rows, matched columns
+    // labeled. Read-only — writes nothing. ──────────────────────────────
+    private fun previewRules() {
+        val sheet = selectedSheet
+        val acct = googleAccount
+        if (sheet == null || acct == null) { showScErr("Account এবং Sheet select করা আবশ্যক"); return }
+        val lookups = collectLookups()
+        val writes = collectWrites()
+        if (lookups.isEmpty() || writes.isEmpty()) { showScErr("আগে Lookup + Write rule দিন"); return }
+        val tab = resolveTabPattern(
+            etScTabPattern?.text?.toString()?.trim().orEmpty().ifBlank { "Day {dd}" })
+        val headerRow = collectHeaderRow()
+        tvScRulePreview?.visibility = View.GONE
+        scrollScRulePreview?.visibility = View.GONE
+        tableScRulePreview?.removeAllViews()
+        tvScRulePreview?.visibility = View.VISIBLE
+        tvScRulePreview?.text = "⏳ Preview আনছে..."
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val token = fetchAccessToken() ?: run {
+                    if (isAdded) tvScRulePreview?.text = "⚠ Token পাওয়া যায়নি"
+                    return@launch
+                }
+                // Header row + 5 data rows after it, wide enough for all letters.
+                val endRow = headerRow + 5
+                val range = "$tab!$headerRow:$endRow"
+                val rows = withContext(Dispatchers.IO) {
+                    val url = "https://sheets.googleapis.com/v4/spreadsheets/${sheet.id}/values/" +
+                        java.net.URLEncoder.encode(range, "UTF-8")
+                    val req = okhttp3.Request.Builder().url(url)
+                        .header("Authorization", "Bearer $token").build()
+                    okhttp3.OkHttpClient().newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) error("Sheets API ${resp.code}")
+                        val arr = org.json.JSONObject(resp.body?.string().orEmpty())
+                            .optJSONArray("values") ?: return@withContext emptyList<List<String>>()
+                        (0 until arr.length()).map { i ->
+                            val r = arr.optJSONArray(i) ?: org.json.JSONArray()
+                            (0 until r.length()).map { j -> r.optString(j, "") }
+                        }
+                    }
+                }
+                if (!isAdded) return@launch
+                if (rows.isEmpty()) {
+                    tvScRulePreview?.text = "⚠ Tab '$tab'-এ row $headerRow থেকে data নেই"
+                    return@launch
+                }
+                // Resolve every rule for the report line.
+                val headerCells = rows.firstOrNull().orEmpty()
+                fun resolve(ref: String, mode: String): String? {
+                    if (mode != SheetColMode.TEXT) {
+                        if (Regex("^[A-Za-z]{1,3}$").matches(ref.trim())) return ref.trim().uppercase()
+                        return ConfigSheetParseUtil.parseColInput(ref.trim())
+                            ?.let { ConfigSheetParseUtil.colIndexToLetter(it) }
+                    }
+                    val idx = headerCells.indexOfFirst { it.trim() == ref.trim() }
+                    return if (idx < 0) null else ConfigSheetParseUtil.colIndexToLetter(idx + 1)
+                }
+                val lookRep = lookups.map { r ->
+                    val l = resolve(r.colRef, r.mode)
+                    "${r.colRef.trim()}(${r.kind})→${l ?: "✕ NOT FOUND"}"
+                }
+                val writeRep = writes.map { r ->
+                    val l = resolve(r.colRef, r.mode)
+                    "${r.colRef.trim()}(${r.kind})→${l ?: "✕ NOT FOUND"}"
+                }
+                val missing = lookRep.count { it.contains("NOT FOUND") } +
+                    writeRep.count { it.contains("NOT FOUND") }
+                tvScRulePreview?.text =
+                    "Tab '$tab', header row $headerRow\nLookup: ${lookRep.joinToString(" + ")}\n" +
+                    "Write: ${writeRep.joinToString(", ")}" +
+                    if (missing > 0) "\n⚠ $missing টি column মেলেনি" else "\n✅ সব column মিলেছে"
+                // Table: letter header + rows (lookup cols green tint, write blue).
+                val lookLetters = lookups.mapNotNull { resolve(it.colRef, it.mode) }.toSet()
+                val writeLetters = writes.mapNotNull { resolve(it.colRef, it.mode) }.toSet()
+                val maxCol = (lookLetters + writeLetters).mapNotNull {
+                    runCatching {
+                        var n = 0
+                        it.forEach { ch -> n = n * 26 + (ch - 'A' + 1) }
+                        n
+                    }.getOrNull()
+                }.maxOrNull()?.coerceIn(1, 26) ?: 8
+                renderPreviewTable(rows, maxCol, lookLetters, writeLetters)
+                scrollScRulePreview?.visibility = View.VISIBLE
+            } catch (e: Exception) {
+                if (isAdded) tvScRulePreview?.text = "⚠ Preview error: ${e.message?.take(80)}"
+            }
+        }
+    }
+
+    private fun renderPreviewTable(
+        rows: List<List<String>>, maxCol: Int,
+        lookLetters: Set<String>, writeLetters: Set<String>
+    ) {
+        val table = tableScRulePreview ?: return
+        val ctx = context ?: return
+        table.removeAllViews()
+        fun cell(text: String, bg: String, bold: Boolean): TextView = TextView(ctx).apply {
+            this.text = text
+            textSize = 11f
+            setPadding(18, 10, 18, 10)
+            setBackgroundColor(android.graphics.Color.parseColor(bg))
+            if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(android.graphics.Color.parseColor("#111827"))
+        }
+        val letters = (1..maxCol).map { ConfigSheetParseUtil.colIndexToLetter(it) }
+        val headRow = android.widget.TableRow(ctx)
+        letters.forEach { headRow.addView(cell(it, "#F3F4F6", true)) }
+        table.addView(headRow)
+        rows.take(6).forEachIndexed { ri, row ->
+            val tr = android.widget.TableRow(ctx)
+            letters.forEachIndexed { ci, letter ->
+                val bg = when {
+                    letter in lookLetters -> "#DCFCE7"
+                    letter in writeLetters -> "#DBEAFE"
+                    ri == 0 -> "#FFF7ED"
+                    else -> if (ri % 2 == 0) "#FFFFFF" else "#F9FAFB"
+                }
+                tr.addView(cell(row.getOrElse(ci) { "" }, bg, false))
+            }
+            table.addView(tr)
         }
     }
 }

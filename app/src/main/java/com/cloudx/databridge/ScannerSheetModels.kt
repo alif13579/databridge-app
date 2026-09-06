@@ -44,6 +44,9 @@ data class ScannerSheetConn(
     val lookups: List<SheetLookupRule> = emptyList(),
     /** Dynamic write rules (remark mirror). Empty = legacy [writeColumn]. */
     val writes: List<SheetWriteRule> = emptyList(),
+    /** Header row (1-based) that TEXT-mode refs match against. One per
+     *  connection — all text refs on every rule resolve from this row. */
+    val headerRow: Int = 1,
 ) {
     /** Lookup rules actually used: dynamic list, else legacy conversion
      *  (matchColumn→consignment, dateMatchColumn→today) for remark conns. */
@@ -65,37 +68,73 @@ data class ScannerSheetConn(
         return listOf(SheetWriteRule(writeColumn, SheetWriteKind.VERDICT))
     }
 
-    /** True when the mirror should process this connection. */
-    fun isRemarkConnection(): Boolean =
-        effectiveLookups().isNotEmpty() && effectiveWrites().isNotEmpty()
+    /** True when the mirror should process this connection (remark kinds). */
+    fun isRemarkConnection(): Boolean {
+        val kinds = effectiveWrites().map { it.kind }
+        return effectiveLookups().any { it.kind in SheetLookupKind.REMARK_KINDS } &&
+            kinds.any { it in SheetWriteKind.REMARK_KINDS }
+    }
+
+    /** True when the scanner should use this connection (employee→value). */
+    fun isScannerConnection(): Boolean =
+        effectiveLookups().any { it.kind == SheetLookupKind.EMPLOYEE } &&
+            effectiveWrites().any { it.kind == SheetWriteKind.VALUE }
+
+    /** Scanner-effective lookup: dynamic employee rule, else legacy
+     *  matchColumn (scanner conns never set dateMatchColumn). */
+    fun effectiveScannerLookup(): SheetLookupRule? {
+        effectiveLookups().firstOrNull { it.kind == SheetLookupKind.EMPLOYEE }?.let { return it }
+        return matchColumn.takeIf { it.isNotBlank() }?.let { SheetLookupRule(it, SheetLookupKind.EMPLOYEE) }
+    }
+
+    /** Scanner-effective write: dynamic value rule, else legacy writeColumn. */
+    fun effectiveScannerWrite(): SheetWriteRule? {
+        effectiveWrites().firstOrNull { it.kind == SheetWriteKind.VALUE }?.let { return it }
+        return writeColumn.takeIf { it.isNotBlank() }?.let { SheetWriteRule(it, SheetWriteKind.VALUE) }
+    }
+
+    fun resolvedHeaderRow(): Int = if (headerRow in 1..20) headerRow else 1
 }
 
-/** Lookup value sources for dynamic remark-connection rules. */
+/** Column reference mode: TEXT = exact header text in [ScannerSheetConn.headerRow],
+ *  INDEX = letter ("C") or 1-based number ("3"). */
+object SheetColMode {
+    const val TEXT = "text"
+    const val INDEX = "index"
+}
+
+/** Lookup value sources for dynamic connection rules. */
 object SheetLookupKind {
     const val CONSIGNMENT = "consignment"
     const val TODAY = "today"
-    val ALL = listOf(CONSIGNMENT, TODAY)
+    const val EMPLOYEE = "employee" // scanner: the scanned employee ID
+    val ALL = listOf(CONSIGNMENT, TODAY, EMPLOYEE)
+    val REMARK_KINDS = listOf(CONSIGNMENT, TODAY)
 }
 
-/** Write value sources for dynamic remark-connection rules. */
+/** Write value sources for dynamic connection rules. */
 object SheetWriteKind {
     const val VERDICT = "verdict"
     const val REMARK = "remark"
     const val NOTE = "note"
     const val STATUS = "status"
     const val TODAY = "today"
-    val ALL = listOf(VERDICT, REMARK, NOTE, STATUS, TODAY)
+    const val VALUE = "value" // scanner: the scanned value
+    val ALL = listOf(VERDICT, REMARK, NOTE, STATUS, TODAY, VALUE)
+    val REMARK_KINDS = listOf(VERDICT, REMARK, NOTE, STATUS, TODAY)
 }
 
-/** One lookup criterion: column [colRef] (letter like "C" or header text like
- *  "Consignment ID") must match [kind] (consignment/today) on the same row. */
+/** One lookup criterion: column [colRef] (per [mode]) must match [kind] on the
+ *  same row. All lookups on a connection AND together. */
 data class SheetLookupRule(
     val colRef: String = "",
     val kind: String = SheetLookupKind.CONSIGNMENT,
+    val mode: String = SheetColMode.INDEX,
 )
 
 /** One write target: [kind] value goes into column [colRef] on the matched row. */
 data class SheetWriteRule(
     val colRef: String = "",
     val kind: String = SheetWriteKind.VERDICT,
+    val mode: String = SheetColMode.INDEX,
 )

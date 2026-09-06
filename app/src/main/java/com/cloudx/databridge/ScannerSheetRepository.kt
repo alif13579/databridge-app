@@ -50,6 +50,8 @@ object ScannerSheetRepository {
                         colRef = ref,
                         kind = r.child("kind").getValue(String::class.java)
                             ?.takeIf { it in SheetLookupKind.ALL } ?: SheetLookupKind.CONSIGNMENT,
+                        mode = r.child("mode").getValue(String::class.java)
+                            ?.takeIf { it == SheetColMode.TEXT } ?: SheetColMode.INDEX,
                     )
                 },
                 writes          = child.child("writes").children.mapNotNull { r ->
@@ -58,8 +60,11 @@ object ScannerSheetRepository {
                         colRef = ref,
                         kind = r.child("kind").getValue(String::class.java)
                             ?.takeIf { it in SheetWriteKind.ALL } ?: SheetWriteKind.VERDICT,
+                        mode = r.child("mode").getValue(String::class.java)
+                            ?.takeIf { it == SheetColMode.TEXT } ?: SheetColMode.INDEX,
                     )
                 },
+                headerRow       = child.child("headerRow").getValue(Long::class.java)?.toInt() ?: 1,
             )
         }
     }
@@ -86,9 +91,10 @@ object ScannerSheetRepository {
             "dateMatchColumn" to conn.dateMatchColumn,
             "writeColumn"     to conn.writeColumn,
             "lookups"         to conn.lookups.filter { it.colRef.isNotBlank() }
-                .map { mapOf("colRef" to it.colRef.trim(), "kind" to it.kind) },
+                .map { mapOf("colRef" to it.colRef.trim(), "kind" to it.kind, "mode" to it.mode) },
             "writes"          to conn.writes.filter { it.colRef.isNotBlank() }
-                .map { mapOf("colRef" to it.colRef.trim(), "kind" to it.kind) },
+                .map { mapOf("colRef" to it.colRef.trim(), "kind" to it.kind, "mode" to it.mode) },
+            "headerRow"       to conn.resolvedHeaderRow(),
             "googleEmail"     to conn.googleEmail,
             "connectedBy"     to actingUid,
             "connectedByName" to actingName,
@@ -122,6 +128,36 @@ object ScannerSheetRepository {
                 )
             ).await()
         }
+
+    /** Resolves one rule's colRef to a letter (mode-aware, same semantics as
+     *  RemarkSheetMirror): INDEX = letter/number, TEXT = exact header match in
+     *  [headerRow]. Null when unresolvable. */
+    suspend fun resolveRuleLetter(
+        accessToken: String, sheetId: String, tab: String,
+        rule: SheetLookupRule, headerRow: Int
+    ): String? = resolveRef(accessToken, sheetId, tab, rule.colRef, rule.mode, headerRow)
+
+    suspend fun resolveRuleLetter(
+        accessToken: String, sheetId: String, tab: String,
+        rule: SheetWriteRule, headerRow: Int
+    ): String? = resolveRef(accessToken, sheetId, tab, rule.colRef, rule.mode, headerRow)
+
+    private suspend fun resolveRef(
+        accessToken: String, sheetId: String, tab: String,
+        ref: String, mode: String, headerRow: Int
+    ): String? = withContext(Dispatchers.IO) {
+        val t = ref.trim()
+        if (t.isEmpty()) return@withContext null
+        if (mode != SheetColMode.TEXT) {
+            if (Regex("^[A-Za-z]{1,3}$").matches(t)) return@withContext t.uppercase()
+            val idx = ConfigSheetParseUtil.parseColInput(t) ?: return@withContext null
+            return@withContext ConfigSheetParseUtil.colIndexToLetter(idx)
+        }
+        val data = ConfigSheetDriveApi.fetchRowValues(accessToken, sheetId, tab, headerRow, httpClient)
+        val idx = data.indexOfFirst { it.trim() == t }
+        if (idx < 0) return@withContext null
+        ConfigSheetParseUtil.colIndexToLetter(idx + 1)
+    }
 
     // ── Scan-time write logic ──────────────────────────────────────────────
 
@@ -160,12 +196,23 @@ object ScannerSheetRepository {
     ): WriteResult = withContext(Dispatchers.IO) {
         try {
             val tabName = resolveTabName(conn.tabPattern)
+            val headerRow = conn.resolvedHeaderRow()
+            // Scanner rules: lookup kind=employee, write kind=value. Legacy
+            // conns auto-convert from matchColumn/writeColumn (see model).
+            val lookupRule = conn.effectiveScannerLookup()
+                ?: return@withContext WriteResult.Failure("এই connection-এ lookup rule নেই")
+            val writeRule = conn.effectiveScannerWrite()
+                ?: return@withContext WriteResult.Failure("এই connection-এ write rule নেই")
+            val matchLetter = resolveRuleLetter(accessToken, conn.sheetId, tabName, lookupRule, headerRow)
+                ?: return@withContext WriteResult.Failure("lookup column '${lookupRule.colRef.trim()}' পাওয়া যায়নি")
+            val writeLetter = resolveRuleLetter(accessToken, conn.sheetId, tabName, writeRule, headerRow)
+                ?: return@withContext WriteResult.Failure("write column '${writeRule.colRef.trim()}' পাওয়া যায়নি")
 
             val matchValues = ConfigSheetDriveApi.fetchColumnValues(
-                accessToken, conn.sheetId, tabName, conn.matchColumn, httpClient
+                accessToken, conn.sheetId, tabName, matchLetter, httpClient
             )
             val writeValues = ConfigSheetDriveApi.fetchColumnValues(
-                accessToken, conn.sheetId, tabName, conn.writeColumn, httpClient
+                accessToken, conn.sheetId, tabName, writeLetter, httpClient
             )
 
             // matchValues[i] / writeValues[i] correspond to sheet row (i + 1). The write-column
@@ -183,17 +230,17 @@ object ScannerSheetRepository {
 
             if (targetRow > 0) {
                 ConfigSheetDriveApi.writeCellValue(
-                    accessToken, conn.sheetId, tabName, conn.writeColumn, targetRow, value, httpClient
+                    accessToken, conn.sheetId, tabName, writeLetter, targetRow, value, httpClient
                 )
                 return@withContext WriteResult.Success(row = targetRow, appended = false)
             }
 
             // No blank slot for this employeeId — append a new row with both columns set.
             val newRow = ConfigSheetDriveApi.appendRowValue(
-                accessToken, conn.sheetId, tabName, conn.writeColumn, value, httpClient
+                accessToken, conn.sheetId, tabName, writeLetter, value, httpClient
             )
             ConfigSheetDriveApi.writeCellValue(
-                accessToken, conn.sheetId, tabName, conn.matchColumn, newRow, employeeId, httpClient
+                accessToken, conn.sheetId, tabName, matchLetter, newRow, employeeId, httpClient
             )
             WriteResult.Success(row = newRow, appended = true)
         } catch (e: Exception) {

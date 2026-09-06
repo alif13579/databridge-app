@@ -122,20 +122,28 @@ object RemarkSheetMirror {
 
     private val LETTER_RE = Regex("^[A-Za-z]{1,3}$")
 
-    /** Resolves a column ref to a letter: "C" passes through, anything else is
-     *  matched (case-insensitive, trimmed) against row-1 headers — INDEX/MATCH
-     *  style. Returns null when a header text finds no column. */
+    /** Resolves a rule's column ref to a letter. INDEX mode: letter ("C") or
+     *  1-based number ("3", normalized). TEXT mode: exact header match
+     *  (trimmed, case-sensitive) against [headerRow]. Returns null when a
+     *  header text finds no column. */
     private suspend fun resolveLetter(
-        accessToken: String, sheetId: String, tab: String, ref: String,
+        accessToken: String, sheetId: String, tab: String,
+        ref: String, mode: String, headerRow: Int,
         headerCache: MutableMap<String, List<String>>
     ): String? {
         val t = ref.trim()
         if (t.isEmpty()) return null
-        if (LETTER_RE.matches(t)) return t.uppercase()
-        val headers = headerCache.getOrPut(tab) {
-            ConfigSheetDriveApi.fetchRowValues(accessToken, sheetId, tab, 1, httpClient)
+        if (mode != SheetColMode.TEXT) {
+            if (LETTER_RE.matches(t)) return t.uppercase()
+            // Numbers ("3" → "C") via the same parser the wizard uses.
+            val idx = ConfigSheetParseUtil.parseColInput(t) ?: return null
+            return ConfigSheetParseUtil.colIndexToLetter(idx)
         }
-        val idx = headers.indexOfFirst { it.trim().equals(t, ignoreCase = true) }
+        val key = "$tab#$headerRow"
+        val headers = headerCache.getOrPut(key) {
+            ConfigSheetDriveApi.fetchRowValues(accessToken, sheetId, tab, headerRow, httpClient)
+        }
+        val idx = headers.indexOfFirst { it.trim() == t }
         if (idx < 0) return null
         return ConfigSheetParseUtil.colIndexToLetter(idx + 1) // 1-based
     }
@@ -143,7 +151,7 @@ object RemarkSheetMirror {
     private fun lookupMatches(kind: String, cell: String, ctx: MirrorCtx): Boolean = when (kind) {
         SheetLookupKind.CONSIGNMENT -> cell.trim() == ctx.consignmentId
         SheetLookupKind.TODAY -> isToday(cell, ctx.today)
-        else -> false
+        else -> false // employee lookups belong to the scanner, not the mirror
     }
 
     private fun lookupWant(kind: String, ctx: MirrorCtx): String = when (kind) {
@@ -216,24 +224,31 @@ object RemarkSheetMirror {
     private suspend fun findTargetRow(
         conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx
     ): FindResult = withContext(Dispatchers.IO) {
-        val lookups = conn.effectiveLookups()
-        val writes = conn.effectiveWrites()
+        // Mirror enforces remark-kind rules only (a mixed conn's employee
+        // lookup belongs to the scanner flow).
+        val lookups = conn.effectiveLookups().filter { it.kind in SheetLookupKind.REMARK_KINDS }
+        val writes = conn.effectiveWrites().filter { it.kind in SheetWriteKind.REMARK_KINDS }
         if (lookups.isEmpty() || writes.isEmpty()) {
-            return@withContext FindResult.Miss("lookup/write rule নেই — connection configure করুন")
+            return@withContext FindResult.Miss("remark lookup/write rule নেই — connection configure করুন")
         }
         val tabName = ScannerSheetRepository.resolveTabName(conn.tabPattern)
+        val headerRow = conn.resolvedHeaderRow()
         val headerCache = mutableMapOf<String, List<String>>()
         // Resolve lookup columns first (fail fast with WHICH ref broke).
         val lookupCols = lookups.map { rule ->
-            val letter = resolveLetter(accessToken, conn.sheetId, tabName, rule.colRef, headerCache)
+            val letter = resolveLetter(accessToken, conn.sheetId, tabName,
+                rule.colRef, rule.mode, headerRow, headerCache)
                 ?: return@withContext FindResult.Miss(
-                    "lookup column '${rule.colRef.trim()}' পাওয়া যায়নি (letter বা header text)")
+                    "lookup column '${rule.colRef.trim()}' পাওয়া যায়নি" +
+                        if (rule.mode == SheetColMode.TEXT) " (header row $headerRow-তে exact header নেই)" else " (letter/number ঠিক নেই)")
             rule to letter
         }
         val writeCols = writes.map { rule ->
-            val letter = resolveLetter(accessToken, conn.sheetId, tabName, rule.colRef, headerCache)
+            val letter = resolveLetter(accessToken, conn.sheetId, tabName,
+                rule.colRef, rule.mode, headerRow, headerCache)
                 ?: return@withContext FindResult.Miss(
-                    "write column '${rule.colRef.trim()}' পাওয়া যায়নি (letter বা header text)")
+                    "write column '${rule.colRef.trim()}' পাওয়া যায়নি" +
+                        if (rule.mode == SheetColMode.TEXT) " (header row $headerRow-তে exact header নেই)" else " (letter/number ঠিক নেই)")
             rule to letter
         }
         val columns = lookupCols.map { (_, letter) ->
