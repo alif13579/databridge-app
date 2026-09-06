@@ -69,7 +69,11 @@ class ConfigConnectorsFragment : Fragment() {
     private var scStepView3: View? = null
     private var scStepView4: View? = null
 
-    // Step 1
+    // Step 1: Branch + Fragment dropdowns, then Google account.
+    // Branch + fragment-wise MULTIPLE sheets allowed — every save creates a
+    // new connection under config/connectors/{branch}/current.
+    private var spinnerScWizardBranch: Spinner? = null
+    private var spinnerScPurpose:      Spinner? = null
     private var scCardSelectedAccount:   View? = null
     private var tvScSelectedAccountName:  TextView? = null
     private var tvScSelectedAccountEmail: TextView? = null
@@ -106,8 +110,10 @@ class ConfigConnectorsFragment : Fragment() {
 
     private var connectStep = 1
     private var editingConnectionId: String = "" // blank = new connection
-    // Step-1 purpose selector: which fragment this sheet serves.
+    // Step-1 selections: which branch + which fragment this sheet serves.
+    // (Wizard dropdowns — outer spinner only filters the Panel-1 list.)
     private var connPurpose: String = SheetPurpose.REMARK
+    private var wizardBranchId: String = ""
 
     private var googleSignInClient: GoogleSignInClient? = null
     private var googleAccount: GoogleSignInAccount? = null
@@ -261,14 +267,9 @@ class ConfigConnectorsFragment : Fragment() {
 
         btnScAddConnection?.setOnClickListener { startNewConnection() }
         btnScCancelConnect?.setOnClickListener { exitWizardToBranchSelect() }
-        view.findViewById<View>(R.id.cardPurposeScanner)?.setOnClickListener {
-            connPurpose = SheetPurpose.SCANNER
-            updatePurposeCards()
-        }
-        view.findViewById<View>(R.id.cardPurposeRemark)?.setOnClickListener {
-            connPurpose = SheetPurpose.REMARK
-            updatePurposeCards()
-        }
+        spinnerScWizardBranch = view.findViewById(R.id.spinnerScWizardBranch)
+        spinnerScPurpose = view.findViewById(R.id.spinnerScPurpose)
+        setupWizardSpinners()
         btnScPickAccount?.setOnClickListener { pickGoogleAccount() }
         tvScSelectedSheet?.setOnClickListener { showSheetPicker() }
         btnScStepBack?.setOnClickListener { goToStep(connectStep - 1) }
@@ -329,6 +330,8 @@ class ConfigConnectorsFragment : Fragment() {
             spinnerScBranch?.adapter = adapter
             if (resolved.isNotEmpty()) {
                 selectedBranchId = resolved.first().first
+                if (wizardBranchId.isBlank()) wizardBranchId = selectedBranchId
+                refreshWizardBranchSpinner()
                 loadConnectionsForSelectedBranch()
             }
         }
@@ -708,15 +711,59 @@ class ConfigConnectorsFragment : Fragment() {
     private fun collectHeaderRow(): Int =
         etScHeaderRow?.text?.toString()?.trim()?.toIntOrNull()?.coerceIn(1, 20) ?: 1
 
-    /** Step-1 purpose cards: exactly one selected, visually obvious. */
-    private fun updatePurposeCards() {
+    /** Step-1 dropdowns: Branch + Fragment (extensible via SheetPurpose.ALL).
+     *  Outer spinner only filters the Panel-1 list; the wizard's own branch
+     *  decides where the connection is actually saved (branch-wise single /
+     *  multiple sheets per fragment). */
+    private fun setupWizardSpinners() {
         val ctx = context ?: return
-        val sel = R.drawable.bg_sheet_item_selected
-        val idle = R.drawable.bg_card_rounded
-        view?.findViewById<View>(R.id.cardPurposeScanner)?.setBackgroundResource(
-            if (connPurpose == SheetPurpose.SCANNER) sel else idle)
-        view?.findViewById<View>(R.id.cardPurposeRemark)?.setBackgroundResource(
-            if (connPurpose == SheetPurpose.REMARK) sel else idle)
+        spinnerScPurpose?.adapter = ArrayAdapter(
+            ctx, android.R.layout.simple_spinner_item,
+            SheetPurpose.ALL.map { SheetPurpose.label(it) }
+        ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        spinnerScPurpose?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
+                connPurpose = SheetPurpose.ALL.getOrElse(position) { SheetPurpose.REMARK }
+                updateWizardSubtitle()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        spinnerScWizardBranch?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
+                wizardBranchId = myBranches.getOrNull(position)?.first.orEmpty()
+                updateWizardSubtitle()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        refreshWizardBranchSpinner()
+    }
+
+    private fun refreshWizardBranchSpinner() {
+        val ctx = context ?: return
+        val branchNames = myBranches.map { it.second }
+        spinnerScWizardBranch?.adapter = ArrayAdapter(
+            ctx, android.R.layout.simple_spinner_item, branchNames
+        ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        val pos = myBranches.indexOfFirst { it.first == wizardBranchId }
+            .takeIf { it >= 0 } ?: myBranches.indexOfFirst { it.first == selectedBranchId }
+            .takeIf { it >= 0 } ?: 0
+        if (myBranches.isNotEmpty()) {
+            spinnerScWizardBranch?.setSelection(pos.coerceIn(myBranches.indices))
+            wizardBranchId = myBranches[pos.coerceIn(myBranches.indices)].first
+        }
+        val purposePos = SheetPurpose.ALL.indexOf(connPurpose).takeIf { it >= 0 } ?: 0
+        spinnerScPurpose?.setSelection(purposePos)
+        updateWizardSubtitle()
+    }
+
+    private fun updateWizardSubtitle() {
+        val branchName = myBranches.firstOrNull { it.first == wizardBranchId }?.second
+            ?: myBranches.firstOrNull { it.first == selectedBranchId }?.second
+            ?: wizardBranchId.ifBlank { selectedBranchId }
+        tvScConnBranchSub?.text = listOfNotNull(
+            branchName.takeIf { it.isNotBlank() },
+            SheetPurpose.label(connPurpose).takeIf { SheetPurpose.isKnown(connPurpose) }
+        ).joinToString(" • ").ifBlank { "—" }
     }
 
     // ── Wizard entry/exit ────────────────────────────────────────────────────
@@ -724,7 +771,8 @@ class ConfigConnectorsFragment : Fragment() {
         editingConnectionId = ""
         selectedSheet = null
         connPurpose = SheetPurpose.REMARK
-        updatePurposeCards()
+        wizardBranchId = selectedBranchId
+        refreshWizardBranchSpinner()
         etScNickname?.setText("")
         etScTabPattern?.setText("Day {dd}")
         etScHeaderRow?.setText("1")
@@ -741,7 +789,8 @@ class ConfigConnectorsFragment : Fragment() {
             if (conn.isScannerConnection() && !conn.isRemarkConnection()) SheetPurpose.SCANNER
             else SheetPurpose.REMARK
         }
-        updatePurposeCards()
+        wizardBranchId = conn.branchId.ifBlank { selectedBranchId }
+        refreshWizardBranchSpinner()
         etScNickname?.setText(conn.nickname)
         etScTabPattern?.setText(conn.tabPattern.ifBlank { "Day {dd}" })
         etScHeaderRow?.setText(conn.resolvedHeaderRow().toString())
@@ -766,8 +815,9 @@ class ConfigConnectorsFragment : Fragment() {
     }
 
     private fun enterWizard() {
-        val branchName = myBranches.firstOrNull { it.first == selectedBranchId }?.second ?: selectedBranchId
-        tvScConnBranchSub?.text = branchName
+        if (wizardBranchId.isBlank()) wizardBranchId = selectedBranchId
+        refreshWizardBranchSpinner()
+        updateWizardSubtitle()
         panelBranchSelect?.visibility = View.GONE
         panelScConnect?.visibility = View.VISIBLE
         goToStep(1)
@@ -784,7 +834,11 @@ class ConfigConnectorsFragment : Fragment() {
      *  goToStep() itself (used for Back and direct jumps) does no validation. */
     private fun attemptGoToStep(target: Int) {
         when (connectStep) {
-            1 -> if (googleAccount == null) { showScErr("প্রথমে Google account select করুন"); return }
+            1 -> {
+                if (wizardBranchId.isBlank()) { showScErr("Branch বেছে নিন"); return }
+                if (!SheetPurpose.isKnown(connPurpose)) { showScErr("Fragment বেছে নিন"); return }
+                if (googleAccount == null) { showScErr("প্রথমে Google account select করুন"); return }
+            }
             2 -> if (selectedSheet == null) { showScErr("একটি Sheet বেছে নিন"); return }
             3 -> {
                 if (etScTabPattern?.text?.toString()?.trim().isNullOrBlank()) {
@@ -1034,10 +1088,15 @@ class ConfigConnectorsFragment : Fragment() {
     }
 
     // ── Save ─────────────────────────────────────────────────────────────────
+    // Branch + fragment come from the Step-1 wizard dropdowns (NOT the outer
+    // list filter) — branch-wise single/multiple sheets per fragment.
     private fun saveConnection() {
         val sheet = selectedSheet
         val acct  = googleAccount
         if (sheet == null || acct == null) { showScErr("Account এবং Sheet select করা আবশ্যক"); return }
+        val saveBranchId = wizardBranchId.ifBlank { selectedBranchId }
+        if (saveBranchId.isBlank()) { showScErr("Branch বেছে নিন (Step 1)"); return }
+        if (!SheetPurpose.isKnown(connPurpose)) { showScErr("Fragment বেছে নিন (Step 1)"); return }
 
         val nickname = etScNickname?.text?.toString()?.trim().orEmpty()
         val tabPattern = etScTabPattern?.text?.toString()?.trim().orEmpty().ifBlank { "Day {dd}" }
@@ -1093,7 +1152,7 @@ class ConfigConnectorsFragment : Fragment() {
                 val conn = ScannerSheetConn(
                     connectionId = editingConnectionId,
                     nickname     = nickname,
-                    branchId     = selectedBranchId,
+                    branchId     = saveBranchId,
                     sheetId      = sheet.id,
                     sheetName    = sheet.name,
                     tabPattern   = tabPattern,
@@ -1106,6 +1165,13 @@ class ConfigConnectorsFragment : Fragment() {
                 ScannerSheetRepository.saveConnection(conn, uid, actingName, isNew)
                 if (!isAdded) return@launch
                 Toast.makeText(context, "✅ Sheet connected", Toast.LENGTH_SHORT).show()
+                // Saved branch may differ from the outer list filter — point the
+                // list at the saved branch so the new connection is visible.
+                if (saveBranchId != selectedBranchId) {
+                    selectedBranchId = saveBranchId
+                    val pos = myBranches.indexOfFirst { it.first == selectedBranchId }
+                    if (pos >= 0) spinnerScBranch?.setSelection(pos)
+                }
                 exitWizardToBranchSelect()
             } catch (e: Exception) {
                 if (isAdded) showScErr("Save failed: ${e.message}")

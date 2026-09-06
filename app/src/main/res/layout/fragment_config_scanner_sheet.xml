@@ -19,7 +19,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Scanner Sheet সংযোগ"
+                android:text="Sheet Connectors"
                 android:textSize="14sp"
                 android:textStyle="bold"
                 android:textColor="?attr/colorOnSurface"
@@ -27,7 +27,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="শাখা বেছে নিয়ে scan-এর জন্য Google Sheet connect বা manage করুন"
+                android:text="Branch + fragment wise single / multiple Google Sheet connect বা manage করুন"
                 android:textSize="12sp"
                 android:textColor="@color/theme_text_secondary"
                 android:layout_marginBottom="16dp" />
@@ -86,7 +86,7 @@
                 android:id="@+id/tvScNoConnections"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="এই শাখার জন্য এখনো কোনো Scanner Sheet connect করা হয়নি।"
+                android:text="এই শাখার জন্য এখনো কোনো Sheet connect করা হয়নি।"
                 android:gravity="center"
                 android:padding="16dp"
                 android:textColor="@color/theme_text_muted"
@@ -142,7 +142,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Connect Scanner Sheet"
+                        android:text="Connect Sheet"
                         android:textSize="14sp"
                         android:textStyle="bold"
                         android:textColor="@color/theme_text_primary" />
@@ -203,47 +203,25 @@
                 android:orientation="vertical" android:layout_marginTop="16dp">
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="CONNECTION PURPOSE" android:textSize="10sp" android:textStyle="bold"
-                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="8dp" />
+                    android:text="BRANCH" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
 
-                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="horizontal" android:layout_marginBottom="4dp">
-
-                    <LinearLayout android:id="@+id/cardPurposeScanner"
-                        android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                        android:orientation="vertical" android:gravity="center"
-                        android:background="@drawable/bg_card_rounded"
-                        android:padding="14dp" android:layout_marginEnd="6dp"
-                        android:clickable="true" android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="📷" android:textSize="26sp" />
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Scanner" android:textSize="14sp" android:textStyle="bold"
-                            android:textColor="@color/theme_text_primary" android:layout_marginTop="4dp" />
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Scan → sheet" android:textSize="11sp"
-                            android:textColor="@color/theme_text_muted" android:gravity="center" />
-                    </LinearLayout>
-
-                    <LinearLayout android:id="@+id/cardPurposeRemark"
-                        android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                        android:orientation="vertical" android:gravity="center"
-                        android:background="@drawable/bg_card_rounded"
-                        android:padding="14dp" android:layout_marginStart="6dp"
-                        android:clickable="true" android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="☎️" android:textSize="26sp" />
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Call Center" android:textSize="14sp" android:textStyle="bold"
-                            android:textColor="@color/theme_text_primary" android:layout_marginTop="4dp" />
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Remark → sheet" android:textSize="11sp"
-                            android:textColor="@color/theme_text_muted" android:gravity="center" />
-                    </LinearLayout>
-                </LinearLayout>
+                <Spinner android:id="@+id/spinnerScWizardBranch"
+                    android:layout_width="match_parent" android:layout_height="46dp"
+                    android:background="@drawable/bg_input_rounded"
+                    android:padding="10dp" android:layout_marginBottom="14dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Ei sheet ta kon kaje lagbe — age thekei thik kore nin"
+                    android:text="FRAGMENT (ei sheet ta kon kaje lagbe)" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
+
+                <Spinner android:id="@+id/spinnerScPurpose"
+                    android:layout_width="match_parent" android:layout_height="46dp"
+                    android:background="@drawable/bg_input_rounded"
+                    android:padding="10dp" android:layout_marginBottom="4dp" />
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Branch + fragment wise single / multiple sheet connect kora jabe"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"

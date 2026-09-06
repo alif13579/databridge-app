@@ -94,11 +94,23 @@ object SheetColMode {
     const val INDEX = "index"
 }
 
-/** Connection purpose — chosen at connect time (step 1) so every sheet's
- *  job is explicit: scanner sheets take scans, remark sheets take mirrors. */
+/** Connection purpose — which fragment this sheet serves, chosen at connect
+ *  time (step 1, Branch + Fragment dropdowns) so every sheet's job is
+ *  explicit: scanner sheets take scans, remark sheets take mirrors.
+ *  Branch + fragment-wise MULTIPLE sheets allowed (each save = new
+ *  connection). Future fragments: just add a const + label here — stored
+ *  values stay stable (Firebase compat), the wizard dropdown picks them up. */
 object SheetPurpose {
     const val SCANNER = "scanner"
     const val REMARK = "remark"
+    /** All known fragments, in wizard order. */
+    val ALL = listOf(SCANNER, REMARK)
+    fun label(purpose: String): String = when (purpose) {
+        SCANNER -> "📷 Scanner (Scan → sheet)"
+        REMARK -> "☎️ Call Center (Remark → sheet)"
+        else -> purpose.ifBlank { "— Fragment বেছে নিন —" }
+    }
+    fun isKnown(purpose: String): Boolean = purpose in ALL
 }
 
 /** Lookup value sources: the remark event's data. A lookup compares the sheet
