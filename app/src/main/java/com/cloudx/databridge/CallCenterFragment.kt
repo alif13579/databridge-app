@@ -3609,6 +3609,7 @@ class CallCenterFragment : Fragment() {
                         updatedAt = snap.child("updatedAt").getValue(Long::class.java) ?: 0L,
                         engagedAgents = engaged,
                         attemptCount = readCcAttempt(snap),
+                        dataSource = "live",
                     )
                 } catch (_: Exception) {
                     synchronized(missing) { if (cId !in missing) missing.add(cId) }

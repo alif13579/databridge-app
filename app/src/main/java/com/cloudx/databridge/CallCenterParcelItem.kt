@@ -38,7 +38,11 @@ data class CallCenterParcelItem(
      *  EngagedStateManager for the write/clear/staleness logic this is populated from. */
     val engagedAgents: List<EngagedAgent> = emptyList(),
     val attemptCount: Int = 0,
-    val history: List<HistoryEntry> = emptyList()
+    val history: List<HistoryEntry> = emptyList(),
+    /** Data source for the card dot: "request" (red dot) or "live" (green
+     *  dot). In Mix mode the dot shows each card's origin; dedup keeps a
+     *  single card per consignment (request copy wins). */
+    val dataSource: String = "request",
 ) {
     /** remarkStatus (if set) always takes priority over the raw parcel status — this is
      *  what the card's status chip shows and what filters/tabs match against. */

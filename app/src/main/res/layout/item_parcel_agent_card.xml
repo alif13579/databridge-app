@@ -144,6 +144,13 @@
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
+                <View
+                    android:id="@+id/viewSourceDot"
+                    android:layout_width="10dp"
+                    android:layout_height="10dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/circle_red" />
+
                 <TextView
                     android:id="@+id/tvAgtCustomer"
                     android:layout_width="wrap_content"

@@ -214,6 +214,7 @@ class CallCenterAdapter(
     }
 
     class CardHolder(view: View) : RecyclerView.ViewHolder(view) {
+        private val viewSourceDot: View = view.findViewById(R.id.viewSourceDot)
         private val tvCustomer: TextView = view.findViewById(R.id.tvAgtCustomer)
 
         private val tvMeta: TextView = view.findViewById(R.id.tvAgtMeta)
@@ -252,6 +253,11 @@ class CallCenterAdapter(
             onSendToDesktop: (CallCenterParcelItem) -> Unit,
             onLongPress: (CallCenterParcelItem) -> Unit
         ) {
+            // Data-source dot: green = Live CC sheet, red = Request (runs).
+            // In Mix the dot shows each card's origin (dedup keeps one card).
+            viewSourceDot.setBackgroundResource(
+                if (item.dataSource == "live") R.drawable.circle_green
+                else R.drawable.circle_red)
             tvCustomer.text = item.customer
             // Local-only dial-attempt count (DialCountStore, per-device, never synced) —
             // shown from the very first call, so it's clear at a glance how many times this
