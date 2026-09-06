@@ -354,8 +354,64 @@ class ConfigConnectorsFragment : Fragment() {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { bottomMargin = 20 }
             row.setOnClickListener { startEditConnection(conn) }
-            row.setOnLongClickListener { confirmDeleteConnection(conn); true }
+            row.setOnLongClickListener { connectionLongPress(conn); true }
             container.addView(row)
+        }
+    }
+
+    private fun connectionLongPress(conn: ScannerSheetConn) {
+        val ctx = context ?: return
+        val isRemark = conn.dateMatchColumn.isNotBlank()
+        val items = if (isRemark) arrayOf("🔍 Test (dry-run)", "Delete") else arrayOf("Delete")
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle(conn.nickname.ifBlank { conn.sheetName })
+            .setItems(items) { _, which ->
+                if (isRemark && which == 0) showDryRunDialog(conn)
+                else confirmDeleteConnection(conn)
+            }
+            .show()
+    }
+
+    /** Dry-run: consignment দিলে বলে দেবে verdict কোন row-তে যেত — কিছু লেখে না। */
+    private fun showDryRunDialog(conn: ScannerSheetConn) {
+        val ctx = context ?: return
+        val input = android.widget.EditText(ctx).apply {
+            hint = "Consignment ID"
+            setPadding(48, 28, 48, 28)
+        }
+        val resultView = android.widget.TextView(ctx).apply {
+            text = "যে consignment-এর verdict যাবে, তার ID লিখুন।\nMatch: ${conn.matchColumn} + ${conn.dateMatchColumn}(আজ) → Write: ${conn.writeColumn}"
+            textSize = 13f
+            setPadding(48, 20, 48, 8)
+        }
+        val layout = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            addView(resultView)
+            addView(input)
+        }
+        var dialog: android.app.AlertDialog? = null
+        dialog = android.app.AlertDialog.Builder(ctx)
+            .setTitle("Test: ${conn.nickname.ifBlank { conn.sheetName }}")
+            .setView(layout)
+            .setPositiveButton("Check", null)
+            .setNegativeButton("Close", null)
+            .create()
+        dialog?.show()
+        dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+            val cid = input.text?.toString()?.trim().orEmpty()
+            if (cid.isBlank()) {
+                input.error = "Consignment ID দিন"
+                return@setOnClickListener
+            }
+            resultView.text = "⏳ Sheet পড়ছে..."
+            viewLifecycleOwner.lifecycleScope.launch {
+                val report = try {
+                    RemarkSheetMirror.dryRunReport(requireContext().applicationContext, conn, cid)
+                } catch (e: Exception) {
+                    "✕ ${e.message?.take(100) ?: "error"}"
+                }
+                if (isAdded) resultView.text = report
+            }
         }
     }
 
