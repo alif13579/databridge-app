@@ -477,7 +477,9 @@ class PettyCashDashboardFragment : Fragment() {
      *  updates the three amount TextViews. Requested counts every claim in range
      *  regardless of status; Approved is only claims still awaiting settlement
      *  (APPROVED / SETTLE_IN_PROCESS) -- this is the pending-settlement balance, which is
-     *  why it's the visually dominant figure; Settled is claims that reached SETTLED. */
+     *  why it's the visually dominant figure; Settled is claims that reached SETTLED
+     *  within the range BY SETTLE DATE (settledAt), so a claim created last month
+     *  but paid this month counts here, not last month. */
     private fun renderClaimsSummary(state: PettyCashState.Success) {
         tvClaimsDateRange.text = claimsRangeLabel
         val inRange = state.requests.filter { it.createdAt in claimsRangeStart until claimsRangeEnd }
@@ -485,8 +487,8 @@ class PettyCashDashboardFragment : Fragment() {
         val approvedTotal = inRange
             .filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
             .sumOf { it.approvedAmount }
-        val settledTotal = inRange
-            .filter { it.status == PC_STATUS_SETTLED }
+        val settledTotal = state.requests
+            .filter { it.status == PC_STATUS_SETTLED && it.settledAt in claimsRangeStart until claimsRangeEnd }
             .sumOf { it.settledAmount }
         tvClaimsApproved.text = taka(approvedTotal)
         tvClaimsRequested.text = taka(requestedTotal)

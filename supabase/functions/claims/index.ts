@@ -347,14 +347,14 @@ Deno.serve(async (request) => {
             p_actor_uid: callerUid, p_actor_system_id: callerSystemId,
           })
           if (rpcError) throw rpcError
-          const out = (Array.isArray(res) ? res[0] : res) as { ok?: boolean; duplicate?: boolean; error?: string; new_balance?: number } | null
+          const out = (Array.isArray(res) ? res[0] : res) as { ok?: boolean; duplicate?: boolean; error?: string; new_balance?: number; warning?: string } | null
           if (!out?.ok) {
             errLog('claim_settle', 'rpc_rejected', { claim_id: c.id, error: out?.error })
             return reply({ error: out?.error || 'Settle failed' }, 409)
           }
-          console.info(`claim_settle ok: claim=${c.id} amount=${finalAmount} duplicate=${!!out?.duplicate}`)
+          console.info(`claim_settle ok: claim=${c.id} amount=${finalAmount} duplicate=${!!out?.duplicate} warning=${out?.warning ?? 'none'}`)
           await fireClaimPush('settled')
-          return reply({ ok: true, id: str(c.id), duplicate: !!out?.duplicate, new_balance: out?.new_balance })
+          return reply({ ok: true, id: str(c.id), duplicate: !!out?.duplicate, new_balance: out?.new_balance, warning: out?.warning ?? null })
         } else if (newStatus === 'rejected' && (oldStatus === 'pending' || oldStatus === 'verified')) {
           if (oldStatus === 'pending' && !canStaff) return reply({ error: 'Only branch staff can reject at this stage' }, 403)
           if (oldStatus === 'verified' && !canPoc) return reply({ error: 'Only the cash POC can reject at this stage' }, 403)

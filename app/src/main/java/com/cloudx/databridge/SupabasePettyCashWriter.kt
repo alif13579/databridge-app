@@ -26,13 +26,12 @@ import java.util.concurrent.TimeUnit
  * via their existing runCatching { ... } blocks, so no caller-side changes
  * were needed for this.
  *
- * Balance concurrency note: Firebase used a server-side transaction for the
- * read-modify-write (atomic against concurrent settlements). The Edge
- * Function's petty_cash_wallet_balance_upsert is a plain last-write-wins
- * upsert — two simultaneous settle/deposit calls can race (both read N,
- * one writes N+a, the other N-b, losing one delta). In practice settlements
- * are human-paced per branch, so this window is negligible; a future
- * petty_cash_wallet_adjust(delta) RPC action would close it properly.
+ * Balance concurrency note: wallet moves are atomic server-side now — settle
+ * goes through the settle_claim RPC (row locks) via claim_upsert, deposits
+ * through the wallet_deposit RPC (idempotent on the deposit id). No app flow
+ * writes the balance directly anymore (direct balance writes are
+ * admin/manager-only server-side); saveWalletBalance() below is kept only for
+ * admin tooling.
  *
  * Column names verified 2026-08-30 against a live information_schema.columns
  * dump of both tables (this file's first version guessed at them, following

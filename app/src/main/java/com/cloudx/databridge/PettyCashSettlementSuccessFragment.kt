@@ -89,7 +89,7 @@ class PettyCashSettlementSuccessFragment : Fragment() {
 
         root.findViewById<TextView>(R.id.tvPcSuccessSubtitle).text =
             "$requestCode has been settled successfully."
-        root.findViewById<TextView>(R.id.tvPcSuccessSettledAmount).text = taka(request.amount)
+        root.findViewById<TextView>(R.id.tvPcSuccessSettledAmount).text = taka(request.settledAmount.takeIf { it > 0 } ?: request.amount)
         root.findViewById<TextView>(R.id.tvPcSuccessNewBalance).text = taka(state.walletBalance)
 
         bindRow(root, R.id.rowPcSuccessPaymentMethod, "Payment Method", request.settledPaymentMethod.ifBlank { "—" })

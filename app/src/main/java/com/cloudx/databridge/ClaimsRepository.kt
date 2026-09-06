@@ -57,7 +57,11 @@ class ClaimsRepository {
         return true
     }
 
-    suspend fun update(claimId: String, updates: Map<String, Any?>, onSupabaseResult: (Boolean) -> Unit = {}): ClaimInfo {        val old = get(claimId) ?: error("Claim not found")
+    suspend fun update(claimId: String, updates: Map<String, Any?>, onSupabaseResult: (Boolean) -> Unit = {}): ClaimInfo =
+        updateWithReply(claimId, updates, onSupabaseResult).first
+
+    /** Same as [update] but also returns the Edge reply (settle warnings, balances). */
+    suspend fun updateWithReply(claimId: String, updates: Map<String, Any?>, onSupabaseResult: (Boolean) -> Unit = {}): Pair<ClaimInfo, org.json.JSONObject> {        val old = get(claimId) ?: error("Claim not found")
         // public.claims is written by full-row upsert (see SupabaseClaimsWriter.
         // save() / claim_upsert in the Edge Function), not a partial patch —
         // so the caller's partial map is applied onto the already-loaded full
@@ -65,9 +69,9 @@ class ClaimsRepository {
         // is always refreshed to "now" after, regardless of whether the
         // caller's map included it.
         val updated = applyUpdates(old, updates).copy(updatedAt = System.currentTimeMillis())
-        SupabaseClaimsWriter.save(updated)
+        val reply = SupabaseClaimsWriter.saveWithReply(updated)
         onSupabaseResult(true)
-        return updated
+        return updated to reply
     }
 
     /** Hard delete: the Supabase row goes away entirely (claim_delete, owner +

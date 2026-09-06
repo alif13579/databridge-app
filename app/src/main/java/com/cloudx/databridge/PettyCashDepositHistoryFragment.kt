@@ -21,9 +21,10 @@ import java.util.Locale
  *
  * Wired to PettyCashViewModel: real deposits for the branch (already sorted
  * newest-first by the ViewModel), with a working All/Cash/Bank/Adjustment
- * source tab filter. "Balance After" is computed by walking the full
- * deposit list chronologically rather than trusting a stored value, since
- * older deposit rows created before this field existed wouldn't have it.
+ * source tab filter. "Balance After" prefers the stored per-row wallet snapshot
+ * (stamped server-side by the atomic deposit RPC — true even with settles
+ * interleaved between deposits); only pre-RPC rows with a blank/zero snapshot
+ * fall back to the deposits-only running total.
  */
 class PettyCashDepositHistoryFragment : Fragment() {
 
@@ -191,15 +192,16 @@ class PettyCashDepositHistoryFragment : Fragment() {
     }
 
     private fun renderList(state: PettyCashState.Success) {
-        // Compute a running balance chronologically (oldest -> newest), since
-        // the ViewModel sorts `deposits` newest-first for display but we need
-        // forward order to get correct running totals.
+        // Fallback running total (deposits-only) for pre-RPC rows whose stored
+        // snapshot is blank/zero. The stored balance_after is authoritative
+        // wherever present: the server stamps the true post-deposit wallet,
+        // which a deposits-only walk gets wrong once settles interleave.
         val chronological = state.deposits.sortedBy { it.timestamp }
         var running = 0.0
-        val balanceAfterById = mutableMapOf<String, Double>()
+        val cumulativeById = mutableMapOf<String, Double>()
         chronological.forEach { d ->
             running += d.amount
-            balanceAfterById[d.id] = running
+            cumulativeById[d.id] = running
         }
 
         val source = state.deposits // newest-first, as the ViewModel provides
@@ -229,7 +231,7 @@ class PettyCashDepositHistoryFragment : Fragment() {
             row.findViewById<TextView>(R.id.tvDepHistRowRef).text =
                 "Ref: ${item.reference.ifBlank { "—" }}"
             row.findViewById<TextView>(R.id.tvDepHistRowBalanceAfter).text =
-                taka(balanceAfterById[item.id] ?: item.balanceAfter)
+                taka(item.balanceAfter.takeIf { it > 0 } ?: cumulativeById[item.id] ?: item.balanceAfter)
 
             layoutList.addView(row)
         }

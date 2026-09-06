@@ -117,12 +117,16 @@ class PettyCashWalletSummaryFragment : Fragment() {
     }
 
     private fun renderWallet(root: View, state: PettyCashState.Success) {
-        root.findViewById<TextView>(R.id.tvPcWalletAvailableBalance).text = taka(state.walletBalance)
+        val hero = root.findViewById<TextView>(R.id.tvPcWalletAvailableBalance)
+        hero.text = taka(state.walletBalance)
+        // Negative is allowed (settle against expected money) — flag it loudly.
+        hero.setTextColor(if (state.walletBalance < 0) 0xFFFCA5A5.toInt() else 0xFFFFFFFF.toInt())
 
         bindWalletRow(root, R.id.rowWalletApprovedWaiting, "\u23F3", "Approved (Waiting Settlement)", taka(state.approvedWaitingSettlementTotal), "#EDE9FE")
+        bindWalletRow(root, R.id.rowWalletUsableFund, "💵", "Usable Fund (balance minus earmarked)", taka(state.usableFund), "#FEF3C7")
         bindWalletRow(root, R.id.rowWalletPendingApproval, "\uD83D\uDD34", "Pending Approval", taka(state.pendingApprovalTotal), "#FFEDD5")
         bindWalletRow(root, R.id.rowWalletSettledMonth, "\u2705", "Settled This Month", taka(state.settledThisMonthTotal), "#D1FAE5")
-        bindWalletRow(root, R.id.rowWalletTotalFund, "\uD83D\uDCE6", "Total Fund", taka(state.totalFund), "#DBEAFE")
+        bindWalletRow(root, R.id.rowWalletTotalFund, "\uD83D\uDCE6", "Total Fund (all deposits)", taka(state.totalFund), "#DBEAFE")
 
         val utilization = if (state.totalFund > 0) (state.settledThisMonthTotal / state.totalFund * 100) else 0.0
         val utilizationRounded = Math.round(utilization * 10) / 10.0

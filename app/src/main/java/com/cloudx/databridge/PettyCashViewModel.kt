@@ -50,11 +50,15 @@ sealed class PettyCashState {
         // Derived aggregates, computed once here so every screen (Dashboard,
         // Requests, Wallet Summary, All Requests) reads the same numbers
         // instead of each recomputing its own slightly different sum.
+        // Amount columns matter: pipeline sums use the STAGE amount
+        // (approvedAmount for approved/settling, settledAmount for settled) —
+        // summing requested `amount` overstates whenever POC/Accounts adjusted down.
         val totalFund: Double get() = deposits.sumOf { it.amount }
         val pendingApprovalTotal: Double get() =
             requests.filter { it.status == PC_STATUS_PENDING || it.status == PC_STATUS_ACKNOWLEDGED }.sumOf { it.amount }
         val approvedWaitingSettlementTotal: Double get() =
-            requests.filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }.sumOf { it.amount }
+            requests.filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
+                .sumOf { it.approvedAmount.takeIf { a -> a > 0 } ?: it.amount }
         val settledThisMonthTotal: Double get() {
             val cal = java.util.Calendar.getInstance()
             val currentMonth = cal.get(java.util.Calendar.MONTH)
@@ -63,8 +67,15 @@ sealed class PettyCashState {
                 if (it.status != PC_STATUS_SETTLED || it.settledAt == 0L) return@filter false
                 cal.timeInMillis = it.settledAt
                 cal.get(java.util.Calendar.MONTH) == currentMonth && cal.get(java.util.Calendar.YEAR) == currentYear
-            }.sumOf { it.amount }
+            }.sumOf { it.settledAmount }
         }
+        /** Lifetime cash-out (all settled, any month) — the "usage" half of deposits-vs-usage. */
+        val lifetimeSettledTotal: Double get() =
+            requests.filter { it.status == PC_STATUS_SETTLED }.sumOf { it.settledAmount }
+        /** True spendable right now: wallet minus already-earmarked approvals.
+         *  May go negative when accounts settles against expected money (allowed,
+         *  flagged at settle time) — callers should render it red then. */
+        val usableFund: Double get() = walletBalance - approvedWaitingSettlementTotal
         /** Requests Accounts can act on right now — either mark ready-to-settle (approved) or hand over cash (settle_in_process). */
         val pendingSettlementQueue: List<PettyCashRequest> get() =
             requests.filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
@@ -385,6 +396,9 @@ class PettyCashViewModel : ViewModel() {
 
     // ── Accounts: settle a request (final step, deducts wallet balance) ─────
 
+    /** Settle result: the server may allow the settle but flag a negative wallet. */
+    data class SettleOutcome(val negativeWarning: Boolean, val newBalance: Double?)
+
     suspend fun settleRequest(
         branchId: String,
         requestId: String,
@@ -392,7 +406,7 @@ class PettyCashViewModel : ViewModel() {
         trxId: String,
         settledAmount: Double? = null,
         onSupabaseResult: (Boolean) -> Unit = {}
-    ): Result<Unit> = runCatching {
+    ): Result<SettleOutcome> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Accounts" }
         val actorSystemId = currentSystemId()
@@ -404,9 +418,10 @@ class PettyCashViewModel : ViewModel() {
 
         // No direct wallet write here: the claims Edge routes EVERY
         // settle_in_process→settled transition through the atomic settle_claim
-        // RPC (row locks + balance check + retry idempotency). Writing the
-        // balance here too would deduct twice.
-        claims.update(requestId, mapOf(
+        // RPC (row locks + retry idempotency). Writing the balance here too would deduct twice.
+        // Negative IS allowed (settle against expected money) — the RPC answers
+        // warning='insufficient_funds' then, surfaced to the user as a loud warning.
+        val (_, reply) = claims.updateWithReply(requestId, mapOf(
                 "status" to PC_STATUS_SETTLED,
                 "settledByUid" to uid,
                 "settledBySystemId" to actorSystemId,
@@ -417,6 +432,11 @@ class PettyCashViewModel : ViewModel() {
                 "transactionId" to trxId,
                 "updatedAt" to now
             ), onSupabaseResult)
+        val newBalance = reply.optDouble("new_balance", Double.NaN).takeIf { !it.isNaN() }
+        SettleOutcome(
+            negativeWarning = reply.optString("warning") == "insufficient_funds" || (newBalance != null && newBalance < 0),
+            newBalance = newBalance
+        )
     }
 
     // ── Reject (can happen at Pending or Acknowledged stage only) ───────────

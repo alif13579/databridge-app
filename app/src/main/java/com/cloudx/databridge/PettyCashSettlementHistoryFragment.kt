@@ -224,7 +224,8 @@ class PettyCashSettlementHistoryFragment : Fragment() {
             }
             row.findViewById<TextView>(R.id.tvSetHistRowCode).text = item.requestCode
             row.findViewById<TextView>(R.id.tvSetHistRowWorker).text = item.requesterName
-            row.findViewById<TextView>(R.id.tvSetHistRowBalanceAfter).text = taka(item.amount)
+            // Settled figure, not requested: POC/Accounts often adjust down.
+            row.findViewById<TextView>(R.id.tvSetHistRowBalanceAfter).text = taka(item.settledAmount.takeIf { it > 0 } ?: item.amount)
 
             row.setOnClickListener {
                 parentFragmentManager.beginTransaction()

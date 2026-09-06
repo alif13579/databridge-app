@@ -543,11 +543,19 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                     }
                 })
             if (result.isSuccess) {
-                Toast.makeText(requireContext(), "✓ Settled", Toast.LENGTH_SHORT).show()
-                parentFragmentManager.beginTransaction()
-                    .replace(R.id.container, PettyCashSettlementSuccessFragment.newInstance(branchId, requestCode))
-                    .addToBackStack(null)
-                    .commitAllowingStateLoss()
+                val outcome = result.getOrNull()
+                if (outcome?.negativeWarning == true) {
+                    val bal = outcome.newBalance?.let { " (balance ${formatAmountForInput(it)})" } ?: ""
+                    android.app.AlertDialog.Builder(requireContext())
+                        .setTitle("⚠ Wallet went negative$bal")
+                        .setMessage("Settled against expected money — please deposit fund soon.")
+                        .setPositiveButton("OK") { _, _ -> openSettlementSuccess() }
+                        .setCancelable(false)
+                        .show()
+                } else {
+                    Toast.makeText(requireContext(), "✓ Settled", Toast.LENGTH_SHORT).show()
+                    openSettlementSuccess()
+                }
             } else {
                 val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
                 Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
@@ -555,6 +563,13 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                     result.exceptionOrNull()?.message ?: "Settlement failed")
             }
         }
+    }
+
+    private fun openSettlementSuccess() {
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.container, PettyCashSettlementSuccessFragment.newInstance(branchId, requestCode))
+            .addToBackStack(null)
+            .commitAllowingStateLoss()
     }
 
     /** Owner-only Edit/Delete row, only while the request is still PENDING. */

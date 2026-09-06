@@ -22,10 +22,9 @@ import java.util.Locale
  *
  * Wired to PettyCashViewModel. Current balance is the real wallet balance;
  * "After Deposit" preview updates live as the amount is typed. Deposit Now
- * writes a real PettyCashDeposit and increments the wallet balance via
- * viewModel.depositFund() (Supabase read-compute-write — see
- * SupabasePettyCashWriter's concurrency note for the race caveat the old
- * Firebase transaction didn't have).
+ * writes a real PettyCashDeposit via viewModel.depositFund() — the Edge runs
+ * the atomic wallet_deposit RPC (insert + bump under lock, idempotent on the
+ * deposit id), so retries never credit twice.
  */
 class PettyCashDepositFundFragment : Fragment() {
 

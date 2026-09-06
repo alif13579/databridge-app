@@ -35,7 +35,13 @@ object SupabaseClaimsWriter {
         .build()
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    suspend fun save(claim: ClaimInfo) {        withContext(Dispatchers.IO) {
+    suspend fun save(claim: ClaimInfo) {
+        saveWithReply(claim)
+    }
+
+    /** Same as [save] but returns the Edge reply body (e.g. settle's
+     *  `new_balance` / `warning`) instead of discarding it. */
+    suspend fun saveWithReply(claim: ClaimInfo): JSONObject = withContext(Dispatchers.IO) {
             if (!SupabaseConfig.isConfigured) {
                 FirebaseErrorLogger.log(
                     "SupabaseClaimsWriter", "save_not_configured",
@@ -69,8 +75,8 @@ object SupabaseClaimsWriter {
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
             client.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    val text = response.body?.string().orEmpty()
                     FirebaseErrorLogger.log(
                         "SupabaseClaimsWriter", "save_http_error",
                         "HTTP ${response.code}: ${text.take(500)}",
@@ -84,9 +90,9 @@ object SupabaseClaimsWriter {
                     // reaches the user and the cause is undebuggable.
                     error("Supabase save failed (HTTP ${response.code}): ${text.take(600).ifBlank { "empty response" }}")
                 }
+                runCatching { JSONObject(text) }.getOrDefault(JSONObject())
             }
         }
-    }
 
     /** Hard delete via the claims Edge Function's claim_delete action
      *  (owner + pending gated server-side). Throws on any failure, same

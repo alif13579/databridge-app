@@ -152,6 +152,7 @@
                     android:layout_marginTop="16dp">
 
                     <include layout="@layout/item_petty_cash_wallet_row" android:id="@+id/rowWalletApprovedWaiting" />
+                    <include layout="@layout/item_petty_cash_wallet_row" android:id="@+id/rowWalletUsableFund" />
                     <include layout="@layout/item_petty_cash_wallet_row" android:id="@+id/rowWalletPendingApproval" />
                     <include layout="@layout/item_petty_cash_wallet_row" android:id="@+id/rowWalletSettledMonth" />
                     <include layout="@layout/item_petty_cash_wallet_row" android:id="@+id/rowWalletTotalFund" />

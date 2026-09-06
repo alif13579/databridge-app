@@ -9,7 +9,8 @@
 --    locks). claim_upsert routes EVERY settle_in_process→settled transition
 --    through it, so even old APKs settle atomically. Retry with the same
 --    transaction_id after a settled write returns ok(duplicate) instead of
---    deducting twice.
+--    deducting twice. Negative balance IS allowed (settle against expected
+--    money) but returns warning='insufficient_funds' so the app flags it.
 -- 3. wallet_deposit() RPC: atomic deposit (deposit row + wallet bump).
 --    Idempotent on deposits.id — a retried deposit inserts nothing and bumps
 --    nothing. New app builds call it via the petty-cash Edge; deposit_upsert
@@ -59,9 +60,8 @@ BEGIN
     INSERT INTO public.petty_cash_wallet_balance (branch_id, balance, updated_at)
       VALUES (v_claim.branch_id, 0, now());
   END IF;
-  IF v_balance < p_amount THEN
-    RETURN jsonb_build_object('ok', false, 'error', 'Insufficient wallet balance');
-  END IF;
+  -- Negative IS allowed (branch may settle against expected money), but the
+  -- caller gets warning='insufficient_funds' so the app can flag it loudly.
   UPDATE public.petty_cash_wallet_balance
     SET balance = balance - p_amount, updated_at = now()
     WHERE branch_id = v_claim.branch_id;
@@ -75,7 +75,9 @@ BEGIN
     settled_at = COALESCE(settled_at, now()),
     updated_at = now()
     WHERE id = p_claim_id;
-  RETURN jsonb_build_object('ok', true, 'duplicate', false, 'claim_id', p_claim_id, 'new_balance', v_balance - p_amount);
+  RETURN jsonb_build_object('ok', true, 'duplicate', false, 'claim_id', p_claim_id,
+    'new_balance', v_balance - p_amount,
+    'warning', CASE WHEN v_balance - p_amount < 0 THEN 'insufficient_funds' ELSE NULL END);
 END;
 $$;
 

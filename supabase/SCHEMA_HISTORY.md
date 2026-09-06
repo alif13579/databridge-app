@@ -214,8 +214,9 @@ new payload keys, so old APK builds keep writing without data loss.
 normalizes old `ready_to_settle` payloads (6.9.5 builds) on write.
 35. **202609050005** (applied live via Management API) — claim-lifecycle audit
 guards: `claims.client_submit_id` (submit idempotency key) +
-`settle_claim()` RPC (atomic settle: row locks, balance check, same-tx retry
-returns duplicate) + `wallet_deposit()` RPC (atomic deposit, idempotent on
+`settle_claim()` RPC (atomic settle: row locks, same-tx retry returns
+duplicate; negative balance allowed with warning='insufficient_funds' so the
+app flags it instead of blocking) + `wallet_deposit()` RPC (atomic deposit, idempotent on
 deposit id). Claims/petty-cash Edges enforce stage auth, transition table,
 amount floors, branch limit, conveyance override, settled freeze server-side.
 33. **202609050001** (applied live via Management API, same as 0007) —
