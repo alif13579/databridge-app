@@ -334,7 +334,7 @@ class CallCenterFragment : Fragment() {
         setupAdapter()
         loadCcRemarkOptions()
         updateDataSourceToggle()
-        if (ccDataSource == "live") loadLiveMode() else loadData()
+        loadForSource()
     }
 
     // ── Filter preference persistence ──────────────────────────────────────
@@ -359,8 +359,8 @@ class CallCenterFragment : Fragment() {
         selectedAgentFilters.clear()
         selectedAgentFilters.addAll(prefs.getStringSet("cc_filter_agent_names", emptySet()) ?: emptySet())
         sortMode = prefs.getString("cc_sort_mode", "attempt") ?: "attempt"
-        ccDataSource = prefs.getString("cc_data_source", "request") ?: "request"
-        if (ccDataSource != "live") ccDataSource = "request"
+        ccDataSource = prefs.getString("cc_data_source", "request")
+            ?.takeIf { it == "live" || it == "mix" } ?: "request"
     }
 
     private fun saveFilterPreferences() {
@@ -398,10 +398,12 @@ class CallCenterFragment : Fragment() {
         btnSyncSheet = view.findViewById(R.id.btnCcaSyncSheet)
         btnSyncSheet.setOnClickListener { startBulkSheetSync() }
         btnLiveCc = view.findViewById(R.id.btnCcaLiveCc)
+        btnMix = view.findViewById(R.id.btnCcaMix)
         btnRequest = view.findViewById(R.id.btnCcaRequest)
         scrollLiveMissing = view.findViewById(R.id.scrollCcaLiveMissing)
         layoutLiveMissing = view.findViewById(R.id.layoutCcaLiveMissing)
         btnLiveCc.setOnClickListener { setDataSource("live") }
+        btnMix.setOnClickListener { setDataSource("mix") }
         btnRequest.setOnClickListener { setDataSource("request") }
         updateDataSourceToggle()
 
@@ -1635,17 +1637,20 @@ class CallCenterFragment : Fragment() {
     // ── Header Sync to Sheet (bulk — same as the extension's ⇪ Sheet) ────
     private lateinit var btnSyncSheet: TextView
 
-    // ── Data source toggle: Request (runs) vs Live CC (sheet IDs) ──────────
+    // ── Data source toggle: Request (runs) vs Live CC (sheet IDs) vs Mix ──
     // Live CC reads today's consignment IDs from the branch's live sheet
     // (Config → Connectors → LIVE CC SHEET) and builds the SAME parcel cards
-    // from Firebase + Supabase. Sheet IDs missing in Firebase become ID-only
-    // chips (liveMissingIds). Remarks save the same way in both modes.
+    // from Firebase + Supabase. Mix = Request list + Live-only extras merged
+    // in (dedup by consignment ID). Sheet IDs missing in Firebase become
+    // ID-only chips (liveMissingIds). Remarks save the same way in all modes.
     private lateinit var btnLiveCc: TextView
+    private lateinit var btnMix: TextView
     private lateinit var btnRequest: TextView
     private lateinit var scrollLiveMissing: View
     private lateinit var layoutLiveMissing: LinearLayout
-    private var ccDataSource: String = "request" // "request" | "live"
+    private var ccDataSource: String = "request" // "request" | "live" | "mix"
     private var liveMissingIds: List<String> = emptyList()
+    private var mixLiveItems: List<CallCenterParcelItem> = emptyList()
     private var liveGeneration: Int = 0
 
     // ── Run type selection (mirrors WorkerSpaceFragment pattern) ──────
@@ -2625,6 +2630,7 @@ class CallCenterFragment : Fragment() {
 
         if (!isAdded || generation != ccLoadGeneration) return
         allParcels = parcels.sortedBy { it.id }
+        mergeMixIntoAll() // Mix: re-append Live extras every Request landing
         hasLoadedCcDataOnce = true
         ccIsLoading = false
         pendingSearchValidation?.let { it(); pendingSearchValidation = null }
@@ -3322,31 +3328,115 @@ class CallCenterFragment : Fragment() {
     }
 
 
-    // ── Data source toggle: Request vs Live CC ────────────────────────────
+    // ── Data source toggle: Request vs Live CC vs Mix ─────────────────────
     private fun updateDataSourceToggle() {
-        if (!::btnLiveCc.isInitialized) return
-        val live = ccDataSource == "live"
-        btnLiveCc.setBackgroundResource(
-            if (live) R.drawable.bg_filter_chip_active else R.drawable.bg_filter_chip_inactive)
-        btnLiveCc.setTextColor(if (live) android.graphics.Color.WHITE
-            else requireContext().getColor(R.color.theme_text_secondary))
-        btnRequest.setBackgroundResource(
-            if (!live) R.drawable.bg_filter_chip_active else R.drawable.bg_filter_chip_inactive)
-        btnRequest.setTextColor(if (!live) android.graphics.Color.WHITE
-            else requireContext().getColor(R.color.theme_text_secondary))
+        if (!::btnLiveCc.isInitialized || !::btnMix.isInitialized) return
+        val ctx = context ?: return
+        fun style(btn: TextView, selected: Boolean) {
+            btn.setBackgroundResource(
+                if (selected) R.drawable.bg_filter_chip_active
+                else R.drawable.bg_filter_chip_inactive)
+            btn.setTextColor(if (selected) android.graphics.Color.WHITE
+                else ctx.getColor(R.color.theme_text_secondary))
+        }
+        style(btnLiveCc, ccDataSource == "live")
+        style(btnMix, ccDataSource == "mix")
+        style(btnRequest, ccDataSource == "request")
         renderLiveMissingChips()
     }
 
     private fun setDataSource(mode: String) {
-        if (mode != "live" && mode != "request") return
+        if (mode != "live" && mode != "mix" && mode != "request") return
         if (ccDataSource == mode) return
         ccDataSource = mode
+        if (mode != "mix") mixLiveItems = emptyList()
         saveFilterPreferences()
         updateDataSourceToggle()
-        if (mode == "live") loadLiveMode() else {
-            liveMissingIds = emptyList()
-            renderLiveMissingChips()
-            loadData()
+        loadForSource()
+    }
+
+    private fun loadForSource() {
+        when (ccDataSource) {
+            "live" -> loadLiveMode()
+            "mix" -> {
+                liveMissingIds = emptyList()
+                renderLiveMissingChips()
+                loadData()
+                loadMixExtras()
+            }
+            else -> {
+                liveMissingIds = emptyList()
+                renderLiveMissingChips()
+                loadData()
+            }
+        }
+    }
+
+    /** Mix only: appends Live-built items missing from the Request set. Called
+     *  at every Request pipeline landing AND when the Live fetch finishes —
+     *  whichever runs last wins, nothing is ever lost. */
+    private fun mergeMixIntoAll() {
+        if (ccDataSource != "mix" || mixLiveItems.isEmpty()) return
+        val have = allParcels.map { it.id }.toSet()
+        val extras = mixLiveItems.filter { it.id !in have }
+        if (extras.isNotEmpty()) allParcels = (allParcels + extras).sortedBy { it.id }
+    }
+
+    /**
+     * Mix: Request pipeline runs normally; Live sheet IDs missing from it are
+     * built into full cards and merged in. Sheet IDs missing in Firebase become
+     * ID-only chips (same as Live mode).
+     */
+    private fun loadMixExtras() {
+        val gen = ++liveGeneration
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val appCtx = requireContext().applicationContext
+                val branches = selectedBranchIds.ifEmpty { myBranchIds.toSet() }.toList()
+                if (branches.isEmpty() || gen != liveGeneration || !isAdded) return@launch
+                val token = withContext(Dispatchers.IO) {
+                    RemarkSheetMirror.readToken(appCtx)
+                }
+                if (gen != liveGeneration || !isAdded || ccDataSource != "mix") return@launch
+                if (token.isNullOrBlank()) {
+                    (activity as? MainActivity)?.promptSheetAuthOnce()
+                    Toast.makeText(requireContext(),
+                        "Sheet auth নেই — Mix-e sudhu Request dekhacche", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                val sheetRes = withContext(Dispatchers.IO) {
+                    RemarkSheetMirror.fetchLiveConsignments(token, branches)
+                }
+                if (gen != liveGeneration || !isAdded || ccDataSource != "mix") return@launch
+                val ids = sheetRes.flatMap { it.ids }.distinct()
+                if (ids.isEmpty()) {
+                    val why = sheetRes.mapNotNull { r ->
+                        r.note?.takeIf { it.isNotBlank() }
+                            ?.let { "${branchIdToName[r.branchId] ?: r.branchId}: $it" }
+                    }.firstOrNull()
+                    if (why != null) Toast.makeText(requireContext(),
+                        "Mix Live: $why", Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+                val cidBranch = mutableMapOf<String, String>()
+                sheetRes.forEach { r -> r.ids.forEach { cidBranch.putIfAbsent(it, r.branchId) } }
+                val (items, missing) = withContext(Dispatchers.IO) {
+                    buildLiveParcels(ids, cidBranch)
+                }
+                if (gen != liveGeneration || !isAdded || ccDataSource != "mix") return@launch
+                mixLiveItems = items
+                liveMissingIds = missing
+                mergeMixIntoAll()
+                setupFilterTabs()
+                applyFilters()
+                renderLiveMissingChips()
+                syncCcRemarkListeners(allParcels.map { it.id }.toSet())
+                syncCcEngagedAtListeners(allParcels.map { it.id }.toSet())
+                if (items.isNotEmpty()) Toast.makeText(requireContext(),
+                    "🔀 Mix: Live theke ${items.size} parcel jog holo", Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {
+                // Request list unaffected — Live extras just don't arrive.
+            }
         }
     }
 
@@ -3531,14 +3621,14 @@ class CallCenterFragment : Fragment() {
         items.sortedBy { order.indexOf(it.id) } to order.filter { it in missing }
     }
 
-    /** ID-only chips for sheet IDs missing in Firebase (Live mode only). */
+    /** ID-only chips for sheet IDs missing in Firebase (Live + Mix modes). */
     private fun renderLiveMissingChips() {
         val ctx = context
         val box = if (::layoutLiveMissing.isInitialized) layoutLiveMissing else null
         val scroller = if (::scrollLiveMissing.isInitialized) scrollLiveMissing else null
         if (ctx == null || box == null || scroller == null) return
         box.removeAllViews()
-        if (ccDataSource != "live" || liveMissingIds.isEmpty()) {
+        if ((ccDataSource != "live" && ccDataSource != "mix") || liveMissingIds.isEmpty()) {
             scroller.visibility = View.GONE
             return
         }
