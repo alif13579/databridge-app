@@ -106,6 +106,8 @@ class ConfigConnectorsFragment : Fragment() {
 
     private var connectStep = 1
     private var editingConnectionId: String = "" // blank = new connection
+    // Step-1 purpose selector: which fragment this sheet serves.
+    private var connPurpose: String = SheetPurpose.REMARK
 
     private var googleSignInClient: GoogleSignInClient? = null
     private var googleAccount: GoogleSignInAccount? = null
@@ -259,6 +261,14 @@ class ConfigConnectorsFragment : Fragment() {
 
         btnScAddConnection?.setOnClickListener { startNewConnection() }
         btnScCancelConnect?.setOnClickListener { exitWizardToBranchSelect() }
+        view.findViewById<View>(R.id.cardPurposeScanner)?.setOnClickListener {
+            connPurpose = SheetPurpose.SCANNER
+            updatePurposeCards()
+        }
+        view.findViewById<View>(R.id.cardPurposeRemark)?.setOnClickListener {
+            connPurpose = SheetPurpose.REMARK
+            updatePurposeCards()
+        }
         btnScPickAccount?.setOnClickListener { pickGoogleAccount() }
         tvScSelectedSheet?.setOnClickListener { showSheetPicker() }
         btnScStepBack?.setOnClickListener { goToStep(connectStep - 1) }
@@ -352,24 +362,48 @@ class ConfigConnectorsFragment : Fragment() {
         tvScNoConnections?.visibility = View.GONE
 
         branchConnections.forEach { conn ->
+            val isRemark = conn.purpose.ifBlank {
+                if (conn.isScannerConnection() && !conn.isRemarkConnection()) SheetPurpose.SCANNER
+                else SheetPurpose.REMARK
+            } == SheetPurpose.REMARK
+            val accent = if (isRemark) "#7C3AED" else "#059669"
+            val accentBg = if (isRemark) "#EDE9FE" else "#D1FAE5"
             val card = android.widget.LinearLayout(ctx).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
-                setPadding(28, 24, 28, 20)
+                setPadding(32, 28, 32, 24)
                 setBackgroundResource(R.drawable.bg_card_rounded)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = 20 }
+                ).apply { bottomMargin = 24 }
                 alpha = if (conn.enabled) 1f else 0.55f
             }
-            val title = TextView(ctx).apply {
-                text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } } +
-                    if (conn.enabled) "" else " (disabled)"
-                textSize = 14f
-                setTextColor(ctx.getColor(R.color.theme_text_primary))
+            val topRow = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
             }
+            val title = TextView(ctx).apply {
+                text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } }
+                textSize = 15f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(ctx.getColor(R.color.theme_text_primary))
+                layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val badge = TextView(ctx).apply {
+                text = if (isRemark) "☎️ Call Center" else "📷 Scanner"
+                textSize = 11f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(android.graphics.Color.parseColor(accent))
+                setBackgroundColor(android.graphics.Color.parseColor(accentBg))
+                setPadding(20, 8, 20, 8)
+            }
+            topRow.addView(title)
+            topRow.addView(badge)
+            card.addView(topRow)
             val sub = TextView(ctx).apply {
                 text = buildString {
                     append(conn.sheetName)
+                    if (!conn.enabled) append("  •  disabled")
                     val lookTxt = conn.effectiveLookups()
                         .joinToString("+") { "${it.colRef.trim()}(${it.kind})" }
                         .ifBlank {
@@ -383,32 +417,41 @@ class ConfigConnectorsFragment : Fragment() {
                                 ?.let { "${it.colRef.trim()}(${it.kind})" } ?: ""
                         }
                     if (lookTxt.isNotBlank() || writeTxt.isNotBlank()) {
-                        append("  •  $lookTxt → $writeTxt")
+                        append("\n$lookTxt → $writeTxt")
                     }
                 }
-                textSize = 11f
+                textSize = 12f
                 setTextColor(ctx.getColor(R.color.theme_text_secondary))
+                setPadding(0, 8, 0, 4)
             }
-            card.addView(title)
             card.addView(sub)
             val btnRow = android.widget.LinearLayout(ctx).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
+                setPadding(0, 12, 0, 0)
             }
-            fun actionBtn(label: String, onTap: () -> Unit): TextView =
+            fun actionBtn(label: String, bg: String, fg: String, onTap: () -> Unit): TextView =
                 TextView(ctx).apply {
                     text = label
-                    textSize = 12f
-                    setTextColor(ctx.getColor(R.color.theme_text_accent))
-                    setPadding(8, 14, 24, 4)
+                    textSize = 12.5f
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setTextColor(android.graphics.Color.parseColor(fg))
+                    setBackgroundColor(android.graphics.Color.parseColor(bg))
+                    setPadding(28, 16, 28, 16)
+                    val lp = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+                    lp.marginEnd = 16
+                    layoutParams = lp
                     setOnClickListener { onTap() }
                 }
             if (conn.isRemarkConnection()) {
-                btnRow.addView(actionBtn("🔍 Test") { showDryRunDialog(conn) })
+                btnRow.addView(actionBtn("🔍 Test", "#EFF6FF", "#1D4ED8") { showDryRunDialog(conn) })
             }
-            btnRow.addView(actionBtn(if (conn.enabled) "⏸ Disable" else "▶ Enable") {
+            btnRow.addView(actionBtn(
+                if (conn.enabled) "⏸ Disable" else "▶ Enable", "#F1F5F9", "#475569") {
                 setConnectionEnabled(conn, !conn.enabled)
             })
-            btnRow.addView(actionBtn("🗑 Delete") { confirmDeleteConnection(conn) })
+            btnRow.addView(actionBtn("🗑 Delete", "#FEF2F2", "#B91C1C") { confirmDeleteConnection(conn) })
             card.addView(btnRow)
             card.setOnClickListener { startEditConnection(conn) }
             container.addView(card)
@@ -665,10 +708,23 @@ class ConfigConnectorsFragment : Fragment() {
     private fun collectHeaderRow(): Int =
         etScHeaderRow?.text?.toString()?.trim()?.toIntOrNull()?.coerceIn(1, 20) ?: 1
 
+    /** Step-1 purpose cards: exactly one selected, visually obvious. */
+    private fun updatePurposeCards() {
+        val ctx = context ?: return
+        val sel = R.drawable.bg_sheet_item_selected
+        val idle = R.drawable.bg_card_rounded
+        view?.findViewById<View>(R.id.cardPurposeScanner)?.setBackgroundResource(
+            if (connPurpose == SheetPurpose.SCANNER) sel else idle)
+        view?.findViewById<View>(R.id.cardPurposeRemark)?.setBackgroundResource(
+            if (connPurpose == SheetPurpose.REMARK) sel else idle)
+    }
+
     // ── Wizard entry/exit ────────────────────────────────────────────────────
     private fun startNewConnection() {
         editingConnectionId = ""
         selectedSheet = null
+        connPurpose = SheetPurpose.REMARK
+        updatePurposeCards()
         etScNickname?.setText("")
         etScTabPattern?.setText("Day {dd}")
         etScHeaderRow?.setText("1")
@@ -680,6 +736,12 @@ class ConfigConnectorsFragment : Fragment() {
     private fun startEditConnection(conn: ScannerSheetConn) {
         editingConnectionId = conn.connectionId
         selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
+        // Explicit purpose, else inferred (scanner rules → scanner, else remark).
+        connPurpose = conn.purpose.ifBlank {
+            if (conn.isScannerConnection() && !conn.isRemarkConnection()) SheetPurpose.SCANNER
+            else SheetPurpose.REMARK
+        }
+        updatePurposeCards()
         etScNickname?.setText(conn.nickname)
         etScTabPattern?.setText(conn.tabPattern.ifBlank { "Day {dd}" })
         etScHeaderRow?.setText(conn.resolvedHeaderRow().toString())
@@ -998,6 +1060,23 @@ class ConfigConnectorsFragment : Fragment() {
         val normWrites = writes.map { r ->
             SheetWriteRule(normRef(r.colRef, r.mode, "Write") ?: return, r.kind, r.mode)
         }
+        // Purpose-appropriate rules: scanner needs employee→value, remark
+        // needs remark-kind lookup+write. (Legacy mixed conns keep working —
+        // each flow reads only its own kinds.)
+        if (connPurpose == SheetPurpose.SCANNER &&
+            (normLookups.none { it.kind == SheetLookupKind.EMPLOYEE } ||
+                normWrites.none { it.kind == SheetWriteKind.VALUE })
+        ) {
+            showScErr("Scanner-এর জন্য lookup kind employee + write kind scanned value লাগবে")
+            return
+        }
+        if (connPurpose == SheetPurpose.REMARK &&
+            (normLookups.none { it.kind in SheetLookupKind.REMARK_KINDS } ||
+                normWrites.none { it.kind in SheetWriteKind.REMARK_KINDS })
+        ) {
+            showScErr("Call Center-এর জন্য remark lookup (consignment/today/...) + write (verdict/remark/...) লাগবে")
+            return
+        }
 
         btnScStepConnect?.isEnabled = false
         viewLifecycleOwner.lifecycleScope.launch {
@@ -1019,6 +1098,7 @@ class ConfigConnectorsFragment : Fragment() {
                     sheetName    = sheet.name,
                     tabPattern   = tabPattern,
                     headerRow    = headerRow,
+                    purpose      = connPurpose,
                     lookups      = normLookups,
                     writes       = normWrites,
                     googleEmail  = acct.email.orEmpty(),

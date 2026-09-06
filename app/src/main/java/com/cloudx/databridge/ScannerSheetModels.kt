@@ -49,6 +49,8 @@ data class ScannerSheetConn(
     val headerRow: Int = 1,
     /** Disabled connections are skipped by mirror/sync/test (kept for record). */
     val enabled: Boolean = true,
+    /** Explicit purpose (step-1 selector). "" = legacy → inferred from rules. */
+    val purpose: String = "",
 ) {
     /** Lookup rules actually used: dynamic list, else legacy conversion
      *  (matchColumn→consignment, dateMatchColumn→today) for remark conns. */
@@ -72,15 +74,32 @@ data class ScannerSheetConn(
 
     /** True when the mirror should process this connection (remark kinds). */
     fun isRemarkConnection(): Boolean {
+        if (purpose == SheetPurpose.SCANNER) return false
+        if (purpose == SheetPurpose.REMARK) {
+            return effectiveLookups().isNotEmpty() && effectiveWrites().isNotEmpty()
+        }
         val kinds = effectiveWrites().map { it.kind }
         return effectiveLookups().any { it.kind in SheetLookupKind.REMARK_KINDS } &&
             kinds.any { it in SheetWriteKind.REMARK_KINDS }
     }
 
     /** True when the scanner should use this connection (employee→value). */
-    fun isScannerConnection(): Boolean =
-        effectiveLookups().any { it.kind == SheetLookupKind.EMPLOYEE } &&
+    fun isScannerConnection(): Boolean {
+        if (purpose == SheetPurpose.REMARK) return false
+        if (purpose == SheetPurpose.SCANNER) {
+            return effectiveScannerLookup() != null && effectiveScannerWrite() != null
+        }
+        return effectiveLookups().any { it.kind == SheetLookupKind.EMPLOYEE } &&
             effectiveWrites().any { it.kind == SheetWriteKind.VALUE }
+    }
+
+    /** Human label for lists: explicit purpose, else inferred. */
+    fun purposeLabel(): String = when {
+        purpose == SheetPurpose.SCANNER -> "Scanner"
+        purpose == SheetPurpose.REMARK -> "Call Center"
+        isScannerConnection() && !isRemarkConnection() -> "Scanner"
+        else -> "Call Center"
+    }
 
     /** Scanner-effective lookup: dynamic employee rule, else legacy
      *  matchColumn (scanner conns never set dateMatchColumn). */
@@ -103,6 +122,13 @@ data class ScannerSheetConn(
 object SheetColMode {
     const val TEXT = "text"
     const val INDEX = "index"
+}
+
+/** Connection purpose — chosen at connect time (step 1) so every sheet's
+ *  job is explicit: scanner sheets take scans, remark sheets take mirrors. */
+object SheetPurpose {
+    const val SCANNER = "scanner"
+    const val REMARK = "remark"
 }
 
 /** Lookup value sources: every write source except the scanner's value, plus

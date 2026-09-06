@@ -67,6 +67,9 @@ object ScannerSheetRepository {
                 headerRow       = child.child("headerRow").getValue(Long::class.java)?.toInt() ?: 1,
                 // Missing = true (old conns predate the flag).
                 enabled         = child.child("enabled").getValue(Boolean::class.java) ?: true,
+                // Missing = "" → inferred from rules (see purposeLabel).
+                purpose         = child.child("purpose").getValue(String::class.java)
+                    ?.takeIf { it == SheetPurpose.SCANNER || it == SheetPurpose.REMARK } ?: "",
             )
         }
     }
@@ -98,6 +101,7 @@ object ScannerSheetRepository {
                 .map { mapOf("colRef" to it.colRef.trim(), "kind" to it.kind, "mode" to it.mode) },
             "headerRow"       to conn.resolvedHeaderRow(),
             "enabled"         to conn.enabled,
+            "purpose"         to conn.purpose,
             "googleEmail"     to conn.googleEmail,
             "connectedBy"     to actingUid,
             "connectedByName" to actingName,
