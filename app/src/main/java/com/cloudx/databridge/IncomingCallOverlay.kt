@@ -187,13 +187,14 @@ object IncomingCallOverlay {
                     text = "▼ Remarks history (${sorted.size})"
                     isVisible = true
                     setOnClickListener {
+                        val scroller = view.findViewById<View>(R.id.svOverlayHistoryList)
                         val list = view.findViewById<LinearLayout>(R.id.llOverlayHistoryList)
-                        val expanding = !list.isVisible
+                        val expanding = !(scroller?.isVisible == true)
                         if (expanding) {
                             renderHistoryList(view, sorted, names)
                             cancelAutoMinimize() // reading — don't collapse mid-read
                         }
-                        list.isVisible = expanding
+                        scroller?.isVisible = expanding
                         text = (if (expanding) "▲" else "▼") + " Remarks history (${sorted.size})"
                     }
                 }
@@ -303,12 +304,12 @@ object IncomingCallOverlay {
         autoMinimizeRunnable = null
     }
 
-    /** Drag-anywhere-on-the-card-background repositioning. Buttons still get their own taps
-     *  normally (a child view's own touch handling wins for touches landing on it), so this
-     *  only fires for drags starting on the card's non-button surface — exactly how a floating
-     *  chat-head-style widget is normally dragged. A touch that never moves past touchSlop is
-     *  treated as a tap and passed through rather than consumed, so tapping the card background
-     *  (as opposed to a button) doesn't accidentally swallow anything. */
+    /** Drag repositioning. The whole card listens, but scrollable children
+     *  (remarks chips, history) and buttons consume their own gestures — so
+     *  the TOP HEADER BAR is also a dedicated drag handle (it has no scroller,
+     *  only two small buttons), guaranteeing drag always works from there.
+     *  A touch that never moves past touchSlop is treated as a tap and passed
+     *  through rather than consumed. */
     private fun setupDrag(context: Context, view: View, wm: WindowManager, params: WindowManager.LayoutParams) {
         val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
         var initialX = 0
@@ -317,7 +318,7 @@ object IncomingCallOverlay {
         var initialTouchY = 0f
         var isDragging = false
 
-        view.setOnTouchListener { _, event ->
+        val dragListener = View.OnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = params.x
@@ -356,6 +357,10 @@ object IncomingCallOverlay {
                 else -> false
             }
         }
+        view.setOnTouchListener(dragListener)
+        // Dedicated handle: header has no scroll container, so drags starting
+        // here can't be stolen by one.
+        view.findViewById<View>(R.id.llOverlayHeader)?.setOnTouchListener(dragListener)
     }
 
     /** Tapping the minimize icon collapses the card to just the small chip (llMinimized);
@@ -490,8 +495,9 @@ object IncomingCallOverlay {
         val context = view.context
         val container = view.findViewById<LinearLayout>(R.id.llOverlayHistoryList)
         container.removeAllViews()
-        val shown = rows.take(15)
-        shown.forEachIndexed { index, row ->
+        // All rows (scrollable now) + cap the scroller height so the window
+        // never grows past the screen.
+        rows.forEachIndexed { index, row ->
             val status = row.optStr("remarks_status").trim().ifBlank { "NOTE" }.uppercase()
             val line = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
@@ -518,7 +524,7 @@ object IncomingCallOverlay {
                 })
             }
             container.addView(line)
-            if (index < shown.size - 1) {
+            if (index < rows.size - 1) {
                 container.addView(View(context).apply {
                     layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT, 1
@@ -527,15 +533,7 @@ object IncomingCallOverlay {
                 })
             }
         }
-        if (rows.size > shown.size) {
-            container.addView(TextView(context).apply {
-                text = "…আরও ${rows.size - shown.size}টি পুরনো"
-                textSize = 11f
-                setTextColor(0xFF64748B.toInt())
-                gravity = android.view.Gravity.CENTER
-                setPadding(0, 8, 0, 0)
-            })
-        }
+        capScrollerHeight(view, R.id.svOverlayHistoryList)
     }
 
     // ── Remarks from the incoming-call popup ─────────────────────────────
@@ -707,7 +705,9 @@ object IncomingCallOverlay {
             btnSave.setOnClickListener {
                 val chosen = overlaySelectedOption
                 val noteText = etNote.text?.toString()?.trim().orEmpty()
-                if (chosen == null && (!isCc || noteText.isBlank())) {
+                // CC and worker alike: option pick OR note text suffices (same as
+                // CallCenterFragment's sheet) — never strand the saver.
+                if (chosen == null && noteText.isBlank()) {
                     Toast.makeText(context, "একটি রিমার্কস বেছে নিন", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
@@ -737,6 +737,10 @@ object IncomingCallOverlay {
             }
             chipContainer.addView(tv)
         }
+
+        // Worker with no catalog: note-only save (same as CC) — otherwise the
+        // worker has chips=nothing, note=hidden, save=blocked: fully stuck.
+        if (!isCc && options.isEmpty()) etNote.isVisible = true
 
         if (isCc) etNote.isVisible = true
 
@@ -790,6 +794,8 @@ object IncomingCallOverlay {
             chipContainer.addView(row)
             rowViews.add(OptRow(row, tvLabel, tvTag))
         }
+        // Cap the chips scroller so a huge catalog can't push Save off-screen.
+        capScrollerHeight(view, R.id.svOverlayRemarkChips)
     }
 
     /** Save tap → sibling check → inline Yes/No fan-out (or direct save). */
@@ -1041,4 +1047,16 @@ object IncomingCallOverlay {
 
     private fun dpToPx(context: Context, dp: Int): Int =
         (dp * context.resources.displayMetrics.density).toInt()
+
+    /** Caps a popup scroller (remarks chips, history) so a huge list can't push
+     *  the window — and its Save button — off-screen. */
+    private fun capScrollerHeight(view: View, scrollerId: Int, maxDp: Int = 230) {
+        val scroller = view.findViewById<View>(scrollerId) ?: return
+        scroller.post {
+            val maxPx = dpToPx(view.context, maxDp)
+            if (scroller.height > maxPx) {
+                scroller.layoutParams = scroller.layoutParams.apply { height = maxPx }
+            }
+        }
+    }
 }

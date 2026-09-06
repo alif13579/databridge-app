@@ -38,6 +38,7 @@
         android:orientation="vertical">
 
         <LinearLayout
+            android:id="@+id/llOverlayHeader"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
@@ -171,13 +172,21 @@
             android:paddingVertical="8dp"
             android:visibility="gone" />
 
-        <LinearLayout
-            android:id="@+id/llOverlayHistoryList"
+        <ScrollView
+            android:id="@+id/svOverlayHistoryList"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
             android:layout_marginTop="4dp"
-            android:visibility="gone" />
+            android:scrollbars="vertical"
+            android:fadeScrollbars="false"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/llOverlayHistoryList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
 
         <TextView
             android:id="@+id/tvOverlayNoMatch"
@@ -249,10 +258,12 @@
             android:visibility="gone">
 
             <ScrollView
+                android:id="@+id/svOverlayRemarkChips"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:scrollbars="none">
+                android:scrollbars="vertical"
+                android:fadeScrollbars="false">
                 <LinearLayout
                     android:id="@+id/llOverlayRemarkChips"
                     android:layout_width="match_parent"
