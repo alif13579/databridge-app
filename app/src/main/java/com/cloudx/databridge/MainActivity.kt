@@ -353,7 +353,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             when (menuItem.itemId) {
                 R.id.nav_dashboard -> loadFragment(DashboardFragment())
                 R.id.nav_my_tasks  -> loadFragment(MyTasksFragment())
-                R.id.nav_approvals -> loadFragment(ApprovalsFragment())
+                R.id.nav_approvals -> loadFragment(RoutingApprovalFragment())
                 R.id.nav_space     -> loadFragment(WorkerSpaceFragment())
                 R.id.nav_call_center -> loadFragment(CallCenterFragment())
                 R.id.nav_virtual_routing -> loadFragment(VirtualRoutingFragment())
