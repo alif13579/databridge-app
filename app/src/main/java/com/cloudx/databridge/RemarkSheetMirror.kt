@@ -74,7 +74,7 @@ object RemarkSheetMirror {
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 val conns = ScannerSheetRepository.loadConnections(branchId)
-                    .filter { it.isRemarkConnection() }
+                    .filter { it.enabled && it.isRemarkConnection() }
                 if (conns.isEmpty()) {
                     FirebaseErrorLogger.log("RemarkSheetMirror", "no_remark_connection",
                         "No remark sheet connection for branch", mapOf("branchId" to branchId))
@@ -154,16 +154,35 @@ object RemarkSheetMirror {
         return ConfigSheetParseUtil.colIndexToLetter(idx + 1) // 1-based
     }
 
-    private fun lookupMatches(kind: String, cell: String, ctx: MirrorCtx): Boolean = when (kind) {
-        SheetLookupKind.CONSIGNMENT -> cell.trim() == ctx.consignmentId
-        SheetLookupKind.TODAY -> isToday(cell, ctx.today)
-        else -> false // employee lookups belong to the scanner, not the mirror
+    private fun lookupMatches(kind: String, cell: String, ctx: MirrorCtx): Boolean {
+        if (kind == SheetLookupKind.TODAY) return isToday(cell, ctx.today)
+        if (kind == SheetLookupKind.EMPLOYEE) return false // scanner-only, filtered before match
+        // created_at compares by DATE (sheet "03-Jul-2026" vs stamp
+        // "03-07-2026 14:30") — everything else exact trim match.
+        if (kind == SheetWriteKind.CREATED_AT) {
+            val want = tryParseDate(lookupValue(kind, ctx)) ?: return false
+            return tryParseDate(cell.trim()) == want
+        }
+        return cell.trim() == lookupValue(kind, ctx)
+    }
+
+    /** Event's value for a lookup source: caller values first, then the
+     *  fetched validations row (extras), so a lookup can point at ANY of them
+     *  — e.g. {Date header, created_at} or {Agent header, author_name}. */
+    private fun lookupValue(kind: String, ctx: MirrorCtx): String = when (kind) {
+        SheetLookupKind.CONSIGNMENT -> ctx.consignmentId
+        SheetWriteKind.VERDICT -> ctx.verdict
+        SheetWriteKind.REMARK -> ctx.remark
+        SheetWriteKind.NOTE -> ctx.note
+        SheetWriteKind.STATUS -> ctx.status
+        else -> ctx.extras[kind].orEmpty()
     }
 
     private fun lookupWant(kind: String, ctx: MirrorCtx): String = when (kind) {
         SheetLookupKind.CONSIGNMENT -> ctx.consignmentId
         SheetLookupKind.TODAY -> "আজকের তারিখ"
-        else -> kind
+        SheetLookupKind.EMPLOYEE -> "(scanner)"
+        else -> lookupValue(kind, ctx).ifBlank { "(খালি)" }
     }
 
     private fun writeValue(kind: String, ctx: MirrorCtx): String = when (kind) {
@@ -285,13 +304,12 @@ object RemarkSheetMirror {
     private suspend fun mirrorOne(
         conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx
     ): MirrorOutcome = withContext(Dispatchers.IO) {
-        when (val found = findTargetRow(conn, accessToken, ctx)) {
+        // Row extras FIRST: lookups may point at row data (created_at,
+        // author_name...) so values must exist before matching.
+        val ctx2 = ctx.copy(extras = fetchRowExtras(ctx.consignmentId))
+        when (val found = findTargetRow(conn, accessToken, ctx2)) {
             is FindResult.Miss -> MirrorOutcome.Skipped(found.reason)
             is FindResult.Hit -> {
-                // Row extras AFTER the sheet row matches (needs the cid, which
-                // we only trust once matched — same cid, but ordering keeps a
-                // failed match from costing a Supabase read).
-                val ctx2 = ctx.copy(extras = fetchRowExtras(ctx.consignmentId))
                 found.writes.forEach { (letter, kind) ->
                     ConfigSheetDriveApi.writeCellValue(
                         accessToken, conn.sheetId, found.tab, letter, found.row,
@@ -322,10 +340,12 @@ object RemarkSheetMirror {
     private suspend fun findTargetRow(
         conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx
     ): FindResult = withContext(Dispatchers.IO) {
-        // Mirror enforces remark-kind rules only (a mixed conn's employee
-        // lookup belongs to the scanner flow).
-        val lookups = conn.effectiveLookups().filter { it.kind in SheetLookupKind.REMARK_KINDS }
-        val writes = conn.effectiveWrites().filter { it.kind in SheetWriteKind.REMARK_KINDS }
+        // Mirror enforces remark-kind lookups only (employee belongs to the
+        // scanner flow) and skips scanner value writes.
+        val lookups = conn.effectiveLookups()
+            .filter { it.kind in SheetLookupKind.REMARK_KINDS }
+        val writes = conn.effectiveWrites()
+            .filter { it.kind in SheetWriteKind.REMARK_KINDS }
         if (lookups.isEmpty() || writes.isEmpty()) {
             return@withContext FindResult.Miss("remark lookup/write rule নেই — connection configure করুন")
         }
@@ -378,13 +398,24 @@ object RemarkSheetMirror {
     }
 
     /** True when a Sheets date cell (formatted text) falls on [today]. */
-    private fun isToday(cell: String, today: LocalDate): Boolean {
-        val raw = cell.trim()
-        if (raw.isEmpty()) return false
+    private fun isToday(cell: String, today: LocalDate): Boolean =
+        tryParseDate(cell.trim()) == today
+
+    /** Parses the sheet's zoo of date formats (plus our Dhaka stamp and ISO)
+     *  to a LocalDate. Null when unparseable. */
+    private fun tryParseDate(raw: String): LocalDate? {
+        if (raw.isEmpty()) return null
         for (fmt in datePatterns) {
-            runCatching { if (LocalDate.parse(raw, fmt) == today) return true }
+            runCatching { return LocalDate.parse(raw, fmt) }
         }
-        return false
+        // Our own Dhaka stamp ("dd-MM-yyyy HH:mm") and ISO instants.
+        runCatching {
+            return LocalDate.parse(raw.substringBefore(" "),
+                java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy", java.util.Locale.ENGLISH))
+        }
+        runCatching { return java.time.Instant.parse(raw)
+            .atZone(java.time.ZoneId.of("Asia/Dhaka")).toLocalDate() }
+        return null
     }
 
     /** Dry-run for the Connectors Test button: same match as the live mirror
@@ -399,10 +430,10 @@ object RemarkSheetMirror {
                 ?: return@withContext "Google account connected নেই — Connectors থেকে account connect করুন"
             val ctx = MirrorCtx(consignmentId.trim(), verdict, remark, note, status, LocalDate.now(opsZone))
             try {
-                when (val found = findTargetRow(conn, token, ctx)) {
+                // Extras first (see mirrorOne): lookups may reference row data.
+                val ctx2 = ctx.copy(extras = fetchRowExtras(ctx.consignmentId))
+                when (val found = findTargetRow(conn, token, ctx2)) {
                     is FindResult.Hit -> {
-                        val extras = fetchRowExtras(ctx.consignmentId)
-                        val ctx2 = ctx.copy(extras = extras)
                         val w = found.writes.joinToString(", ") { (l, k) ->
                             val v = writeValue(k, ctx2)
                             "$l$k='${v.ifBlank { "(খালি)" }}'"

@@ -352,45 +352,83 @@ class ConfigConnectorsFragment : Fragment() {
         tvScNoConnections?.visibility = View.GONE
 
         branchConnections.forEach { conn ->
-            // Do NOT cast to LinearLayout: on some devices (Samsung Android 9)
-            // simple_list_item_2 is a TwoLineListItem (RelativeLayout) — the
-            // cast crashed render after every save. ViewGroup covers both.
-            val row = LayoutInflater.from(ctx).inflate(
-                android.R.layout.simple_list_item_2, container, false
-            ) as ViewGroup
-            val title = row.findViewById<TextView>(android.R.id.text1)
-            val sub   = row.findViewById<TextView>(android.R.id.text2)
-            title.text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } }
-            title.textSize = 14f
-            title.setTextColor(ctx.getColor(R.color.theme_text_primary))
-            sub.text = buildString {
-                append(conn.sheetName)
-                val lookTxt = conn.effectiveLookups()
-                    .joinToString("+") { "${it.colRef.trim()}(${it.kind})" }
-                    .ifBlank {
-                        conn.effectiveScannerLookup()
-                            ?.let { "${it.colRef.trim()}(${it.kind})" } ?: ""
-                    }
-                val writeTxt = conn.effectiveWrites()
-                    .joinToString(",") { "${it.colRef.trim()}(${it.kind})" }
-                    .ifBlank {
-                        conn.effectiveScannerWrite()
-                            ?.let { "${it.colRef.trim()}(${it.kind})" } ?: ""
-                    }
-                if (lookTxt.isNotBlank() || writeTxt.isNotBlank()) {
-                    append("  •  $lookTxt → $writeTxt")
-                }
+            val card = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(28, 24, 28, 20)
+                setBackgroundResource(R.drawable.bg_card_rounded)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = 20 }
+                alpha = if (conn.enabled) 1f else 0.55f
             }
-            sub.textSize = 11f
-            sub.setTextColor(ctx.getColor(R.color.theme_text_secondary))
-            row.setPadding(14, 12, 14, 12)
-            row.setBackgroundResource(R.drawable.bg_card_rounded)
-            row.layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = 20 }
-            row.setOnClickListener { startEditConnection(conn) }
-            row.setOnLongClickListener { connectionLongPress(conn); true }
-            container.addView(row)
+            val title = TextView(ctx).apply {
+                text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } } +
+                    if (conn.enabled) "" else " (disabled)"
+                textSize = 14f
+                setTextColor(ctx.getColor(R.color.theme_text_primary))
+            }
+            val sub = TextView(ctx).apply {
+                text = buildString {
+                    append(conn.sheetName)
+                    val lookTxt = conn.effectiveLookups()
+                        .joinToString("+") { "${it.colRef.trim()}(${it.kind})" }
+                        .ifBlank {
+                            conn.effectiveScannerLookup()
+                                ?.let { "${it.colRef.trim()}(${it.kind})" } ?: ""
+                        }
+                    val writeTxt = conn.effectiveWrites()
+                        .joinToString(",") { "${it.colRef.trim()}(${it.kind})" }
+                        .ifBlank {
+                            conn.effectiveScannerWrite()
+                                ?.let { "${it.colRef.trim()}(${it.kind})" } ?: ""
+                        }
+                    if (lookTxt.isNotBlank() || writeTxt.isNotBlank()) {
+                        append("  •  $lookTxt → $writeTxt")
+                    }
+                }
+                textSize = 11f
+                setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            }
+            card.addView(title)
+            card.addView(sub)
+            val btnRow = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+            }
+            fun actionBtn(label: String, onTap: () -> Unit): TextView =
+                TextView(ctx).apply {
+                    text = label
+                    textSize = 12f
+                    setTextColor(ctx.getColor(R.color.theme_text_accent))
+                    setPadding(8, 14, 24, 4)
+                    setOnClickListener { onTap() }
+                }
+            if (conn.isRemarkConnection()) {
+                btnRow.addView(actionBtn("🔍 Test") { showDryRunDialog(conn) })
+            }
+            btnRow.addView(actionBtn(if (conn.enabled) "⏸ Disable" else "▶ Enable") {
+                setConnectionEnabled(conn, !conn.enabled)
+            })
+            btnRow.addView(actionBtn("🗑 Delete") { confirmDeleteConnection(conn) })
+            card.addView(btnRow)
+            card.setOnClickListener { startEditConnection(conn) }
+            container.addView(card)
+        }
+    }
+
+    /** Enable/disable toggle per connection (disabled = skipped by mirror,
+     *  sync and test, kept for record). */
+    private fun setConnectionEnabled(conn: ScannerSheetConn, enabled: Boolean) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val updated = conn.copy(enabled = enabled)
+                val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                ScannerSheetRepository.saveConnectionFields(
+                    conn.branchId, conn.connectionId, mapOf("enabled" to enabled), uid)
+                branchConnections = branchConnections.map { if (it.connectionId == conn.connectionId) updated else it }
+                if (isAdded) renderConnectionsList()
+            } catch (e: Exception) {
+                if (isAdded) Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -495,7 +533,7 @@ class ConfigConnectorsFragment : Fragment() {
             refText = rule.colRef,
             mode = rule.mode,
             kinds = SheetLookupKind.ALL,
-            kindLabels = listOf("consignment", "today", "employee"),
+            kindLabels = SheetLookupKind.ALL,
             kind = rule.kind,
             refHint = "C / 3 / Consignment ID",
         )
@@ -763,7 +801,12 @@ class ConfigConnectorsFragment : Fragment() {
             else             -> View.GONE
         }
         btnScStepConnect?.visibility = if (connectStep == 4) View.VISIBLE else View.GONE
-        if (connectStep == 4) { updateColumnSummary() }
+        if (connectStep == 4) {
+            updateColumnSummary()
+            // Sheet is already picked (step 2) — show its structure right away
+            // so headers are visible WHILE defining rules, like the sheets tab.
+            previewRules()
+        }
 
         tvScConnectError?.visibility = View.GONE
 

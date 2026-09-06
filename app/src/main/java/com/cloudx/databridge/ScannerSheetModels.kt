@@ -47,6 +47,8 @@ data class ScannerSheetConn(
     /** Header row (1-based) that TEXT-mode refs match against. One per
      *  connection — all text refs on every rule resolve from this row. */
     val headerRow: Int = 1,
+    /** Disabled connections are skipped by mirror/sync/test (kept for record). */
+    val enabled: Boolean = true,
 ) {
     /** Lookup rules actually used: dynamic list, else legacy conversion
      *  (matchColumn→consignment, dateMatchColumn→today) for remark conns. */
@@ -103,13 +105,19 @@ object SheetColMode {
     const val INDEX = "index"
 }
 
-/** Lookup value sources for dynamic connection rules. */
+/** Lookup value sources: every write source except the scanner's value, plus
+ *  the scanner's employee. A lookup compares the sheet cell against the
+ *  event's value for that source (today = date compare, rest = exact trim
+ *  match). This is the "validations er kon column er sathe milbe" mapping:
+ *  e.g. lookup {Text "Date", created_at} + lookup {Text "Consignment",
+ *  consignment} finds the row whose Date cell == the remark's created date
+ *  AND whose Consignment cell == its consignment. */
 object SheetLookupKind {
     const val CONSIGNMENT = "consignment"
     const val TODAY = "today"
     const val EMPLOYEE = "employee" // scanner: the scanned employee ID
-    val ALL = listOf(CONSIGNMENT, TODAY, EMPLOYEE)
-    val REMARK_KINDS = listOf(CONSIGNMENT, TODAY)
+    val ALL = (listOf(CONSIGNMENT, TODAY, EMPLOYEE) + SheetWriteKind.REMARK_KINDS).distinct()
+    val REMARK_KINDS = ALL - EMPLOYEE
 }
 
 /** Write value sources for dynamic connection rules. Either caller-passed

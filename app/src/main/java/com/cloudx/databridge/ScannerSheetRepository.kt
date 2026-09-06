@@ -65,6 +65,8 @@ object ScannerSheetRepository {
                     )
                 },
                 headerRow       = child.child("headerRow").getValue(Long::class.java)?.toInt() ?: 1,
+                // Missing = true (old conns predate the flag).
+                enabled         = child.child("enabled").getValue(Boolean::class.java) ?: true,
             )
         }
     }
@@ -95,6 +97,7 @@ object ScannerSheetRepository {
             "writes"          to conn.writes.filter { it.colRef.isNotBlank() }
                 .map { mapOf("colRef" to it.colRef.trim(), "kind" to it.kind, "mode" to it.mode) },
             "headerRow"       to conn.resolvedHeaderRow(),
+            "enabled"         to conn.enabled,
             "googleEmail"     to conn.googleEmail,
             "connectedBy"     to actingUid,
             "connectedByName" to actingName,
@@ -114,8 +117,24 @@ object ScannerSheetRepository {
         connectionId
     }
 
-    suspend fun deleteConnection(branchId: String, connectionId: String, actingUid: String, actingName: String) =
-        withContext(Dispatchers.IO) {
+    /** Partial field update (enable/disable toggle) with audit-history entry. */
+    suspend fun saveConnectionFields(
+        branchId: String, connectionId: String, fields: Map<String, Any?>, actingUid: String
+    ) = withContext(Dispatchers.IO) {
+        val branchRef = db.reference.child("config/connectors/$branchId")
+        branchRef.child("current").child(connectionId).updateChildren(fields).await()
+        branchRef.child("history").push().setValue(
+            mapOf(
+                "connectionId" to connectionId,
+                "action" to "fields_updated",
+                "fields" to fields.keys.joinToString(","),
+                "changedAt" to System.currentTimeMillis(),
+                "changedBy" to actingUid,
+            )
+        ).await()
+    }
+
+    suspend fun deleteConnection(branchId: String, connectionId: String, actingUid: String, actingName: String) =        withContext(Dispatchers.IO) {
             val branchRef = db.reference.child("config/connectors/$branchId")
             branchRef.child("current").child(connectionId).removeValue().await()
             branchRef.child("history").push().setValue(
@@ -195,6 +214,7 @@ object ScannerSheetRepository {
         value: String
     ): WriteResult = withContext(Dispatchers.IO) {
         try {
+            if (!conn.enabled) return@withContext WriteResult.Failure("Connection disabled")
             val tabName = resolveTabName(conn.tabPattern)
             val headerRow = conn.resolvedHeaderRow()
             // Scanner rules: lookup kind=employee, write kind=value. Legacy
