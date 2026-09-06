@@ -40,6 +40,14 @@ data class ScannerSheetConn(
     val enabled: Boolean = true,
     /** Which fragment this sheet serves ([SheetPurpose]). Required. */
     val purpose: String = "",
+    /** Date scope — which dates this sheet covers ([SheetScope]). Missing =
+     *  global (old connections predate scopes). */
+    val scopeType: String = SheetScope.GLOBAL,
+    /** Month scope "yyyy-MM" (e.g. "2026-09"). Only for [SheetScope.MONTH]. */
+    val scopeMonth: String = "",
+    /** Range scope "yyyy-MM-dd" bounds. Only for [SheetScope.RANGE]. */
+    val scopeFrom: String = "",
+    val scopeTo: String = "",
 ) {
     fun effectiveLookups(): List<SheetLookupRule> =
         lookups.filter { it.colRef.isNotBlank() }
@@ -111,6 +119,104 @@ object SheetPurpose {
         else -> purpose.ifBlank { "— Fragment বেছে নিন —" }
     }
     fun isKnown(purpose: String): Boolean = purpose in ALL
+}
+
+/** Date scope — which dates a connection covers, chosen at connect time
+ *  (step 1, Scope dropdown). Reading/writing for a branch + date resolves to
+ *  the MOST SPECIFIC covering scope (range > month > global) so the
+ *  appropriate sheet is found without ambiguity. */
+object SheetScope {
+    const val RANGE = "range"
+    const val MONTH = "month"
+    const val GLOBAL = "global"
+    val ALL = listOf(RANGE, MONTH, GLOBAL)
+    fun label(type: String): String = when (type) {
+        RANGE -> "🗓 Date range"
+        MONTH -> "📅 Month + Year"
+        GLOBAL -> "🌍 Global (sob date)"
+        else -> "— Scope বেছে নিন —"
+    }
+    fun isKnown(type: String): Boolean = type in ALL
+
+    private val MONTH_FMT = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM")
+    private val DAY_FMT = java.time.format.DateTimeFormatter.ISO_LOCAL_DATE
+
+    /** Normalizes wizard inputs: month "2026-9" → "2026-09", day trims. */
+    fun normMonth(raw: String): String? {
+        try {
+            return java.time.YearMonth.parse(raw.trim(), MONTH_FMT).toString()
+        } catch (_: Exception) { /* fall through to lenient parse */ }
+        return try {
+            val p = raw.trim().split("-")
+            if (p.size != 2) null
+            else java.time.YearMonth.of(p[0].toInt(), p[1].toInt()).toString()
+        } catch (_: Exception) { null }
+    }
+
+    fun normDay(raw: String): String? = try {
+        java.time.LocalDate.parse(raw.trim(), DAY_FMT).toString()
+    } catch (_: Exception) { null }
+
+    /** True when this scope covers [date]. Invalid params → false. */
+    fun covers(
+        scopeType: String, scopeMonth: String, scopeFrom: String, scopeTo: String,
+        date: java.time.LocalDate,
+    ): Boolean = when (scopeType) {
+        MONTH -> try {
+            java.time.YearMonth.parse(scopeMonth.trim(), MONTH_FMT) ==
+                java.time.YearMonth.from(date)
+        } catch (_: Exception) { false }
+        RANGE -> try {
+            val from = java.time.LocalDate.parse(scopeFrom.trim(), DAY_FMT)
+            val to = java.time.LocalDate.parse(scopeTo.trim(), DAY_FMT)
+            !date.isBefore(from) && !date.isAfter(to)
+        } catch (_: Exception) { false }
+        else -> true // GLOBAL + legacy blank
+    }
+
+    /** Specificity rank: lower wins (range 0, month 1, global 2). */
+    fun rank(scopeType: String): Int = when (scopeType) {
+        RANGE -> 0
+        MONTH -> 1
+        else -> 2
+    }
+
+    private val SHORT_MONTHS = listOf(
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    )
+
+    /** Short badge: "🌍 Global" / "📅 Sep 2026" / "📅 01 Sep → 15 Sep 2026". */
+    fun badge(scopeType: String, scopeMonth: String, scopeFrom: String, scopeTo: String): String {
+        if (scopeType == MONTH) {
+            val ym = try {
+                java.time.YearMonth.parse(scopeMonth.trim(), MONTH_FMT)
+            } catch (_: Exception) { return "📅 ${scopeMonth.trim()}" }
+            return "📅 ${SHORT_MONTHS[ym.monthValue - 1]} ${ym.year}"
+        }
+        if (scopeType == RANGE) {
+            fun fmt(raw: String): String = try {
+                val d = java.time.LocalDate.parse(raw.trim(), DAY_FMT)
+                "%02d %s".format(d.dayOfMonth, SHORT_MONTHS[d.monthValue - 1])
+            } catch (_: Exception) { raw.trim() }
+            val year = try {
+                java.time.LocalDate.parse(scopeTo.trim(), DAY_FMT).year.toString()
+            } catch (_: Exception) { "" }
+            return "📅 ${fmt(scopeFrom)} → ${fmt(scopeTo)}${if (year.isNotBlank()) " $year" else ""}"
+        }
+        return "🌍 Global"
+    }
+}
+
+/** Most-specific covering connections for [date] (range > month > global).
+ *  Empty when nothing covers the date — readers/writers then skip. */
+fun List<ScannerSheetConn>.selectForDate(date: java.time.LocalDate): List<ScannerSheetConn> {
+    val covering = filter {
+        SheetScope.covers(it.scopeType, it.scopeMonth, it.scopeFrom, it.scopeTo, date)
+    }
+    if (covering.isEmpty()) return emptyList()
+    val best = covering.minOf { SheetScope.rank(it.scopeType) }
+    return covering.filter { SheetScope.rank(it.scopeType) == best }
 }
 
 /** Lookup value sources: the remark event's data. A lookup compares the sheet

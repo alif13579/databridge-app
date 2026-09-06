@@ -218,10 +218,57 @@
                 <Spinner android:id="@+id/spinnerScPurpose"
                     android:layout_width="match_parent" android:layout_height="46dp"
                     android:background="@drawable/bg_input_rounded"
-                    android:padding="10dp" android:layout_marginBottom="4dp" />
+                    android:padding="10dp" android:layout_marginBottom="14dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Branch + fragment wise single / multiple sheet connect kora jabe"
+                    android:text="SCOPE (ei sheet kon date-er jonno)" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
+
+                <Spinner android:id="@+id/spinnerScScope"
+                    android:layout_width="match_parent" android:layout_height="46dp"
+                    android:background="@drawable/bg_input_rounded"
+                    android:padding="10dp" android:layout_marginBottom="8dp" />
+
+                <LinearLayout android:id="@+id/layoutScScopeMonth"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="8dp"
+                    android:visibility="gone">
+
+                    <Spinner android:id="@+id/spinnerScScopeMonth"
+                        android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp" android:layout_marginEnd="6dp" />
+
+                    <EditText android:id="@+id/etScScopeYear"
+                        android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp" android:layout_marginStart="6dp"
+                        android:hint="Year (2026)" android:textSize="13sp"
+                        android:inputType="number" android:maxLines="1" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/layoutScScopeRange"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:layout_marginBottom="8dp"
+                    android:visibility="gone">
+
+                    <EditText android:id="@+id/etScScopeFrom"
+                        android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp" android:layout_marginEnd="6dp"
+                        android:hint="From (2026-09-01)" android:textSize="13sp"
+                        android:inputType="date" android:maxLines="1" />
+
+                    <EditText android:id="@+id/etScScopeTo"
+                        android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp" android:layout_marginStart="6dp"
+                        android:hint="To (2026-09-15)" android:textSize="13sp"
+                        android:inputType="date" android:maxLines="1" />
+                </LinearLayout>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Branch + fragment + scope wise single / multiple sheet — date dile appropriate sheet pawa jabe"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"

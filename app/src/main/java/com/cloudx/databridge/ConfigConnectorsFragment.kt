@@ -110,10 +110,18 @@ class ConfigConnectorsFragment : Fragment() {
 
     private var connectStep = 1
     private var editingConnectionId: String = "" // blank = new connection
-    // Step-1 selections: which branch + which fragment this sheet serves.
-    // (Wizard dropdowns — outer spinner only filters the Panel-1 list.)
+    // Step-1 selections: which branch + which fragment + which date scope this
+    // sheet serves. (Wizard dropdowns — outer spinner only filters Panel-1.)
     private var connPurpose: String = SheetPurpose.REMARK
     private var wizardBranchId: String = ""
+    private var connScopeType: String = SheetScope.GLOBAL
+    private var spinnerScScope: Spinner? = null
+    private var layoutScScopeMonth: View? = null
+    private var spinnerScScopeMonth: Spinner? = null
+    private var etScScopeYear: EditText? = null
+    private var layoutScScopeRange: View? = null
+    private var etScScopeFrom: EditText? = null
+    private var etScScopeTo: EditText? = null
 
     private var googleSignInClient: GoogleSignInClient? = null
     private var googleAccount: GoogleSignInAccount? = null
@@ -269,6 +277,13 @@ class ConfigConnectorsFragment : Fragment() {
         btnScCancelConnect?.setOnClickListener { exitWizardToBranchSelect() }
         spinnerScWizardBranch = view.findViewById(R.id.spinnerScWizardBranch)
         spinnerScPurpose = view.findViewById(R.id.spinnerScPurpose)
+        spinnerScScope = view.findViewById(R.id.spinnerScScope)
+        layoutScScopeMonth = view.findViewById(R.id.layoutScScopeMonth)
+        spinnerScScopeMonth = view.findViewById(R.id.spinnerScScopeMonth)
+        etScScopeYear = view.findViewById(R.id.etScScopeYear)
+        layoutScScopeRange = view.findViewById(R.id.layoutScScopeRange)
+        etScScopeFrom = view.findViewById(R.id.etScScopeFrom)
+        etScScopeTo = view.findViewById(R.id.etScScopeTo)
         setupWizardSpinners()
         btnScPickAccount?.setOnClickListener { pickGoogleAccount() }
         tvScSelectedSheet?.setOnClickListener { showSheetPicker() }
@@ -400,8 +415,22 @@ class ConfigConnectorsFragment : Fragment() {
                 setBackgroundColor(android.graphics.Color.parseColor(accentBg))
                 setPadding(20, 8, 20, 8)
             }
+            val scopeBadge = TextView(ctx).apply {
+                text = SheetScope.badge(conn.scopeType, conn.scopeMonth, conn.scopeFrom, conn.scopeTo)
+                textSize = 11f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(android.graphics.Color.parseColor("#0369A1"))
+                setBackgroundColor(android.graphics.Color.parseColor("#E0F2FE"))
+                setPadding(20, 8, 20, 8)
+                val lp = android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+                lp.marginStart = 12
+                layoutParams = lp
+            }
             topRow.addView(title)
             topRow.addView(badge)
+            topRow.addView(scopeBadge)
             card.addView(topRow)
             val sub = TextView(ctx).apply {
                 text = buildString {
@@ -728,6 +757,26 @@ class ConfigConnectorsFragment : Fragment() {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+        spinnerScScope?.adapter = ArrayAdapter(
+            ctx, android.R.layout.simple_spinner_item,
+            SheetScope.ALL.map { SheetScope.label(it) }
+        ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        spinnerScScope?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
+                connScopeType = SheetScope.ALL.getOrElse(position) { SheetScope.GLOBAL }
+                updateScopeRows()
+                updateWizardSubtitle()
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+        val monthNames = listOf(
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        )
+        spinnerScScopeMonth?.adapter = ArrayAdapter(
+            ctx, android.R.layout.simple_spinner_item, monthNames
+        ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        refreshWizardBranchSpinner()
         spinnerScWizardBranch?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
                 wizardBranchId = myBranches.getOrNull(position)?.first.orEmpty()
@@ -753,6 +802,10 @@ class ConfigConnectorsFragment : Fragment() {
         }
         val purposePos = SheetPurpose.ALL.indexOf(connPurpose).takeIf { it >= 0 } ?: 0
         spinnerScPurpose?.setSelection(purposePos)
+        val scopePos = SheetScope.ALL.indexOf(connScopeType).takeIf { it >= 0 }
+            ?: SheetScope.ALL.indexOf(SheetScope.GLOBAL)
+        spinnerScScope?.setSelection(scopePos)
+        updateScopeRows()
         updateWizardSubtitle()
     }
 
@@ -762,8 +815,76 @@ class ConfigConnectorsFragment : Fragment() {
             ?: wizardBranchId.ifBlank { selectedBranchId }
         tvScConnBranchSub?.text = listOfNotNull(
             branchName.takeIf { it.isNotBlank() },
-            SheetPurpose.label(connPurpose).takeIf { SheetPurpose.isKnown(connPurpose) }
+            SheetPurpose.label(connPurpose).takeIf { SheetPurpose.isKnown(connPurpose) },
+            scopeBadgeForInputs().takeIf { it.isNotBlank() },
         ).joinToString(" • ").ifBlank { "—" }
+    }
+
+    /** Shows month OR range inputs depending on the scope dropdown. */
+    private fun updateScopeRows() {
+        layoutScScopeMonth?.visibility =
+            if (connScopeType == SheetScope.MONTH) View.VISIBLE else View.GONE
+        layoutScScopeRange?.visibility =
+            if (connScopeType == SheetScope.RANGE) View.VISIBLE else View.GONE
+    }
+
+    private fun defaultScopeInputs() {
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Dhaka"))
+        spinnerScScopeMonth?.setSelection((cal.get(java.util.Calendar.MONTH)).coerceIn(0, 11))
+        if (etScScopeYear?.text?.toString()?.trim().isNullOrBlank()) {
+            etScScopeYear?.setText(cal.get(java.util.Calendar.YEAR).toString())
+        }
+    }
+
+    private data class ScopeSel(
+        val type: String, val month: String, val from: String, val to: String,
+    )
+
+    /** Normalized scope from the Step-1 inputs, or null (error already shown). */
+    private fun collectScope(): ScopeSel? {
+        if (!SheetScope.isKnown(connScopeType)) { showScErr("Scope বেছে নিন"); return null }
+        if (connScopeType == SheetScope.MONTH) {
+            val month = (spinnerScScopeMonth?.selectedItemPosition ?: 0) + 1
+            val year = etScScopeYear?.text?.toString()?.trim()?.toIntOrNull()
+            if (year == null || year !in 2000..2100) { showScErr("Year ঠিক দিন (2000–2100)"); return null }
+            val norm = SheetScope.normMonth("%04d-%02d".format(year, month))
+                ?: run { showScErr("Month ঠিক নেই"); return null }
+            return ScopeSel(connScopeType, norm, "", "")
+        }
+        if (connScopeType == SheetScope.RANGE) {
+            val from = SheetScope.normDay(etScScopeFrom?.text?.toString().orEmpty())
+                ?: run { showScErr("From date ঠিক দিন (yyyy-MM-dd)"); return null }
+            val to = SheetScope.normDay(etScScopeTo?.text?.toString().orEmpty())
+                ?: run { showScErr("To date ঠিক দিন (yyyy-MM-dd)"); return null }
+            if (from > to) { showScErr("From date To date-er pore hote parbena"); return null }
+            return ScopeSel(connScopeType, "", from, to)
+        }
+        return ScopeSel(SheetScope.GLOBAL, "", "", "")
+    }
+
+    private fun scopeBadgeForInputs(): String {
+        val s = collectScopeQuiet() ?: return ""
+        return SheetScope.badge(s.type, s.month, s.from, s.to)
+    }
+
+    /** collectScope() without error UI (subtitle preview only). */
+    private fun collectScopeQuiet(): ScopeSel? {
+        if (!SheetScope.isKnown(connScopeType)) return null
+        if (connScopeType == SheetScope.MONTH) {
+            val month = (spinnerScScopeMonth?.selectedItemPosition ?: 0) + 1
+            val year = etScScopeYear?.text?.toString()?.trim()?.toIntOrNull()
+                ?: return null
+            if (year !in 2000..2100) return null
+            val norm = SheetScope.normMonth("%04d-%02d".format(year, month)) ?: return null
+            return ScopeSel(connScopeType, norm, "", "")
+        }
+        if (connScopeType == SheetScope.RANGE) {
+            val from = SheetScope.normDay(etScScopeFrom?.text?.toString().orEmpty()) ?: return null
+            val to = SheetScope.normDay(etScScopeTo?.text?.toString().orEmpty()) ?: return null
+            if (from > to) return null
+            return ScopeSel(connScopeType, "", from, to)
+        }
+        return ScopeSel(SheetScope.GLOBAL, "", "", "")
     }
 
     // ── Wizard entry/exit ────────────────────────────────────────────────────
@@ -772,6 +893,10 @@ class ConfigConnectorsFragment : Fragment() {
         selectedSheet = null
         connPurpose = SheetPurpose.REMARK
         wizardBranchId = selectedBranchId
+        connScopeType = SheetScope.GLOBAL
+        etScScopeFrom?.setText("")
+        etScScopeTo?.setText("")
+        defaultScopeInputs()
         refreshWizardBranchSpinner()
         etScNickname?.setText("")
         etScTabPattern?.setText("Day {dd}")
@@ -790,6 +915,21 @@ class ConfigConnectorsFragment : Fragment() {
             else SheetPurpose.REMARK
         }
         wizardBranchId = conn.branchId.ifBlank { selectedBranchId }
+        connScopeType = conn.scopeType.takeIf { SheetScope.isKnown(it) } ?: SheetScope.GLOBAL
+        // Seed scope inputs: month → month spinner + year; range → from/to.
+        if (connScopeType == SheetScope.MONTH) {
+            try {
+                val ym = java.time.YearMonth.parse(conn.scopeMonth.trim())
+                spinnerScScopeMonth?.setSelection((ym.monthValue - 1).coerceIn(0, 11))
+                etScScopeYear?.setText(ym.year.toString())
+            } catch (_: Exception) { defaultScopeInputs() }
+        } else {
+            defaultScopeInputs()
+        }
+        if (connScopeType == SheetScope.RANGE) {
+            etScScopeFrom?.setText(conn.scopeFrom)
+            etScScopeTo?.setText(conn.scopeTo)
+        }
         refreshWizardBranchSpinner()
         etScNickname?.setText(conn.nickname)
         etScTabPattern?.setText(conn.tabPattern.ifBlank { "Day {dd}" })
@@ -837,6 +977,7 @@ class ConfigConnectorsFragment : Fragment() {
             1 -> {
                 if (wizardBranchId.isBlank()) { showScErr("Branch বেছে নিন"); return }
                 if (!SheetPurpose.isKnown(connPurpose)) { showScErr("Fragment বেছে নিন"); return }
+                if (collectScope() == null) return
                 if (googleAccount == null) { showScErr("প্রথমে Google account select করুন"); return }
             }
             2 -> if (selectedSheet == null) { showScErr("একটি Sheet বেছে নিন"); return }
@@ -1097,6 +1238,11 @@ class ConfigConnectorsFragment : Fragment() {
         val saveBranchId = wizardBranchId.ifBlank { selectedBranchId }
         if (saveBranchId.isBlank()) { showScErr("Branch বেছে নিন (Step 1)"); return }
         if (!SheetPurpose.isKnown(connPurpose)) { showScErr("Fragment বেছে নিন (Step 1)"); return }
+        val scope = collectScope() ?: return
+        val scopeType = scope.type
+        val scopeMonth = scope.month
+        val scopeFrom = scope.from
+        val scopeTo = scope.to
 
         val nickname = etScNickname?.text?.toString()?.trim().orEmpty()
         val tabPattern = etScTabPattern?.text?.toString()?.trim().orEmpty().ifBlank { "Day {dd}" }
@@ -1158,6 +1304,10 @@ class ConfigConnectorsFragment : Fragment() {
                     tabPattern   = tabPattern,
                     headerRow    = headerRow,
                     purpose      = connPurpose,
+                    scopeType    = scopeType,
+                    scopeMonth   = scopeMonth,
+                    scopeFrom    = scopeFrom,
+                    scopeTo      = scopeTo,
                     lookups      = normLookups,
                     writes       = normWrites,
                     googleEmail  = acct.email.orEmpty(),

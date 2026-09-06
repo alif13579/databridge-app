@@ -80,8 +80,11 @@ object RemarkSheetMirror {
         )
         GlobalScope.launch(Dispatchers.IO) {
             try {
+                // Most-specific scope covering today wins (range > month >
+                // global) so the appropriate sheet gets the write.
                 val conns = ScannerSheetRepository.loadConnections(branchId)
                     .filter { it.enabled && it.isRemarkConnection() }
+                    .selectForDate(LocalDate.now(opsZone))
                 if (conns.isEmpty()) {
                     FirebaseErrorLogger.log("RemarkSheetMirror", "no_remark_connection",
                         "No remark sheet connection for branch", mapOf("branchId" to branchId))
@@ -505,6 +508,7 @@ object RemarkSheetMirror {
             val conns = try {
                 ScannerSheetRepository.loadConnections(branchId)
                     .filter { it.enabled && it.isRemarkConnection() }
+                    .selectForDate(today)
             } catch (e: Exception) {
                 errs.add("$branchId: connection পড়া যায়নি")
                 continue
@@ -523,7 +527,7 @@ object RemarkSheetMirror {
                 }
             }
         }
-        if (totConns == 0) return@withContext "কোনো branch-এ remark connection নেই"
+        if (totConns == 0) return@withContext "আজকের জন্য কোনো branch-এ remark connection নেই (scope দেখুন)"
         var msg = "✓ ${tot.syncedRows} row synced (${tot.syncedCells} cells) · " +
             "${tot.filled} already filled · $totNoCc no CC yet · " +
             "${tot.scanned} sheet rows দেখা ($totConns connection)"

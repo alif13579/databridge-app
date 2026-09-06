@@ -67,6 +67,12 @@ object ScannerSheetRepository {
                 // Missing = "" → inferred from rules (see purposeLabel).
                 purpose         = child.child("purpose").getValue(String::class.java)
                     ?.takeIf { it == SheetPurpose.SCANNER || it == SheetPurpose.REMARK } ?: "",
+                // Missing = global (conns predate scopes).
+                scopeType       = child.child("scopeType").getValue(String::class.java)
+                    ?.takeIf { SheetScope.isKnown(it) } ?: SheetScope.GLOBAL,
+                scopeMonth      = child.child("scopeMonth").getValue(String::class.java).orEmpty(),
+                scopeFrom       = child.child("scopeFrom").getValue(String::class.java).orEmpty(),
+                scopeTo         = child.child("scopeTo").getValue(String::class.java).orEmpty(),
             )
         }
     }
@@ -96,6 +102,10 @@ object ScannerSheetRepository {
             "headerRow"       to conn.resolvedHeaderRow(),
             "enabled"         to conn.enabled,
             "purpose"         to conn.purpose,
+            "scopeType"       to conn.scopeType,
+            "scopeMonth"      to conn.scopeMonth,
+            "scopeFrom"       to conn.scopeFrom,
+            "scopeTo"         to conn.scopeTo,
             "googleEmail"     to conn.googleEmail,
             "connectedBy"     to actingUid,
             "connectedByName" to actingName,
