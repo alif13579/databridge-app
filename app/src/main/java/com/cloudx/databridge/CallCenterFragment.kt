@@ -391,6 +391,8 @@ class CallCenterFragment : Fragment() {
         tvLoadingPercent = view.findViewById(R.id.twCcaLoadingPercent)
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
+        btnSyncSheet = view.findViewById(R.id.btnCcaSyncSheet)
+        btnSyncSheet.setOnClickListener { startBulkSheetSync() }
 
         etSearch = view.findViewById(R.id.twCcaSearchInput)
         tvSearchClear = view.findViewById(R.id.twCcaSearchClear)
@@ -1618,6 +1620,9 @@ class CallCenterFragment : Fragment() {
             }
         }
     }
+
+    // ── Header Sync to Sheet (bulk — same as the extension's ⇪ Sheet) ────
+    private lateinit var btnSyncSheet: TextView
 
     // ── Run type selection (mirrors WorkerSpaceFragment pattern) ──────
     private lateinit var spinnerCcRunType: Spinner
@@ -3243,6 +3248,47 @@ class CallCenterFragment : Fragment() {
         }
         setupFilterTabs()
         applyFilters()
+    }
+
+    /**
+     * Header ⇪ Sync to Sheet (bulk — same as the extension's ⇪ Sheet button):
+     * branch-wise, every branch uses ONLY its own remark connections → its own
+     * sheet. Reads each connection's today tab, takes rows whose write cells
+     * are blank, matches by consignment against Supabase's consolidated CC,
+     * fills ONLY blank cells. Single remarks save the same way on save; this
+     * backfills the ~50% that had no matching sheet row at save time.
+     */
+    private fun startBulkSheetSync() {
+        if (!::btnSyncSheet.isInitialized) return
+        btnSyncSheet.isEnabled = false
+        val orig = btnSyncSheet.text.toString()
+        btnSyncSheet.text = "⏳ Sync…"
+        Toast.makeText(requireContext(), "⏳ Sheet sync cholche…", Toast.LENGTH_SHORT).show()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val summary = try {
+                RemarkSheetMirror.bulkSyncToSheet(
+                    appContext = requireContext().applicationContext,
+                    branchIds = RbacManager.current.branchIds,
+                    onProgress = { label ->
+                        activity?.runOnUiThread {
+                            if (isAdded && ::btnSyncSheet.isInitialized) {
+                                btnSyncSheet.text = "⏳ $label".take(18)
+                            }
+                        }
+                    }
+                )
+            } catch (e: Exception) {
+                "✕ Sync failed: ${e.message?.take(80) ?: "error"}"
+            }
+            if (!isAdded) return@launch
+            btnSyncSheet.isEnabled = true
+            btnSyncSheet.text = if (summary.startsWith("✓")) "✓ Done" else "⚠ Retry"
+            Toast.makeText(requireContext(), summary, Toast.LENGTH_LONG).show()
+            viewLifecycleOwner.lifecycleScope.launch {
+                kotlinx.coroutines.delay(2500)
+                if (isAdded && ::btnSyncSheet.isInitialized) btnSyncSheet.text = orig
+            }
+        }
     }
 
 

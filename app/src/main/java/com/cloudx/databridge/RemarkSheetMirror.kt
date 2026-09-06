@@ -406,6 +406,210 @@ object RemarkSheetMirror {
         return null
     }
 
+    /** Consolidated CC per consignment for bulk sync: latest CC row wins. */
+    private data class BulkVals(
+        val feedback: String,
+        val validation: String,
+        val validatorName: String,
+    )
+
+    private data class BulkCounts(
+        var scanned: Int = 0,
+        var filled: Int = 0,
+        var syncedRows: Int = 0,
+        var syncedCells: Int = 0,
+        var noCc: Int = 0,
+    )
+
+    /**
+     * Bulk Sync to Sheet (Call Center header button, same as the extension's
+     * ⇪ Sheet): branch-wise — every branch uses ONLY its own remark
+     * connections → its own sheet. Sheet-driven: read each connection's today
+     * tab, take rows whose write cells are blank, match by consignment id
+     * against Supabase's consolidated CC (latest CC remark per consignment
+     * today), fill ONLY the blank cells. Never overwrites filled cells,
+     * never appends. Returns a human-readable summary (Bangla).
+     *
+     * [onProgress] fires on the caller's thread (IO when called from a
+     * coroutine) with short labels — post to main before touching views.
+     */
+    suspend fun bulkSyncToSheet(
+        appContext: Context,
+        branchIds: List<String>,
+        onProgress: (String) -> Unit = {},
+    ): String = withContext(Dispatchers.IO) {
+        val branches = branchIds.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        if (branches.isEmpty()) return@withContext "কোনো branch পাওয়া যায়নি"
+        val token = silentWriteToken(appContext.applicationContext)
+            ?: return@withContext "Google account connected নেই — Connectors থেকে account connect করুন"
+        val today = LocalDate.now(opsZone)
+        val todayStartIso = today.atStartOfDay(opsZone).toInstant().toString()
+
+        // 1. Catalog: english remark → feedback (category).
+        val catalog: Map<String, String> = try {
+            SupabaseClientManager.fetchRemarkOptions("RemarkSheetMirror", "CC")
+                .associate { it.textEn.trim() to it.category.trim() }
+                .filterKeys { it.isNotEmpty() }
+        } catch (_: Exception) { emptyMap() }
+
+        // 2. Consolidated CC per (branch, consignment) for today.
+        val consolidated = mutableMapOf<String, BulkVals>()
+        for (branchId in branches) {
+            val rows = try {
+                SupabaseClientManager.fetchValidations(
+                    "RemarkSheetMirror", "bulk_sync", listOf(
+                        "branch_id" to "eq.$branchId",
+                        "created_at" to "gte.$todayStartIso",
+                        "order" to "created_at.desc",
+                    )
+                )
+            } catch (_: Exception) { emptyList() }
+            val latestCcByCid = mutableMapOf<String, org.json.JSONObject>()
+            val latestMsByCid = mutableMapOf<String, Long>()
+            rows.forEach { row ->
+                if (row.optString("source") != "CC") return@forEach
+                val cid = row.optString("consignment").trim()
+                if (cid.isEmpty()) return@forEach
+                val ms = SupabaseRemarkValidationWriter.parseDbTimestampMillis(row.optString("created_at"))
+                if (ms >= (latestMsByCid[cid] ?: -1L)) {
+                    latestMsByCid[cid] = ms
+                    latestCcByCid[cid] = row
+                }
+            }
+            latestCcByCid.forEach { (cid, row) ->
+                val fb = catalog[row.optString("remarks").trim()].orEmpty()
+                consolidated["${branchId}__$cid"] = BulkVals(
+                    feedback = fb,
+                    validation = deriveValidation(fb),
+                    validatorName = resolveAgentName(row.optString("author_system_id")),
+                )
+            }
+        }
+        if (consolidated.isEmpty())
+            return@withContext "Supabase-এ আজকের কোনো CC remark নেই — লেখার কিছু নেই"
+
+        // 3. Per branch → its own connections → its own sheet.
+        var totConns = 0
+        val tot = BulkCounts()
+        var totNoCc = 0
+        val errs = mutableListOf<String>()
+        for (branchId in branches) {
+            val conns = try {
+                ScannerSheetRepository.loadConnections(branchId)
+                    .filter { it.enabled && it.isRemarkConnection() }
+            } catch (e: Exception) {
+                errs.add("$branchId: connection পড়া যায়নি")
+                continue
+            }
+            if (conns.isEmpty()) continue
+            for (conn in conns) {
+                totConns++
+                onProgress(conn.sheetName.ifBlank { conn.sheetId.ifBlank { branchId } })
+                try {
+                    val c = bulkSyncOneConnection(token, branchId, conn, consolidated, today)
+                    tot.scanned += c.scanned; tot.filled += c.filled
+                    tot.syncedRows += c.syncedRows; tot.syncedCells += c.syncedCells
+                    totNoCc += c.noCc
+                } catch (e: Exception) {
+                    errs.add("${conn.sheetName.ifBlank { branchId }}: ${e.message?.take(80) ?: "sync failed"}")
+                }
+            }
+        }
+        if (totConns == 0) return@withContext "কোনো branch-এ remark connection নেই"
+        var msg = "✓ ${tot.syncedRows} row synced (${tot.syncedCells} cells) · " +
+            "${tot.filled} already filled · $totNoCc no CC yet · " +
+            "${tot.scanned} sheet rows দেখা ($totConns connection)"
+        if (errs.isNotEmpty()) msg += " · ⚠ ${errs.size} error: ${errs.take(2).joinToString("; ")}" +
+            if (errs.size > 2) "…" else ""
+        msg
+    }
+
+    /** One connection → its own sheet: blank write cells × consolidated CC. */
+    private suspend fun bulkSyncOneConnection(
+        accessToken: String,
+        branchId: String,
+        conn: ScannerSheetConn,
+        consolidated: Map<String, BulkVals>,
+        today: LocalDate,
+    ): BulkCounts = withContext(Dispatchers.IO) {
+        val res = BulkCounts()
+        val lookups = conn.effectiveLookups()
+        val writes = conn.effectiveWrites().filter {
+            it.kind == SheetWriteKind.FEEDBACK ||
+                it.kind == SheetWriteKind.VALIDATION ||
+                it.kind == SheetWriteKind.VALIDATOR_NAME
+        }
+        if (lookups.isEmpty() || writes.isEmpty())
+            throw IllegalStateException("lookup/write rule নেই")
+        val cidRule = lookups.firstOrNull { it.kind == SheetLookupKind.CONSIGNMENT }
+            ?: throw IllegalStateException("consignment lookup নেই")
+        val tabName = ScannerSheetRepository.resolveTabName(conn.tabPattern)
+        val headerRow = conn.resolvedHeaderRow()
+        val headerCache = mutableMapOf<String, List<String>>()
+        val cidLetter = resolveLetter(accessToken, conn.sheetId, tabName,
+            cidRule.colRef, cidRule.mode, headerRow, headerCache)
+            ?: throw IllegalStateException("consignment column '${cidRule.colRef.trim()}' পাওয়া যায়নি")
+        // Date lookups verify the row is really today's (tab-scoped safety).
+        // Other lookup kinds (feedback/validation/...) are the values being
+        // filled, so matching on them would never hit a blank row — skipped.
+        val dateRules = lookups.filter {
+            it.kind == SheetLookupKind.TODAY || it.kind == SheetLookupKind.CREATED_AT
+        }
+        val dateLetters = mutableMapOf<SheetLookupRule, String>()
+        dateRules.forEach { rule ->
+            dateLetters[rule] = resolveLetter(accessToken, conn.sheetId, tabName,
+                rule.colRef, rule.mode, headerRow, headerCache)
+                ?: throw IllegalStateException("lookup column '${rule.colRef.trim()}' পাওয়া যায়নি")
+        }
+        val writeLetters = writes.map { rule ->
+            rule to (resolveLetter(accessToken, conn.sheetId, tabName,
+                rule.colRef, rule.mode, headerRow, headerCache)
+                ?: throw IllegalStateException("write column '${rule.colRef.trim()}' পাওয়া যায়নি"))
+        }
+        suspend fun colValues(letter: String): List<String> =
+            ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tabName, letter, httpClient)
+        val cidCol = colValues(cidLetter)
+        val dateCols = mutableMapOf<String, List<String>>()
+        dateLetters.values.distinct().forEach { letter -> dateCols[letter] = colValues(letter) }
+        val writeCols = mutableMapOf<String, MutableList<String>>()
+        writeLetters.map { it.second }.distinct().forEach { letter ->
+            writeCols[letter] = colValues(letter).toMutableList()
+        }
+        res.scanned = cidCol.size
+        for (i in cidCol.indices) {
+            val cid = cidCol[i].trim()
+            if (cid.isEmpty()) continue
+            var dateOk = true
+            dateLetters.forEach { (_, letter) ->
+                if (!isToday((dateCols[letter].orEmpty().getOrNull(i).orEmpty()).trim(), today)) dateOk = false
+            }
+            if (!dateOk) continue
+            val blanks = writeLetters.filter { (_, letter) ->
+                (writeCols[letter].orEmpty().getOrNull(i).orEmpty()).trim().isEmpty()
+            }
+            if (blanks.isEmpty()) { res.filled++; continue }
+            val vals = consolidated["${branchId}__$cid"] ?: run { res.noCc++; return@run null }
+                ?: continue
+            for ((rule, letter) in blanks) {
+                val v = when (rule.kind) {
+                    SheetWriteKind.FEEDBACK -> vals.feedback
+                    SheetWriteKind.VALIDATION -> vals.validation
+                    else -> vals.validatorName
+                }
+                ConfigSheetDriveApi.writeCellValue(
+                    accessToken, conn.sheetId, tabName, letter, i + 1, v, httpClient
+                )
+                val col = writeCols[letter]!!
+                while (col.size <= i) col.add("")
+                col[i] = v
+                res.syncedCells++
+            }
+            res.syncedRows++
+            if (res.syncedRows % 10 == 0) delay(300) // Sheets quota safety
+        }
+        res
+    }
+
     /** Dry-run for the Connectors Test button: same match as the live mirror
      *  but writes NOTHING. Returns a human-readable report. */
     suspend fun dryRunReport(
