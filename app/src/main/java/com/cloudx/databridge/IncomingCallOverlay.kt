@@ -54,6 +54,13 @@ object IncomingCallOverlay {
     private var remarkLoadJob: Job? = null
     private val overlayScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private const val AUTO_DISMISS_MS = 30_000L
+    // Refresh well inside EngagedStateManager's 5-minute staleness window so
+    // workers keep seeing the ring as long as this popup is up.
+    private const val ENGAGED_REFRESH_MS = 120_000L
+    // Parcels this popup currently holds engaged (+ whose uid, for clearing).
+    private val overlayEngagedIds = mutableSetOf<String>()
+    private var overlayEngagedUid = ""
+    private var engagedRefreshRunnable: Runnable? = null
     // Long enough to read the card at a glance, short enough that the screen doesn't
     // stay covered once the agent isn't actively looking at it — auto-collapses to the
     // small bubble instead of fully dismissing, so it's still one tap away.
@@ -145,9 +152,16 @@ object IncomingCallOverlay {
                     IncomingCallerLookup.resolveTodayAssignees(listOf(match.consignmentId), rawPhone)
                         .values.firstOrNull()
                 }
-                if (overlayView !== view || assignee == null) return@launch
+                if (overlayView !== view) return@launch
                 view.findViewById<TextView>(R.id.tvOverlayAssignee).apply {
-                    text = "🚚 আজ assign: ${assignee.name}"
+                    if (assignee == null) {
+                        // No run found for this number — say so plainly; the
+                        // finder button below jumps into CC search (number
+                        // pre-filled, filter all) to find the parcel manually.
+                        text = "🔍 agent পাওয়া যায়নি — নিচে CC-তে খুঁজুন দিয়ে parcel টি বের করুন"
+                    } else {
+                        text = "🚚 আজ assign: ${assignee.name}"
+                    }
                     isVisible = true
                 }
             }
@@ -197,9 +211,15 @@ object IncomingCallOverlay {
         }
 
         val btnSearch = view.findViewById<View>(R.id.btnOverlaySearch)
-        btnSearch.isVisible = lookupFromCcEnabled && hasCcAccess
+        // Matched card: explicit tap always bypasses the lookup toggle (force),
+        // CC permission still checked — the toggle only gates the unmatched
+        // card and background behaviors, never an explicit finder tap.
+        // Unmatched card keeps the old gate (without a match it exists only
+        // to offer the shortcut).
+        val showFinder = if (match != null) hasCcAccess else lookupFromCcEnabled && hasCcAccess
+        btnSearch.isVisible = showFinder
         btnSearch.setOnClickListener {
-            openCallCenterSearch(context, rawPhone)
+            openCallCenterSearch(context, rawPhone, force = match != null)
             dismissInternal()
         }
         view.findViewById<View>(R.id.btnOverlayClose).setOnClickListener { dismissInternal() }
@@ -249,6 +269,9 @@ object IncomingCallOverlay {
             overlayView = view
             windowManager = wm
             layoutParams = params
+            // Hold engaged on the matched parcel while the popup lives so the
+            // assigned worker sees someone is working it (cleared on dismiss).
+            if (match != null) markOverlayEngaged(listOf(match.consignmentId))
             val dismissRunnable = Runnable { dismissInternal() }
             autoDismissRunnable = dismissRunnable
             mainHandler.postDelayed(dismissRunnable, AUTO_DISMISS_MS)
@@ -649,6 +672,9 @@ object IncomingCallOverlay {
                 IncomingCallerLookup.resolveTodayAssignees(listOf(match.consignmentId) + siblingIds, rawPhone)
             }
             if (overlayView !== view) return@launch // dismissed while loading
+            // Same-number siblings get the engaged ring too (fan-out save may
+            // touch them) — still only our own entry, cleared on dismiss.
+            if (siblingIds.isNotEmpty()) markOverlayEngaged(siblingIds)
 
             // Agent resolution: CC saves against the parcel's assigned agent —
             // validations row first, today's run assignment as fallback (a parcel
@@ -915,6 +941,7 @@ object IncomingCallOverlay {
     }
 
     private fun dismissInternal() {
+        clearOverlayEngaged()
         remarkLoadJob?.cancel()
         remarkLoadJob = null
         autoDismissRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -930,6 +957,52 @@ object IncomingCallOverlay {
         } catch (_: Exception) {
             // Already removed / view not attached -- nothing to do.
         }
+    }
+
+    /** Call Center / Worker engaged ring while this popup is up: workers see
+     *  someone is actively working the parcel (same entries the card-expand
+     *  flow writes — courier/consignments/{cid}/engaged_at/{uid}). Minimizing
+     *  keeps it (still on the call); dismiss or remarks-save clears it.
+     *  Refreshes every 2 min so the 5-min staleness window never lapses
+     *  mid-call. Only the viewer's own entry is ever touched. */
+    private fun markOverlayEngaged(consignmentIds: List<String>) {
+        val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
+        val uid = user.uid
+        if (uid.isBlank()) return
+        overlayEngagedUid = uid
+        val name = user.displayName?.trim().orEmpty().ifBlank { "CC Agent" }
+        val role = if (RbacManager.hasPermission("nav_call_center")) "cc" else "worker"
+        consignmentIds.forEach { cid ->
+            if (cid.isNotBlank()) overlayEngagedIds.add(cid)
+        }
+        if (overlayEngagedIds.isEmpty()) return
+        // (Re)mark everything tracked — new ids get their first stamp, old
+        // ones get a freshness refresh.
+        overlayEngagedIds.forEach { EngagedStateManager.markEngaged(it, uid, name, role) }
+        // (Re)arm the refresh while anything is tracked.
+        engagedRefreshRunnable?.let { mainHandler.removeCallbacks(it) }
+        val refresh = object : Runnable {
+            override fun run() {
+                if (overlayEngagedIds.isEmpty() || overlayView == null) return
+                overlayEngagedIds.forEach { EngagedStateManager.markEngaged(it, overlayEngagedUid, name, role) }
+                mainHandler.postDelayed(this, ENGAGED_REFRESH_MS)
+            }
+        }
+        engagedRefreshRunnable = refresh
+        mainHandler.postDelayed(refresh, ENGAGED_REFRESH_MS)
+    }
+
+    private fun clearOverlayEngaged() {
+        engagedRefreshRunnable?.let { mainHandler.removeCallbacks(it) }
+        engagedRefreshRunnable = null
+        val uid = overlayEngagedUid
+        overlayEngagedUid = ""
+        if (uid.isBlank() || overlayEngagedIds.isEmpty()) {
+            overlayEngagedIds.clear()
+            return
+        }
+        overlayEngagedIds.forEach { EngagedStateManager.clearEngaged(it, uid) }
+        overlayEngagedIds.clear()
     }
 
     /** Same MainActivity deep-link MainActivity.handleNotificationIntent() already handles
