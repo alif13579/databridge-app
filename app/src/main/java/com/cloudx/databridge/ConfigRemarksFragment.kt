@@ -498,7 +498,7 @@ class ConfigRemarksFragment : Fragment() {
         layout.addView(etBnEdit)
         layout.addView(etEnEdit)
         layout.addView(android.widget.TextView(ctx).apply {
-            text = "Sheet Verdict (খালি = sheet-এ লিখবে না)"
+            text = "Feedback (খালি = blank লিখবে)"
             textSize = 10f
             setTextColor(ctx.getColor(R.color.theme_text_muted))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -712,7 +712,7 @@ class ConfigRemarksFragment : Fragment() {
         content.addView(bnInput)
         content.addView(label("English"))
         content.addView(enInput)
-        content.addView(label("Sheet Verdict (খালি = sheet-এ লিখবে না)"))
+        content.addView(label("Feedback (খালি = blank লিখবে)"))
         val verdictInput = input("যেমন: Delivered / Failed")
         content.addView(verdictInput)
         content.addView(label("Priority (বেশি = উপরে)"))

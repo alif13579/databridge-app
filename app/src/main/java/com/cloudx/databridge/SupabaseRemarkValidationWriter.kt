@@ -37,14 +37,16 @@ object SupabaseRemarkValidationWriter {
      *  withRemarkLabels() below, a Realtime push cache lookup, or the Edge Function's own
      *  report/push paths) can resolve Bangla.
      *
-     *  [verdictText] is the sheet verdict (validation_remarks.category) for this option.
-     *  CC saves with a non-blank verdict also mirror into the branch's connected remark
-     *  sheet (RemarkSheetMirror, best-effort) — blank means no sheet write. [appContext]
+     *  [feedback] is validation_remarks.category for this option (blank stays
+     *  blank). [validatorName] is the CC agent who saved. CC saves mirror
+     *  Feedback / Validation (derived) / Validator Name into the branch's
+     *  connected remark sheet (RemarkSheetMirror, best-effort). [appContext]
      *  is required for that mirror (Google token + Firebase); pass null to skip it. */
     fun write(assignedAgentSystemId: String, branchId: String, consignmentId: String,
               status: String, remarksText: String, noteText: String = "", source: String,
               screen: String, remarksBnText: String = "",
-              verdictText: String = "", appContext: android.content.Context? = null) {
+              feedback: String = "", validatorName: String = "",
+              appContext: android.content.Context? = null) {
         if (assignedAgentSystemId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
             val missing = buildList {
                 if (assignedAgentSystemId.isBlank()) add("assignedAgentSystemId")
@@ -73,11 +75,11 @@ object SupabaseRemarkValidationWriter {
                 Log.i("RemarkPushChain", message)
                 RemarkPushChainLog.log("RemarkPushChain", message,
                     isWarning = reason != "accepted_by_fcm")
-                // CC-only sheet mirror (best-effort, never blocks): a non-blank
-                // verdict goes into the branch's connected remark sheet.
-                if (response != null && source == "CC" && verdictText.isNotBlank() && appContext != null) {
-                    RemarkSheetMirror.mirror(appContext, branchId, consignmentId, verdictText,
-                        remark = remarksText, note = noteText, status = status)
+                // CC-only sheet mirror (best-effort, never blocks): Feedback /
+                // Validation / Validator Name go into the branch's connected
+                // remark sheet (blank stays blank).
+                if (response != null && source == "CC" && appContext != null) {
+                    RemarkSheetMirror.mirror(appContext, branchId, consignmentId, feedback, validatorName)
                 }
             }
     }
@@ -91,7 +93,8 @@ object SupabaseRemarkValidationWriter {
     suspend fun writeAwait(assignedAgentSystemId: String, branchId: String, consignmentId: String,
               status: String, remarksText: String, noteText: String = "", source: String,
               screen: String, remarksBnText: String = "",
-              verdictText: String = "", appContext: android.content.Context? = null): Boolean {
+              feedback: String = "", validatorName: String = "",
+              appContext: android.content.Context? = null): Boolean {
         if (assignedAgentSystemId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
             val missing = buildList {
                 if (assignedAgentSystemId.isBlank()) add("assignedAgentSystemId")
@@ -125,9 +128,8 @@ object SupabaseRemarkValidationWriter {
         Log.i("RemarkPushChain", message)
         RemarkPushChainLog.log("RemarkPushChain", message,
             isWarning = reason != "accepted_by_fcm")
-        if (source == "CC" && verdictText.isNotBlank() && appContext != null) {
-            RemarkSheetMirror.mirror(appContext, branchId, consignmentId, verdictText,
-                remark = remarksText, note = noteText, status = status)
+        if (source == "CC" && appContext != null) {
+            RemarkSheetMirror.mirror(appContext, branchId, consignmentId, feedback, validatorName)
         }
         return true
     }

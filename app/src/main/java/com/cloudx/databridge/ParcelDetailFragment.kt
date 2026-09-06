@@ -277,7 +277,7 @@ class ParcelDetailFragment : Fragment() {
         var selectedStatus     = ""
         var selectedRemarkText = ""
         var selectedRemarkTextEn = ""
-        var selectedVerdict    = ""
+        var selectedFeedback    = ""
         val optionViews = mutableListOf<View>()
 
         btnSave.isEnabled = false
@@ -320,7 +320,7 @@ class ParcelDetailFragment : Fragment() {
                 selectedStatus       = opt.statusKey
                 selectedRemarkText   = opt.label
                 selectedRemarkTextEn = opt.englishLabel
-                selectedVerdict      = opt.category
+                selectedFeedback      = opt.category
                 tvAutoStatus.text  = opt.statusPreview
                 tvAutoStatus.setTextColor(opt.statusColor)
                 refreshSaveEnabled()
@@ -355,6 +355,7 @@ class ParcelDetailFragment : Fragment() {
                 return@setOnClickListener
             }
 
+            val validatorName = auth.currentUser?.displayName?.trim().orEmpty().ifBlank { "CC Agent" }
             SupabaseRemarkValidationWriter.write(
                 assignedAgentSystemId = assignedAgentSystemId,
                 branchId = branchId,
@@ -368,7 +369,8 @@ class ParcelDetailFragment : Fragment() {
                 // already English) or this was a note-only save with no option picked — same
                 // reasoning as CallCenterFragment's saveCcRemarkForItems.
                 remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedRemarkTextEn } ?: "",
-                verdictText = if (source == "CC") selectedVerdict else "",
+                feedback = if (source == "CC") selectedFeedback else "",
+                validatorName = if (source == "CC") validatorName else "",
                 appContext = requireContext().applicationContext
             )
 

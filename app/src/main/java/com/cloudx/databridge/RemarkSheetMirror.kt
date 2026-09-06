@@ -18,19 +18,20 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
- * CC-remark → Google Sheet verdict mirror (best-effort, never blocks).
+ * CC-remark → Google Sheet mirror (best-effort, never blocks).
  *
- * After a CC remark with a non-blank verdict (validation_remarks.category)
- * saves to Supabase, this writes the verdict into the branch's connected
- * remark sheet: the row where the consignment column == consignmentId AND
- * the date column == today. No matching row → skip + log (never append —
- * a consignment-only match could land on a previous day's row, and an
- * append would fabricate sheet rows the sheet owner never created).
+ * After a CC remark saves to Supabase, this writes Feedback / Validation /
+ * Validator Name into the branch's connected remark sheet: the row where ALL
+ * lookup rules match exactly. No matching row → skip + log (never append).
+ *
+ * Feedback = validation_remarks.category of the saved option (blank stays
+ * blank). Validation = derived from Feedback (Willing to receive today →
+ * Invalid, blank → blank, else Valid). Validator Name = CC agent who saved.
  *
  * Remark connections are the same connector list as the scanner
- * (config/connectors/{branchId}, ConfigConnectorsFragment) — a connection
- * with a non-blank dateMatchColumn IS a remark connection. Scanner
- * connections (dateMatchColumn blank) are ignored here.
+ * (config/connectors/{branchId}/current, ConfigConnectorsFragment) —
+ * purpose == "remark" with lookup + write rules. Scanner connections are
+ * ignored here.
  *
  * Auth reuses the connectors feature's own connected Google account
  * (SharedPreferences "connectors_google_account" — see
@@ -66,11 +67,16 @@ object RemarkSheetMirror {
     }
 
     fun mirror(
-        appContext: Context, branchId: String, consignmentId: String, verdict: String,
-        remark: String = "", note: String = "", status: String = ""
+        appContext: Context, branchId: String, consignmentId: String,
+        feedback: String, validatorName: String,
     ) {
-        if (branchId.isBlank() || consignmentId.isBlank() || verdict.isBlank()) return
-        val ctx = MirrorCtx(consignmentId.trim(), verdict, remark, note, status, LocalDate.now(opsZone))
+        if (branchId.isBlank() || consignmentId.isBlank()) return
+        val fb = feedback.trim()
+        val vn = validatorName.trim()
+        val ctx = MirrorCtx(
+            consignmentId.trim(), fb, deriveValidation(fb), vn,
+            LocalDate.now(opsZone),
+        )
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 val conns = ScannerSheetRepository.loadConnections(branchId)
@@ -78,7 +84,7 @@ object RemarkSheetMirror {
                 if (conns.isEmpty()) {
                     FirebaseErrorLogger.log("RemarkSheetMirror", "no_remark_connection",
                         "No remark sheet connection for branch", mapOf("branchId" to branchId))
-                    toastMain(appContext, "Sheet: no remark connection for this branch — verdict not mirrored")
+                    toastMain(appContext, "Sheet: no remark connection for this branch — feedback not mirrored")
                     return@launch
                 }
                 val token = silentWriteToken(appContext.applicationContext)
@@ -86,7 +92,7 @@ object RemarkSheetMirror {
                     FirebaseErrorLogger.log("RemarkSheetMirror", "no_write_token",
                         "No silent Sheets write token (connect a Google account in Config → Connectors)",
                         mapOf("branchId" to branchId))
-                    toastMain(appContext, "Sheet: Google account not connected — verdict not mirrored")
+                    toastMain(appContext, "Sheet: Google account not connected — feedback not mirrored")
                     return@launch
                 }
                 var okRows = 0
@@ -101,7 +107,7 @@ object RemarkSheetMirror {
                         }
                     }
                 }
-                if (okRows > 0) toastMain(appContext, "✓ Sheet verdict updated")
+                if (okRows > 0) toastMain(appContext, "✓ Sheet feedback updated")
                 else if (lastSkip.isNotBlank()) toastMain(appContext, "Sheet: $lastSkip")
             } catch (e: Exception) {
                 FirebaseErrorLogger.log("RemarkSheetMirror", "mirror_error",
@@ -111,17 +117,16 @@ object RemarkSheetMirror {
         }
     }
 
-    /** Values available to lookup/write rules for one remark save. verdict /
-     *  remark / note / status ride along from the caller (guaranteed fresh —
-     *  the just-saved row may not be readable yet); everything else comes
-     *  from [extras], fetched from the latest validations row after the
-     *  sheet row matches. */
+    /** Values available to lookup/write rules for one remark save. feedback /
+     *  validation / validatorName ride along from the caller (guaranteed
+     *  fresh — the just-saved row may not be readable yet); created_at /
+     *  author_name come from [extras], fetched from the latest validations
+     *  row after the sheet row matches. Blank stays blank — never skipped. */
     data class MirrorCtx(
         val consignmentId: String,
-        val verdict: String,
-        val remark: String,
-        val note: String,
-        val status: String,
+        val feedback: String,
+        val validation: String,
+        val validatorName: String,
         val today: LocalDate,
         val extras: Map<String, String> = emptyMap(),
     )
@@ -158,23 +163,24 @@ object RemarkSheetMirror {
         if (kind == SheetLookupKind.TODAY) return isToday(cell, ctx.today)
         if (kind == SheetLookupKind.EMPLOYEE) return false // scanner-only, filtered before match
         // created_at compares by DATE (sheet "03-Jul-2026" vs stamp
-        // "03-07-2026 14:30") — everything else exact trim match.
-        if (kind == SheetWriteKind.CREATED_AT) {
-            val want = tryParseDate(lookupValue(kind, ctx)) ?: return false
+        // "03-07-2026 14:30") — everything else exact trim match (blank == blank).
+        if (kind == SheetLookupKind.CREATED_AT) {
+            val want = tryParseDate(lookupValue(kind, ctx)) ?: return lookupValue(kind, ctx).isBlank() && cell.trim().isBlank()
             return tryParseDate(cell.trim()) == want
         }
-        return cell.trim() == lookupValue(kind, ctx)
+        return cell.trim() == lookupValue(kind, ctx).trim()
     }
 
-    /** Event's value for a lookup source: caller values first, then the
-     *  fetched validations row (extras), so a lookup can point at ANY of them
-     *  — e.g. {Date header, created_at} or {Agent header, author_name}. */
+    /** Event's value for a lookup source: caller values (feedback/validation/
+     *  validator_name/consignment) first, then the fetched validations row
+     *  (created_at/author_name). */
     private fun lookupValue(kind: String, ctx: MirrorCtx): String = when (kind) {
         SheetLookupKind.CONSIGNMENT -> ctx.consignmentId
-        SheetWriteKind.VERDICT -> ctx.verdict
-        SheetWriteKind.REMARK -> ctx.remark
-        SheetWriteKind.NOTE -> ctx.note
-        SheetWriteKind.STATUS -> ctx.status
+        SheetLookupKind.FEEDBACK -> ctx.feedback
+        SheetLookupKind.VALIDATION -> ctx.validation
+        SheetLookupKind.VALIDATOR_NAME -> ctx.validatorName
+        SheetLookupKind.CREATED_AT -> ctx.extras[SheetLookupKind.CREATED_AT].orEmpty()
+        SheetLookupKind.AUTHOR_NAME -> ctx.extras[SheetLookupKind.AUTHOR_NAME].orEmpty()
         else -> ctx.extras[kind].orEmpty()
     }
 
@@ -186,17 +192,10 @@ object RemarkSheetMirror {
     }
 
     private fun writeValue(kind: String, ctx: MirrorCtx): String = when (kind) {
-        SheetWriteKind.VERDICT -> ctx.verdict
-        SheetWriteKind.REMARK -> ctx.remark
-        SheetWriteKind.NOTE -> ctx.note
-        SheetWriteKind.STATUS -> ctx.status
-        SheetWriteKind.TODAY -> ctx.today.toString() // yyyy-MM-dd
-        SheetWriteKind.CONSIGNMENT -> ctx.consignmentId
-        // Row extras ("" when the fetch failed); caller values stay primary.
-        SheetWriteKind.REMARKS_STATUS_COL -> ctx.extras[kind] ?: ctx.status
-        SheetWriteKind.REMARKS_COL -> ctx.extras[kind] ?: ctx.remark
-        SheetWriteKind.NOTE_COL -> ctx.extras[kind] ?: ctx.note
-        else -> ctx.extras[kind].orEmpty()
+        SheetWriteKind.FEEDBACK -> ctx.feedback
+        SheetWriteKind.VALIDATION -> ctx.validation
+        SheetWriteKind.VALIDATOR_NAME -> ctx.validatorName
+        else -> ""
     }
 
     private val nameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -231,11 +230,11 @@ object RemarkSheetMirror {
     private suspend fun fetchRowExtras(cid: String): Map<String, String> {
         return try {
             val token = SupabaseClientManager.getAccessToken() ?: return emptyMap()
-            // Plain columns only: names resolve via Firebase (resolveAgentName)
-            // so an RLS-sensitive users join can never sink this read.
+            // Only what lookups can reference: created_at + author_name.
+            // Names resolve via Firebase (resolveAgentName) so an
+            // RLS-sensitive users join can never sink this read.
             val plainUrl = "${SupabaseConfig.PROJECT_URL}/rest/v1/validations" +
-                "?select=consignment,branch_id,assigned_to_system_id,author_system_id," +
-                "remarks_status,remarks,created_at,customer_phone,note,source,consignment_status" +
+                "?select=author_system_id,created_at" +
                 "&consignment=eq.${cid.encodeParam()}" +
                 "&order=created_at.desc&limit=1"
             val text = withContext(Dispatchers.IO) {
@@ -261,20 +260,9 @@ object RemarkSheetMirror {
                     .withZone(java.time.ZoneId.of("Asia/Dhaka")).format(instant)
             }.getOrDefault(createdIso)
             val authorSid = s("author_system_id")
-            val assignedSid = s("assigned_to_system_id")
             mapOf(
-                SheetWriteKind.REMARKS_STATUS_COL to s("remarks_status"),
-                SheetWriteKind.REMARKS_COL to s("remarks"),
-                SheetWriteKind.NOTE_COL to s("note"),
-                SheetWriteKind.SOURCE_COL to s("source"),
-                SheetWriteKind.CREATED_AT to createdDhaka,
-                SheetWriteKind.CUSTOMER_PHONE to s("customer_phone"),
-                SheetWriteKind.CONSIGNMENT_STATUS to s("consignment_status"),
-                SheetWriteKind.BRANCH_ID to s("branch_id"),
-                SheetWriteKind.AUTHOR_SYSTEM_ID to authorSid,
-                SheetWriteKind.ASSIGNED_TO_SYSTEM_ID to assignedSid,
-                SheetWriteKind.AUTHOR_NAME to resolveAgentName(authorSid),
-                SheetWriteKind.ASSIGNED_NAME to resolveAgentName(assignedSid),
+                SheetLookupKind.CREATED_AT to createdDhaka,
+                SheetLookupKind.AUTHOR_NAME to resolveAgentName(authorSid),
             )
         } catch (_: Exception) {
             emptyMap()
@@ -422,13 +410,14 @@ object RemarkSheetMirror {
      *  but writes NOTHING. Returns a human-readable report. */
     suspend fun dryRunReport(
         appContext: Context, conn: ScannerSheetConn, consignmentId: String,
-        verdict: String = "TEST", remark: String = "", note: String = "", status: String = ""
+        feedback: String = "TEST", validatorName: String = "TEST",
     ): String =
         withContext(Dispatchers.IO) {
             if (consignmentId.isBlank()) return@withContext "Consignment ID দিন"
             val token = silentWriteToken(appContext.applicationContext)
                 ?: return@withContext "Google account connected নেই — Connectors থেকে account connect করুন"
-            val ctx = MirrorCtx(consignmentId.trim(), verdict, remark, note, status, LocalDate.now(opsZone))
+            val fb = feedback.trim()
+            val ctx = MirrorCtx(consignmentId.trim(), fb, deriveValidation(fb), validatorName.trim(), LocalDate.now(opsZone))
             try {
                 // Extras first (see mirrorOne): lookups may reference row data.
                 val ctx2 = ctx.copy(extras = fetchRowExtras(ctx.consignmentId))

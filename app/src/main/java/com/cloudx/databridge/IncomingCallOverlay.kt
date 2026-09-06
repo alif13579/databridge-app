@@ -896,6 +896,8 @@ object IncomingCallOverlay {
                 // today's run assignment — before giving up on the parcel.
                 val route = withContext(Dispatchers.IO) { resolveParcelRoute(cid) }
                 val targetBranch = route?.branchId?.takeIf { it.isNotBlank() } ?: branchId
+                val validatorName = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                    ?.displayName?.trim().orEmpty().ifBlank { "CC Agent" }
                 val ok = if (isCc) {
                     val targetAgent = route?.agentSystemId?.takeIf { it.isNotBlank() }
                         ?: todayAssignees[cid]?.systemId?.takeIf { it.isNotBlank() }
@@ -915,7 +917,8 @@ object IncomingCallOverlay {
                             remarksBnText = chosen?.let {
                                 it.label.takeIf { label -> label.isNotBlank() && label != it.englishLabel }
                             } ?: "",
-                            verdictText = chosen?.category.orEmpty(),
+                            feedback = chosen?.category.orEmpty(),
+                            validatorName = validatorName,
                             appContext = context.applicationContext
                         )
                     }

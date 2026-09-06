@@ -3047,8 +3047,8 @@ class CallCenterFragment : Fragment() {
         btnSave.setOnClickListener {
             val noteText = etRemarks.text?.toString()?.trim() ?: ""
             if (selectedStatus.isBlank() && noteText.isBlank()) return@setOnClickListener
-            // Sheet verdict for the picked option (blank = no sheet write).
-            val verdictText = options.firstOrNull {
+            // Sheet feedback = category of the picked option (blank stays blank).
+            val feedback = options.firstOrNull {
                 it.statusKey == selectedStatus && it.englishLabel == selectedStoredRemarkText
             }?.category.orEmpty()
 
@@ -3083,7 +3083,7 @@ class CallCenterFragment : Fragment() {
                             noteText = noteText,
                             selectedTemplateId = selectedTemplateId,
                             triggerItem = item,
-                            verdictText = verdictText
+                            feedback = feedback
                         )
                     }
                     .setNegativeButton("No, শুধু এটায়") { _, _ ->
@@ -3095,7 +3095,7 @@ class CallCenterFragment : Fragment() {
                             noteText = noteText,
                             selectedTemplateId = selectedTemplateId,
                             triggerItem = item,
-                            verdictText = verdictText
+                            feedback = feedback
                         )
                     }
                     .show()
@@ -3111,7 +3111,7 @@ class CallCenterFragment : Fragment() {
                 noteText = noteText,
                 selectedTemplateId = selectedTemplateId,
                 triggerItem = item,
-                verdictText = verdictText
+                feedback = feedback
             )
             dialog.dismiss()
         }
@@ -3174,7 +3174,7 @@ class CallCenterFragment : Fragment() {
         noteText: String,
         selectedTemplateId: String,
         triggerItem: CallCenterParcelItem,
-        verdictText: String = ""
+        feedback: String = ""
     ) {
         if (selectedTemplateId.isNotBlank() && WhatsAppSender.isEnabled(requireContext())) {
             val template = whatsappTemplatesCache[selectedTemplateId]
@@ -3199,6 +3199,8 @@ class CallCenterFragment : Fragment() {
         // users_by_consignment writes (see SupabaseRemarkValidationWriter's
         // doc comment). One INSERT per target, no read-before-write needed
         // since every remark is its own row.
+        val validatorName = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            ?.displayName.orEmpty().ifBlank { "CC Agent" }
         items.forEach { target ->
             SupabaseRemarkValidationWriter.write(
                 assignedAgentSystemId = target.workerSystemId,
@@ -3213,7 +3215,8 @@ class CallCenterFragment : Fragment() {
                 // == selectedStoredRemarkText) or this was a note-only save with no predefined
                 // option picked — validation_remarks only needs an entry when the two differ.
                 remarksBnText = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedStoredRemarkText } ?: "",
-                verdictText = verdictText,
+                feedback = feedback,
+                validatorName = validatorName,
                 appContext = requireContext().applicationContext
             )
 
@@ -3395,8 +3398,8 @@ class CallCenterFragment : Fragment() {
         // e.g. "Try again after 3pm, don't return yet") — filled into the note
         // box on select, saved as the note. Blank = no instruction for this remark.
         val instructionText: String = "",
-        // Sheet verdict (validation_remarks.category) — written into the
-        // branch's connected remark sheet on save. Blank = no sheet write.
+        // Sheet feedback (validation_remarks.category) — written into the
+        // branch's connected remark sheet on save (blank stays blank).
         val category: String = ""
     )
 

@@ -406,9 +406,9 @@ object SupabaseClientManager {
     data class RemarkOption(
         val id: String, val textBn: String, val textEn: String, val targetStatus: String,
         val templateId: String, val priority: Int, val instructionType: String, val instructionText: String,
-        // Sheet verdict (validation_remarks.category): what RemarkSheetMirror
-        // writes into the branch's connected remark sheet on a CC save.
-        // Blank = no sheet write for this remark.
+        // Sheet feedback (validation_remarks.category): what RemarkSheetMirror
+        // writes as Feedback (plus derived Validation + Validator Name) into
+        // the branch's connected remark sheet on a CC save. Blank stays blank.
         val category: String,
     )
 

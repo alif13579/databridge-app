@@ -249,7 +249,7 @@ class ConfigConnectorsFragment : Fragment() {
             addLookupRow(SheetLookupRule("", SheetLookupKind.CONSIGNMENT, SheetColMode.INDEX))
         }
         view.findViewById<View>(R.id.btnAddWriteRule)?.setOnClickListener {
-            addWriteRow(SheetWriteRule("", SheetWriteKind.VERDICT, SheetColMode.INDEX))
+            addWriteRow(SheetWriteRule("", SheetWriteKind.FEEDBACK, SheetColMode.INDEX))
         }
         view.findViewById<View>(R.id.btnScPreviewRules)?.setOnClickListener { previewRules() }
         tvScSummary     = view.findViewById(R.id.tvScSummary)
@@ -488,7 +488,7 @@ class ConfigConnectorsFragment : Fragment() {
             .show()
     }
 
-    /** Dry-run: consignment দিলে বলে দেবে verdict কোন row-তে যেত — কিছু লেখে না। */
+    /** Dry-run: consignment দিলে বলে দেবে feedback কোন row-তে যেত — কিছু লেখে না। */
     private fun showDryRunDialog(conn: ScannerSheetConn) {
         val ctx = context ?: return
         val input = android.widget.EditText(ctx).apply {
@@ -498,7 +498,7 @@ class ConfigConnectorsFragment : Fragment() {
         val resultView = android.widget.TextView(ctx).apply {
             val ruleText = conn.effectiveLookups().joinToString(" + ") { "${it.colRef.trim()}(${it.kind})" } +
                 " → " + conn.effectiveWrites().joinToString(", ") { "${it.colRef.trim()}(${it.kind})" }
-            text = "যে consignment-এর verdict যাবে, তার ID লিখুন।\n$ruleText"
+            text = "যে consignment-এর feedback যাবে, তার ID লিখুন।\n$ruleText"
             textSize = 13f
             setPadding(48, 20, 48, 8)
         }
@@ -589,11 +589,11 @@ class ConfigConnectorsFragment : Fragment() {
             refText = rule.colRef,
             mode = rule.mode,
             kinds = SheetWriteKind.ALL,
-            // Labels track ALL 1:1 (raw source names — validations columns +
-            // semantic). "scanned value" is scanner-only; the mirror skips it.
+            // Labels track ALL 1:1. "scanned value" is scanner-only; the
+            // mirror writes only feedback / validation / validator_name.
             kindLabels = SheetWriteKind.ALL.map { if (it == SheetWriteKind.VALUE) "scanned value" else it },
             kind = rule.kind,
-            refHint = "K / 11 / Verdict",
+            refHint = "K / 11 / Feedback",
         )
     }
 
@@ -1074,7 +1074,7 @@ class ConfigConnectorsFragment : Fragment() {
             (normLookups.none { it.kind in SheetLookupKind.REMARK_KINDS } ||
                 normWrites.none { it.kind in SheetWriteKind.REMARK_KINDS })
         ) {
-            showScErr("Call Center-এর জন্য remark lookup (consignment/today/...) + write (verdict/remark/...) লাগবে")
+            showScErr("Call Center-এর জন্য lookup + write (feedback/validation/validator_name) লাগবে")
             return
         }
 

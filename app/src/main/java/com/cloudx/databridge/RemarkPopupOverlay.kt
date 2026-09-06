@@ -309,6 +309,8 @@ object RemarkPopupOverlay {
             btnSave.text = "⏳ Saving..."
             loadJob?.cancel()
             loadJob = overlayScope.launch {
+                val validatorName = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                    ?.displayName?.trim().orEmpty().ifBlank { "CC Agent" }
                 val ok = SupabaseRemarkValidationWriter.writeAwait(
                     assignedAgentSystemId = assignedAgentSystemId,
                     branchId = branchId,
@@ -321,7 +323,8 @@ object RemarkPopupOverlay {
                     // Blank when chosen.label IS chosen.englishLabel (configured language is
                     // already English) -- same reasoning as CallCenterFragment's saveCcRemarkForItems.
                     remarksBnText = chosen.label.takeIf { it.isNotBlank() && it != chosen.englishLabel } ?: "",
-                    verdictText = if (source == "CC") chosen.category else "",
+                    feedback = if (source == "CC") chosen.category else "",
+                    validatorName = if (source == "CC") validatorName else "",
                     appContext = context.applicationContext
                 )
                 if (overlayView !== view) return@launch

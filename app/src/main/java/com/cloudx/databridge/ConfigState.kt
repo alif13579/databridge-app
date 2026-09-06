@@ -52,10 +52,11 @@ object ConfigState {
         // an alternative to a hard delete when past saved remarks may still reference
         // this text (see validation_remarks migration 202608250002).
         val is_active: Boolean = true,
-        // category doubles as the SHEET VERDICT: when a CC remark with this option
-        // saves, RemarkSheetMirror writes this text into the branch's connected
-        // remark sheet (consignment + today match). Blank = no sheet write for
-        // this remark. Edited in ConfigRemarksFragment's edit/create dialogs.
+        // category doubles as the SHEET FEEDBACK: when a CC remark with this
+        // option saves, RemarkSheetMirror writes this text as Feedback (plus
+        // derived Validation + Validator Name) into the branch's connected
+        // remark sheet. Blank stays blank. Edited in ConfigRemarksFragment's
+        // edit/create dialogs.
         val category: String = "",
     )
 

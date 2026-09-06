@@ -37,9 +37,6 @@ object ScannerSheetRepository {
                 sheetId         = child.child("sheetId").getValue(String::class.java).orEmpty(),
                 sheetName       = child.child("sheetName").getValue(String::class.java).orEmpty(),
                 tabPattern      = child.child("tabPattern").getValue(String::class.java) ?: "Day {dd}",
-                matchColumn     = child.child("matchColumn").getValue(String::class.java).orEmpty(),
-                dateMatchColumn = child.child("dateMatchColumn").getValue(String::class.java).orEmpty(),
-                writeColumn     = child.child("writeColumn").getValue(String::class.java).orEmpty(),
                 googleEmail     = child.child("googleEmail").getValue(String::class.java).orEmpty(),
                 connectedBy     = child.child("connectedBy").getValue(String::class.java).orEmpty(),
                 connectedByName = child.child("connectedByName").getValue(String::class.java).orEmpty(),
@@ -59,7 +56,7 @@ object ScannerSheetRepository {
                     if (ref.isBlank()) null else SheetWriteRule(
                         colRef = ref,
                         kind = r.child("kind").getValue(String::class.java)
-                            ?.takeIf { it in SheetWriteKind.ALL } ?: SheetWriteKind.VERDICT,
+                            ?.takeIf { it in SheetWriteKind.ALL } ?: SheetWriteKind.FEEDBACK,
                         mode = r.child("mode").getValue(String::class.java)
                             ?.takeIf { it == SheetColMode.TEXT } ?: SheetColMode.INDEX,
                     )
@@ -92,9 +89,6 @@ object ScannerSheetRepository {
             "sheetId"         to conn.sheetId,
             "sheetName"       to conn.sheetName,
             "tabPattern"      to conn.tabPattern,
-            "matchColumn"     to conn.matchColumn,
-            "dateMatchColumn" to conn.dateMatchColumn,
-            "writeColumn"     to conn.writeColumn,
             "lookups"         to conn.lookups.filter { it.colRef.isNotBlank() }
                 .map { mapOf("colRef" to it.colRef.trim(), "kind" to it.kind, "mode" to it.mode) },
             "writes"          to conn.writes.filter { it.colRef.isNotBlank() }
@@ -221,8 +215,7 @@ object ScannerSheetRepository {
             if (!conn.enabled) return@withContext WriteResult.Failure("Connection disabled")
             val tabName = resolveTabName(conn.tabPattern)
             val headerRow = conn.resolvedHeaderRow()
-            // Scanner rules: lookup kind=employee, write kind=value. Legacy
-            // conns auto-convert from matchColumn/writeColumn (see model).
+            // Scanner rules: lookup kind=employee, write kind=value.
             val lookupRule = conn.effectiveScannerLookup()
                 ?: return@withContext WriteResult.Failure("এই connection-এ lookup rule নেই")
             val writeRule = conn.effectiveScannerWrite()
