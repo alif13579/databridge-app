@@ -24,6 +24,13 @@ import androidx.core.content.ContextCompat
 class BootCompletedReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        // Reminder alarms don't survive reboot — re-arm on all API levels
+        // (cheap no-op when signed out or nothing qualifies).
+        try {
+            DeliveryReminderReceiver.arm(context)
+            LastAttemptReminderReceiver.arm(context)
+        } catch (_: Exception) {
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return
 
         val enabled = context.getSharedPreferences("databridge_toggles", Context.MODE_PRIVATE)

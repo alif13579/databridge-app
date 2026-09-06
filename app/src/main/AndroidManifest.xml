@@ -158,6 +158,12 @@
             android:enabled="true"
             android:exported="false" />
 
+        <!-- Attempt>=3 last-attempt nudges — same self-rescheduling pattern. -->
+        <receiver
+            android:name=".LastAttemptReminderReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

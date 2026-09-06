@@ -1580,6 +1580,7 @@ class WorkerSpaceFragment : Fragment() {
                 syncEngagedAtListeners(parcels.map { it.id }.toSet())
                 maybeShowPendingRemarksDialogFromReminder()
                 DeliveryReminderReceiver.arm(requireContext())
+                LastAttemptReminderReceiver.arm(requireContext())
             } catch (e: Exception) {
                 if (!isAdded || generation != loadGeneration) return@launch
                 tvEmpty.visibility = View.VISIBLE
