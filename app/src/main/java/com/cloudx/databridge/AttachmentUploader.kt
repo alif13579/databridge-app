@@ -25,11 +25,11 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 /**
- * Uploads Petty Cash request attachments (receipt photos / PDFs) to Cloudflare
- * R2, going through the `r2-attachment-upload` Supabase Edge Function to get a
- * short-lived presigned URL first — and, once a request has one, hands back a
- * fresh presigned URL to view/download it too, since the bucket is private
- * and there's no standing public URL for anything in it.
+ * Uploads Petty Cash request attachments (receipt photos, max 2 per claim)
+ * to Cloudflare R2, going through the `r2-attachment-upload` Supabase Edge
+ * Function to get a short-lived presigned URL first — and, once a request
+ * has one, hands back a fresh presigned URL to view/download it too, since
+ * the bucket is private and there's no standing public URL for anything in it.
  *
  * Deliberately does NOT hold any R2 credentials — the Edge Function is the
  * only thing that knows the R2 secret access key (see that function's own
@@ -39,23 +39,21 @@ import kotlin.coroutines.resumeWithException
  * key already stored on the request, get back a presigned GET URL. Neither
  * direction ever needs the R2 secret key itself.
  *
- * A 5 MB / image-or-PDF-only check happens here too, purely so a user gets
+ * A 2 MB / image-only check happens here too, purely so a user gets
  * an immediate, specific error instead of waiting on a network round trip
  * only to be rejected server-side. The Edge Function re-checks both
  * independently and is the real enforcement point — this client-side check
- * is a courtesy, not the security boundary.
+ * is a courtesy, not the security boundary. Old PDF attachments already
+ * stored on past claims stay viewable/deletable — only new uploads are
+ * image-only.
  *
- * Any picked image over COMPRESS_TRIGGER_BYTES (1 MB) is compressed rather
+ * Any picked image over COMPRESS_TRIGGER_BYTES (512 KB) is compressed rather
  * than uploaded as-is — phone camera photos routinely land in the 3-8 MB
- * range, well past what a receipt photo actually needs. Compression stays
- * within JPEG quality 90-85, the well-established "sweet spot" where file
- * size drops sharply (40-60%) with no visible loss versus the original —
- * dimensions are only ever touched as a last resort, for a source so
- * high-resolution that quality 85 alone still doesn't fit under
- * MAX_FILE_BYTES (5 MB, the actual upload ceiling; see compressImageIfNeeded
- * for exactly where that fallback kicks in). PDFs are never compressed —
- * there's no cheap, reliable way to shrink an arbitrary PDF without a
- * dedicated library, and receipts as PDFs are rarely huge to begin with.
+ * range, well past what a receipt photo actually needs. Compression starts
+ * at JPEG quality 85 down to 75 at original dimensions, clamps huge sources
+ * to MAX_DIMENSION_PX (1920) on the long edge, then steps dimensions down
+ * (0.75x) allowing quality down to 60 — always keeping receipts readable
+ * (never below 800px). See compressImageIfNeeded for the exact tiers.
  * Compression only ever runs on a *copy* of the bytes in memory, and the
  * compressed result is only adopted if it's actually smaller than the
  * original — some sources (flat-color PNGs, screenshots) can end up
@@ -68,44 +66,40 @@ import kotlin.coroutines.resumeWithException
  */
 object AttachmentUploader {
 
-    const val MAX_FILE_BYTES = 5L * 1024 * 1024 // 5 MB — the actual upload ceiling, keep in sync with the Edge Function's MAX_FILE_BYTES
-    private const val COMPRESS_TRIGGER_BYTES = 1L * 1024 * 1024 // 1 MB — compression kicks in above this, well below MAX_FILE_BYTES
+    const val MAX_FILE_BYTES = 2L * 1024 * 1024 // 2 MB per image — the actual upload ceiling, keep in sync with the Edge Function's MAX_FILE_BYTES
+    private const val COMPRESS_TRIGGER_BYTES = 512L * 1024 // 512 KB — compression kicks in above this, well below MAX_FILE_BYTES
 
-    /** Of ALLOWED_MIME_TYPES, the subset eligible for compression — i.e. everything except PDF. */
+    /** Images eligible for compression — everything accepted (PDF excluded entirely now). */
     private val COMPRESSIBLE_IMAGE_MIME_TYPES = setOf(
         "image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif", "image/bmp",
     )
-    // JPEG quality 85-90 is the documented "sweet spot": near-original visual
-    // quality (most viewers can't distinguish it from quality 100 on a normal
-    // screen) while cutting 40-60% of the file size. Compression starts at 90
-    // and steps down only as far as 85 by default — never further, so a
+    // JPEG quality 85-75 keeps receipts clearly readable while cutting
+    // 50-70% of a typical phone-camera file. Compression starts at 85
+    // and steps down only as far as 75 by default — never further, so a
     // receipt photo never gets visibly worse just to save a few more KB.
-    private const val COMPRESS_QUALITY_START = 90
-    private const val COMPRESS_QUALITY_FLOOR = 85
-    // Only reached if quality 85 alone still doesn't fit under MAX_FILE_BYTES
+    private const val COMPRESS_QUALITY_START = 85
+    private const val COMPRESS_QUALITY_FLOOR = 75
+    // Only reached if quality 75 alone still doesn't fit under MAX_FILE_BYTES
     // (an extremely high-resolution source) — dimension shrinking is the
     // fallback, not the default, and this floor allows a more aggressive
     // quality drop at that point since fitting under the upload ceiling at
     // all takes priority over staying at the gentle range once it's clear
-    // quality alone won't get there.
-    private const val COMPRESS_QUALITY_FLOOR_FALLBACK = 40
+    // quality alone won't get there. 60 keeps small receipt text legible.
+    private const val COMPRESS_QUALITY_FLOOR_FALLBACK = 60
     private const val COMPRESS_MIN_DIMENSION_PX = 800 // don't shrink a receipt below readable size
+    private const val COMPRESS_MAX_DIMENSION_PX = 1920 // clamp huge camera sources on the long edge first
 
-    /** MIME types this feature accepts — "all image formats" plus PDF, matching the Edge Function's ALLOWED_CONTENT_TYPES. */
+    /** MIME types this feature accepts — images only (old PDFs on past claims stay readable). */
     private val ALLOWED_MIME_TYPES = setOf(
         "image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif", "image/bmp",
-        "application/pdf",
     )
 
     /**
-     * MIME filter for the picker launch. ActivityResultContracts.GetContent()
-     * only accepts a single MIME string (no comma-joined list of several
-     * types), so this uses the wildcard MIME type (any/any) and relies on
-     * readFileMeta()/upload() to reject anything that isn't actually an image
-     * or PDF after the user picks it — the picker showing everything is a
-     * minor UX cost, not a validation gap.
+     * MIME filter for the picker launch. Image-only — the OS gallery shows
+     * images, and readFileMeta()/upload() still reject anything unexpected
+     * after the pick as a safety net.
      */
-    const val PICKER_MIME_TYPE = "*/*"
+    const val PICKER_MIME_TYPE = "image/*"
 
     sealed class Result {
         data class Success(val objectKey: String, val displayName: String) : Result()
@@ -156,7 +150,7 @@ object AttachmentUploader {
      */
     suspend fun upload(context: Context, uri: Uri, onProgress: ((Int) -> Unit)? = null): Result {
         val meta = readFileMeta(context, uri) ?: return Result.Rejected("Couldn't read the selected file")
-        if (meta.mimeType !in ALLOWED_MIME_TYPES) return Result.Rejected("Only images or PDF files are allowed")
+        if (meta.mimeType !in ALLOWED_MIME_TYPES) return Result.Rejected("Only images are allowed (max 2 per claim)")
         if (meta.sizeBytes <= 0) return Result.Rejected("Couldn't determine the file size")
 
         var bytes = try {
@@ -371,22 +365,21 @@ object AttachmentUploader {
         }
 
     /**
-     * Tries to bring [original] under MAX_FILE_BYTES by re-encoding as JPEG.
+     * Tries to bring [original] under MAX_FILE_BYTES (2 MB) by re-encoding as JPEG.
      * Returns null (never throws) if the image can't be decoded at all — the
      * caller falls back to uploading the original bytes untouched.
      *
-     * Two tiers, gentle first:
-     *   Pass 1 — quality only, from COMPRESS_QUALITY_START (90) down to
-     *   COMPRESS_QUALITY_FLOOR (85), original dimensions untouched. This is
-     *   the documented "sweet spot" range: file size drops sharply with no
-     *   visible loss. This is the expected path for ordinary phone-camera
-     *   photos and is where compression stops as soon as it fits.
-     *   Pass 2 — only reached if quality 85 alone still doesn't fit under
-     *   MAX_FILE_BYTES (an unusually high-resolution source). Shrinks
-     *   dimensions (keeping aspect ratio) and allows quality down to
-     *   COMPRESS_QUALITY_FLOOR_FALLBACK (40), since at this point getting
-     *   under the actual upload ceiling takes priority over staying in the
-     *   gentle range.
+     * Three tiers, gentle first:
+     *   Pass 1 — quality only, from COMPRESS_QUALITY_START (85) down to
+     *   COMPRESS_QUALITY_FLOOR (75), original dimensions untouched. This is
+     *   the expected path for ordinary phone-camera photos and is where
+     *   compression stops as soon as it fits.
+     *   Pass 1b — clamp the long edge to COMPRESS_MAX_DIMENSION_PX (1920),
+     *   keeping aspect ratio. A 4000px+ camera source shrinks ~4x in pixels
+     *   here with no visible loss on a receipt photo.
+     *   Pass 2 — only reached if still over budget. Shrinks dimensions
+     *   (0.75x steps, never below 800px) allowing quality down to 60, since
+     *   at this point getting under the upload ceiling takes priority.
      *
      * Decoding can fail for reasons that have nothing to do with a corrupt
      * file: HEIC/HEIF only decodes via BitmapFactory on Android 10+ (see the
@@ -405,7 +398,7 @@ object AttachmentUploader {
 
         try {
             // Pass 1: gentle quality-only reduction at the original
-            // dimensions, staying within the 90-85 sweet spot.
+            // dimensions, staying within the 85-75 readable range.
             var quality = COMPRESS_QUALITY_START
             var encoded = encodeJpeg(bitmap, quality)
             while (encoded.size > MAX_FILE_BYTES && quality > COMPRESS_QUALITY_FLOOR) {
@@ -414,18 +407,39 @@ object AttachmentUploader {
             }
             if (encoded.size <= MAX_FILE_BYTES) return@withContext encoded
 
-            // Pass 2: the gentle range wasn't enough (very high resolution
-            // source) — shrink dimensions too, keeping aspect ratio, and
-            // allow a more aggressive quality drop at each smaller size.
+            // Pass 1b: clamp huge sources to 1920 on the long edge first —
+            // the single biggest space saver for modern phone cameras.
             var width = bitmap.width
             var height = bitmap.height
             var scaled = bitmap
+            val longEdge = maxOf(width, height)
+            if (longEdge > COMPRESS_MAX_DIMENSION_PX) {
+                val scale = COMPRESS_MAX_DIMENSION_PX.toFloat() / longEdge.toFloat()
+                width = (width * scale).toInt().coerceAtLeast(1)
+                height = (height * scale).toInt().coerceAtLeast(1)
+                scaled = Bitmap.createScaledBitmap(bitmap, width, height, true)
+                quality = COMPRESS_QUALITY_START
+                encoded = encodeJpeg(scaled, quality)
+                while (encoded.size > MAX_FILE_BYTES && quality > COMPRESS_QUALITY_FLOOR) {
+                    quality -= 5
+                    encoded = encodeJpeg(scaled, quality)
+                }
+                if (encoded.size <= MAX_FILE_BYTES) {
+                    if (scaled !== bitmap) scaled.recycle()
+                    return@withContext encoded
+                }
+            }
+
+            // Pass 2: still over budget — shrink dimensions too, keeping
+            // aspect ratio, and allow quality down to 60 (still legible).
             while (encoded.size > MAX_FILE_BYTES &&
                 width > COMPRESS_MIN_DIMENSION_PX && height > COMPRESS_MIN_DIMENSION_PX
             ) {
                 width = (width * 0.75f).toInt()
                 height = (height * 0.75f).toInt()
-                val resized = Bitmap.createScaledBitmap(bitmap, width, height, true)
+                val resized = Bitmap.createScaledBitmap(
+                    if (scaled !== bitmap) scaled else bitmap, width, height, true,
+                )
                 if (scaled !== bitmap) scaled.recycle() // drop the previous intermediate scaled copy, not the original
                 scaled = resized
                 quality = COMPRESS_QUALITY_START

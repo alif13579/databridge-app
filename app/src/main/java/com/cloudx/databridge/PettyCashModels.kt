@@ -73,7 +73,7 @@ data class PettyCashRequest(
     // URLs — the R2 bucket is private, so there's no standing public URL.
     // See AttachmentUploader.getDownloadUrl() for turning a key into a
     // short-lived presigned URL when someone needs to actually view it.
-    // Multi-attachment (max 5).
+    // Multi-attachment (max 2 images, 2 MB each).
     val attachments: List<AttachmentRef> = emptyList(),
     val requestedDate: Long = 0L,           // date the expense was incurred, set by the Requester — separate from createdAt (submission time)
     val status: String = PC_STATUS_PENDING,

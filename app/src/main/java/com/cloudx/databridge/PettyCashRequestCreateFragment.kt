@@ -53,11 +53,11 @@ import kotlinx.coroutines.launch
  * Attachment upload goes through AttachmentUploader (Cloudflare R2 via a
  * presigned URL from the r2-attachment-upload Supabase Edge Function — see
  * that class's doc comment for why R2 rather than Firebase Storage, and why
- * the actual upload credentials never reach this app). Accepts any image
- * format or PDF, capped at AttachmentUploader.MAX_FILE_BYTES (5 MB); the
- * Edge Function independently re-enforces both, since a client-side check
- * alone can always be bypassed by a modified APK calling the function
- * directly.
+ * the actual upload credentials never reach this app). Images only, max 2
+ * per claim, each capped at AttachmentUploader.MAX_FILE_BYTES (2 MB, auto-
+ * compressed); the Edge Function independently re-enforces all three, since
+ * a client-side check alone can always be bypassed by a modified APK calling
+ * the function directly.
  */
 class PettyCashRequestCreateFragment : Fragment() {
 
@@ -199,7 +199,7 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var pbSaving: android.widget.ProgressBar
 
     companion object {
-        const val MAX_ATTACHMENTS = 5
+        const val MAX_ATTACHMENTS = 2 // max 2 receipt images per claim (space save)
 
         private const val ARG_BRANCH_ID = "branch_id"
         private const val ARG_EDIT_REQUEST_ID = "edit_request_id"
@@ -763,7 +763,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                 // Never brick the form: an unexpected failure just fails this row.
                 row.failed = true
                 if (isAdded) Toast.makeText(requireContext(),
-                    "Couldn't attach ${row.displayName} — try a smaller photo or PDF", Toast.LENGTH_LONG).show()
+                    "Couldn't attach ${row.displayName} — try a smaller photo", Toast.LENGTH_LONG).show()
             }
             if (isAdded) {
                 renderAttachments()

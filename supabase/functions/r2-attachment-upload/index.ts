@@ -12,8 +12,10 @@ import { createRemoteJWKSet, jwtVerify } from 'npm:jose@5'
  * Three actions, all requiring a valid Firebase ID token:
  *   - upload (default, body has no "action" or action: "upload"): Android
  *     sends { file_name, content_type, size_bytes } → this rejects anything
- *     that isn't an image or a PDF or is over 5 MB, then returns a
+ *     that isn't an image or is over 2 MB, then returns a
  *     presigned PUT URL for a fresh object key under the caller's uid.
+ *     (Past claims may still hold PDFs — those stay downloadable, only new
+ *     uploads are image-only.)
  *   - download (action: "download"): Android sends { object_key } for an
  *     attachment it already knows about (i.e. it read a PettyCashRequest
  *     that has this key — Firebase's own read rules are what actually gate
@@ -61,12 +63,13 @@ const firebaseJwks = createRemoteJWKSet(
 
 // Requester-facing limits — kept in one place so the Android side and this
 // function can be checked against each other instead of drifting apart.
-const MAX_FILE_BYTES = 5 * 1024 * 1024 // 5 MB
+// Max 2 images per claim (count enforced client-side + claims function),
+// 2 MB per image here.
+const MAX_FILE_BYTES = 2 * 1024 * 1024 // 2 MB
 const ALLOWED_CONTENT_TYPES = new Set([
-  // "all formats" of image, not just jpg/png — matches what BitmapFactory /
-  // Android's image picker can plausibly hand back.
+  // Images only for new uploads — old PDF attachments on past claims stay
+  // downloadable (download/delete don't check content type).
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif', 'image/bmp',
-  'application/pdf',
 ])
 // Every attachment object key lives under this prefix — used both to build
 // new keys on upload and to scope-check a key handed back for download (see
@@ -98,7 +101,6 @@ function extensionFor(contentType: string): string {
     case 'image/heic': return 'heic'
     case 'image/heif': return 'heif'
     case 'image/bmp': return 'bmp'
-    case 'application/pdf': return 'pdf'
     default: return 'bin'
   }
 }
@@ -195,7 +197,7 @@ async function handleUpload(identity: { uid: string }, body: Record<string, unkn
   const originalFileName = typeof body.file_name === 'string' ? body.file_name.trim() : ''
 
   if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
-    return reply({ error: 'Only images or PDF files are allowed' }, 400)
+    return reply({ error: 'Only images are allowed (max 2 per claim)' }, 400)
   }
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
     return reply({ error: 'size_bytes is required' }, 400)

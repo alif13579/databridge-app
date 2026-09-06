@@ -80,9 +80,10 @@ Deno.serve(async (request) => {
         // Legacy attachment_url/name + priority columns dropped
         // (202609040006) — attachments jsonb is the store now.
         // Multi-attachment [{key,name,size}] → attachments jsonb.
-        // Capped at 5, keys required.
+        // Capped at 2 (images only for new uploads; old PDFs pass through
+        // untouched so past claims keep rendering), keys required.
         attachments: (() => {
-          const raw = Array.isArray(c.attachments) ? c.attachments.slice(0, 5) : []
+          const raw = Array.isArray(c.attachments) ? c.attachments.slice(0, 2) : []
           return raw.map((a: unknown) => {
             const o = (a ?? {}) as Record<string, unknown>
             const key = str(o.key)
