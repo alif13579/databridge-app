@@ -2538,8 +2538,9 @@ class CallCenterFragment : Fragment() {
                         // dropped: the badge always shows the latest remark's text now,
                         // regardless of who wrote it.
                         val entryRemarksText = latestTodayEntry?.let { row ->
-                            listOf(resolveRemarkBn(row), row.optStr("note").trim())
-                                .filter { it.isNotBlank() }.joinToString("\n")
+                            listOf(resolveRemarkBn(row),
+                                row.optStr("note").trim().takeIf { it.isNotBlank() }?.let { "Note: $it" })
+                                .filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
                         }.orEmpty()
                         val remarkLabelNote = entryRemarksText
                         val validationNoteText = remarkLabelNote
@@ -2817,8 +2818,9 @@ class CallCenterFragment : Fragment() {
                     .parseCreatedAtMillis(latestRemarkRow.optStr("created_at"))
                 val liveRemarkStatus = latestRemarkRow.optStr("remarks_status").trim()
                 val latestRemark = listOf(
-                    resolveRemarkBn(latestRemarkRow), latestRemarkRow.optStr("note").trim()
-                ).filter { it.isNotBlank() }.joinToString("\n")
+                    resolveRemarkBn(latestRemarkRow),
+                    latestRemarkRow.optStr("note").trim().takeIf { it.isNotBlank() }?.let { "Note: $it" }
+                ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
                 allParcels = allParcels.toMutableList().also {
                     it[idx] = it[idx].copy(
                         remarks = latestRemark,
