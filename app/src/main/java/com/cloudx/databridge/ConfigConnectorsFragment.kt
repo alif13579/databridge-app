@@ -352,20 +352,33 @@ class ConfigConnectorsFragment : Fragment() {
         tvScNoConnections?.visibility = View.GONE
 
         branchConnections.forEach { conn ->
+            // Do NOT cast to LinearLayout: on some devices (Samsung Android 9)
+            // simple_list_item_2 is a TwoLineListItem (RelativeLayout) — the
+            // cast crashed render after every save. ViewGroup covers both.
             val row = LayoutInflater.from(ctx).inflate(
                 android.R.layout.simple_list_item_2, container, false
-            ) as LinearLayout
+            ) as ViewGroup
             val title = row.findViewById<TextView>(android.R.id.text1)
             val sub   = row.findViewById<TextView>(android.R.id.text2)
             title.text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } }
             title.textSize = 14f
             title.setTextColor(ctx.getColor(R.color.theme_text_primary))
             sub.text = buildString {
-                append("${conn.sheetName}  •  Match: ${conn.matchColumn}")
-                if (conn.dateMatchColumn.isNotBlank()) append("+${conn.dateMatchColumn}(date)")
-                append("  Write: ${conn.writeColumn}")
-                if (conn.lookups.any { it.colRef.isNotBlank() } || conn.writes.any { it.colRef.isNotBlank() }) {
-                    append("  [${conn.lookups.count { it.colRef.isNotBlank() }} lookup, ${conn.writes.count { it.colRef.isNotBlank() }} write]")
+                append(conn.sheetName)
+                val lookTxt = conn.effectiveLookups()
+                    .joinToString("+") { "${it.colRef.trim()}(${it.kind})" }
+                    .ifBlank {
+                        conn.effectiveScannerLookup()
+                            ?.let { "${it.colRef.trim()}(${it.kind})" } ?: ""
+                    }
+                val writeTxt = conn.effectiveWrites()
+                    .joinToString(",") { "${it.colRef.trim()}(${it.kind})" }
+                    .ifBlank {
+                        conn.effectiveScannerWrite()
+                            ?.let { "${it.colRef.trim()}(${it.kind})" } ?: ""
+                    }
+                if (lookTxt.isNotBlank() || writeTxt.isNotBlank()) {
+                    append("  •  $lookTxt → $writeTxt")
                 }
             }
             sub.textSize = 11f
