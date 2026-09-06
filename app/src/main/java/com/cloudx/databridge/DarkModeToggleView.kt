@@ -32,7 +32,7 @@ class DarkModeToggleView @JvmOverloads constructor(
 ) : FrameLayout(context, attrs, defStyle) {
 
     private val prefs = context.getSharedPreferences("databridge_toggles", Context.MODE_PRIVATE)
-    private var isDark: Boolean = prefs.getBoolean("dark_mode", true)
+    private var isDark: Boolean = prefs.getBoolean("dark_mode", false)
 
     private lateinit var thumb: FrameLayout
     private lateinit var thumbIcon: ImageView
@@ -60,7 +60,7 @@ class DarkModeToggleView @JvmOverloads constructor(
     }
 
     fun syncState() {
-        isDark = prefs.getBoolean("dark_mode", true)
+        isDark = prefs.getBoolean("dark_mode", false)
         applyState(isDark, animate = false)
     }
 

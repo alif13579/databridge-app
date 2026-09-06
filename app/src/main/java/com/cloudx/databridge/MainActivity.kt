@@ -129,7 +129,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val togglePrefs = getSharedPreferences("databridge_toggles", MODE_PRIVATE)
-        val isDark = togglePrefs.getBoolean("dark_mode", true)
+        // Fresh installs start in light mode (default false) — a saved
+        // preference from an earlier install always wins over this default.
+        val isDark = togglePrefs.getBoolean("dark_mode", false)
         if (isDark) {
             androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES)
         } else {
