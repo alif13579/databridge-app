@@ -3495,6 +3495,25 @@ class CallCenterFragment : Fragment() {
     }
 
     /**
+     * Branches for Live/Mix sheet reads. The Request pipeline fills myBranchIds
+     * via attachRootRunTypesListener, but a cold start straight into Live never
+     * runs it — so resolve from the saved filter/RBAC here and wait briefly for
+     * RBAC's async load instead of flashing "no branch assigned" instantly.
+     * Returns empty only when there really is nothing (error path, as before).
+     */
+    private suspend fun resolveSheetBranches(): List<String> {
+        var branches = selectedBranchIds.ifEmpty { RbacManager.current.branchIds.toSet() }.toList()
+        var waited = 0
+        while (branches.isEmpty() && waited < 5000) {
+            kotlinx.coroutines.delay(500)
+            waited += 500
+            branches = selectedBranchIds.ifEmpty { RbacManager.current.branchIds.toSet() }.toList()
+        }
+        if (branches.isNotEmpty() && myBranchIds.isEmpty()) myBranchIds = branches
+        return branches
+    }
+
+    /**
      * Mix: Request pipeline runs normally; Live sheet IDs missing from it are
      * built into full cards and merged in. Sheet IDs missing in Firebase become
      * ID-only chips (same as Live mode).
@@ -3504,7 +3523,7 @@ class CallCenterFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val appCtx = requireContext().applicationContext
-                val branches = selectedBranchIds.ifEmpty { myBranchIds.toSet() }.toList()
+                val branches = resolveSheetBranches()
                 if (branches.isEmpty() || gen != liveGeneration || !isAdded) return@launch
                 val token = withContext(Dispatchers.IO) {
                     RemarkSheetMirror.readToken(appCtx)
@@ -3565,9 +3584,9 @@ class CallCenterFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val appCtx = requireContext().applicationContext
-                val branches = selectedBranchIds.ifEmpty { myBranchIds.toSet() }.toList()
+                val branches = resolveSheetBranches()
+                if (gen != liveGeneration || !isAdded) return@launch
                 if (branches.isEmpty()) {
-                    if (gen != liveGeneration || !isAdded) return@launch
                     showLiveError("⚠ কোনো branch assigned নেই — admin-এর সাথে যোগাযোগ করুন")
                     return@launch
                 }
