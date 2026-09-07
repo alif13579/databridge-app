@@ -608,9 +608,13 @@ class MemoryFragment : Fragment() {
             "documentPickupSuccessRate" to docPickupRate
         )
         lifecycleScope.launch {
+            btnSave.isEnabled = false
+            val origSaveText = btnSave.text.toString()
+            btnSave.text = "⏳ Saving..."
             try {
                 val targetId = editingEntryId ?: "earning_${System.currentTimeMillis()}"
                 db.reference.child("memory/$uid/earnings/$targetId").setValue(payload).await()
+                if (!isAdded) return@launch
                 Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show()
                 clearForm()
                 layoutForm.visibility = View.GONE
@@ -623,9 +627,14 @@ class MemoryFragment : Fragment() {
                 loadEntries()
                 showError(null)
             } catch (e: Exception) {
+                if (!isAdded) return@launch
+                btnSave.isEnabled = true
+                btnSave.text = origSaveText
                 Toast.makeText(requireContext(), "Save failed: ${e.message}", Toast.LENGTH_SHORT).show()
                 showError(e.message)
+                return@launch
             }
+            if (isAdded) { btnSave.isEnabled = true }
         }
     }
 
@@ -661,19 +670,26 @@ class MemoryFragment : Fragment() {
     }
 
     private fun deleteEntry(entry: MemoryEntry) {
-        val uid = auth.currentUser?.uid ?: return
-        lifecycleScope.launch {
-            try {
-                db.reference.child("memory/$uid/earnings/${entry.id}").removeValue().await()
-                entries.remove(entry)
-                adapter.refresh()
-                updateSum()
-                showError(null)
-            } catch (e: Exception) {
-                Toast.makeText(requireContext(), "Delete failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                showError(e.message)
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Delete entry?")
+            .setMessage("এই earning entry টি মুছে যাবে।")
+            .setPositiveButton("Delete") { _, _ ->
+                val uid = auth.currentUser?.uid ?: return@setPositiveButton
+                lifecycleScope.launch {
+                    try {
+                        db.reference.child("memory/$uid/earnings/${entry.id}").removeValue().await()
+                        entries.remove(entry)
+                        adapter.refresh()
+                        updateSum()
+                        showError(null)
+                    } catch (e: Exception) {
+                        Toast.makeText(requireContext(), "Delete failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                        showError(e.message)
+                    }
+                }
             }
-        }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showEntryDetails(entry: MemoryEntry) {

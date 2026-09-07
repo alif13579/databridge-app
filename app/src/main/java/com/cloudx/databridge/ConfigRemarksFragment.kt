@@ -348,7 +348,12 @@ class ConfigRemarksFragment : Fragment() {
             }
 
             row.findViewById<View>(R.id.btnDeleteRemark).setOnClickListener {
-                handleDelete(activeStatus, r.id)
+                android.app.AlertDialog.Builder(requireContext())
+                    .setTitle("Delete remark?")
+                    .setMessage("এই remark option টি মুছে যাবে।")
+                    .setPositiveButton("Delete") { _, _ -> handleDelete(activeStatus, r.id) }
+                    .setNegativeButton("Cancel", null)
+                    .show()
             }
             remarksList.addView(row)
         }

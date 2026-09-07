@@ -620,12 +620,12 @@ class WorkerSpaceFragment : Fragment() {
             btnSaveNote.setOnClickListener {
                 val noteText = etNote.text.toString().trim()
                 if (noteText.isBlank()) return@setOnClickListener
-                val timestamp = System.currentTimeMillis()
-                val todayDateKey = todayDateKeyYyyyMmDd()
+                btnSaveNote.isEnabled = false
+                btnSaveNote.text = "⏳ Saving..."
 
                 // Call-log lookup on IO first (same as saveRemarkForItems()), then write.
                 viewLifecycleOwner.lifecycleScope.launch {
-                    writeWorkerRemarkToSupabase(
+                    val ok = writeWorkerRemarkToSupabase(
                         consignmentId = item.id,
                         branchId = RbacManager.current.branchIds.firstOrNull().orEmpty(),
                         status = "",
@@ -633,10 +633,19 @@ class WorkerSpaceFragment : Fragment() {
                         noteText = noteText
                     )
 
-                    EngagedStateManager.clearEngaged(item.id, userId)
-                    loadTodayRemarksStats()
-                    android.widget.Toast.makeText(requireContext(), "✓ Note saved", android.widget.Toast.LENGTH_SHORT).show()
-                    dialog.dismiss()
+                    if (!isAdded) return@launch
+                    if (ok) {
+                        EngagedStateManager.clearEngaged(item.id, userId)
+                        loadTodayRemarksStats()
+                        android.widget.Toast.makeText(requireContext(), "✓ Note saved", android.widget.Toast.LENGTH_SHORT).show()
+                        dialog.dismiss()
+                    } else {
+                        btnSaveNote.isEnabled = true
+                        btnSaveNote.text = "Note Save করুন"
+                        android.widget.Toast.makeText(requireContext(),
+                            "⚠ Save হয়নি — network দেখে আবার চেষ্টা করুন",
+                            android.widget.Toast.LENGTH_LONG).show()
+                    }
                 }
             }
             layoutOptions.addView(btnSaveNote)
@@ -690,6 +699,9 @@ class WorkerSpaceFragment : Fragment() {
         btnSubmit.isEnabled = false
         btnSubmit.alpha = 0.5f
         btnSubmit.setOnClickListener {
+            // Double-tap guard: saveRemarkForItems is async — second tap would queue a duplicate write.
+            btnSubmit.isEnabled = false
+            btnSubmit.alpha = 0.5f
             val statusKey = tvStatusPreview.tag as? String ?: ""
             val selectedLabel = optionViews.firstOrNull { v ->
                 v.findViewById<View>(R.id.viewRemarkOptSelected).visibility == View.VISIBLE
@@ -822,6 +834,7 @@ class WorkerSpaceFragment : Fragment() {
             // (see SupabaseRemarkValidationWriter's doc comment) — the CallLogHelper lookup
             // that used to feed it is dropped too, since computing it now would be wasted
             // work with nowhere to put the result.
+            var failed = 0
             items.forEach { p ->
                 // A worker can have more than one branch. The validation row MUST carry this
                 // parcel's locked-in run branch (not the worker's first assigned branch): CC's
@@ -829,7 +842,7 @@ class WorkerSpaceFragment : Fragment() {
                 // The fallback is solely for older runs created before resolvedBranchIds existed.
                 val branchId = p.branchIds.firstOrNull()
                     ?: RbacManager.current.branchIds.firstOrNull().orEmpty()
-                writeWorkerRemarkToSupabase(
+                val ok = writeWorkerRemarkToSupabase(
                     consignmentId = p.id,
                     branchId = branchId,
                     status = statusKey,
@@ -840,7 +853,16 @@ class WorkerSpaceFragment : Fragment() {
                     // only needs an entry when the English and Bangla text actually differ.
                     remarksBnText = selectedOption?.englishLabel?.takeIf { it.isNotBlank() }?.let { selectedLabel } ?: ""
                 )
-                EngagedStateManager.clearEngaged(p.id, userId)
+                if (ok) EngagedStateManager.clearEngaged(p.id, userId) else failed++
+            }
+            if (!isAdded) return@launch
+            if (failed > 0) {
+                android.widget.Toast.makeText(requireContext(),
+                    "⚠ $failed টি save হয়নি — network দেখে আবার চেষ্টা করুন",
+                    android.widget.Toast.LENGTH_LONG).show()
+                // Don't collapse cards / update local state for failed saves —
+                // keep them visible so the worker can retry instead of thinking done.
+                if (failed == items.size) return@launch
             }
             loadTodayRemarksStats()
 
@@ -954,10 +976,10 @@ class WorkerSpaceFragment : Fragment() {
         remarksText: String,
         noteText: String = "",
         remarksBnText: String = ""
-    ) {
-        if (systemId.isBlank() || branchId.isBlank()) return
+    ): Boolean {
+        if (systemId.isBlank() || branchId.isBlank()) return false
 
-        SupabaseRemarkValidationWriter.write(
+        return SupabaseRemarkValidationWriter.writeAwait(
             assignedAgentSystemId = systemId,
             branchId = branchId,
             consignmentId = consignmentId,

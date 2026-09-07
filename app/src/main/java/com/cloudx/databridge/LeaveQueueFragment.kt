@@ -53,6 +53,7 @@ class LeaveQueueFragment : Fragment() {
     private enum class RoleView { INCHARGE, SHIFT_LEAD }
     private var selectedView: RoleView? = null
     private var lastState: LeaveState.Success? = null
+    @Volatile private var isActing = false
 
     private val adapter = LeaveQueueAdapter(
         onAcknowledge = { request -> act { viewModel.acknowledgeRequest(branchId, request.id) } },
@@ -204,8 +205,15 @@ class LeaveQueueFragment : Fragment() {
     }
 
     private fun act(block: suspend () -> Result<Unit>) {
+        // Double-tap guard: rapid taps used to queue duplicate writes with no feedback.
+        if (isActing) return
+        isActing = true
+        pbLoading.isVisible = true
         lifecycleScope.launch {
             val result = block()
+            if (!isAdded) return@launch
+            isActing = false
+            pbLoading.isVisible = false
             if (result.isSuccess) {
                 viewModel.load(branchId)
             } else {

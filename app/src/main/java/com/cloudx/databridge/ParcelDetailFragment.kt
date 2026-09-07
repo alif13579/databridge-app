@@ -356,10 +356,19 @@ class ParcelDetailFragment : Fragment() {
             }
 
             // users lookup (cached) — NOT the Gmail displayName.
+            // Saving state until server answers — no false-success toast, no double-save.
+            btnSave.isEnabled = false
+            val saveOrigText = btnSave.text.toString()
+            btnSave.text = "⏳ Saving..."
             viewLifecycleOwner.lifecycleScope.launch {
                 val validatorName = UserNameResolver.resolveOwnValidatorName()
-                if (!isAdded) return@launch
-                SupabaseRemarkValidationWriter.write(
+                if (!isAdded) {
+                    withContext(Dispatchers.Main) {
+                        if (isAdded) { btnSave.isEnabled = true; btnSave.text = saveOrigText }
+                    }
+                    return@launch
+                }
+                val ok = SupabaseRemarkValidationWriter.writeAwait(
                     assignedAgentSystemId = assignedAgentSystemId,
                     branchId = branchId,
                     consignmentId = parcelId,
@@ -377,27 +386,36 @@ class ParcelDetailFragment : Fragment() {
                     appContext = requireContext().applicationContext,
                     onSheetAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() }
                 )
+                if (!isAdded) return@launch
+                if (ok) {
+                    // Kept alongside the validations write above: these feed CC's push-queue index
+                    // (courier/remarks_by_userId) and per-day dedup (courier/users_by_consignment),
+                    // unrelated to the remark record itself, which now lives in Supabase.
+                    // Only written on success — a failed Edge write must not leave ghost index rows.
+                    db.reference.child("courier/remarks_by_userId/$userId/push_${indexDateKey}_$parcelId")
+                        .setValue(
+                            mapOf(
+                                "final_status" to selectedStatus,
+                                "remarks"      to selectedRemarkText.ifBlank { noteText },
+                                "created_at"   to timestamp,
+                                "updated_at"   to timestamp
+                            )
+                        )
+                    db.reference.child("courier/users_by_consignment/$parcelId/$indexDateKey/$userId")
+                        .setValue(true)
+
+                    EngagedStateManager.clearEngaged(parcelId, userId)
+
+                    Toast.makeText(requireContext(), "✅ Remark saved", Toast.LENGTH_SHORT).show()
+                    dialog.dismiss()
+                } else {
+                    btnSave.isEnabled = true
+                    btnSave.text = saveOrigText
+                    Toast.makeText(requireContext(),
+                        "⚠ Save হয়নি — network দেখে আবার চেষ্টা করুন",
+                        Toast.LENGTH_LONG).show()
+                }
             }
-
-            // Kept alongside the validations write above: these feed CC's push-queue index
-            // (courier/remarks_by_userId) and per-day dedup (courier/users_by_consignment),
-            // unrelated to the remark record itself, which now lives in Supabase.
-            db.reference.child("courier/remarks_by_userId/$userId/push_${indexDateKey}_$parcelId")
-                .setValue(
-                    mapOf(
-                        "final_status" to selectedStatus,
-                        "remarks"      to selectedRemarkText.ifBlank { noteText },
-                        "created_at"   to timestamp,
-                        "updated_at"   to timestamp
-                    )
-                )
-            db.reference.child("courier/users_by_consignment/$parcelId/$indexDateKey/$userId")
-                .setValue(true)
-
-            EngagedStateManager.clearEngaged(parcelId, userId)
-
-            Toast.makeText(requireContext(), "✅ Remark saved", Toast.LENGTH_SHORT).show()
-            dialog.dismiss()
         }
 
         dialog.show()

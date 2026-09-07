@@ -3297,6 +3297,7 @@ class CallCenterFragment : Fragment() {
             val validatorName = UserNameResolver.resolveOwnValidatorName()
             if (!isAdded) return@launch
             val appCtx = requireContext().applicationContext
+            var failed = 0
             items.forEach { target ->
             // Belt-and-suspenders: items are normalized at build, but a stale
             // cached card could still carry a legacy branch NAME — rescue to ID
@@ -3308,7 +3309,7 @@ class CallCenterFragment : Fragment() {
                     "Branch name '$rawBranch' rescued to ID '$saveBranch'",
                     mapOf("consignment" to target.id))
             }
-            SupabaseRemarkValidationWriter.write(
+            val ok = SupabaseRemarkValidationWriter.writeAwait(
                 assignedAgentSystemId = target.workerSystemId,
                 branchId = saveBranch,
                 consignmentId = target.id,
@@ -3329,8 +3330,14 @@ class CallCenterFragment : Fragment() {
                 onSheetAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() }
             )
 
-            EngagedStateManager.clearEngaged(target.id, userId)
+            if (ok) EngagedStateManager.clearEngaged(target.id, userId) else failed++
         }
+            if (!isAdded) return@launch
+            if (failed > 0) {
+                Toast.makeText(requireContext(),
+                    "⚠ $failed টি save হয়নি — network দেখে আবার চেষ্টা করুন",
+                    Toast.LENGTH_LONG).show()
+            }
         }
 
         // Parcel status (courier/consignments/{id}/status) is a SEPARATE concept from

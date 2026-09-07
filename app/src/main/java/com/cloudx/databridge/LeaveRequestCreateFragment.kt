@@ -318,17 +318,21 @@ class LeaveRequestCreateFragment : Fragment() {
         val finalDutyDate = if (selectedLeaveType == LEAVE_TYPE_EXCHANGE) selectedDutyDateMillis else 0L
 
         btnSubmit.isEnabled = false
+        val origSubmitText = btnSubmit.text.toString()
+        btnSubmit.text = "⏳ Submitting..."
         if (isEditMode) {
             lifecycleScope.launch {
                 val result = viewModel.updateRequest(
                     branchId, editRequestId, selectedLeaveType, selectedLeaveDateMillis, finalDutyDate,
                     relieverUid = selectedRelieverUid, relieverName = selectedRelieverName, reason = reason
                 )
+                if (!isAdded) return@launch
                 if (result.isSuccess) {
                     Toast.makeText(requireContext(), "Request updated", Toast.LENGTH_SHORT).show()
                     parentFragmentManager.popBackStack()
                 } else {
                     btnSubmit.isEnabled = true
+                    btnSubmit.text = origSubmitText
                     Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Update failed", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -344,11 +348,13 @@ class LeaveRequestCreateFragment : Fragment() {
                     reason = reason,
                     workerRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId }
                 )
+                if (!isAdded) return@launch
                 if (result.isSuccess) {
                     Toast.makeText(requireContext(), "Request ${result.getOrNull()} submitted", Toast.LENGTH_SHORT).show()
                     parentFragmentManager.popBackStack()
                 } else {
                     btnSubmit.isEnabled = true
+                    btnSubmit.text = origSubmitText
                     Toast.makeText(requireContext(), result.exceptionOrNull()?.message ?: "Submit failed", Toast.LENGTH_SHORT).show()
                 }
             }
