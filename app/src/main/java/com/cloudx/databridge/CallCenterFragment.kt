@@ -3315,8 +3315,14 @@ class CallCenterFragment : Fragment() {
             val validatorName = UserNameResolver.resolveOwnValidatorName()
             if (!isAdded) return@launch
             val appCtx = requireContext().applicationContext
+            // Live cards can lack agent/branch (fresh sheet IDs, no run/row yet) —
+            // those can never save, so skip them up front with a specific reason
+            // instead of a generic network toast.
+            val (ready, notReady) = items.partition {
+                it.workerSystemId.isNotBlank() && it.branchIds.firstOrNull().orEmpty().isNotBlank()
+            }
             var failed = 0
-            items.forEach { target ->
+            ready.forEach { target ->
             // Belt-and-suspenders: items are normalized at build, but a stale
             // cached card could still carry a legacy branch NAME — rescue to ID
             // (and log it) so validations.branch_id never stores a name.
@@ -3351,9 +3357,11 @@ class CallCenterFragment : Fragment() {
             if (ok) EngagedStateManager.clearEngaged(target.id, userId) else failed++
         }
             if (!isAdded) return@launch
-            if (failed > 0) {
+            val totalFailed = failed + notReady.size
+            if (totalFailed > 0) {
+                val extra = if (notReady.isNotEmpty()) " — ${notReady.size} টিতে agent/branch নেই" else ""
                 Toast.makeText(requireContext(),
-                    "⚠ $failed টি save হয়নি — network দেখে আবার চেষ্টা করুন",
+                    "⚠ $totalFailed টি save হয়নি$extra — network দেখে আবার চেষ্টা করুন",
                     Toast.LENGTH_LONG).show()
             }
         }
@@ -3721,9 +3729,29 @@ class CallCenterFragment : Fragment() {
                 }
             }
         }.mapNotNull { it.await() }
+        // Live takes blank-feedback (unhandled) parcels, which often have no
+        // validations row yet — agentSystemId above is then blank and CC saves
+        // fail ("N টি save হয়নি"). Fall back to today's run assignment in ONE
+        // batched lookup, same as the incoming-call popup does.
+        val built = items
+        val needAgent = built.filter { it.workerSystemId.isBlank() }.map { it.id }
+        val filled = if (needAgent.isEmpty()) built else {
+            val assignees = IncomingCallerLookup.resolveTodayAssignees(needAgent)
+            if (assignees.isEmpty()) built else built.map { item ->
+                if (item.workerSystemId.isNotBlank()) item
+                else {
+                    val hit = assignees[item.id] ?: return@map item
+                    if (hit.systemId.isBlank()) return@map item
+                    item.copy(
+                        workerSystemId = hit.systemId,
+                        worker = hit.name.ifBlank { nameMap[hit.systemId] ?: hit.systemId },
+                    )
+                }
+            }
+        }
         // Sheet order preserve + missing in sheet order.
         val order = ids.distinct()
-        items.sortedBy { order.indexOf(it.id) } to order.filter { it in missing }
+        filled.sortedBy { order.indexOf(it.id) } to order.filter { it in missing }
     }
 
     /** ID-only chips for sheet IDs missing in Firebase (Live + Mix modes). */
