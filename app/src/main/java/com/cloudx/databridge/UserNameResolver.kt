@@ -21,6 +21,11 @@ object UserNameResolver {
     /**
      * Resolves a Firebase UID to a human-readable display name.
      * Falls back to the raw UID if the profile is missing or fetch fails.
+     *
+     * NOTE — Firebase-only by design (uid → users/{uid}/profile). When the lookup
+     * key is a system_id (validations.author_system_id), prefer [resolveNameBySystemId]
+     * (Supabase-first). Callers showing timeline/history authors already do the
+     * Supabase-first pass and use this only as fallback + for photo URLs.
      */
     suspend fun resolveName(uid: String): String {
         if (uid.isBlank()) return "Agent"

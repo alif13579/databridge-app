@@ -178,6 +178,15 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
 
     private suspend fun resolveAgentNames(systemIds: List<String>): Map<String, String> {
         if (systemIds.isEmpty()) return emptyMap()
+        // Supabase users first (source of truth — survives admin renames);
+        // Firebase below stays as fallback for cross-branch RLS gaps / legacy rows.
+        val out = mutableMapOf<String, String>()
+        systemIds.distinct().forEach { sysId ->
+            runCatching { UserNameResolver.resolveNameBySystemId(sysId) }.getOrNull()
+                ?.takeIf { it.isNotBlank() }?.let { out[sysId] = it }
+        }
+        val missing = systemIds.filter { it !in out }
+        if (missing.isEmpty()) return out
         return try {
             val db = com.google.firebase.database.FirebaseDatabase.getInstance()
             val indexSnap = withContext(Dispatchers.IO) {
@@ -199,9 +208,10 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
                     }
                 }.awaitAll()
             }.filter { !it.second.isNullOrBlank() }.associate { it.first to it.second!! }
+                .let { out.putAll(it); out }
         } catch (e: Exception) {
             FirebaseErrorLogger.log("VerifyDeliveryDashboardViewModel", "resolve_agent_names_failed", e.message ?: "")
-            emptyMap()
+            out
         }
     }
 

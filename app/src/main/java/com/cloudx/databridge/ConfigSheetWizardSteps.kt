@@ -1251,12 +1251,10 @@ internal suspend fun ConfigSheetFragment.rebuildRunConsignmentIndex() {
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
         var branchIds = RbacManager.current.branchIds.filter { it.isNotBlank() }.distinct()
         if (branchIds.isEmpty()) {
-            // Admin with no explicit assignment — fall back to the branch
-            // directory keys (small node) instead of scanning the index root.
-            val dirSnap = withContext(Dispatchers.IO) {
-                db.reference.child("branches").get().await()
-            }
-            branchIds = dirSnap.children.mapNotNull { it.key?.takeIf { k -> k.isNotBlank() } }
+            // Admin with no explicit assignment — Supabase branch list (source of
+            // truth since the cutover; the deleted Firebase branches/ node is gone).
+            branchIds = runCatching { SupabaseBranchReader.listBranches() }
+                .getOrNull().orEmpty().map { it.branchId }.filter { it.isNotBlank() }.distinct()
         }
         if (branchIds.isEmpty()) {
             setBusy(false)

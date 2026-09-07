@@ -569,14 +569,30 @@ class ConfigStatusesFragment : Fragment() {
     // ── Color picker helper ───────────────────────────────────────────────────
     private fun buildColorPicker(container: LinearLayout, selectedIdx: Int, onPick: (Int) -> Unit) {
         container.removeAllViews()
+        // dp (not raw px): 60px is ~20dp on xxxhdpi — nearly untappable.
+        val dotDp = (40 * resources.displayMetrics.density).toInt()
+        val marginDp = (6 * resources.displayMetrics.density).toInt()
         statusColors.forEachIndexed { i, (color, _) ->
             val dot = View(requireContext()).apply {
-                layoutParams = LinearLayout.LayoutParams(60, 60).apply { setMargins(6, 0, 6, 0) }
+                layoutParams = LinearLayout.LayoutParams(dotDp, dotDp).apply { setMargins(marginDp, 0, marginDp, 0) }
                 setBackgroundColor(android.graphics.Color.parseColor(color))
+                // Selected ring vs unselected: alpha alone is invisible to
+                // TalkBack — contentDescription + elevation carry the state.
+                contentDescription = "Pick color $color" + if (i == selectedIdx) " (selected)" else ""
             }
-            if (i == selectedIdx) dot.alpha = 1f else dot.alpha = 0.4f
+            if (i == selectedIdx) {
+                dot.alpha = 1f
+                dot.elevation = 6 * resources.displayMetrics.density
+            } else {
+                dot.alpha = 0.4f
+                dot.elevation = 0f
+            }
             dot.setOnClickListener {
-                container.children.forEachIndexed { idx, v -> v.alpha = if (idx == i) 1f else 0.4f }
+                container.children.forEachIndexed { idx, v ->
+                    v.alpha = if (idx == i) 1f else 0.4f
+                    v.elevation = if (idx == i) 6 * resources.displayMetrics.density else 0f
+                    v.contentDescription = "Pick color ${statusColors[idx].first}" + if (idx == i) " (selected)" else ""
+                }
                 onPick(i)
             }
             container.addView(dot)

@@ -933,6 +933,13 @@ class WorkerSpaceFragment : Fragment() {
     private suspend fun resolveSystemIdNamesAndPhotos(systemIds: List<String>): Pair<Map<String, String>, Map<String, String>> {
         if (systemIds.isEmpty()) return emptyMap<String, String>() to emptyMap()
         return try {
+            // Supabase users first (source of truth — survives admin renames);
+            // Firebase below stays for photos (no Supabase source) + name fallback.
+            val supabaseNames = mutableMapOf<String, String>()
+            systemIds.distinct().forEach { sysId ->
+                runCatching { UserNameResolver.resolveNameBySystemId(sysId) }.getOrNull()
+                    ?.takeIf { it.isNotBlank() }?.let { supabaseNames[sysId] = it }
+            }
             val indexSnap = withContext(Dispatchers.IO) {
                 db.reference.child("users_by_systemId").get().await()
             }
@@ -956,7 +963,9 @@ class WorkerSpaceFragment : Fragment() {
             }
             val nameMap = results.filter { !it.name.isNullOrBlank() }.associate { it.sysId to it.name!! }
             val photoMap = results.filter { !it.photoUrl.isNullOrBlank() }.associate { it.sysId to it.photoUrl!! }
-            nameMap to photoMap
+            // Supabase names win; Firebase fills ids Supabase couldn't resolve.
+            supabaseNames.putAll(nameMap.filterKeys { it !in supabaseNames })
+            supabaseNames.toMap() to photoMap
         } catch (e: Exception) {
             FirebaseErrorLogger.log(
                 screen = "WorkerSpaceFragment", action = "resolve_system_id_names_and_photos",

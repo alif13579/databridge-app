@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F1F5F9">
+    android:background="@color/theme_bg_app">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -19,7 +19,7 @@
             android:gravity="center_vertical"
             android:paddingHorizontal="16dp"
             android:paddingVertical="12dp"
-            android:background="#FFFFFF">
+            android:background="@color/theme_bg_card">
 
             <ImageButton
                 android:id="@+id/btnLmRequestCreateBack"
@@ -37,7 +37,7 @@
                 android:text="New Leave Request"
                 android:textSize="17sp"
                 android:textStyle="bold"
-                android:textColor="#0F172A"
+                android:textColor="@color/theme_text_primary"
                 android:layout_marginStart="8dp" />
         </LinearLayout>
 
@@ -62,7 +62,7 @@
                     android:text="Leave Type"
                     android:textSize="12sp"
                     android:textStyle="bold"
-                    android:textColor="#334155" />
+                    android:textColor="@color/theme_text_secondary" />
 
                 <LinearLayout
                     android:id="@+id/layoutLmRequestLeaveType"
@@ -83,14 +83,14 @@
                         android:layout_height="wrap_content"
                         android:text="Select Leave Type"
                         android:textSize="14sp"
-                        android:textColor="#94A3B8" />
+                        android:textColor="@color/theme_text_muted" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="\u25BC"
                         android:textSize="11sp"
-                        android:textColor="#94A3B8" />
+                        android:textColor="@color/theme_text_muted" />
                 </LinearLayout>
 
                 <!-- Leave Date — shown once a Leave Type is picked (both types need it) -->
@@ -107,7 +107,7 @@
                         android:text="Leave Date"
                         android:textSize="12sp"
                         android:textStyle="bold"
-                        android:textColor="#334155"
+                        android:textColor="@color/theme_text_secondary"
                         android:layout_marginTop="16dp" />
 
                     <LinearLayout
@@ -129,7 +129,7 @@
                             android:layout_height="wrap_content"
                             android:text="Select Leave Date"
                             android:textSize="14sp"
-                            android:textColor="#94A3B8" />
+                            android:textColor="@color/theme_text_muted" />
 
                         <TextView
                             android:layout_width="wrap_content"
@@ -153,7 +153,7 @@
                         android:text="Duty Date"
                         android:textSize="12sp"
                         android:textStyle="bold"
-                        android:textColor="#334155"
+                        android:textColor="@color/theme_text_secondary"
                         android:layout_marginTop="16dp" />
 
                     <LinearLayout
@@ -175,7 +175,7 @@
                             android:layout_height="wrap_content"
                             android:text="Select Duty Date"
                             android:textSize="14sp"
-                            android:textColor="#94A3B8" />
+                            android:textColor="@color/theme_text_muted" />
 
                         <TextView
                             android:layout_width="wrap_content"
@@ -192,7 +192,7 @@
                     android:text="Leave Reliever (Optional)"
                     android:textSize="12sp"
                     android:textStyle="bold"
-                    android:textColor="#334155"
+                    android:textColor="@color/theme_text_secondary"
                     android:layout_marginTop="16dp" />
 
                 <LinearLayout
@@ -214,14 +214,14 @@
                         android:layout_height="wrap_content"
                         android:text="Select Reliever"
                         android:textSize="14sp"
-                        android:textColor="#94A3B8" />
+                        android:textColor="@color/theme_text_muted" />
 
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="\u25BC"
                         android:textSize="11sp"
-                        android:textColor="#94A3B8" />
+                        android:textColor="@color/theme_text_muted" />
                 </LinearLayout>
 
                 <TextView
@@ -231,7 +231,7 @@
                     android:layout_marginTop="4dp"
                     android:text=""
                     android:textSize="11sp"
-                    android:textColor="#94A3B8" />
+                    android:textColor="@color/theme_text_muted" />
 
                 <!-- Reason / Remarks -->
                 <TextView
@@ -240,7 +240,7 @@
                     android:text="Reason / Remarks"
                     android:textSize="12sp"
                     android:textStyle="bold"
-                    android:textColor="#334155"
+                    android:textColor="@color/theme_text_secondary"
                     android:layout_marginTop="16dp" />
 
                 <EditText
@@ -251,7 +251,7 @@
                     android:background="@drawable/bg_pc_input"
                     android:hint="Describe the reason for this leave"
                     android:textSize="14sp"
-                    android:textColor="#0F172A"
+                    android:textColor="@color/theme_text_primary"
                     android:padding="14dp"
                     android:gravity="top"
                     android:maxLength="200"
@@ -265,7 +265,7 @@
                     android:layout_marginTop="4dp"
                     android:text="0/200"
                     android:textSize="11sp"
-                    android:textColor="#94A3B8" />
+                    android:textColor="@color/theme_text_muted" />
 
                 <!-- Submit -->
                 <Button
@@ -276,7 +276,7 @@
                     android:text="Submit Request"
                     android:textAllCaps="false"
                     android:textStyle="bold"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/theme_text_inverse"
                     android:backgroundTint="#059669"
                     android:paddingVertical="12dp" />
 

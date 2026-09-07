@@ -453,6 +453,16 @@ object IncomingCallOverlay {
             }
             val missing = ids.filter { it !in out }
             if (missing.isEmpty()) return@withContext out
+            // Supabase users first (source of truth); Firebase below stays as fallback.
+            // NOTE: the r.optJSONObject("author") branch above is currently dead —
+            // fetchValidations selects `*` with no author join — kept so it starts
+            // working automatically if the select ever gains the join.
+            missing.forEach { sys ->
+                runCatching { UserNameResolver.resolveNameBySystemId(sys) }.getOrNull()
+                    ?.takeIf { it.isNotBlank() }?.let { out[sys] = it }
+            }
+            val stillMissing = ids.filter { it !in out }
+            if (stillMissing.isEmpty()) return@withContext out
             try {
                 val indexSnap = FirebaseDatabase.getInstance().reference
                     .child("users_by_systemId").get().await()
@@ -460,7 +470,7 @@ object IncomingCallOverlay {
                 indexSnap.children.forEach { child ->
                     val sys = child.key?.trim()
                     val uid = child.child("uid").getValue(String::class.java)?.trim()
-                    if (!sys.isNullOrBlank() && sys in missing && !uid.isNullOrBlank()) {
+                    if (!sys.isNullOrBlank() && sys in stillMissing && !uid.isNullOrBlank()) {
                         sysToUid[sys] = uid
                     }
                 }

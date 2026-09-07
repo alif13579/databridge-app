@@ -658,11 +658,17 @@ class ParcelDetailFragment : Fragment() {
         if (systemIdsToResolve.isNotEmpty()) {
             withContext(Dispatchers.IO) {
                 systemIdsToResolve.forEach { systemId ->
+                    // Supabase users first (source of truth — survives admin renames);
+                    // Firebase path below stays as fallback for cross-branch RLS gaps.
+                    runCatching { UserNameResolver.resolveNameBySystemId(systemId) }.getOrNull()
+                        ?.takeIf { it.isNotBlank() }?.let { uidNameCache[systemId] = it }
                     runCatching {
                         val uid = db.reference.child("users_by_systemId/$systemId/uid")
                             .get().await().getValue(String::class.java)?.trim().orEmpty()
                         if (uid.isNotBlank()) {
-                            uidNameCache[systemId] = UserNameResolver.resolveName(uid)
+                            if (!uidNameCache.containsKey(systemId)) {
+                                uidNameCache[systemId] = UserNameResolver.resolveName(uid)
+                            }
                             uidPhotoCache[systemId] = UserNameResolver.resolvePhotoUrl(uid)
                         }
                     }

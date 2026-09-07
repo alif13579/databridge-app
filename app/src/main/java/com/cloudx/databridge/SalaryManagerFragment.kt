@@ -125,7 +125,6 @@ class SalaryManagerFragment : Fragment() {
         }
         btnSave.setOnClickListener {
             saveEditorModel()
-            editorDialog?.dismiss()
         }
         attachEditorListeners()
         loadSalaryConfig()
@@ -765,12 +764,22 @@ class SalaryManagerFragment : Fragment() {
             return
         }
         lifecycleScope.launch {
-            val base = salariesRef.child("${agent.id}/commission_models")
-            base.child(normalized.id).setValue(normalized.toFirebaseMap()).await()
-            if (normalized.id != originalSlug) base.child(originalSlug).removeValue().await()
-            closeEditor()
-            loadSalaryConfig()
-            Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show()
+            btnSave.isEnabled = false
+            try {
+                val base = salariesRef.child("${agent.id}/commission_models")
+                base.child(normalized.id).setValue(normalized.toFirebaseMap()).await()
+                if (normalized.id != originalSlug) base.child(originalSlug).removeValue().await()
+                if (!isAdded) return@launch
+                closeEditor()
+                editorDialog?.dismiss()
+                loadSalaryConfig()
+                Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                if (!isAdded) return@launch
+                Toast.makeText(requireContext(), "Save failed: ${e.message}", Toast.LENGTH_LONG).show()
+            } finally {
+                if (isAdded) btnSave.isEnabled = true
+            }
         }
     }
 

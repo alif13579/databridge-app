@@ -176,12 +176,15 @@ class LeaveQueueFragment : Fragment() {
     }
 
     private fun highlightToggle(view: RoleView) {
-        val activeBg = "#0F172A"
-        val inactiveBg = "#FFFFFF"
-        btnRoleIncharge.setBackgroundColor(Color.parseColor(if (view == RoleView.INCHARGE) activeBg else inactiveBg))
-        btnRoleIncharge.setTextColor(Color.parseColor(if (view == RoleView.INCHARGE) "#FFFFFF" else "#334155"))
-        btnRoleShiftLead.setBackgroundColor(Color.parseColor(if (view == RoleView.SHIFT_LEAD) activeBg else inactiveBg))
-        btnRoleShiftLead.setTextColor(Color.parseColor(if (view == RoleView.SHIFT_LEAD) "#FFFFFF" else "#334155"))
+        val ctx = requireContext()
+        val activeBg = ctx.getColor(R.color.theme_text_primary)
+        val inactiveBg = ctx.getColor(R.color.theme_bg_card)
+        val activeText = ctx.getColor(R.color.theme_text_inverse)
+        val inactiveText = ctx.getColor(R.color.theme_text_secondary)
+        btnRoleIncharge.setBackgroundColor(if (view == RoleView.INCHARGE) activeBg else inactiveBg)
+        btnRoleIncharge.setTextColor(if (view == RoleView.INCHARGE) activeText else inactiveText)
+        btnRoleShiftLead.setBackgroundColor(if (view == RoleView.SHIFT_LEAD) activeBg else inactiveBg)
+        btnRoleShiftLead.setTextColor(if (view == RoleView.SHIFT_LEAD) activeText else inactiveText)
     }
 
     private fun showRejectDialog(request: LeaveRequest) {

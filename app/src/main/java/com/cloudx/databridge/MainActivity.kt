@@ -354,6 +354,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
 
     override fun onResume() {
         super.onResume()
+        // Realtime channels hold the Firebase JWT from subscribe time (hourly expiry) —
+        // refresh them on every foreground return so long-open CC/Worker screens
+        // never go RLS-blind silently. Best-effort, no UI impact.
+        runCatching { SupabaseRealtimeManager.refreshAllAuth() }
         if (appPrefs.isPermissionsSetupComplete()) {
             refreshAuthUi()
         }

@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.LayoutInflater
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
@@ -127,6 +128,11 @@ class LeaveMyRequestsFragment : Fragment() {
                     scroll.isVisible = false
                     layoutError.isVisible = true
                     root.findViewById<TextView>(R.id.tvLmMyRequestsError).text = state.message
+                } else {
+                    // Silent-refresh path (e.g. onResume): old list stays, but a
+                    // swallowed error used to look like a successful refresh.
+                    pbLoading.isVisible = false
+                    Toast.makeText(requireContext(), "⚠ Refresh failed: ${state.message}", Toast.LENGTH_LONG).show()
                 }
             }
             is LeaveState.Success -> {

@@ -67,14 +67,26 @@ class ConfigLanguageFragment : Fragment() {
                 if (applyingSelection) return
                 val val_ = langOptions.getOrNull(pos)?.value ?: return
                 if (val_ == ConfigState.workerLang) return
+                val prev = ConfigState.workerLang
                 ConfigState.workerLang = val_
                 renderPreview(previewWorker, val_)
+                spinnerWorker.isEnabled = false
                 viewLifecycleOwner.lifecycleScope.launch {
                     if (saveLanguage()) {
-                        Toast.makeText(requireContext(), "Worker language saved", Toast.LENGTH_SHORT).show()
+                        if (isAdded) Toast.makeText(requireContext(), "Worker language saved", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(requireContext(), "Worker language save failed", Toast.LENGTH_LONG).show()
+                        // Revert: an accidental scroll-change that fails to save must
+                        // not leave the UI showing an unsaved value as if it stuck.
+                        ConfigState.workerLang = prev
+                        if (isAdded) {
+                            applyingSelection = true
+                            spinnerWorker.setSelection(langOptions.indexOfFirst { it.value == prev }.coerceAtLeast(0))
+                            spinnerWorker.post { applyingSelection = false }
+                            renderPreview(previewWorker, prev)
+                            Toast.makeText(requireContext(), "Worker language save failed", Toast.LENGTH_LONG).show()
+                        }
                     }
+                    if (isAdded) spinnerWorker.isEnabled = true
                 }
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
@@ -84,14 +96,24 @@ class ConfigLanguageFragment : Fragment() {
                 if (applyingSelection) return
                 val val_ = langOptions.getOrNull(pos)?.value ?: return
                 if (val_ == ConfigState.ccLang) return
+                val prev = ConfigState.ccLang
                 ConfigState.ccLang = val_
                 renderPreview(previewCC, val_)
+                spinnerCC.isEnabled = false
                 viewLifecycleOwner.lifecycleScope.launch {
                     if (saveLanguage()) {
-                        Toast.makeText(requireContext(), "CC language saved", Toast.LENGTH_SHORT).show()
+                        if (isAdded) Toast.makeText(requireContext(), "CC language saved", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(requireContext(), "CC language save failed", Toast.LENGTH_LONG).show()
+                        ConfigState.ccLang = prev
+                        if (isAdded) {
+                            applyingSelection = true
+                            spinnerCC.setSelection(langOptions.indexOfFirst { it.value == prev }.coerceAtLeast(0))
+                            spinnerCC.post { applyingSelection = false }
+                            renderPreview(previewCC, prev)
+                            Toast.makeText(requireContext(), "CC language save failed", Toast.LENGTH_LONG).show()
+                        }
                     }
+                    if (isAdded) spinnerCC.isEnabled = true
                 }
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}

@@ -60,18 +60,23 @@ sealed class PettyCashState {
             requests.filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
                 .sumOf { it.approvedAmount.takeIf { a -> a > 0 } ?: it.amount }
         val settledThisMonthTotal: Double get() {
-            val cal = java.util.Calendar.getInstance()
+            // Asia/Dhaka — device zone would shift month boundaries for users
+            // whose phone is set to another zone.
+            val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Dhaka"))
             val currentMonth = cal.get(java.util.Calendar.MONTH)
             val currentYear = cal.get(java.util.Calendar.YEAR)
             return requests.filter {
                 if (it.status != PC_STATUS_SETTLED || it.settledAt == 0L) return@filter false
                 cal.timeInMillis = it.settledAt
                 cal.get(java.util.Calendar.MONTH) == currentMonth && cal.get(java.util.Calendar.YEAR) == currentYear
-            }.sumOf { it.settledAmount }
+                // Old/zero-settledAmount rows fall back down the stage chain so spend
+                // is never silently understated (same fallback as approvedWaitingSettlementTotal).
+            }.sumOf { it.settledAmount.takeIf { a -> a > 0 } ?: it.approvedAmount.takeIf { a -> a > 0 } ?: it.amount }
         }
         /** Lifetime cash-out (all settled, any month) — the "usage" half of deposits-vs-usage. */
         val lifetimeSettledTotal: Double get() =
-            requests.filter { it.status == PC_STATUS_SETTLED }.sumOf { it.settledAmount }
+            requests.filter { it.status == PC_STATUS_SETTLED }
+                .sumOf { it.settledAmount.takeIf { a -> a > 0 } ?: it.approvedAmount.takeIf { a -> a > 0 } ?: it.amount }
         /** True spendable right now: wallet minus already-earmarked approvals.
          *  May go negative when accounts settles against expected money (allowed,
          *  flagged at settle time) — callers should render it red then. */
@@ -171,6 +176,10 @@ class PettyCashViewModel : ViewModel() {
 
         return PettyCashUserRoles(
             isStaff = matches(branch.staff_uid, branch.staff_role),
+            // NOTE: uid-only is intentional — there is no petty_cash_poc_role column
+            // (Branch / SupabaseBranchReader select list confirm this). A role-based POC
+            // would need a schema change (petty_cash_poc_role) + backfill, so role-holders
+            // without an explicit uid assignment deliberately do NOT get POC powers.
             isCashPoc = branch.petty_cash_poc_uid.isNotBlank() && branch.petty_cash_poc_uid == uid,
             isAccounts = matches(branch.accountant_uid, branch.accountant_role)
         )

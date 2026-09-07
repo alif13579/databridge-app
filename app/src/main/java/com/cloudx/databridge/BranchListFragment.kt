@@ -190,6 +190,9 @@ class BranchListFragment : Fragment() {
     }
 
     private fun deleteBranch(branch: BranchEntry) {
+        // Busy overlay: 1 Supabase + up to 4 Firebase writes with no feedback
+        // used to look frozen — and a second tap queued a duplicate delete.
+        pbLoading.visibility = View.VISIBLE
         lifecycleScope.launch {
             try {
                 // Branch row deletes from Supabase (Edge refuses with 409 when
@@ -231,6 +234,7 @@ class BranchListFragment : Fragment() {
                 Toast.makeText(requireContext(), "Branch deleted ✓", Toast.LENGTH_SHORT).show()
                 loadData()
             } catch (e: Exception) {
+                if (isAdded) pbLoading.visibility = View.GONE
                 Toast.makeText(requireContext(), "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }

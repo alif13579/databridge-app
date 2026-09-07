@@ -62,6 +62,16 @@ class ClaimsRepository {
 
     /** Same as [update] but also returns the Edge reply (settle warnings, balances). */
     suspend fun updateWithReply(claimId: String, updates: Map<String, Any?>, onSupabaseResult: (Boolean) -> Unit = {}): Pair<ClaimInfo, org.json.JSONObject> {        val old = get(claimId) ?: error("Claim not found")
+        // Stale-card guard: status changes are transitions, not blind writes. If the row
+        // moved since this screen loaded it (someone else acted first), fail with a
+        // human message instead of upserting into a server-side 4xx with a raw HTTP string.
+        // Non-status updates (date change, resubmit note) skip the check — they don't race.
+        if (updates.containsKey("status")) {
+            val fresh = get(claimId)
+            if (fresh != null && fresh.status != old.status) {
+                error("এই request এর status এরই মধ্যে বদলে গেছে (${fresh.status}) — refresh করে আবার চেষ্টা করুন")
+            }
+        }
         // public.claims is written by full-row upsert (see SupabaseClaimsWriter.
         // save() / claim_upsert in the Edge Function), not a partial patch —
         // so the caller's partial map is applied onto the already-loaded full

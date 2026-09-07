@@ -413,9 +413,18 @@ class EmployeeFragment : Fragment() {
                 // Branch names come from Supabase (source of truth since the
                 // branch cutover) — the Firebase branches mirror no longer
                 // carries reliable names, so cards fell back to raw ids.
-                val supabaseBranches = runCatching { SupabaseBranchReader.listBranches() }.getOrNull().orEmpty()
+                val branchLoadError = StringBuilder()
+                val supabaseBranches = runCatching { SupabaseBranchReader.listBranches() }
+                    .onFailure { branchLoadError.append(it.message ?: "network error") }
+                    .getOrNull().orEmpty()
                 val branchSnap = if (supabaseBranches.isNotEmpty()) null
                     else runCatching { db.reference.child("branches").get().await() }.getOrNull()
+                if (supabaseBranches.isEmpty() && branchSnap == null && isAdded) {
+                    // Both sources failed — say so instead of silently showing raw ids.
+                    Toast.makeText(requireContext(),
+                        "⚠ Branch names load হয়নি (${branchLoadError.ifBlank { "network error" }}) — ids দেখাচ্ছে",
+                        Toast.LENGTH_LONG).show()
+                }
                 val salariesSnap = runCatching {
                     db.reference.child("salaries").get().await()
                 }.getOrNull()

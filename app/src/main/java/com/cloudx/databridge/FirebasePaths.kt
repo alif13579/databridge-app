@@ -20,8 +20,14 @@ object FirebasePaths {
     fun role(roleId: String) = "roles/$roleId"
     fun rolePermissions(roleId: String) = "roles/$roleId/permissions"
 
-    /* ── Branches ──────────────────────────────────────────────────── */
+    /* ── Branches ────────────────────────────────────────────────────
+     * @Deprecated: branches/ was deleted at the branch cutover — branch data now
+     * lives in Supabase (SupabaseBranchReader.listBranches()). Zero callers remain;
+     * kept only so old references fail loudly at compile time via this warning
+     * instead of silently reading a dead node. */
+    @Deprecated("branches/ node deleted — use SupabaseBranchReader.listBranches()")
     fun branch(branchId: String) = "branches/$branchId"
+    @Deprecated("branches/ node deleted — use SupabaseBranchReader.listBranches()")
     fun branchName(branchId: String) = "branches/$branchId/name"
 
     /* ── Config ────────────────────────────────────────────────────── */

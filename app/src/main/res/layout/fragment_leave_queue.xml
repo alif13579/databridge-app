@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F1F5F9">
+    android:background="@color/theme_bg_app">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -19,7 +19,7 @@
             android:gravity="center_vertical"
             android:paddingHorizontal="16dp"
             android:paddingVertical="12dp"
-            android:background="#FFFFFF">
+            android:background="@color/theme_bg_card">
 
             <ImageButton
                 android:id="@+id/btnLmQueueBack"
@@ -37,7 +37,7 @@
                 android:text="Leave Approvals"
                 android:textSize="17sp"
                 android:textStyle="bold"
-                android:textColor="#0F172A"
+                android:textColor="@color/theme_text_primary"
                 android:layout_marginStart="8dp" />
 
             <!-- Branch switcher chip: hidden by default, shown by
@@ -52,7 +52,7 @@
                 android:paddingVertical="6dp"
                 android:textSize="12sp"
                 android:textStyle="bold"
-                android:textColor="#0F172A"
+                android:textColor="@color/theme_text_primary"
                 android:drawablePadding="4dp"
                 android:gravity="center_vertical"
                 android:maxWidth="140dp"
@@ -67,7 +67,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:background="#FFFFFF"
+            android:background="@color/theme_bg_card"
             android:paddingHorizontal="16dp"
             android:paddingBottom="12dp"
             android:visibility="gone">
@@ -139,7 +139,7 @@
                         android:layout_marginTop="8dp"
                         android:text="Nothing pending right now"
                         android:textSize="13sp"
-                        android:textColor="#64748B" />
+                        android:textColor="@color/theme_text_secondary" />
                 </LinearLayout>
 
                 <ProgressBar

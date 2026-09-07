@@ -161,7 +161,7 @@ class LeaveRequestCreateFragment : Fragment() {
             selectedRelieverUid = request.relieverUid
             selectedRelieverName = request.relieverName
             tvRelieverSelected.text = request.relieverName
-            tvRelieverSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+            tvRelieverSelected.setTextColor(requireContext().getColor(R.color.theme_text_primary))
         }
         etReason.setText(request.reason)
         prefilled = true
@@ -178,7 +178,7 @@ class LeaveRequestCreateFragment : Fragment() {
     private fun applyLeaveType(leaveType: String) {
         selectedLeaveType = leaveType
         tvLeaveTypeSelected.text = leaveType
-        tvLeaveTypeSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+        tvLeaveTypeSelected.setTextColor(requireContext().getColor(R.color.theme_text_primary))
 
         // Both leave types need a Leave Date; only Exchange also needs a Duty Date.
         groupLeaveDate.isVisible = true
@@ -189,7 +189,7 @@ class LeaveRequestCreateFragment : Fragment() {
         if (leaveType != LEAVE_TYPE_EXCHANGE) {
             selectedDutyDateMillis = 0L
             tvDutyDateSelected.text = "Select Duty Date"
-            tvDutyDateSelected.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+            tvDutyDateSelected.setTextColor(requireContext().getColor(R.color.theme_text_muted))
         }
     }
 
@@ -233,13 +233,13 @@ class LeaveRequestCreateFragment : Fragment() {
     private fun applyLeaveDate(millis: Long) {
         selectedLeaveDateMillis = millis
         tvLeaveDateSelected.text = dateFormat.format(millis)
-        tvLeaveDateSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+        tvLeaveDateSelected.setTextColor(requireContext().getColor(R.color.theme_text_primary))
     }
 
     private fun applyDutyDate(millis: Long) {
         selectedDutyDateMillis = millis
         tvDutyDateSelected.text = dateFormat.format(millis)
-        tvDutyDateSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+        tvDutyDateSelected.setTextColor(requireContext().getColor(R.color.theme_text_primary))
     }
 
     private fun showRelieverPicker() {
@@ -258,7 +258,7 @@ class LeaveRequestCreateFragment : Fragment() {
                 selectedRelieverUid = relievers[index].uid
                 selectedRelieverName = relievers[index].name
                 tvRelieverSelected.text = selectedRelieverName
-                tvRelieverSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+                tvRelieverSelected.setTextColor(requireContext().getColor(R.color.theme_text_primary))
             }
             .show()
     }

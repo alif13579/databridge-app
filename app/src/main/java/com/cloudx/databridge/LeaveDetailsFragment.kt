@@ -86,7 +86,14 @@ class LeaveDetailsFragment : Fragment() {
     private fun renderSummary(root: View, request: LeaveRequest) {
         root.findViewById<TextView>(R.id.tvLmDetailStatusBadge).apply {
             text = statusLabel(request.status)
-            setBackgroundColor(android.graphics.Color.parseColor(statusColor(request.status)))
+            // Rounded status drawable (same set LeaveMyRequestsFragment uses) instead of
+            // a square setBackgroundColor block — also dark-mode safe.
+            setBackgroundResource(when (request.status) {
+                LM_STATUS_PENDING -> R.drawable.bg_pc_status_pending
+                LM_STATUS_ACKNOWLEDGED -> R.drawable.bg_pc_status_approved
+                LM_STATUS_APPROVED -> R.drawable.bg_pc_status_settled
+                else -> R.drawable.bg_pc_status_pending
+            })
         }
         root.findViewById<TextView>(R.id.tvLmDetailRequestCode).text = request.requestCode
         root.findViewById<TextView>(R.id.tvLmDetailWorker).text = "${request.workerName} \u2022 ${request.workerRole}"

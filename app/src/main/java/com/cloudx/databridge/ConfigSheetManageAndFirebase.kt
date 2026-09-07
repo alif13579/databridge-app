@@ -88,15 +88,19 @@ internal fun ConfigSheetFragment.loadFromFirebase() {
                 val assignedBranchIds = readBranchIds(userSnap)
 
                 val infos = mutableMapOf<String, BranchInfo>()
+                // Supabase is source of truth since the branch cutover — the deleted
+                // Firebase branches/ node only ever returned the raw id back.
+                // Falls back to id-only rows (never blank names) if Supabase is unreachable.
+                val supabaseById = runCatching { SupabaseBranchReader.listBranches() }
+                    .getOrNull().orEmpty().associateBy { it.branchId }
                 assignedBranchIds.forEach { id ->
-                    val branchPath = "branches/$id"
-                    val b = db.reference.child(branchPath).get().await()
-                    val name = b.child("name").getValue(String::class.java)?.takeIf { it.isNotBlank() } ?: id
-                    val code = b.child("branch_code").getValue(String::class.java).orEmpty()
-                    val address = b.child("address").getValue(String::class.java).orEmpty()
-                    val type = b.child("branch_type").getValue(String::class.java).orEmpty()
-                    val status = b.child("status").getValue(String::class.java).orEmpty()
-                    infos[id] = BranchInfo(id, name, code, address, type, status)
+                    val row = supabaseById[id]
+                    infos[id] = if (row != null) {
+                        BranchInfo(id, row.name.takeIf { it.isNotBlank() } ?: id,
+                            row.branchCode, row.address, row.branchType, row.status)
+                    } else {
+                        BranchInfo(id, id, "", "", "", "")
+                    }
                 }
 
                 branches = assignedBranchIds

@@ -74,6 +74,11 @@ object SupabasePettyCashReader {
                     balanceAfter = row.optDouble("balance_after", 0.0),
                     timestamp = row.isoMillis("created_at"),
                     enteredByUid = row.optStr("entered_by_uid"),
+                    // NOTE: intentionally blank — deposits has no author-name column and the
+                    // history row layout shows none either. If an author column is ever added
+                    // to the UI, join entered_by_uid → users here (or add the column
+                    // server-side); do NOT Firebase-read it per-row. balance_after == 0
+                    // likewise means "pre-RPC row" and renders as "—", never computed.
                     enteredByName = ""
                 )
             }.sortedByDescending { d -> d.timestamp }

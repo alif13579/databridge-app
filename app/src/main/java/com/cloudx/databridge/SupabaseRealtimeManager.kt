@@ -33,6 +33,30 @@ object SupabaseRealtimeManager {
 
     private const val TAG = "SupabaseRealtime"
 
+    // Live channels by key — Firebase JWTs expire hourly, so a screen left open
+    // longer than that would go RLS-blind silently. refreshAllAuth() (called from
+    // MainActivity.onResume) pushes a fresh token into each tracked channel.
+    // Stale entries are harmless: updateAuth is best-effort inside runCatching,
+    // and re-subscribing under the same key overwrites the entry.
+    private val channels = java.util.concurrent.ConcurrentHashMap<String, io.github.jan.supabase.realtime.RealtimeChannel>()
+
+    /**
+     * Pushes a fresh Firebase JWT into every live channel. Best-effort, never throws —
+     * a failed refresh just leaves that channel on its previous token until the next
+     * resume-driven resubscribe (fragments subscribe fresh in onResume already).
+     */
+    fun refreshAllAuth() {
+        if (channels.isEmpty()) return
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val token = runCatching { SupabaseClientManager.getAccessToken() }.getOrNull()
+                ?: return@launch
+            channels.forEach { (key, channel) ->
+                runCatching { channel.updateAuth(token) }
+                    .onFailure { Log.w(TAG, "[$key] auth refresh failed: ${it.message}") }
+            }
+        }
+    }
+
     /**
      * Subscribes to INSERT events on public.validations filtered by one column.
      *
@@ -105,6 +129,7 @@ object SupabaseRealtimeManager {
                 // (with only the anon key attached) meant my_branch_ids() saw no authenticated
                 // uid and every RLS-protected INSERT was silently dropped for that channel.
                 token?.let { channel.updateAuth(it) }
+                channels[channelKey] = channel
                 channel.subscribe()
                 Log.i(TAG, "[$channelKey] subscribe() called")
                 RemarkPushChainLog.log("RemarkPushChain", "[$channelKey] subscribe() called")

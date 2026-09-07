@@ -192,18 +192,10 @@ class PettyCashDepositHistoryFragment : Fragment() {
     }
 
     private fun renderList(state: PettyCashState.Success) {
-        // Fallback running total (deposits-only) for pre-RPC rows whose stored
-        // snapshot is blank/zero. The stored balance_after is authoritative
-        // wherever present: the server stamps the true post-deposit wallet,
-        // which a deposits-only walk gets wrong once settles interleave.
-        val chronological = state.deposits.sortedBy { it.timestamp }
-        var running = 0.0
-        val cumulativeById = mutableMapOf<String, Double>()
-        chronological.forEach { d ->
-            running += d.amount
-            cumulativeById[d.id] = running
-        }
-
+        // Pre-RPC rows with a blank/zero stored snapshot used to show a deposits-only
+        // cumulative walk — wrong once settles interleave (it ignores them), so those
+        // rows showed inflated balances. Render "—" instead: no number beats a wrong one.
+        // The stored balance_after is authoritative wherever present.
         val source = state.deposits // newest-first, as the ViewModel provides
         val tabFiltered = if (selectedFilter == FILTER_ALL) source else source.filter { it.source == selectedFilter }
         val filtered = if (advancedFilter.isActive) tabFiltered.filter { advancedFilter.matches(it) } else tabFiltered
@@ -231,7 +223,7 @@ class PettyCashDepositHistoryFragment : Fragment() {
             row.findViewById<TextView>(R.id.tvDepHistRowRef).text =
                 "Ref: ${item.reference.ifBlank { "—" }}"
             row.findViewById<TextView>(R.id.tvDepHistRowBalanceAfter).text =
-                taka(item.balanceAfter.takeIf { it > 0 } ?: cumulativeById[item.id] ?: item.balanceAfter)
+                item.balanceAfter.takeIf { it > 0 }?.let { taka(it) } ?: "—"
 
             layoutList.addView(row)
         }
