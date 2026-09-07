@@ -686,10 +686,40 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 if (pushEyeShowing) checkDrawerPushStatus(tvPushStatus)
             }
             tvPushStatus.setOnClickListener {
-                if (pushLastRegistered == false) {
-                    tvPushStatus.text = "🔔 Retrying…"
-                    runCatching { (application as? DataBridgeApplication)?.refreshPushToken(force = true) }
-                    tvPushStatus.postDelayed({ checkDrawerPushStatus(tvPushStatus) }, 4000)
+                // Retry from OFF or any failed state (check-failed / register-failed).
+                // Previously this just re-registered in the background and re-checked
+                // after a blind 4s delay — a failing register showed a bare OFF again
+                // with no reason. Now the register result itself is awaited and its
+                // error is shown inline so the user knows WHY it is still OFF.
+                if (pushLastRegistered != true) {
+                    lifecycleScope.launch {
+                        if (auth.currentUser == null) return@launch
+                        tvPushStatus.text = "🔔 Retrying…"
+                        tvPushStatus.setTextColor(getColor(R.color.theme_text_muted))
+                        val token = runCatching {
+                            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
+                        }.getOrNull().orEmpty()
+                        if (token.isBlank()) {
+                            if (auth.currentUser == null) return@launch
+                            tvPushStatus.text = "🔔 No FCM token on device — tap to retry"
+                            tvPushStatus.setTextColor(getColor(R.color.theme_red))
+                            pushLastRegistered = false
+                            return@launch
+                        }
+                        when (val reg = SupabaseRemarkValidationWriter.registerPushTokenDetailed(token)) {
+                            is SupabaseRemarkValidationWriter.PushRegisterResult.Ok -> {
+                                // Registered — re-run the authoritative check so the
+                                // row shows ON + time instead of a hopeful guess.
+                                checkDrawerPushStatus(tvPushStatus)
+                            }
+                            is SupabaseRemarkValidationWriter.PushRegisterResult.Err -> {
+                                if (auth.currentUser == null) return@launch
+                                pushLastRegistered = false
+                                tvPushStatus.text = "🔔 Register failed: ${friendlyPushRegisterError(reg.message).take(80)} — tap to retry"
+                                tvPushStatus.setTextColor(getColor(R.color.theme_red))
+                            }
+                        }
+                    }
                 }
             }
         } else {
@@ -748,10 +778,28 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 is SupabaseRemarkValidationWriter.PushTokenStatus.Err -> {
                     if (auth.currentUser == null) return@launch
                     pushLastRegistered = null
-                    tvPushStatus.text = "🔔 Check failed: ${res.message.take(60)}"
+                    tvPushStatus.text = "🔔 Check failed: ${res.message.take(60)} — tap to retry"
                     tvPushStatus.setTextColor(getColor(R.color.theme_red))
                 }
             }
+        }
+    }
+
+    /** Maps raw register/check errors to a one-line actionable hint. Technical
+     *  detail is kept (truncated by callers) but the common admin-onboarding
+     *  case is spelled out instead of a cryptic server string. */
+    private fun friendlyPushRegisterError(raw: String): String {
+        val lower = raw.lowercase()
+        return when {
+            "system_id" in lower ->
+                "No system_id — admin onboard করেনি (employee edit)"
+            "not signed in" in lower ->
+                "Not signed in — আবার login করো"
+            "no fcm token" in lower ->
+                "No FCM token on device"
+            "network" in lower || "timeout" in lower || "unable to resolve" in lower ->
+                "Network error ($raw)"
+            else -> raw
         }
     }
 

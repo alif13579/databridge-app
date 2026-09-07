@@ -317,6 +317,66 @@ object SupabaseRemarkValidationWriter {
         }
     }
 
+    /** Result of a foreground push-token registration (drawer retry): success or
+     *  the server/network reason — the fire-and-forget [registerPushToken] above
+     *  only reports Boolean, which left the drawer showing a bare OFF again. */
+    sealed class PushRegisterResult {
+        data object Ok : PushRegisterResult()
+        data class Err(val message: String) : PushRegisterResult()
+    }
+
+    /**
+     * Same Edge call as [registerPushToken] but suspend + detailed: returns the
+     * failure reason instead of just false so the UI can show WHY retry failed
+     * (e.g. missing system_id, HTTP code, network) instead of a bare OFF.
+     */
+    suspend fun registerPushTokenDetailed(token: String): PushRegisterResult =
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            if (token.isBlank()) {
+                if (cont.isActive) cont.resumeWith(Result.success(PushRegisterResult.Err("No FCM token on this device")))
+                return@suspendCancellableCoroutine
+            }
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user == null) {
+                if (cont.isActive) cont.resumeWith(Result.success(PushRegisterResult.Err("Not signed in")))
+                return@suspendCancellableCoroutine
+            }
+            user.getIdToken(false).addOnCompleteListener { tokenTask ->
+                val idToken = tokenTask.result?.token
+                if (!tokenTask.isSuccessful || idToken.isNullOrBlank()) {
+                    if (cont.isActive) cont.resumeWith(Result.success(
+                        PushRegisterResult.Err(tokenTask.exception?.message ?: "No Firebase ID token")))
+                    return@addOnCompleteListener
+                }
+                val payload = JSONObject().put("action", "register_push_token").put("token", token)
+                val request = Request.Builder().url("${SupabaseConfig.PROJECT_URL}/functions/v1/user-sync")
+                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY).addHeader("Authorization", "Bearer $idToken")
+                    .addHeader("Content-Type", "application/json").post(payload.toString().toRequestBody(jsonMediaType)).build()
+                client.newCall(request).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (cont.isActive) cont.resumeWith(Result.success(PushRegisterResult.Err(e.message ?: "Network error")))
+                    }
+                    override fun onResponse(call: Call, response: okhttp3.Response) {
+                        response.use {
+                            val text = it.body?.string().orEmpty()
+                            val result = try {
+                                if (!it.isSuccessful) {
+                                    PushRegisterResult.Err(JSONObject(text).optString("error").ifBlank { "HTTP ${it.code}" })
+                                } else {
+                                    val body = JSONObject(text)
+                                    if (body.optBoolean("ok", false)) PushRegisterResult.Ok
+                                    else PushRegisterResult.Err(body.optString("error").ifBlank { "Unexpected response" })
+                                }
+                            } catch (_: Exception) {
+                                PushRegisterResult.Err(if (it.isSuccessful) "Unexpected response" else "HTTP ${it.code}")
+                            }
+                            if (cont.isActive) cont.resumeWith(Result.success(result))
+                        }
+                    }
+                })
+            }
+        }
+
     /** Removes this installation's token mapping at sign-out (see
      *  AuthManager.signOut — called while still signed in). Fire-and-forget:
      *  the server action is idempotent, so logout never blocks on it. */
