@@ -695,19 +695,47 @@ object RemarkSheetMirror {
                     resolveLetter(accessToken, conn.sheetId, tabName,
                         rule.colRef, rule.mode, headerRow, headerCache)!!
                 }
+                // Hub-feedback filter: this connection's FEEDBACK write column is
+                // where CC remark saves land — a filled cell means that parcel is
+                // already handled, so Live only takes rows where it's blank.
+                // No FEEDBACK write rule → can't filter, take all today's IDs.
+                val feedbackLetter = conn.effectiveWrites()
+                    .firstOrNull { it.kind == SheetWriteKind.FEEDBACK }
+                    ?.let { rule ->
+                        resolveLetter(accessToken, conn.sheetId, tabName,
+                            rule.colRef, rule.mode, headerRow, headerCache)
+                    }
+                val feedbackCol = feedbackLetter?.let {
+                    ConfigSheetDriveApi.fetchColumnValues(
+                        accessToken, conn.sheetId, tabName, it, httpClient)
+                }
                 val cidCol = ConfigSheetDriveApi.fetchColumnValues(
                     accessToken, conn.sheetId, tabName, cidLetter, httpClient)
                 val ids = mutableListOf<String>()
+                var skippedByFeedback = 0
                 cidCol.forEachIndexed { i, cell ->
                     val cid = cell.trim()
                     if (cid.isEmpty()) return@forEachIndexed
                     val dateOk = dateLetters.all { letter ->
                         isToday((dateCols[letter].orEmpty().getOrNull(i).orEmpty()).trim(), today)
                     }
-                    if (dateOk && cid !in ids) ids.add(cid)
+                    if (!dateOk) return@forEachIndexed
+                    if (feedbackCol != null &&
+                        feedbackCol.getOrNull(i).orEmpty().trim().isNotEmpty()
+                    ) {
+                        skippedByFeedback++
+                        return@forEachIndexed
+                    }
+                    if (cid !in ids) ids.add(cid)
                 }
-                if (ids.isEmpty()) LiveBranchIds(branchId, emptyList(), "Ajker kono consignment nei")
-                else LiveBranchIds(branchId, ids, null)
+                if (ids.isEmpty()) {
+                    val why = if (skippedByFeedback > 0)
+                        "Ajker sob ($skippedByFeedback) consignment-e feedback lekha ache"
+                    else "Ajker kono consignment nei"
+                    LiveBranchIds(branchId, emptyList(), why)
+                } else if (feedbackLetter == null) {
+                    LiveBranchIds(branchId, ids, "Feedback column set nei — filter charai dekhacche")
+                } else LiveBranchIds(branchId, ids, null)
             } catch (e: Exception) {
                 LiveBranchIds(branchId, emptyList(),
                     e.message?.take(80) ?: "sheet পড়া যায়নি")
