@@ -591,43 +591,61 @@
                     android:alpha="0"
                     android:visibility="invisible" />
 
-                <!-- Loading scrim + spinner — LAST children so they draw ABOVE
-                     the parcel list (with fade, so it's clear loading isn't done).
-                     Taps pass through (clickable=false); visibility is driven
-                     together with the spinner via showCcLoading/hideCcLoading. -->
+                <!-- Loading veil + skeleton — LAST children so they draw ABOVE
+                     the parcel list. Light scrim (never black) with pulsing
+                     placeholder cards; taps pass through (clickable=false).
+                     Visibility is driven together via showCcLoading/hideCcLoading. -->
                 <View
                     android:id="@+id/viewCcaLoadingDim"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:background="#80000000"
+                    android:background="@color/theme_loading_scrim"
                     android:clickable="false"
                     android:focusable="false"
                     android:visibility="gone" />
 
                 <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
                     android:orientation="vertical"
-                    android:gravity="center">
+                    android:gravity="center_horizontal"
+                    android:paddingTop="12dp"
+                    android:visibility="gone"
+                    android:clickable="false"
+                    android:focusable="false"
+                    android:id="@+id/llCcaLoadingWrap">
 
-                    <ProgressBar
-                        android:id="@+id/twCcaProgressBar"
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        android:visibility="gone" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="10dp">
 
-                    <TextView
-                        android:id="@+id/twCcaLoadingPercent"
-                        android:layout_width="wrap_content"
+                        <ProgressBar
+                            android:id="@+id/twCcaProgressBar"
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:indeterminateTint="@color/theme_text_accent"
+                            android:visibility="gone" />
+
+                        <TextView
+                            android:id="@+id/twCcaLoadingPercent"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:gravity="center"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/theme_text_primary"
+                            android:visibility="gone" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/llCcaSkeleton"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_gravity="center"
-                        android:layout_marginTop="8dp"
-                        android:gravity="center"
-                        android:textSize="12sp"
-                        android:textColor="@android:color/white"
-                        android:visibility="gone" />
+                        android:orientation="vertical" />
                 </LinearLayout>
             </FrameLayout>
 

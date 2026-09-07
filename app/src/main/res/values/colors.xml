@@ -112,4 +112,8 @@
     <color name="theme_bg_dashboard_inner">#f1f5f9</color>
     <color name="theme_text_dim">#94a3b8</color>
     <color name="theme_divider_dashboard">#e2e8f0</color>
+
+    <!-- Call Center loading: light veil over the list + skeleton bars -->
+    <color name="theme_loading_scrim">#E6F0F4F8</color>
+    <color name="skeleton_bar">#E2E8F0</color>
 </resources>

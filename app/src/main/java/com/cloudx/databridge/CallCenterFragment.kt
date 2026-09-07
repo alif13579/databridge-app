@@ -61,9 +61,12 @@ class CallCenterFragment : Fragment() {
     private lateinit var pbProgress: ProgressBar
     private lateinit var tvLoadingPercent: TextView
     private lateinit var tvEmpty: TextView
-    // Loading scrim drawn ABOVE the parcel list (see layout order) — always
-    // toggled together with the spinner via showCcLoading()/hideCcLoading().
+    // Loading veil drawn ABOVE the parcel list (see layout order) — always
+    // toggled together with the spinner + skeleton via showCcLoading()/hideCcLoading().
     private lateinit var loadingDim: View
+    private lateinit var loadingWrap: View
+    private lateinit var skeletonBox: LinearLayout
+    private var skeletonPulse: android.animation.ObjectAnimator? = null
     private lateinit var swipeRefresh: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
     private lateinit var switchAutoCall: Switch
     private lateinit var btnAutoCallStartPause: android.widget.Button
@@ -303,6 +306,8 @@ class CallCenterFragment : Fragment() {
         // ✅ Fix #8: Cancel pending search debounce job
         searchJob?.cancel()
         searchJob = null
+        skeletonPulse?.cancel()
+        skeletonPulse = null
         reprocessJob?.cancel()
         reprocessJob = null
         ccRealtimeJobs.values.forEach { it.cancel() }
@@ -397,6 +402,8 @@ class CallCenterFragment : Fragment() {
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
         tvLoadingPercent = view.findViewById(R.id.twCcaLoadingPercent)
         loadingDim = view.findViewById(R.id.viewCcaLoadingDim)
+        loadingWrap = view.findViewById(R.id.llCcaLoadingWrap)
+        skeletonBox = view.findViewById(R.id.llCcaSkeleton)
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
         btnSyncSheet = view.findViewById(R.id.btnCcaSyncSheet)
@@ -1666,20 +1673,38 @@ class CallCenterFragment : Fragment() {
     private var ccSelectedRunType = CC_RUN_TYPE_ALL
     private var ccRunTypeOptions = listOf(CcRunTypeOption(CC_RUN_TYPE_ALL, "All"))
 
-    /** Loading overlay (scrim + spinner + percent, drawn ABOVE the list).
-     *  Single choke point — every show/hide site below goes through these so
-     *  the dim can never get stuck on or lag behind the spinner. */
+    /** Loading overlay (light veil + skeleton + spinner + percent, drawn ABOVE
+     *  the list). Single choke point — every show/hide site below goes through
+     *  these so the veil can never get stuck on or lag behind the spinner. */
     private fun showCcLoading(text: String) {
         if (!isAdded || !::loadingDim.isInitialized) return
         loadingDim.visibility = View.VISIBLE
+        loadingWrap.visibility = View.VISIBLE
         pbProgress.visibility = View.VISIBLE
         tvLoadingPercent.visibility = View.VISIBLE
         tvLoadingPercent.text = text
+        // Placeholder cards so an empty list never flashes black — built once,
+        // gently pulsing until real parcels land.
+        if (skeletonBox.childCount == 0) {
+            val inflater = LayoutInflater.from(requireContext())
+            repeat(5) { inflater.inflate(R.layout.item_cc_skeleton, skeletonBox, true) }
+        }
+        skeletonPulse?.cancel()
+        skeletonPulse = android.animation.ObjectAnimator.ofFloat(
+            skeletonBox, View.ALPHA, 1f, 0.55f, 1f
+        ).apply {
+            duration = 1100
+            repeatCount = android.animation.ValueAnimator.INFINITE
+            start()
+        }
     }
 
     private fun hideCcLoading() {
         if (!isAdded || !::loadingDim.isInitialized) return
+        skeletonPulse?.cancel()
+        skeletonPulse = null
         loadingDim.visibility = View.GONE
+        loadingWrap.visibility = View.GONE
         pbProgress.visibility = View.GONE
         tvLoadingPercent.visibility = View.GONE
     }
