@@ -65,6 +65,11 @@ object IncomingCallOverlay {
     // stay covered once the agent isn't actively looking at it — auto-collapses to the
     // small bubble instead of fully dismissing, so it's still one tap away.
     private const val AUTO_MINIMIZE_MS = 8_000L
+    // After the call ends the card stays 5s so the agent can start saving remarks,
+    // then fades out instead of vanishing instantly. Any touch cancels the fade.
+    private const val CALL_END_GRACE_MS = 5_000L
+    private const val FADE_OUT_MS = 600L
+    private var callEndRunnable: Runnable? = null
     private const val PREFS_NAME = "databridge_toggles"
     private const val KEY_POS_X = "overlay_pos_x"
     private const val KEY_POS_Y = "overlay_pos_y"
@@ -78,6 +83,39 @@ object IncomingCallOverlay {
 
     fun dismiss() {
         mainHandler.post { dismissInternal() }
+    }
+
+    /**
+     * The call ended — don't vanish instantly, the agent may still need to save
+     * remarks. Keeps the card 5s, then fades out. Any touch in between cancels
+     * the fade so an in-progress remark pick/save is never yanked away (the
+     * 30s auto-dismiss remains as the backstop in that case). No-op when the
+     * popup isn't showing.
+     */
+    fun onCallEnded() {
+        mainHandler.post {
+            if (overlayView == null) return@post
+            callEndRunnable?.let { mainHandler.removeCallbacks(it) }
+            val runnable = Runnable { fadeOutAndDismiss() }
+            callEndRunnable = runnable
+            mainHandler.postDelayed(runnable, CALL_END_GRACE_MS)
+        }
+    }
+
+    /** Agent touched the card — keep it up, cancel the post-call fade. */
+    private fun cancelCallEndFade() {
+        callEndRunnable?.let { mainHandler.removeCallbacks(it) }
+        callEndRunnable = null
+    }
+
+    private fun fadeOutAndDismiss() {
+        val view = overlayView ?: return
+        callEndRunnable = null
+        try {
+            view.animate().alpha(0f).setDuration(FADE_OUT_MS).withEndAction { dismissInternal() }.start()
+        } catch (_: Exception) {
+            dismissInternal()
+        }
     }
 
     private fun showInternal(context: Context, rawPhone: String, match: CallerMatch?, otherCount: Int) {
@@ -197,6 +235,7 @@ object IncomingCallOverlay {
                         if (expanding) {
                             renderHistoryList(view, sorted, names)
                             cancelAutoMinimize() // reading — don't collapse mid-read
+                            cancelCallEndFade() // reading — don't fade out mid-read
                         }
                         scroller?.isVisible = expanding
                         text = (if (expanding) "▲" else "▼") + " Remarks history (${sorted.size})"
@@ -337,6 +376,7 @@ object IncomingCallOverlay {
                     initialTouchY = event.rawY
                     isDragging = false
                     cancelAutoMinimize() // reading/interacting with it — don't collapse mid-touch
+                    cancelCallEndFade() // interacting — don't fade out mid-touch
                     false // let a plain tap still reach a button underneath
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -381,9 +421,11 @@ object IncomingCallOverlay {
         llExpanded: View, llMinimized: View
     ) {
         view.findViewById<View>(R.id.btnOverlayMinimize).setOnClickListener {
+            cancelCallEndFade()
             minimize(context, view, wm, params, llExpanded, llMinimized)
         }
         llMinimized.setOnClickListener {
+            cancelCallEndFade()
             llMinimized.isVisible = false
             llExpanded.isVisible = true
             // The bubble may have snapped to an edge at a width far narrower than the full
@@ -656,6 +698,7 @@ object IncomingCallOverlay {
 
         btnSetRemarks.isVisible = true
         btnSetRemarks.setOnClickListener {
+            cancelCallEndFade() // picking remarks — don't fade out mid-pick
             btnSetRemarks.isVisible = false
             llRemarkSection.isVisible = true
             cancelAutoMinimize() // reading/picking — don't collapse mid-interaction
@@ -729,6 +772,7 @@ object IncomingCallOverlay {
             renderOverlayChips(context, view, options, isCc)
 
             btnSave.setOnClickListener {
+                cancelCallEndFade() // saving — never fade out mid-save
                 val chosen = overlaySelectedOption
                 val noteText = etNote.text?.toString()?.trim().orEmpty()
                 // CC and worker alike: option pick OR note text suffices (same as
@@ -857,11 +901,13 @@ object IncomingCallOverlay {
         tvFanoutText.text = "\"${match.consignmentId}\"-এর মতো একই নম্বরের মোট $total টি parcel আছে।\nসবগুলোতে একই remark দিতে চান?"
         llFanout.isVisible = true
         view.findViewById<View>(R.id.btnOverlayFanoutYes).setOnClickListener {
+            cancelCallEndFade() // saving — never fade out mid-save
             llFanout.isVisible = false
             doOverlaySave(context, view, listOf(match.consignmentId) + siblings, match, source, isCc,
                 chosen, noteText, agentId, selfSystemId, todayAssignees)
         }
         view.findViewById<View>(R.id.btnOverlayFanoutNo).setOnClickListener {
+            cancelCallEndFade() // saving — never fade out mid-save
             llFanout.isVisible = false
             doOverlaySave(context, view, listOf(match.consignmentId), match, source, isCc,
                 chosen, noteText, agentId, selfSystemId, todayAssignees)
@@ -985,12 +1031,14 @@ object IncomingCallOverlay {
         autoDismissRunnable?.let { mainHandler.removeCallbacks(it) }
         autoDismissRunnable = null
         cancelAutoMinimize()
+        cancelCallEndFade()
         val view = overlayView ?: return
         overlayView = null
         val wm = windowManager
         windowManager = null
         layoutParams = null
         try {
+            view.animate().cancel()
             wm?.removeView(view)
         } catch (_: Exception) {
             // Already removed / view not attached -- nothing to do.

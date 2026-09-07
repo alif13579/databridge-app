@@ -50,7 +50,7 @@ class IncomingCallLegacyWatcherService : Service() {
                         }
                     }
                 }
-                TelephonyManager.CALL_STATE_IDLE -> IncomingCallOverlay.dismiss()
+                TelephonyManager.CALL_STATE_IDLE -> IncomingCallOverlay.onCallEnded()
             }
         }
     }

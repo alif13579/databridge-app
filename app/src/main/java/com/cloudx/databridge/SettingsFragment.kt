@@ -72,10 +72,13 @@ class SettingsFragment : Fragment() {
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             togglePrefs.edit().putBoolean(prefCallerIdPopup, true).apply()
+            // onResume may have unchecked the switch while the system role dialog was
+            // up (pref wasn't true yet) — re-sync so it shows the granted ON state.
+            if (_binding != null) syncCallerIdSwitch()
             checkOverlayPermissionForCallerId()
         } else {
             Toast.makeText(requireContext(), "Caller ID role granted হয়নি", Toast.LENGTH_SHORT).show()
-            switchCallerIdPopup.isChecked = false
+            if (_binding != null) syncCallerIdSwitch()
         }
     }
 
@@ -95,6 +98,11 @@ class SettingsFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         updateAuthUI()
+        // The Caller ID switch must reflect reality, not just the saved pref: the
+        // call-screening role (API 29+) can be stolen by another app (Truecaller,
+        // carrier spam-ID) or the phone permission (API 23-28) revoked while the
+        // pref still says ON — a dead ON that looks like a "reset" of the feature.
+        if (_binding != null) syncCallerIdSwitch()
     }
 
     /** Called from MainActivity after login/logout anywhere in the app. */
@@ -243,18 +251,8 @@ class SettingsFragment : Fragment() {
         // (API 29+) or a permission check (API 23-28) first, so switchCallerIdPopup.isChecked
         // only gets set to true once that actually succeeds (see enableCallerIdPopup() and the
         // callScreeningRoleLauncher result above) -- not immediately on tap like the others.
-        switchCallerIdPopup.setOnCheckedChangeListener(null)
-        switchCallerIdPopup.isChecked = togglePrefs.getBoolean(prefCallerIdPopup, false)
-        switchCallerIdPopup.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked) {
-                enableCallerIdPopup()
-            } else {
-                togglePrefs.edit().putBoolean(prefCallerIdPopup, false).apply()
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                    requireContext().stopService(Intent(requireContext(), IncomingCallLegacyWatcherService::class.java))
-                }
-            }
-        }
+        // syncCallerIdSwitch() also re-verifies on every resume (role stolen / perm revoked).
+        syncCallerIdSwitch()
 
         // Only agents with Call Center access can search from it -- hide the row entirely
         // for everyone else rather than showing a toggle that would do nothing for them.
@@ -303,6 +301,45 @@ class SettingsFragment : Fragment() {
     }
 
     /**
+     * Binds the Caller ID switch to REALITY, not just the saved pref. The pref alone can
+     * lie: on API 29+ only one app can hold ROLE_CALL_SCREENING, so installing/approving
+     * Truecaller (or the carrier's spam-ID app) silently steals the role while our pref
+     * still says ON — popup never fires, looks like the setting "reset". Same when the
+     * phone permission is revoked on API 23-28. In that case the pref is corrected to
+     * false with a one-line reason, so one tap re-enables cleanly.
+     */
+    private fun syncCallerIdSwitch() {
+        if (!isAdded) return
+        val ctx = requireContext()
+        val wantOn = togglePrefs.getBoolean(prefCallerIdPopup, false)
+        val actuallyOn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val rm = ctx.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+            wantOn && rm != null
+                && rm.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)
+                && rm.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)
+        } else {
+            wantOn && ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_PHONE_STATE) ==
+                PackageManager.PERMISSION_GRANTED
+        }
+        if (wantOn && !actuallyOn) {
+            togglePrefs.edit().putBoolean(prefCallerIdPopup, false).apply()
+            Toast.makeText(ctx, "Caller ID বন্ধ হয়ে গেছিল (role/permission আর নেই) — আবার ON করো", Toast.LENGTH_LONG).show()
+        }
+        switchCallerIdPopup.setOnCheckedChangeListener(null)
+        switchCallerIdPopup.isChecked = actuallyOn
+        switchCallerIdPopup.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                enableCallerIdPopup()
+            } else {
+                togglePrefs.edit().putBoolean(prefCallerIdPopup, false).apply()
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    ctx.stopService(Intent(ctx, IncomingCallLegacyWatcherService::class.java))
+                }
+            }
+        }
+    }
+
+    /**
      * API 29+: request RoleManager.ROLE_CALL_SCREENING (result handled by
      * callScreeningRoleLauncher above). API 23-28: RoleManager doesn't exist yet, so just
      * verify READ_PHONE_STATE (requested during onboarding already) and start the legacy
@@ -314,7 +351,7 @@ class SettingsFragment : Fragment() {
             val roleManager = ctx.getSystemService(Context.ROLE_SERVICE) as? RoleManager
             if (roleManager == null || !roleManager.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)) {
                 Toast.makeText(ctx, "এই device এ Caller ID feature support করে না", Toast.LENGTH_LONG).show()
-                switchCallerIdPopup.isChecked = false
+                syncCallerIdSwitch()
                 return
             }
             if (roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
@@ -326,7 +363,7 @@ class SettingsFragment : Fragment() {
         } else {
             if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
                 Toast.makeText(ctx, "Settings থেকে Phone permission enable করো আগে", Toast.LENGTH_LONG).show()
-                switchCallerIdPopup.isChecked = false
+                syncCallerIdSwitch()
                 return
             }
             togglePrefs.edit().putBoolean(prefCallerIdPopup, true).apply()

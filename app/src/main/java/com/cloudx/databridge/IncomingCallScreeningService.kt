@@ -50,7 +50,8 @@ class IncomingCallScreeningService : CallScreeningService() {
         // timer alone still applies for those installs, same as before this existed.
         serviceScope.launch {
             val ended = CallStateWatcher.awaitCallEnd(applicationContext, CALL_END_WATCH_TIMEOUT_MS, requireOffhookFirst = false)
-            if (ended) IncomingCallOverlay.dismiss()
+            // 5s grace + fade (remarks-save time) — not an instant vanish.
+            if (ended) IncomingCallOverlay.onCallEnded()
         }
     }
 
