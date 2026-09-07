@@ -19,70 +19,6 @@
                 android:padding="16dp"
                 android:paddingBottom="12dp">
 
-                <!-- Data source toggle (compact, top-center): Request vs Live CC vs Mix -->
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_gravity="center_horizontal"
-                    android:layout_marginBottom="8dp">
-
-                    <TextView
-                        android:id="@+id/btnCcaLiveCc"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="📡 Live"
-                        android:textSize="9sp"
-                        android:textStyle="bold"
-                        android:gravity="center"
-                        android:background="@drawable/bg_filter_chip_inactive"
-                        android:textColor="@color/theme_text_secondary"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="4dp"
-                        android:paddingBottom="4dp"
-                        android:layout_marginEnd="3dp"
-                        android:clickable="true"
-                        android:focusable="true" />
-
-                    <TextView
-                        android:id="@+id/btnCcaMix"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="🔀 Mix"
-                        android:textSize="9sp"
-                        android:textStyle="bold"
-                        android:gravity="center"
-                        android:background="@drawable/bg_filter_chip_inactive"
-                        android:textColor="@color/theme_text_secondary"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="4dp"
-                        android:paddingBottom="4dp"
-                        android:layout_marginStart="3dp"
-                        android:layout_marginEnd="3dp"
-                        android:clickable="true"
-                        android:focusable="true" />
-
-                    <TextView
-                        android:id="@+id/btnCcaRequest"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="📋 Req"
-                        android:textSize="9sp"
-                        android:textStyle="bold"
-                        android:gravity="center"
-                        android:background="@drawable/bg_filter_chip_active"
-                        android:textColor="@android:color/white"
-                        android:paddingStart="10dp"
-                        android:paddingEnd="10dp"
-                        android:paddingTop="4dp"
-                        android:paddingBottom="4dp"
-                        android:layout_marginStart="3dp"
-                        android:clickable="true"
-                        android:focusable="true" />
-                </LinearLayout>
-
                 <!-- Top row: avatar + name + Validation Queue -->
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -231,19 +167,38 @@
                             android:paddingEnd="6dp"
                             android:spinnerMode="dropdown" />
 
-                        <TextView
-                            android:id="@+id/btnCcaSyncSheet"
-                            android:layout_width="90dp"
-                            android:layout_height="26dp"
+                        <!-- Source dropdown + Sync share one thin row: no extra header height -->
+                        <LinearLayout
+                            android:layout_width="164dp"
+                            android:layout_height="wrap_content"
                             android:layout_marginTop="4dp"
-                            android:text="⇪ Sync to Sheet"
-                            android:textSize="10sp"
-                            android:textStyle="bold"
-                            android:gravity="center"
-                            android:background="@drawable/bg_filter_chip_inactive"
-                            android:textColor="@color/theme_text_secondary"
-                            android:clickable="true"
-                            android:focusable="true" />
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <Spinner
+                                android:id="@+id/spinnerCcDataSource"
+                                android:layout_width="0dp"
+                                android:layout_height="26dp"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="4dp"
+                                android:background="@drawable/bg_search_bar"
+                                android:paddingStart="4dp"
+                                android:paddingEnd="2dp"
+                                android:spinnerMode="dropdown" />
+
+                            <TextView
+                                android:id="@+id/btnCcaSyncSheet"
+                                android:layout_width="92dp"
+                                android:layout_height="26dp"
+                                android:text="⇪ Sync to Sheet"
+                                android:textSize="10sp"
+                                android:textStyle="bold"
+                                android:gravity="center"
+                                android:background="@drawable/bg_filter_chip_inactive"
+                                android:textColor="@color/theme_text_secondary"
+                                android:clickable="true"
+                                android:focusable="true" />
+                        </LinearLayout>
                     </LinearLayout>
 
                     <TextView

@@ -401,14 +401,25 @@ class CallCenterFragment : Fragment() {
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
         btnSyncSheet = view.findViewById(R.id.btnCcaSyncSheet)
         btnSyncSheet.setOnClickListener { startBulkSheetSync() }
-        btnLiveCc = view.findViewById(R.id.btnCcaLiveCc)
-        btnMix = view.findViewById(R.id.btnCcaMix)
-        btnRequest = view.findViewById(R.id.btnCcaRequest)
         scrollLiveMissing = view.findViewById(R.id.scrollCcaLiveMissing)
         layoutLiveMissing = view.findViewById(R.id.layoutCcaLiveMissing)
-        btnLiveCc.setOnClickListener { setDataSource("live") }
-        btnMix.setOnClickListener { setDataSource("mix") }
-        btnRequest.setOnClickListener { setDataSource("request") }
+        spinnerCcDataSource = view.findViewById(R.id.spinnerCcDataSource)
+        spinnerCcDataSource.adapter = android.widget.ArrayAdapter(
+            requireContext(),
+            android.R.layout.simple_spinner_item,
+            listOf("📡 Live", "🔀 Mix", "📋 Req")
+        ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        spinnerCcDataSource.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (applyingDataSourceSelection) return
+                setDataSource(when (pos) {
+                    0 -> "live"
+                    1 -> "mix"
+                    else -> "request"
+                })
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        }
         updateDataSourceToggle()
 
         etSearch = view.findViewById(R.id.twCcaSearchInput)
@@ -1639,9 +1650,8 @@ class CallCenterFragment : Fragment() {
     // from Firebase + Supabase. Mix = Request list + Live-only extras merged
     // in (dedup by consignment ID). Sheet IDs missing in Firebase become
     // ID-only chips (liveMissingIds). Remarks save the same way in all modes.
-    private lateinit var btnLiveCc: TextView
-    private lateinit var btnMix: TextView
-    private lateinit var btnRequest: TextView
+    private lateinit var spinnerCcDataSource: android.widget.Spinner
+    private var applyingDataSourceSelection = false
     private lateinit var scrollLiveMissing: View
     private lateinit var layoutLiveMissing: LinearLayout
     private var ccDataSource: String = "request" // "request" | "live" | "mix"
@@ -3407,20 +3417,16 @@ class CallCenterFragment : Fragment() {
     }
 
 
-    // ── Data source toggle: Request vs Live CC vs Mix ─────────────────────
+    // ── Data source dropdown (Live / Mix / Request, in the Sync row) ────────
     private fun updateDataSourceToggle() {
-        if (!::btnLiveCc.isInitialized || !::btnMix.isInitialized) return
-        val ctx = context ?: return
-        fun style(btn: TextView, selected: Boolean) {
-            btn.setBackgroundResource(
-                if (selected) R.drawable.bg_filter_chip_active
-                else R.drawable.bg_filter_chip_inactive)
-            btn.setTextColor(if (selected) android.graphics.Color.WHITE
-                else ctx.getColor(R.color.theme_text_secondary))
-        }
-        style(btnLiveCc, ccDataSource == "live")
-        style(btnMix, ccDataSource == "mix")
-        style(btnRequest, ccDataSource == "request")
+        if (!::spinnerCcDataSource.isInitialized) return
+        applyingDataSourceSelection = true
+        spinnerCcDataSource.setSelection(when (ccDataSource) {
+            "live" -> 0
+            "mix" -> 1
+            else -> 2
+        })
+        spinnerCcDataSource.post { applyingDataSourceSelection = false }
         renderLiveMissingChips()
     }
 
