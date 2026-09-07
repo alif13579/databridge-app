@@ -18,10 +18,10 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * App home screen. Replaced the old date-chip/branch-dropdown/run-cards/earnings/
- * status-breakdown/agent-performance view with the "Verify & Delivery Request" funnel
- * (see VerifyDeliveryDashboardViewModel's doc comment for the full classification logic
- * and Supabase remarks_status values this depends on).
+ * App home screen. Personal "Verify & Delivery Request" funnel, scoped to the
+ * logged-in user only (own runs + own requests — see
+ * VerifyDeliveryDashboardViewModel's doc comment for the full classification
+ * logic and Supabase remarks_status values this depends on).
  */
 class DashboardFragment : Fragment() {
 
@@ -57,9 +57,6 @@ class DashboardFragment : Fragment() {
     private var rangeStartMs: Long = 0L
     private var rangeEndMs: Long = 0L
     private var rangeLabel: String = ""
-    private var selectedAgentSystemId: String? = null
-    private var selectedAgentName: String = "All Agents"
-    private var latestAgentOptions: List<FunnelAgentOption> = emptyList()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_dashboard, container, false)
@@ -109,7 +106,8 @@ class DashboardFragment : Fragment() {
 
         setRangeToThisWeek()
         tvDateRange.setOnClickListener { showDateRangePicker() }
-        tvAgentFilter.setOnClickListener { showAgentPicker() }
+        // Self-scoped: no agent picker — this screen only ever shows the
+        // logged-in user's own runs and requests.
 
         swipeRefresh.setOnRefreshListener { loadData() }
 
@@ -132,7 +130,7 @@ class DashboardFragment : Fragment() {
     )
 
     private fun loadData() {
-        vm.load(rangeStartMs, rangeEndMs, selectedAgentSystemId)
+        vm.load(rangeStartMs, rangeEndMs)
     }
 
     private fun render(state: VerifyDeliveryFunnelState) {
@@ -141,7 +139,7 @@ class DashboardFragment : Fragment() {
         tvError.isVisible = state.error != null
         tvError.text = state.error?.let { "⚠ $it" }
 
-        latestAgentOptions = state.agentOptions
+        tvAgentFilter.text = if (state.ownName.isNotBlank()) "👤 ${state.ownName}" else "👤"
 
         cardTotalAssign.value.text = state.totalAssign.toString()
         cardTotalAssign.subtitle.text = "100%"
@@ -288,23 +286,5 @@ class DashboardFragment : Fragment() {
     }
 
     // ── Agent filter ────────────────────────────────────────────────────────
-
-    private fun showAgentPicker() {
-        val names = listOf("All Agents") + latestAgentOptions.map { it.name }
-        AlertDialog.Builder(requireContext())
-            .setTitle("Call Center Agent বেছে নিন")
-            .setItems(names.toTypedArray()) { _, which ->
-                if (which == 0) {
-                    selectedAgentSystemId = null
-                    selectedAgentName = "All Agents"
-                } else {
-                    val agent = latestAgentOptions[which - 1]
-                    selectedAgentSystemId = agent.systemId
-                    selectedAgentName = agent.name
-                }
-                tvAgentFilter.text = "👤 $selectedAgentName"
-                loadData()
-            }
-            .show()
-    }
+    // Removed: self-scoped dashboard (own runs + own requests only).
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -16,11 +17,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-data class FunnelAgentOption(val systemId: String, val name: String)
-
 data class VerifyDeliveryFunnelState(
     val isLoading: Boolean = true,
     val error: String? = null,
+    val ownName: String = "",
     val totalAssign: Int = 0,
     val verifyRequest: Int = 0,
     val holdReturn: Int = 0,
@@ -28,70 +28,69 @@ data class VerifyDeliveryFunnelState(
     val confirmed: Int = 0,
     val delivered: Int = 0,
     val pending: Int = 0,
-    val agentOptions: List<FunnelAgentOption> = emptyList(),
 )
 
 /**
- * Loads the "Verify & Delivery Request" funnel:
+ * Personal "Verify & Delivery Request" funnel — scoped to the logged-in user ONLY:
  *
- *   Total Assign (Firebase runs, date-range scoped)
- *     -> Verify Request (consignments with a WORKER remark, status VERIFY_REQUEST)
- *       -> Hold/Return (CC resolves with hold_verified / return_verified)
- *       -> Delivery Request (CC resolves with delivery_request)
- *         -> Confirmed / Delivered / Pending (worker's next remark after delivery_request,
- *            or no further remark at all = Pending)
+ *   My Assigned: my runs (run_{yyyyMMdd}_{systemId}, date-range scoped),
+ *     distinct consignments = assigned qty. Other agents' runs are never read.
+ *     -> My Requests: MY worker VERIFY_REQUEST rows, distinct per Dhaka-day per
+ *        consignment (same consignment twice in one day counts once).
+ *       -> Hold/Return vs Delivery Request (LAST CC resolution per consignment:
+ *          hold_verified / return_verified / delivery_request).
+ *         -> Confirmed / Delivered / Pending (first remark after delivery_request,
+ *            or no further remark at all = Pending).
  *
  * Total Assign comes from Firebase in two stages (same as CallCenterFragment):
- * runs_by_branchId/{branchId}/{runType} gives run-ID keys in the date range
- * (index values are plain status strings), then courier/run_routes/{runType}/
- * {runId} gives agentSystemId + consignments — run keys are
+ * runs_by_branchId/{branchId}/{runType} gives run-ID keys in the date range,
+ * filtered to this user's own run_{date}_{systemId} suffix — then
+ * courier/run_routes/{runType}/{runId} gives consignments. Run keys are
  * lexicographically sortable by their date prefix, so the whole date range is one
  * startAt/endAt query per (branch, runType) pair rather than one query per day.
  *
  * Everything past Total Assign (remark classification) comes from Supabase's
- * validations table, per the confirmed status values:
- *   - Worker remark: source=WORKER, remarks_status=VERIFY_REQUEST
- *   - CC resolution: source=CC, remarks_status in [hold_verified, return_verified, delivery_request]
- *   - Worker outcome: remarks_status in [CONFIRMED, DELIVERED] after a delivery_request
+ * validations table, filtered by this user's author_system_id for requests.
  */
 class VerifyDeliveryDashboardViewModel : ViewModel() {
 
     private val _state = MutableLiveData(VerifyDeliveryFunnelState())
     val state: LiveData<VerifyDeliveryFunnelState> = _state
 
-    // Cached across loads within this ViewModel's lifetime -- same session, same names.
-    private var systemIdToName: Map<String, String> = emptyMap()
+    private val dhaka = java.time.ZoneId.of("Asia/Dhaka")
 
-    fun load(rangeStartMs: Long, rangeEndMs: Long, selectedAgentSystemId: String?) {
+    fun load(rangeStartMs: Long, rangeEndMs: Long) {
         viewModelScope.launch {
             _state.value = (_state.value ?: VerifyDeliveryFunnelState()).copy(isLoading = true, error = null)
             try {
-                val entries = fetchRunEntries(rangeStartMs, rangeEndMs)
-
-                val agentSystemIds = entries.map { it.agentSystemId }.distinct()
-                if (systemIdToName.keys.intersect(agentSystemIds.toSet()).size < agentSystemIds.size) {
-                    systemIdToName = systemIdToName + resolveAgentNames(agentSystemIds)
+                val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                val ownSystemId = ownSystemId(uid)
+                if (ownSystemId.isBlank()) {
+                    _state.value = (_state.value ?: VerifyDeliveryFunnelState()).copy(
+                        isLoading = false,
+                        error = "system_id পাওয়া যায়নি — admin-এর সাথে যোগাযোগ করুন"
+                    )
+                    return@launch
                 }
-                val agentOptions = agentSystemIds
-                    .map { FunnelAgentOption(it, systemIdToName[it] ?: it) }
-                    .sortedBy { it.name }
+                val ownName = runCatching { UserNameResolver.resolveNameBySystemId(ownSystemId) }
+                    .getOrNull().orEmpty()
 
-                val filtered = if (selectedAgentSystemId.isNullOrBlank()) entries
-                    else entries.filter { it.agentSystemId == selectedAgentSystemId }
+                val entries = fetchOwnRunEntries(rangeStartMs, rangeEndMs, ownSystemId)
 
-                val consignmentIds = filtered.flatMap { it.consignmentIds }.toSet()
+                val consignmentIds = entries.flatMap { it.consignmentIds }.toSet()
                 val totalAssign = consignmentIds.size
 
                 if (consignmentIds.isEmpty()) {
-                    _state.value = VerifyDeliveryFunnelState(isLoading = false, agentOptions = agentOptions)
+                    _state.value = VerifyDeliveryFunnelState(isLoading = false, ownName = ownName)
                     return@launch
                 }
 
                 val remarkRows = fetchRemarksForConsignments(consignmentIds.toList())
-                val counts = classify(remarkRows)
+                val counts = classify(remarkRows, ownSystemId)
 
                 _state.value = VerifyDeliveryFunnelState(
                     isLoading = false,
+                    ownName = ownName,
                     totalAssign = totalAssign,
                     verifyRequest = counts.verifyRequest,
                     holdReturn = counts.holdReturn,
@@ -99,7 +98,6 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
                     confirmed = counts.confirmed,
                     delivered = counts.delivered,
                     pending = counts.pending,
-                    agentOptions = agentOptions,
                 )
             } catch (e: Exception) {
                 _state.value = (_state.value ?: VerifyDeliveryFunnelState()).copy(
@@ -110,23 +108,44 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
         }
     }
 
-    // ── Firebase: runs in the date range ──────────────────────────────────────
+    /** This device user's system_id (Firebase profile) — the only scope this
+     *  dashboard ever reads. Blank for guests / non-onboarded accounts. */
+    private suspend fun ownSystemId(uid: String): String {
+        if (uid.isBlank()) return ""
+        return try {
+            withContext(Dispatchers.IO) {
+                com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                    .child("users/$uid/profile/company_info/system_id").get().await()
+                    .getValue(String::class.java)
+            }?.trim().orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    /** Dhaka calendar day (yyyy-MM-dd) for per-day distinct counting. */
+    private fun dayKey(ms: Long): String =
+        java.time.Instant.ofEpochMilli(ms).atZone(dhaka).toLocalDate().toString()
+
+    // ── Firebase: MY runs in the date range ─────────────────────────────────
 
     private data class RunEntry(val agentSystemId: String, val consignmentIds: Set<String>)
 
-    private suspend fun fetchRunEntries(rangeStartMs: Long, rangeEndMs: Long): List<RunEntry> = coroutineScope {
+    private suspend fun fetchOwnRunEntries(
+        rangeStartMs: Long, rangeEndMs: Long, ownSystemId: String
+    ): List<RunEntry> = coroutineScope {
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
         val fmt = SimpleDateFormat("yyyyMMdd", Locale.ENGLISH)
         val startKey = fmt.format(Date(rangeStartMs))
         val endKey = fmt.format(Date(rangeEndMs))
         val branchIds = RbacManager.current.branchIds
+        val ownSuffix = "_$ownSystemId"
 
-        // Stage 1 — index only gives (runType, runId) KEYS in range. The index
-        // value itself is just a status string (written by ConfigSheetWizardSteps),
-        // NOT a run node — so agentSystemId/consignments must come from
-        // courier/run_routes below (same two-stage pattern CallCenterFragment uses).
-        // Reading them off the index snapshot always yields blank/empty, i.e. a
-        // permanently-zero dashboard — the bug this fixes.
+        // Stage 1 — index gives (runType, runId) KEYS in range; only this user's
+        // own run_{date}_{systemId} suffix is kept, everyone else's skipped
+        // before any run node is even read.
+        // (Index values are plain status strings, NOT run nodes — agent/
+        // consignments must come from courier/run_routes below.)
         val runKeys: List<Pair<String, String>> = branchIds.map { branchId ->
             async(Dispatchers.IO) {
                 val keys = mutableListOf<Pair<String, String>>()
@@ -146,7 +165,7 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
 
                     rangeSnap.children.forEach { runSnap ->
                         val runId = runSnap.key?.trim().orEmpty()
-                        if (runId.isNotBlank()) keys.add(runType to runId)
+                        if (runId.isNotBlank() && runId.endsWith(ownSuffix)) keys.add(runType to runId)
                     }
                 }
                 keys
@@ -154,7 +173,8 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
         }.awaitAll().flatten().distinct()
         if (runKeys.isEmpty()) return@coroutineScope emptyList()
 
-        // Stage 2 — actual run nodes carry agentSystemId + consignments map.
+        // Stage 2 — actual run nodes carry consignments. Double-checks the agent
+        // (runId suffix parse as fallback) so a foreign run can never leak in.
         runKeys.map { (runType, runId) ->
             async(Dispatchers.IO) {
                 val snap = runCatching {
@@ -168,51 +188,12 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
                     val parts = runId.split("_")
                     if (parts.size >= 3) agentSystemId = parts.drop(2).joinToString("_").trim()
                 }
-                if (agentSystemId.isBlank()) return@async null
+                if (agentSystemId != ownSystemId) return@async null
                 val consignmentIds = snap.child("consignments").children.mapNotNull { it.key }.toSet()
                 if (consignmentIds.isEmpty()) return@async null
                 RunEntry(agentSystemId, consignmentIds)
             }
         }.awaitAll().filterNotNull()
-    }
-
-    private suspend fun resolveAgentNames(systemIds: List<String>): Map<String, String> {
-        if (systemIds.isEmpty()) return emptyMap()
-        // Supabase users first (source of truth — survives admin renames);
-        // Firebase below stays as fallback for cross-branch RLS gaps / legacy rows.
-        val out = mutableMapOf<String, String>()
-        systemIds.distinct().forEach { sysId ->
-            runCatching { UserNameResolver.resolveNameBySystemId(sysId) }.getOrNull()
-                ?.takeIf { it.isNotBlank() }?.let { out[sysId] = it }
-        }
-        val missing = systemIds.filter { it !in out }
-        if (missing.isEmpty()) return out
-        return try {
-            val db = com.google.firebase.database.FirebaseDatabase.getInstance()
-            val indexSnap = withContext(Dispatchers.IO) {
-                db.reference.child("users_by_systemId").get().await()
-            }
-            val sysIdToUid = mutableMapOf<String, String>()
-            indexSnap.children.forEach { child ->
-                val sysId = child.key?.trim()
-                val uid = child.child("uid").getValue(String::class.java)?.trim()
-                if (!sysId.isNullOrBlank() && sysId in systemIds && !uid.isNullOrBlank()) sysIdToUid[sysId] = uid
-            }
-            coroutineScope {
-                sysIdToUid.map { (sysId, uid) ->
-                    async(Dispatchers.IO) {
-                        val name = runCatching {
-                            db.reference.child("users/$uid/profile/name").get().await().getValue(String::class.java)
-                        }.getOrNull()?.trim()
-                        sysId to name
-                    }
-                }.awaitAll()
-            }.filter { !it.second.isNullOrBlank() }.associate { it.first to it.second!! }
-                .let { out.putAll(it); out }
-        } catch (e: Exception) {
-            FirebaseErrorLogger.log("VerifyDeliveryDashboardViewModel", "resolve_agent_names_failed", e.message ?: "")
-            out
-        }
     }
 
     // ── Supabase: remark rows for the assigned consignments ──────────────────
@@ -237,7 +218,9 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
         val confirmed: Int, val delivered: Int, val pending: Int,
     )
 
-    private fun classify(rows: List<JSONObject>): FunnelCounts {
+    private enum class Outcome { CONFIRMED, DELIVERED, PENDING }
+
+    private fun classify(rows: List<JSONObject>, ownSystemId: String): FunnelCounts {
         var verifyRequest = 0
         var holdReturn = 0
         var deliveryRequest = 0
@@ -248,32 +231,54 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
         rows.groupBy { it.optString("consignment") }.forEach { (_, group) ->
             val sorted = group.sortedBy { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) }
 
-            val hasWorkerVerifyRequest = sorted.any {
-                it.optString("source").equals("WORKER", ignoreCase = true) &&
-                    it.optString("remarks_status").equals("VERIFY_REQUEST", ignoreCase = true)
-            }
-            if (!hasWorkerVerifyRequest) return@forEach
-            verifyRequest++
+            // MY request days (Dhaka): my WORKER VERIFY_REQUEST rows only, one
+            // count per day per consignment no matter how many times remarked.
+            val myDays = sorted.mapNotNull { r ->
+                if (!r.optString("source").equals("WORKER", ignoreCase = true)) return@mapNotNull null
+                if (!r.optString("remarks_status").equals("VERIFY_REQUEST", ignoreCase = true)) return@mapNotNull null
+                if (!r.optString("author_system_id").trim().equals(ownSystemId, ignoreCase = true)) return@mapNotNull null
+                val ms = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
+                if (ms <= 0L) null else dayKey(ms)
+            }.toSet()
+            if (myDays.isEmpty()) return@forEach
 
+            // Journey of this consignment: last CC resolution + first remark after it.
             val ccResolution = sorted.lastOrNull {
                 it.optString("source").equals("CC", ignoreCase = true) &&
                     it.optString("remarks_status").lowercase() in setOf("hold_verified", "return_verified", "delivery_request")
-            } ?: return@forEach
+            }
+            val kind = when (ccResolution?.optString("remarks_status")?.lowercase()) {
+                "hold_verified", "return_verified" -> "hold"
+                "delivery_request" -> "delivery"
+                else -> null
+            }
+            val outcome = if (kind == "delivery" && ccResolution != null) {
+                val resolvedAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(ccResolution.optString("created_at"))
+                val nextRemark = sorted.firstOrNull {
+                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) > resolvedAt
+                }
+                when {
+                    nextRemark == null -> Outcome.PENDING
+                    nextRemark.optString("remarks_status").equals("CONFIRMED", ignoreCase = true) -> Outcome.CONFIRMED
+                    nextRemark.optString("remarks_status").equals("DELIVERED", ignoreCase = true) -> Outcome.DELIVERED
+                    else -> Outcome.PENDING
+                }
+            } else null
 
-            when (ccResolution.optString("remarks_status").lowercase()) {
-                "hold_verified", "return_verified" -> holdReturn++
-                "delivery_request" -> {
-                    deliveryRequest++
-                    val resolvedAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(ccResolution.optString("created_at"))
-                    val nextRemark = sorted.firstOrNull {
-                        SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optString("created_at")) > resolvedAt
+            // Every requested day of this consignment flows through the same journey.
+            myDays.forEach { _ ->
+                verifyRequest++
+                when (kind) {
+                    "hold" -> holdReturn++
+                    "delivery" -> {
+                        deliveryRequest++
+                        when (outcome) {
+                            Outcome.CONFIRMED -> confirmed++
+                            Outcome.DELIVERED -> delivered++
+                            else -> pending++
+                        }
                     }
-                    when {
-                        nextRemark == null -> pending++
-                        nextRemark.optString("remarks_status").equals("CONFIRMED", ignoreCase = true) -> confirmed++
-                        nextRemark.optString("remarks_status").equals("DELIVERED", ignoreCase = true) -> delivered++
-                        else -> pending++
-                    }
+                    else -> Unit
                 }
             }
         }
