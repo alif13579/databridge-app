@@ -229,16 +229,16 @@ object IncomingCallOverlay {
                     text = "▼ Remarks history (${sorted.size})"
                     isVisible = true
                     setOnClickListener {
-                        val scroller = view.findViewById<View>(R.id.svOverlayHistoryList)
                         val list = view.findViewById<LinearLayout>(R.id.llOverlayHistoryList)
-                        val expanding = !(scroller?.isVisible == true)
+                        val expanding = !(list?.isVisible == true)
                         if (expanding) {
                             renderHistoryList(view, sorted, names)
                             cancelAutoMinimize() // reading — don't collapse mid-read
                             cancelCallEndFade() // reading — don't fade out mid-read
                         }
-                        scroller?.isVisible = expanding
+                        list?.isVisible = expanding
                         text = (if (expanding) "▲" else "▼") + " Remarks history (${sorted.size})"
+                        if (expanding) clampOverlayBody(view)
                     }
                 }
             }
@@ -326,6 +326,7 @@ object IncomingCallOverlay {
             autoDismissRunnable = dismissRunnable
             mainHandler.postDelayed(dismissRunnable, AUTO_DISMISS_MS)
             scheduleAutoMinimize(context, view, wm, params, llExpanded, llMinimized)
+            view.post { clampOverlayBody(view) }
         } catch (_: Exception) {
             // Overlay permission revoked mid-flight, or OEM restriction -- fail silently,
             // this popup is a convenience, never something that should crash a call.
@@ -595,7 +596,6 @@ object IncomingCallOverlay {
                 })
             }
         }
-        capScrollerHeight(view, R.id.svOverlayHistoryList)
     }
 
     // ── Remarks from the incoming-call popup ─────────────────────────────
@@ -710,6 +710,7 @@ object IncomingCallOverlay {
             tvAgentMissing.isVisible = false
             view.findViewById<View>(R.id.btnOverlayAgentMissingSearch).isVisible = false
             btnSetRemarks.isVisible = true
+            resetOverlayBody(view)
         }
     }
 
@@ -864,8 +865,8 @@ object IncomingCallOverlay {
             chipContainer.addView(row)
             rowViews.add(OptRow(row, tvLabel, tvTag))
         }
-        // Cap the chips scroller so a huge catalog can't push Save off-screen.
-        capScrollerHeight(view, R.id.svOverlayRemarkChips)
+        // Any catalog size stays reachable inside the capped body scroller.
+        clampOverlayBody(view)
     }
 
     /** Save tap → sibling check → inline Yes/No fan-out (or direct save). */
@@ -900,6 +901,7 @@ object IncomingCallOverlay {
         val total = siblings.size + 1
         tvFanoutText.text = "\"${match.consignmentId}\"-এর মতো একই নম্বরের মোট $total টি parcel আছে।\nসবগুলোতে একই remark দিতে চান?"
         llFanout.isVisible = true
+        clampOverlayBody(view)
         view.findViewById<View>(R.id.btnOverlayFanoutYes).setOnClickListener {
             cancelCallEndFade() // saving — never fade out mid-save
             llFanout.isVisible = false
@@ -1011,6 +1013,7 @@ object IncomingCallOverlay {
                 llRemarkSection.isVisible = false
                 view.findViewById<View>(R.id.llOverlayFanout).isVisible = false
                 tvConfirmation.isVisible = true
+                resetOverlayBody(view)
                 mainHandler.postDelayed({ dismissInternal() }, 2000)
             } else {
                 restoreSaveButton()
@@ -1142,15 +1145,37 @@ object IncomingCallOverlay {
     private fun dpToPx(context: Context, dp: Int): Int =
         (dp * context.resources.displayMetrics.density).toInt()
 
-    /** Caps a popup scroller (remarks chips, history) so a huge list can't push
-     *  the window — and its Save button — off-screen. */
-    private fun capScrollerHeight(view: View, scrollerId: Int, maxDp: Int = 230) {
-        val scroller = view.findViewById<View>(scrollerId) ?: return
-        scroller.post {
-            val maxPx = dpToPx(view.context, maxDp)
-            if (scroller.height > maxPx) {
-                scroller.layoutParams = scroller.layoutParams.apply { height = maxPx }
+    /** Caps the body scroller so the whole card never grows past ~72% of the
+     *  screen: header stays fixed on top, everything else (remarks catalog,
+     *  history trail, note, Save) scrolls inside. Called whenever content grows
+     *  (show, history expand, chips render, fanout). No-op while it fits. */
+    private fun clampOverlayBody(view: View) {
+        val body = view.findViewById<View>(R.id.svOverlayBody) ?: return
+        body.post {
+            if (overlayView !== view) return@post
+            val dm = view.context.resources.displayMetrics
+            val maxCardH = (dm.heightPixels * 0.72).toInt()
+            if (view.height > maxCardH) {
+                val headerH = view.findViewById<View>(R.id.llOverlayHeader)?.height ?: 0
+                val target = (maxCardH - headerH - dpToPx(view.context, 32))
+                    .coerceAtLeast(dpToPx(view.context, 160))
+                val lp = body.layoutParams
+                if (lp.height != target) {
+                    lp.height = target
+                    body.layoutParams = lp
+                }
             }
+        }
+    }
+
+    /** Content shrank again (save done / section closed) — let the card hug its
+     *  content instead of keeping a stale capped height with empty space. */
+    private fun resetOverlayBody(view: View) {
+        val body = view.findViewById<View>(R.id.svOverlayBody) ?: return
+        val lp = body.layoutParams
+        if (lp.height != android.view.ViewGroup.LayoutParams.WRAP_CONTENT) {
+            lp.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            body.layoutParams = lp
         }
     }
 }
