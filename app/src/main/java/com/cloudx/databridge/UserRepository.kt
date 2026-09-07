@@ -48,6 +48,8 @@ class UserRepository(private val uid: String) {
      * ✅ Creates a brand-new profile for a first-time user.
      * Called ONLY when no existing profile is found in Firebase.
      * Role always starts as "guest" — admin assigns roles separately.
+     * [name] must be blank at login: the standard employee name is entered by
+     * admin at onboard and must never default from the Gmail display name.
      */
     suspend fun createNewProfile(
         name: String,

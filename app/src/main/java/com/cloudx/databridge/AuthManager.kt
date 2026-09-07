@@ -96,11 +96,15 @@ object AuthManager {
             // Only update device connection so the device is tracked
             userRepo.saveAndroidConnection(androidId, model)
         } else {
-            // ✅ New user — create fresh profile with guest role
+            // ✅ New user — create fresh profile with guest role.
+            // Name stays BLANK on purpose: the employee's standard name (e.g.
+            // "Rumi Farhana") is set by admin at onboard and is often different
+            // from the Gmail display name (e.g. "rumi akter"). Login must never
+            // invent identity — a blank forces admin entry ("Name required").
             val photoUrl = account.photoUrl?.toString().orEmpty()
             val authPhone = auth.currentUser?.phoneNumber.orEmpty()
             userRepo.createNewProfile(
-                name         = account.displayName ?: "User",
+                name         = "",
                 email        = account.email ?: "",
                 photoUrl     = photoUrl,
                 phoneNumber  = authPhone.ifBlank { null },
