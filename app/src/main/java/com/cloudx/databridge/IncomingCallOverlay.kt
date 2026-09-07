@@ -931,8 +931,17 @@ object IncomingCallOverlay {
             Toast.makeText(context, "Branch তথ্য পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
             return
         }
-        // Saving state until the server answers: disabled buttons + spinner text,
+        // Saving state until the server answers: the whole remark section hides
+        // and only a saving line shows — it stays hidden on success (confirmation
+        // follows) and comes back ONLY if the save fails, so the agent can retry
+        // with their picks/note intact. Disabled buttons + spinner text underneath
         // so a slow network never looks like a dead tap (and never double-saves).
+        llRemarkSection.isVisible = false
+        view.findViewById<View>(R.id.llOverlayFanout).isVisible = false
+        tvConfirmation.text = "⏳ Saving..."
+        tvConfirmation.setTextColor(0xFF64748B.toInt())
+        tvConfirmation.isVisible = true
+        resetOverlayBody(view)
         btnSave.isEnabled = false
         btnCancel.isEnabled = false
         val saveLabel = btnSave.text
@@ -1017,6 +1026,11 @@ object IncomingCallOverlay {
                 mainHandler.postDelayed({ dismissInternal() }, 2000)
             } else {
                 restoreSaveButton()
+                // Failed — bring the section back exactly as it was (picks + note
+                // are still in the views) so the agent can retry; hide the saving line.
+                tvConfirmation.isVisible = false
+                llRemarkSection.isVisible = true
+                clampOverlayBody(view)
                 Toast.makeText(
                     context,
                     if (okCount > 0) "⚠ $okCount টি save হয়েছে, $failCount টি হয়নি — আবার চেষ্টা করুন"
