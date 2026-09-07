@@ -410,23 +410,7 @@ class CallCenterFragment : Fragment() {
         btnSyncSheet.setOnClickListener { startBulkSheetSync() }
         scrollLiveMissing = view.findViewById(R.id.scrollCcaLiveMissing)
         layoutLiveMissing = view.findViewById(R.id.layoutCcaLiveMissing)
-        spinnerCcDataSource = view.findViewById(R.id.spinnerCcDataSource)
-        spinnerCcDataSource.adapter = android.widget.ArrayAdapter(
-            requireContext(),
-            android.R.layout.simple_spinner_item,
-            listOf("📡 Live", "🔀 Mix", "📋 Req")
-        ).also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-        spinnerCcDataSource.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                if (applyingDataSourceSelection) return
-                setDataSource(when (pos) {
-                    0 -> "live"
-                    1 -> "mix"
-                    else -> "request"
-                })
-            }
-            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
-        }
+        view.findViewById<TextView>(R.id.btnCcaSourceMenu).setOnClickListener { showSourceMenu(it) }
         updateDataSourceToggle()
 
         etSearch = view.findViewById(R.id.twCcaSearchInput)
@@ -1651,14 +1635,13 @@ class CallCenterFragment : Fragment() {
     // ── Header Sync to Sheet (bulk — same as the extension's ⇪ Sheet) ────
     private lateinit var btnSyncSheet: TextView
 
-    // ── Data source toggle: Request (runs) vs Live CC (sheet IDs) vs Mix ──
+    // ── Data source: Request (runs) vs Live CC (sheet IDs) vs Mix ──────────
     // Live CC reads today's consignment IDs from the branch's live sheet
     // (Config → Connectors → LIVE CC SHEET) and builds the SAME parcel cards
     // from Firebase + Supabase. Mix = Request list + Live-only extras merged
     // in (dedup by consignment ID). Sheet IDs missing in Firebase become
     // ID-only chips (liveMissingIds). Remarks save the same way in all modes.
-    private lateinit var spinnerCcDataSource: android.widget.Spinner
-    private var applyingDataSourceSelection = false
+    // Picked from the ⋮ menu at the Sync row's left corner (showSourceMenu).
     private lateinit var scrollLiveMissing: View
     private lateinit var layoutLiveMissing: LinearLayout
     private var ccDataSource: String = "request" // "request" | "live" | "mix"
@@ -3442,16 +3425,27 @@ class CallCenterFragment : Fragment() {
     }
 
 
-    // ── Data source dropdown (Live / Mix / Request, in the Sync row) ────────
+    // ── Data source menu (⋮ at the Sync row's left corner) ─────────────────
+    // The active mode gets a ✓ prefix; tapping the active one is a no-op
+    // (setDataSource early-returns on same mode — no reload).
+    private fun showSourceMenu(anchor: View) {
+        if (!isAdded) return
+        val modes = listOf("live" to "📡 Live", "mix" to "🔀 Mix", "request" to "📋 Req")
+        val popup = android.widget.PopupMenu(requireContext(), anchor)
+        modes.forEachIndexed { i, (mode, label) ->
+            popup.menu.add(
+                android.view.Menu.NONE, i, i,
+                (if (ccDataSource == mode) "✓ " else "") + label
+            )
+        }
+        popup.setOnMenuItemClickListener { item ->
+            setDataSource(modes[item.itemId].first)
+            true
+        }
+        popup.show()
+    }
+
     private fun updateDataSourceToggle() {
-        if (!::spinnerCcDataSource.isInitialized) return
-        applyingDataSourceSelection = true
-        spinnerCcDataSource.setSelection(when (ccDataSource) {
-            "live" -> 0
-            "mix" -> 1
-            else -> 2
-        })
-        spinnerCcDataSource.post { applyingDataSourceSelection = false }
         renderLiveMissingChips()
     }
 

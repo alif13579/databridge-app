@@ -175,21 +175,25 @@
                             android:orientation="horizontal"
                             android:gravity="center_vertical">
 
-                            <Spinner
-                                android:id="@+id/spinnerCcDataSource"
-                                android:layout_width="0dp"
+                            <TextView
+                                android:id="@+id/btnCcaSourceMenu"
+                                android:layout_width="26dp"
                                 android:layout_height="26dp"
-                                android:layout_weight="1"
                                 android:layout_marginEnd="4dp"
                                 android:background="@drawable/bg_search_bar"
-                                android:paddingStart="4dp"
-                                android:paddingEnd="2dp"
-                                android:spinnerMode="dropdown" />
+                                android:text="⋮"
+                                android:textSize="14sp"
+                                android:textStyle="bold"
+                                android:gravity="center"
+                                android:textColor="@color/theme_text_secondary"
+                                android:clickable="true"
+                                android:focusable="true" />
 
                             <TextView
                                 android:id="@+id/btnCcaSyncSheet"
-                                android:layout_width="92dp"
+                                android:layout_width="0dp"
                                 android:layout_height="26dp"
+                                android:layout_weight="1"
                                 android:text="⇪ Sync to Sheet"
                                 android:textSize="10sp"
                                 android:textStyle="bold"
