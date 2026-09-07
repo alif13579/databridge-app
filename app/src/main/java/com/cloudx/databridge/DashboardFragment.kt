@@ -57,6 +57,11 @@ class DashboardFragment : Fragment() {
     private var rangeStartMs: Long = 0L
     private var rangeEndMs: Long = 0L
     private var rangeLabel: String = ""
+    // Team view (admin/manager/supervisor): All Agents or one picked agent.
+    // Workers are always self-scoped — the picker stays inert for them.
+    private var teamMode: Boolean = false
+    private var selectedAgentSystemId: String? = null
+    private var latestAgentOptions: List<FunnelAgentOption> = emptyList()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_dashboard, container, false)
@@ -106,14 +111,32 @@ class DashboardFragment : Fragment() {
 
         setRangeToThisWeek()
         tvDateRange.setOnClickListener { showDateRangePicker() }
-        // Self-scoped: no agent picker — this screen only ever shows the
-        // logged-in user's own runs and requests.
+        tvAgentFilter.setOnClickListener { if (teamMode) showAgentPicker() }
+        refreshTeamMode()
 
         swipeRefresh.setOnRefreshListener { loadData() }
 
         vm.state.observe(viewLifecycleOwner) { state -> render(state) }
 
         loadData()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Role can arrive after this screen (RBAC loads async) — enable the
+        // team picker the moment a supervisor+ role is known.
+        if (refreshTeamMode()) loadData()
+    }
+
+    /** Team view is a supervisor+ privilege (admin/manager/supervisor). Returns
+     *  true when the mode flipped (caller reloads). Non-team users are pinned
+     *  to self scope — any stale pick is cleared. */
+    private fun refreshTeamMode(): Boolean {
+        val can = RbacManager.current.roleId in setOf("admin", "manager", "supervisor")
+        if (can == teamMode) return false
+        teamMode = can
+        if (!can) selectedAgentSystemId = null
+        return true
     }
 
     private fun bindMetricCard(root: View): MetricCardViews = MetricCardViews(
@@ -130,7 +153,7 @@ class DashboardFragment : Fragment() {
     )
 
     private fun loadData() {
-        vm.load(rangeStartMs, rangeEndMs)
+        vm.load(rangeStartMs, rangeEndMs, teamMode, selectedAgentSystemId)
     }
 
     private fun render(state: VerifyDeliveryFunnelState) {
@@ -139,7 +162,8 @@ class DashboardFragment : Fragment() {
         tvError.isVisible = state.error != null
         tvError.text = state.error?.let { "⚠ $it" }
 
-        tvAgentFilter.text = if (state.ownName.isNotBlank()) "👤 ${state.ownName}" else "👤"
+        latestAgentOptions = state.agentOptions
+        tvAgentFilter.text = if (state.scopeName.isNotBlank()) "👤 ${state.scopeName}" else "👤"
 
         cardTotalAssign.value.text = state.totalAssign.toString()
         cardTotalAssign.subtitle.text = "100%"
@@ -285,6 +309,20 @@ class DashboardFragment : Fragment() {
         }, startCal.get(Calendar.YEAR), startCal.get(Calendar.MONTH), startCal.get(Calendar.DAY_OF_MONTH)).show()
     }
 
-    // ── Agent filter ────────────────────────────────────────────────────────
-    // Removed: self-scoped dashboard (own runs + own requests only).
+    // ── Agent filter (team view only) ───────────────────────────────────────
+
+    private fun showAgentPicker() {
+        val names = listOf("All Agents") + latestAgentOptions.map { it.name }
+        AlertDialog.Builder(requireContext())
+            .setTitle("Agent বেছে নিন")
+            .setItems(names.toTypedArray()) { _, which ->
+                if (which == 0) {
+                    selectedAgentSystemId = null
+                } else {
+                    selectedAgentSystemId = latestAgentOptions[which - 1].systemId
+                }
+                loadData()
+            }
+            .show()
+    }
 }
