@@ -72,6 +72,43 @@
             android:layout_marginTop="3dp"
             android:visibility="gone"/>
 
+        <!-- 🔔 Push token eye-check: tiny eye next to Emp/Sys; tap fetches live
+             Supabase status, tap again hides. Status tap retries register when OFF. -->
+        <LinearLayout
+            android:id="@+id/layoutDrawerPushRow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="2dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/btnDrawerPushEye"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="32dp"
+                android:minHeight="32dp"
+                android:gravity="center"
+                android:text="👁"
+                android:textSize="11sp"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Check push token status"/>
+
+            <TextView
+                android:id="@+id/tvDrawerPushStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/theme_text_muted"
+                android:textSize="9sp"
+                android:clickable="true"
+                android:focusable="true"
+                android:visibility="gone"/>
+        </LinearLayout>
+
         <!-- 🆔 Email / ID -->
         <TextView
             android:id="@+id/tvDrawerEmployeeId"

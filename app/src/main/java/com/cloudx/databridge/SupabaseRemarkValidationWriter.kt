@@ -215,6 +215,66 @@ object SupabaseRemarkValidationWriter {
             .put("source", source).put("from_status", fromStatus)
             .apply { if (toStatus.isNotBlank()) put("to_status", toStatus) })
 
+    /** Result of the drawer eye-check: is THIS device's token in fcm_device_tokens? */
+    sealed class PushTokenStatus {
+        data class Known(val registered: Boolean, val updatedAt: String) : PushTokenStatus()
+        data class Err(val message: String) : PushTokenStatus()
+    }
+
+    /**
+     * Asks user-sync whether [token] is registered for the caller (scoped server-side
+     * to their own firebase_uid — read-only, never probes other users). Used by the
+     * drawer eye-toggle; a missing row means push can't reach this device.
+     */
+    suspend fun checkPushTokenStatus(token: String): PushTokenStatus =
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            if (token.isBlank()) {
+                if (cont.isActive) cont.resumeWith(Result.success(PushTokenStatus.Err("No FCM token on this device")))
+                return@suspendCancellableCoroutine
+            }
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user == null) {
+                if (cont.isActive) cont.resumeWith(Result.success(PushTokenStatus.Err("Not signed in")))
+                return@suspendCancellableCoroutine
+            }
+            user.getIdToken(false).addOnCompleteListener { tokenTask ->
+                val idToken = tokenTask.result?.token
+                if (!tokenTask.isSuccessful || idToken.isNullOrBlank()) {
+                    if (cont.isActive) cont.resumeWith(Result.success(
+                        PushTokenStatus.Err(tokenTask.exception?.message ?: "No Firebase ID token")))
+                    return@addOnCompleteListener
+                }
+                val payload = JSONObject().put("action", "push_token_status").put("token", token)
+                val request = Request.Builder().url("${SupabaseConfig.PROJECT_URL}/functions/v1/user-sync")
+                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY).addHeader("Authorization", "Bearer $idToken")
+                    .addHeader("Content-Type", "application/json").post(payload.toString().toRequestBody(jsonMediaType)).build()
+                client.newCall(request).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (cont.isActive) cont.resumeWith(Result.success(PushTokenStatus.Err(e.message ?: "Network error")))
+                    }
+                    override fun onResponse(call: Call, response: okhttp3.Response) {
+                        response.use {
+                            val text = it.body?.string().orEmpty()
+                            val result = try {
+                                if (!it.isSuccessful) {
+                                    PushTokenStatus.Err(JSONObject(text).optString("error").ifBlank { "HTTP ${it.code}" })
+                                } else {
+                                    val body = JSONObject(text)
+                                    PushTokenStatus.Known(
+                                        registered = body.optBoolean("registered", false),
+                                        updatedAt = body.optString("updated_at").orEmpty()
+                                    )
+                                }
+                            } catch (_: Exception) {
+                                PushTokenStatus.Err("Unexpected response")
+                            }
+                            if (cont.isActive) cont.resumeWith(Result.success(result))
+                        }
+                    }
+                })
+            }
+        }
+
     /** Associates the current signed-in user and this app installation's FCM token server-side. */
     fun registerPushToken(token: String, onDone: ((Boolean) -> Unit)? = null) {
         if (token.isBlank()) {

@@ -102,4 +102,19 @@ class DataBridgeApplication : Application() {
                 }
             }
     }
+
+    /**
+     * Public entry for re-registration outside the auth listener: network-regain
+     * (MainActivity) and the drawer "tap to retry". Throttled to one call per
+     * 5 minutes so frequent onAvailable fires / repeated taps can't spam Edge.
+     * No-op when signed out.
+     */
+    fun refreshPushToken(force: Boolean = false) {
+        if (FirebaseAuth.getInstance().currentUser == null) return
+        val prefs = getSharedPreferences("push_token", MODE_PRIVATE)
+        val last = prefs.getLong("last_refresh_ms", 0L)
+        if (!force && System.currentTimeMillis() - last < 5 * 60_000L) return
+        prefs.edit().putLong("last_refresh_ms", System.currentTimeMillis()).apply()
+        fetchAndRegisterPushToken(attempt = 0)
+    }
 }

@@ -70,6 +70,20 @@ Deno.serve(async (request) => {
       return reply({ ok: true })
     }
 
+    if (action === 'push_token_status') {
+      // Drawer eye-check: does THIS device's token exist in fcm_device_tokens?
+      // Scoped to the caller's own firebase_uid so a token string alone can
+      // never probe another user's mapping. Read-only.
+      if (typeof body.token !== 'string' || body.token.trim().length < 20) {
+        return reply({ error: 'Invalid push token' }, 400)
+      }
+      const { data, error } = await admin.from('fcm_device_tokens')
+        .select('updated_at').eq('token', body.token.trim()).eq('firebase_uid', identity.uid)
+        .limit(1).maybeSingle()
+      if (error) throw error
+      return reply({ ok: true, registered: !!data, updated_at: data?.updated_at ?? null })
+    }
+
     if (action === 'backfill_user') {
       // REMOVED: users rows are admin-onboarded via employee edit (user_upsert)
       // only — no repair path may create them. The one-time migration that

@@ -74,6 +74,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private var layoutFragmentLoading: View? = null
     private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
 
+    // Drawer push eye-check state (survives updateDrawerHeader re-binds on auth changes).
+    private var pushEyeShowing = false
+    private var pushLastRegistered: Boolean? = null
+
     private val authStateListener = FirebaseAuth.AuthStateListener { refreshAuthUi() }
 
     private val callLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -344,6 +348,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: android.net.Network) {
                 runOnUiThread { layoutNoInternet?.visibility = View.GONE }
+                // Offline login/rotation may have exhausted token-register retries while
+                // offline — coming back online re-registers (throttled, signed-in only),
+                // otherwise the device stays push-blind until the next auth event.
+                runCatching { (application as? DataBridgeApplication)?.refreshPushToken() }
             }
             override fun onLost(network: android.net.Network) {
                 runOnUiThread { layoutNoInternet?.visibility = View.VISIBLE }
@@ -600,6 +608,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         val btnCopyUid  = header.findViewById<TextView>(R.id.btnCopyUid)
         val tvLastActive = header.findViewById<TextView>(R.id.tvDrawerLastActive)
         val tvEmpSysId  = header.findViewById<TextView>(R.id.tvDrawerEmpSysId)
+        val layoutPushRow = header.findViewById<View>(R.id.layoutDrawerPushRow)
+        val btnPushEye = header.findViewById<TextView>(R.id.btnDrawerPushEye)
+        val tvPushStatus = header.findViewById<TextView>(R.id.tvDrawerPushStatus)
         val user = auth.currentUser
         if (user != null) {
             tvName.text = user.displayName ?: user.email?.substringBefore("@") ?: "User"
@@ -663,6 +674,24 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                     tvLastActive.visibility = View.GONE
                 }
             }
+
+            // 🔔 Push eye-check: tiny eye next to Emp/Sys. Tap → live Supabase check
+            // (this device's FCM token in fcm_device_tokens); tap again → hide.
+            // Status tap retries registration when OFF.
+            layoutPushRow.visibility = View.VISIBLE
+            tvPushStatus.visibility = if (pushEyeShowing) View.VISIBLE else View.GONE
+            btnPushEye.setOnClickListener {
+                pushEyeShowing = !pushEyeShowing
+                tvPushStatus.visibility = if (pushEyeShowing) View.VISIBLE else View.GONE
+                if (pushEyeShowing) checkDrawerPushStatus(tvPushStatus)
+            }
+            tvPushStatus.setOnClickListener {
+                if (pushLastRegistered == false) {
+                    tvPushStatus.text = "🔔 Retrying…"
+                    runCatching { (application as? DataBridgeApplication)?.refreshPushToken(force = true) }
+                    tvPushStatus.postDelayed({ checkDrawerPushStatus(tvPushStatus) }, 4000)
+                }
+            }
         } else {
             tvName.text = "Guest"
             tvId.text   = "Login to enable cloud sync"
@@ -676,8 +705,66 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             // Emp/Sys ids visible (this view isn't touched otherwise).
             tvEmpSysId.text = ""
             tvEmpSysId.visibility = View.GONE
+            layoutPushRow.visibility = View.GONE
+            tvPushStatus.visibility = View.GONE
+            tvPushStatus.text = ""
+            pushEyeShowing = false
+            pushLastRegistered = null
         }
     }
+
+    /**
+     * Drawer eye-check body: fetches this device's FCM token and asks Supabase
+     * (user-sync/push_token_status, scoped to the caller) whether it's registered.
+     * Green ON / red OFF + tap-to-retry; failures show the reason, never a stale row.
+     */
+    private fun checkDrawerPushStatus(tvPushStatus: TextView) {
+        tvPushStatus.text = "🔔 Checking…"
+        tvPushStatus.setTextColor(getColor(R.color.theme_text_muted))
+        lifecycleScope.launch {
+            val token = runCatching {
+                com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
+            }.getOrNull().orEmpty()
+            if (token.isBlank()) {
+                if (auth.currentUser == null) return@launch
+                tvPushStatus.text = "🔔 No FCM token on device"
+                tvPushStatus.setTextColor(getColor(R.color.theme_red))
+                pushLastRegistered = false
+                return@launch
+            }
+            when (val res = SupabaseRemarkValidationWriter.checkPushTokenStatus(token)) {
+                is SupabaseRemarkValidationWriter.PushTokenStatus.Known -> {
+                    if (auth.currentUser == null) return@launch
+                    pushLastRegistered = res.registered
+                    if (res.registered) {
+                        val whenStr = res.updatedAt.takeIf { it.isNotBlank() }?.let { " · " + shortPushTime(it) } ?: ""
+                        tvPushStatus.text = "🔔 Push ON ✓$whenStr"
+                        tvPushStatus.setTextColor(getColor(R.color.theme_green))
+                    } else {
+                        tvPushStatus.text = "🔔 Push OFF ✗ — tap to retry"
+                        tvPushStatus.setTextColor(getColor(R.color.theme_red))
+                    }
+                }
+                is SupabaseRemarkValidationWriter.PushTokenStatus.Err -> {
+                    if (auth.currentUser == null) return@launch
+                    pushLastRegistered = null
+                    tvPushStatus.text = "🔔 Check failed: ${res.message.take(60)}"
+                    tvPushStatus.setTextColor(getColor(R.color.theme_red))
+                }
+            }
+        }
+    }
+
+    private fun shortPushTime(iso: String): String = runCatching {
+        val ms = java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli()
+        val diff = System.currentTimeMillis() - ms
+        when {
+            diff < 60_000L -> "just now"
+            diff < 3_600_000L -> "${diff / 60_000}m ago"
+            diff < 86_400_000L -> "${diff / 3_600_000}h ago"
+            else -> "${diff / 86_400_000}d ago"
+        }
+    }.getOrDefault("")
 
     private fun formatLastActive(ts: Long): String {
         val diff = System.currentTimeMillis() - ts
