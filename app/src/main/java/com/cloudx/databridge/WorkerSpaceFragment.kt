@@ -75,6 +75,12 @@ class WorkerSpaceFragment : Fragment() {
     private var loadGeneration = 0
     private var searchJob: kotlinx.coroutines.Job? = null  // ✅ Fix #7: Search debounce job
     private var systemId = ""
+    // Duplicate-parcel guard: exact-ID search match → check other agents' runs.
+    private val warnedDuplicateIds = mutableSetOf<String>() // per fragment session
+    private val dupeCheckInflight = mutableSetOf<String>()
+    private var dupeRunCacheDay = ""
+    // "runType/runId" -> (agentSystemId, consignmentIds), rebuilt per day on demand.
+    private var dupeRunCache: Map<String, Pair<String, Set<String>>> = emptyMap()
     private var userId = ""
     private var agentPhone = ""
     private var sortMode: String = "priority" // "priority" | "attempt" | "aging"
@@ -2044,6 +2050,123 @@ class WorkerSpaceFragment : Fragment() {
             val idx = filtered.indexOfFirst { it.id == targetId }
             if (idx >= 0) rvParcelList.post { rvParcelList.smoothScrollToPosition(idx) }
         }
+
+        // Duplicate-parcel guard: exact consignment-ID search that hit MY list —
+        // warn if the same parcel sits in another agent's run today.
+        if (searchQuery.isNotBlank()) {
+            val exactId = allParcels.firstOrNull { it.id.equals(searchQuery, ignoreCase = true) }?.id
+            if (exactId != null && exactId !in warnedDuplicateIds && dupeCheckInflight.add(exactId)) {
+                checkDuplicateAcrossAgents(exactId)
+            }
+        }
+    }
+
+    /** Duplicate-parcel guard — same consignment in another agent's run today.
+     *  Fires only on exact-ID search hits (scanner fills the search box, so scan
+     *  is covered too). My own runs (any runType under my systemId) never count:
+     *  my delivery+return runs sharing a parcel is normal. Fail-silent — a
+     *  network/RBAC gap must never false-alarm a worker mid-delivery. */
+    private fun checkDuplicateAcrossAgents(consignmentId: String) {
+        if (systemId.isBlank() || !isAdded) { dupeCheckInflight.remove(consignmentId); return }
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val others = withContext(Dispatchers.IO) { findOtherAgentsHolding(consignmentId) }
+                if (!isAdded || others.isEmpty()) return@launch
+                warnedDuplicateIds.add(consignmentId)
+                val (names, _) = resolveSystemIdNamesAndPhotos(others)
+                if (!isAdded) return@launch
+                val who = others.map { names[it] ?: it }
+                android.app.AlertDialog.Builder(requireContext())
+                    .setTitle("⚠ Duplicate Parcel")
+                    .setMessage(
+                        "\"$consignmentId\" আজ আরও ${who.size} জনের run-এ আছে:\n\n" +
+                        who.joinToString("\n") { "• $it" } +
+                        "\n\nDelivery-র আগে office-কে জানাও — double delivery হতে পারে।"
+                    )
+                    .setPositiveButton("ঠিক আছে", null)
+                    .show()
+            } catch (_: Exception) {
+                // fail-silent by design (see doc comment)
+            } finally {
+                dupeCheckInflight.remove(consignmentId)
+            }
+        }
+    }
+
+    private suspend fun findOtherAgentsHolding(consignmentId: String): List<String> {
+        val today = todayYyyyMmDd()
+        if (dupeRunCacheDay != today) {
+            dupeRunCache = buildTodayRunCache(today)
+            dupeRunCacheDay = today
+        }
+        return dupeRunCache.values
+            .filter { (agent, ids) ->
+                agent.isNotBlank() && !agent.equals(systemId, ignoreCase = true) &&
+                    ids.any { it.equals(consignmentId, ignoreCase = true) }
+            }
+            .map { it.first }
+            .distinct()
+    }
+
+    private fun todayYyyyMmDd(): String {
+        val today = java.util.Calendar.getInstance()
+        return String.format(
+            "%04d%02d%02d",
+            today.get(java.util.Calendar.YEAR),
+            today.get(java.util.Calendar.MONTH) + 1,
+            today.get(java.util.Calendar.DAY_OF_MONTH)
+        )
+    }
+
+    /** All of MY branches' runs keyed today: "runType/runId" -> (agent, consignments).
+     *  Same index pattern VerifyDeliveryDashboardViewModel uses (runs_by_branchId
+     *  + run_{date}_ key prefix), so no new Firebase paths or rules needed. */
+    private suspend fun buildTodayRunCache(today: String): Map<String, Pair<String, Set<String>>> = coroutineScope {
+        val out = mutableMapOf<String, Pair<String, Set<String>>>()
+        try {
+            val branches = RbacManager.current.branchIds.map { it.trim() }.filter { it.isNotBlank() }
+            if (branches.isEmpty() || systemId.isBlank()) return@coroutineScope out
+            val keys = branches.map { branchId ->
+                async(Dispatchers.IO) {
+                    val found = mutableListOf<Pair<String, String>>()
+                    val typesSnap = runCatching {
+                        db.reference.child("courier/runs_by_branchId/$branchId").get().await()
+                    }.getOrNull() ?: return@async found
+                    typesSnap.children.mapNotNull { it.key }.forEach { runType ->
+                        val rangeSnap = runCatching {
+                            db.reference.child("courier/runs_by_branchId/$branchId/$runType")
+                                .orderByKey()
+                                .startAt("run_${today}_")
+                                .endAt("run_${today}_\uf8ff")
+                                .get().await()
+                        }.getOrNull() ?: return@forEach
+                        rangeSnap.children.mapNotNull { it.key?.trim()?.takeIf { k -> k.isNotBlank() } }
+                            .forEach { runId -> found.add(runType to runId) }
+                    }
+                    found
+                }
+            }.awaitAll().flatten().distinct()
+            keys.map { (runType, runId) ->
+                async(Dispatchers.IO) {
+                    val snap = runCatching {
+                        db.reference.child("courier/run_routes/$runType/$runId").get().await()
+                    }.getOrNull()
+                    if (snap == null || !snap.exists()) return@async null
+                    var agent = snap.child("agentSystemId").getValue(String::class.java)?.trim().orEmpty()
+                    if (agent.isBlank()) {
+                        val parts = runId.split("_")
+                        if (parts.size >= 3) agent = parts.drop(2).joinToString("_").trim()
+                    }
+                    if (agent.isBlank()) return@async null
+                    val ids = snap.child("consignments").children.mapNotNull { it.key }.toSet()
+                    if (ids.isEmpty()) return@async null
+                    "$runType/$runId" to (agent to ids)
+                }
+            }.awaitAll().filterNotNull().toMap(out)
+        } catch (_: Exception) {
+            // fail-silent: caller simply shows no popup
+        }
+        out
     }
 
     /** Sum of collectableAmount across every currently-loaded parcel, no status filter —
