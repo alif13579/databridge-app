@@ -40,6 +40,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -300,6 +301,13 @@ class CallCenterFragment : Fragment() {
             ccRealtimeJobs.clear()
             syncCcRemarkListeners(allParcels.map { it.id }.toSet())
         }
+        // Sheets has no push: re-read Live/Mix IDs when coming back to the screen
+        // (throttled; skips entirely before the first load finished so the initial
+        // open never double-fetches).
+        if ((ccDataSource == "live" || ccDataSource == "mix") && hasLoadedCcDataOnce &&
+            lastLiveRefreshMs != 0L && isAdded) {
+            refreshLiveSheetSilently(fromResume = true)
+        }
     }
 
     override fun onDestroyView() {
@@ -310,6 +318,9 @@ class CallCenterFragment : Fragment() {
         skeletonPulse = null
         reprocessJob?.cancel()
         reprocessJob = null
+        liveAutoRefreshJob?.cancel()
+        liveAutoRefreshJob = null
+        liveSilentRunning = false
         ccRealtimeJobs.values.forEach { it.cancel() }
         ccRealtimeJobs.clear()
         AppNotificationManager.removeRemarkListener(remarkNotificationListener)
@@ -1648,6 +1659,15 @@ class CallCenterFragment : Fragment() {
     private var liveMissingIds: List<String> = emptyList()
     private var mixLiveItems: List<CallCenterParcelItem> = emptyList()
     private var liveGeneration: Int = 0
+    // Google Sheets has no push API, so Live/Mix sheet IDs are re-read on this
+    // cadence while the screen is visible. The tick only compares ID sets (cheap
+    // sheet read) and rebuilds cards solely when the set actually changed — no
+    // UI churn, no heavy Firebase/Supabase fetch on quiet ticks.
+    private var liveAutoRefreshJob: Job? = null
+    private var liveSilentRunning = false
+    private var lastLiveRefreshMs = 0L
+    private val LIVE_AUTO_REFRESH_MS = 45_000L
+    private val LIVE_RESUME_REFRESH_MS = 30_000L
 
     // ── Run type selection (mirrors WorkerSpaceFragment pattern) ──────
     private lateinit var spinnerCcRunType: Spinner
@@ -3481,18 +3501,138 @@ class CallCenterFragment : Fragment() {
     }
 
     private fun loadForSource() {
+        liveAutoRefreshJob?.cancel()
+        liveAutoRefreshJob = null
         when (ccDataSource) {
-            "live" -> loadLiveMode()
+            "live" -> {
+                loadLiveMode()
+                startLiveAutoRefresh()
+            }
             "mix" -> {
                 liveMissingIds = emptyList()
                 renderLiveMissingChips()
                 loadData()
                 loadMixExtras()
+                startLiveAutoRefresh()
             }
             else -> {
                 liveMissingIds = emptyList()
                 renderLiveMissingChips()
                 loadData()
+            }
+        }
+    }
+
+    /** Polls the sheet while Live/Mix is visible (Sheets has no push). The tick
+     *  delegates to refreshLiveSheetSilently(), which no-ops when the ID set is
+     *  unchanged — so a quiet sheet costs one cheap sheet read per interval. */
+    private fun startLiveAutoRefresh() {
+        liveAutoRefreshJob?.cancel()
+        liveAutoRefreshJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive) {
+                delay(LIVE_AUTO_REFRESH_MS)
+                if (!isAdded) return@launch
+                if (ccDataSource != "live" && ccDataSource != "mix") return@launch
+                refreshLiveSheetSilently()
+            }
+        }
+    }
+
+    /** Re-reads sheet IDs without any loading veil. Applies ONLY when the ID set
+     *  actually changed (sheet grew and/or shrank): new IDs are built into cards,
+     *  gone IDs are removed from the list + chips, counts re-render. Returns
+     *  silently in every other case (same set, no token, mode switched, manual
+     *  load in flight) so background ticks never disturb the agent. */
+    private fun refreshLiveSheetSilently(fromResume: Boolean = false) {
+        if (!isAdded || liveSilentRunning) return
+        if (ccDataSource != "live" && ccDataSource != "mix") return
+        if (fromResume && System.currentTimeMillis() - lastLiveRefreshMs < LIVE_RESUME_REFRESH_MS) return
+        liveSilentRunning = true
+        val gen = liveGeneration
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val appCtx = requireContext().applicationContext
+                val branches = resolveSheetBranches()
+                if (gen != liveGeneration || !isAdded) return@launch
+                if (branches.isEmpty()) return@launch
+                if (ccDataSource != "live" && ccDataSource != "mix") return@launch
+                val token = withContext(Dispatchers.IO) { RemarkSheetMirror.readToken(appCtx) }
+                if (gen != liveGeneration || !isAdded) return@launch
+                if (token.isNullOrBlank()) return@launch // silent: initial load already prompted auth
+                if (ccDataSource != "live" && ccDataSource != "mix") return@launch
+                val sheetRes = withContext(Dispatchers.IO) {
+                    RemarkSheetMirror.fetchLiveConsignments(token, branches)
+                }
+                if (gen != liveGeneration || !isAdded) return@launch
+                if (ccDataSource != "live" && ccDataSource != "mix") return@launch
+                val freshIds = sheetRes.flatMap { it.ids }.distinct().toSet()
+                lastLiveRefreshMs = System.currentTimeMillis()
+                if (ccDataSource == "live") {
+                    val currentIds = (allParcels.map { it.id } + liveMissingIds).toSet()
+                    if (freshIds == currentIds) return@launch // unchanged — stay silent
+                    val cidBranch = mutableMapOf<String, String>()
+                    sheetRes.forEach { r -> r.ids.forEach { cidBranch.putIfAbsent(it, r.branchId) } }
+                    val (items, missing) = withContext(Dispatchers.IO) {
+                        buildLiveParcels(freshIds.toList(), cidBranch)
+                    }
+                    if (gen != liveGeneration || !isAdded || ccDataSource != "live") return@launch
+                    val added = items.count { it.id !in currentIds }
+                    allParcels = items
+                    liveMissingIds = missing
+                    hasLoadedCcDataOnce = true
+                    setupFilterTabs()
+                    applyFilters()
+                    renderLiveMissingChips()
+                    syncCcRemarkListeners(allParcels.map { it.id }.toSet())
+                    syncCcEngagedAtListeners(allParcels.map { it.id }.toSet())
+                    drainPendingRealtime()
+                    val gone = currentIds - freshIds
+                    if (added > 0 || gone.isNotEmpty()) {
+                        Toast.makeText(requireContext(),
+                            "📡 Live update: ${if (added > 0) "+$added নতুন" else ""}" +
+                            "${if (added > 0 && gone.isNotEmpty()) ", " else ""}" +
+                            "${if (gone.isNotEmpty()) "-${gone.size} সরে গেছে" else ""}",
+                            Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    // Mix: Request-owned cards are never touched; only the Live
+                    // extras are reconciled against the fresh sheet set.
+                    val requestIds = (allParcels.map { it.id }.toSet() - mixLiveItems.map { it.id }.toSet())
+                    val oldExtraIds = (mixLiveItems.map { it.id } + liveMissingIds).toSet()
+                    if (freshIds - requestIds == oldExtraIds) return@launch // unchanged
+                    val cidBranch = mutableMapOf<String, String>()
+                    sheetRes.forEach { r -> r.ids.forEach { cidBranch.putIfAbsent(it, r.branchId) } }
+                    val liveOnly = (freshIds - requestIds).toList()
+                    val (items, missing) = withContext(Dispatchers.IO) {
+                        if (liveOnly.isEmpty()) emptyList<CallCenterParcelItem>() to emptyList()
+                        else buildLiveParcels(liveOnly, cidBranch)
+                    }
+                    if (gen != liveGeneration || !isAdded || ccDataSource != "mix") return@launch
+                    val newExtraIds = (items.map { it.id } + missing).toSet()
+                    mixLiveItems = items
+                    liveMissingIds = missing
+                    allParcels = (allParcels.filter { it.id in requestIds } + items).sortedBy { it.id }
+                    hasLoadedCcDataOnce = true
+                    setupFilterTabs()
+                    applyFilters()
+                    renderLiveMissingChips()
+                    syncCcRemarkListeners(allParcels.map { it.id }.toSet())
+                    syncCcEngagedAtListeners(allParcels.map { it.id }.toSet())
+                    drainPendingRealtime()
+                    val added = (newExtraIds - oldExtraIds).size
+                    val gone = (oldExtraIds - newExtraIds).size
+                    if (added > 0 || gone > 0) {
+                        Toast.makeText(requireContext(),
+                            "🔀 Mix update: ${if (added > 0) "+$added Live" else ""}" +
+                            "${if (added > 0 && gone > 0) ", " else ""}" +
+                            "${if (gone > 0) "-$gone সরে গেছে" else ""}",
+                            Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (_: Exception) {
+                // Silent: next tick or manual reload retries. Never toast-loop.
+            } finally {
+                liveSilentRunning = false
             }
         }
     }
@@ -3570,6 +3710,8 @@ class CallCenterFragment : Fragment() {
                 if (gen != liveGeneration || !isAdded || ccDataSource != "mix") return@launch
                 mixLiveItems = items
                 liveMissingIds = missing
+                hasLoadedCcDataOnce = true
+                lastLiveRefreshMs = System.currentTimeMillis()
                 mergeMixIntoAll()
                 setupFilterTabs()
                 applyFilters()
@@ -3641,9 +3783,17 @@ class CallCenterFragment : Fragment() {
                 } else {
                     tvEmpty.visibility = View.GONE
                 }
+                hasLoadedCcDataOnce = true
+                lastLiveRefreshMs = System.currentTimeMillis()
                 setupFilterTabs()
                 applyFilters()
                 renderLiveMissingChips()
+                // Live never ran the Request pipeline, so without these the cards
+                // would get no Realtime remark updates, no engaged presence, and
+                // onResume would never resubscribe (hasLoadedCcDataOnce gate).
+                syncCcRemarkListeners(allParcels.map { it.id }.toSet())
+                syncCcEngagedAtListeners(allParcels.map { it.id }.toSet())
+                drainPendingRealtime()
                 if (notes.isNotEmpty()) {
                     Toast.makeText(requireContext(),
                         "Live: " + notes.joinToString("; ").take(200),
