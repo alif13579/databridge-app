@@ -2479,9 +2479,12 @@ class CallCenterFragment : Fragment() {
         // loadGeneration) makes sure only the NEWEST call's results ever get applied below,
         // so a slower-finishing older call can't clobber fresher data with stale results.
         val generation = ++ccLoadGeneration
-        // Do not let an older fallback fetch update cards while this fresh batch is rebuilding
-        // the list. syncCcRemarkListeners() restores the IDs after the new list is applied.
-        ccRemarkTrackedIds = emptySet()
+        // Keep the previous tracked set while rebuilding: clearing it here used to
+        // open a seconds-long window on every background run-node fire where any
+        // arriving Realtime remark missed the gate and was DROPPED forever (B never
+        // saw A's remark). The fresh Supabase batch below already includes that
+        // remark, and syncCcRemarkListeners() refreshes the IDs once the new list
+        // lands — so holding the old set is strictly safer than emptying it.
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
 
         // Collect consignment ids + statuses + which agent's run + which branch they came from.
@@ -2745,11 +2748,10 @@ class CallCenterFragment : Fragment() {
     }
 
     private var ccRemarkTrackedIds: Set<String> = emptySet()
-    // Realtime INSERTs that arrive while trackedIds is empty (mid-reprocess —
-    // ccRemarkTrackedIds is cleared at reprocess start and restored at the end,
-    // a window of seconds on every live run-node fire) used to be dropped
-    // forever, so B never saw A's remark. Parked here, drained via history
-    // fetch once the new list lands (see drainPendingRealtime below).
+    // Realtime INSERTs arriving before the first load lands are parked here and
+    // drained via history fetch once the new list is applied (see
+    // drainPendingRealtime below). After the first load, events apply directly
+    // to the displayed list (see the allParcels gate in syncCcRemarkListeners).
     private val pendingRealtimeCids = mutableSetOf<String>()
 
     /** Starts one Supabase Realtime subscription for every assigned branch. */
@@ -2786,23 +2788,28 @@ class CallCenterFragment : Fragment() {
                         "CallCenterFragment: onInsert DROPPED — blank consignment", isWarning = true)
                     return@subscribeValidations
                 }
-                if (cId !in ccRemarkTrackedIds) {
-                    // Mid-reprocess (trackedIds cleared until the new list lands)?
-                    // Park it — drainPendingRealtime() picks it up right after.
-                    // Anything else (parcel genuinely not in our list) stays dropped.
-                    if (ccIsLoading) {
+                // Gate on what's actually displayed (allParcels), not just the last
+                // synced tracked set: the tracked set is only refreshed at the end of
+                // a reprocess, so a stale set used to DROP remarks for parcels that
+                // ARE on screen (B never saw A's remark — silent card + status row).
+                // Park only while the first load hasn't landed yet; otherwise a parcel
+                // genuinely outside this agent's scope stays untouched (its next
+                // reprocess/pull brings it in if scope changes).
+                val inList = allParcels.any { it.id == cId }
+                if (!inList) {
+                    if (ccIsLoading || !hasLoadedCcDataOnce) {
                         pendingRealtimeCids.add(cId)
                         RemarkPushChainLog.log("RemarkPushChain",
                             "CallCenterFragment: onInsert PARKED (mid-load) — consignment=$cId, will drain after reprocess")
                     } else {
                         RemarkPushChainLog.log("RemarkPushChain",
-                            "CallCenterFragment: onInsert DROPPED — consignment='$cId' " +
-                            "not in tracked set (size=${ccRemarkTrackedIds.size})", isWarning = true)
+                            "CallCenterFragment: onInsert IGNORED — consignment='$cId' " +
+                            "not in this agent's loaded list (size=${allParcels.size}); out of scope, no card to update")
                     }
                     return@subscribeValidations
                 }
                 RemarkPushChainLog.log("RemarkPushChain",
-                    "CallCenterFragment: onInsert PASSED trackedIds check — consignment=$cId, calling refreshOneCcParcelFromSupabase")
+                    "CallCenterFragment: onInsert APPLYING — consignment=$cId, refreshing card from realtime row")
                 viewLifecycleOwner.lifecycleScope.launch {
                     // Realtime pushes a bare validations row with no remarks_bn column (this
                     // isn't a fetchValidations() REST read) — resolve it here, cached, before
@@ -2889,7 +2896,13 @@ class CallCenterFragment : Fragment() {
         // initialised after that row's created_at, which silently leaves the card on its
         // previous effective status.  Match WorkerSpaceFragment's proven path instead:
         // fetch this parcel's complete history and apply its actual latest row.
-        if (!isAdded || allParcels.none { it.id == consignmentId }) return
+        if (!isAdded) return
+        if (allParcels.none { it.id == consignmentId }) {
+            RemarkPushChainLog.log("RemarkPushChain",
+                "CallCenterFragment: push IGNORED — consignment=$consignmentId " +
+                "not in this agent's loaded list (size=${allParcels.size}); out of scope")
+            return
+        }
         SupabaseRemarkValidationWriter.ensureProfileSynced {
             SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "CallCenterFragment") { rows ->
                 if (rows.isEmpty()) {

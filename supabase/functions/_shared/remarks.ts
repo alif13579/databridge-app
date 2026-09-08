@@ -110,6 +110,49 @@ async function notificationDetails(row: { consignment: string; author_system_id:
   }
 }
 
+/** Sends one data-only FCM to each token with the given scope. Returns accepted count.
+ *  UNREGISTERED tokens are deleted outright; all other failures are logged only. */
+async function sendToTokens(tokens: string[], scope: string, accessToken: string, projectId: string | undefined, title: string, body: string, consignment: string): Promise<number> {
+  if (!tokens.length) return 0
+  const outcomes = await Promise.all(tokens.map(async (token) => {
+    const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId!)}/messages:send`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: {
+        token,
+        // Data-only (no `notification` block): Android always calls
+        // onMessageReceived() regardless of foreground/background state.
+        data: {
+          type: 'remark', title, body,
+          consignment_id: consignment,
+          scope,
+          notif_parcel_id: consignment,
+          notif_scope: scope,
+        },
+        android: { priority: 'high' },
+      } }),
+    })
+    if (response.ok) return true
+    const text = await response.text()
+    let isUnregistered = false
+    try {
+      const parsed = JSON.parse(text)
+      const details = parsed?.error?.details
+      isUnregistered = Array.isArray(details) && details.some((d: unknown) =>
+        (d as { errorCode?: unknown })?.errorCode === 'UNREGISTERED')
+    } catch { /* non-JSON body — logged, non-deleting failure */ }
+    if (isUnregistered) {
+      const { error: deleteError } = await admin.from('fcm_device_tokens').delete().eq('token', token)
+      if (deleteError) console.error(`Failed to delete unregistered token: ${deleteError.message}`)
+      else console.info(`Deleted unregistered FCM token (${token.slice(0, 12)}...)`)
+    } else {
+      console.error(`FCM send failed (${response.status}): ${text}`)
+    }
+    return false
+  }))
+  return outcomes.filter(Boolean).length
+}
+
 export async function sendRemarkPush(row: { consignment: string; branch_id: string; assigned_to_system_id: string; author_system_id: string; remarks_status: string; remarks: string; source: string }, identity: { uid: string; token: string }) {
   // A failed or not-yet-configured push must never prevent the audit record from saving.
   // Return a deliberately non-sensitive diagnostic so the Android sender can show exactly
@@ -135,81 +178,61 @@ export async function sendRemarkPush(row: { consignment: string; branch_id: stri
     // `source` is the explicit, validated direction of the remark. It is safer than
     // inferring direction from IDs: a CC agent can be assigned a parcel too.
     const fromWorker = row.source === 'WORKER'
-    const recipientScope = fromWorker ? 'cc' : 'worker'
-    let tokenQuery = admin.from('fcm_device_tokens').select('token')
     if (fromWorker) {
-      tokenQuery = tokenQuery.eq('can_access_call_center', true).overlaps('branch_ids', [row.branch_id])
-    } else {
-      // Protected CC -> Worker path — see compatibility invariant above.
-      tokenQuery = tokenQuery.eq('system_id', row.assigned_to_system_id)
+      // Unchanged path: all CC devices with access to this branch (scope=cc).
+      const { data: devices, error: deviceError } = await admin.from('fcm_device_tokens').select('token')
+        .eq('can_access_call_center', true).overlaps('branch_ids', [row.branch_id])
+      if (deviceError) throw deviceError
+      const matchedDevices = devices?.length ?? 0
+      if (!matchedDevices) {
+        console.warn(`remark_push skipped: reason=no_matching_device_token consignment=${row.consignment} recipient=cc branch=${row.branch_id} can_access_call_center=true`)
+        return { recipient_scope: 'cc', matched_devices: 0, accepted: 0, reason: 'no_matching_device_token' }
+      }
+      const accessToken = await googleAccessToken('https://www.googleapis.com/auth/firebase.messaging')
+      const { title, body } = await notificationDetails(row, identity)
+      const projectId = serviceAccount.project_id || firebaseProjectId
+      const accepted = await sendToTokens((devices ?? []).map((d) => (d as { token: string }).token), 'cc', accessToken, projectId, title, body, row.consignment)
+      const reason = accepted === matchedDevices ? 'accepted_by_fcm' : 'fcm_rejected_some_devices'
+      console.info(`remark_push result: consignment=${row.consignment} scope=cc matched=${matchedDevices} accepted=${accepted} reason=${reason}`)
+      return { recipient_scope: 'cc', matched_devices: matchedDevices, accepted, reason }
     }
-    const { data: devices, error: deviceError } = await tokenQuery
-    if (deviceError) throw deviceError
-    const matchedDevices = devices?.length ?? 0
+    // CC source: TWO pushes (worker path unchanged + new CC branch fan-out).
+    // Before: only the assigned worker got scope=worker, other CC agents got
+    // nothing (silent card/status). Now: worker keeps scope=worker, same-branch
+    // CC devices (excluding the author's own devices) get scope=cc.
+    // ┌──────────────────── COMPATIBILITY INVARIANT ────────────────────┐
+    // │ CC -> Worker block below is known working production behavior.   │
+    // │ Keep its exact system_id-only recipient query unchanged.         │
+    // └─────────────────────────────────────────────────────────────────┘
+    const { data: workerDevices, error: workerError } = await admin.from('fcm_device_tokens').select('token')
+      .eq('system_id', row.assigned_to_system_id)
+    if (workerError) throw workerError
+    // Same-branch CC devices, excluding the author's own devices (no self-push).
+    const { data: ccDevices, error: ccError } = await admin.from('fcm_device_tokens').select('token')
+      .eq('can_access_call_center', true).overlaps('branch_ids', [row.branch_id])
+      .neq('firebase_uid', identity.uid)
+    if (ccError) throw ccError
+    const workerTokens = (workerDevices ?? []).map((d) => (d as { token: string }).token).filter(Boolean)
+    const ccTokens = (ccDevices ?? []).map((d) => (d as { token: string }).token).filter(Boolean)
+      .filter((t) => !workerTokens.includes(t)) // dedupe: a worker with CC access gets worker scope only
+    const matchedDevices = workerTokens.length + ccTokens.length
     if (!matchedDevices) {
-      const recipient = fromWorker
-        ? `cc branch=${row.branch_id} can_access_call_center=true`
-        : `worker system_id=${row.assigned_to_system_id}`
-      console.warn(`remark_push skipped: reason=no_matching_device_token consignment=${row.consignment} recipient=${recipient}`)
-      return { recipient_scope: recipientScope, matched_devices: 0, accepted: 0, reason: 'no_matching_device_token' }
+      console.warn(`remark_push skipped: reason=no_matching_device_token consignment=${row.consignment} recipient=worker system_id=${row.assigned_to_system_id} + cc branch=${row.branch_id}`)
+      return { recipient_scope: 'worker+cc', matched_devices: 0, accepted: 0, reason: 'no_matching_device_token' }
     }
 
     const accessToken = await googleAccessToken('https://www.googleapis.com/auth/firebase.messaging')
 
     const { title, body } = await notificationDetails(row, identity)
     const projectId = serviceAccount.project_id || firebaseProjectId
-    const outcomes = await Promise.all(devices.map(async ({ token }) => {
-      const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId!)}/messages:send`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: {
-          token,
-          // Data-only (no `notification` block): Android always calls
-          // onMessageReceived() regardless of foreground/background state.
-          // With a `notification` block present, FCM auto-handles the message
-          // when the app is backgrounded and onMessageReceived() is NOT called,
-          // so AppNotificationManager.add() never fires and the in-app drawer
-          // never receives the event.
-          // AppNotificationManager.add() calls showSystemNotification() itself,
-          // so the system tray notification still appears in all cases.
-          data: {
-            type: 'remark', title, body,
-            consignment_id: row.consignment,
-            scope: recipientScope,
-            notif_parcel_id: row.consignment,
-            notif_scope: recipientScope,
-          },
-          android: {
-            priority: 'high',
-          },
-        } }),
-      })
-      if (response.ok) return true
-      const text = await response.text()
-      // FCM's UNREGISTERED errorCode means this exact token is permanently dead
-      // (app uninstalled, token superseded by a newer one on the same device,
-      // etc.) — safe to delete outright. Every other failure (auth, quota,
-      // transient network) must NOT delete a token that may still be good.
-      let isUnregistered = false
-      try {
-        const parsed = JSON.parse(text)
-        const details = parsed?.error?.details
-        isUnregistered = Array.isArray(details) && details.some((d: unknown) =>
-          (d as { errorCode?: unknown })?.errorCode === 'UNREGISTERED')
-      } catch { /* non-JSON body — fall through, treat as a logged, non-deleting failure */ }
-      if (isUnregistered) {
-        const { error: deleteError } = await admin.from('fcm_device_tokens').delete().eq('token', token)
-        if (deleteError) console.error(`Failed to delete unregistered token: ${deleteError.message}`)
-        else console.info(`Deleted unregistered FCM token (${token.slice(0, 12)}...)`)
-      } else {
-        console.error(`FCM send failed (${response.status}): ${text}`)
-      }
-      return false
-    }))
-    const accepted = outcomes.filter(Boolean).length
+    const workerAccepted = await sendToTokens(workerTokens, 'worker', accessToken, projectId, title, body, row.consignment)
+    const ccAccepted = await sendToTokens(ccTokens, 'cc', accessToken, projectId, title, body, row.consignment)
+    const accepted = workerAccepted + ccAccepted
     const reason = accepted === matchedDevices ? 'accepted_by_fcm' : 'fcm_rejected_some_devices'
-    console.info(`remark_push result: consignment=${row.consignment} scope=${recipientScope} matched=${matchedDevices} accepted=${accepted} reason=${reason}`)
-    return { recipient_scope: recipientScope, matched_devices: matchedDevices, accepted, reason }
+    console.info(`remark_push result: consignment=${row.consignment} scope=worker+cc matched=${matchedDevices} (worker=${workerTokens.length} cc=${ccTokens.length}) accepted=${accepted} reason=${reason}`)
+    return { recipient_scope: 'worker+cc', matched_devices: matchedDevices, accepted, reason,
+      worker_matched: workerTokens.length, worker_accepted: workerAccepted,
+      cc_matched: ccTokens.length, cc_accepted: ccAccepted }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     console.error(`remark_push failed: consignment=${row.consignment} reason=${message}`)
