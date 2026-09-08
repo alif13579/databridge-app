@@ -372,6 +372,9 @@ class PettyCashRequestCreateFragment : Fragment() {
             selectedExpenseDate = request.requestedDate
             updateExpenseDateLabel()
         }
+        // Prefilled values above win over the category defaults (applyCategory ran
+        // first inside this same prefill) — now lock the rows for this category.
+        updateAreaLocks()
         prefilled = true
     }
 
@@ -626,8 +629,12 @@ class PettyCashRequestCreateFragment : Fragment() {
     }
 
     /** Office is available in every list. The remaining areas come from the
-     *  directory appropriate to the selected conveyance category. */
+     *  directory appropriate to the selected conveyance category. Locked fields
+     *  (Pickup From/To, Bulk Delivery From — see isAreaLocked) never reach here:
+     *  their rows are disabled AND this guard returns early, so no path can
+     *  change a locked value. */
     private fun showAreaPicker(forFrom: Boolean) {
+        if (isAreaLocked(forFrom)) return
         if (!areasLoaded) {
             Toast.makeText(requireContext(), "Still loading area list, try again in a moment", Toast.LENGTH_SHORT).show()
             return
@@ -657,9 +664,10 @@ class PettyCashRequestCreateFragment : Fragment() {
 
     /** Pickup: To defaults 'Office' (a pickup always ends at the office); From is
      *  prefilled from the selected store's own area (every store has one — see
-     *  Store.areaId/areaName) but stays freely changeable via showAreaPicker(),
-     *  not locked to the store's area. Bulk Delivery: From defaults 'Office' (a
-     *  bulk delivery always starts at the office); To is a plain, unprefilled
+     *  Store.areaId/areaName). Both are LOCKED (see updateAreaLocks) — From follows
+     *  the store pick, so with no store it resets to the Office default instead
+     *  of keeping a stale area from a previous store/category. Bulk Delivery:
+     *  From defaults 'Office' and is locked; To is a plain, unprefilled
      *  dropdown — Bulk Delivery has no store to prefill from (Consignment ID
      *  instead of a store picker). Mirrors the same Office-default/store-prefill
      *  logic already confirmed for the remark-picker's Vehicle/From/To fields. */
@@ -667,18 +675,20 @@ class PettyCashRequestCreateFragment : Fragment() {
         if (category == PC_CATEGORY_PICKUP) {
             selectedToArea = "OFFICE"; selectedToAreaLabel = "Office"
             tvToAreaSelected.text = "Office"
-            if (selectedStoreId.isNotBlank()) {
-                val store = stores.find { it.storeId == selectedStoreId }
-                if (store != null && store.areaId.isNotBlank()) {
-                    selectedFromArea = store.areaId
-                    selectedFromAreaLabel = store.areaName.ifBlank { store.areaId }
-                    tvFromAreaSelected.text = selectedFromAreaLabel
-                }
+            val store = stores.find { it.storeId == selectedStoreId }
+            if (selectedStoreId.isNotBlank() && store != null && store.areaId.isNotBlank()) {
+                selectedFromArea = store.areaId
+                selectedFromAreaLabel = store.areaName.ifBlank { store.areaId }
+                tvFromAreaSelected.text = selectedFromAreaLabel
+            } else {
+                selectedFromArea = "OFFICE"; selectedFromAreaLabel = "Office"
+                tvFromAreaSelected.text = "Office"
             }
         } else if (category == PC_CATEGORY_BULK_DELIVERY) {
             selectedFromArea = "OFFICE"; selectedFromAreaLabel = "Office"
             tvFromAreaSelected.text = "Office"
         }
+        updateAreaLocks()
     }
 
     /** Resolves a stored areaId (or the "OFFICE" sentinel) back to a display label,
@@ -690,6 +700,27 @@ class PettyCashRequestCreateFragment : Fragment() {
         return pickupAreas.find { it.areaId == areaId }?.name
             ?: deliveryAreas.find { it.areaId == areaId }?.name
             ?: areaId
+    }
+
+    /** Single source of truth for locked From/Destination rows:
+     *  Pickup → From (store area) + Destination (Office) both locked;
+     *  Bulk Delivery → From (Office) locked, Destination free;
+     *  anything else → both free. */
+    private fun isAreaLocked(forFrom: Boolean): Boolean {
+        return if (forFrom) selectedCategory == PC_CATEGORY_PICKUP || selectedCategory == PC_CATEGORY_BULK_DELIVERY
+        else selectedCategory == PC_CATEGORY_PICKUP
+    }
+
+    /** Disables locked rows (tap does nothing, dimmed) so the agent can see at a
+     *  glance they are fixed. Safe to call before views init (guarded). */
+    private fun updateAreaLocks() {
+        if (!::layoutFromArea.isInitialized || !::layoutToArea.isInitialized) return
+        val lockFrom = isAreaLocked(forFrom = true)
+        val lockTo = isAreaLocked(forFrom = false)
+        layoutFromArea.isEnabled = !lockFrom
+        layoutFromArea.alpha = if (lockFrom) 0.6f else 1f
+        layoutToArea.isEnabled = !lockTo
+        layoutToArea.alpha = if (lockTo) 0.6f else 1f
     }
 
     /** Firebase read-only preview so the agent can confirm they've got the right
