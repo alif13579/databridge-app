@@ -735,6 +735,16 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
         // only fetched once, not once per row.
         val agentBranchCache = mutableMapOf<String, List<String>>()
         val branchResolveFailures = mutableListOf<String>()     // the lookup itself threw
+        // Duplicate-parcel detection (insert-time): cid -> [(otherAgentSys, otherRunId)].
+        // Same consignment number under two agents the SAME day is unexpected —
+        // warned in the summary dialog, never blocking the insert.
+        val duplicateRuns = mutableMapOf<String, MutableList<Pair<String, String>>>()
+        // runs_by_consignmentId snapshots per cid, cached per sync (index batch
+        // flushes AFTER the loop, so reads always see the pre-sync state).
+        val dupeIndexCache = mutableMapOf<String, com.google.firebase.database.DataSnapshot?>()
+        // Rows already processed THIS sync (flush happens later, so the index
+        // can't reveal same-sheet dupes): cid -> [(runType, runId, agentSys)].
+        val syncInsertedRuns = mutableMapOf<String, MutableList<Triple<String, String, String>>>()
 
         suspend fun resolveAgentBranchIds(systemId: String): List<String> {            agentBranchCache[systemId]?.let { return it }
             val branchIds = try {
@@ -796,6 +806,60 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                 if (phone.isNotBlank()) {
                     runIndexUpdates["courier/consignments_by_phone/$phone/$cid"] = "$runType/$runId"
                 }
+            }
+        }
+
+        // run_{yyyyMMdd}_{systemId} → (date, agent). Unparseable (legacy) → null = skip.
+        fun parseRunDateAgent(runId: String): Pair<String, String>? {
+            val parts = runId.split("_")
+            if (parts.size < 3 || parts[0] != "run") return null
+            val date = parts[1].trim()
+            if (date.length != 8 || !date.all { it.isDigit() }) return null
+            val agent = parts.drop(2).joinToString("_").trim()
+            if (agent.isBlank()) return null
+            return date to agent
+        }
+
+        // Insert-time duplicate check for one run row's consignment list.
+        // Sources: (a) rows already processed this sync, (b) pre-sync index.
+        // Same-day + different-agent only — cross-date carryover is normal.
+        suspend fun collectDuplicateRuns(runType: String, runId: String, agentSys: String, cids: List<String>) {
+            val my = parseRunDateAgent(runId) ?: return
+            val effAgent = agentSys.ifBlank { my.second }
+            if (effAgent.isBlank()) return
+            fun record(cid: String, otherAgent: String, otherRunId: String) {
+                val list = duplicateRuns.getOrPut(cid) { mutableListOf() }
+                if (list.none { it.first.equals(otherAgent, ignoreCase = true) && it.second == otherRunId }) {
+                    list.add(otherAgent to otherRunId)
+                }
+            }
+            cids.forEach { cid ->
+                syncInsertedRuns[cid]?.forEach { (rt, rid, ag) ->
+                    if (rt == runType && rid == runId) return@forEach
+                    val o = parseRunDateAgent(rid) ?: return@forEach
+                    if (o.first == my.first && !o.second.equals(effAgent, ignoreCase = true)) {
+                        record(cid, o.second, rid)
+                    }
+                }
+                val snap = dupeIndexCache.getOrPut(cid) {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            db.reference.child("courier/runs_by_consignmentId/$cid").get().await()
+                        }
+                    } catch (_: Exception) { null }
+                } ?: return@forEach
+                snap.children.forEach { rtNode ->
+                    val rt = rtNode.key ?: return@forEach
+                    rtNode.children.forEach { ridNode ->
+                        val rid = ridNode.key ?: return@forEach
+                        if (rt == runType && rid == runId) return@forEach
+                        val o = parseRunDateAgent(rid) ?: return@forEach
+                        if (o.first == my.first && !o.second.equals(effAgent, ignoreCase = true)) {
+                            record(cid, o.second, rid)
+                        }
+                    }
+                }
+                syncInsertedRuns.getOrPut(cid) { mutableListOf() }.add(Triple(runType, runId, effAgent))
             }
         }
 
@@ -957,6 +1021,10 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                         if (runStatus.isNotBlank()) {
                             queueRunConsignmentIndex(runType, conId, runStatus, runCids)
                         }
+                        // Insert-time duplicate check (membership-based, status-independent).
+                        if (userSystemId.isNotBlank()) {
+                            collectDuplicateRuns(runType, conId, userSystemId, runCids)
+                        }
                     }
                     // runs_by_branchId — branch is resolved ONCE at run-creation time (the agent's
                     // branch_ids *right now*), then locked in via resolvedBranchIds on the run
@@ -1076,6 +1144,10 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                         }
                         if (updCids.isNotEmpty()) {
                             queueRunConsignmentIndex(runType, conId, updStatus, updCids)
+                            // Insert-time duplicate check (membership-based, status-independent).
+                            if (userSystemId.isNotBlank()) {
+                                collectDuplicateRuns(runType, conId, userSystemId, updCids)
+                            }
                         }
                     }
                 }
@@ -1203,15 +1275,30 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
             }
             else -> ""
         }
+        // Duplicate parcels (insert-time detection above): same number under two
+        // agents the same day. Names best-effort via Supabase users table.
+        val duplicatesText = if (duplicateRuns.isNotEmpty()) {
+            val agentIds = duplicateRuns.values.flatten().map { it.first }.distinct()
+            val nameMap = mutableMapOf<String, String>()
+            agentIds.forEach { sys ->
+                val n = runCatching { UserNameResolver.resolveNameBySystemId(sys) }.getOrNull()?.trim().orEmpty()
+                nameMap[sys] = n.ifBlank { sys }
+            }
+            val shown = duplicateRuns.entries.take(10).joinToString("\n") { (cid, others) ->
+                "• $cid → " + others.distinct().joinToString(", ") { (sys, rid) -> "${nameMap[sys] ?: sys} ($rid)" }
+            }
+            val more = if (duplicateRuns.size > 10) "\n…আরও ${duplicateRuns.size - 10}টি" else ""
+            "\n\n🔁 Duplicate parcel (${duplicateRuns.size}টি) — একই দিনে অন্য agent-এর run-এও আছে:\n$shown$more"
+        } else ""
         android.app.AlertDialog.Builder(ctx)
-            .setTitle(if (writeFailures.isEmpty()) "✅ Sync Complete" else "⚠ Sync Complete — with errors")
+            .setTitle(if (writeFailures.isEmpty() && duplicateRuns.isEmpty()) "✅ Sync Complete" else "⚠ Sync Complete — with errors")
             .setMessage(
                 "Inserted : $inserted\n" +
                 "Updated  : $updated\n" +
                 "Skipped  : $skipped\n" +
                 "Total    : ${dataRows.size}" +
                 (if (runIndexCount > 0) "\nRun index: $runIndexCount" else "") +
-                issuesText + failuresText + branchlessText
+                issuesText + failuresText + branchlessText + duplicatesText
             )
             .setPositiveButton("OK", null)
             .show()
