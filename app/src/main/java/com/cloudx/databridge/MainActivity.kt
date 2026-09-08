@@ -76,6 +76,14 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
 
     // Drawer push eye-check state (survives updateDrawerHeader re-binds on auth changes).
     private var pushEyeShowing = false
+    private var pushAutoHealAttempted = false
+    private var pushLastTokenPrefix = ""
+    private val pushDiagTrail = ArrayDeque<String>()
+    private fun pushDiagLog(s: String) {
+        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+        pushDiagTrail.addFirst("$ts $s")
+        while (pushDiagTrail.size > 6) pushDiagTrail.removeLast()
+    }
     private var pushLastRegistered: Boolean? = null
 
     private val authStateListener = FirebaseAuth.AuthStateListener { refreshAuthUi() }
@@ -675,16 +683,21 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 }
             }
 
-            // 🔔 Push eye-check: tiny eye next to Emp/Sys. Tap → live Supabase check
-            // (this device's FCM token in fcm_device_tokens); tap again → hide.
-            // Status tap retries registration when OFF.
+            // 🔔 Push eye-check (top-right, below the dark-mode toggle). Tap → live
+            // Supabase check (this device's FCM token in fcm_device_tokens);
+            // tap again → hide. Long-press → diagnostics. Status tap retries
+            // registration when OFF.
             layoutPushRow.visibility = View.VISIBLE
             tvPushStatus.visibility = if (pushEyeShowing) View.VISIBLE else View.GONE
             btnPushEye.setOnClickListener {
                 pushEyeShowing = !pushEyeShowing
                 tvPushStatus.visibility = if (pushEyeShowing) View.VISIBLE else View.GONE
-                if (pushEyeShowing) checkDrawerPushStatus(tvPushStatus)
+                if (pushEyeShowing) {
+                    pushAutoHealAttempted = false
+                    checkDrawerPushStatus(tvPushStatus)
+                }
             }
+            btnPushEye.setOnLongClickListener { showPushDiagnostics(); true }
             tvPushStatus.setOnClickListener {
                 // Retry from OFF or any failed state (check-failed / register-failed).
                 // Previously this just re-registered in the background and re-checked
@@ -715,6 +728,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                             is SupabaseRemarkValidationWriter.PushRegisterResult.Err -> {
                                 if (auth.currentUser == null) return@launch
                                 pushLastRegistered = false
+                                pushDiagLog("manual register FAILED: ${reg.message.take(60)}")
                                 tvPushStatus.text = "🔔 Register failed: ${friendlyPushRegisterError(reg.message).take(80)} — tap to retry"
                                 tvPushStatus.setTextColor(getColor(R.color.theme_red))
                             }
@@ -747,6 +761,8 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
      * Drawer eye-check body: fetches this device's FCM token and asks Supabase
      * (user-sync/push_token_status, scoped to the caller) whether it's registered.
      * Green ON / red OFF + tap-to-retry; failures show the reason, never a stale row.
+     * OFF self-heals once per eye-open: registers this exact token and re-checks,
+     * so an offline-login/rotation miss fixes itself instead of staying OFF forever.
      */
     private fun checkDrawerPushStatus(tvPushStatus: TextView) {
         tvPushStatus.text = "🔔 Checking…"
@@ -755,11 +771,13 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             val token = runCatching {
                 com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
             }.getOrNull().orEmpty()
+            pushLastTokenPrefix = if (token.length > 16) token.take(12) + "…" + token.takeLast(4) else token
             if (token.isBlank()) {
                 if (auth.currentUser == null) return@launch
                 tvPushStatus.text = "🔔 No FCM token on device"
                 tvPushStatus.setTextColor(getColor(R.color.theme_red))
                 pushLastRegistered = false
+                pushDiagLog("check: no device token")
                 return@launch
             }
             when (val res = SupabaseRemarkValidationWriter.checkPushTokenStatus(token)) {
@@ -768,9 +786,30 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                     pushLastRegistered = res.registered
                     if (res.registered) {
                         val whenStr = res.updatedAt.takeIf { it.isNotBlank() }?.let { " · " + shortPushTime(it) } ?: ""
+                        pushDiagLog("check: ON$whenStr")
                         tvPushStatus.text = "🔔 Push ON ✓$whenStr"
                         tvPushStatus.setTextColor(getColor(R.color.theme_green))
+                    } else if (!pushAutoHealAttempted) {
+                        pushAutoHealAttempted = true
+                        pushDiagLog("check: OFF → auto-registering")
+                        tvPushStatus.text = "🔔 Registering…"
+                        tvPushStatus.setTextColor(getColor(R.color.theme_text_muted))
+                        when (val reg = SupabaseRemarkValidationWriter.registerPushTokenDetailed(token)) {
+                            is SupabaseRemarkValidationWriter.PushRegisterResult.Ok -> {
+                                pushDiagLog("auto-register: OK → re-checking")
+                                if (auth.currentUser == null) return@launch
+                                checkDrawerPushStatus(tvPushStatus)
+                            }
+                            is SupabaseRemarkValidationWriter.PushRegisterResult.Err -> {
+                                if (auth.currentUser == null) return@launch
+                                pushLastRegistered = false
+                                pushDiagLog("auto-register FAILED: ${reg.message.take(60)}")
+                                tvPushStatus.text = "🔔 Register failed: ${friendlyPushRegisterError(reg.message).take(80)} — tap to retry"
+                                tvPushStatus.setTextColor(getColor(R.color.theme_red))
+                            }
+                        }
                     } else {
+                        pushDiagLog("check: OFF (after heal)")
                         tvPushStatus.text = "🔔 Push OFF ✗ — tap to retry"
                         tvPushStatus.setTextColor(getColor(R.color.theme_red))
                     }
@@ -778,11 +817,25 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 is SupabaseRemarkValidationWriter.PushTokenStatus.Err -> {
                     if (auth.currentUser == null) return@launch
                     pushLastRegistered = null
+                    pushDiagLog("check FAILED: ${res.message.take(60)}")
                     tvPushStatus.text = "🔔 Check failed: ${res.message.take(60)} — tap to retry"
                     tvPushStatus.setTextColor(getColor(R.color.theme_red))
                 }
             }
         }
+    }
+
+    /** Long-press eye → what the checks actually saw (token prefix + trail). */
+    private fun showPushDiagnostics() {
+        val lines = mutableListOf<String>()
+        lines.add("Device token: ${pushLastTokenPrefix.ifBlank { "(not fetched yet — tap eye)" }}")
+        if (pushDiagTrail.isEmpty()) lines.add("No checks yet this session.")
+        else lines.addAll(pushDiagTrail)
+        android.app.AlertDialog.Builder(this)
+            .setTitle("🔔 Push diagnostics")
+            .setMessage(lines.joinToString("\n"))
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     /** Maps raw register/check errors to a one-line actionable hint. Technical
