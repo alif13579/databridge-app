@@ -224,16 +224,26 @@ class BranchDetailFragment : Fragment() {
                 return usersSnap.child("$uid/profile/name").getValue(String::class.java)
                     ?: usersSnap.child("$uid/name").getValue(String::class.java) ?: "—"
             }
+            val roleNameById = mutableMapOf<String, String>()
+            rolesSnap.children.forEach { c ->
+                val rid = c.key ?: return@forEach
+                roleNameById[rid] = c.child("name").getValue(String::class.java) ?: rid
+            }
+            // Every slot holds multiple persons + multiple roles now.
+            fun holders(uids: List<String>, roles: List<String>): String {
+                val parts = uids.filter { it.isNotBlank() }.map { userName(it) } +
+                    roles.filter { it.isNotBlank() }.map { "🎭 ${roleNameById[it] ?: it}" }
+                return if (parts.isEmpty()) "—" else parts.joinToString(", ")
+            }
             val name        = branch.name.ifBlank { "Branch" }
             val code        = branch.branchCode
             val type        = branch.branchType
             val address     = branch.address
-            val managerName = userName(branch.managerUid)
-            val accountantName = userName(branch.accountantUid)
-            val accountantRole = branch.accountantRole
-            val pettyCashPocName = userName(branch.pettyCashPocUid)
-            val staffName = userName(branch.staffUid)
-            val staffRole = branch.staffRole
+            val managerLabel = holders(branch.managerUids + branch.managerUid, branch.managerRoles)
+            val accountantLabel = holders(branch.accountantUids + branch.accountantUid,
+                branch.accountantRoles + branch.accountantRole)
+            val pocLabel = holders(branch.pettyCashPocUids + branch.pettyCashPocUid, branch.pettyCashPocRoles)
+            val staffLabel = holders(branch.staffUids + branch.staffUid, branch.staffRoles + branch.staffRole)
             val email       = branch.email
             val phone       = branch.phone
             val status      = branch.status.ifBlank { "active" }
@@ -249,10 +259,10 @@ class BranchDetailFragment : Fragment() {
             tvBranchCode.text    = if (code.isNotBlank()) "Code: $code" else ""
             tvBranchType.text    = if (type.isNotBlank()) type.uppercase() else ""
             tvBranchAddress.text = if (address.isNotBlank()) "📍 $address" else ""
-            tvBranchManager.text = "👤 $managerName"
-            tvBranchAccountant.text = "🧾 $accountantName" + if (accountantRole.isNotBlank()) " · role" else ""
-            tvBranchPettyCashPoc.text = "💵 $pettyCashPocName"
-            tvBranchStaff.text = "🧑‍🤝‍🧑 $staffName" + if (staffRole.isNotBlank()) " · role" else ""
+            tvBranchManager.text = "👤 $managerLabel"
+            tvBranchAccountant.text = "🧾 $accountantLabel"
+            tvBranchPettyCashPoc.text = "💵 $pocLabel"
+            tvBranchStaff.text = "🧑‍🤝‍🧑 $staffLabel"
             tvBranchEmail.text   = if (email.isNotBlank()) "✉  $email" else ""
             tvBranchPhone.text   = if (phone.isNotBlank()) "📞 $phone" else ""
             tvBranchStatus.text  = if (status == "active") "● Active" else "● Inactive"

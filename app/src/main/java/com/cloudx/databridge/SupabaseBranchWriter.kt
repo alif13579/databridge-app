@@ -22,10 +22,10 @@ import java.util.concurrent.TimeUnit
  * runCatching. Writes go through the directory Edge Function's
  * `branch_upsert` / `branch_delete` actions (service-role admin client,
  * bypasses RLS) so no write policy is needed. The Edge Function also gates
- * on admin/manager role server-side. NOTE: branch saves never touch
- * public.users — RLS membership (users.branch_ids) is maintained ONLY via
- * admin employee edit, so assign the person there too or they won't see the
- * new branch.
+ * on admin/manager role server-side, and fans branch membership out to every
+ * assigned person + role-holder (users.branch_ids + Firebase mirror) so an
+ * assignment on this form actually works — employee edit stays the screen
+ * for trimming visibility back.
  *
  * Firebase `users/.../branch_ids` membership writes stay app-side alongside
  * these calls (see the fragments) — Firebase profiles still feed other
@@ -45,6 +45,11 @@ object SupabaseBranchWriter {
      * Firebase profiles). [removedUids] are Firebase uids just unassigned
      * from every role on this branch (edit flow) so the Edge Function can
      * strip the branch from their RLS membership.
+     *
+     * Every access slot takes multiple persons (uids) + multiple roles. The
+     * Edge Function also mirrors the first entry into the legacy singular
+     * columns so old builds keep working, and fans branch membership out to
+     * all assigned persons + role-holders (users.branch_ids + Firebase).
      */
     data class BranchPayload(
         val branchId: String,
@@ -56,18 +61,27 @@ object SupabaseBranchWriter {
         val longitude: Double,
         val email: String,
         val phone: String,
-        val managerUid: String,
-        val accountantUid: String,
-        val accountantRole: String,
-        val pettyCashPocUid: String,
+        val managerUids: List<String> = emptyList(),
+        val managerRoles: List<String> = emptyList(),
+        val accountantUids: List<String> = emptyList(),
+        val accountantRoles: List<String> = emptyList(),
+        val pettyCashPocUids: List<String> = emptyList(),
+        val pettyCashPocRoles: List<String> = emptyList(),
         val pettyCashLimit: Double = 0.0,
-        val staffUid: String,
-        val staffRole: String,
+        val staffUids: List<String> = emptyList(),
+        val staffRoles: List<String> = emptyList(),
         val parentBranchId: String,
         val region: String = "",
         val status: String,
         val imageUrl: String,
-        val removedUids: List<String> = emptyList()
+        val removedUids: List<String> = emptyList(),
+        // Legacy singulars (old callers / old APK compat) — merged server-side.
+        val managerUid: String = "",
+        val accountantUid: String = "",
+        val accountantRole: String = "",
+        val pettyCashPocUid: String = "",
+        val staffUid: String = "",
+        val staffRole: String = ""
     ) {
         fun toJson(): JSONObject = JSONObject()
             .put("branch_id", branchId)
@@ -79,11 +93,19 @@ object SupabaseBranchWriter {
             .put("longitude", longitude)
             .put("email", email)
             .put("phone", phone)
+            .put("manager_uids", org.json.JSONArray(managerUids))
+            .put("manager_roles", org.json.JSONArray(managerRoles))
             .put("manager_uid", managerUid)
+            .put("accountant_uids", org.json.JSONArray(accountantUids))
+            .put("accountant_roles", org.json.JSONArray(accountantRoles))
             .put("accountant_uid", accountantUid)
             .put("accountant_role", accountantRole)
+            .put("petty_cash_poc_uids", org.json.JSONArray(pettyCashPocUids))
+            .put("petty_cash_poc_roles", org.json.JSONArray(pettyCashPocRoles))
             .put("petty_cash_poc_uid", pettyCashPocUid)
             .put("petty_cash_limit", pettyCashLimit)
+            .put("staff_uids", org.json.JSONArray(staffUids))
+            .put("staff_roles", org.json.JSONArray(staffRoles))
             .put("staff_uid", staffUid)
             .put("staff_role", staffRole)
             .put("parent_branch_id", parentBranchId)

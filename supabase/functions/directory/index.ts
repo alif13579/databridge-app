@@ -62,18 +62,42 @@ Deno.serve(async (request) => {
       if (!str(b?.branch_code).trim()) return reply({ error: 'Branch code is required' }, 400)
       const { data: existing } = await admin.from('branches').select('*').eq('branch_id', branchId).maybeSingle()
       const now = new Date().toISOString()
+      // Access slots are multi person + multi role now. New clients send
+      // arrays; legacy singulars (old APKs) merge in so nothing is lost.
+      const arr = (v: unknown): string[] => Array.isArray(v)
+        ? [...new Set(v.filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter(Boolean))]
+        : []
+      const one = (v: unknown): string[] => {
+        const t = str(v).trim()
+        return t ? [t] : []
+      }
+      const mergeList = (...lists: string[][]) => [...new Set(lists.flat())]
+      const managerUids = mergeList(arr(b?.manager_uids), one(b?.manager_uid))
+      const managerRoles = mergeList(arr(b?.manager_roles), one(b?.manager_role))
+      const accountantUids = mergeList(arr(b?.accountant_uids), one(b?.accountant_uid))
+      const accountantRoles = mergeList(arr(b?.accountant_roles), one(b?.accountant_role))
+      const pocUids = mergeList(arr(b?.petty_cash_poc_uids), one(b?.petty_cash_poc_uid))
+      const pocRoles = mergeList(arr(b?.petty_cash_poc_roles), one(b?.petty_cash_poc_role))
+      const staffUids = mergeList(arr(b?.staff_uids), one(b?.staff_uid))
+      const staffRoles = mergeList(arr(b?.staff_roles), one(b?.staff_role))
+      const first = (l: string[]) => l[0] ?? ''
       const row: Record<string, unknown> = {
         branch_id: branchId,
         branch_code: str(b.branch_code), name: str(b.name).trim(), branch_type: str(b.branch_type),
         region: typeof b.region === 'string' ? b.region : (existing?.region ?? ''),
         address: str(b.address), latitude: num(b.latitude), longitude: num(b.longitude),
         email: str(b.email), phone: str(b.phone),
-        manager_uid: str(b.manager_uid),
-        accountant_uid: str(b.accountant_uid), accountant_role: str(b.accountant_role),
-        petty_cash_poc_uid: str(b.petty_cash_poc_uid),
+        // Arrays are authoritative; singulars mirror the first entry so old
+        // builds keep reading something sensible.
+        manager_uid: first(managerUids), manager_uids: managerUids, manager_roles: managerRoles,
+        accountant_uid: first(accountantUids), accountant_role: first(accountantRoles),
+        accountant_uids: accountantUids, accountant_roles: accountantRoles,
+        petty_cash_poc_uid: first(pocUids),
+        petty_cash_poc_uids: pocUids, petty_cash_poc_roles: pocRoles,
         petty_cash_limit: typeof b.petty_cash_limit === 'number' && Number.isFinite(b.petty_cash_limit)
           ? b.petty_cash_limit : (existing?.petty_cash_limit ?? 0),
-        staff_uid: str(b.staff_uid), staff_role: str(b.staff_role),
+        staff_uid: first(staffUids), staff_role: first(staffRoles),
+        staff_uids: staffUids, staff_roles: staffRoles,
         parent_branch_id: str(b.parent_branch_id),
         status: str(b.status) || 'active',
         image_url: str(b.image_url),
@@ -86,12 +110,111 @@ Deno.serve(async (request) => {
         errLog('branch_upsert', 'db_upsert_failed', { branch_id: branchId, pg_code: error.code, pg_message: error.message })
         throw error
       }
-      // Branch membership (users.branch_ids) is maintained ONLY via employee
-      // edit (user_upsert) — branch saves NEVER touch public.users, which is
-      // source of truth. A newly assigned person gets access once admin sets
-      // their branches in employee edit; assigning them on the branch form
-      // alone does not grant it.
-      console.info(`branch_upsert ok: branch=${branchId}`)
+      // Membership fan-out: an assignment on this form must actually WORK.
+      // Every assigned person (by Firebase uid) and every holder of an assigned
+      // role gets this branch in users.branch_ids (RLS) + the Firebase mirror
+      // (RTDB reads). Additive only — unassigning here revokes the functional
+      // flag immediately (resolveRoles reads this row live); lingering
+      // visibility is trimmed via employee edit, the membership screen.
+      // Best-effort: a fan-out failure never fails the branch save itself.
+      try {
+        const grantRoles = [...new Set([...managerRoles, ...accountantRoles, ...pocRoles, ...staffRoles])]
+        const grantUidSet = new Set([...managerUids, ...accountantUids, ...pocUids, ...staffUids])
+        const targets = new Map<string, { firebaseId: string; branches: string[] }>()
+        if (grantUidSet.size > 0) {
+          const { data } = await admin.from('users')
+            .select('system_id,firebase_id,branch_ids').in('firebase_id', [...grantUidSet])
+          for (const u of data ?? []) {
+            const sys = u.system_id as string
+            if (sys) targets.set(sys, { firebaseId: u.firebase_id as string ?? '', branches: (u.branch_ids as string[]) ?? [] })
+          }
+        }
+        if (grantRoles.length > 0) {
+          const { data } = await admin.from('users')
+            .select('system_id,firebase_id,branch_ids').in('role', grantRoles)
+          for (const u of data ?? []) {
+            const sys = u.system_id as string
+            if (sys && !targets.has(sys)) {
+              targets.set(sys, { firebaseId: u.firebase_id as string ?? '', branches: (u.branch_ids as string[]) ?? [] })
+            }
+          }
+        }
+        let granted = 0
+        const fbPaths: Record<string, unknown> = {}
+        for (const [sys, t] of targets) {
+          if (t.branches.includes(branchId)) continue
+          const next = [...t.branches, branchId]
+          const { error: memError } = await admin.from('users')
+            .update({ branch_ids: next, updated_at: now }).eq('system_id', sys)
+          if (memError) {
+            console.error('branch role fan-out users update failed', sys, memError.message)
+            continue
+          }
+          granted++
+          if (t.firebaseId) fbPaths[`users/${t.firebaseId}/profile/company_info/branch_ids`] = next
+        }
+        if (Object.keys(fbPaths).length > 0) {
+          try {
+            await firebaseUpdatePaths(fbPaths)
+          } catch (e) {
+            errLog('branch_upsert', 'fanout_mirror_failed', {
+              branch_id: branchId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+            })
+          }
+        }
+        console.info(`branch_upsert ok: branch=${branchId} fanout_granted=${granted}`)
+      } catch (e) {
+        errLog('branch_upsert', 'fanout_failed', {
+          branch_id: branchId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+        })
+      }
+      // Unassign cleanup for removed_uids (edit flow): strip the branch from
+      // holders that match NO current assignment on this branch — neither a
+      // uid slot nor (via their users.role) a role slot. Holders still covered
+      // another way keep their membership. Best-effort like the fan-out above.
+      try {
+        const removed = arr(body.removed_uids)
+        if (removed.length > 0) {
+          const coveredRoles = new Set([...managerRoles, ...accountantRoles, ...pocRoles, ...staffRoles])
+          const coveredUids = new Set([...managerUids, ...accountantUids, ...pocUids, ...staffUids])
+          const { data: exUsers } = await admin.from('users')
+            .select('system_id,firebase_id,branch_ids,role').in('firebase_id', removed)
+          let stripped = 0
+          const fbStrip: Record<string, unknown> = {}
+          for (const u of exUsers ?? []) {
+            const sys = u.system_id as string
+            if (!sys) continue
+            const uFb = (u.firebase_id as string) ?? ''
+            const uRole = (u.role as string) ?? ''
+            if (coveredUids.has(uFb)) continue
+            if (uRole && coveredRoles.has(uRole)) continue
+            const cur = ((u.branch_ids as string[]) ?? []).filter((x) => x !== branchId)
+            if (cur.length === ((u.branch_ids as string[]) ?? []).length) continue
+            const { error: stripError } = await admin.from('users')
+              .update({ branch_ids: cur, updated_at: now }).eq('system_id', sys)
+            if (stripError) {
+              console.error('branch unassign strip failed', sys, stripError.message)
+              continue
+            }
+            stripped++
+            if (uFb) fbStrip[`users/${uFb}/profile/company_info/branch_ids`] = cur
+          }
+          if (Object.keys(fbStrip).length > 0) {
+            try {
+              await firebaseUpdatePaths(fbStrip)
+            } catch (e) {
+              errLog('branch_upsert', 'strip_mirror_failed', {
+                branch_id: branchId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+              })
+            }
+          }
+          console.info(`branch_upsert unassign: branch=${branchId} stripped=${stripped}`)
+        }
+      } catch (e) {
+        errLog('branch_upsert', 'strip_failed', {
+          branch_id: branchId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
+        })
+      }
       // Best-effort Firebase backup mirror (Supabase is authoritative).
       try {
         await firebaseUpdatePaths({

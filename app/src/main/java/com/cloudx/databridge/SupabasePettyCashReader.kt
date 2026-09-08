@@ -133,6 +133,15 @@ object SupabasePettyCashReader {
             val arr = JSONArray(text)
             if (arr.length() == 0) error("Branch not found")
             val row = arr.getJSONObject(0)
+            fun strList(key: String): List<String> {
+                val a = row.optJSONArray(key) ?: return emptyList()
+                return List(a.length()) { a.optString(it) }
+                    .map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            }
+            fun withLegacy(list: List<String>, legacy: String): List<String> {
+                val l = legacy.trim()
+                return if (l.isBlank() || l in list) list else list + l
+            }
             Branch(
                 branch_id = row.optStr("branch_id").ifBlank { branchId },
                 branch_code = row.optStr("branch_code"),
@@ -145,14 +154,22 @@ object SupabasePettyCashReader {
                 phone = row.optStr("phone"),
                 manager_uid = row.optStr("manager_uid"),
                 manager_name = row.optStr("manager_name"),
+                manager_uids = withLegacy(strList("manager_uids"), row.optStr("manager_uid")),
+                manager_roles = strList("manager_roles"),
                 accountant_uid = row.optStr("accountant_uid"),
                 accountant_name = row.optStr("accountant_name"),
                 accountant_role = row.optStr("accountant_role"),
+                accountant_uids = withLegacy(strList("accountant_uids"), row.optStr("accountant_uid")),
+                accountant_roles = withLegacy(strList("accountant_roles"), row.optStr("accountant_role")),
                 petty_cash_poc_uid = row.optStr("petty_cash_poc_uid"),
                 petty_cash_poc_name = row.optStr("petty_cash_poc_name"),
+                petty_cash_poc_uids = withLegacy(strList("petty_cash_poc_uids"), row.optStr("petty_cash_poc_uid")),
+                petty_cash_poc_roles = strList("petty_cash_poc_roles"),
                 staff_uid = row.optStr("staff_uid"),
                 staff_name = row.optStr("staff_name"),
                 staff_role = row.optStr("staff_role"),
+                staff_uids = withLegacy(strList("staff_uids"), row.optStr("staff_uid")),
+                staff_roles = withLegacy(strList("staff_roles"), row.optStr("staff_role")),
                 parent_branch_id = row.optStr("parent_branch_id"),
                 status = row.optStr("status").ifBlank { "active" },
                 image_url = row.optStr("image_url"),

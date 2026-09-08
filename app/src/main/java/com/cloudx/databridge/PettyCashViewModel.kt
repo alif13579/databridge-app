@@ -158,30 +158,29 @@ class PettyCashViewModel : ViewModel() {
     }
 
     /**
-     * Resolves the signed-in user's petty cash roles at [branch] by comparing
-     * their uid and role_id against the branch's assigned uid/role fields —
-     * same convention as accountant_uid/accountant_role: a uid match means
-     * "this specific person", a role match means "everyone with this role
-     * at this branch".
+     * Resolves the signed-in user's petty cash roles at [branch]. Every slot
+     * takes multiple persons (uids) + multiple roles: a uid match means "this
+     * specific person", a role match means "everyone with this role holding
+     * this branch". Legacy singular columns feed in as one-element lists so
+     * old rows resolve identically.
      */
     private fun resolveRoles(branch: Branch): PettyCashUserRoles {
         val uid = auth.currentUser?.uid.orEmpty()
         val roleId = RbacManager.current.roleId
 
-        fun matches(assignedUid: String, assignedRole: String): Boolean {
-            if (assignedUid.isNotBlank()) return assignedUid == uid
-            if (assignedRole.isNotBlank()) return assignedRole == roleId
+        fun matchesAny(uids: List<String>, roles: List<String>): Boolean {
+            if (uids.any { it.isNotBlank() && it == uid }) return true
+            if (roleId.isNotBlank() && roles.any { it.isNotBlank() && it == roleId }) return true
             return false
         }
 
         return PettyCashUserRoles(
-            isStaff = matches(branch.staff_uid, branch.staff_role),
-            // NOTE: uid-only is intentional — there is no petty_cash_poc_role column
-            // (Branch / SupabaseBranchReader select list confirm this). A role-based POC
-            // would need a schema change (petty_cash_poc_role) + backfill, so role-holders
-            // without an explicit uid assignment deliberately do NOT get POC powers.
-            isCashPoc = branch.petty_cash_poc_uid.isNotBlank() && branch.petty_cash_poc_uid == uid,
-            isAccounts = matches(branch.accountant_uid, branch.accountant_role)
+            isStaff = matchesAny(branch.staff_uids + branch.staff_uid,
+                branch.staff_roles + branch.staff_role),
+            isCashPoc = matchesAny(branch.petty_cash_poc_uids + branch.petty_cash_poc_uid,
+                branch.petty_cash_poc_roles),
+            isAccounts = matchesAny(branch.accountant_uids + branch.accountant_uid,
+                branch.accountant_roles + branch.accountant_role)
         )
     }
 

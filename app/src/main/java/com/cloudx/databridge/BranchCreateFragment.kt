@@ -51,16 +51,16 @@ class BranchCreateFragment : Fragment() {
     private val allBranches  = mutableListOf<PickerItem>()
     private val allRoles     = mutableListOf<PickerItem>()
 
-    private var selectedManagerUid  = ""
-    private var selectedManagerName = ""
-    private var selectedAccountantUid  = ""
-    private var selectedAccountantName = ""
-    private var selectedAccountantRole = ""
-    private var selectedPettyCashPocUid  = ""
-    private var selectedPettyCashPocName = ""
-    private var selectedStaffUid  = ""
-    private var selectedStaffName = ""
-    private var selectedStaffRole = ""
+    /** One access slot's selection: multiple persons (Firebase uids) + multiple
+     *  roles (roleIds, no "role:" prefix). Full access freedom per slot. */
+    private data class SlotSel(
+        val uids: MutableSet<String> = mutableSetOf(),
+        val roles: MutableSet<String> = mutableSetOf()
+    )
+    private val managerSel = SlotSel()
+    private val accountantSel = SlotSel()
+    private val pocSel = SlotSel()
+    private val staffSel = SlotSel()
     private var selectedParentId    = ""
     private var selectedImageUri: Uri? = null
     private var uploadedImageUrl      = ""
@@ -156,74 +156,42 @@ class BranchCreateFragment : Fragment() {
         lifecycleScope.launch { loadData() }
 
         btnSelectManager.setOnClickListener {
-            showSearchPicker("Select Manager", allEmployees) { item ->
-                selectedManagerUid  = item.id
-                selectedManagerName = item.name
-                btnSelectManager.text = item.name
-                btnSelectManager.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
-                tvManagerSelected.text = item.sub
-                tvManagerSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
-                btnClearManager.visibility = View.VISIBLE
+            showMultiSlotPicker("Select Managers (persons + roles)", allEmployees, managerSel) {
+                refreshSlotLabel(btnSelectManager, btnClearManager, tvManagerSelected,
+                    managerSel, "Tap to select managers ▾")
             }
         }
         btnClearManager.setOnClickListener {
-            selectedManagerUid  = ""
-            selectedManagerName = ""
-            btnSelectManager.text = "Tap to select manager ▾"
-            btnSelectManager.setTextColor(0xFF888888.toInt())
-            tvManagerSelected.text = "None selected"
-            tvManagerSelected.setTextColor(0xFF555555.toInt())
-            btnClearManager.visibility = View.GONE
+            managerSel.uids.clear()
+            managerSel.roles.clear()
+            refreshSlotLabel(btnSelectManager, btnClearManager, tvManagerSelected,
+                managerSel, "Tap to select managers ▾")
         }
 
         btnSelectAccountant.setOnClickListener {
-            showSearchPicker("Select Accountant (role or person)", allRoles + allEmployees) { item ->
-                if (item.id.startsWith("role:")) {
-                    selectedAccountantRole = item.id.removePrefix("role:")
-                    selectedAccountantUid  = ""
-                    selectedAccountantName = item.name
-                } else {
-                    selectedAccountantRole = ""
-                    selectedAccountantUid  = item.id
-                    selectedAccountantName = item.name
-                }
-                btnSelectAccountant.text = item.name
-                btnSelectAccountant.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
-                tvAccountantSelected.text = item.sub
-                tvAccountantSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
-                btnClearAccountant.visibility = View.VISIBLE
+            showMultiSlotPicker("Select Accountants (persons + roles)", allEmployees, accountantSel) {
+                refreshSlotLabel(btnSelectAccountant, btnClearAccountant, tvAccountantSelected,
+                    accountantSel, "Tap to select accountants ▾")
             }
         }
         btnClearAccountant.setOnClickListener {
-            selectedAccountantUid  = ""
-            selectedAccountantName = ""
-            selectedAccountantRole = ""
-            btnSelectAccountant.text = "Tap to select accountant ▾"
-            btnSelectAccountant.setTextColor(0xFF888888.toInt())
-            tvAccountantSelected.text = "None selected"
-            tvAccountantSelected.setTextColor(0xFF555555.toInt())
-            btnClearAccountant.visibility = View.GONE
+            accountantSel.uids.clear()
+            accountantSel.roles.clear()
+            refreshSlotLabel(btnSelectAccountant, btnClearAccountant, tvAccountantSelected,
+                accountantSel, "Tap to select accountants ▾")
         }
 
         btnSelectPettyCashPoc.setOnClickListener {
-            showSearchPicker("Select Petty Cash POC", allEmployees) { item ->
-                selectedPettyCashPocUid  = item.id
-                selectedPettyCashPocName = item.name
-                btnSelectPettyCashPoc.text = item.name
-                btnSelectPettyCashPoc.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
-                tvPettyCashPocSelected.text = item.sub
-                tvPettyCashPocSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
-                btnClearPettyCashPoc.visibility = View.VISIBLE
+            showMultiSlotPicker("Select Petty Cash POCs (persons + roles)", allEmployees, pocSel) {
+                refreshSlotLabel(btnSelectPettyCashPoc, btnClearPettyCashPoc, tvPettyCashPocSelected,
+                    pocSel, "Tap to select petty cash POCs ▾")
             }
         }
         btnClearPettyCashPoc.setOnClickListener {
-            selectedPettyCashPocUid  = ""
-            selectedPettyCashPocName = ""
-            btnSelectPettyCashPoc.text = "Tap to select petty cash POC ▾"
-            btnSelectPettyCashPoc.setTextColor(0xFF888888.toInt())
-            tvPettyCashPocSelected.text = "None selected"
-            tvPettyCashPocSelected.setTextColor(0xFF555555.toInt())
-            btnClearPettyCashPoc.visibility = View.GONE
+            pocSel.uids.clear()
+            pocSel.roles.clear()
+            refreshSlotLabel(btnSelectPettyCashPoc, btnClearPettyCashPoc, tvPettyCashPocSelected,
+                pocSel, "Tap to select petty cash POCs ▾")
         }
 
         btnSelectStaff.setOnClickListener {
@@ -231,32 +199,16 @@ class BranchCreateFragment : Fragment() {
             // now (staff_uid/staff_role, selectedStaff*) -- renamed from
             // "Team Aligned" fully since no production data existed under
             // the old names yet.
-            showSearchPicker("Select Staff (role or person)", allRoles + allEmployees) { item ->
-                if (item.id.startsWith("role:")) {
-                    selectedStaffRole = item.id.removePrefix("role:")
-                    selectedStaffUid  = ""
-                    selectedStaffName = item.name
-                } else {
-                    selectedStaffRole = ""
-                    selectedStaffUid  = item.id
-                    selectedStaffName = item.name
-                }
-                btnSelectStaff.text = item.name
-                btnSelectStaff.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
-                tvStaffSelected.text = item.sub
-                tvStaffSelected.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
-                btnClearStaff.visibility = View.VISIBLE
+            showMultiSlotPicker("Select Staff (persons + roles)", allEmployees, staffSel) {
+                refreshSlotLabel(btnSelectStaff, btnClearStaff, tvStaffSelected,
+                    staffSel, "Tap to select Staff ▾")
             }
         }
         btnClearStaff.setOnClickListener {
-            selectedStaffUid  = ""
-            selectedStaffName = ""
-            selectedStaffRole = ""
-            btnSelectStaff.text = "Tap to select Staff ▾"
-            btnSelectStaff.setTextColor(0xFF888888.toInt())
-            tvStaffSelected.text = "None selected"
-            tvStaffSelected.setTextColor(0xFF555555.toInt())
-            btnClearStaff.visibility = View.GONE
+            staffSel.uids.clear()
+            staffSel.roles.clear()
+            refreshSlotLabel(btnSelectStaff, btnClearStaff, tvStaffSelected,
+                staffSel, "Tap to select Staff ▾")
         }
 
         btnSelectParentBranch.setOnClickListener {
@@ -280,6 +232,145 @@ class BranchCreateFragment : Fragment() {
 
         btnCreate.setOnClickListener { onCreateClicked() }
         btnCancel.setOnClickListener { parentFragmentManager.popBackStack() }
+    }
+
+    private fun personName(uid: String): String =
+        allEmployees.find { it.id == uid }?.name ?: uid.take(8)
+
+    private fun roleName(roleId: String): String =
+        allRoles.find { it.id == "role:$roleId" }?.name ?: roleId
+
+    /** Button + subtitle for one multi slot: up to 2 names, then "+N more". */
+    private fun refreshSlotLabel(
+        btn: TextView, btnClear: TextView, tvSub: TextView, sel: SlotSel, emptyHint: String
+    ) {
+        if (!isAdded) return
+        val names = sel.uids.map { personName(it) } + sel.roles.map { roleName(it) }
+        if (names.isEmpty()) {
+            btn.text = emptyHint
+            btn.setTextColor(0xFF888888.toInt())
+            tvSub.text = "None selected"
+            tvSub.setTextColor(0xFF555555.toInt())
+            btnClear.visibility = View.GONE
+        } else {
+            btn.text = if (names.size <= 2) names.joinToString(", ") else "${names.take(2).joinToString(", ")} +${names.size - 2} more"
+            btn.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_text_primary))
+            val bits = listOfNotNull(
+                "${sel.uids.size} person".plural(sel.uids.size).takeIf { sel.uids.isNotEmpty() },
+                "${sel.roles.size} role".plural(sel.roles.size).takeIf { sel.roles.isNotEmpty() }
+            )
+            tvSub.text = bits.joinToString(" · ")
+            tvSub.setTextColor(ContextCompat.getColor(requireContext(), R.color.theme_accent))
+            btnClear.visibility = View.VISIBLE
+        }
+    }
+
+    private fun String.plural(n: Int) = if (n == 1) this else "${this}s"
+
+    /** Multi-select access picker: Roles section + Persons section, searchable.
+     *  Writes into [sel] on Apply only — Cancel leaves the slot untouched. */
+    private fun showMultiSlotPicker(
+        title: String,
+        persons: List<PickerItem>,
+        sel: SlotSel,
+        onApply: () -> Unit
+    ) {
+        val ctx = requireContext()
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(16.dp(), 8.dp(), 16.dp(), 0)
+        }
+        val etSearch = EditText(ctx).apply {
+            hint = "Search persons or roles..."
+            setTextColor(0xFF000000.toInt())
+            setHintTextColor(0xFF888888.toInt())
+        }
+        container.addView(etSearch)
+        val scroll = android.widget.ScrollView(ctx)
+        val box = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        scroll.addView(box)
+        container.addView(scroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 300.dp()))
+
+        val workUids = sel.uids.toMutableSet()
+        val workRoles = sel.roles.toMutableSet()
+
+        fun sectionHeader(text: String) = TextView(ctx).apply {
+            this.text = text
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(0xFF64748B.toInt())
+            setPadding(0, 12.dp(), 0, 4.dp())
+        }
+        fun rebuild(q: String) {
+            box.removeAllViews()
+            val roleHits = allRoles.filter {
+                q.isEmpty() || it.name.contains(q, ignoreCase = true)
+            }
+            if (roleHits.isNotEmpty()) {
+                box.addView(sectionHeader("Roles (${roleHits.size})"))
+                roleHits.forEach { r ->
+                    val roleId = r.id.removePrefix("role:")
+                    box.addView(android.widget.CheckBox(ctx).apply {
+                        text = r.name
+                        textSize = 14f
+                        isChecked = roleId in workRoles
+                        setOnCheckedChangeListener { _, on ->
+                            if (on) workRoles.add(roleId) else workRoles.remove(roleId)
+                        }
+                    })
+                }
+            }
+            val personHits = persons.filter {
+                q.isEmpty() || it.name.contains(q, ignoreCase = true) || it.empId.contains(q, ignoreCase = true)
+            }
+            box.addView(sectionHeader("Persons (${personHits.size})"))
+            if (personHits.isEmpty()) {
+                box.addView(TextView(ctx).apply {
+                    text = "No matches"
+                    textSize = 13f
+                    setTextColor(0xFF94A3B8.toInt())
+                })
+            }
+            personHits.forEach { p ->
+                box.addView(android.widget.CheckBox(ctx).apply {
+                    text = if (p.empId.isNotBlank()) "${p.name}  •  ${p.empId}" else "${p.name}  •  ${p.sub}"
+                    textSize = 14f
+                    isChecked = p.id in workUids
+                    setOnCheckedChangeListener { _, on ->
+                        if (on) workUids.add(p.id) else workUids.remove(p.id)
+                    }
+                })
+            }
+        }
+        rebuild("")
+        etSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {
+                rebuild(s?.toString()?.trim().orEmpty())
+            }
+        })
+
+        AlertDialog.Builder(ctx)
+            .setTitle(title)
+            .setView(container)
+            .setPositiveButton("Apply") { _, _ ->
+                sel.uids.clear()
+                sel.uids.addAll(workUids)
+                sel.roles.clear()
+                sel.roles.addAll(workRoles)
+                onApply()
+            }
+            .setNeutralButton("Clear all") { _, _ ->
+                sel.uids.clear()
+                sel.roles.clear()
+                onApply()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showSearchPicker(title: String, source: List<PickerItem>, onPick: (PickerItem) -> Unit) {
@@ -413,52 +504,38 @@ class BranchCreateFragment : Fragment() {
                         longitude = lng,
                         email = email,
                         phone = phone,
-                        managerUid = selectedManagerUid,
-                        accountantUid = selectedAccountantUid,
-                        accountantRole = selectedAccountantRole,
-                        pettyCashPocUid = selectedPettyCashPocUid,
+                        managerUids = managerSel.uids.toList(),
+                        managerRoles = managerSel.roles.toList(),
+                        accountantUids = accountantSel.uids.toList(),
+                        accountantRoles = accountantSel.roles.toList(),
+                        pettyCashPocUids = pocSel.uids.toList(),
+                        pettyCashPocRoles = pocSel.roles.toList(),
                         pettyCashLimit = pettyCashLimit,
-                        staffUid = selectedStaffUid,
-                        staffRole = selectedStaffRole,
+                        staffUids = staffSel.uids.toList(),
+                        staffRoles = staffSel.roles.toList(),
                         parentBranchId = selectedParentId,
                         region = region,
                         status = status,
-                        imageUrl = imageUrl
+                        imageUrl = imageUrl,
+                        managerUid = managerSel.uids.firstOrNull().orEmpty(),
+                        accountantUid = accountantSel.uids.firstOrNull().orEmpty(),
+                        accountantRole = accountantSel.roles.firstOrNull().orEmpty(),
+                        pettyCashPocUid = pocSel.uids.firstOrNull().orEmpty(),
+                        staffUid = staffSel.uids.firstOrNull().orEmpty(),
+                        staffRole = staffSel.roles.firstOrNull().orEmpty()
                     )
                 )
 
                 // Firebase user-profile branch_ids stay in sync (they feed other
                 // Firebase-gated reads and the next sync_profile) — branch
-                // membership, not branch data.
-                if (selectedManagerUid.isNotBlank()) {
-                    // Add branch to manager's branch_ids
-                    val idsSnap = db.reference.child("users/$selectedManagerUid/profile/company_info/branch_ids").get().await()
+                // membership, not branch data. The Edge Function fans the same
+                // membership out to Supabase users.branch_ids (RLS) server-side.
+                val allNewUids = managerSel.uids + accountantSel.uids + pocSel.uids + staffSel.uids
+                for (uid in allNewUids) {
+                    val idsSnap = db.reference.child("users/$uid/profile/company_info/branch_ids").get().await()
                     val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val newIds = (currentIds + autoId).distinct()
-                    db.reference.child("users/$selectedManagerUid/profile/company_info/branch_ids").setValue(newIds).await()
-                }
-
-                if (selectedAccountantUid.isNotBlank()) {
-                    // Same as manager: add branch to accountant's branch_ids
-                    val idsSnap = db.reference.child("users/$selectedAccountantUid/profile/company_info/branch_ids").get().await()
-                    val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val newIds = (currentIds + autoId).distinct()
-                    db.reference.child("users/$selectedAccountantUid/profile/company_info/branch_ids").setValue(newIds).await()
-                }
-
-                if (selectedPettyCashPocUid.isNotBlank()) {
-                    // Same as manager/accountant: add branch to POC's branch_ids
-                    val idsSnap = db.reference.child("users/$selectedPettyCashPocUid/profile/company_info/branch_ids").get().await()
-                    val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val newIds = (currentIds + autoId).distinct()
-                    db.reference.child("users/$selectedPettyCashPocUid/profile/company_info/branch_ids").setValue(newIds).await()
-                }
-                if (selectedStaffUid.isNotBlank()) {
-                    // Same as manager/accountant/POC: add branch to Staff's branch_ids
-                    val idsSnap = db.reference.child("users/$selectedStaffUid/profile/company_info/branch_ids").get().await()
-                    val currentIds = if (idsSnap.exists()) idsSnap.children.mapNotNull { it.getValue(String::class.java) } else emptyList()
-                    val newIds = (currentIds + autoId).distinct()
-                    db.reference.child("users/$selectedStaffUid/profile/company_info/branch_ids").setValue(newIds).await()
+                    db.reference.child("users/$uid/profile/company_info/branch_ids")
+                        .setValue((currentIds + autoId).distinct()).await()
                 }
 
                 toast("Branch created ✓")

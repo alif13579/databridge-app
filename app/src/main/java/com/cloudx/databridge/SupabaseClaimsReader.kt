@@ -157,17 +157,17 @@ object SupabaseClaimsReader {
 
     /**
      * The branch's real Petty Cash POC for the report header — resolved via
-     * the branch row's petty_cash_poc_uid (a Firebase uid) against
-     * public.users (firebase_id). Null when the branch has no POC assigned
-     * or the users row is missing; callers keep their previous fallback.
-     * Throws on auth/network/HTTP error (a failed request is not the same
-     * as "no POC assigned").
+     * the branch row's petty_cash_poc_uids (first entry; legacy singular as
+     * fallback) against public.users (firebase_id). Null when the branch has
+     * no POC assigned or the users row is missing; callers keep their
+     * previous fallback. Throws on auth/network/HTTP error (a failed request
+     * is not the same as "no POC assigned").
      */
     suspend fun fetchPocForBranch(branchId: String): PocInfo? = withContext(Dispatchers.IO) {
         if (branchId.isBlank()) return@withContext null
         val token = SupabaseClientManager.getAccessToken() ?: error("Not signed in")
         val branchUrl = "${SupabaseConfig.PROJECT_URL}/rest/v1/branches" +
-            "?select=petty_cash_poc_uid&branch_id=eq.${branchId.encodeParam()}&limit=1"
+            "?select=petty_cash_poc_uids,petty_cash_poc_uid&branch_id=eq.${branchId.encodeParam()}&limit=1"
         val pocUid = SupabaseClientManager.httpClient.newCall(
             Request.Builder().url(branchUrl)
                 .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
@@ -179,7 +179,11 @@ object SupabaseClaimsReader {
             if (!it.isSuccessful) error("fetchPocForBranch (branch) HTTP ${it.code}: ${text.take(1_000)}")
             val arr = JSONArray(text)
             if (arr.length() == 0) error("Branch not found")
-            arr.getJSONObject(0).optStr("petty_cash_poc_uid").trim()
+            val row = arr.getJSONObject(0)
+            val uids = row.optJSONArray("petty_cash_poc_uids")?.let { a ->
+                List(a.length()) { a.optString(it) }.map { it.trim() }.filter { it.isNotBlank() }
+            }.orEmpty()
+            uids.firstOrNull() ?: row.optStr("petty_cash_poc_uid").trim()
         }
         if (pocUid.isBlank()) return@withContext null
         val userUrl = "${SupabaseConfig.PROJECT_URL}/rest/v1/users" +

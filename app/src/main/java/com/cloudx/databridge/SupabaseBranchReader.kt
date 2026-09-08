@@ -33,12 +33,20 @@ object SupabaseBranchReader {
         val email: String,
         val phone: String,
         val managerUid: String,
+        val managerUids: List<String>,
+        val managerRoles: List<String>,
         val accountantUid: String,
         val accountantRole: String,
+        val accountantUids: List<String>,
+        val accountantRoles: List<String>,
         val pettyCashPocUid: String,
+        val pettyCashPocUids: List<String>,
+        val pettyCashPocRoles: List<String>,
         val pettyCashLimit: Double,
         val staffUid: String,
         val staffRole: String,
+        val staffUids: List<String>,
+        val staffRoles: List<String>,
         val parentBranchId: String,
         val region: String,
         val status: String,
@@ -47,14 +55,25 @@ object SupabaseBranchReader {
     )
 
     private const val SELECT = "branch_id,branch_code,name,branch_type,address,latitude,longitude," +
-        "email,phone,manager_uid,accountant_uid,accountant_role,petty_cash_poc_uid,petty_cash_limit," +
-        "staff_uid,staff_role,parent_branch_id,region,status,image_url,created_at"
+        "email,phone,manager_uid,manager_uids,manager_roles,accountant_uid,accountant_role," +
+        "accountant_uids,accountant_roles,petty_cash_poc_uid,petty_cash_poc_uids,petty_cash_poc_roles," +
+        "petty_cash_limit,staff_uid,staff_role,staff_uids,staff_roles,parent_branch_id,region,status," +
+        "image_url,created_at"
 
     private fun String.encodeParam(): String = java.net.URLEncoder.encode(this, "UTF-8")
 
     private fun org.json.JSONObject.toBranchRow(): BranchRow {
         fun isoMillis(key: String): Long {
             return SupabaseRemarkValidationWriter.parseDbTimestampMillis(optStr(key))
+        }
+        fun strList(key: String): List<String> {
+            val a = optJSONArray(key) ?: return emptyList()
+            return List(a.length()) { a.optString(it) }
+                .map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        }
+        fun withLegacy(list: List<String>, legacy: String): List<String> {
+            val l = legacy.trim()
+            return if (l.isBlank() || l in list) list else list + l
         }
         return BranchRow(
             branchId = optStr("branch_id"),
@@ -67,12 +86,20 @@ object SupabaseBranchReader {
             email = optStr("email"),
             phone = optStr("phone"),
             managerUid = optStr("manager_uid"),
+            managerUids = withLegacy(strList("manager_uids"), optStr("manager_uid")),
+            managerRoles = strList("manager_roles"),
             accountantUid = optStr("accountant_uid"),
             accountantRole = optStr("accountant_role"),
+            accountantUids = withLegacy(strList("accountant_uids"), optStr("accountant_uid")),
+            accountantRoles = withLegacy(strList("accountant_roles"), optStr("accountant_role")),
             pettyCashPocUid = optStr("petty_cash_poc_uid"),
+            pettyCashPocUids = withLegacy(strList("petty_cash_poc_uids"), optStr("petty_cash_poc_uid")),
+            pettyCashPocRoles = strList("petty_cash_poc_roles"),
             pettyCashLimit = optDouble("petty_cash_limit", 0.0),
             staffUid = optStr("staff_uid"),
             staffRole = optStr("staff_role"),
+            staffUids = withLegacy(strList("staff_uids"), optStr("staff_uid")),
+            staffRoles = withLegacy(strList("staff_roles"), optStr("staff_role")),
             parentBranchId = optStr("parent_branch_id"),
             region = optStr("region"),
             status = optStr("status").ifBlank { "active" },
