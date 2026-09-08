@@ -292,14 +292,20 @@ object IncomingCallOverlay {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        // WRAP_CONTENT + explicit x/y (rather than the old MATCH_PARENT banner) is what
+        // Explicit width + x/y (rather than the old MATCH_PARENT banner) is what
         // makes this a positionable card instead of a full-width bar — x/y are plain
         // top-left pixel offsets since gravity is TOP|START, matching setOnTouchListener's
         // drag math below one-to-one.
+        // Truecaller-style width: near-full screen width with 14dp side margins.
+        // (XML width is ignored — the window params below drive measurement, so
+        // a fixed dp there never actually applied and short content rendered
+        // narrow.) Minimized chip state switches back to WRAP_CONTENT.
+        val screenWidth = context.resources.displayMetrics.widthPixels
+        val fullWidth = screenWidth - dpToPx(context, 28)
         val savedX = prefs.getInt(KEY_POS_X, dpToPx(context, 14))
         val savedY = prefs.getInt(KEY_POS_Y, dpToPx(context, 46))
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            fullWidth,
             WindowManager.LayoutParams.WRAP_CONTENT,
             overlayType,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -415,8 +421,8 @@ object IncomingCallOverlay {
     }
 
     /** Tapping the minimize icon collapses the card to just the small chip (llMinimized);
-     *  tapping that chip re-expands. The window itself shrinks/grows with it since both
-     *  states are WRAP_CONTENT — nothing to resize manually beyond toggling visibility. */
+     *  tapping that chip re-expands. The window shrinks/grows with the state:
+     *  chip = WRAP_CONTENT, expanded = full width (see show). */
     private fun setupMinimizeToggle(
         context: Context, view: View, wm: WindowManager, params: WindowManager.LayoutParams,
         llExpanded: View, llMinimized: View
@@ -429,6 +435,9 @@ object IncomingCallOverlay {
             cancelCallEndFade()
             llMinimized.isVisible = false
             llExpanded.isVisible = true
+            // Back to full width before measuring/clamping.
+            params.width = context.resources.displayMetrics.widthPixels - dpToPx(context, 28)
+            try { wm.updateViewLayout(view, params) } catch (_: Exception) { }
             // The bubble may have snapped to an edge at a width far narrower than the full
             // card — clamp x back on screen so expanding never pushes part of the card off
             // the right edge.
@@ -455,6 +464,8 @@ object IncomingCallOverlay {
         if (llMinimized.isVisible) return
         llExpanded.isVisible = false
         llMinimized.isVisible = true
+        params.width = WindowManager.LayoutParams.WRAP_CONTENT
+        try { wm.updateViewLayout(view, params) } catch (_: Exception) { }
         view.post {
             val screenWidth = context.resources.displayMetrics.widthPixels
             val margin = dpToPx(context, EDGE_MARGIN_DP)
