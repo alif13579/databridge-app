@@ -15,6 +15,19 @@ import {
   firebaseRead,
 } from '../_shared/firebase-auth.ts'
 
+/** Next pure-numeric id above the highest numeric one in [existing].
+ *  Legacy acronyms (BA, GDJS) and Firebase push-keys (-P-…) are ignored, so
+ *  generated ids never collide with them. */
+function nextNumericId(existing: unknown[]): string {
+  let max = 0
+  for (const v of existing) {
+    if (typeof v !== 'string') continue
+    const t = v.trim()
+    if (/^\d+$/.test(t)) max = Math.max(max, parseInt(t, 10))
+  }
+  return String(max + 1)
+}
+
 Deno.serve(async (request) => {
   const guard = guardRequest(request)
   if (guard) return guard
@@ -145,20 +158,39 @@ Deno.serve(async (request) => {
       }
       const s = body.store
       const str = (v: unknown) => typeof v === 'string' ? v : ''
-      const storeId = s ? str(s.store_id).trim() : ''
-      if (!storeId) return reply({ error: 'store_id is required' }, 400)
+      let storeId = s ? str(s.store_id).trim() : ''
       if (!str(s?.name).trim()) return reply({ error: 'Store name is required' }, 400)
       const amountRaw = s?.conveyance_amount
       const amount = typeof amountRaw === 'number' && Number.isFinite(amountRaw) && amountRaw > 0 ? amountRaw : null
-      const { error } = await admin.from('stores').upsert({
-        store_id: storeId,
+      const fields = {
         name: str(s.name).trim(), address: str(s.address),
         area_id: str(s.area_id).trim(), area_name: str(s.area_name).trim(),
         phone: str(s.phone), conveyance_amount: amount,
-      }, { onConflict: 'store_id' })
-      if (error) {
-        errLog('store_upsert', 'db_upsert_failed', { store_id: storeId, pg_code: error.code, pg_message: error.message })
-        throw error
+      }
+      if (!storeId) {
+        // Auto ID (new app): next integer above the highest numeric store_id.
+        // Plain INSERT (not upsert) + retry: two admins racing to the same
+        // number must collide with 23505 and retry, never silently overwrite
+        // each other's row.
+        for (let attempt = 0; attempt < 5 && !storeId; attempt++) {
+          const { data: rows, error: readError } = await admin.from('stores').select('store_id')
+          if (readError) throw readError
+          const candidate = nextNumericId((rows ?? []).map((r) => r.store_id))
+          const { error } = await admin.from('stores').insert({ store_id: candidate, ...fields })
+          if (!error) {
+            storeId = candidate
+          } else if (error.code !== '23505') {
+            errLog('store_upsert', 'db_insert_failed', { pg_code: error.code, pg_message: error.message })
+            throw error
+          }
+        }
+        if (!storeId) return reply({ error: 'Could not allocate a store ID, please retry' }, 409)
+      } else {
+        const { error } = await admin.from('stores').upsert({ store_id: storeId, ...fields }, { onConflict: 'store_id' })
+        if (error) {
+          errLog('store_upsert', 'db_upsert_failed', { store_id: storeId, pg_code: error.code, pg_message: error.message })
+          throw error
+        }
       }
       console.info(`store_upsert ok: store=${storeId}`)
       try {
@@ -215,26 +247,50 @@ Deno.serve(async (request) => {
       const a = body.area
       const str = (v: unknown) => typeof v === 'string' ? v : ''
       const branchId = a ? str(a.branch_id).trim() : ''
-      const areaId = a ? str(a.area_id).trim() : ''
+      let areaId = a ? str(a.area_id).trim() : ''
       if (!branchId) return reply({ error: 'branch_id is required' }, 400)
-      if (!areaId) return reply({ error: 'area_id is required' }, 400)
       if (!str(a?.name).trim()) return reply({ error: 'Area name is required' }, 400)
       const areaType = ['pickup', 'delivery', 'both'].includes(str(a?.area_type).trim())
         ? str(a.area_type).trim() : 'both'
       const { data: branch } = await admin.from('branches').select('branch_id').eq('branch_id', branchId).maybeSingle()
       if (!branch) return reply({ error: 'Unknown branch_id' }, 400)
       const now = new Date().toISOString()
-      const { data: existing } = await admin.from('areas').select('created_at').eq('branch_id', branchId).eq('area_id', areaId).maybeSingle()
-      const { error } = await admin.from('areas').upsert({
-        branch_id: branchId, area_id: areaId,
-        name: str(a.name).trim(), area_type: areaType, zone: str(a.zone).trim(),
-        updated_at: now, ...(existing?.created_at ? { created_at: existing.created_at } : {}),
-      }, { onConflict: 'branch_id,area_id' })
-      if (error) {
-        errLog('area_upsert', 'db_upsert_failed', { branch_id: branchId, area_id: areaId, pg_code: error.code, pg_message: error.message })
-        throw error
+      if (!areaId) {
+        // Auto ID (new app): next integer above this branch's highest numeric
+        // area_id. Plain INSERT + retry so concurrent creates collide with
+        // 23505 and retry instead of overwriting each other.
+        for (let attempt = 0; attempt < 5 && !areaId; attempt++) {
+          const { data: rows, error: readError } = await admin.from('areas')
+            .select('area_id').eq('branch_id', branchId)
+          if (readError) throw readError
+          const candidate = nextNumericId((rows ?? []).map((r) => r.area_id))
+          const { error } = await admin.from('areas').insert({
+            branch_id: branchId, area_id: candidate,
+            name: str(a.name).trim(), area_type: areaType, zone: str(a.zone).trim(),
+            updated_at: now,
+          })
+          if (!error) {
+            areaId = candidate
+          } else if (error.code !== '23505') {
+            errLog('area_upsert', 'db_insert_failed', { branch_id: branchId, pg_code: error.code, pg_message: error.message })
+            throw error
+          }
+        }
+        if (!areaId) return reply({ error: 'Could not allocate an area ID, please retry' }, 409)
+        console.info(`area_upsert ok (auto id): branch=${branchId} area=${areaId}`)
+      } else {
+        const { data: existing } = await admin.from('areas').select('created_at').eq('branch_id', branchId).eq('area_id', areaId).maybeSingle()
+        const { error } = await admin.from('areas').upsert({
+          branch_id: branchId, area_id: areaId,
+          name: str(a.name).trim(), area_type: areaType, zone: str(a.zone).trim(),
+          updated_at: now, ...(existing?.created_at ? { created_at: existing.created_at } : {}),
+        }, { onConflict: 'branch_id,area_id' })
+        if (error) {
+          errLog('area_upsert', 'db_upsert_failed', { branch_id: branchId, area_id: areaId, pg_code: error.code, pg_message: error.message })
+          throw error
+        }
+        console.info(`area_upsert ok: branch=${branchId} area=${areaId}`)
       }
-      console.info(`area_upsert ok: branch=${branchId} area=${areaId}`)
       try {
         await firebaseUpdatePaths({
           [`courier/areas_backup/${branchId}/${areaId}/name`]: str(a.name).trim(),

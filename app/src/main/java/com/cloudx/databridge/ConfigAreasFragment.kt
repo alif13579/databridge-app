@@ -1,11 +1,15 @@
 package com.cloudx.databridge
 
+import android.app.AlertDialog
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.view.isVisible
@@ -79,7 +83,7 @@ fun areaPickerLabel(a: Area, needsTypeTag: Boolean): String {
  *   branch  — which branch this area belongs to (branch picker on top)
  *   type    — pickup | delivery | both (which pickers list it)
  *   zone    — free-text zone/group label for area grip
- *   area id + name — same human-assigned shape as Store ID.
+ *   area id — automatic (Edge allocates the next number per branch), name typed.
  *
  * One tab, two usages — a Delivery/Pickup segmented toggle filters which
  * rows are shown; the type picker in the panel decides what a row serves.
@@ -99,7 +103,6 @@ class ConfigAreasFragment : Fragment() {
     private var activeType = AreaType.DELIVERY
     private var selectedBranchId: String = ""
     private var branchNames: Map<String, String> = emptyMap()
-    private var selectedAreaType: String = "both"
 
     private lateinit var tvSegDelivery: TextView
     private lateinit var tvSegPickup: TextView
@@ -108,15 +111,12 @@ class ConfigAreasFragment : Fragment() {
     private lateinit var tvBranchSelected: TextView
     private lateinit var listContainer: LinearLayout
     private lateinit var tvEmpty: TextView
-    private lateinit var inlinePanel: View
-    private lateinit var tvPanelTitle: TextView
-    private lateinit var etAreaId: EditText
-    private lateinit var etName: EditText
-    private lateinit var tvTypeSelected: TextView
-    private lateinit var etZone: EditText
-    private lateinit var tvError: TextView
     private lateinit var busyOverlay: View
     private lateinit var tvBusy: TextView
+    // Create/edit happens in a popup dialog (not the old inline panel): ID is
+    // automatic on create (Edge allocates the next number for the branch) and
+    // read-only on edit.
+    private var areaDialog: AlertDialog? = null
 
     private var areas: List<Area> = emptyList()
     private var editingAreaId: String = "" // area_id being edited; blank = creating new
@@ -134,21 +134,11 @@ class ConfigAreasFragment : Fragment() {
         tvBranchSelected = view.findViewById(R.id.tvAreaBranchSelected)
         listContainer = view.findViewById(R.id.areaListContainer)
         tvEmpty = view.findViewById(R.id.tvAreaEmpty)
-        inlinePanel = view.findViewById(R.id.inlineCreateAreaPanel)
-        tvPanelTitle = view.findViewById(R.id.tvCreateAreaTitle)
-        etAreaId = view.findViewById(R.id.etAreaId)
-        etName = view.findViewById(R.id.etAreaName)
-        tvTypeSelected = view.findViewById(R.id.tvAreaTypeSelected)
-        etZone = view.findViewById(R.id.etAreaZone)
-        tvError = view.findViewById(R.id.tvCreateAreaError)
         busyOverlay = view.findViewById(R.id.areaBusyOverlay)
         tvBusy = view.findViewById(R.id.tvAreaBusy)
 
         view.findViewById<View>(R.id.btnOpenCreateArea).setOnClickListener { openCreatePanel() }
-        view.findViewById<View>(R.id.btnCancelCreateArea).setOnClickListener { closePanel() }
-        view.findViewById<View>(R.id.btnSaveArea).setOnClickListener { saveArea() }
         view.findViewById<View>(R.id.layoutAreaBranch).setOnClickListener { showBranchPicker() }
-        view.findViewById<View>(R.id.layoutAreaType).setOnClickListener { showTypePicker() }
 
         tvSegDelivery.setOnClickListener { switchType(AreaType.DELIVERY) }
         tvSegPickup.setOnClickListener { switchType(AreaType.PICKUP) }
@@ -195,17 +185,6 @@ class ConfigAreasFragment : Fragment() {
                 selectedBranchId = branchIds[index]
                 updateBranchLabel()
                 loadAreas()
-            }
-            .show()
-    }
-
-    private fun showTypePicker() {
-        val options = arrayOf("Pickup", "Delivery", "Both")
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Area Type")
-            .setItems(options) { _, index ->
-                selectedAreaType = options[index].lowercase()
-                tvTypeSelected.text = options[index]
             }
             .show()
     }
@@ -287,87 +266,139 @@ class ConfigAreasFragment : Fragment() {
     }
 
     private fun openCreatePanel() {
-        editingAreaId = ""
-        tvPanelTitle.text = "+ New ${if (activeType == AreaType.DELIVERY) "Delivery" else "Pickup"} Area"
-        etAreaId.setText("")
-        etName.setText("")
-        etZone.setText("")
-        selectedAreaType = if (activeType == AreaType.DELIVERY) "delivery" else "pickup"
-        tvTypeSelected.text = if (activeType == AreaType.DELIVERY) "Delivery" else "Pickup"
-        tvError.isVisible = false
-        inlinePanel.isVisible = true
+        showAreaDialog(null)
     }
 
     private fun openEditPanel(area: Area) {
-        editingAreaId = area.areaId
-        tvPanelTitle.text = "Edit Area"
-        etAreaId.setText(area.areaId)
-        etName.setText(area.name)
-        etZone.setText(area.zone)
-        selectedAreaType = area.areaType.ifBlank { "both" }
-        tvTypeSelected.text = when (selectedAreaType) {
-            "pickup" -> "Pickup"
-            "delivery" -> "Delivery"
-            else -> "Both"
-        }
-        tvError.isVisible = false
-        inlinePanel.isVisible = true
+        showAreaDialog(area)
     }
 
     private fun closePanel() {
-        inlinePanel.isVisible = false
+        areaDialog?.dismiss()
+        areaDialog = null
         editingAreaId = ""
     }
 
-    private fun saveArea() {
-        val areaId = etAreaId.text?.toString()?.trim().orEmpty()
-        val name = etName.text?.toString()?.trim().orEmpty()
-        val zone = etZone.text?.toString()?.trim().orEmpty()
+    /** Create/edit popup: Branch (fixed label) + ID (Auto on create, read-only
+     *  on edit) + Name + Type + Zone. Same-name twins across types stay allowed
+     *  (Pickup twin + Delivery twin); only a true overlap is rejected. */
+    private fun showAreaDialog(area: Area?) {
+        val ctx = requireContext()
         if (selectedBranchId.isBlank()) {
-            tvError.text = "Select a branch first"
-            tvError.isVisible = true
+            Toast.makeText(ctx, "Select a branch first", Toast.LENGTH_LONG).show()
             return
         }
-        if (areaId.isBlank()) {
-            tvError.text = "Enter an area ID"
-            tvError.isVisible = true
-            return
+        val isEdit = area != null
+        editingAreaId = area?.areaId.orEmpty()
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+        fun label(text: String) = TextView(ctx).apply {
+            this.text = text
+            textSize = 12f
+            setTextColor(android.graphics.Color.parseColor("#64748B"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 8.dp() }
         }
-        if (name.isBlank()) {
-            tvError.text = "Enter an area name"
-            tvError.isVisible = true
-            return
-        }
-        // Area ID is unique per branch across types (DB constraint) — check
-        // against the branch's full list, not just this usage tab.
-        if (areas.any { it.areaId.equals(areaId, ignoreCase = true) } &&
-            !editingAreaId.equals(areaId, ignoreCase = true)) {
-            tvError.text = "This branch already has this Area ID"
-            tvError.isVisible = true
-            return
-        }
-        tvError.isVisible = false
 
-        setBusy(true, "Saving...")
-        lifecycleScope.launch {
-            try {
-                // Supabase-first (area_upsert, admin/manager-gated server-side,
-                // Firebase backup mirror included).
-                SupabaseAreaWriter.save(
-                    branchId = selectedBranchId,
-                    areaId = areaId,
-                    name = name,
-                    areaType = selectedAreaType,
-                    zone = zone,
-                )
-                closePanel()
-                loadAreas()
-            } catch (e: Exception) {
-                setBusy(false)
-                tvError.text = "Save failed: ${e.message}"
-                tvError.isVisible = true
-            }
+        val root = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24.dp(), 8.dp(), 24.dp(), 8.dp())
         }
+        root.addView(label("Branch: ${branchNames[selectedBranchId] ?: selectedBranchId}"))
+        root.addView(label(if (isEdit) "ID: ${area!!.areaId}  (automatic, locked)"
+            else "ID: Auto  (assigned on save)"))
+        val etName = EditText(ctx).apply {
+            hint = "Area name"
+            setText(area?.name.orEmpty())
+        }
+        root.addView(etName)
+        val typeOptions = listOf("pickup" to "Pickup", "delivery" to "Delivery", "both" to "Both")
+        root.addView(label("Area type"))
+        val spinnerType = Spinner(ctx).apply {
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
+                typeOptions.map { it.second })
+        }
+        val initialType = area?.areaType?.ifBlank { "both" }
+            ?: if (activeType == AreaType.DELIVERY) "delivery" else "pickup"
+        spinnerType.setSelection(typeOptions.indexOfFirst { it.first == initialType }.coerceAtLeast(0))
+        root.addView(spinnerType)
+        val etZone = EditText(ctx).apply {
+            hint = "Zone (optional)"
+            setText(area?.zone.orEmpty())
+        }
+        root.addView(etZone)
+        val tvErr = TextView(ctx).apply {
+            setTextColor(android.graphics.Color.parseColor("#DC2626"))
+            textSize = 12f
+            visibility = View.GONE
+        }
+        root.addView(tvErr)
+        val scroll = ScrollView(ctx).apply { addView(root) }
+
+        var saving = false
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle(if (isEdit) "Edit Area"
+                else "+ New ${if (activeType == AreaType.DELIVERY) "Delivery" else "Pickup"} Area")
+            .setView(scroll)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener {
+            val btnSave = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            btnSave.setOnClickListener {
+                if (saving) return@setOnClickListener
+                val name = etName.text?.toString()?.trim().orEmpty()
+                val zone = etZone.text?.toString()?.trim().orEmpty()
+                val type = typeOptions[spinnerType.selectedItemPosition].first
+                fun fail(msg: String) {
+                    tvErr.text = msg
+                    tvErr.visibility = View.VISIBLE
+                }
+                if (name.isBlank()) { fail("Enter an area name"); return@setOnClickListener }
+                saving = true
+                btnSave.isEnabled = false
+                btnSave.text = "Saving…"
+                tvErr.visibility = View.GONE
+                lifecycleScope.launch {
+                    try {
+                        // Same-name check against the branch's FULL list (both
+                        // usages — the on-screen list only shows one tab).
+                        val full = SupabaseClaimsReader.fetchAreas(branchIds = listOf(selectedBranchId))
+                        val clash = full.any {
+                            it.name.equals(name, ignoreCase = true) &&
+                                (it.areaType == type || it.areaType == "both" || type == "both") &&
+                                !(isEdit && it.areaId.equals(editingAreaId, ignoreCase = true))
+                        }
+                        if (clash) {
+                            fail("This branch already has \"$name\" for this type")
+                            saving = false
+                            btnSave.isEnabled = true
+                            btnSave.text = "Save"
+                            return@launch
+                        }
+                        SupabaseAreaWriter.save(
+                            branchId = selectedBranchId,
+                            areaId = if (isEdit) editingAreaId else "",
+                            name = name,
+                            areaType = type,
+                            zone = zone,
+                        )
+                        closePanel()
+                        loadAreas()
+                    } catch (e: Exception) {
+                        fail("Save failed: ${e.message}")
+                        saving = false
+                        btnSave.isEnabled = true
+                        btnSave.text = "Save"
+                    }
+                }
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { closePanel() }
+        }
+        dialog.setOnDismissListener { editingAreaId = ""; areaDialog = null }
+        areaDialog = dialog
+        dialog.show()
     }
 
     private fun confirmDelete(area: Area) {

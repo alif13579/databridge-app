@@ -29,7 +29,8 @@ object SupabaseStoreWriter {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     suspend fun save(store: Store) {
-        require(store.storeId.isNotBlank()) { "A store ID is required" }
+        // Blank storeId = create: the directory Edge Function allocates the next
+        // numeric id. Non-blank = edit (or legacy callers).
         require(store.name.isNotBlank()) { "Store name is required" }
         postAction(
             "store_upsert",
@@ -41,7 +42,7 @@ object SupabaseStoreWriter {
                 .put("area_name", store.areaName)
                 .put("phone", store.phone)
                 .put("conveyance_amount", store.conveyanceAmount)),
-            store.storeId
+            store.storeId.ifBlank { store.name }
         )
     }
 

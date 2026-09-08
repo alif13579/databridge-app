@@ -1,11 +1,13 @@
 package com.cloudx.databridge
 
+import android.app.AlertDialog
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.view.isVisible
@@ -25,33 +27,22 @@ import kotlinx.coroutines.launch
  * get rejected by the rules regardless of what this screen shows them.
  *
  * Unlike the old Merchant (name only), a Store carries a full address
- * book entry: a human-assigned Store ID (distinct from the Supabase row id —
- * the Store ID is what field/ops staff actually recognize a store by),
- * name, address, an Area picked from this branch set's Pickup areas
+ * book entry: name, address, an Area picked from this branch set's Pickup areas
  * (public.areas via SupabaseClaimsReader.fetchAreas — a store is a place a
  * pickup run collects from, so Pickup usage is the correct scope rather
- * than Delivery), and a phone number.
+ * than Delivery), and a phone number. The Store ID is automatic (Edge
+ * allocates the next number) — staff never type it.
  *
- * Follows the same inline-panel add/edit pattern as
- * ConfigMerchantsFragment/ConfigAreasFragment did, just with more fields
- * per entry and one dropdown (Area) instead of all plain text fields.
+ * Create/edit happens in a popup dialog carrying all the fields (ID shown as
+ * Auto on create, read-only on edit), same pattern as ConfigAreasFragment.
  */
 class ConfigStoresFragment : Fragment() {
 
     private lateinit var listContainer: LinearLayout
     private lateinit var tvEmpty: TextView
-    private lateinit var inlinePanel: View
-    private lateinit var tvPanelTitle: TextView
-    private lateinit var etStoreId: EditText
-    private lateinit var etStoreName: EditText
-    private lateinit var etStoreAddress: EditText
-    private lateinit var layoutStoreArea: View
-    private lateinit var tvStoreAreaSelected: TextView
-    private lateinit var etStorePhone: EditText
-    private lateinit var etStoreConveyanceAmount: EditText
-    private lateinit var tvError: TextView
     private lateinit var busyOverlay: View
     private lateinit var tvBusy: TextView
+    private var storeDialog: AlertDialog? = null
 
     private var stores: List<Store> = emptyList()
     private var pickupAreas: List<Area> = emptyList()
@@ -67,23 +58,10 @@ class ConfigStoresFragment : Fragment() {
 
         listContainer = view.findViewById(R.id.storeListContainer)
         tvEmpty = view.findViewById(R.id.tvStoreEmpty)
-        inlinePanel = view.findViewById(R.id.inlineCreateStorePanel)
-        tvPanelTitle = view.findViewById(R.id.tvCreateStoreTitle)
-        etStoreId = view.findViewById(R.id.etStoreId)
-        etStoreName = view.findViewById(R.id.etStoreName)
-        etStoreAddress = view.findViewById(R.id.etStoreAddress)
-        layoutStoreArea = view.findViewById(R.id.layoutStoreArea)
-        tvStoreAreaSelected = view.findViewById(R.id.tvStoreAreaSelected)
-        etStorePhone = view.findViewById(R.id.etStorePhone)
-        etStoreConveyanceAmount = view.findViewById(R.id.etStoreConveyanceAmount)
-        tvError = view.findViewById(R.id.tvCreateStoreError)
         busyOverlay = view.findViewById(R.id.storeBusyOverlay)
         tvBusy = view.findViewById(R.id.tvStoreBusy)
 
         view.findViewById<View>(R.id.btnOpenCreateStore).setOnClickListener { openCreatePanel() }
-        view.findViewById<View>(R.id.btnCancelCreateStore).setOnClickListener { closePanel() }
-        view.findViewById<View>(R.id.btnSaveStore).setOnClickListener { saveStore() }
-        layoutStoreArea.setOnClickListener { showAreaPicker() }
 
         loadPickupAreas()
         loadStores()
@@ -146,52 +124,151 @@ class ConfigStoresFragment : Fragment() {
     }
 
     private fun openCreatePanel() {
-        editingStorePK = ""
-        tvPanelTitle.text = "+ New Store"
-        etStoreId.setText("")
-        etStoreName.setText("")
-        etStoreAddress.setText("")
-        etStorePhone.setText("")
-        etStoreConveyanceAmount.setText("")
-        clearAreaSelection()
-        tvError.isVisible = false
-        inlinePanel.isVisible = true
+        selectedAreaId = ""
+        selectedAreaName = ""
+        showStoreDialog(null)
     }
 
     private fun openEditPanel(store: Store) {
-        editingStorePK = store.id
-        tvPanelTitle.text = "Edit Store"
-        etStoreId.setText(store.storeId)
-        etStoreName.setText(store.name)
-        etStoreAddress.setText(store.address)
-        etStorePhone.setText(store.phone)
-        etStoreConveyanceAmount.setText(
-            if (store.conveyanceAmount > 0) store.conveyanceAmount.toLong().toString() else "")
-        if (store.areaId.isNotBlank()) {
-            selectedAreaId = store.areaId
-            selectedAreaName = store.areaName
-            tvStoreAreaSelected.text = store.areaName.ifBlank { "Selected area" }
-            tvStoreAreaSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
-        } else {
-            clearAreaSelection()
-        }
-        tvError.isVisible = false
-        inlinePanel.isVisible = true
-    }
-
-    private fun clearAreaSelection() {
-        selectedAreaId = ""
-        selectedAreaName = ""
-        tvStoreAreaSelected.text = "Select Area"
-        tvStoreAreaSelected.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+        selectedAreaId = store.areaId
+        selectedAreaName = store.areaName
+        showStoreDialog(store)
     }
 
     private fun closePanel() {
-        inlinePanel.isVisible = false
+        storeDialog?.dismiss()
+        storeDialog = null
         editingStorePK = ""
     }
 
-    private fun showAreaPicker() {
+    /** Create/edit popup carrying every field: ID (Auto on create, read-only on
+     *  edit) + Name + Address + Area + Phone + Conveyance amount. Uniqueness is
+     *  by name+area now that the ID is system-assigned (two merchants may still
+     *  share a name across different areas). */
+    private fun showStoreDialog(store: Store?) {
+        val ctx = requireContext()
+        val isEdit = store != null
+        editingStorePK = store?.id.orEmpty()
+        val dp = resources.displayMetrics.density
+        fun Int.dp() = (this * dp).toInt()
+        fun label(text: String) = TextView(ctx).apply {
+            this.text = text
+            textSize = 12f
+            setTextColor(android.graphics.Color.parseColor("#64748B"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 8.dp() }
+        }
+
+        val root = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24.dp(), 8.dp(), 24.dp(), 8.dp())
+        }
+        root.addView(label(if (isEdit) "ID: ${store!!.storeId}  (automatic, locked)"
+            else "ID: Auto  (assigned on save)"))
+        val etName = EditText(ctx).apply {
+            hint = "Store name"
+            setText(store?.name.orEmpty())
+        }
+        root.addView(etName)
+        val etAddress = EditText(ctx).apply {
+            hint = "Address"
+            setText(store?.address.orEmpty())
+        }
+        root.addView(etAddress)
+        root.addView(label("Area"))
+        val tvArea = TextView(ctx).apply {
+            text = selectedAreaName.ifBlank { "Select Area" }
+            textSize = 15f
+            setTextColor(android.graphics.Color.parseColor(
+                if (selectedAreaName.isBlank()) "#94A3B8" else "#0F172A"))
+            setPadding(0, 8.dp(), 0, 8.dp())
+        }
+        tvArea.setOnClickListener { showAreaPicker(tvArea) }
+        root.addView(tvArea)
+        val etPhone = EditText(ctx).apply {
+            hint = "Phone number"
+            inputType = android.text.InputType.TYPE_CLASS_PHONE
+            setText(store?.phone.orEmpty())
+        }
+        root.addView(etPhone)
+        val etAmount = EditText(ctx).apply {
+            hint = "Conveyance amount ৳ (optional)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(if ((store?.conveyanceAmount ?: 0.0) > 0) store!!.conveyanceAmount.toLong().toString() else "")
+        }
+        root.addView(etAmount)
+        val tvErr = TextView(ctx).apply {
+            setTextColor(android.graphics.Color.parseColor("#DC2626"))
+            textSize = 12f
+            visibility = View.GONE
+        }
+        root.addView(tvErr)
+        val scroll = ScrollView(ctx).apply { addView(root) }
+
+        var saving = false
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle(if (isEdit) "Edit Store" else "+ New Store")
+            .setView(scroll)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener {
+            val btnSave = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            btnSave.setOnClickListener {
+                if (saving) return@setOnClickListener
+                val name = etName.text?.toString()?.trim().orEmpty()
+                val address = etAddress.text?.toString()?.trim().orEmpty()
+                val phone = etPhone.text?.toString()?.trim().orEmpty()
+                val conveyanceAmount = etAmount.text?.toString()?.trim()?.toDoubleOrNull() ?: 0.0
+                fun fail(msg: String) {
+                    tvErr.text = msg
+                    tvErr.visibility = View.VISIBLE
+                }
+                if (name.isBlank()) { fail("Enter a store name"); return@setOnClickListener }
+                if (address.isBlank()) { fail("Enter a store address"); return@setOnClickListener }
+                if (selectedAreaId.isBlank()) { fail("Select a store area"); return@setOnClickListener }
+                if (phone.isBlank()) { fail("Enter a store phone number"); return@setOnClickListener }
+                val duplicate = stores.any {
+                    it.name.equals(name, ignoreCase = true) && it.areaId == selectedAreaId &&
+                        it.id != editingStorePK
+                }
+                if (duplicate) { fail("This area already has a store with this name"); return@setOnClickListener }
+                saving = true
+                btnSave.isEnabled = false
+                btnSave.text = "Saving…"
+                tvErr.visibility = View.GONE
+                lifecycleScope.launch {
+                    try {
+                        SupabaseStoreWriter.save(Store(
+                            id = if (isEdit) editingStorePK else "",
+                            storeId = if (isEdit) editingStorePK else "",
+                            name = name,
+                            address = address,
+                            areaId = selectedAreaId,
+                            areaName = selectedAreaName,
+                            phone = phone,
+                            conveyanceAmount = conveyanceAmount
+                        ))
+                        closePanel()
+                        loadStores()
+                    } catch (e: Exception) {
+                        fail("Save failed: ${e.message}")
+                        saving = false
+                        btnSave.isEnabled = true
+                        btnSave.text = "Save"
+                    }
+                }
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { closePanel() }
+        }
+        dialog.setOnDismissListener { editingStorePK = ""; storeDialog = null }
+        storeDialog = dialog
+        dialog.show()
+    }
+
+    private fun showAreaPicker(tvArea: TextView) {
         if (pickupAreas.isEmpty()) {
             Toast.makeText(requireContext(), "No pickup areas configured yet — add one in the Areas tab first", Toast.LENGTH_LONG).show()
             return
@@ -210,84 +287,10 @@ class ConfigStoresFragment : Fragment() {
             .setItems(labels) { _, index ->
                 selectedAreaId = options[index].areaId
                 selectedAreaName = options[index].name
-                tvStoreAreaSelected.text = selectedAreaName
-                tvStoreAreaSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+                tvArea.text = selectedAreaName
+                tvArea.setTextColor(android.graphics.Color.parseColor("#0F172A"))
             }
             .show()
-    }
-
-    private fun saveStore() {
-        val storeId = etStoreId.text?.toString()?.trim().orEmpty()
-        val name = etStoreName.text?.toString()?.trim().orEmpty()
-        val address = etStoreAddress.text?.toString()?.trim().orEmpty()
-        val phone = etStorePhone.text?.toString()?.trim().orEmpty()
-        // Fixed pickup conveyance payout (optional): blank/0 = not set —
-        // the request form then keeps old behavior for this store.
-        val conveyanceAmount = etStoreConveyanceAmount.text?.toString()?.trim()?.toDoubleOrNull() ?: 0.0
-
-        if (storeId.isBlank()) {
-            tvError.text = "Enter a store ID"
-            tvError.isVisible = true
-            return
-        }
-        if (name.isBlank()) {
-            tvError.text = "Enter a store name"
-            tvError.isVisible = true
-            return
-        }
-        if (address.isBlank()) {
-            tvError.text = "Enter a store address"
-            tvError.isVisible = true
-            return
-        }
-        if (selectedAreaId.isBlank()) {
-            tvError.text = "Select a store area"
-            tvError.isVisible = true
-            return
-        }
-        if (phone.isBlank()) {
-            tvError.text = "Enter a store phone number"
-            tvError.isVisible = true
-            return
-        }
-        // Guard against accidental duplicate entries by Store ID
-        // (case-insensitive) -- Store ID is the human-facing identifier
-        // field/ops staff actually use, so that's the meaningful
-        // uniqueness check here, not the Firebase push key or the name
-        // (two different stores can share a name across areas).
-        val duplicate = stores.any { it.storeId.equals(storeId, ignoreCase = true) && it.id != editingStorePK }
-        if (duplicate) {
-            tvError.text = "A store with this Store ID already exists"
-            tvError.isVisible = true
-            return
-        }
-        tvError.isVisible = false
-
-        setBusy(true, "Saving...")
-        lifecycleScope.launch {
-            try {
-                // Store directory persists ONLY to Supabase now (store_upsert,
-                // admin/manager-gated server-side) — the old Firebase
-                // courier/stores write is removed, same as the branch cutover.
-                val store = Store(
-                    id = storeId,
-                    storeId = storeId,
-                    name = name,
-                    address = address,
-                    areaId = selectedAreaId,
-                    areaName = selectedAreaName,
-                    phone = phone,
-                    conveyanceAmount = conveyanceAmount
-                )
-                SupabaseStoreWriter.save(store)
-                closePanel()
-                loadStores()
-            } catch (e: Exception) {
-                setBusy(false)
-                tvError.text = "Save failed: ${e.message}"
-                tvError.isVisible = true
-            }
-        }
     }
 
     private fun confirmDelete(store: Store) {
