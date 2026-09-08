@@ -358,8 +358,11 @@ class PettyCashSettlementDetailsFragment : Fragment() {
 
         // The first not-done stage is the CURRENT one — highlighted so it's
         // obvious at a glance which step the claim is sitting at and whose
-        // action is awaited (subtitle carries that actor's name).
-        val currentIndex = stages.indexOfFirst { it.at == 0L }
+        // action is awaited (subtitle carries that actor's name). A rejected
+        // claim has no current stage: every not-done stage shows a red cross
+        // instead of a blank dot, so the rejection reads down the whole trail.
+        val isRejectedTrail = request.status == PC_STATUS_REJECTED
+        val currentIndex = if (isRejectedTrail) -1 else stages.indexOfFirst { it.at == 0L }
         stages.forEachIndexed { index, stage ->
             val stepView = layoutInflater.inflate(R.layout.item_petty_cash_approval_step, container, false)
             val isDone = stage.at != 0L
@@ -377,6 +380,9 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             if (isDone) {
                 tvDot.text = "\u2713"
                 tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_done)
+            } else if (isRejectedTrail) {
+                tvDot.text = "\u2715"
+                tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_rejected)
             } else if (isCurrent) {
                 tvDot.text = "●"
                 tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_done)
@@ -389,15 +395,17 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             container.addView(stepView)
         }
 
-        if (request.status == PC_STATUS_REJECTED) {
+        if (isRejectedTrail) {
             val stepView = layoutInflater.inflate(R.layout.item_petty_cash_approval_step, container, false)
-            stepView.findViewById<TextView>(R.id.tvStepTitle).text = pettyCashStatusLabel(PC_STATUS_REJECTED)
+            val tvRejectedTitle = stepView.findViewById<TextView>(R.id.tvStepTitle)
+            tvRejectedTitle.text = pettyCashStatusLabel(PC_STATUS_REJECTED)
+            tvRejectedTitle.setTextColor(android.graphics.Color.parseColor("#B91C1C"))
             stepView.findViewById<TextView>(R.id.tvStepSubtitle).text =
                 "${request.rejectedByName}${if (request.rejectReason.isNotBlank()) " — ${request.rejectReason}" else ""}"
             stepView.findViewById<TextView>(R.id.tvStepTime).text = formatDateTime(request.rejectedAt)
             val tvDot = stepView.findViewById<TextView>(R.id.tvStepDot)
             tvDot.text = "\u2715"
-            tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_pending)
+            tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_rejected)
             stepView.findViewById<View>(R.id.viewStepConnector).isVisible = false
             container.addView(stepView)
         }

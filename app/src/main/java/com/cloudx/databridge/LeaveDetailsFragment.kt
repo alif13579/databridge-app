@@ -137,6 +137,9 @@ class LeaveDetailsFragment : Fragment() {
             if (isDone) {
                 tvDot.text = "\u2713"
                 tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_done)
+            } else if (request.status == LM_STATUS_REJECTED) {
+                tvDot.text = "\u2715"
+                tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_rejected)
             } else {
                 tvDot.text = ""
                 tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_pending)
@@ -148,13 +151,15 @@ class LeaveDetailsFragment : Fragment() {
 
         if (request.status == LM_STATUS_REJECTED) {
             val stepView = layoutInflater.inflate(R.layout.item_petty_cash_approval_step, container, false)
-            stepView.findViewById<TextView>(R.id.tvStepTitle).text = "Rejected"
+            val tvRejectedTitle = stepView.findViewById<TextView>(R.id.tvStepTitle)
+            tvRejectedTitle.text = "Rejected"
+            tvRejectedTitle.setTextColor(android.graphics.Color.parseColor("#B91C1C"))
             stepView.findViewById<TextView>(R.id.tvStepSubtitle).text =
                 "${request.rejectedByName}${if (request.rejectReason.isNotBlank()) " — ${request.rejectReason}" else ""}"
             stepView.findViewById<TextView>(R.id.tvStepTime).text = dateTimeFormat.format(request.rejectedAt)
             val tvDot = stepView.findViewById<TextView>(R.id.tvStepDot)
             tvDot.text = "\u2715"
-            tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_pending)
+            tvDot.background = androidx.core.content.ContextCompat.getDrawable(requireContext(), R.drawable.bg_pc_step_rejected)
             stepView.findViewById<View>(R.id.viewStepConnector).isVisible = false
             container.addView(stepView)
         }
