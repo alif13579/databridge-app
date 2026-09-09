@@ -412,23 +412,13 @@ Deno.serve(async (request) => {
         }
         console.info(`area_upsert ok: branch=${branchId} area=${areaId}`)
       }
-      try {
-        await firebaseUpdatePaths({
-          [`courier/areas_backup/${branchId}/${areaId}/name`]: str(a.name).trim(),
-          [`courier/areas_backup/${branchId}/${areaId}/area_type`]: areaType,
-          [`courier/areas_backup/${branchId}/${areaId}/zone`]: str(a.zone).trim(),
-        })
-      } catch (e) {
-        errLog('area_upsert', 'mirror_failed', {
-          branch_id: branchId, area_id: areaId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
-        })
-      }
+      // No Firebase mirror: areas live ONLY in Supabase (backup not needed).
       return reply({ ok: true, branch_id: branchId, area_id: areaId })
     }
 
     if (action === 'area_delete') {
       // Same admin/manager gate. No FK references areas (claims/stores keep
-      // name snapshots), so a plain delete is safe.
+      // name snapshots), so a plain delete is safe. No Firebase mirror.
       const profile = await firebaseProfile(identity)
       if (profile.roleId !== 'admin' && profile.roleId !== 'manager') {
         errLog('area_delete', 'forbidden', { role: profile.roleId })
@@ -440,13 +430,6 @@ Deno.serve(async (request) => {
       const { error } = await admin.from('areas').delete().eq('branch_id', branchId).eq('area_id', areaId)
       if (error) throw error
       console.info(`area_delete ok: branch=${branchId} area=${areaId}`)
-      try {
-        await firebaseDelete(`courier/areas_backup/${branchId}/${areaId}`)
-      } catch (e) {
-        errLog('area_delete', 'mirror_failed', {
-          branch_id: branchId, area_id: areaId, err: e instanceof Error ? e.message.slice(0, 200) : String(e).slice(0, 200),
-        })
-      }
       return reply({ ok: true })
     }
 
