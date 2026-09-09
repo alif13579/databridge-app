@@ -173,6 +173,105 @@ object SheetLibraryRepository {
             bindingsRef(branchId).child(bindingId).removeValue().await()
         }
 
+    // ── CC bindings ────────────────────────────────────────────────────
+
+    private fun ccBindingsRef(branchId: String) =
+        db.reference.child("config/sheetBindings/$branchId/cc")
+
+    suspend fun loadCcBindings(branchId: String): List<CcBinding> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val snap = ccBindingsRef(branchId).get().await()
+                snap.children.mapNotNull { child ->
+                    val id = child.key ?: return@mapNotNull null
+                    fun maps(node: String): List<CcFieldMap> =
+                        child.child(node).children.mapNotNull { r ->
+                            val ref = r.child("colRef").getValue(String::class.java).orEmpty()
+                            val field = r.child("field").getValue(String::class.java).orEmpty()
+                            if (ref.isBlank() || field.isBlank()) null else CcFieldMap(
+                                colRef = ref,
+                                mode = r.child("mode").getValue(String::class.java)
+                                    ?.takeIf { it == SheetColMode.TEXT } ?: SheetColMode.INDEX,
+                                field = field,
+                            )
+                        }
+                    val binding = CcBinding(
+                        bindingId = id,
+                        libraryId = child.child("libraryId").getValue(String::class.java).orEmpty(),
+                        branchId = branchId,
+                        lookups = maps("lookups"),
+                        writes = maps("writes"),
+                        enabled = child.child("enabled").getValue(Boolean::class.java) ?: true,
+                        updatedBy = child.child("updatedBy").getValue(String::class.java).orEmpty(),
+                        updatedByName = child.child("updatedByName").getValue(String::class.java).orEmpty(),
+                        updatedAt = child.child("updatedAt").getValue(Long::class.java) ?: 0L,
+                    )
+                    if (binding.libraryId.isBlank()) null else binding
+                }
+            }.getOrDefault(emptyList())
+        }
+
+    /** Saves (creates or updates) a CC binding. One per library per branch:
+     *  a blank bindingId reuses the existing binding for [binding.libraryId]
+     *  when one exists. Returns the bindingId. */
+    suspend fun saveCcBinding(
+        binding: CcBinding,
+        actingUid: String,
+        actingName: String,
+    ): String = withContext(Dispatchers.IO) {
+        val ref = ccBindingsRef(binding.branchId)
+        val existingId = if (binding.bindingId.isBlank()) {
+            runCatching {
+                ref.orderByChild("libraryId").equalTo(binding.libraryId)
+                    .get().await().children.firstOrNull()?.key
+            }.getOrNull()
+        } else binding.bindingId
+        val bindingId = existingId
+            ?: ref.push().key
+            ?: System.currentTimeMillis().toString()
+        val data = mapOf(
+            "libraryId" to binding.libraryId,
+            "lookups" to binding.lookups.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
+                .map { mapOf("colRef" to it.colRef.trim(), "mode" to it.mode, "field" to it.field) },
+            "writes" to binding.writes.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
+                .map { mapOf("colRef" to it.colRef.trim(), "mode" to it.mode, "field" to it.field) },
+            "enabled" to binding.enabled,
+            "updatedBy" to actingUid,
+            "updatedByName" to actingName,
+            "updatedAt" to System.currentTimeMillis(),
+        )
+        ref.child(bindingId).setValue(data).await()
+        bindingId
+    }
+
+    suspend fun deleteCcBinding(branchId: String, bindingId: String) =
+        withContext(Dispatchers.IO) {
+            ccBindingsRef(branchId).child(bindingId).removeValue().await()
+        }
+
+    /**
+     * Remark connections for [branchId] covering [date], from CC bindings
+     * only (all-in-one: legacy purpose/kind connections are no longer read
+     * — convert them to libraries from the Connectors list).
+     */
+    suspend fun resolveRemarkConns(
+        branchId: String,
+        date: java.time.LocalDate,
+    ): List<ScannerSheetConn> = withContext(Dispatchers.IO) {
+        val bindings = loadCcBindings(branchId)
+            .filter { it.enabled && it.effectiveLookups().isNotEmpty() && it.effectiveWrites().isNotEmpty() }
+        if (bindings.isEmpty()) return@withContext emptyList()
+        val libraries = loadLibraries(branchId)
+            .filter { it.enabled }.associateBy { it.libraryId }
+        bindings.mapNotNull { b ->
+            val lib = libraries[b.libraryId] ?: return@mapNotNull null
+            if (!SheetScope.covers(lib.scopeType, lib.scopeMonth, lib.scopeFrom, lib.scopeTo, date)) {
+                return@mapNotNull null
+            }
+            b.toConn(lib)
+        }
+    }
+
     // ── Scan field values ──────────────────────────────────────────────
 
     private val SCAN_AT_FMT = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.ENGLISH).apply {

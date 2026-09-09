@@ -419,6 +419,15 @@ class CallCenterFragment : Fragment() {
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
         btnSyncSheet = view.findViewById(R.id.btnCcaSyncSheet)
         btnSyncSheet.setOnClickListener { startBulkSheetSync() }
+        // ☎️ Sheet binding socket (admin-only: Config access). Binds library
+        // columns to remark fields for mirror + bulk sync.
+        view.findViewById<TextView>(R.id.btnCcaSheetBinding)?.let { socket ->
+            socket.visibility =
+                if (RbacManager.hasPermission("nav_config")) View.VISIBLE else View.GONE
+            socket.setOnClickListener {
+                CcSheetBindingDialog.show(requireContext(), viewLifecycleOwner.lifecycleScope)
+            }
+        }
         scrollLiveMissing = view.findViewById(R.id.scrollCcaLiveMissing)
         layoutLiveMissing = view.findViewById(R.id.layoutCcaLiveMissing)
         view.findViewById<TextView>(R.id.btnCcaSourceMenu).setOnClickListener { showSourceMenu(it) }

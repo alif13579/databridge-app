@@ -292,49 +292,18 @@ class ScanApprovalViewModel : ViewModel() {
             enqueueRetry(branch, scan, "no employee_id")
             return "no employee_id"
         }
-        // 1) Library bindings first (Scanner 🔌 — explicit admin intent wins;
-        //    a binding attempt never cascades into legacy, so one scan can
-        //    never land in two sheets).
+        // All-in-one: Scanner 🔌 bindings only (legacy purpose/kind
+        // connections are no longer read — convert them to libraries).
         val boundResult = writeViaBindings(appContext, branch, scan, employeeId)
         if (boundResult != null) return boundResult
-        // 2) Legacy scanner connections fallback (pre-library configs).
-        val conns = runCatching {
-            ScannerSheetRepository.loadConnections(branch)
-                .filter { it.enabled && it.isScannerConnection() }
-                .selectForDate(LocalDate.now(opsZone))
-        }.getOrNull().orEmpty()
-        if (conns.isEmpty()) {
-            enqueueRetry(branch, scan, "no scanner connection")
-            return "no scanner connection"
-        }
-        val token = silentWriteToken(appContext)
-        if (token.isNullOrBlank()) {
-            enqueueRetry(branch, scan, "no sheet token")
-            return "no sheet token"
-        }
-        for (conn in conns) {
-            when (val out = ScannerSheetRepository.writeScannedValue(conn, token, employeeId, scan.code.trim())) {
-                is ScannerSheetRepository.WriteResult.Success -> {
-                    runCatching {
-                        db.reference.child(RunRoutePaths.scanItem(scan.ownerUid, scan.firebaseKey))
-                            .updateChildren(mapOf("sheet_written" to true)).await()
-                    }
-                    return ""
-                }
-                is ScannerSheetRepository.WriteResult.Failure -> {
-                    enqueueRetry(branch, scan, out.message)
-                    return out.message
-                }
-            }
-        }
-        enqueueRetry(branch, scan, "write failed")
-        return "write failed"
+        enqueueRetry(branch, scan, "no scanner binding — Scanner 🔌 থেকে sheet bind করুন")
+        return "no scanner binding"
     }
 
     /**
      * Library-bound sheet write (Scanner 🔌 bindings).
-     * Returns null when no usable binding exists (caller falls through to
-     * legacy connections); "" on success; else a short reason (already
+     * Returns null when no binding covers this branch/date (caller queues a
+     * "bind koro" reason); "" on success; else a short reason (already
      * queued for retry).
      */
     private suspend fun writeViaBindings(

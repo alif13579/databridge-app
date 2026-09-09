@@ -85,6 +85,104 @@ object ScannerField {
     fun isKnown(field: String): Boolean = field in (LOOKUP_FIELDS + WRITE_FIELDS)
 }
 
+/** CC remark's bindable data fields. Keys intentionally equal the legacy
+ *  [SheetLookupKind]/[SheetWriteKind] strings, so a binding converts 1:1
+ *  into the mirror's existing rule shape — the executor doesn't care whether
+ *  the mapping came from a legacy conn or a fragment binding. */
+object CcField {
+    const val CONSIGNMENT = SheetLookupKind.CONSIGNMENT
+    const val TODAY = SheetLookupKind.TODAY
+    const val FEEDBACK = SheetLookupKind.FEEDBACK
+    const val VALIDATION = SheetLookupKind.VALIDATION
+    const val VALIDATOR_NAME = SheetLookupKind.VALIDATOR_NAME
+    const val CREATED_AT = SheetLookupKind.CREATED_AT
+    const val AUTHOR_NAME = SheetLookupKind.AUTHOR_NAME
+
+    fun label(field: String): String = when (field) {
+        CONSIGNMENT -> "Consignment ID"
+        TODAY -> "Today (date match)"
+        FEEDBACK -> "Feedback"
+        VALIDATION -> "Validation"
+        VALIDATOR_NAME -> "Validator name"
+        CREATED_AT -> "Created at (date)"
+        AUTHOR_NAME -> "Author name"
+        else -> field.ifBlank { "— field বেছে নিন —" }
+    }
+
+    /** Lookup side: everything except the scanner-only field. */
+    val LOOKUP_FIELDS = listOf(
+        CONSIGNMENT, TODAY, FEEDBACK, VALIDATION, VALIDATOR_NAME,
+        CREATED_AT, AUTHOR_NAME,
+    )
+
+    /** Write side: mirror writes feedback / validation / validator_name only. */
+    val WRITE_FIELDS = listOf(FEEDBACK, VALIDATION, VALIDATOR_NAME)
+}
+
+/** One column <-> CC-field pair inside a binding. */
+data class CcFieldMap(
+    val colRef: String = "",
+    val mode: String = SheetColMode.INDEX,
+    val field: String = "",
+)
+
+/** Call Center's use of one library: which columns match a remark, which
+ *  columns receive feedback/validation/validator_name. ALL lookups must
+ *  match one row (mirror never appends).
+ *
+ *  Stored at `config/sheetBindings/{branchId}/cc/{bindingId}`
+ *  (one per library per branch — save upserts by libraryId).
+ */
+data class CcBinding(
+    val bindingId: String = "",
+    val libraryId: String = "",
+    val branchId: String = "",
+    val lookups: List<CcFieldMap> = emptyList(),
+    val writes: List<CcFieldMap> = emptyList(),
+    val enabled: Boolean = true,
+    val updatedBy: String = "",
+    val updatedByName: String = "",
+    val updatedAt: Long = 0L,
+) {
+    fun effectiveLookups(): List<CcFieldMap> =
+        lookups.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
+
+    fun effectiveWrites(): List<CcFieldMap> =
+        writes.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
+
+    /** Human summary: "C=Consignment ID → K=Feedback". */
+    fun summary(): String {
+        val l = effectiveLookups().joinToString(" + ") { "${it.colRef.trim()}=${CcField.label(it.field)}" }
+        val w = effectiveWrites().joinToString(", ") { "${it.colRef.trim()}←${CcField.label(it.field)}" }
+        return "$l → $w"
+    }
+
+    /** Executor shape: field keys ARE kind strings, so the mirror runs
+     *  unchanged on the synthesized connection. */
+    fun toConn(lib: SheetLibrary): ScannerSheetConn =
+        ScannerSheetConn(
+            connectionId = "binding:$bindingId",
+            nickname = lib.nickname,
+            branchId = branchId,
+            sheetId = lib.sheetId,
+            sheetName = lib.sheetName,
+            tabPattern = lib.tabPattern,
+            googleEmail = lib.googleEmail,
+            lookups = effectiveLookups().map {
+                SheetLookupRule(it.colRef, it.field, it.mode)
+            },
+            writes = effectiveWrites().map {
+                SheetWriteRule(it.colRef, it.field, it.mode)
+            },
+            headerRow = lib.headerRow,
+            enabled = enabled && lib.enabled,
+            purpose = SheetPurpose.REMARK,
+            scopeType = lib.scopeType,
+            scopeMonth = lib.scopeMonth,
+            scopeFrom = lib.scopeFrom,
+            scopeTo = lib.scopeTo,
+        )
+}
 /** One column <-> scanner-field pair inside a binding. */
 data class ScannerFieldMap(
     val colRef: String = "",

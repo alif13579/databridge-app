@@ -79,15 +79,14 @@ object RemarkSheetMirror {
         )
         GlobalScope.launch(Dispatchers.IO) {
             try {
-                // Most-specific scope covering today wins (range > month >
-                // global) so the appropriate sheet gets the write.
-                val conns = ScannerSheetRepository.loadConnections(branchId)
-                    .filter { it.enabled && it.isRemarkConnection() }
-                    .selectForDate(LocalDate.now(opsZone))
+                // All-in-one: CC bindings only (CallCenter 🔌). Scope covering
+                // today wins (range > month > global).
+                val conns = SheetLibraryRepository.resolveRemarkConns(
+                    branchId, LocalDate.now(opsZone))
                 if (conns.isEmpty()) {
-                    FirebaseErrorLogger.log("RemarkSheetMirror", "no_remark_connection",
-                        "No remark sheet connection for branch", mapOf("branchId" to branchId))
-                    toastMain(appContext, "Sheet: no remark connection for this branch — feedback not mirrored")
+                    FirebaseErrorLogger.log("RemarkSheetMirror", "no_cc_binding",
+                        "No CC binding for branch", mapOf("branchId" to branchId))
+                    toastMain(appContext, "Sheet: এই branch-এ CC binding নেই — CallCenter 🔌 থেকে sheet bind করুন")
                     return@launch
                 }
                 val token = silentWriteToken(appContext.applicationContext)
@@ -488,18 +487,16 @@ object RemarkSheetMirror {
         if (consolidated.isEmpty())
             return@withContext "Supabase-এ আজকের কোনো CC remark নেই — লেখার কিছু নেই"
 
-        // 3. Per branch → its own connections → its own sheet.
+        // 3. Per branch → its bound sheets → its own sheet.
         var totConns = 0
         val tot = BulkCounts()
         var totNoCc = 0
         val errs = mutableListOf<String>()
         for (branchId in branches) {
             val conns = try {
-                ScannerSheetRepository.loadConnections(branchId)
-                    .filter { it.enabled && it.isRemarkConnection() }
-                    .selectForDate(today)
+                SheetLibraryRepository.resolveRemarkConns(branchId, today)
             } catch (e: Exception) {
-                errs.add("$branchId: connection পড়া যায়নি")
+                errs.add("$branchId: binding পড়া যায়নি")
                 continue
             }
             if (conns.isEmpty()) continue
@@ -516,7 +513,7 @@ object RemarkSheetMirror {
                 }
             }
         }
-        if (totConns == 0) return@withContext "আজকের জন্য কোনো branch-এ remark connection নেই (scope দেখুন)"
+        if (totConns == 0) return@withContext "আজকের জন্য কোনো branch-এ CC binding নেই — CallCenter 🔌 থেকে sheet bind করুন (scope দেখুন)"
         var msg = "✓ ${tot.syncedRows} row synced (${tot.syncedCells} cells) · " +
             "${tot.filled} already filled · $totNoCc no CC yet · " +
             "${tot.scanned} sheet rows দেখা ($totConns connection)"

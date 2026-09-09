@@ -193,7 +193,7 @@
                                 android:id="@+id/btnCcaSyncSheet"
                                 android:layout_width="0dp"
                                 android:layout_height="26dp"
-                                android:layout_weight="1"
+                                android:layout_weight="2"
                                 android:text="⇪ Sync to Sheet"
                                 android:textSize="10sp"
                                 android:textStyle="bold"
@@ -202,6 +202,21 @@
                                 android:textColor="@color/theme_text_secondary"
                                 android:clickable="true"
                                 android:focusable="true" />
+
+                            <TextView
+                                android:id="@+id/btnCcaSheetBinding"
+                                android:layout_width="0dp"
+                                android:layout_height="26dp"
+                                android:layout_weight="1"
+                                android:layout_marginStart="4dp"
+                                android:text="🔌"
+                                android:textSize="13sp"
+                                android:gravity="center"
+                                android:background="@drawable/bg_filter_chip_inactive"
+                                android:textColor="@color/theme_text_secondary"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:visibility="gone" />
                         </LinearLayout>
                     </LinearLayout>
 

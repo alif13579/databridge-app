@@ -118,13 +118,11 @@ class ConfigConnectorsFragment : Fragment() {
     private var selectedBranchId: String = ""
     private var branchConnections: List<ScannerSheetConn> = emptyList()
     private var branchScannerBindings: List<ScannerBinding> = emptyList()
+    private var branchCcBindings: List<CcBinding> = emptyList()
+    private var branchLiveCc: ScannerSheetRepository.LiveCcRef? = null
 
     private var connectStep = 1
     private var editingConnectionId: String = "" // blank = new connection
-    /** Library mode (new saves + isLibrary edits): neutral sheet, no
-     *  fragment dropdown, no kind spinners. Legacy purposed edits keep the
-     *  old kind UI so nothing already configured is lost. */
-    private var wizardLibraryMode: Boolean = true
     // Step-1 selections: which branch + which fragment + which date scope this
     // sheet serves. (Wizard dropdowns — outer spinner only filters Panel-1.)
     private var connPurpose: String = SheetPurpose.REMARK
@@ -389,6 +387,16 @@ class ConfigConnectorsFragment : Fragment() {
             } catch (e: Exception) {
                 emptyList()
             }
+            branchCcBindings = try {
+                SheetLibraryRepository.loadCcBindings(selectedBranchId)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            branchLiveCc = try {
+                ScannerSheetRepository.loadLiveCc(selectedBranchId)
+            } catch (e: Exception) {
+                null
+            }
             if (!isAdded) return@launch
             renderConnectionsList()
             refreshLiveCcSpinner()
@@ -463,140 +471,210 @@ class ConfigConnectorsFragment : Fragment() {
         tvScConnectionsLabel?.visibility = View.VISIBLE
         tvScNoConnections?.visibility = View.GONE
 
-        branchConnections.forEach { conn ->
-            val isLibrary = conn.isLibrary
-            val boundByScanner = isLibrary && branchScannerBindings.any {
-                it.libraryId == conn.connectionId && it.enabled
-            }
-            val isRemark = conn.purpose.ifBlank {
-                if (conn.isScannerConnection() && !conn.isRemarkConnection()) SheetPurpose.SCANNER
-                else SheetPurpose.REMARK
-            } == SheetPurpose.REMARK
-            val accent = when {
-                isLibrary -> "#2563EB"
-                isRemark -> "#7C3AED"
-                else -> "#059669"
-            }
-            val accentBg = when {
-                isLibrary -> "#DBEAFE"
-                isRemark -> "#EDE9FE"
-                else -> "#D1FAE5"
-            }
-            val card = android.widget.LinearLayout(ctx).apply {
-                orientation = android.widget.LinearLayout.VERTICAL
-                setPadding(32, 28, 32, 24)
-                setBackgroundResource(R.drawable.bg_card_rounded)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = 24 }
-                alpha = if (conn.enabled) 1f else 0.55f
-            }
-            val topRow = android.widget.LinearLayout(ctx).apply {
-                orientation = android.widget.LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-            }
-            val title = TextView(ctx).apply {
-                text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } }
-                textSize = 15f
+        val libraries = branchConnections.filter { it.isLibrary }
+        val legacy = branchConnections.filter { !it.isLibrary }
+
+        fun actionBtn(label: String, bg: String, fg: String, onTap: () -> Unit): TextView =
+            TextView(ctx).apply {
+                text = label
+                textSize = 12.5f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
-                setTextColor(ctx.getColor(R.color.theme_text_primary))
-                layoutParams = android.widget.LinearLayout.LayoutParams(0,
-                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            }
-            val badge = TextView(ctx).apply {
-                text = when {
-                    isLibrary -> "📚 Library"
-                    isRemark -> "☎️ Call Center"
-                    else -> "📷 Scanner"
-                }
-                textSize = 11f
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-                setTextColor(android.graphics.Color.parseColor(accent))
-                setBackgroundColor(android.graphics.Color.parseColor(accentBg))
-                setPadding(20, 8, 20, 8)
-            }
-            val scopeBadge = TextView(ctx).apply {
-                text = SheetScope.badge(conn.scopeType, conn.scopeMonth, conn.scopeFrom, conn.scopeTo)
-                textSize = 11f
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-                setTextColor(android.graphics.Color.parseColor("#0369A1"))
-                setBackgroundColor(android.graphics.Color.parseColor("#E0F2FE"))
-                setPadding(20, 8, 20, 8)
+                setTextColor(android.graphics.Color.parseColor(fg))
+                setBackgroundColor(android.graphics.Color.parseColor(bg))
+                setPadding(28, 16, 28, 16)
                 val lp = android.widget.LinearLayout.LayoutParams(
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
-                lp.marginStart = 12
+                lp.marginEnd = 16
                 layoutParams = lp
+                setOnClickListener { onTap() }
             }
-            topRow.addView(title)
-            topRow.addView(badge)
-            topRow.addView(scopeBadge)
-            card.addView(topRow)
-            val sub = TextView(ctx).apply {
-                text = buildString {
-                    append(conn.sheetName)
-                    if (!conn.enabled) append("  •  disabled")
-                    if (isLibrary && boundByScanner) append("  •  🔌 Scanner bound")
-                    fun kindTag(kind: String) = kind.trim().let { if (it.isBlank()) "" else "($it)" }
-                    val lookTxt = conn.effectiveLookups()
-                        .joinToString("+") { "${it.colRef.trim()}${kindTag(it.kind)}" }
-                        .ifBlank {
-                            conn.effectiveScannerLookup()
-                                ?.let { "${it.colRef.trim()}${kindTag(it.kind)}" } ?: ""
-                        }
-                    val writeTxt = conn.effectiveWrites()
-                        .joinToString(",") { "${it.colRef.trim()}${kindTag(it.kind)}" }
-                        .ifBlank {
-                            conn.effectiveScannerWrite()
-                                ?.let { "${it.colRef.trim()}${kindTag(it.kind)}" } ?: ""
-                        }
-                    if (lookTxt.isNotBlank() || writeTxt.isNotBlank()) {
-                        append("\n$lookTxt → $writeTxt")
-                    }
-                    if (isLibrary) {
-                        val binding = branchScannerBindings.firstOrNull {
-                            it.libraryId == conn.connectionId && it.enabled
-                        }
-                        val mapTxt = binding?.summary().orEmpty()
-                        if (mapTxt.isNotBlank()) append("\n🔌 $mapTxt")
-                    }
-                }
+
+        fun sectionHeader(text: String) {
+            container.addView(TextView(ctx).apply {
+                this.text = text
                 textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
                 setTextColor(ctx.getColor(R.color.theme_text_secondary))
-                setPadding(0, 8, 0, 4)
-            }
-            card.addView(sub)
-            val btnRow = android.widget.LinearLayout(ctx).apply {
-                orientation = android.widget.LinearLayout.HORIZONTAL
-                setPadding(0, 12, 0, 0)
-            }
-            fun actionBtn(label: String, bg: String, fg: String, onTap: () -> Unit): TextView =
-                TextView(ctx).apply {
-                    text = label
-                    textSize = 12.5f
-                    setTypeface(typeface, android.graphics.Typeface.BOLD)
-                    setTextColor(android.graphics.Color.parseColor(fg))
-                    setBackgroundColor(android.graphics.Color.parseColor(bg))
-                    setPadding(28, 16, 28, 16)
-                    val lp = android.widget.LinearLayout.LayoutParams(
-                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
-                    lp.marginEnd = 16
-                    layoutParams = lp
-                    setOnClickListener { onTap() }
-                }
-            if (conn.isRemarkConnection()) {
-                btnRow.addView(actionBtn("🔍 Test", "#EFF6FF", "#1D4ED8") { showDryRunDialog(conn) })
-            }
-            btnRow.addView(actionBtn(
-                if (conn.enabled) "⏸ Disable" else "▶ Enable", "#F1F5F9", "#475569") {
-                setConnectionEnabled(conn, !conn.enabled)
+                setPadding(4, 16, 4, 8)
             })
-            btnRow.addView(actionBtn("🗑 Delete", "#FEF2F2", "#B91C1C") { confirmDeleteConnection(conn) })
-            card.addView(btnRow)
-            card.setOnClickListener { startEditConnection(conn) }
-            container.addView(card)
         }
+
+        fun badgeView(text: String, fg: String, bg: String): TextView =
+            TextView(ctx).apply {
+                this.text = text
+                textSize = 11f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(android.graphics.Color.parseColor(fg))
+                setBackgroundColor(android.graphics.Color.parseColor(bg))
+                setPadding(20, 8, 20, 8)
+            }
+
+        // ── 📚 Libraries: full cards with per-sheet Used-by summary ──
+        if (libraries.isNotEmpty()) {
+            sectionHeader("📚 Sheet library (${libraries.size}) — kon sheet kothay use hocche")
+            libraries.forEach { conn ->
+                val card = android.widget.LinearLayout(ctx).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    setPadding(32, 28, 32, 24)
+                    setBackgroundResource(R.drawable.bg_card_rounded)
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = 24 }
+                    alpha = if (conn.enabled) 1f else 0.55f
+                }
+                val topRow = android.widget.LinearLayout(ctx).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                }
+                val title = TextView(ctx).apply {
+                    text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } }
+                    textSize = 15f
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setTextColor(ctx.getColor(R.color.theme_text_primary))
+                    layoutParams = android.widget.LinearLayout.LayoutParams(0,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                topRow.addView(title)
+                topRow.addView(badgeView("📚 Library", "#2563EB", "#DBEAFE"))
+                val scopeBadge = badgeView(
+                    SheetScope.badge(conn.scopeType, conn.scopeMonth, conn.scopeFrom, conn.scopeTo),
+                    "#0369A1", "#E0F2FE")
+                (scopeBadge.layoutParams as? android.widget.LinearLayout.LayoutParams)?.let {
+                    it.marginStart = 12
+                } ?: scopeBadge.apply {
+                    layoutParams = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                        marginStart = 12
+                    }
+                }
+                topRow.addView(scopeBadge)
+                card.addView(topRow)
+                val colsLine = conn.effectiveLookups().joinToString("+") { it.colRef.trim() } +
+                    " → " + conn.effectiveWrites().joinToString(",") { it.colRef.trim() }
+                // Used-by: every binding on this sheet in one place.
+                val scannerBinding = branchScannerBindings.firstOrNull { it.libraryId == conn.connectionId }
+                val ccBinding = branchCcBindings.firstOrNull { it.libraryId == conn.connectionId }
+                val isLiveCc = branchLiveCc?.connectionId == conn.connectionId
+                val usedBy = buildString {
+                    append("USED BY\n")
+                    append(if (scannerBinding != null && scannerBinding.enabled)
+                        "🔌 Scanner: ${scannerBinding.summary()}"
+                    else "➖ Scanner: bind hoyni")
+                    append("\n")
+                    append(if (ccBinding != null && ccBinding.enabled)
+                        "☎️ CC mirror: ${ccBinding.summary()}"
+                    else "➖ CC mirror: bind hoyni")
+                    if (isLiveCc) append("\n📡 Live CC source")
+                }
+                card.addView(TextView(ctx).apply {
+                    text = buildString {
+                        append(conn.sheetName)
+                        if (!conn.enabled) append("  •  disabled")
+                        append("\n$colsLine")
+                        append("\n$usedBy")
+                    }
+                    textSize = 12f
+                    setTextColor(ctx.getColor(R.color.theme_text_secondary))
+                    setPadding(0, 8, 0, 4)
+                })
+                val btnRow = android.widget.LinearLayout(ctx).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    setPadding(0, 12, 0, 0)
+                }
+                btnRow.addView(actionBtn("✏️ Edit", "#EFF6FF", "#1D4ED8") { startEditConnection(conn) })
+                btnRow.addView(actionBtn(
+                    if (conn.enabled) "⏸ Disable" else "▶ Enable", "#F1F5F9", "#475569") {
+                    setConnectionEnabled(conn, !conn.enabled)
+                })
+                btnRow.addView(actionBtn("🗑 Delete", "#FEF2F2", "#B91C1C") { confirmDeleteConnection(conn) })
+                card.addView(btnRow)
+                card.setOnClickListener { startEditConnection(conn) }
+                container.addView(card)
+            }
+        }
+
+        // ── 📦 Legacy: convert-only (ager purpose/kind system off — flows
+        //  no longer read these; Convert moves columns into a library). ──
+        if (legacy.isNotEmpty()) {
+            sectionHeader("📦 Legacy (${legacy.size}) — Convert করে library বানান, ager system off")
+            legacy.forEach { conn ->
+                val row = android.widget.LinearLayout(ctx).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    setPadding(32, 24, 32, 20)
+                    setBackgroundResource(R.drawable.bg_card_rounded)
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { bottomMargin = 16 }
+                    alpha = 0.85f
+                }
+                row.addView(TextView(ctx).apply {
+                    text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } }
+                    textSize = 14f
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setTextColor(ctx.getColor(R.color.theme_text_primary))
+                })
+                row.addView(TextView(ctx).apply {
+                    val cols = conn.effectiveLookups().joinToString("+") { it.colRef.trim() } +
+                        " → " + conn.effectiveWrites().joinToString(",") { it.colRef.trim() }
+                    text = "${conn.purposeLabel()} • " +
+                        SheetScope.badge(conn.scopeType, conn.scopeMonth, conn.scopeFrom, conn.scopeTo) +
+                        "\n$cols"
+                    textSize = 12f
+                    setTextColor(ctx.getColor(R.color.theme_text_secondary))
+                    setPadding(0, 6, 0, 4)
+                })
+                val btnRow = android.widget.LinearLayout(ctx).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    setPadding(0, 8, 0, 0)
+                }
+                btnRow.addView(actionBtn("📚 Convert", "#EFF6FF", "#1D4ED8") { confirmConvertLegacy(conn) })
+                btnRow.addView(actionBtn("🗑 Delete", "#FEF2F2", "#B91C1C") { confirmDeleteConnection(conn) })
+                row.addView(btnRow)
+                container.addView(row)
+            }
+        }
+    }
+
+    /** One-tap legacy → library: columns move over (colRef + mode), the
+     *  legacy row is removed. Data mapping is NOT moved — bind fresh from
+     *  the fragment 🔌 (that IS the new system). */
+    private fun confirmConvertLegacy(conn: ScannerSheetConn) {
+        val ctx = context ?: return
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle("Convert to library?")
+            .setMessage("“${conn.nickname.ifBlank { conn.sheetName }}”-এর columns library-te jabe, legacy row muche jabe। Mapping fragment 🔌 থেকে নতুন করে bind করতে হবে।")
+            .setPositiveButton("Convert") { _, _ ->
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+                        val actingName = withContext(Dispatchers.IO) {
+                            runCatching {
+                                com.google.firebase.database.FirebaseDatabase.getInstance()
+                                    .reference.child("users/$uid/profile/name")
+                                    .get().await().getValue(String::class.java)
+                            }.getOrNull().orEmpty()
+                        }
+                        val libConn = conn.copy(
+                            connectionId = "",
+                            purpose = "",
+                            isLibrary = true,
+                        )
+                        ScannerSheetRepository.saveConnection(libConn, uid, actingName, true)
+                        ScannerSheetRepository.deleteConnection(
+                            conn.branchId, conn.connectionId, uid, actingName)
+                        if (isAdded) {
+                            Toast.makeText(ctx, "📚 Library ready — fragment 🔌 থেকে bind করুন", Toast.LENGTH_SHORT).show()
+                            loadConnectionsForSelectedBranch()
+                        }
+                    } catch (e: Exception) {
+                        if (isAdded) Toast.makeText(ctx, "Convert failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     /** Enable/disable toggle per connection (disabled = skipped by mirror,
@@ -701,42 +779,33 @@ class ConfigConnectorsFragment : Fragment() {
             .show()
     }
 
-    // ── Dynamic lookup/write rule rows (Step 4) ────────────────────────────
-    // One row = [mode Spinner: Text/Column Index][column ref EditText][kind
-    // Spinner][✕]. Text = exact header in the connection's header row;
-    // Column Index = letter (C) or 1-based number (3).
+    // ── Dynamic lookup/write column rows (Step 4) ──────────────────────────
+    // One row = [mode Spinner: Text/Column Index][column ref EditText][✕].
+    // Text = exact header in the library's header row; Column Index = letter
+    // (C) or 1-based number (3). NO kind spinners — libraries are neutral;
+    // WHAT data flows is bound per-fragment (Scanner/CC 🔌).
 
     private val RULE_MODES = listOf(SheetColMode.TEXT, SheetColMode.INDEX)
     private fun modeLabel(mode: String) = if (mode == SheetColMode.TEXT) "Text" else "Column Index"
     private fun modeOf(label: String) = if (label == "Text") SheetColMode.TEXT else SheetColMode.INDEX
 
-    private fun addLookupRow(rule: SheetLookupRule, showKind: Boolean = !wizardLibraryMode) {
+    private fun addLookupRow(rule: SheetLookupRule) {
         addRuleRow(
             container = layoutRuleLookups,
             tagKey = R.id.layoutRuleLookups,
             refText = rule.colRef,
             mode = rule.mode,
-            kinds = SheetLookupKind.ALL,
-            kindLabels = SheetLookupKind.ALL,
-            kind = rule.kind,
             refHint = "C / 3 / Consignment ID",
-            showKind = showKind,
         )
     }
 
-    private fun addWriteRow(rule: SheetWriteRule, showKind: Boolean = !wizardLibraryMode) {
+    private fun addWriteRow(rule: SheetWriteRule) {
         addRuleRow(
             container = layoutRuleWrites,
             tagKey = R.id.layoutRuleWrites,
             refText = rule.colRef,
             mode = rule.mode,
-            kinds = SheetWriteKind.ALL,
-            // Labels track ALL 1:1. "scanned value" is scanner-only; the
-            // mirror writes only feedback / validation / validator_name.
-            kindLabels = SheetWriteKind.ALL.map { if (it == SheetWriteKind.VALUE) "scanned value" else it },
-            kind = rule.kind,
             refHint = "K / 11 / Feedback",
-            showKind = showKind,
         )
     }
 
@@ -745,11 +814,7 @@ class ConfigConnectorsFragment : Fragment() {
         tagKey: Int,
         refText: String,
         mode: String,
-        kinds: List<String>,
-        kindLabels: List<String>,
-        kind: String,
         refHint: String,
-        showKind: Boolean = true,
     ) {
         val ctx = context ?: return
         val parent = container ?: return
@@ -784,20 +849,6 @@ class ConfigConnectorsFragment : Fragment() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        val spinner = android.widget.Spinner(ctx).apply {
-            adapter = android.widget.ArrayAdapter(ctx,
-                android.R.layout.simple_spinner_dropdown_item, kindLabels)
-            setSelection(kinds.indexOf(kind).coerceAtLeast(0))
-            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                    updateColumnSummary()
-                }
-                override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
-            }
-            layoutParams = android.widget.LinearLayout.LayoutParams(0,
-                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            visibility = if (showKind) View.VISIBLE else View.GONE
-        }
         // Mode switch re-hints the input so Text vs Index is unambiguous.
         spMode.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
@@ -811,32 +862,26 @@ class ConfigConnectorsFragment : Fragment() {
             setPadding(16, 12, 8, 12)
             setOnClickListener { parent.removeView(row); updateColumnSummary() }
         }
-        line2.addView(spMode); line2.addView(spinner); line2.addView(del)
+        line2.addView(spMode); line2.addView(del)
         row.addView(et); row.addView(line2)
-        // Hidden kind spinner degrades to null so readers know there is no
-        // kind (library columns) instead of a defaulted one.
-        row.setTag(tagKey, Triple(et, spMode, if (showKind) spinner else null))
+        row.setTag(tagKey, Pair(et, spMode))
         parent.addView(row)
     }
 
     private fun readRuleRows(
         parent: android.widget.LinearLayout?,
         tagKey: Int,
-        kinds: List<String>,
-    ): List<Triple<String, String, String>> { // (ref, mode, kind; kind = "" when hidden)
-        val out = mutableListOf<Triple<String, String, String>>()
+    ): List<Pair<String, String>> { // (ref, mode)
+        val out = mutableListOf<Pair<String, String>>()
         if (parent == null) return out
         for (i in 0 until parent.childCount) {
-            val tag = parent.getChildAt(i).getTag(tagKey) as? Triple<*, *, *> ?: continue
+            val tag = parent.getChildAt(i).getTag(tagKey) as? Pair<*, *> ?: continue
             val et = tag.first as? EditText ?: continue
             val spMode = tag.second as? android.widget.Spinner ?: continue
-            val sp = tag.third as? android.widget.Spinner
             val ref = et.text?.toString()?.trim().orEmpty()
             if (ref.isBlank()) continue
             val mode = modeOf(spMode.selectedItem?.toString() ?: "Column Index")
-            val kind = if (sp == null || kinds.isEmpty()) "" else
-                kinds[sp.selectedItemPosition.coerceIn(kinds.indices)]
-            out.add(Triple(ref, mode, kind))
+            out.add(ref to mode)
         }
         return out
     }
@@ -847,12 +892,12 @@ class ConfigConnectorsFragment : Fragment() {
     }
 
     private fun collectLookups(): List<SheetLookupRule> =
-        readRuleRows(layoutRuleLookups, R.id.layoutRuleLookups, SheetLookupKind.ALL)
-            .map { (ref, mode, kind) -> SheetLookupRule(ref, kind, mode) }
+        readRuleRows(layoutRuleLookups, R.id.layoutRuleLookups)
+            .map { (ref, mode) -> SheetLookupRule(ref, SheetLookupKind.CONSIGNMENT, mode) }
 
     private fun collectWrites(): List<SheetWriteRule> =
-        readRuleRows(layoutRuleWrites, R.id.layoutRuleWrites, SheetWriteKind.ALL)
-            .map { (ref, mode, kind) -> SheetWriteRule(ref, kind, mode) }
+        readRuleRows(layoutRuleWrites, R.id.layoutRuleWrites)
+            .map { (ref, mode) -> SheetWriteRule(ref, SheetWriteKind.FEEDBACK, mode) }
 
     private fun collectHeaderRow(): Int =
         etScHeaderRow?.text?.toString()?.trim()?.toIntOrNull()?.coerceIn(1, 20) ?: 1
@@ -1008,7 +1053,6 @@ class ConfigConnectorsFragment : Fragment() {
     private fun startNewConnection() {
         editingConnectionId = ""
         selectedSheet = null
-        wizardLibraryMode = true // new saves are always neutral libraries
         connPurpose = ""
         wizardBranchId = selectedBranchId
         connScopeType = SheetScope.GLOBAL
@@ -1027,13 +1071,7 @@ class ConfigConnectorsFragment : Fragment() {
     private fun startEditConnection(conn: ScannerSheetConn) {
         editingConnectionId = conn.connectionId
         selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
-        // Libraries stay libraries; legacy purposed conns keep their purpose
-        // silently (no dropdown anymore) and keep the kind UI.
-        wizardLibraryMode = conn.isLibrary
-        connPurpose = conn.purpose.ifBlank {
-            if (conn.isScannerConnection() && !conn.isRemarkConnection()) SheetPurpose.SCANNER
-            else SheetPurpose.REMARK
-        }
+        connPurpose = ""
         wizardBranchId = conn.branchId.ifBlank { selectedBranchId }
         connScopeType = conn.scopeType.takeIf { SheetScope.isKnown(it) } ?: SheetScope.GLOBAL
         // Seed scope inputs: month → month spinner + year; range → from/to.
@@ -1096,11 +1134,6 @@ class ConfigConnectorsFragment : Fragment() {
         when (connectStep) {
             1 -> {
                 if (wizardBranchId.isBlank()) { showScErr("Branch বেছে নিন"); return }
-                // Fragment dropdown is gone (libraries are neutral) — legacy
-                // edits carry their stored purpose silently.
-                if (!wizardLibraryMode && !SheetPurpose.isKnown(connPurpose)) {
-                    showScErr("Fragment বেছে নিন"); return
-                }
                 if (collectScope() == null) return
                 if (googleAccount == null) { showScErr("প্রথমে Google account select করুন"); return }
             }
@@ -1329,52 +1362,31 @@ class ConfigConnectorsFragment : Fragment() {
         val lookups = collectLookups()
         val writes = collectWrites()
         if (lookups.isEmpty() || writes.isEmpty()) {
-            tvScSummary?.text = if (wizardLibraryMode)
+            tvScSummary?.text =
                 "Lookup + Write column অন্তত 1টা করে দিন — নিচে + Add চাপুন।"
-            else
-                "Lookup + Write rule অন্তত 1টা করে দিন — নিচে + Add চাপুন।"
             return
         }
         fun fmtRef(ref: String, mode: String) =
             if (mode == SheetColMode.TEXT) "header “$ref”" else "column $ref"
-        if (wizardLibraryMode) {
-            // 1 → 2 → 3 flow: kon column-e milbe, kon column-e lekhara jayga.
-            // Data mapping ekhane NA — je fragment use korbe (Scanner 🔌)
-            // sekhane define hobe.
-            val lookTxt = lookups.joinToString(" + ") { fmtRef(it.colRef, it.mode) }
-            val writeTxt = writes.joinToString(", ") { fmtRef(it.colRef, it.mode) }
-            tvScSummary?.text = "📚 Library: $lookTxt মিলিয়ে row খুঁজবে, $writeTxt-তে লেখার জায়গা থাকবে। " +
-                "কোন data দিয়ে মিলবে/লিখবে সেটা Scanner fragment-এর 🔌 থেকে ঠিক হবে।"
-            return
-        }
-        val lookTxt = lookups.joinToString(" + ") { "${fmtRef(it.colRef, it.mode)}=${it.kind}" }
-        val writeTxt = writes.joinToString(", ") { "${fmtRef(it.colRef, it.mode)}←${it.kind}" }
-        val remark = lookups.any { it.kind in SheetLookupKind.REMARK_KINDS } &&
-            writes.any { it.kind in SheetWriteKind.REMARK_KINDS }
-        val scanner = lookups.any { it.kind == SheetLookupKind.EMPLOYEE } &&
-            writes.any { it.kind == SheetWriteKind.VALUE }
-        val roles = listOfNotNull(
-            "Routing".takeIf { connPurpose == SheetPurpose.ROUTING },
-            "Remark".takeIf { remark },
-            "Scanner".takeIf { scanner },
-        ).joinToString(" + ").ifBlank { "custom" }
-        tvScSummary?.text = "✅ $roles connection: $lookTxt মিলিয়ে row খুঁজে $writeTxt বসবে। Row না মিললে কিছু লেখা হবে না।"
+        // 1 → 2 → 3 flow: kon column-e milbe, kon column-e lekhara jayga.
+        // Data mapping ekhane NA — je fragment use korbe (Scanner/CC 🔌)
+        // sekhane define hobe.
+        val lookTxt = lookups.joinToString(" + ") { fmtRef(it.colRef, it.mode) }
+        val writeTxt = writes.joinToString(", ") { fmtRef(it.colRef, it.mode) }
+        tvScSummary?.text = "📚 Library: $lookTxt মিলিয়ে row খুঁজবে, $writeTxt-তে লেখার জায়গা থাকবে। " +
+            "কোন data দিয়ে মিলবে/লিখবে সেটা fragment-এর 🔌 থেকে ঠিক হবে।"
     }
 
     // ── Save ─────────────────────────────────────────────────────────────────
     // Branch comes from the Step-1 wizard dropdown (NOT the outer list
-    // filter) — branch-wise multiple sheets allowed. New saves are always
-    // neutral libraries (no purpose, neutral kind defaults); legacy edits
-    // keep their stored purpose + kinds.
+    // filter) — branch-wise multiple sheets allowed. Every save is a neutral
+    // library (no purpose, neutral kind defaults for the shared transport).
     private fun saveConnection() {
         val sheet = selectedSheet
         val acct  = googleAccount
         if (sheet == null || acct == null) { showScErr("Account এবং Sheet select করা আবশ্যক"); return }
         val saveBranchId = wizardBranchId.ifBlank { selectedBranchId }
         if (saveBranchId.isBlank()) { showScErr("Branch বেছে নিন (Step 1)"); return }
-        if (!wizardLibraryMode && !SheetPurpose.isKnown(connPurpose)) {
-            showScErr("Fragment বেছে নিন (Step 1)"); return
-        }
         val scope = collectScope() ?: return
         val scopeType = scope.type
         val scopeMonth = scope.month
@@ -1397,32 +1409,10 @@ class ConfigConnectorsFragment : Fragment() {
             return ConfigSheetParseUtil.colIndexToLetter(idx)
         }
         val normLookups = lookups.map { r ->
-            // Library columns carry no kind — neutral defaults ride along for
-            // the shared transport shape only.
-            val kind = r.kind.ifBlank { SheetLookupKind.CONSIGNMENT }
-            SheetLookupRule(normRef(r.colRef, r.mode, "Lookup") ?: return, kind, r.mode)
+            SheetLookupRule(normRef(r.colRef, r.mode, "Lookup") ?: return, r.kind, r.mode)
         }
         val normWrites = writes.map { r ->
-            val kind = r.kind.ifBlank { SheetWriteKind.FEEDBACK }
-            SheetWriteRule(normRef(r.colRef, r.mode, "Write") ?: return, kind, r.mode)
-        }
-        // Legacy purpose-appropriate rules (libraries skip this — WHAT data
-        // flows is bound per-fragment, not here). Legacy mixed conns keep
-        // working — each flow reads only its own kinds.
-        val editingLegacyPurpose = if (wizardLibraryMode) "" else connPurpose
-        if (!wizardLibraryMode && connPurpose == SheetPurpose.SCANNER &&
-            (normLookups.none { it.kind == SheetLookupKind.EMPLOYEE } ||
-                normWrites.none { it.kind == SheetWriteKind.VALUE })
-        ) {
-            showScErr("Scanner-এর জন্য lookup kind employee + write kind scanned value লাগবে")
-            return
-        }
-        if (!wizardLibraryMode && connPurpose == SheetPurpose.REMARK &&
-            (normLookups.none { it.kind in SheetLookupKind.REMARK_KINDS } ||
-                normWrites.none { it.kind in SheetWriteKind.REMARK_KINDS })
-        ) {
-            showScErr("Call Center-এর জন্য lookup + write (feedback/validation/validator_name) লাগবে")
-            return
+            SheetWriteRule(normRef(r.colRef, r.mode, "Write") ?: return, r.kind, r.mode)
         }
 
         btnScStepConnect?.isEnabled = false
@@ -1445,8 +1435,8 @@ class ConfigConnectorsFragment : Fragment() {
                     sheetName    = sheet.name,
                     tabPattern   = tabPattern,
                     headerRow    = headerRow,
-                    purpose      = editingLegacyPurpose,
-                    isLibrary    = wizardLibraryMode,
+                    purpose      = "",
+                    isLibrary    = true,
                     scopeType    = scopeType,
                     scopeMonth   = scopeMonth,
                     scopeFrom    = scopeFrom,
@@ -1457,7 +1447,7 @@ class ConfigConnectorsFragment : Fragment() {
                 )
                 ScannerSheetRepository.saveConnection(conn, uid, actingName, isNew)
                 if (!isAdded) return@launch
-                Toast.makeText(context, "✅ Sheet connected", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "📚 Library saved", Toast.LENGTH_SHORT).show()
                 // Saved branch may differ from the outer list filter — point the
                 // list at the saved branch so the new connection is visible.
                 if (saveBranchId != selectedBranchId) {
