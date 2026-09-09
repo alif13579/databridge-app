@@ -22,9 +22,19 @@ import org.json.JSONObject
  * (consignment's latest validations row has source='CC' — see
  * SupabaseRemarkValidationWriter.fetchPendingDeliveryRequestsForWorker()). If so, shows
  * DeliveryReminderOverlay (SYSTEM_ALERT_WINDOW granted) or a plain notification (not
- * granted) for the oldest one, then reschedules itself for another 10 minutes. Stops
- * rescheduling entirely once nothing is pending — armed again the next time
- * WorkerSpaceFragment loads (see its loadData()).
+ * granted) for the oldest ACTIONABLE one, then reschedules itself for another 10 minutes.
+ *
+ * Two guards stop the "barbar notification" loop:
+ * 1. One nag per CC remark — an already-shown (consignment + remark time) never
+ *    re-fires; a NEW CC remark nags again. (Before: the same oldest parcel
+ *    re-alerted at full priority every 10 minutes forever.)
+ * 2. Closed parcels are skipped — a parcel already delivered/returned needs no
+ *    reply, but its latest row stays source='CC' forever, so without this the
+ *    alarm nagged every 10 minutes until the 14-day window aged out.
+ *
+ * Stops rescheduling entirely once nothing actionable remains — armed again the
+ * next time WorkerSpaceFragment loads or an FCM push arrives (see its loadData()
+ * and DataBridgeMessagingService).
  */
 class DeliveryReminderReceiver : BroadcastReceiver() {
 
@@ -44,14 +54,47 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
                 val rows = fetchPending(systemId)
                 if (rows.isEmpty()) return@launch // nothing pending — don't reschedule
 
-                val oldest = rows.minByOrNull { it.optString("created_at") } ?: rows.first()
-                val data = buildReminderData(oldest, otherPendingCount = rows.size - 1)
+                // Oldest-first, skipping already-nagged remarks and closed
+                // parcels (see guards in the class doc). Cap Firebase status
+                // reads; an unchecked remainder reschedules for next round.
+                val sorted = rows.sortedBy { it.optString("created_at") }
+                val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val nagged = prefs.getStringSet(PREFS_KEY, emptySet())?.toMutableSet()
+                    ?: mutableSetOf()
+                var picked: JSONObject? = null
+                var pickedCons: Map<*, *>? = null
+                var checks = 0
+                var hitCap = false
+                for (row in sorted) {
+                    val key = nagKey(row)
+                    if (nagged.contains(key)) continue
+                    if (checks >= MAX_STATUS_CHECKS) { hitCap = true; break }
+                    checks++
+                    val cons = fetchConsignment(row.optString("consignment"))
+                    if (isClosedStatus(cons?.get("status") as? String)) continue
+                    picked = row
+                    pickedCons = cons
+                    break
+                }
+                if (picked == null) {
+                    // All nagged or all closed — nothing actionable. Reschedule
+                    // only if rows remain unchecked; otherwise stop the chain
+                    // (re-armed by WorkerSpace load / FCM push when new mail arrives).
+                    if (hitCap) schedule(appContext)
+                    return@launch
+                }
+                val othersUnnagged = sorted.count {
+                    it.optString("consignment") != picked.optString("consignment") &&
+                        !nagged.contains(nagKey(it))
+                }
+                val data = buildReminderData(picked, pickedCons, otherPendingCount = othersUnnagged)
                 if (data != null) {
                     if (android.provider.Settings.canDrawOverlays(appContext)) {
                         DeliveryReminderOverlay.show(appContext, data)
                     } else {
                         showNotification(appContext, data)
                     }
+                    markNagged(prefs, nagged, nagKey(picked))
                 }
                 schedule(appContext) // still pending (or just handled one of several) — check again later
             } finally {
@@ -69,14 +112,16 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
 
     /** Fills in customer name/address/COD from Firebase — validations rows only carry
      *  customer_phone, not the rest (see the extension's Hold Validation Export for the
-     *  same gap and why: those columns were never added to public.validations). */
-    private suspend fun buildReminderData(row: JSONObject, otherPendingCount: Int): DeliveryReminderOverlay.Data? {
+     *  same gap and why: those columns were never added to public.validations).
+     *  [cons] is the pre-fetched courier/consignments node (reused from the
+     *  closed-status check above so we don't read it twice). */
+    private suspend fun buildReminderData(
+        row: JSONObject,
+        cons: Map<*, *>?,
+        otherPendingCount: Int,
+    ): DeliveryReminderOverlay.Data? {
         val consignmentId = row.optString("consignment")
         if (consignmentId.isBlank()) return null
-        val cons = try {
-            FirebaseDatabase.getInstance().reference.child("courier/consignments/$consignmentId")
-                .get().await().value as? Map<*, *>
-        } catch (_: Exception) { null }
 
         val author = row.optJSONObject("author")
         return DeliveryReminderOverlay.Data(
@@ -95,6 +140,46 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
             ccRemarkAtMs = SupabaseRemarkValidationWriter.parseDbTimestampMillis(row.optString("created_at")),
             otherPendingCount = otherPendingCount,
         )
+    }
+
+    private suspend fun fetchConsignment(consignmentId: String): Map<*, *>? {
+        if (consignmentId.isBlank()) return null
+        return try {
+            FirebaseDatabase.getInstance().reference.child("courier/consignments/$consignmentId")
+                .get().await().value as? Map<*, *>
+        } catch (_: Exception) { null }
+    }
+
+    /** Closed = reply is moot (delivered/returned families). Unknown or blank
+     *  status stays actionable — never silence a parcel we can't read. */
+    private fun isClosedStatus(status: String?): Boolean {
+        if (status.isNullOrBlank()) return false
+        return status.trim().lowercase() in CLOSED_STATUSES
+    }
+
+    /** One nag per CC remark: consignment + the remark's created_at. A new
+     *  remark (new timestamp) nags again — same parcel, new key. */
+    private fun nagKey(row: JSONObject): String =
+        row.optString("consignment") + "|" + row.optString("created_at")
+
+    private fun markNagged(
+        prefs: android.content.SharedPreferences,
+        nagged: MutableSet<String>,
+        key: String,
+    ) {
+        // Cap + prune remark timestamps older than the 14-day pending window
+        // so the set can't grow without bound.
+        val cutoff = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
+            .minusDays(14).toString() // yyyy-MM-dd, lexicographically comparable
+        nagged.add(key)
+        val pruned = nagged.filter { k ->
+            val ts = k.substringAfter("|", "")
+            ts >= cutoff || !ts.contains("T")
+        }.toMutableSet()
+        while (pruned.size > MAX_NAGGED_KEYS) pruned.remove(pruned.first())
+        try {
+            prefs.edit().putStringSet(PREFS_KEY, pruned).apply()
+        } catch (_: Exception) { }
     }
 
     private fun showNotification(context: Context, data: DeliveryReminderOverlay.Data) {
@@ -132,6 +217,16 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
 
     companion object {
         private const val CHANNEL_ID = "databridge_alerts_channel_v2" // reuse the existing channel
+        private const val PREFS_NAME = "delivery_reminder"
+        private const val PREFS_KEY = "nagged_remarks"
+        private const val MAX_NAGGED_KEYS = 100
+        private const val MAX_STATUS_CHECKS = 10
+        /** Delivered + return families (Hermes run statuses, lowercase) —
+         *  a CC delivery-request on these needs no worker reply. */
+        private val CLOSED_STATUSES = setOf(
+            "delivered", "partial delivery", "partial", "exchange", "paid return",
+            "return",
+        )
 
         /** Called from WorkerSpaceFragment.loadData() whenever it finishes a load — cheap
          *  no-op if nothing is pending (this alarm fires once, finds nothing, and simply
