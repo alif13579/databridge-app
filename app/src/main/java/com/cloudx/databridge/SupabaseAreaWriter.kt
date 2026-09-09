@@ -28,8 +28,8 @@ object SupabaseAreaWriter {
 
     suspend fun save(branchId: String, areaId: String, name: String, areaType: String, zone: String) {
         require(branchId.isNotBlank()) { "A branch is required" }
-        // Blank areaId = create: the directory Edge Function allocates the next
-        // numeric id for the branch. Non-blank = edit (or legacy callers).
+        // Blank areaId = create: the directory Edge Function allocates a random
+        // UUID for the branch. Non-blank = edit (or legacy callers).
         require(name.isNotBlank()) { "Area name is required" }
         postAction(
             "area_upsert",

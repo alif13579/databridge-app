@@ -379,14 +379,12 @@ Deno.serve(async (request) => {
       if (!branch) return reply({ error: 'Unknown branch_id' }, 400)
       const now = new Date().toISOString()
       if (!areaId) {
-        // Auto ID (new app): next integer above this branch's highest numeric
-        // area_id. Plain INSERT + retry so concurrent creates collide with
-        // 23505 and retry instead of overwriting each other.
+        // Auto ID (new app): random UUID — non-human like the rest of the
+        // directory (push-keys/UUIDs/acronyms), never sequential numbers.
+        // Plain INSERT + retry so a 23505 collision retries instead of
+        // overwriting (practically impossible with UUIDs, kept for safety).
         for (let attempt = 0; attempt < 5 && !areaId; attempt++) {
-          const { data: rows, error: readError } = await admin.from('areas')
-            .select('area_id').eq('branch_id', branchId)
-          if (readError) throw readError
-          const candidate = nextNumericId((rows ?? []).map((r) => r.area_id))
+          const candidate = crypto.randomUUID()
           const { error } = await admin.from('areas').insert({
             branch_id: branchId, area_id: candidate,
             name: str(a.name).trim(), area_type: areaType, zone: str(a.zone).trim(),
