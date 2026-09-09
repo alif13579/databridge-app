@@ -141,6 +141,22 @@
                     android:textStyle="bold"
                     android:includeFontPadding="false" />
 
+                <!-- Drag handle — visible only in Custom sort mode (see
+                     WorkerParcelAdapter.dragEnabled). Touch-drag to reorder
+                     road-plan-wise; long-press stays the history popup. -->
+                <TextView
+                    android:id="@+id/tvDragHandle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⋮⋮"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_text_muted"
+                    android:paddingStart="12dp"
+                    android:paddingTop="4dp"
+                    android:paddingBottom="4dp"
+                    android:layout_marginStart="8dp"
+                    android:visibility="gone" />
 
             </LinearLayout>
 

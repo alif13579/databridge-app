@@ -101,10 +101,14 @@ class WorkerParcelAdapter(
 
     var expandedItemId: String? = null
     var statusLang: String = "bn"
+    /** Custom road-plan mode: shows the ⋮⋮ drag handle; touch-drag reorders. */
+    var dragEnabled: Boolean = false
+    var onStartDrag: (RecyclerView.ViewHolder) -> Unit = {}
     private var previousExpandedPosition: Int? = null
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val tvCustomer: TextView = view.findViewById(R.id.tvParcelCustomer)
+        val dragHandle: TextView = view.findViewById(R.id.tvDragHandle)
 
         val tvMeta: TextView = view.findViewById(R.id.tvParcelMeta)
         val tvAddress: TextView = view.findViewById(R.id.tvParcelAddress)
@@ -345,12 +349,34 @@ class WorkerParcelAdapter(
         }
         holder.itemView.setOnLongClickListener { onLongPress(item); true }
 
+        // Custom-mode drag handle: touch-drag reorders road-plan-wise.
+        // Long-press stays the history popup, swipe stays call/remarks.
+        holder.dragHandle.visibility = if (dragEnabled) View.VISIBLE else View.GONE
+        holder.dragHandle.setOnTouchListener { _, event ->
+            if (dragEnabled && event.actionMasked == android.view.MotionEvent.ACTION_DOWN) {
+                onStartDrag(holder)
+            }
+            false
+        }
+
         holder.btnCall.setOnClickListener { onCall(item) }
         holder.btnSetRemarks.setOnClickListener { onSetRemarks(item) }
     }
 
     companion object {
         data class StatusConfig(val color: Int, val bg: Int, val label: String)
+
+        /**
+         * Custom road-plan order: [order] holds consignment IDs in the agent's
+         * own sequence (persisted by WorkerSpaceFragment). IDs missing from it
+         * (new parcels) sort last, keeping their incoming relative order, so a
+         * fresh parcel never jumps above the agent's planned route.
+         */
+        fun sortByCustom(parcels: List<WorkerParcelItem>, order: List<String>): List<WorkerParcelItem> {
+            if (order.isEmpty()) return parcels
+            val rank = order.withIndex().associate { (i, id) -> id to i }
+            return parcels.sortedWith(compareBy { rank[it.id] ?: Int.MAX_VALUE })
+        }
 
         /**
          * Compact age badge — shows how old a parcel is:

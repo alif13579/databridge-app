@@ -77,7 +77,13 @@ class WorkerSpaceFragment : Fragment() {
     private var systemId = ""
     private var userId = ""
     private var agentPhone = ""
-    private var sortMode: String = "priority" // "priority" | "attempt" | "aging"
+    private var sortMode: String = "priority" // "priority" | "attempt" | "aging" | "custom"
+    // Custom road-plan order: consignment IDs in the agent's own sequence,
+    // persisted per agent (see loadCustomOrder/saveCustomOrder). Other modes
+    // never read or write it, so switching modes always restores each mode's
+    // own order exactly as before.
+    private val customOrderIds = mutableListOf<String>()
+    private var dragHelper: ItemTouchHelper? = null
     private lateinit var tvSortByDropdown: TextView
 
     // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
@@ -409,8 +415,7 @@ class WorkerSpaceFragment : Fragment() {
         adapter = WorkerParcelAdapter(
             onCall = { item ->
                 AutoDialHelper.dial(this, item.phone) // ✅ auto-dial / dialpad / SIM chooser
-            },
-            onSetRemarks = { item ->
+            },            onSetRemarks = { item ->
                 showWorkerRemarksDialog(item)
             },
             onLongPress = { item ->
@@ -467,6 +472,107 @@ class WorkerSpaceFragment : Fragment() {
                 }
             )
         ).attachToRecyclerView(rvParcelList)
+
+        // Custom-mode drag: vertical reorder via the ⋮⋮ handle only (long-press
+        // drag stays OFF so long-press keeps opening the history popup, and
+        // swipe stays call/remarks). Gated by sortMode in onMove as well.
+        adapter.onStartDrag = { holder -> dragHelper?.startDrag(holder) }
+        val dragCallback = object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
+        ) {
+            override fun isLongPressDragEnabled() = false
+            override fun onMove(
+                rv: RecyclerView,
+                vh: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                if (sortMode != "custom") return false
+                val from = vh.bindingAdapterPosition
+                val to = target.bindingAdapterPosition
+                if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
+                val list = adapter.currentList
+                val movingId = list.getOrNull(from)?.id ?: return false
+                val targetId = list.getOrNull(to)?.id ?: return false
+                moveCustomItem(movingId, targetId)
+                return true
+            }
+            override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {}
+        }
+        dragHelper = ItemTouchHelper(dragCallback)
+        dragHelper?.attachToRecyclerView(rvParcelList)
+        syncDragState()
+    }
+
+    // ── Custom road-plan order (memory) ──────────────────────────────
+
+    private fun customOrderPrefs() =
+        requireContext().getSharedPreferences("worker_custom_order", android.content.Context.MODE_PRIVATE)
+
+    private fun customOrderKey() = "order_${systemId.ifBlank { "unknown" }}"
+
+    private fun loadCustomOrder() {
+        customOrderIds.clear()
+        if (systemId.isBlank()) return
+        val raw = runCatching { customOrderPrefs().getString(customOrderKey(), "") }.getOrNull().orEmpty()
+        if (raw.isNotBlank()) {
+            customOrderIds.addAll(raw.split("\n").map { it.trim() }.filter { it.isNotBlank() })
+        }
+    }
+
+    /** Drops gone IDs, appends brand-new parcel IDs at the end (incoming order). */
+    private fun mergeCustomOrder(parcels: List<WorkerParcelItem> = allParcels) {
+        val live = parcels.map { it.id }.toSet()
+        customOrderIds.retainAll(live)
+        val known = customOrderIds.toSet()
+        parcels.forEach { if (it.id !in known) customOrderIds.add(it.id) }
+    }
+
+    private fun saveCustomOrder() {
+        if (systemId.isBlank()) return
+        runCatching {
+            customOrderPrefs().edit().putString(customOrderKey(), customOrderIds.joinToString("\n")).apply()
+        }
+    }
+
+    private fun applyCustomOrder() {
+        mergeCustomOrder()
+        allParcels = WorkerParcelAdapter.sortByCustom(allParcels, customOrderIds)
+    }
+
+    /** Single choke point for mode-aware sorting (load, refresh, mode switch). */
+    private fun sortParcels(parcels: List<WorkerParcelItem>): List<WorkerParcelItem> = when (sortMode) {
+        "aging"    -> WorkerParcelAdapter.sortByGroupAge(parcels)
+        "priority" -> WorkerParcelAdapter.sortByPriority(parcels)
+        "custom"   -> {
+            mergeCustomOrder(parcels)
+            WorkerParcelAdapter.sortByCustom(parcels, customOrderIds)
+        }
+        else       -> WorkerParcelAdapter.sortByAttempt(parcels)
+    }
+
+    /**
+     * Moves [movingId] to [targetId]'s slot in the FULL custom order (not just
+     * the filtered view), so drag works the same with search/status filters
+     * active. Persists to memory, then re-renders.
+     */
+    private fun moveCustomItem(movingId: String, targetId: String) {
+        if (movingId == targetId) return
+        val origFrom = customOrderIds.indexOf(movingId)
+        val origTo = customOrderIds.indexOf(targetId)
+        if (origFrom < 0 || origTo < 0) return
+        customOrderIds.removeAt(origFrom)
+        val insertAt = customOrderIds.indexOf(targetId)
+        customOrderIds.add(if (origFrom < origTo) insertAt + 1 else insertAt, movingId)
+        saveCustomOrder()
+        allParcels = WorkerParcelAdapter.sortByCustom(allParcels, customOrderIds)
+        applyFilters()
+    }
+
+    /** Shows/hides the ⋮⋮ handle; called on every sort-mode change. */
+    private fun syncDragState() {
+        if (!::adapter.isInitialized) return
+        adapter.dragEnabled = sortMode == "custom"
+        adapter.notifyDataSetChanged()
     }
 
     /**
@@ -884,8 +990,8 @@ class WorkerSpaceFragment : Fragment() {
                 history = newHistory
             )
         }
-        if (sortMode == "priority") {
-            allParcels = WorkerParcelAdapter.sortByPriority(allParcels)
+        if (sortMode == "priority" || sortMode == "custom") {
+            allParcels = sortParcels(allParcels)
         }
         // Remark saved -> collapse the card it was set from (updatedIds also covers a bulk
         // save; only clears expandedItemId if it's actually one of the parcels just saved,
@@ -1309,6 +1415,7 @@ class WorkerSpaceFragment : Fragment() {
                     tvEmpty.text = "⚠ System ID পাওয়া যায়নি"
                     return@launch
                 }
+                loadCustomOrder()
 
                 // Direct validation reads and Realtime both go through RLS.  A worker can
                 // receive a Call Center remark before ever writing one, so establish the
@@ -1528,8 +1635,8 @@ class WorkerSpaceFragment : Fragment() {
                 history = mergeHistoryEntries(item.history, newHistory)
             )
         }
-        if (sortMode == "priority") {
-            allParcels = WorkerParcelAdapter.sortByPriority(allParcels)
+        if (sortMode == "priority" || sortMode == "custom") {
+            allParcels = sortParcels(allParcels)
         }
         // setupFilterTabs() must run before applyFilters() so the status chips
         // reflect the updated effectiveStatus distribution after a Realtime INSERT.
@@ -1626,11 +1733,7 @@ class WorkerSpaceFragment : Fragment() {
             try {
                 val parcels = loadParcelsForSelectedRunType(runSnap)
                 if (!isAdded || generation != loadGeneration) return@launch
-                allParcels = when (sortMode) {
-                    "aging"    -> WorkerParcelAdapter.sortByGroupAge(parcels)
-                    "priority" -> WorkerParcelAdapter.sortByPriority(parcels)
-                    else       -> WorkerParcelAdapter.sortByAttempt(parcels)
-                }
+                allParcels = sortParcels(parcels)
                 setupFilterTabs()
                 applyFilters()
                 RemarkPushChainLog.log("RemarkPushChain", "loadData: allParcels loaded, size=${allParcels.size}")
@@ -1923,8 +2026,10 @@ class WorkerSpaceFragment : Fragment() {
         tvSortByDropdown.text = when (sortMode) {
             "aging"    -> "🕐 Aging ▾"
             "priority" -> "⭐ Priority ▾"
+            "custom"   -> "✋ Custom ▾"
             else       -> "🔁 Attempt ▾"
         }
+        syncDragState()
     }
 
     /**
@@ -1964,9 +2069,10 @@ class WorkerSpaceFragment : Fragment() {
         val options = arrayOf(
             "⭐ Priority (highest status priority first)",
             "🔁 Attempt (most attempted first)",
-            "🕐 Aging (oldest first)"
+            "🕐 Aging (oldest first)",
+            "✋ Custom (amar road plan — drag kore sajao)"
         )
-        val keys = arrayOf("priority", "attempt", "aging")
+        val keys = arrayOf("priority", "attempt", "aging", "custom")
         val currentIndex = keys.indexOf(sortMode).coerceAtLeast(0)
         android.app.AlertDialog.Builder(ctx)
             .setTitle("Sort by")
@@ -1974,11 +2080,7 @@ class WorkerSpaceFragment : Fragment() {
                 sortMode = keys[which]
                 updateSortByLabel()
                 saveSortPref()
-                allParcels = when (sortMode) {
-                    "aging"    -> WorkerParcelAdapter.sortByGroupAge(allParcels)
-                    "priority" -> WorkerParcelAdapter.sortByPriority(allParcels)
-                    else       -> WorkerParcelAdapter.sortByAttempt(allParcels)
-                }
+                allParcels = sortParcels(allParcels)
                 applyFilters()
                 dialog.dismiss()
             }
