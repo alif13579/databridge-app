@@ -5,7 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
@@ -66,7 +65,7 @@ object ScannerSheetRepository {
                 enabled         = child.child("enabled").getValue(Boolean::class.java) ?: true,
                 // Missing = "" → inferred from rules (see purposeLabel).
                 purpose         = child.child("purpose").getValue(String::class.java)
-                    ?.takeIf { it == SheetPurpose.SCANNER || it == SheetPurpose.REMARK } ?: "",
+                    ?.takeIf { SheetPurpose.isKnown(it) } ?: "",
                 // Missing = global (conns predate scopes).
                 scopeType       = child.child("scopeType").getValue(String::class.java)
                     ?.takeIf { SheetScope.isKnown(it) } ?: SheetScope.GLOBAL,
@@ -230,11 +229,25 @@ object ScannerSheetRepository {
 
     // ── Scan-time write logic ──────────────────────────────────────────────
 
-    /** Resolves a tab pattern like "Day {dd}" against today's date. Zero-padded day-of-month,
-     *  e.g. "Day 16", "Day 03" — matching the exact format confirmed for this connector. */
+    /** Resolves a tab pattern against [atDate] — the single source of truth
+     *  (wizard preview, mirror, scanner write and dry-run all use this).
+     *  Tokens: {dd} zero-padded day ("09"), {d} plain day ("9"), {mm}
+     *  zero-padded month, {m} plain month, {yyyy} year, {yy} short year.
+     *  No token → fixed literal tab name, used as-is every day.
+     *  e.g. "Day {dd}" → "Day 09", "Routing" → "Routing",
+     *  "Routing {dd}" → "Routing 09". */
     fun resolveTabName(pattern: String, atDate: Date = Date()): String {
-        val dd = SimpleDateFormat("dd", Locale.ENGLISH).format(atDate)
-        return pattern.replace("{dd}", dd)
+        val cal = java.util.Calendar.getInstance().apply { time = atDate }
+        val dd = String.format(Locale.ENGLISH, "%02d", cal.get(java.util.Calendar.DAY_OF_MONTH))
+        val d = cal.get(java.util.Calendar.DAY_OF_MONTH).toString()
+        val mm = String.format(Locale.ENGLISH, "%02d", cal.get(java.util.Calendar.MONTH) + 1)
+        val m = (cal.get(java.util.Calendar.MONTH) + 1).toString()
+        val yyyy = cal.get(java.util.Calendar.YEAR).toString()
+        val yy = yyyy.takeLast(2)
+        return pattern
+            .replace("{dd}", dd).replace("{d}", d)
+            .replace("{mm}", mm).replace("{m}", m)
+            .replace("{yyyy}", yyyy).replace("{yy}", yy)
     }
 
     sealed class WriteResult {

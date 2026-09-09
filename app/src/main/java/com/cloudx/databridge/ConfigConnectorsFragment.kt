@@ -1257,16 +1257,11 @@ class ConfigConnectorsFragment : Fragment() {
     // ── Step 3: Tab pattern preview ─────────────────────────────────────────
     private fun updateTabPreview() {
         val pattern = etScTabPattern?.text?.toString()?.trim().orEmpty().ifBlank { "Day {dd}" }
-        val resolved = resolveTabPattern(pattern)
+        // Single source of truth — the wizard's old local resolver dropped the
+        // leading zero ("Day 9" vs the real "Day 09"), which is why this now
+        // delegates to ScannerSheetRepository.resolveTabName.
+        val resolved = ScannerSheetRepository.resolveTabName(pattern)
         tvScTabPreview?.text = "আজকের Tab নাম হবে:  \"$resolved\""
-    }
-
-    /** {dd} -> current day-of-month, e.g. "16" (no leading zero — matches the "Day 16" example
-     *  the user gave, not "Day 06" zero-padded). If a genuinely different pattern is entered
-     *  with no {dd} token, it's used literally (future-proofing per tabPattern's doc comment). */
-    private fun resolveTabPattern(pattern: String): String {
-        val day = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_MONTH)
-        return pattern.replace("{dd}", day.toString())
     }
 
     // ── Step 4: Columns ──────────────────────────────────────────────────────
@@ -1286,6 +1281,7 @@ class ConfigConnectorsFragment : Fragment() {
         val scanner = lookups.any { it.kind == SheetLookupKind.EMPLOYEE } &&
             writes.any { it.kind == SheetWriteKind.VALUE }
         val roles = listOfNotNull(
+            "Routing".takeIf { connPurpose == SheetPurpose.ROUTING },
             "Remark".takeIf { remark },
             "Scanner".takeIf { scanner },
         ).joinToString(" + ").ifBlank { "custom" }
@@ -1405,7 +1401,7 @@ class ConfigConnectorsFragment : Fragment() {
         val lookups = collectLookups()
         val writes = collectWrites()
         if (lookups.isEmpty() || writes.isEmpty()) { showScErr("আগে Lookup + Write rule দিন"); return }
-        val tab = resolveTabPattern(
+        val tab = ScannerSheetRepository.resolveTabName(
             etScTabPattern?.text?.toString()?.trim().orEmpty().ifBlank { "Day {dd}" })
         val headerRow = collectHeaderRow()
         tvScRulePreview?.visibility = View.GONE

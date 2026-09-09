@@ -392,7 +392,7 @@
                     android:padding="10dp" android:layout_marginBottom="6dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="{dd} প্রতিদিনের তারিখ দিয়ে automatically replace হবে — আজকের tab হবে উপরে দেখানো নামে"
+                    android:text="Fixed (jemon Routing), dynamic ({dd}=09, {d}=9, {mm}, {m}, {yyyy}, {yy}) ba mixed (jemon Routing {dd}) — token na thakle protidin same tab"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="2dp" />
             </LinearLayout>
 

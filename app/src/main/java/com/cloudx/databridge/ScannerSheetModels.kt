@@ -19,10 +19,15 @@ data class ScannerSheetConn(
     val sheetId:        String = "",
     val sheetName:      String = "",
     /**
-     * Tab-name pattern — currently always "Day {dd}" (day-of-month, zero-padded, no leading
-     * zero stripped — e.g. "Day 16", "Day 03"), resolved at scan-time from the current date.
-     * Stored as a pattern string (not just a flag) so a different pattern could be supported
-     * later (e.g. "{yyyyMMdd}") without another schema migration.
+     * Tab-name pattern — three ways to use it:
+     * - Fixed text: "Routing" (no token → used literally, same tab every day).
+     * - Dynamic: tokens resolve against the write date — {dd} zero-padded day
+     *   ("09"), {d} plain day ("9"), {mm} zero-padded month ("09"), {m} plain
+     *   month ("9"), {yyyy} year ("2026"), {yy} short year ("26").
+     * - Mixed: literal + tokens, e.g. "Routing {dd}" → "Routing 09".
+     * Default "Day {dd}" (e.g. "Day 09"). Single source of truth is
+     * ScannerSheetRepository.resolveTabName — every reader (mirror, scanner
+     * write, dry-run, wizard preview) must go through it.
      */
     val tabPattern:     String = "Day {dd}",
     val googleEmail:    String = "",
@@ -57,7 +62,7 @@ data class ScannerSheetConn(
 
     /** True when the mirror should process this connection. */
     fun isRemarkConnection(): Boolean {
-        if (purpose == SheetPurpose.SCANNER) return false
+        if (purpose == SheetPurpose.SCANNER || purpose == SheetPurpose.ROUTING) return false
         if (purpose == SheetPurpose.REMARK) {
             return effectiveLookups().isNotEmpty() && effectiveWrites().isNotEmpty()
         }
@@ -68,7 +73,7 @@ data class ScannerSheetConn(
 
     /** True when the scanner should use this connection (employee→value). */
     fun isScannerConnection(): Boolean {
-        if (purpose == SheetPurpose.REMARK) return false
+        if (purpose == SheetPurpose.REMARK || purpose == SheetPurpose.ROUTING) return false
         if (purpose == SheetPurpose.SCANNER) {
             return effectiveScannerLookup() != null && effectiveScannerWrite() != null
         }
@@ -76,10 +81,19 @@ data class ScannerSheetConn(
             effectiveWrites().any { it.kind == SheetWriteKind.VALUE }
     }
 
+    /** True when the routing-approval flow should use this connection. */
+    fun isRoutingConnection(): Boolean {
+        if (purpose == SheetPurpose.ROUTING) {
+            return effectiveLookups().isNotEmpty() && effectiveWrites().isNotEmpty()
+        }
+        return false
+    }
+
     /** Human label for lists: explicit purpose, else inferred. */
     fun purposeLabel(): String = when {
         purpose == SheetPurpose.SCANNER -> "Scanner"
         purpose == SheetPurpose.REMARK -> "Call Center"
+        purpose == SheetPurpose.ROUTING -> "Routing Approval"
         isScannerConnection() && !isRemarkConnection() -> "Scanner"
         else -> "Call Center"
     }
@@ -104,18 +118,21 @@ object SheetColMode {
 
 /** Connection purpose — which fragment this sheet serves, chosen at connect
  *  time (step 1, Branch + Fragment dropdowns) so every sheet's job is
- *  explicit: scanner sheets take scans, remark sheets take mirrors.
+ *  explicit: scanner sheets take scans, remark sheets take mirrors, routing
+ *  sheets take routing-approval decisions.
  *  Branch + fragment-wise MULTIPLE sheets allowed (each save = new
  *  connection). Future fragments: just add a const + label here — stored
  *  values stay stable (Firebase compat), the wizard dropdown picks them up. */
 object SheetPurpose {
     const val SCANNER = "scanner"
     const val REMARK = "remark"
+    const val ROUTING = "routing"
     /** All known fragments, in wizard order. */
-    val ALL = listOf(SCANNER, REMARK)
+    val ALL = listOf(SCANNER, REMARK, ROUTING)
     fun label(purpose: String): String = when (purpose) {
         SCANNER -> "📷 Scanner (Scan → sheet)"
         REMARK -> "☎️ Call Center (Remark → sheet)"
+        ROUTING -> "🛣️ Routing Approval (Routing → sheet)"
         else -> purpose.ifBlank { "— Fragment বেছে নিন —" }
     }
     fun isKnown(purpose: String): Boolean = purpose in ALL
