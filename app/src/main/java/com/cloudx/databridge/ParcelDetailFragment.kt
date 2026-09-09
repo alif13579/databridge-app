@@ -333,8 +333,6 @@ class ParcelDetailFragment : Fragment() {
             val noteText = etRemarks.text?.toString()?.trim().orEmpty()
             if (selectedStatus.isBlank() && noteText.isBlank()) return@setOnClickListener
 
-            val timestamp    = System.currentTimeMillis()
-            val indexDateKey = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(timestamp))
             val source       = if (scope == "worker") "WORKER" else "CC"
             // worker scope: the signed-in worker IS the assigned agent (they're looking at
             // their own parcel). CC scope: the assigned worker is whoever the remark history
@@ -388,22 +386,9 @@ class ParcelDetailFragment : Fragment() {
                 )
                 if (!isAdded) return@launch
                 if (ok) {
-                    // Kept alongside the validations write above: these feed CC's push-queue index
-                    // (courier/remarks_by_userId) and per-day dedup (courier/users_by_consignment),
-                    // unrelated to the remark record itself, which now lives in Supabase.
-                    // Only written on success — a failed Edge write must not leave ghost index rows.
-                    db.reference.child("courier/remarks_by_userId/$userId/push_${indexDateKey}_$parcelId")
-                        .setValue(
-                            mapOf(
-                                "final_status" to selectedStatus,
-                                "remarks"      to selectedRemarkText.ifBlank { noteText },
-                                "created_at"   to timestamp,
-                                "updated_at"   to timestamp
-                            )
-                        )
-                    db.reference.child("courier/users_by_consignment/$parcelId/$indexDateKey/$userId")
-                        .setValue(true)
-
+                    // Supabase-only: the Firebase push-queue index
+                    // (courier/remarks_by_userId + users_by_consignment) is
+                    // retired — no Firebase remark writes from any save path.
                     EngagedStateManager.clearEngaged(parcelId, userId)
 
                     Toast.makeText(requireContext(), "✅ Remark saved", Toast.LENGTH_SHORT).show()

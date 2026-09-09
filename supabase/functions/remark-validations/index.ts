@@ -25,6 +25,16 @@ import {
   withBanglaLabels,
 } from '../_shared/remarks.ts'
 
+/** Short non-human id (10 letters, never digits) — matches the DB default
+ *  for validation_remarks.id (202609090004). */
+function shortId(): string {
+  const abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+  const bytes = crypto.getRandomValues(new Uint8Array(10))
+  let out = ''
+  for (let i = 0; i < 10; i++) out += abc[bytes[i] % 52]
+  return out
+}
+
 Deno.serve(async (request) => {
   const guard = guardRequest(request)
   if (guard) return guard
@@ -300,7 +310,7 @@ Deno.serve(async (request) => {
         updated_at: new Date().toISOString(),
       }
       const { data, error } = await admin.from('validation_remarks')
-        .insert({ id: crypto.randomUUID(), ...payload }).select('*').maybeSingle()
+        .insert({ id: shortId(), ...payload }).select('*').maybeSingle()
       if (error) throw error
       return reply({ ok: true, remark: data })
     }
