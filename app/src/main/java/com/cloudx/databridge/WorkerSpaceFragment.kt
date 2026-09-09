@@ -625,6 +625,7 @@ class WorkerSpaceFragment : Fragment() {
      * if config is empty/unreachable.
      */
     private fun loadRemarkOptions() {
+        remarkOptionsLoadFailed = false
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 // These reads are fully independent of each other (none depends on another's
@@ -684,6 +685,7 @@ class WorkerSpaceFragment : Fragment() {
                     setupFilterTabs()
                 }
             } catch (e: Exception) {
+                remarkOptionsLoadFailed = true
                 Log.e("WorkerSpace", "Failed to load remark options from config, using defaults", e)
             }
         }
@@ -743,60 +745,28 @@ class WorkerSpaceFragment : Fragment() {
         layoutOptions.removeAllViews()
 
         if (options.isEmpty()) {
+            // No note-only save here by design: a remark row without a status
+            // key breaks status-wise reporting downstream, so workers must
+            // pick a configured option — never free-type a standalone note.
             val tv = TextView(requireContext())
-            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই। Admin-কে Worker remark config-এ remark যোগ করতে বলুন।\n\nনোট হিসেবে লিখতে পারেন:"
+            tv.text = if (remarkOptionsLoadFailed)
+                "⚠ Remark options load হয়নি (network)। Back গিয়ে আবার আসুন, না হলে পরে চেষ্টা করুন।"
+            else
+                "⚠ Config-এ কোনো Worker remark সেট করা নেই। Admin-কে Worker remark config-এ remark যোগ করতে বলুন।"
             tv.textSize = 13f
             tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
             tv.setPadding(0, 24, 0, 12)
             layoutOptions.addView(tv)
 
-            val etNote = android.widget.EditText(requireContext()).apply {
-                hint = "এখানে note লিখুন..."
-                textSize = 13f
-                minLines = 3
-                background = requireContext().getDrawable(R.drawable.bg_input_rounded)
-                setPadding(24, 20, 24, 20)
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = 16 }
-            }
-            layoutOptions.addView(etNote)
-
-            val btnSaveNote = android.widget.Button(requireContext())
-            btnSaveNote.text = "Note Save করুন"
-            btnSaveNote.setOnClickListener {
-                val noteText = etNote.text.toString().trim()
-                if (noteText.isBlank()) return@setOnClickListener
-                btnSaveNote.isEnabled = false
-                btnSaveNote.text = "⏳ Saving..."
-
-                // Call-log lookup on IO first (same as saveRemarkForItems()), then write.
-                viewLifecycleOwner.lifecycleScope.launch {
-                    val ok = writeWorkerRemarkToSupabase(
-                        consignmentId = item.id,
-                        branchId = RbacManager.current.branchIds.firstOrNull().orEmpty(),
-                        status = "",
-                        remarksText = "",
-                        noteText = noteText
-                    )
-
-                    if (!isAdded) return@launch
-                    if (ok) {
-                        EngagedStateManager.clearEngaged(item.id, userId)
-                        loadTodayRemarksStats()
-                        android.widget.Toast.makeText(requireContext(), "✓ Note saved", android.widget.Toast.LENGTH_SHORT).show()
-                        dialog.dismiss()
-                    } else {
-                        btnSaveNote.isEnabled = true
-                        btnSaveNote.text = "Note Save করুন"
-                        android.widget.Toast.makeText(requireContext(),
-                            "⚠ Save হয়নি — network দেখে আবার চেষ্টা করুন",
-                            android.widget.Toast.LENGTH_LONG).show()
-                    }
+            if (remarkOptionsLoadFailed) {
+                val btnRetry = android.widget.Button(requireContext())
+                btnRetry.text = "↻ আবার চেষ্টা করুন"
+                btnRetry.setOnClickListener {
+                    dialog.dismiss()
+                    loadRemarkOptions()
                 }
+                layoutOptions.addView(btnRetry)
             }
-            layoutOptions.addView(btnSaveNote)
             dialog.show()
             return
         }
@@ -2275,6 +2245,12 @@ class WorkerSpaceFragment : Fragment() {
     // if the config hasn't loaded yet or is empty, so the feature never breaks entirely.
     private var whatsappTemplatesCache: Map<String, ConfigState.WhatsAppTemplate> = emptyMap()
     private var remarkOptions: List<WorkerRemarkOption> = emptyList()
+    // True when the last loadRemarkOptions() failed (network) — distinct from
+    // "loaded but admin configured nothing". The remarks sheet shows a retry
+    // hint in the first case and a contact-admin hint in the second; neither
+    // case allows a note-only save (a remark without a status key corrupts
+    // downstream status reporting, so the fallback that allowed it is gone).
+    private var remarkOptionsLoadFailed: Boolean = false
     data class WorkerRemarkOption(
         val icon: String,
         val label: String,
