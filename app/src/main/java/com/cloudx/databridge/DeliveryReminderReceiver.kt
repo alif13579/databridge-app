@@ -18,19 +18,21 @@ import org.json.JSONObject
 
 /**
  * Fires on a self-rescheduling AlarmManager alarm (see schedule() / arm()) to check whether
- * the signed-in worker still has any parcel with an outstanding CC delivery-request
- * (consignment's latest validations row has source='CC' — see
- * SupabaseRemarkValidationWriter.fetchPendingDeliveryRequestsForWorker()). If so, shows
- * DeliveryReminderOverlay (SYSTEM_ALERT_WINDOW granted) or a plain notification (not
- * granted) for the oldest ACTIONABLE one, then reschedules itself for another 10 minutes.
+ * the signed-in worker still has any of TODAY's parcels with an outstanding CC
+ * delivery-request (see SupabaseRemarkValidationWriter.fetchTodayDeliveryRequestsForWorker).
+ * Older parcels never nag, no matter how long they stay unanswered.
+ *
+ * If so, shows DeliveryReminderOverlay (SYSTEM_ALERT_WINDOW granted) or a plain
+ * notification (not granted) for the oldest ACTIONABLE one, then reschedules itself
+ * for another 10 minutes. Tapping the notification opens the same overlay popup
+ * (parcel details + 3 Bangla options) via [DeliveryReminderTapReceiver].
  *
  * Two guards stop the "barbar notification" loop:
  * 1. One nag per CC remark — an already-shown (consignment + remark time) never
- *    re-fires; a NEW CC remark nags again. (Before: the same oldest parcel
- *    re-alerted at full priority every 10 minutes forever.)
+ *    re-fires; a NEW CC remark nags again; "পরে জানাচ্ছি" ([snooze]) re-arms
+ *    that parcel after [SNOOZE_DELAY_MS].
  * 2. Closed parcels are skipped — a parcel already delivered/returned needs no
- *    reply, but its latest row stays source='CC' forever, so without this the
- *    alarm nagged every 10 minutes until the 14-day window aged out.
+ *    reply, but its latest row stays source='CC' forever.
  *
  * Stops rescheduling entirely once nothing actionable remains — armed again the
  * next time WorkerSpaceFragment loads or an FCM push arrives (see its loadData()
@@ -42,6 +44,23 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
         val appContext = context.applicationContext
         val uid = FirebaseAuth.getInstance().currentUser?.uid
         if (uid == null) return // signed out — don't reschedule, arm() will re-arm on next sign-in load
+
+        // "পরে জানাচ্ছি" snooze wake-up: clear this parcel's nagged keys so it
+        // can fire again, then run the normal check below (it re-picks the
+        // oldest actionable parcel, usually this same one if still pending).
+        if (intent.action == ACTION_SNOOZE_WAKE) {
+            val snoozedId = intent.getStringExtra(EXTRA_CONSIGNMENT).orEmpty()
+            if (snoozedId.isNotBlank()) {
+                try {
+                    val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    val nagged = prefs.getStringSet(PREFS_KEY, emptySet())?.toMutableSet()
+                        ?: mutableSetOf()
+                    if (nagged.removeAll { it.substringBefore("|") == snoozedId }) {
+                        prefs.edit().putStringSet(PREFS_KEY, nagged).apply()
+                    }
+                } catch (_: Exception) { }
+            }
+        }
 
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
@@ -105,7 +124,7 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
 
     private suspend fun fetchPending(systemId: String): List<JSONObject> =
         kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-            SupabaseRemarkValidationWriter.fetchPendingDeliveryRequestsForWorker(
+            SupabaseRemarkValidationWriter.fetchTodayDeliveryRequestsForWorker(
                 systemId, "DeliveryReminderReceiver"
             ) { rows -> if (cont.isActive) cont.resumeWith(Result.success(rows)) }
         }
@@ -167,10 +186,10 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
         nagged: MutableSet<String>,
         key: String,
     ) {
-        // Cap + prune remark timestamps older than the 14-day pending window
-        // so the set can't grow without bound.
+        // Cap + prune keys older than a few days (today-scoped remarks, so
+        // anything old here is stale) so the set can't grow without bound.
         val cutoff = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
-            .minusDays(14).toString() // yyyy-MM-dd, lexicographically comparable
+            .minusDays(3).toString() // yyyy-MM-dd, lexicographically comparable
         nagged.add(key)
         val pruned = nagged.filter { k ->
             val ts = k.substringAfter("|", "")
@@ -188,15 +207,39 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
                 != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) return
 
-        val openIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("notif_parcel_id", data.consignmentId)
-            putExtra("notif_scope", "worker")
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            context, data.consignmentId.hashCode(), openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        // Tap opens the overlay popup (parcel details + 3 Bangla options).
+        // No overlay permission → fall back to the app's parcel screen.
+        val tapIntent: PendingIntent =
+            if (android.provider.Settings.canDrawOverlays(context)) {
+                val tap = Intent(context, DeliveryReminderTapReceiver::class.java).apply {
+                    putExtra(EXTRA_CONSIGNMENT, data.consignmentId)
+                    putExtra("branch_id", data.branchId)
+                    putExtra("assigned_agent", data.assignedAgentSystemId)
+                    putExtra("customer_name", data.customerName)
+                    putExtra("customer_phone", data.customerPhone)
+                    putExtra("address", data.address)
+                    putExtra("status", data.status)
+                    putExtra("cod", data.cod)
+                    putExtra("cc_remark", data.ccRemarkText)
+                    putExtra("cc_author", data.ccAuthorName)
+                    putExtra("cc_at_ms", data.ccRemarkAtMs)
+                    putExtra("other_pending", data.otherPendingCount)
+                }
+                PendingIntent.getBroadcast(
+                    context, data.consignmentId.hashCode(), tap,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else {
+                val openIntent = Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    putExtra("notif_parcel_id", data.consignmentId)
+                    putExtra("notif_scope", "worker")
+                }
+                PendingIntent.getActivity(
+                    context, data.consignmentId.hashCode(), openIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            }
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_email)
             .setContentTitle("ডেলিভারি আপডেট দরকার — ${data.consignmentId}")
@@ -206,7 +249,7 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
             )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(tapIntent)
             .build()
         try {
             androidx.core.app.NotificationManagerCompat.from(context)
@@ -221,6 +264,10 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
         private const val PREFS_KEY = "nagged_remarks"
         private const val MAX_NAGGED_KEYS = 100
         private const val MAX_STATUS_CHECKS = 10
+        /** "পরে জানাচ্ছি" snooze: this long before the parcel may nag again. */
+        private const val SNOOZE_DELAY_MS = 2 * 60 * 60_000L
+        const val ACTION_SNOOZE_WAKE = "com.cloudx.databridge.DELIVERY_SNOOZE_WAKE"
+        const val EXTRA_CONSIGNMENT = "consignment_id"
         /** Delivered + return families (Hermes run statuses, lowercase) —
          *  a CC delivery-request on these needs no worker reply. */
         private val CLOSED_STATUSES = setOf(
@@ -256,6 +303,30 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             alarmManager.cancel(pendingIntent)
+        }
+
+        /** "পরে জানাচ্ছি": dismiss now, re-arm this parcel once after
+         *  [SNOOZE_DELAY_MS] as a one-shot reminder (a normal check runs then,
+         *  so a worker reply in the meantime still silences it). */
+        fun snooze(context: Context, consignmentId: String) {
+            if (consignmentId.isBlank()) return
+            val appContext = context.applicationContext
+            val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+                ?: return
+            val wake = Intent(appContext, DeliveryReminderReceiver::class.java).apply {
+                action = ACTION_SNOOZE_WAKE
+                putExtra(EXTRA_CONSIGNMENT, consignmentId)
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                appContext, (consignmentId + "|snooze").hashCode(), wake,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            try {
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + SNOOZE_DELAY_MS, pendingIntent
+                )
+            } catch (_: Exception) {
+            }
         }
     }
 }

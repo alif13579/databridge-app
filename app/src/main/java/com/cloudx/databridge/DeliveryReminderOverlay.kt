@@ -20,17 +20,17 @@ import java.text.NumberFormat
 import java.util.Locale
 
 /**
- * Reminder overlay for a parcel with an outstanding CC delivery-request (the consignment's
- * latest validations row is source='CC' -- the worker hasn't answered it yet). Scheduled by
- * DeliveryReminderReceiver at a random interval for as long as at least one such parcel
- * remains unanswered.
+ * Reminder overlay for a parcel with an outstanding CC delivery-request (today's
+ * DELIVERY_REQUEST, still unanswered — see fetchTodayDeliveryRequestsForWorker).
+ * Shown by DeliveryReminderReceiver's alarm and by notification taps (via
+ * DeliveryReminderTapReceiver).
  *
- * Two of the three actions (will-deliver / delivered) write directly via
- * SupabaseRemarkValidationWriter.write() with a fixed remarks text -- same call CC/Worker
- * screens already use, source="WORKER". "Others" hands off to the app's existing
- * WorkerSpaceFragment.showWorkerRemarksDialog() instead of duplicating it here (this object
- * has no Fragment instance to call that private method on) -- see
- * WorkerSpaceFragment.PENDING_REMARKS_DIALOG_FOR handling.
+ * Three Bangla options, all writing/arming directly:
+ * - "আজ ডেলিভারি করবো" → WORKER CONFIRMED remark (catalog text, so the
+ *   Verify-Delivery dashboard counts it)
+ * - "ডেলিভারি হয়ে গেছে" → WORKER DELIVERED remark (same)
+ * - "পরে জানাচ্ছি" → no remark; one-shot reminder in 2h (snooze). A worker
+ *   reply in the meantime still silences it.
  */
 object DeliveryReminderOverlay {
 
@@ -93,14 +93,15 @@ object DeliveryReminderOverlay {
         view.findViewById<View>(R.id.btnDrClose).setOnClickListener { dismissInternal() }
 
         view.findViewById<View>(R.id.optDrWillDeliver).setOnClickListener {
-            submitQuickRemark(context, data, "The parcel will be delivered")
+            submitQuickRemark(context, data, "CONFIRMED", "The parcel will be delivered today")
         }
         view.findViewById<View>(R.id.optDrDelivered).setOnClickListener {
-            submitQuickRemark(context, data, "The parcel has delivered")
+            submitQuickRemark(context, data, "DELIVERED", "The parcel has delivered to the customer")
         }
         view.findViewById<View>(R.id.optDrOthers).setOnClickListener {
+            // "পরে জানাচ্ছি" — no remark, one reminder in 2h.
+            DeliveryReminderReceiver.snooze(context, data.consignmentId)
             dismissInternal()
-            openAppForOthersDialog(context, data.consignmentId)
         }
         view.findViewById<View>(R.id.btnDrCall).setOnClickListener { placeCall(context, data.customerPhone) }
 
@@ -131,29 +132,21 @@ object DeliveryReminderOverlay {
         mainHandler.postDelayed(runnable, AUTO_DISMISS_MS)
     }
 
-    private fun submitQuickRemark(context: Context, data: Data, remarkText: String) {
+    /** Quick WORKER remark with catalog status + text (matches the
+     *  validation_remarks WORKER options, so dashboards and Bangla labels
+     *  resolve it like any worker reply — and the pending request clears). */
+    private fun submitQuickRemark(context: Context, data: Data, status: String, remarkText: String) {
         SupabaseRemarkValidationWriter.write(
             assignedAgentSystemId = data.assignedAgentSystemId,
             branchId = data.branchId,
             consignmentId = data.consignmentId,
-            status = "",
+            status = status,
             remarksText = remarkText,
             noteText = "",
             source = "WORKER",
             screen = "DeliveryReminderOverlay"
         )
         dismissInternal()
-    }
-
-    /** No Fragment instance to call WorkerSpaceFragment.showWorkerRemarksDialog() on from
-     *  here -- bring the app to the front instead and let it open that same dialog for
-     *  this specific parcel once WorkerSpaceFragment has loaded (see its
-     *  PENDING_REMARKS_DIALOG_FOR handling in onResume/loadData). */
-    private fun openAppForOthersDialog(context: Context, consignmentId: String) {
-        context.startActivity(Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(WorkerSpaceFragment.PENDING_REMARKS_DIALOG_FOR, consignmentId)
-        })
     }
 
     private fun placeCall(context: Context, phone: String) {

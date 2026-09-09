@@ -611,6 +611,44 @@ object SupabaseRemarkValidationWriter {
         }
     }
 
+    /** Today's CC DELIVERY_REQUEST remarks for one worker — the delivery-reminder
+     *  alarm's only source. Bounded to today (Asia/Dhaka): older parcels never
+     *  nag, no matter how long their CC request stays unanswered.
+     *
+     *  Latest row per consignment decides: only consignments whose latest row
+     *  is still that CC request come back (a worker reply writes a WORKER row
+     *  and drops the parcel from this list). Server pre-filters source +
+     *  status + day; the client re-checks status case-insensitively so legacy
+     *  lowercase rows behave the same as catalog-uppercase ones. */
+    fun fetchTodayDeliveryRequestsForWorker(assignedAgentSystemId: String, screen: String,
+                                              onResult: (List<JSONObject>) -> Unit) {
+        if (assignedAgentSystemId.isBlank()) return onResult(emptyList())
+        val zone = ZoneId.of("Asia/Dhaka")
+        val start = LocalDate.now(zone).atStartOfDay(zone).toInstant().toString()
+        GlobalScope.launch(Dispatchers.IO) {
+            val rows = SupabaseClientManager.fetchValidations(screen, "fetch_today_delivery_requests", listOf(
+                "assigned_to_system_id" to "eq.$assignedAgentSystemId",
+                "source" to "eq.CC",
+                "remarks_status" to "in.(DELIVERY_REQUEST,delivery_request)",
+                "created_at" to "gte.$start",
+                "order" to "created_at.desc"
+            ))
+            val latestByConsignment = LinkedHashMap<String, JSONObject>()
+            rows.forEach { row ->
+                val cId = row.optString("consignment")
+                if (cId.isBlank()) return@forEach
+                val existing = latestByConsignment[cId]
+                if (existing == null || row.optString("created_at") > existing.optString("created_at")) {
+                    latestByConsignment[cId] = row
+                }
+            }
+            val pending = latestByConsignment.values.filter {
+                it.optString("remarks_status").equals("DELIVERY_REQUEST", ignoreCase = true)
+            }
+            onResult(pending)
+        }
+    }
+
     /** Parcels assigned to this worker where CC's remark is still unanswered -- the
      *  consignment's LATEST validations row has source='CC' (worker hasn't submitted
      *  their own remark since). Same "latest row decides" rule used throughout this

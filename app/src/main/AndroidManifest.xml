@@ -158,6 +158,13 @@
             android:enabled="true"
             android:exported="false" />
 
+        <!-- Notification-tap target: shows the reminder overlay popup. Only
+             ever fired by this app's own notification PendingIntent. -->
+        <receiver
+            android:name=".DeliveryReminderTapReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <!-- Attempt>=3 last-attempt nudges — same self-rescheduling pattern. -->
         <receiver
             android:name=".LastAttemptReminderReceiver"
