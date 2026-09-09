@@ -29,6 +29,19 @@ object IdUtils {
     /** শুধু `run_{digits}` — অন্য format (যেমন run_20260524_morning) গ্রহণযোগ্য নয় */
     fun isValidRunId(runId: String): Boolean = RUN_ID_REGEX.matches(runId.trim())
 
+    private val CONSIGNMENT_ID_REGEX = Regex("^[A-Z0-9]{14}$")
+
+    /** Consignment/tracking ID: 14-char uppercase alphanumerics with at least one
+     *  letter and one digit (ScannerFragment.TRACKING_ID_LENGTH + extension ID_REGEX).
+     *  Used to route extension-sent text to parcel lookup instead of dial/clipboard. */
+    fun isConsignmentId(text: String): Boolean {
+        val s = text.trim().uppercase()
+        return CONSIGNMENT_ID_REGEX.matches(s) && s.any { it.isLetter() } && s.any { it.isDigit() }
+    }
+
+    /** Normalized (trimmed + uppercased) form for Firebase lookup — keys are case-sensitive. */
+    fun normalizeConsignmentId(text: String): String = text.trim().uppercase()
+
     /** run_{timestampMs} থেকে ms; invalid format হলে null */
     fun parseRunTimestampMs(runId: String): Long? {
         if (!isValidRunId(runId)) return null

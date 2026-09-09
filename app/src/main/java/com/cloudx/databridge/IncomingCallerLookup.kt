@@ -93,6 +93,36 @@ object IncomingCallerLookup {
     }
 
     /**
+     * Direct consignment-ID -> parcel lookup for extension-sent IDs. Same
+     * courier/consignments/{id} read + CallerMatch mapping as [lookup]'s
+     * per-parcel fetch, without the phone index. Returns null on no match or
+     * any read failure; callers fall back to CC search with the raw ID.
+     */
+    suspend fun lookupConsignment(consignmentId: String): CallerMatch? = withContext(Dispatchers.IO) {
+        try {
+            val id = IdUtils.normalizeConsignmentId(consignmentId)
+            if (!IdUtils.isConsignmentId(id)) return@withContext null
+            runCatching { StatusMetaCache.refresh() }
+            val snap = db.reference.child("courier/consignments/$id").get().await()
+            if (!snap.exists()) return@withContext null
+            val status = snap.child("status").getValue(String::class.java).orEmpty()
+            CallerMatch(
+                consignmentId = id,
+                name = snap.child("recipientName").getValue(String::class.java).orEmpty(),
+                phone = snap.child("recipientPhone").getValue(String::class.java).orEmpty(),
+                address = snap.child("recipientAddress").getValue(String::class.java).orEmpty(),
+                cod = snap.child("collectableAmount").getValue(String::class.java)?.toDoubleOrNull()?.toInt()
+                    ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0,
+                status = status,
+                statusLabel = StatusMetaCache.labelOrNull(status, "en") ?: status.ifBlank { "Unknown" },
+                updatedAt = snap.child("updatedAt").getValue(Long::class.java) ?: 0L,
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
      * Which agent each of [consignmentIds] is assigned to in TODAY's runs.
      *
      * Assignment lives only on the run nodes (courier/run_routes/{runType}/

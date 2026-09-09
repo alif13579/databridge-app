@@ -443,6 +443,34 @@ class DataBridgeService : Service() {
                         else if (togglePrefs.getBoolean("auto_open_dialer", false)) triggerOpenDialer(record.cleaned)
                     }
                 }
+                // Extension-sent consignment ID: same caller popup, fed by direct
+                // Firebase fetch instead of phone reverse-lookup. Old extensions
+                // send these as type "text" (whose cleaned is digits-only and
+                // useless for IDs), so pattern-match record.text too.
+                val rawId = if (record.type == "consignment") {
+                    record.cleaned.ifBlank { record.text }
+                } else {
+                    record.text
+                }
+                if ((record.type == "consignment" || record.type == "text") &&
+                    rawId.isNotBlank() && IdUtils.isConsignmentId(rawId)
+                ) {
+                    val lookupFromCcEnabled = togglePrefs.getBoolean("lookup_from_cc", false)
+                    var handledByPopup = false
+                    if (lookupFromCcEnabled && (RbacManager.hasPermission("nav_call_center") || RbacManager.hasPermission("nav_space"))) {
+                        // Reuses the exact popup the phone flow shows -- remark save,
+                        // history and call actions all work unchanged. Never
+                        // auto-dials: an ID send is a lookup, not a call request.
+                        val matched = IncomingCallerLookup.lookupConsignment(rawId)
+                        if (matched != null) {
+                            RemarkPopupOverlay.show(applicationContext, matched, false)
+                            handledByPopup = true
+                        }
+                    }
+                    // No match (or toggle off / no access) -- fall back to CC
+                    // search with the ID (the search box matches IDs too).
+                    if (!handledByPopup) openCallCenterSearch(IdUtils.normalizeConsignmentId(rawId))
+                }
             }
             // Auto-copy — moved here from HistoryFragment so it also fires while the app
             // is backgrounded, since this service (unlike a fragment) keeps running the
