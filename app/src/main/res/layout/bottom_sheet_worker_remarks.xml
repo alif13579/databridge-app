@@ -110,6 +110,19 @@
 
             </LinearLayout>
 
+            <!-- Optional note — remark option (status) is required, note is not -->
+            <EditText
+                android:id="@+id/etWorkerRemarkNote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:hint="Note (optional)..."
+                android:textSize="13sp"
+                android:minLines="2"
+                android:background="@drawable/bg_input_rounded"
+                android:padding="12dp"
+                android:includeFontPadding="false" />
+
         </LinearLayout>
     </ScrollView>
 

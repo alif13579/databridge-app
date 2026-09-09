@@ -824,6 +824,9 @@ class WorkerSpaceFragment : Fragment() {
             val selectedLabel = optionViews.firstOrNull { v ->
                 v.findViewById<View>(R.id.viewRemarkOptSelected).visibility == View.VISIBLE
             }?.findViewById<TextView>(R.id.twRemarkOptText)?.text?.toString() ?: ""
+            // Optional note — remark option (status) stays required, note rides along.
+            val noteText = view.findViewById<android.widget.EditText>(R.id.etWorkerRemarkNote)
+                ?.text?.toString()?.trim().orEmpty()
 
             if (statusKey.isNotBlank() && selectedLabel.isNotBlank()) {
 
@@ -854,7 +857,8 @@ class WorkerSpaceFragment : Fragment() {
                                 statusKey = statusKey,
                                 selectedLabel = selectedLabel,
                                 selectedOption = options.firstOrNull { it.label == selectedLabel && it.statusKey == statusKey },
-                                triggerItem = item
+                                triggerItem = item,
+                                noteText = noteText
                             )
                         }
                         .setNegativeButton("No, শুধু এটায়") { _, _ ->
@@ -863,7 +867,8 @@ class WorkerSpaceFragment : Fragment() {
                                 statusKey = statusKey,
                                 selectedLabel = selectedLabel,
                                 selectedOption = options.firstOrNull { it.label == selectedLabel && it.statusKey == statusKey },
-                                triggerItem = item
+                                triggerItem = item,
+                                noteText = noteText
                             )
                         }
                         .show()
@@ -876,7 +881,8 @@ class WorkerSpaceFragment : Fragment() {
                     statusKey = statusKey,
                     selectedLabel = selectedLabel,
                     selectedOption = options.firstOrNull { it.label == selectedLabel && it.statusKey == statusKey },
-                    triggerItem = item
+                    triggerItem = item,
+                    noteText = noteText
                 )
             }
             dialog.dismiss()
@@ -916,7 +922,8 @@ class WorkerSpaceFragment : Fragment() {
         statusKey: String,
         selectedLabel: String,
         selectedOption: WorkerRemarkOption?,
-        triggerItem: WorkerParcelItem
+        triggerItem: WorkerParcelItem,
+        noteText: String = ""
     ) {
         val timestamp = System.currentTimeMillis()
         val todayDateKey = todayDateKeyYyyyMmDd()
@@ -965,7 +972,7 @@ class WorkerSpaceFragment : Fragment() {
                     branchId = branchId,
                     status = statusKey,
                     remarksText = selectedOption?.englishLabel?.ifBlank { selectedLabel } ?: selectedLabel,
-                    noteText = "",
+                    noteText = noteText,
                     // Blank when englishLabel is missing/blank (falls back to selectedLabel
                     // itself above, i.e. already the same text as what's stored) — validation_remarks
                     // only needs an entry when the English and Bangla text actually differ.
