@@ -126,6 +126,42 @@ data class CcFieldMap(
     val field: String = "",
 )
 
+/** Fetch-filter operators for the Live ID list. */
+object CcFilterOp {
+    const val BLANK = "blank"         // cell khali
+    const val NOT_BLANK = "notblank"  // cell bhora
+    const val EQUALS = "equals"       // cell == value
+    const val NOT_EQUALS = "notequals" // cell != value
+    val ALL = listOf(BLANK, NOT_BLANK, EQUALS, NOT_EQUALS)
+    fun label(op: String): String = when (op) {
+        BLANK -> "খালি হলে"
+        NOT_BLANK -> "ভরা থাকলে"
+        EQUALS -> "সমান হলে (value)"
+        NOT_EQUALS -> "সমান না হলে (value)"
+        else -> op.ifBlank { "— শর্ত —" }
+    }
+    fun needsValue(op: String): Boolean = op == EQUALS || op == NOT_EQUALS
+}
+
+/** How multiple fetch filters combine. */
+object CcFilterLogic {
+    const val AND = "AND" // SOB filter milte hobe
+    const val OR = "OR"   // JE KONO ekta millei hobe
+    val ALL = listOf(AND, OR)
+    fun label(logic: String): String = when (logic) {
+        OR -> "JE KONO ekta (OR)"
+        else -> "SOB gulo (AND)"
+    }
+}
+
+/** One Live-list filter: column + operator (+ value). */
+data class CcFetchFilter(
+    val colRef: String = "",
+    val mode: String = SheetColMode.INDEX,
+    val op: String = CcFilterOp.BLANK,
+    val value: String = "",
+)
+
 /** Call Center's use of one library: which columns match a remark, which
  *  columns receive feedback/validation/validator_name. ALL lookups must
  *  match one row (mirror never appends).
@@ -143,6 +179,13 @@ data class CcBinding(
     val updatedBy: String = "",
     val updatedByName: String = "",
     val updatedAt: Long = 0L,
+    /** Fetch criteria (Live ID list) — blank = default (prothom lookup
+     *  column theke ID, prothom write column blank filter). */
+    val fetchColRef: String = "",
+    val fetchColMode: String = SheetColMode.INDEX,
+    /** AND / OR — multiple filters kivabe combine hobe. */
+    val filterLogic: String = CcFilterLogic.AND,
+    val filters: List<CcFetchFilter> = emptyList(),
 ) {
     fun effectiveLookups(): List<CcFieldMap> =
         lookups.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
@@ -150,11 +193,28 @@ data class CcBinding(
     fun effectiveWrites(): List<CcFieldMap> =
         writes.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
 
+    fun effectiveFilters(): List<CcFetchFilter> =
+        filters.filter { it.colRef.isNotBlank() && it.op.isNotBlank() }
+
     /** Human summary: "C=Consignment ID → K=Feedback". */
     fun summary(): String {
         val l = effectiveLookups().joinToString(" + ") { "${it.colRef.trim()}=${CcField.label(it.field)}" }
         val w = effectiveWrites().joinToString(", ") { "${it.colRef.trim()}←${CcField.label(it.field)}" }
         return "$l → $w"
+    }
+
+    /** Human fetch summary: "B theke ID • K blank (AND)". */
+    fun fetchSummary(): String {
+        val f = effectiveFilters()
+        if (fetchColRef.isBlank() && f.isEmpty()) return "default (1st lookup col, 1st write blank)"
+        val col = fetchColRef.trim().ifBlank { "1st lookup" }
+        if (f.isEmpty()) return "$col theke ID • filter nei"
+        val logic = if (f.size > 1) " [${CcFilterLogic.label(filterLogic)}]" else ""
+        val rules = f.joinToString(if (filterLogic == CcFilterLogic.OR) " OR " else " + ") {
+            val v = if (CcFilterOp.needsValue(it.op)) " “${it.value.trim()}”" else ""
+            "${it.colRef.trim()} ${CcFilterOp.label(it.op)}$v"
+        }
+        return "$col theke ID • $rules$logic"
     }
 
     /** Executor shape: field keys ARE kind strings, so the mirror runs

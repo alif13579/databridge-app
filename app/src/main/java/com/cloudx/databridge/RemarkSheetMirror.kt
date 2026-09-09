@@ -658,84 +658,150 @@ object RemarkSheetMirror {
         val today = LocalDate.now(opsZone)
         branchIds.map { it.trim() }.filter { it.isNotBlank() }.distinct().map { branchId ->
             try {
-                val ref = ScannerSheetRepository.loadLiveCc(branchId)
-                    ?: return@map LiveBranchIds(branchId, emptyList(), "Live sheet set kora nei")
-                val conn = ScannerSheetRepository.loadConnection(branchId, ref.connectionId)
-                    ?: return@map LiveBranchIds(branchId, emptyList(), "Live sheet connection paini")
-                if (!conn.enabled)
-                    return@map LiveBranchIds(branchId, emptyList(), "Live sheet disabled")
-                val lookups = conn.effectiveLookups()
-                val cidRule = lookups.firstOrNull { it.kind == SheetLookupKind.CONSIGNMENT }
-                    ?: return@map LiveBranchIds(branchId, emptyList(), "Consignment lookup nei")
-                val tabName = ScannerSheetRepository.resolveTabName(conn.tabPattern)
-                val headerRow = conn.resolvedHeaderRow()
-                val headerCache = mutableMapOf<String, List<String>>()
-                val cidLetter = resolveLetter(accessToken, conn.sheetId, tabName,
-                    cidRule.colRef, cidRule.mode, headerRow, headerCache)
-                    ?: return@map LiveBranchIds(branchId, emptyList(),
-                        "Consignment column '${cidRule.colRef.trim()}' paini")
-                val dateRules = lookups.filter {
-                    it.kind == SheetLookupKind.TODAY || it.kind == SheetLookupKind.CREATED_AT
-                }
-                val dateCols = mutableMapOf<String, List<String>>()
-                dateRules.map { it to resolveLetter(accessToken, conn.sheetId, tabName,
-                    it.colRef, it.mode, headerRow, headerCache) }.forEach { (rule, letter) ->
-                    if (letter == null) return@map LiveBranchIds(branchId, emptyList(),
-                        "Lookup column '${rule.colRef.trim()}' paini")
-                    if (!dateCols.containsKey(letter)) {
-                        dateCols[letter] = ConfigSheetDriveApi.fetchColumnValues(
-                            accessToken, conn.sheetId, tabName, letter, httpClient)
+                // All-in-one: every ENABLED CC binding's sheet contributes IDs,
+                // each with its own fetch criteria (socket 🔌 Step 3). The
+                // LIVE CC SHEET dropdown narrows to one sheet when set.
+                val bindings = SheetLibraryRepository.loadCcBindings(branchId)
+                    .filter { it.enabled }
+                if (bindings.isEmpty())
+                    return@map LiveBranchIds(branchId, emptyList(),
+                        "CC binding nei — CallCenter 🔌 থেকে sheet bind করুন")
+                val libraries = SheetLibraryRepository.loadLibraries(branchId)
+                    .filter { it.enabled }.associateBy { it.libraryId }
+                val liveRef = runCatching {
+                    ScannerSheetRepository.loadLiveCc(branchId)?.connectionId.orEmpty()
+                }.getOrDefault("")
+                val targets = bindings.mapNotNull { b ->
+                    val lib = libraries[b.libraryId] ?: return@mapNotNull null
+                    if (!SheetScope.covers(lib.scopeType, lib.scopeMonth,
+                            lib.scopeFrom, lib.scopeTo, today)
+                    ) return@mapNotNull null
+                    if (liveRef.isNotBlank() && liveRef != lib.libraryId) {
+                        return@mapNotNull null
                     }
+                    b to lib
                 }
-                // dateLetters in rule order for row checks:
-                val dateLetters = dateRules.map { rule ->
-                    resolveLetter(accessToken, conn.sheetId, tabName,
-                        rule.colRef, rule.mode, headerRow, headerCache)!!
-                }
-                // Write-column filter: the FIRST write column marks handled rows —
-                // a filled cell means that parcel is already done, so Live only
-                // takes rows where it is blank. No write column → can't filter,
-                // take all today's IDs.
-                val writeLetter = conn.effectiveWrites().firstOrNull()
-                    ?.let { rule ->
-                        resolveLetter(accessToken, conn.sheetId, tabName,
-                            rule.colRef, rule.mode, headerRow, headerCache)
-                    }
-                val writeCol = writeLetter?.let {
-                    ConfigSheetDriveApi.fetchColumnValues(
-                        accessToken, conn.sheetId, tabName, it, httpClient)
-                }
-                val cidCol = ConfigSheetDriveApi.fetchColumnValues(
-                    accessToken, conn.sheetId, tabName, cidLetter, httpClient)
+                if (targets.isEmpty())
+                    return@map LiveBranchIds(branchId, emptyList(),
+                        if (liveRef.isNotBlank()) "Live sheet-e binding nei — 🔌 থেকে bind করুন"
+                        else "Ajker scope-e kono bound sheet nei")
                 val ids = mutableListOf<String>()
-                var skippedByWrite = 0
-                cidCol.forEachIndexed { i, cell ->
-                    val cid = cell.trim()
-                    if (cid.isEmpty()) return@forEachIndexed
-                    val dateOk = dateLetters.all { letter ->
-                        isToday((dateCols[letter].orEmpty().getOrNull(i).orEmpty()).trim(), today)
-                    }
-                    if (!dateOk) return@forEachIndexed
-                    if (writeCol != null &&
-                        writeCol.getOrNull(i).orEmpty().trim().isNotEmpty()
-                    ) {
-                        skippedByWrite++
-                        return@forEachIndexed
-                    }
-                    if (cid !in ids) ids.add(cid)
+                var scanned = 0
+                var filtered = 0
+                val notes = mutableListOf<String>()
+                val headerCache = mutableMapOf<String, List<String>>()
+                for ((binding, lib) in targets) {
+                    val (got, seen, dropped, note) = fetchLiveIdsForBinding(
+                        accessToken, binding, lib, headerCache)
+                    scanned += seen
+                    filtered += dropped
+                    note?.let { notes.add("${lib.nickname.ifBlank { lib.sheetName }}: $it") }
+                    got.forEach { if (it !in ids) ids.add(it) }
                 }
-                if (ids.isEmpty()) {
-                    val why = if (skippedByWrite > 0)
-                        "Ajker sob ($skippedByWrite) consignment-e lekha ache"
-                    else "Ajker kono consignment nei"
-                    LiveBranchIds(branchId, emptyList(), why)
-                } else if (writeLetter == null) {
-                    LiveBranchIds(branchId, ids, "Write column set nei — filter charai dekhacche")
-                } else LiveBranchIds(branchId, ids, null)
+                val why = when {
+                    ids.isNotEmpty() && notes.isNotEmpty() -> notes.joinToString("; ")
+                    ids.isNotEmpty() -> null
+                    else -> notes.firstOrNull()
+                        ?: "Ajker kono consignment nei ($scanned row dekha)"
+                }
+                LiveBranchIds(branchId, ids, why)
             } catch (e: Exception) {
                 LiveBranchIds(branchId, emptyList(),
                     e.message?.take(80) ?: "sheet পড়া যায়নি")
             }
+        }
+    }
+
+    /** One binding's Live IDs: fetch column theke ID, filter rules (AND/OR)
+     *  pass kora row sudhu. Defaults (socket-e kichu set na korle): prothom
+     *  lookup column theke ID + prothom write column blank filter. */
+    private suspend fun fetchLiveIdsForBinding(
+        accessToken: String,
+        binding: CcBinding,
+        lib: SheetLibrary,
+        headerCache: MutableMap<String, List<String>>,
+    ): LiveFetch {
+        val tabName = ScannerSheetRepository.resolveTabName(lib.tabPattern)
+        val headerRow = lib.resolvedHeaderRow()
+        suspend fun letterOf(ref: String, mode: String): String? {
+            val t = ref.trim()
+            if (t.isEmpty()) return null
+            return resolveLetter(accessToken, lib.sheetId, tabName, t, mode, headerRow, headerCache)
+        }
+        val libLookupCols = lib.effectiveLookupCols()
+        val libWriteCols = lib.effectiveWriteCols()
+        // Fetch column: socket choice, else prothom lookup column.
+        val wantFetchRef = binding.fetchColRef.trim()
+            .ifBlank { libLookupCols.firstOrNull()?.colRef.orEmpty() }
+        val wantFetchMode = if (binding.fetchColRef.trim().isNotBlank()) binding.fetchColMode
+            else libLookupCols.firstOrNull()?.mode ?: SheetColMode.INDEX
+        if (wantFetchRef.isBlank())
+            return LiveFetch(emptyList(), 0, 0, "Lookup column nei")
+        // Filters: socket rules, else [prothom write column blank].
+        val socketRules = binding.effectiveFilters()
+        val rules: List<CcFetchFilter> = if (socketRules.isNotEmpty()) socketRules
+        else {
+            val firstWrite = libWriteCols.firstOrNull()
+            if (firstWrite == null) emptyList()
+            else listOf(CcFetchFilter(firstWrite.colRef, firstWrite.mode, CcFilterOp.BLANK, ""))
+        }
+        // Resolve + fetch every needed column once (header rows cached).
+        val colValues = mutableMapOf<String, List<String>>()
+        suspend fun colOf(ref: String, mode: String): List<String>? {
+            val letter = letterOf(ref, mode) ?: return null
+            return colValues.getOrPut(letter) {
+                ConfigSheetDriveApi.fetchColumnValues(
+                    accessToken, lib.sheetId, tabName, letter, httpClient)
+            }
+        }
+        data class RuleCol(val filter: CcFetchFilter, val values: List<String>?)
+        val missing = mutableListOf<String>()
+        val ruleCols = rules.map { r ->
+            val values = colOf(r.colRef, r.mode)
+            if (values == null) missing.add(r.colRef.trim())
+            RuleCol(r, values)
+        }
+        val idCol = colOf(wantFetchRef, wantFetchMode)
+            ?: return LiveFetch(emptyList(), 0, 0, "ID column '$wantFetchRef' paini")
+        val useOr = socketRules.isNotEmpty() && binding.filterLogic == CcFilterLogic.OR
+        val ids = mutableListOf<String>()
+        var dropped = 0
+        idCol.forEachIndexed { i, cell ->
+            val cid = cell.trim()
+            if (cid.isEmpty()) return@forEachIndexed
+            val results = ruleCols.map { (r, values) ->
+                if (values == null) true // unresolvable rule never blocks
+                else fetchFilterPass(r.op, values.getOrNull(i).orEmpty(), r.value)
+            }
+            val pass = if (useOr && results.isNotEmpty()) results.any { it } else results.all { it }
+            if (!pass) {
+                dropped++
+                return@forEachIndexed
+            }
+            if (cid !in ids) ids.add(cid)
+        }
+        val note = when {
+            missing.isNotEmpty() -> "column ${missing.distinct().joinToString(",")} paini (skip)"
+            else -> null
+        }
+        return LiveFetch(ids, idCol.size, dropped, note)
+    }
+
+    private data class LiveFetch(
+        val ids: List<String>,
+        val scanned: Int,
+        val dropped: Int,
+        val note: String?,
+    )
+
+    private fun fetchFilterPass(op: String, cell: String, value: String): Boolean {
+        val c = cell.trim()
+        return when (op) {
+            CcFilterOp.BLANK -> c.isBlank()
+            CcFilterOp.NOT_BLANK -> c.isNotBlank()
+            CcFilterOp.EQUALS -> c == value.trim()
+            CcFilterOp.NOT_EQUALS -> c != value.trim()
+            else -> true
         }
     }
 

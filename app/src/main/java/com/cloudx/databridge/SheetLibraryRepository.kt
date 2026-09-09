@@ -205,6 +205,24 @@ object SheetLibraryRepository {
                         updatedBy = child.child("updatedBy").getValue(String::class.java).orEmpty(),
                         updatedByName = child.child("updatedByName").getValue(String::class.java).orEmpty(),
                         updatedAt = child.child("updatedAt").getValue(Long::class.java) ?: 0L,
+                        fetchColRef = child.child("fetchCol").child("colRef")
+                            .getValue(String::class.java).orEmpty(),
+                        fetchColMode = child.child("fetchCol").child("mode")
+                            .getValue(String::class.java)
+                            ?.takeIf { it == SheetColMode.TEXT } ?: SheetColMode.INDEX,
+                        filterLogic = child.child("filterLogic").getValue(String::class.java)
+                            ?.takeIf { it == CcFilterLogic.OR } ?: CcFilterLogic.AND,
+                        filters = child.child("filters").children.mapNotNull { r ->
+                            val ref = r.child("colRef").getValue(String::class.java).orEmpty()
+                            val op = r.child("op").getValue(String::class.java).orEmpty()
+                            if (ref.isBlank() || op.isBlank()) null else CcFetchFilter(
+                                colRef = ref,
+                                mode = r.child("mode").getValue(String::class.java)
+                                    ?.takeIf { it == SheetColMode.TEXT } ?: SheetColMode.INDEX,
+                                op = op,
+                                value = r.child("value").getValue(String::class.java).orEmpty(),
+                            )
+                        },
                     )
                     if (binding.libraryId.isBlank()) null else binding
                 }
@@ -235,6 +253,14 @@ object SheetLibraryRepository {
                 .map { mapOf("colRef" to it.colRef.trim(), "mode" to it.mode, "field" to it.field) },
             "writes" to binding.writes.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
                 .map { mapOf("colRef" to it.colRef.trim(), "mode" to it.mode, "field" to it.field) },
+            "fetchCol" to mapOf(
+                "colRef" to binding.fetchColRef.trim(), "mode" to binding.fetchColMode),
+            "filterLogic" to binding.filterLogic,
+            "filters" to binding.effectiveFilters()
+                .map {
+                    mapOf("colRef" to it.colRef.trim(), "mode" to it.mode,
+                        "op" to it.op, "value" to it.value.trim())
+                },
             "enabled" to binding.enabled,
             "updatedBy" to actingUid,
             "updatedByName" to actingName,

@@ -570,7 +570,7 @@ class ConfigConnectorsFragment : Fragment() {
                     else "➖ Scanner: bind hoyni")
                     append("\n")
                     append(if (ccBinding != null && ccBinding.enabled)
-                        "☎️ CC mirror: ${ccBinding.summary()}"
+                        "☎️ CC mirror: ${ccBinding.summary()}\n📡 Fetch: ${ccBinding.fetchSummary()}"
                     else "➖ CC mirror: bind hoyni")
                     if (isLiveCc) append("\n📡 Live CC source")
                 }
