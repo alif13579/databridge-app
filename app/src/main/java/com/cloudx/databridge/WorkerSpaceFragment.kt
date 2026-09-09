@@ -84,6 +84,14 @@ class WorkerSpaceFragment : Fragment() {
     // own order exactly as before.
     private val customOrderIds = mutableListOf<String>()
     private var dragHelper: ItemTouchHelper? = null
+    // ── Smooth-drag state ──────────────────────────────────────────
+    // Mid-drag we NEVER submitList (DiffUtil + full rebind on every step =
+    // jitter/lag). Instead dragIds mirrors the visual order, views move via
+    // notifyItemMoved only, and persist + reconcile happens once on drop.
+    private var dragIds: MutableList<String>? = null
+    private var dragScratch: MutableList<String>? = null
+    private var dragActive = false
+    private var refreshPendingDuringDrag = false
     private lateinit var tvSortByDropdown: TextView
 
     // uid -> display name, resolved on demand from users/{uid}/profile/name and cached so
@@ -475,12 +483,28 @@ class WorkerSpaceFragment : Fragment() {
 
         // Custom-mode drag: vertical reorder via the ⋮⋮ handle only (long-press
         // drag stays OFF so long-press keeps opening the history popup, and
-        // swipe stays call/remarks). Gated by sortMode in onMove as well.
+        // swipe stays call/remarks). Smoothness: mid-drag moves views ONLY
+        // (no submitList/DiffUtil per step); order persists once on drop.
         adapter.onStartDrag = { holder -> dragHelper?.startDrag(holder) }
         val dragCallback = object : ItemTouchHelper.SimpleCallback(
             ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
         ) {
             override fun isLongPressDragEnabled() = false
+            override fun onSelectedChanged(
+                vh: RecyclerView.ViewHolder?,
+                actionState: Int
+            ) {
+                super.onSelectedChanged(vh, actionState)
+                if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && vh != null) {
+                    dragActive = true
+                    dragIds = adapter.currentList.map { it.id }.toMutableList()
+                    dragScratch = customOrderIds.toMutableList()
+                    vh.itemView.performHapticFeedback(
+                        android.view.HapticFeedbackConstants.LONG_PRESS
+                    )
+                    vh.itemView.animate().scaleX(1.03f).scaleY(1.03f).setDuration(120).start()
+                }
+            }
             override fun onMove(
                 rv: RecyclerView,
                 vh: RecyclerView.ViewHolder,
@@ -490,13 +514,33 @@ class WorkerSpaceFragment : Fragment() {
                 val from = vh.bindingAdapterPosition
                 val to = target.bindingAdapterPosition
                 if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
-                val list = adapter.currentList
-                val movingId = list.getOrNull(from)?.id ?: return false
-                val targetId = list.getOrNull(to)?.id ?: return false
-                moveCustomItem(movingId, targetId)
+                val ids = dragIds ?: return false
+                if (from >= ids.size || to >= ids.size) return false
+                val movingId = ids[from]
+                val targetId = ids[to]
+                applyScratchMove(movingId, targetId)
+                java.util.Collections.swap(ids, from, to)
+                adapter.notifyItemMoved(from, to)
                 return true
             }
             override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {}
+            override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
+                super.clearView(rv, vh)
+                vh.itemView.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                if (dragActive) {
+                    dragActive = false
+                    dragScratch?.let {
+                        customOrderIds.clear()
+                        customOrderIds.addAll(it)
+                    }
+                    dragIds = null
+                    dragScratch = null
+                    saveCustomOrder()
+                    refreshPendingDuringDrag = false
+                    allParcels = WorkerParcelAdapter.sortByCustom(allParcels, customOrderIds)
+                    applyFilters()
+                }
+            }
         }
         dragHelper = ItemTouchHelper(dragCallback)
         dragHelper?.attachToRecyclerView(rvParcelList)
@@ -551,21 +595,19 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     /**
-     * Moves [movingId] to [targetId]'s slot in the FULL custom order (not just
-     * the filtered view), so drag works the same with search/status filters
-     * active. Persists to memory, then re-renders.
+     * Scratch-order move used mid-drag: same full-list slot math as the old
+     * immediate version, but applied to [dragScratch] with zero UI work, so
+     * every drag step stays a cheap index op + one notifyItemMoved.
      */
-    private fun moveCustomItem(movingId: String, targetId: String) {
+    private fun applyScratchMove(movingId: String, targetId: String) {
+        val scratch = dragScratch ?: return
         if (movingId == targetId) return
-        val origFrom = customOrderIds.indexOf(movingId)
-        val origTo = customOrderIds.indexOf(targetId)
+        val origFrom = scratch.indexOf(movingId)
+        val origTo = scratch.indexOf(targetId)
         if (origFrom < 0 || origTo < 0) return
-        customOrderIds.removeAt(origFrom)
-        val insertAt = customOrderIds.indexOf(targetId)
-        customOrderIds.add(if (origFrom < origTo) insertAt + 1 else insertAt, movingId)
-        saveCustomOrder()
-        allParcels = WorkerParcelAdapter.sortByCustom(allParcels, customOrderIds)
-        applyFilters()
+        scratch.removeAt(origFrom)
+        val insertAt = scratch.indexOf(targetId)
+        scratch.add(if (origFrom < origTo) insertAt + 1 else insertAt, movingId)
     }
 
     /** Shows/hides the ⋮⋮ handle; called on every sort-mode change. */
@@ -2088,6 +2130,12 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     private fun applyFilters() {
+        // A live update landing mid-drag would submitList under the drag and
+        // desync the mirrored dragIds — defer until drop (clearView applies).
+        if (dragActive) {
+            refreshPendingDuringDrag = true
+            return
+        }
         var filtered = allParcels
 
         // Search filter — phone, ID, customer name, or COD amount
