@@ -153,13 +153,14 @@ class ScannerAdapter(
  * from WorkerParcelAdapter.getStatusConfig/StatusMetaCache — that system is the
  * remote-configured courier delivery-status vocabulary (courier/consignments),
  * a different concept from this scan-upload status (RunRoutePaths.scanItem).
- * "pending" is the only value written today; the fallback keeps any future value
- * visible in neutral gray instead of silently blank.
+ * Flow: pending (agent uploaded) -> approved / rejected (incharge review).
  */
 private fun statusBadgeColors(context: android.content.Context, status: String): Pair<Int, Int> {
     return when (status.lowercase()) {
         "pending" -> androidx.core.content.ContextCompat.getColor(context, R.color.theme_yellow) to
                      androidx.core.content.ContextCompat.getColor(context, R.color.theme_bg_yellow)
+        "approved" -> android.graphics.Color.parseColor("#15803D") to android.graphics.Color.parseColor("#DCFCE7")
+        "rejected" -> android.graphics.Color.parseColor("#B91C1C") to android.graphics.Color.parseColor("#FEE2E2")
         else -> android.graphics.Color.parseColor("#6B7280") to android.graphics.Color.parseColor("#F3F4F6")
     }
 }

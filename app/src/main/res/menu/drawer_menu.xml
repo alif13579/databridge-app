@@ -36,6 +36,11 @@
             android:title="Scanner"
             android:visible="true" />
         <item
+            android:id="@+id/nav_scan_approval"
+            android:icon="@android:drawable/ic_menu_agenda"
+            android:title="Scan Approval"
+            android:visible="false" />
+        <item
             android:id="@+id/nav_memory"
             android:icon="@android:drawable/ic_menu_save"
             android:title="Memory"

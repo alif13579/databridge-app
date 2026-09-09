@@ -9,8 +9,21 @@
     "scanned": {
       ".read": "auth != null",
       ".write": true,
+      ".indexOn": ["scan_at", "status", "branch_id"],
+      "self_assigned": {
+        "$uid": {
+          ".indexOn": ["scan_at", "status", "branch_id"]
+        }
+      },
       "barcode_scans": {
         ".indexOn": ["lastScannedAt"]
+      }
+    },
+    "scan_sheet_retry": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$branchId": {
+        ".indexOn": ["created_at"]
       }
     },
     "users_by_systemId": {

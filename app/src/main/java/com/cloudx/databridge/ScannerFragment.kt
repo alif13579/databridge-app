@@ -326,6 +326,10 @@ class ScannerFragment : Fragment() {
 
     private fun handleDelete(item: ScanItem) {
         if (item.uploaded) {
+            if (item.status.equals("approved", ignoreCase = true)) {
+                Toast.makeText(requireContext(), "✓ Approved scan — delete kora jabe na", Toast.LENGTH_SHORT).show()
+                return
+            }
             deleteFromFirebase(item)
         } else {
             removeLocalItem(item.id)
@@ -352,16 +356,42 @@ class ScannerFragment : Fragment() {
         btnUpload.isEnabled = false
         btnUpload.text = "⏳ Uploading ${localItems.size} parcels..."
 
+        // Stamp branch + employee identity so the Incharge queue can filter by
+        // branch without joining users/{uid} per scan, and the sheet writer
+        // can look up the employee slot without a second profile read.
+        db.reference.child("users/${user.uid}/profile").get()
+            .addOnSuccessListener { profile ->
+                val companyInfo = profile.child("company_info")
+                val branchId = companyInfo.child("branch_ids").children
+                    .mapNotNull { it.getValue(String::class.java) }.firstOrNull().orEmpty()
+                val employeeId = companyInfo.child("employee_id").getValue(String::class.java).orEmpty()
+                val agentName = profile.child("name").getValue(String::class.java)
+                    ?: user.displayName.orEmpty()
+                pushScans(user.uid, branchId, employeeId, agentName)
+            }
+            .addOnFailureListener {
+                // Profile unreadable (offline cache miss etc.) — still upload;
+                // the queue falls back to a profile lookup per uid.
+                pushScans(user.uid, "", "", user.displayName.orEmpty())
+            }
+    }
+
+    private fun pushScans(uid: String, branchId: String, employeeId: String, agentName: String) {
         val updates = hashMapOf<String, Any>()
         localItems.forEach { item ->
             val ts = item.scanAt
             val scanKey = item.id.toString()
-            updates[RunRoutePaths.scanItem(user.uid, scanKey)] = mapOf(
+            // scan_at is the ordering key (client capture time); the list
+            // renders sortedByDescending(scanAt) with date dividers.
+            updates[RunRoutePaths.scanItem(uid, scanKey)] = mapOf(
                 "scan_text" to item.code,
                 "scan_at" to ts,
                 "manual" to item.manual,
-                "user_id" to user.uid,
-                "status" to "pending"
+                "user_id" to uid,
+                "status" to "pending",
+                "branch_id" to branchId,
+                "employee_id" to employeeId,
+                "agent_name" to agentName
             )
         }
 
@@ -408,7 +438,14 @@ class ScannerFragment : Fragment() {
                                 manual = manual,
                                 uploaded = true,
                                 firebaseKey = child.key ?: "",
-                                status = status
+                                status = status,
+                                branchId = child.child("branch_id").getValue(String::class.java).orEmpty(),
+                                employeeId = child.child("employee_id").getValue(String::class.java).orEmpty(),
+                                agentName = child.child("agent_name").getValue(String::class.java).orEmpty(),
+                                agentUid = child.child("user_id").getValue(String::class.java).orEmpty(),
+                                reviewedBy = child.child("reviewed_by").getValue(String::class.java).orEmpty(),
+                                reviewedAt = child.child("reviewed_at").getValue(Long::class.java) ?: 0L,
+                                sheetWritten = child.child("sheet_written").getValue(Boolean::class.java) ?: false
                             )
                         )
                     }
@@ -435,6 +472,10 @@ class ScannerFragment : Fragment() {
         val user = auth.currentUser ?: return
         val key = item.firebaseKey
         if (key.isBlank()) return
+        if (item.status.equals("approved", ignoreCase = true)) {
+            Toast.makeText(requireContext(), "✓ Approved scan — edit kora jabe na", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         db.reference.child(RunRoutePaths.scanItem(user.uid, key)).child("scan_text").setValue(newCode.trim())
             .addOnSuccessListener {

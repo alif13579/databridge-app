@@ -452,6 +452,21 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 R.id.nav_call_center -> loadFragment(CallCenterFragment())
                 R.id.nav_virtual_routing -> loadFragment(VirtualRoutingFragment())
                 R.id.nav_scanner   -> loadFragment(ScannerFragment())
+                R.id.nav_scan_approval -> {
+                    // Same role-NAME pattern as Leave: any Incharge of the
+                    // branch gets the shared approval queue; everyone else
+                    // falls back to their own scanner screen.
+                    val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
+                    val roleName = RbacManager.current.roleName.trim()
+                    val isIncharge = roleName.equals(LEAVE_ACKNOWLEDGER_ROLE_NAME, ignoreCase = true)
+                    if (branchId.isBlank()) {
+                        Toast.makeText(this, "No branch assigned to this account", Toast.LENGTH_SHORT).show()
+                    } else if (isIncharge) {
+                        loadFragment(ScanQueueFragment.newInstance(branchId))
+                    } else {
+                        loadFragment(ScannerFragment())
+                    }
+                }
                 R.id.nav_memory    -> loadFragment(MemoryFragment())
                 R.id.nav_chat      -> loadFragment(ChatFragment())
                 R.id.nav_salary_manager -> loadFragment(SalaryManagerFragment())
@@ -898,6 +913,13 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         }
 
         menu.findItem(R.id.nav_scanner)?.isVisible = RbacManager.hasPermission("nav_scanner")
+        menu.findItem(R.id.nav_scan_approval)?.apply {
+            // Role-NAME gated like Leave (no permission-catalog toggle):
+            // visible only to branch Incharges (they also need nav_scanner).
+            val roleName = RbacManager.current.roleName.trim()
+            val isIncharge = roleName.equals(LEAVE_ACKNOWLEDGER_ROLE_NAME, ignoreCase = true)
+            isVisible = isIncharge && RbacManager.hasPermission("nav_scanner")
+        }
         menu.findItem(R.id.nav_memory)?.isVisible = RbacManager.hasPermission("nav_memory")
         menu.findItem(R.id.nav_chat)?.isVisible   = RbacManager.hasPermission("nav_chat")
         menu.findItem(R.id.nav_connect)?.isVisible = RbacManager.hasPermission("nav_connect")

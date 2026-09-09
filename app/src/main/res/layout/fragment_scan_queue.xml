@@ -1,0 +1,194 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/theme_bg_app">
+
+    <!-- Toolbar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="12dp"
+        android:background="@color/theme_bg_card">
+
+        <ImageButton
+            android:id="@+id/btnScanQueueBack"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@android:drawable/ic_menu_revert"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Scan Approvals"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_primary"
+            android:layout_marginStart="8dp" />
+
+        <TextView
+            android:id="@+id/tvScanQueueBranch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_branch_switcher_chip"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_primary"
+            android:gravity="center_vertical"
+            android:maxWidth="140dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- Count + retry -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp">
+
+        <TextView
+            android:id="@+id/tvScanQueueCount"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="⏳ 0 pending"
+            android:textSize="13sp"
+            android:textColor="@color/theme_text_secondary" />
+
+        <Button
+            android:id="@+id/btnScanQueueRetry"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="↻ Sheet retry"
+            android:textSize="12sp"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- Status filter -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/chipScanPending"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="⏳ Pending"
+            android:textAlignment="center"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:paddingVertical="8dp"
+            android:background="@drawable/bg_filter_chip_active"
+            android:layout_marginEnd="6dp" />
+
+        <TextView
+            android:id="@+id/chipScanApproved"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="✓ Approved"
+            android:textAlignment="center"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:paddingVertical="8dp"
+            android:background="@drawable/bg_filter_chip_inactive"
+            android:layout_marginEnd="6dp" />
+
+        <TextView
+            android:id="@+id/chipScanRejected"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="✕ Rejected"
+            android:textAlignment="center"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:paddingVertical="8dp"
+            android:background="@drawable/bg_filter_chip_inactive" />
+    </LinearLayout>
+
+    <!-- Bulk bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="8dp">
+
+        <Button
+            android:id="@+id/btnScanQueueSelectAll"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Select all"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/btnScanQueueApproveSel"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="36dp"
+            android:text="✓ Approve (0)"
+            android:textSize="12sp"
+            android:layout_marginStart="8dp" />
+
+        <Button
+            android:id="@+id/btnScanQueueRejectSel"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="✕ Reject (0)"
+            android:textSize="12sp"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvScanQueue"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="16dp" />
+
+        <TextView
+            android:id="@+id/tvScanQueueEmpty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="✅&#10;&#10;No pending scans"
+            android:textAlignment="center"
+            android:textSize="14sp"
+            android:textColor="@color/theme_text_secondary"
+            android:visibility="gone" />
+
+        <ProgressBar
+            android:id="@+id/pbScanQueueLoading"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+    </FrameLayout>
+</LinearLayout>
