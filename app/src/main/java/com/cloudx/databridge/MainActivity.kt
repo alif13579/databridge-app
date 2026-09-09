@@ -1356,16 +1356,19 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         if (!force && !toggles.getBoolean("lookup_from_cc", false)) return
         if (!RbacManager.hasPermission("nav_call_center")) return
 
+        // Telecom/caller-ID numbers arrive as +8801XXXXXXXXX but parcel data
+        // (and both search boxes) use local 01XXXXXXXXX — normalize first.
+        val query = toLocalSearchNumber(phone)
         val alreadyOnCc = supportFragmentManager.findFragmentById(R.id.container) is CallCenterFragment
         if (alreadyOnCc) {
             // Already viewing CC -- just search in place, no tab switch to validate.
             (supportFragmentManager.findFragmentById(R.id.container) as? CallCenterFragment)
-                ?.applySearchPhone(phone)
+                ?.applySearchPhone(query)
             return
         }
 
         previousBottomNavItemBeforeCcSearch = bottomNav.selectedItemId
-        pendingCcSearchPhone = phone
+        pendingCcSearchPhone = query
         bottomNav.selectedItemId = R.id.nav_call_center
     }
 
@@ -1392,15 +1395,33 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     fun navigateToWorkerSpaceWithSearch(phone: String) {
         if (!RbacManager.hasPermission("nav_space")) return
 
+        // Same local-format rule as CC search above.
+        val query = toLocalSearchNumber(phone)
         val alreadyOnWorker = supportFragmentManager.findFragmentById(R.id.container) is WorkerSpaceFragment
         if (alreadyOnWorker) {
             (supportFragmentManager.findFragmentById(R.id.container) as? WorkerSpaceFragment)
-                ?.applySearchPhone(phone)
+                ?.applySearchPhone(query)
             return
         }
 
-        pendingWorkerSearchPhone = phone
+        pendingWorkerSearchPhone = query
         bottomNav.selectedItemId = R.id.nav_space
+    }
+
+    /**
+     * Telecom/caller-ID numbers arrive as +8801XXXXXXXXX (or 880...); parcel
+     * data and both search boxes use local 01XXXXXXXXX — normalize to that
+     * before filling any search box. Non-BD/short inputs pass through as
+     * plain digits so the search still tries something sensible.
+     */
+    fun toLocalSearchNumber(raw: String): String {
+        val digits = raw.filter { it.isDigit() }
+        return when {
+            digits.startsWith("880") && digits.length in 12..14 -> "0" + digits.drop(3)
+            digits.startsWith("0") && digits.length == 11 -> digits
+            digits.length == 10 -> "0$digits"
+            else -> digits.ifBlank { raw.trim() }
+        }
     }
 
     fun navigateToChangelog() {
