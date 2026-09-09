@@ -24,17 +24,14 @@ import kotlinx.coroutines.tasks.await
 import okhttp3.OkHttpClient
 
 /**
- * 🔗 Connectors — Config tab (Sheet Library + legacy connections).
+ * 🔗 Connectors — Config tab (Sheet Library).
  *
- * New saves are neutral 📚 sheet libraries: same 4-step wizard
- * (Account → Sheet → Tab → Columns) but with NO fragment choice and NO
- * kind spinners — just which columns can match and which can receive
- * writes. WHAT data flows through those columns is bound per-fragment
- * where the sheet is used (scanner-first: Scanner fragment's 🔌 socket).
- *
- * Legacy purpose/kind connections (pre-library) keep working untouched and
- * stay editable with the old kind UI. See SheetLibraryModels.kt /
- * SheetLibraryRepository.kt for the library + binding model.
+ * Every save is a neutral 📚 sheet library: 4-step wizard (Account →
+ * Sheet → Tab → Columns) with NO fragment choice and NO kind spinners —
+ * just which columns can match and which can receive writes. WHAT data
+ * flows through those columns is bound per-fragment where the sheet is
+ * used (Scanner/CC 🔌 socket). See SheetLibraryModels.kt /
+ * SheetLibraryRepository.kt.
  *
  * Branch-wise, multiple entries per branch allowed (same UX pattern as
  * ConfigSheetFragment's connected-branches list) — data model and Firebase
@@ -96,7 +93,14 @@ class ConfigConnectorsFragment : Fragment() {
 
     // Step 3
     private var etScNickname:   EditText? = null
-    private var etScTabPattern: EditText? = null
+    private var spinnerScTabMode: Spinner? = null
+    private var layoutScTabPlain: View? = null
+    private var layoutScTabDynamic: View? = null
+    private var layoutScTabHybrid: View? = null
+    private var etScTabFixed: EditText? = null
+    private var spinnerScTabToken: Spinner? = null
+    private var etScTabHybrid: EditText? = null
+    private var spinnerScTabHybridToken: Spinner? = null
     private var tvScTabPreview: TextView? = null
 
     // Step 4
@@ -273,8 +277,17 @@ class ConfigConnectorsFragment : Fragment() {
         pbScSheetLoad     = view.findViewById(R.id.pbScSheetLoad)
 
         etScNickname   = view.findViewById(R.id.etScNickname)
-        etScTabPattern = view.findViewById(R.id.etScTabPattern)
+        spinnerScTabMode = view.findViewById(R.id.spinnerScTabMode)
+        layoutScTabPlain = view.findViewById(R.id.layoutScTabPlain)
+        layoutScTabDynamic = view.findViewById(R.id.layoutScTabDynamic)
+        layoutScTabHybrid = view.findViewById(R.id.layoutScTabHybrid)
+        etScTabFixed = view.findViewById(R.id.etScTabFixed)
+        spinnerScTabToken = view.findViewById(R.id.spinnerScTabToken)
+        etScTabHybrid = view.findViewById(R.id.etScTabHybrid)
+        spinnerScTabHybridToken = view.findViewById(R.id.spinnerScTabHybridToken)
         tvScTabPreview = view.findViewById(R.id.tvScTabPreview)
+        setupTabBuilder()
+        setupScopeDatePickers()
 
         etScHeaderRow = view.findViewById(R.id.etScHeaderRow)
         layoutRuleLookups = view.findViewById(R.id.layoutRuleLookups)
@@ -318,12 +331,6 @@ class ConfigConnectorsFragment : Fragment() {
         btnScStepBack?.setOnClickListener { goToStep(connectStep - 1) }
         btnScStepNext?.setOnClickListener { attemptGoToStep(connectStep + 1) }
         btnScStepConnect?.setOnClickListener { saveConnection() }
-
-        etScTabPattern?.addTextChangedListener(object : android.text.TextWatcher {
-            override fun afterTextChanged(s: android.text.Editable?) { updateTabPreview() }
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-        })
 
         spinnerScBranch?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, v: View?, position: Int, id: Long) {
@@ -472,7 +479,6 @@ class ConfigConnectorsFragment : Fragment() {
         tvScNoConnections?.visibility = View.GONE
 
         val libraries = branchConnections.filter { it.isLibrary }
-        val legacy = branchConnections.filter { !it.isLibrary }
 
         fun actionBtn(label: String, bg: String, fg: String, onTap: () -> Unit): TextView =
             TextView(ctx).apply {
@@ -594,87 +600,6 @@ class ConfigConnectorsFragment : Fragment() {
                 container.addView(card)
             }
         }
-
-        // ── 📦 Legacy: convert-only (ager purpose/kind system off — flows
-        //  no longer read these; Convert moves columns into a library). ──
-        if (legacy.isNotEmpty()) {
-            sectionHeader("📦 Legacy (${legacy.size}) — Convert করে library বানান, ager system off")
-            legacy.forEach { conn ->
-                val row = android.widget.LinearLayout(ctx).apply {
-                    orientation = android.widget.LinearLayout.VERTICAL
-                    setPadding(32, 24, 32, 20)
-                    setBackgroundResource(R.drawable.bg_card_rounded)
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { bottomMargin = 16 }
-                    alpha = 0.85f
-                }
-                row.addView(TextView(ctx).apply {
-                    text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } }
-                    textSize = 14f
-                    setTypeface(typeface, android.graphics.Typeface.BOLD)
-                    setTextColor(ctx.getColor(R.color.theme_text_primary))
-                })
-                row.addView(TextView(ctx).apply {
-                    val cols = conn.effectiveLookups().joinToString("+") { it.colRef.trim() } +
-                        " → " + conn.effectiveWrites().joinToString(",") { it.colRef.trim() }
-                    text = "${conn.purposeLabel()} • " +
-                        SheetScope.badge(conn.scopeType, conn.scopeMonth, conn.scopeFrom, conn.scopeTo) +
-                        "\n$cols"
-                    textSize = 12f
-                    setTextColor(ctx.getColor(R.color.theme_text_secondary))
-                    setPadding(0, 6, 0, 4)
-                })
-                val btnRow = android.widget.LinearLayout(ctx).apply {
-                    orientation = android.widget.LinearLayout.HORIZONTAL
-                    setPadding(0, 8, 0, 0)
-                }
-                btnRow.addView(actionBtn("📚 Convert", "#EFF6FF", "#1D4ED8") { confirmConvertLegacy(conn) })
-                btnRow.addView(actionBtn("🗑 Delete", "#FEF2F2", "#B91C1C") { confirmDeleteConnection(conn) })
-                row.addView(btnRow)
-                container.addView(row)
-            }
-        }
-    }
-
-    /** One-tap legacy → library: columns move over (colRef + mode), the
-     *  legacy row is removed. Data mapping is NOT moved — bind fresh from
-     *  the fragment 🔌 (that IS the new system). */
-    private fun confirmConvertLegacy(conn: ScannerSheetConn) {
-        val ctx = context ?: return
-        android.app.AlertDialog.Builder(ctx)
-            .setTitle("Convert to library?")
-            .setMessage("“${conn.nickname.ifBlank { conn.sheetName }}”-এর columns library-te jabe, legacy row muche jabe। Mapping fragment 🔌 থেকে নতুন করে bind করতে হবে।")
-            .setPositiveButton("Convert") { _, _ ->
-                viewLifecycleOwner.lifecycleScope.launch {
-                    try {
-                        val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-                        val actingName = withContext(Dispatchers.IO) {
-                            runCatching {
-                                com.google.firebase.database.FirebaseDatabase.getInstance()
-                                    .reference.child("users/$uid/profile/name")
-                                    .get().await().getValue(String::class.java)
-                            }.getOrNull().orEmpty()
-                        }
-                        val libConn = conn.copy(
-                            connectionId = "",
-                            purpose = "",
-                            isLibrary = true,
-                        )
-                        ScannerSheetRepository.saveConnection(libConn, uid, actingName, true)
-                        ScannerSheetRepository.deleteConnection(
-                            conn.branchId, conn.connectionId, uid, actingName)
-                        if (isAdded) {
-                            Toast.makeText(ctx, "📚 Library ready — fragment 🔌 থেকে bind করুন", Toast.LENGTH_SHORT).show()
-                            loadConnectionsForSelectedBranch()
-                        }
-                    } catch (e: Exception) {
-                        if (isAdded) Toast.makeText(ctx, "Convert failed: ${e.message}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     /** Enable/disable toggle per connection (disabled = skipped by mirror,
@@ -690,64 +615,6 @@ class ConfigConnectorsFragment : Fragment() {
                 if (isAdded) renderConnectionsList()
             } catch (e: Exception) {
                 if (isAdded) Toast.makeText(context, "Failed: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    private fun connectionLongPress(conn: ScannerSheetConn) {
-        val ctx = context ?: return
-        val isRemark = conn.isRemarkConnection()
-        val items = if (isRemark) arrayOf("🔍 Test (dry-run)", "Delete") else arrayOf("Delete")
-        android.app.AlertDialog.Builder(ctx)
-            .setTitle(conn.nickname.ifBlank { conn.sheetName })
-            .setItems(items) { _, which ->
-                if (isRemark && which == 0) showDryRunDialog(conn)
-                else confirmDeleteConnection(conn)
-            }
-            .show()
-    }
-
-    /** Dry-run: consignment দিলে বলে দেবে feedback কোন row-তে যেত — কিছু লেখে না। */
-    private fun showDryRunDialog(conn: ScannerSheetConn) {
-        val ctx = context ?: return
-        val input = android.widget.EditText(ctx).apply {
-            hint = "Consignment ID"
-            setPadding(48, 28, 48, 28)
-        }
-        val resultView = android.widget.TextView(ctx).apply {
-            val ruleText = conn.effectiveLookups().joinToString(" + ") { "${it.colRef.trim()}(${it.kind})" } +
-                " → " + conn.effectiveWrites().joinToString(", ") { "${it.colRef.trim()}(${it.kind})" }
-            text = "যে consignment-এর feedback যাবে, তার ID লিখুন।\n$ruleText"
-            textSize = 13f
-            setPadding(48, 20, 48, 8)
-        }
-        val layout = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            addView(resultView)
-            addView(input)
-        }
-        var dialog: android.app.AlertDialog? = null
-        dialog = android.app.AlertDialog.Builder(ctx)
-            .setTitle("Test: ${conn.nickname.ifBlank { conn.sheetName }}")
-            .setView(layout)
-            .setPositiveButton("Check", null)
-            .setNegativeButton("Close", null)
-            .create()
-        dialog?.show()
-        dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
-            val cid = input.text?.toString()?.trim().orEmpty()
-            if (cid.isBlank()) {
-                input.error = "Consignment ID দিন"
-                return@setOnClickListener
-            }
-            resultView.text = "⏳ Sheet পড়ছে..."
-            viewLifecycleOwner.lifecycleScope.launch {
-                val report = try {
-                    RemarkSheetMirror.dryRunReport(requireContext().applicationContext, conn, cid)
-                } catch (e: Exception) {
-                    "✕ ${e.message?.take(100) ?: "error"}"
-                }
-                if (isAdded) resultView.text = report
             }
         }
     }
@@ -1061,7 +928,7 @@ class ConfigConnectorsFragment : Fragment() {
         defaultScopeInputs()
         refreshWizardBranchSpinner()
         etScNickname?.setText("")
-        etScTabPattern?.setText("Day {dd}")
+        seedTabBuilder("Day {dd}")
         etScHeaderRow?.setText("1")
         clearRuleRows()
         tvScSelectedSheet?.text = "— Sheet বেছে নিন —"
@@ -1090,7 +957,7 @@ class ConfigConnectorsFragment : Fragment() {
         }
         refreshWizardBranchSpinner()
         etScNickname?.setText(conn.nickname)
-        etScTabPattern?.setText(conn.tabPattern.ifBlank { "Day {dd}" })
+        seedTabBuilder(conn.tabPattern)
         etScHeaderRow?.setText(conn.resolvedHeaderRow().toString())
         clearRuleRows()
         // Stored dynamic rules. Legacy conns (no stored rules) seed equivalent
@@ -1139,8 +1006,8 @@ class ConfigConnectorsFragment : Fragment() {
             }
             2 -> if (selectedSheet == null) { showScErr("একটি Sheet বেছে নিন"); return }
             3 -> {
-                if (etScTabPattern?.text?.toString()?.trim().isNullOrBlank()) {
-                    showScErr("Tab name pattern দিন"); return
+                if (collectTabPattern().isBlank()) {
+                    showScErr("Tab name দিন (type অনুযায়ী text/token)"); return
                 }
             }
         }
@@ -1348,13 +1215,136 @@ class ConfigConnectorsFragment : Fragment() {
     }
 
     // ── Step 3: Tab pattern preview ─────────────────────────────────────────
+    // ── Step 3: dropdown-based tab builder ─────────────────────────────────
+    // Type dropdown controls the input: Plain = fixed text (locked as-is),
+    // Dynamic = date token with live today-example (locked to that token),
+    // Hybrid = fixed text + token append. Preview always shows today's
+    // resolved name. Storage stays a plain pattern string (resolveTabName).
+
+    private val TAB_TOKENS = listOf("{dd}", "{d}", "{mm}", "{m}", "{yyyy}", "{yy}")
+    private val TAB_MODES = listOf("Plain text (fixed)", "Dynamic date", "Hybrid (fixed + dynamic)")
+
+    private fun tabTokenExample(token: String): String {
+        val resolved = runCatching {
+            ScannerSheetRepository.resolveTabName(token)
+        }.getOrDefault(token)
+        return "$token → $resolved"
+    }
+
+    private fun tabMode(): Int = spinnerScTabMode?.selectedItemPosition ?: 0
+
+    private fun setupTabBuilder() {
+        val ctx = context ?: return
+        spinnerScTabMode?.adapter = ArrayAdapter(
+            ctx, android.R.layout.simple_spinner_item, TAB_MODES
+        ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        val tokenLabels = TAB_TOKENS.map { tabTokenExample(it) }
+        val tokenAdapter = ArrayAdapter(
+            ctx, android.R.layout.simple_spinner_item, tokenLabels
+        ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        spinnerScTabToken?.adapter = tokenAdapter
+        spinnerScTabHybridToken?.adapter = tokenAdapter
+        spinnerScTabMode?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                updateTabModeRows()
+                updateTabPreview()
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        val watcher = object : android.text.TextWatcher {
+            override fun afterTextChanged(s: android.text.Editable?) = updateTabPreview()
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+        }
+        etScTabFixed?.addTextChangedListener(watcher)
+        etScTabHybrid?.addTextChangedListener(watcher)
+        val tokenListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = updateTabPreview()
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        spinnerScTabToken?.onItemSelectedListener = tokenListener
+        spinnerScTabHybridToken?.onItemSelectedListener = tokenListener
+        view?.findViewById<View>(R.id.btnScTabHybridAdd)?.setOnClickListener {
+            val token = TAB_TOKENS.getOrNull(spinnerScTabHybridToken?.selectedItemPosition ?: 0).orEmpty()
+            val cur = etScTabHybrid?.text?.toString().orEmpty()
+            val sep = if (cur.isBlank() || cur.endsWith(" ")) "" else " "
+            etScTabHybrid?.setText("$cur$sep$token")
+            etScTabHybrid?.setSelection(etScTabHybrid?.text?.length ?: 0)
+            updateTabPreview()
+        }
+        updateTabModeRows()
+    }
+
+    private fun updateTabModeRows() {
+        val mode = tabMode()
+        layoutScTabPlain?.visibility = if (mode == 0) View.VISIBLE else View.GONE
+        layoutScTabDynamic?.visibility = if (mode == 1) View.VISIBLE else View.GONE
+        layoutScTabHybrid?.visibility = if (mode == 2) View.VISIBLE else View.GONE
+    }
+
+    /** Effective pattern from the builder (locked value that gets saved). */
+    private fun collectTabPattern(): String {
+        return when (tabMode()) {
+            1 -> TAB_TOKENS.getOrNull(spinnerScTabToken?.selectedItemPosition ?: 0).orEmpty()
+            2 -> etScTabHybrid?.text?.toString()?.trim().orEmpty()
+            else -> etScTabFixed?.text?.toString()?.trim().orEmpty()
+        }
+    }
+
+    /** Seeds the builder from a stored pattern (edit flow). */
+    private fun seedTabBuilder(pattern: String) {
+        val p = pattern.ifBlank { "Day {dd}" }
+        val hasToken = TAB_TOKENS.any { p.contains(it) }
+        // Literal left after stripping every token.
+        var literal = p
+        TAB_TOKENS.forEach { literal = literal.replace(it, "") }
+        when {
+            !hasToken -> {
+                spinnerScTabMode?.setSelection(0)
+                etScTabFixed?.setText(p)
+            }
+            literal.isBlank() && TAB_TOKENS.contains(p.trim()) -> {
+                spinnerScTabMode?.setSelection(1)
+                spinnerScTabToken?.setSelection(TAB_TOKENS.indexOf(p.trim()))
+            }
+            else -> {
+                spinnerScTabMode?.setSelection(2)
+                etScTabHybrid?.setText(p)
+            }
+        }
+        updateTabModeRows()
+        updateTabPreview()
+    }
+
     private fun updateTabPreview() {
-        val pattern = etScTabPattern?.text?.toString()?.trim().orEmpty().ifBlank { "Day {dd}" }
-        // Single source of truth — the wizard's old local resolver dropped the
-        // leading zero ("Day 9" vs the real "Day 09"), which is why this now
-        // delegates to ScannerSheetRepository.resolveTabName.
+        val pattern = collectTabPattern().ifBlank { "Day {dd}" }
         val resolved = ScannerSheetRepository.resolveTabName(pattern)
         tvScTabPreview?.text = "আজকের Tab নাম হবে:  \"$resolved\""
+    }
+
+    // ── Step 1: scope date pickers (calendar view, yyyy-MM-dd) ──────────────
+    private fun setupScopeDatePickers() {
+        etScScopeFrom?.setOnClickListener { pickScopeDate(etScScopeFrom) }
+        etScScopeTo?.setOnClickListener { pickScopeDate(etScScopeTo) }
+    }
+
+    private fun pickScopeDate(target: EditText?) {
+        val ctx = context ?: return
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Asia/Dhaka"))
+        // Preselect the field's current value when parseable.
+        runCatching {
+            val parts = target?.text?.toString()?.trim()?.split("-") ?: return@runCatching
+            if (parts.size == 3) {
+                cal.set(parts[0].toInt(), parts[1].toInt() - 1, parts[2].toInt())
+            }
+        }
+        android.app.DatePickerDialog(
+            ctx,
+            { _, y, m, d -> target?.setText("%04d-%02d-%02d".format(y, m + 1, d)) },
+            cal.get(java.util.Calendar.YEAR),
+            cal.get(java.util.Calendar.MONTH),
+            cal.get(java.util.Calendar.DAY_OF_MONTH),
+        ).show()
     }
 
     // ── Step 4: Columns ──────────────────────────────────────────────────────
@@ -1394,7 +1384,7 @@ class ConfigConnectorsFragment : Fragment() {
         val scopeTo = scope.to
 
         val nickname = etScNickname?.text?.toString()?.trim().orEmpty()
-        val tabPattern = etScTabPattern?.text?.toString()?.trim().orEmpty().ifBlank { "Day {dd}" }
+        val tabPattern = collectTabPattern().ifBlank { "Day {dd}" }
         val headerRow = collectHeaderRow()
         val lookups = collectLookups()
         val writes = collectWrites()
@@ -1475,7 +1465,7 @@ class ConfigConnectorsFragment : Fragment() {
         val writes = collectWrites()
         if (lookups.isEmpty() || writes.isEmpty()) { showScErr("আগে Lookup + Write rule দিন"); return }
         val tab = ScannerSheetRepository.resolveTabName(
-            etScTabPattern?.text?.toString()?.trim().orEmpty().ifBlank { "Day {dd}" })
+            collectTabPattern().ifBlank { "Day {dd}" })
         val headerRow = collectHeaderRow()
         tvScRulePreview?.visibility = View.GONE
         scrollScRulePreview?.visibility = View.GONE

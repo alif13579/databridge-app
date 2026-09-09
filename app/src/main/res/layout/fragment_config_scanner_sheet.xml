@@ -280,19 +280,19 @@
                         android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1"
                         android:background="@drawable/bg_input_rounded"
                         android:padding="10dp" android:layout_marginEnd="6dp"
-                        android:hint="From (2026-09-01)" android:textSize="13sp"
-                        android:inputType="date" android:maxLines="1" />
+                        android:hint="From 📅" android:textSize="13sp"
+                        android:focusable="false" android:clickable="true" android:maxLines="1" />
 
                     <EditText android:id="@+id/etScScopeTo"
                         android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1"
                         android:background="@drawable/bg_input_rounded"
                         android:padding="10dp" android:layout_marginStart="6dp"
-                        android:hint="To (2026-09-15)" android:textSize="13sp"
-                        android:inputType="date" android:maxLines="1" />
+                        android:hint="To 📅" android:textSize="13sp"
+                        android:focusable="false" android:clickable="true" android:maxLines="1" />
                 </LinearLayout>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Branch + fragment + scope wise single / multiple sheet — date dile appropriate sheet pawa jabe"
+                    android:text="Branch + scope wise single / multiple sheet — date dile appropriate sheet pawa jabe"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -377,13 +377,60 @@
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="TAB NAME PATTERN" android:textSize="10sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
-                <EditText android:id="@+id/etScTabPattern"
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="TAB NAME TYPE" android:textSize="10sp" android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
+                <Spinner android:id="@+id/spinnerScTabMode"
                     android:layout_width="match_parent" android:layout_height="46dp"
                     android:background="@drawable/bg_input_rounded"
-                    android:padding="10dp" android:textSize="13sp"
-                    android:text="Day {dd}"
-                    android:inputType="text" android:maxLines="1"
-                    android:layout_marginBottom="8dp" />
+                    android:padding="10dp" android:layout_marginBottom="12dp" />
+
+                <!-- Plain: fixed literal text, protidin same tab -->
+                <LinearLayout android:id="@+id/layoutScTabPlain"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:layout_marginBottom="8dp">
+                    <EditText android:id="@+id/etScTabFixed"
+                        android:layout_width="match_parent" android:layout_height="46dp"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp" android:textSize="13sp"
+                        android:hint="jemon: Routing"
+                        android:inputType="text" android:maxLines="1" />
+                </LinearLayout>
+
+                <!-- Dynamic: date token dropdown, ajker example soho -->
+                <LinearLayout android:id="@+id/layoutScTabDynamic"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:layout_marginBottom="8dp"
+                    android:visibility="gone">
+                    <Spinner android:id="@+id/spinnerScTabToken"
+                        android:layout_width="match_parent" android:layout_height="46dp"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp" />
+                </LinearLayout>
+
+                <!-- Hybrid: fixed text + dynamic token append -->
+                <LinearLayout android:id="@+id/layoutScTabHybrid"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="vertical" android:layout_marginBottom="8dp"
+                    android:visibility="gone">
+                    <EditText android:id="@+id/etScTabHybrid"
+                        android:layout_width="match_parent" android:layout_height="46dp"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp" android:textSize="13sp"
+                        android:hint="jemon: Routing {dd}"
+                        android:inputType="text" android:maxLines="1"
+                        android:layout_marginBottom="8dp" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:orientation="horizontal" android:gravity="center_vertical">
+                        <Spinner android:id="@+id/spinnerScTabHybridToken"
+                            android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1"
+                            android:background="@drawable/bg_input_rounded"
+                            android:padding="10dp" android:layout_marginEnd="8dp" />
+                        <Button android:id="@+id/btnScTabHybridAdd"
+                            android:layout_width="wrap_content" android:layout_height="46dp"
+                            android:text="+ Add" android:textSize="13sp" />
+                    </LinearLayout>
+                </LinearLayout>
 
                 <TextView android:id="@+id/tvScTabPreview"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -392,7 +439,7 @@
                     android:padding="10dp" android:layout_marginBottom="6dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Fixed (jemon Routing), dynamic ({dd}=09, {d}=9, {mm}, {m}, {yyyy}, {yy}) ba mixed (jemon Routing {dd}) — token na thakle protidin same tab"
+                    android:text="Type বেছে নিন — preview-te ajker tab name dekhe lock করুন"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="2dp" />
             </LinearLayout>
 
