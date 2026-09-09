@@ -28,6 +28,18 @@ function nextNumericId(existing: unknown[]): string {
   return String(max + 1)
 }
 
+/** Short non-human id (10 chars, A-Za-z0-9) — compact like a push-key but
+ *  without Firebase's timestamp prefix. Letters dominate the alphabet so a
+ *  generated id is never all-digits (numeric-looking). 23505 retry in the
+ *  caller covers the theoretical collision. */
+const SHORT_ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+function shortId(length = 10): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(length))
+  let out = ''
+  for (let i = 0; i < length; i++) out += SHORT_ID_ALPHABET[bytes[i] % 62]
+  return out
+}
+
 Deno.serve(async (request) => {
   const guard = guardRequest(request)
   if (guard) return guard
@@ -379,12 +391,11 @@ Deno.serve(async (request) => {
       if (!branch) return reply({ error: 'Unknown branch_id' }, 400)
       const now = new Date().toISOString()
       if (!areaId) {
-        // Auto ID (new app): random UUID — non-human like the rest of the
-        // directory (push-keys/UUIDs/acronyms), never sequential numbers.
+        // Auto ID (new app): short 10-char non-human id (A-Za-z0-9).
         // Plain INSERT + retry so a 23505 collision retries instead of
-        // overwriting (practically impossible with UUIDs, kept for safety).
+        // overwriting (practically impossible, kept for safety).
         for (let attempt = 0; attempt < 5 && !areaId; attempt++) {
-          const candidate = crypto.randomUUID()
+          const candidate = shortId()
           const { error } = await admin.from('areas').insert({
             branch_id: branchId, area_id: candidate,
             name: str(a.name).trim(), area_type: areaType, zone: str(a.zone).trim(),
