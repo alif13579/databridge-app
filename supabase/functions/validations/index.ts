@@ -1,6 +1,6 @@
 // validations — Call Center / Worker REMARK flows only.
-// Actions: write, report, admin_list_remarks, admin_upsert_remark,
-// admin_delete_remark, admin_migrate_status_remarks.
+// Actions: write, sync_run_status, report, admin_list_remarks,
+// admin_upsert_remark, admin_delete_remark, admin_migrate_status_remarks.
 //
 // NOTE: this is the canonical slug (renamed from remark-validations).
 // supabase/functions/remark-validations/index.ts is a byte-identical compat
@@ -116,6 +116,71 @@ Deno.serve(async (request) => {
       }
       const push = await sendRemarkPush(savedRow, identity)
       return reply({ ok: true, push })
+    }
+
+    if (action === 'sync_run_status') {
+      // Run-route → validations snapshot sync (Hermes extension): a run page's
+      // live consignment statuses overwrite `consignment_status` on each
+      // consignment's LATEST row, so history keeps the remark trail but the
+      // newest row always carries the final run status. Rows that already
+      // match are skipped; consignments with no row at all are reported as
+      // missing (never auto-created — a status without a remark means nothing
+      // to attach it to). One select + updates-only-changed, so a re-sync of
+      // an unchanged run costs a single read and zero writes.
+      const items = body.items
+      if (!Array.isArray(items) || items.length === 0) {
+        return reply({ error: 'items[] (consignment + status) required' }, 400)
+      }
+      if (items.length > 500) {
+        return reply({ error: 'max 500 items per call' }, 400)
+      }
+      const authorProfile = await firebaseProfile(identity)
+      if (!await requireUsersRow(authorProfile.systemId)) {
+        errLog('sync_run_status', 'author_users_row_missing', { system_id: authorProfile.systemId })
+        return reply({ error: 'Your employee profile is missing — ask admin to add you in employee edit' }, 403)
+      }
+      const want = new Map<string, string>()
+      for (const it of items) {
+        const c = typeof it?.consignment === 'string' ? it.consignment.trim() : ''
+        const s = typeof it?.status === 'string' ? it.status.trim() : ''
+        if (c && s) want.set(c, s)
+      }
+      if (want.size === 0) {
+        return reply({ error: 'no usable consignment + status pairs' }, 400)
+      }
+      const ids = [...want.keys()]
+      const latestByConsignment = new Map<string, { id: string; consignment_status: string | null }>()
+      for (let i = 0; i < ids.length; i += 200) {
+        const chunk = ids.slice(i, i + 200)
+        const { data, error } = await admin.from('validations')
+          .select('id,consignment,consignment_status,created_at')
+          .in('consignment', chunk)
+          .order('created_at', { ascending: false })
+        if (error) {
+          errLog('sync_run_status', 'select_failed', { pg_code: error.code, pg_message: error.message })
+          throw error
+        }
+        for (const row of data ?? []) {
+          if (!latestByConsignment.has(row.consignment)) {
+            latestByConsignment.set(row.consignment, { id: row.id, consignment_status: row.consignment_status })
+          }
+        }
+      }
+      let updated = 0, unchanged = 0, missing = 0
+      for (const [consignment, status] of want) {
+        const latest = latestByConsignment.get(consignment)
+        if (!latest) { missing++; continue }
+        if ((latest.consignment_status ?? '') === status) { unchanged++; continue }
+        const { error } = await admin.from('validations')
+          .update({ consignment_status: status })
+          .eq('id', latest.id)
+        if (error) {
+          errLog('sync_run_status', 'update_failed', { consignment, pg_code: error.code, pg_message: error.message })
+          throw error
+        }
+        updated++
+      }
+      return reply({ ok: true, updated, unchanged, missing })
     }
 
     if (action === 'report') {
