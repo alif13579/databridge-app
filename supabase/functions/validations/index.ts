@@ -120,19 +120,23 @@ Deno.serve(async (request) => {
 
     if (action === 'sync_run_status') {
       // Run-route → validations snapshot sync (Hermes extension): a run page's
-      // live consignment statuses overwrite `consignment_status` on each
-      // consignment's LATEST row, so history keeps the remark trail but the
-      // newest row always carries the final run status. Rows that already
-      // match are skipped; consignments with no row at all are reported as
-      // missing (never auto-created — a status without a remark means nothing
-      // to attach it to). One select + updates-only-changed, so a re-sync of
-      // an unchanged run costs a single read and zero writes.
+      // live consignment statuses overwrite `consignment_status` on EVERY row
+      // of that consignment created on the run-open day (day_start..day_end,
+      // Dhaka bounds sent by the caller) — not just the latest row. History
+      // keeps the remark trail, but every same-day row carries the final run
+      // status. Rows that already match are skipped; consignments with no row
+      // that day are reported as missing (never auto-created).
       const items = body.items
       if (!Array.isArray(items) || items.length === 0) {
         return reply({ error: 'items[] (consignment + status) required' }, 400)
       }
       if (items.length > 500) {
         return reply({ error: 'max 500 items per call' }, 400)
+      }
+      const dayStart = typeof body.day_start === 'string' ? body.day_start : ''
+      const dayEnd = typeof body.day_end === 'string' ? body.day_end : ''
+      if (!dayStart || !dayEnd) {
+        return reply({ error: 'day_start and day_end (ISO) required' }, 400)
       }
       const authorProfile = await firebaseProfile(identity)
       if (!await requireUsersRow(authorProfile.systemId)) {
@@ -149,36 +153,39 @@ Deno.serve(async (request) => {
         return reply({ error: 'no usable consignment + status pairs' }, 400)
       }
       const ids = [...want.keys()]
-      const latestByConsignment = new Map<string, { id: string; consignment_status: string | null }>()
+      const rowsByConsignment = new Map<string, { id: string; consignment_status: string | null }[]>()
       for (let i = 0; i < ids.length; i += 200) {
         const chunk = ids.slice(i, i + 200)
         const { data, error } = await admin.from('validations')
-          .select('id,consignment,consignment_status,created_at')
+          .select('id,consignment,consignment_status')
           .in('consignment', chunk)
-          .order('created_at', { ascending: false })
+          .gte('created_at', dayStart)
+          .lt('created_at', dayEnd)
         if (error) {
           errLog('sync_run_status', 'select_failed', { pg_code: error.code, pg_message: error.message })
           throw error
         }
         for (const row of data ?? []) {
-          if (!latestByConsignment.has(row.consignment)) {
-            latestByConsignment.set(row.consignment, { id: row.id, consignment_status: row.consignment_status })
-          }
+          const list = rowsByConsignment.get(row.consignment) ?? []
+          list.push({ id: row.id, consignment_status: row.consignment_status })
+          rowsByConsignment.set(row.consignment, list)
         }
       }
       let updated = 0, unchanged = 0, missing = 0
       for (const [consignment, status] of want) {
-        const latest = latestByConsignment.get(consignment)
-        if (!latest) { missing++; continue }
-        if ((latest.consignment_status ?? '') === status) { unchanged++; continue }
-        const { error } = await admin.from('validations')
-          .update({ consignment_status: status })
-          .eq('id', latest.id)
-        if (error) {
-          errLog('sync_run_status', 'update_failed', { consignment, pg_code: error.code, pg_message: error.message })
-          throw error
+        const rows = rowsByConsignment.get(consignment) ?? []
+        if (rows.length === 0) { missing++; continue }
+        for (const row of rows) {
+          if ((row.consignment_status ?? '') === status) { unchanged++; continue }
+          const { error } = await admin.from('validations')
+            .update({ consignment_status: status })
+            .eq('id', row.id)
+          if (error) {
+            errLog('sync_run_status', 'update_failed', { consignment, pg_code: error.code, pg_message: error.message })
+            throw error
+          }
+          updated++
         }
-        updated++
       }
       return reply({ ok: true, updated, unchanged, missing })
     }
