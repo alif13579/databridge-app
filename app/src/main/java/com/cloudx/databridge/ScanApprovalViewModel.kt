@@ -78,6 +78,13 @@ class ScanApprovalViewModel : ViewModel() {
     private val auth = FirebaseAuth.getInstance()
     private val opsZone = ZoneId.of("Asia/Dhaka")
 
+    private val httpClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
     private val _state = MutableLiveData<ScanQueueState>(ScanQueueState.Loading)
     val state: LiveData<ScanQueueState> = _state
 
@@ -285,6 +292,12 @@ class ScanApprovalViewModel : ViewModel() {
             enqueueRetry(branch, scan, "no employee_id")
             return "no employee_id"
         }
+        // 1) Library bindings first (Scanner 🔌 — explicit admin intent wins;
+        //    a binding attempt never cascades into legacy, so one scan can
+        //    never land in two sheets).
+        val boundResult = writeViaBindings(appContext, branch, scan, employeeId)
+        if (boundResult != null) return boundResult
+        // 2) Legacy scanner connections fallback (pre-library configs).
         val conns = runCatching {
             ScannerSheetRepository.loadConnections(branch)
                 .filter { it.enabled && it.isScannerConnection() }
@@ -318,6 +331,72 @@ class ScanApprovalViewModel : ViewModel() {
         return "write failed"
     }
 
+    /**
+     * Library-bound sheet write (Scanner 🔌 bindings).
+     * Returns null when no usable binding exists (caller falls through to
+     * legacy connections); "" on success; else a short reason (already
+     * queued for retry).
+     */
+    private suspend fun writeViaBindings(
+        appContext: Context,
+        branch: String,
+        scan: QueuedScan,
+        employeeId: String,
+    ): String? {
+        val bindings = runCatching {
+            SheetLibraryRepository.loadScannerBindings(branch)
+        }.getOrNull().orEmpty().filter {
+            it.enabled && it.effectiveLookups().isNotEmpty() && it.effectiveWrites().isNotEmpty()
+        }
+        if (bindings.isEmpty()) return null
+        val libraries = runCatching {
+            SheetLibraryRepository.loadLibraries(branch)
+        }.getOrNull().orEmpty().filter { it.enabled }.associateBy { it.libraryId }
+        val today = LocalDate.now(opsZone)
+        val covering = bindings.mapNotNull { b ->
+            val lib = libraries[b.libraryId] ?: return@mapNotNull null
+            if (!SheetScope.covers(lib.scopeType, lib.scopeMonth, lib.scopeFrom, lib.scopeTo, today)) {
+                return@mapNotNull null
+            }
+            b to lib
+        }
+        if (covering.isEmpty()) return null // out of scope → legacy fallback
+        val token = silentWriteToken(appContext)
+        if (token.isNullOrBlank()) {
+            enqueueRetry(branch, scan, "no sheet token")
+            return "no sheet token"
+        }
+        var lastReason = "write failed"
+        for ((binding, lib) in covering) {
+            fun valueOf(field: String): String =
+                SheetLibraryRepository.scanFieldValue(
+                    field, scan.code.trim(), employeeId, scan.agentName, scan.scanAt)
+            val lookups = binding.effectiveLookups().map { m ->
+                SheetColRef(m.colRef, m.mode) to valueOf(m.field)
+            }
+            val writes = binding.effectiveWrites().map { m ->
+                SheetColRef(m.colRef, m.mode) to valueOf(m.field)
+            }
+            when (val out = SheetLibraryRepository.writeBoundValues(
+                lib, token, lookups, writes, httpClient)) {
+                is ScannerSheetRepository.WriteResult.Success -> {
+                    markSheetWritten(scan)
+                    return ""
+                }
+                is ScannerSheetRepository.WriteResult.Failure -> lastReason = out.message
+            }
+        }
+        enqueueRetry(branch, scan, lastReason)
+        return lastReason
+    }
+
+    private suspend fun markSheetWritten(scan: QueuedScan) {
+        runCatching {
+            db.reference.child(RunRoutePaths.scanItem(scan.ownerUid, scan.firebaseKey))
+                .updateChildren(mapOf("sheet_written" to true)).await()
+        }
+    }
+
     private suspend fun enqueueRetry(branch: String, scan: QueuedScan, reason: String) {
         runCatching {
             db.reference.child(scanRetryPath(branch)).push().setValue(mapOf(
@@ -326,6 +405,7 @@ class ScanApprovalViewModel : ViewModel() {
                 "code" to scan.code,
                 "branch_id" to branch,
                 "employee_id" to scan.employeeId,
+                "scan_at" to scan.scanAt,
                 "reason" to reason.take(120),
                 "created_at" to System.currentTimeMillis()
             )).await()
@@ -352,7 +432,8 @@ class ScanApprovalViewModel : ViewModel() {
                     }
                     val retryScan = QueuedScan(
                         ownerUid = ownerUid, firebaseKey = scanKey, code = code,
-                        branchId = branchId, employeeId = empId
+                        branchId = branchId, employeeId = empId,
+                        scanAt = child.child("scan_at").getValue(Long::class.java) ?: 0L,
                     )
                     val err = withContext(Dispatchers.IO) { writeToSheet(appContext, retryScan) }
                     if (err.isBlank()) {

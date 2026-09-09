@@ -11,6 +11,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -130,6 +131,17 @@ class ScannerFragment : Fragment() {
         tvDateFilterLabel = view.findViewById(R.id.tvDateFilterLabel)
         btnClearDateFilter = view.findViewById(R.id.btnClearDateFilter)
         btnExportCsv = view.findViewById(R.id.btnExportCsv)
+
+        // 🔌 Sheet binding socket (admin-only: Config access). Opens the
+        // library picker + column↔scan-data mapping for this fragment.
+        view.findViewById<View>(R.id.btnSheetBinding)?.let { socket ->
+            socket.visibility =
+                if (RbacManager.hasPermission("nav_config")) View.VISIBLE else View.GONE
+            socket.setOnClickListener {
+                ScannerSheetBindingDialog.show(
+                    requireContext(), viewLifecycleOwner.lifecycleScope)
+            }
+        }
 
         layoutDateFilter.setOnClickListener { showDateRangePickerDialog() }
         btnClearDateFilter.setOnClickListener {

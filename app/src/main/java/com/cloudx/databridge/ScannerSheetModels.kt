@@ -45,6 +45,10 @@ data class ScannerSheetConn(
     val enabled: Boolean = true,
     /** Which fragment this sheet serves ([SheetPurpose]). Required. */
     val purpose: String = "",
+    /** True = neutral [SheetLibrary] entry (no fragment binding, no kinds).
+     *  False/missing = legacy purpose/kind connection — flows keep reading
+     *  it exactly as before. */
+    val isLibrary: Boolean = false,
     /** Date scope — which dates this sheet covers ([SheetScope]). Missing =
      *  global (old connections predate scopes). */
     val scopeType: String = SheetScope.GLOBAL,
@@ -62,6 +66,7 @@ data class ScannerSheetConn(
 
     /** True when the mirror should process this connection. */
     fun isRemarkConnection(): Boolean {
+        if (isLibrary) return false // libraries bind per-fragment; kinds carry no meaning
         if (purpose == SheetPurpose.SCANNER || purpose == SheetPurpose.ROUTING) return false
         if (purpose == SheetPurpose.REMARK) {
             return effectiveLookups().isNotEmpty() && effectiveWrites().isNotEmpty()
@@ -73,6 +78,7 @@ data class ScannerSheetConn(
 
     /** True when the scanner should use this connection (employee→value). */
     fun isScannerConnection(): Boolean {
+        if (isLibrary) return false // scanner reaches libraries via ScannerBinding
         if (purpose == SheetPurpose.REMARK || purpose == SheetPurpose.ROUTING) return false
         if (purpose == SheetPurpose.SCANNER) {
             return effectiveScannerLookup() != null && effectiveScannerWrite() != null
@@ -83,14 +89,16 @@ data class ScannerSheetConn(
 
     /** True when the routing-approval flow should use this connection. */
     fun isRoutingConnection(): Boolean {
+        if (isLibrary) return false
         if (purpose == SheetPurpose.ROUTING) {
             return effectiveLookups().isNotEmpty() && effectiveWrites().isNotEmpty()
         }
         return false
     }
 
-    /** Human label for lists: explicit purpose, else inferred. */
+    /** Human label for lists: library first, else explicit purpose, else inferred. */
     fun purposeLabel(): String = when {
+        isLibrary -> "📚 Library"
         purpose == SheetPurpose.SCANNER -> "Scanner"
         purpose == SheetPurpose.REMARK -> "Call Center"
         purpose == SheetPurpose.ROUTING -> "Routing Approval"

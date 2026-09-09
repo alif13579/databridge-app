@@ -24,17 +24,21 @@ import kotlinx.coroutines.tasks.await
 import okhttp3.OkHttpClient
 
 /**
- * 🔗 Connectors — Config tab (Scanner Sheet Connector)
+ * 🔗 Connectors — Config tab (Sheet Library + legacy connections).
  *
- * A simpler, standalone sibling to ConfigSheetFragment's Sheet connector: same 4-step
- * connect wizard (Account → Sheet → Tab → Columns), exactly copied per explicit instruction,
- * with the 5th "Mapping" step intentionally omitted — this connector has no field mapping,
- * no periodic sync. It's just enough config for ScannerFragment to know which sheet, which
- * tab-name pattern, and which two columns (match/write) to use when writing a scanned value.
+ * New saves are neutral 📚 sheet libraries: same 4-step wizard
+ * (Account → Sheet → Tab → Columns) but with NO fragment choice and NO
+ * kind spinners — just which columns can match and which can receive
+ * writes. WHAT data flows through those columns is bound per-fragment
+ * where the sheet is used (scanner-first: Scanner fragment's 🔌 socket).
  *
- * Branch-wise, multiple connections per branch allowed (same UX pattern as ConfigSheetFragment's
- * connected-branches list) — see ScannerSheetModels.kt / ScannerSheetRepository.kt for the data
- * model and Firebase persistence (config/connectors/{branchId}/{connectionId}).
+ * Legacy purpose/kind connections (pre-library) keep working untouched and
+ * stay editable with the old kind UI. See SheetLibraryModels.kt /
+ * SheetLibraryRepository.kt for the library + binding model.
+ *
+ * Branch-wise, multiple entries per branch allowed (same UX pattern as
+ * ConfigSheetFragment's connected-branches list) — data model and Firebase
+ * persistence (config/connectors/{branchId}/{connectionId}).
  *
  * Google Sheets/Drive API calls reuse ConfigSheetDriveApi.kt's functions (fetchDriveSpreadsheets,
  * fetchSheetTabs) — but with WRITE-capable OAuth scopes (OAUTH_SCOPE_WRITE), since this
@@ -79,6 +83,7 @@ class ConfigConnectorsFragment : Fragment() {
     // new connection under config/connectors/{branch}/current.
     private var spinnerScWizardBranch: Spinner? = null
     private var spinnerScPurpose:      Spinner? = null
+    private var tvScPurposeLabel:      TextView? = null
     private var scCardSelectedAccount:   View? = null
     private var tvScSelectedAccountName:  TextView? = null
     private var tvScSelectedAccountEmail: TextView? = null
@@ -112,9 +117,14 @@ class ConfigConnectorsFragment : Fragment() {
     private var myBranches: List<Pair<String, String>> = emptyList() // (branchId, branchName)
     private var selectedBranchId: String = ""
     private var branchConnections: List<ScannerSheetConn> = emptyList()
+    private var branchScannerBindings: List<ScannerBinding> = emptyList()
 
     private var connectStep = 1
     private var editingConnectionId: String = "" // blank = new connection
+    /** Library mode (new saves + isLibrary edits): neutral sheet, no
+     *  fragment dropdown, no kind spinners. Legacy purposed edits keep the
+     *  old kind UI so nothing already configured is lost. */
+    private var wizardLibraryMode: Boolean = true
     // Step-1 selections: which branch + which fragment + which date scope this
     // sheet serves. (Wizard dropdowns — outer spinner only filters Panel-1.)
     private var connPurpose: String = SheetPurpose.REMARK
@@ -292,6 +302,11 @@ class ConfigConnectorsFragment : Fragment() {
         btnScCancelConnect?.setOnClickListener { exitWizardToBranchSelect() }
         spinnerScWizardBranch = view.findViewById(R.id.spinnerScWizardBranch)
         spinnerScPurpose = view.findViewById(R.id.spinnerScPurpose)
+        tvScPurposeLabel = view.findViewById(R.id.tvScPurposeLabel)
+        // Libraries are fragment-neutral: the Fragment dropdown stays
+        // hidden — WHAT data flows is bound per-fragment later (Scanner 🔌).
+        spinnerScPurpose?.visibility = View.GONE
+        tvScPurposeLabel?.visibility = View.GONE
         spinnerScScope = view.findViewById(R.id.spinnerScScope)
         layoutScScopeMonth = view.findViewById(R.id.layoutScScopeMonth)
         spinnerScScopeMonth = view.findViewById(R.id.spinnerScScopeMonth)
@@ -366,6 +381,11 @@ class ConfigConnectorsFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             branchConnections = try {
                 ScannerSheetRepository.loadConnections(selectedBranchId)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            branchScannerBindings = try {
+                SheetLibraryRepository.loadScannerBindings(selectedBranchId)
             } catch (e: Exception) {
                 emptyList()
             }
@@ -444,12 +464,24 @@ class ConfigConnectorsFragment : Fragment() {
         tvScNoConnections?.visibility = View.GONE
 
         branchConnections.forEach { conn ->
+            val isLibrary = conn.isLibrary
+            val boundByScanner = isLibrary && branchScannerBindings.any {
+                it.libraryId == conn.connectionId && it.enabled
+            }
             val isRemark = conn.purpose.ifBlank {
                 if (conn.isScannerConnection() && !conn.isRemarkConnection()) SheetPurpose.SCANNER
                 else SheetPurpose.REMARK
             } == SheetPurpose.REMARK
-            val accent = if (isRemark) "#7C3AED" else "#059669"
-            val accentBg = if (isRemark) "#EDE9FE" else "#D1FAE5"
+            val accent = when {
+                isLibrary -> "#2563EB"
+                isRemark -> "#7C3AED"
+                else -> "#059669"
+            }
+            val accentBg = when {
+                isLibrary -> "#DBEAFE"
+                isRemark -> "#EDE9FE"
+                else -> "#D1FAE5"
+            }
             val card = android.widget.LinearLayout(ctx).apply {
                 orientation = android.widget.LinearLayout.VERTICAL
                 setPadding(32, 28, 32, 24)
@@ -472,7 +504,11 @@ class ConfigConnectorsFragment : Fragment() {
                     android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             val badge = TextView(ctx).apply {
-                text = if (isRemark) "☎️ Call Center" else "📷 Scanner"
+                text = when {
+                    isLibrary -> "📚 Library"
+                    isRemark -> "☎️ Call Center"
+                    else -> "📷 Scanner"
+                }
                 textSize = 11f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 setTextColor(android.graphics.Color.parseColor(accent))
@@ -500,20 +536,29 @@ class ConfigConnectorsFragment : Fragment() {
                 text = buildString {
                     append(conn.sheetName)
                     if (!conn.enabled) append("  •  disabled")
+                    if (isLibrary && boundByScanner) append("  •  🔌 Scanner bound")
+                    fun kindTag(kind: String) = kind.trim().let { if (it.isBlank()) "" else "($it)" }
                     val lookTxt = conn.effectiveLookups()
-                        .joinToString("+") { "${it.colRef.trim()}(${it.kind})" }
+                        .joinToString("+") { "${it.colRef.trim()}${kindTag(it.kind)}" }
                         .ifBlank {
                             conn.effectiveScannerLookup()
-                                ?.let { "${it.colRef.trim()}(${it.kind})" } ?: ""
+                                ?.let { "${it.colRef.trim()}${kindTag(it.kind)}" } ?: ""
                         }
                     val writeTxt = conn.effectiveWrites()
-                        .joinToString(",") { "${it.colRef.trim()}(${it.kind})" }
+                        .joinToString(",") { "${it.colRef.trim()}${kindTag(it.kind)}" }
                         .ifBlank {
                             conn.effectiveScannerWrite()
-                                ?.let { "${it.colRef.trim()}(${it.kind})" } ?: ""
+                                ?.let { "${it.colRef.trim()}${kindTag(it.kind)}" } ?: ""
                         }
                     if (lookTxt.isNotBlank() || writeTxt.isNotBlank()) {
                         append("\n$lookTxt → $writeTxt")
+                    }
+                    if (isLibrary) {
+                        val binding = branchScannerBindings.firstOrNull {
+                            it.libraryId == conn.connectionId && it.enabled
+                        }
+                        val mapTxt = binding?.summary().orEmpty()
+                        if (mapTxt.isNotBlank()) append("\n🔌 $mapTxt")
                     }
                 }
                 textSize = 12f
@@ -665,7 +710,7 @@ class ConfigConnectorsFragment : Fragment() {
     private fun modeLabel(mode: String) = if (mode == SheetColMode.TEXT) "Text" else "Column Index"
     private fun modeOf(label: String) = if (label == "Text") SheetColMode.TEXT else SheetColMode.INDEX
 
-    private fun addLookupRow(rule: SheetLookupRule) {
+    private fun addLookupRow(rule: SheetLookupRule, showKind: Boolean = !wizardLibraryMode) {
         addRuleRow(
             container = layoutRuleLookups,
             tagKey = R.id.layoutRuleLookups,
@@ -675,10 +720,11 @@ class ConfigConnectorsFragment : Fragment() {
             kindLabels = SheetLookupKind.ALL,
             kind = rule.kind,
             refHint = "C / 3 / Consignment ID",
+            showKind = showKind,
         )
     }
 
-    private fun addWriteRow(rule: SheetWriteRule) {
+    private fun addWriteRow(rule: SheetWriteRule, showKind: Boolean = !wizardLibraryMode) {
         addRuleRow(
             container = layoutRuleWrites,
             tagKey = R.id.layoutRuleWrites,
@@ -690,6 +736,7 @@ class ConfigConnectorsFragment : Fragment() {
             kindLabels = SheetWriteKind.ALL.map { if (it == SheetWriteKind.VALUE) "scanned value" else it },
             kind = rule.kind,
             refHint = "K / 11 / Feedback",
+            showKind = showKind,
         )
     }
 
@@ -702,6 +749,7 @@ class ConfigConnectorsFragment : Fragment() {
         kindLabels: List<String>,
         kind: String,
         refHint: String,
+        showKind: Boolean = true,
     ) {
         val ctx = context ?: return
         val parent = container ?: return
@@ -748,6 +796,7 @@ class ConfigConnectorsFragment : Fragment() {
             }
             layoutParams = android.widget.LinearLayout.LayoutParams(0,
                 android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            visibility = if (showKind) View.VISIBLE else View.GONE
         }
         // Mode switch re-hints the input so Text vs Index is unambiguous.
         spMode.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
@@ -764,7 +813,9 @@ class ConfigConnectorsFragment : Fragment() {
         }
         line2.addView(spMode); line2.addView(spinner); line2.addView(del)
         row.addView(et); row.addView(line2)
-        row.setTag(tagKey, Triple(et, spMode, spinner))
+        // Hidden kind spinner degrades to null so readers know there is no
+        // kind (library columns) instead of a defaulted one.
+        row.setTag(tagKey, Triple(et, spMode, if (showKind) spinner else null))
         parent.addView(row)
     }
 
@@ -772,18 +823,20 @@ class ConfigConnectorsFragment : Fragment() {
         parent: android.widget.LinearLayout?,
         tagKey: Int,
         kinds: List<String>,
-    ): List<Triple<String, String, String>> { // (ref, mode, kind)
+    ): List<Triple<String, String, String>> { // (ref, mode, kind; kind = "" when hidden)
         val out = mutableListOf<Triple<String, String, String>>()
         if (parent == null) return out
         for (i in 0 until parent.childCount) {
             val tag = parent.getChildAt(i).getTag(tagKey) as? Triple<*, *, *> ?: continue
             val et = tag.first as? EditText ?: continue
             val spMode = tag.second as? android.widget.Spinner ?: continue
-            val sp = tag.third as? android.widget.Spinner ?: continue
+            val sp = tag.third as? android.widget.Spinner
             val ref = et.text?.toString()?.trim().orEmpty()
             if (ref.isBlank()) continue
             val mode = modeOf(spMode.selectedItem?.toString() ?: "Column Index")
-            out.add(Triple(ref, mode, kinds[sp.selectedItemPosition.coerceIn(kinds.indices)]))
+            val kind = if (sp == null || kinds.isEmpty()) "" else
+                kinds[sp.selectedItemPosition.coerceIn(kinds.indices)]
+            out.add(Triple(ref, mode, kind))
         }
         return out
     }
@@ -955,7 +1008,8 @@ class ConfigConnectorsFragment : Fragment() {
     private fun startNewConnection() {
         editingConnectionId = ""
         selectedSheet = null
-        connPurpose = SheetPurpose.REMARK
+        wizardLibraryMode = true // new saves are always neutral libraries
+        connPurpose = ""
         wizardBranchId = selectedBranchId
         connScopeType = SheetScope.GLOBAL
         etScScopeFrom?.setText("")
@@ -973,7 +1027,9 @@ class ConfigConnectorsFragment : Fragment() {
     private fun startEditConnection(conn: ScannerSheetConn) {
         editingConnectionId = conn.connectionId
         selectedSheet = DriveFile(conn.sheetId, conn.sheetName)
-        // Explicit purpose, else inferred (scanner rules → scanner, else remark).
+        // Libraries stay libraries; legacy purposed conns keep their purpose
+        // silently (no dropdown anymore) and keep the kind UI.
+        wizardLibraryMode = conn.isLibrary
         connPurpose = conn.purpose.ifBlank {
             if (conn.isScannerConnection() && !conn.isRemarkConnection()) SheetPurpose.SCANNER
             else SheetPurpose.REMARK
@@ -1040,7 +1096,11 @@ class ConfigConnectorsFragment : Fragment() {
         when (connectStep) {
             1 -> {
                 if (wizardBranchId.isBlank()) { showScErr("Branch বেছে নিন"); return }
-                if (!SheetPurpose.isKnown(connPurpose)) { showScErr("Fragment বেছে নিন"); return }
+                // Fragment dropdown is gone (libraries are neutral) — legacy
+                // edits carry their stored purpose silently.
+                if (!wizardLibraryMode && !SheetPurpose.isKnown(connPurpose)) {
+                    showScErr("Fragment বেছে নিন"); return
+                }
                 if (collectScope() == null) return
                 if (googleAccount == null) { showScErr("প্রথমে Google account select করুন"); return }
             }
@@ -1269,11 +1329,24 @@ class ConfigConnectorsFragment : Fragment() {
         val lookups = collectLookups()
         val writes = collectWrites()
         if (lookups.isEmpty() || writes.isEmpty()) {
-            tvScSummary?.text = "Lookup + Write rule অন্তত 1টা করে দিন — নিচে + Add চাপুন।"
+            tvScSummary?.text = if (wizardLibraryMode)
+                "Lookup + Write column অন্তত 1টা করে দিন — নিচে + Add চাপুন।"
+            else
+                "Lookup + Write rule অন্তত 1টা করে দিন — নিচে + Add চাপুন।"
             return
         }
         fun fmtRef(ref: String, mode: String) =
             if (mode == SheetColMode.TEXT) "header “$ref”" else "column $ref"
+        if (wizardLibraryMode) {
+            // 1 → 2 → 3 flow: kon column-e milbe, kon column-e lekhara jayga.
+            // Data mapping ekhane NA — je fragment use korbe (Scanner 🔌)
+            // sekhane define hobe.
+            val lookTxt = lookups.joinToString(" + ") { fmtRef(it.colRef, it.mode) }
+            val writeTxt = writes.joinToString(", ") { fmtRef(it.colRef, it.mode) }
+            tvScSummary?.text = "📚 Library: $lookTxt মিলিয়ে row খুঁজবে, $writeTxt-তে লেখার জায়গা থাকবে। " +
+                "কোন data দিয়ে মিলবে/লিখবে সেটা Scanner fragment-এর 🔌 থেকে ঠিক হবে।"
+            return
+        }
         val lookTxt = lookups.joinToString(" + ") { "${fmtRef(it.colRef, it.mode)}=${it.kind}" }
         val writeTxt = writes.joinToString(", ") { "${fmtRef(it.colRef, it.mode)}←${it.kind}" }
         val remark = lookups.any { it.kind in SheetLookupKind.REMARK_KINDS } &&
@@ -1289,15 +1362,19 @@ class ConfigConnectorsFragment : Fragment() {
     }
 
     // ── Save ─────────────────────────────────────────────────────────────────
-    // Branch + fragment come from the Step-1 wizard dropdowns (NOT the outer
-    // list filter) — branch-wise single/multiple sheets per fragment.
+    // Branch comes from the Step-1 wizard dropdown (NOT the outer list
+    // filter) — branch-wise multiple sheets allowed. New saves are always
+    // neutral libraries (no purpose, neutral kind defaults); legacy edits
+    // keep their stored purpose + kinds.
     private fun saveConnection() {
         val sheet = selectedSheet
         val acct  = googleAccount
         if (sheet == null || acct == null) { showScErr("Account এবং Sheet select করা আবশ্যক"); return }
         val saveBranchId = wizardBranchId.ifBlank { selectedBranchId }
         if (saveBranchId.isBlank()) { showScErr("Branch বেছে নিন (Step 1)"); return }
-        if (!SheetPurpose.isKnown(connPurpose)) { showScErr("Fragment বেছে নিন (Step 1)"); return }
+        if (!wizardLibraryMode && !SheetPurpose.isKnown(connPurpose)) {
+            showScErr("Fragment বেছে নিন (Step 1)"); return
+        }
         val scope = collectScope() ?: return
         val scopeType = scope.type
         val scopeMonth = scope.month
@@ -1320,22 +1397,27 @@ class ConfigConnectorsFragment : Fragment() {
             return ConfigSheetParseUtil.colIndexToLetter(idx)
         }
         val normLookups = lookups.map { r ->
-            SheetLookupRule(normRef(r.colRef, r.mode, "Lookup") ?: return, r.kind, r.mode)
+            // Library columns carry no kind — neutral defaults ride along for
+            // the shared transport shape only.
+            val kind = r.kind.ifBlank { SheetLookupKind.CONSIGNMENT }
+            SheetLookupRule(normRef(r.colRef, r.mode, "Lookup") ?: return, kind, r.mode)
         }
         val normWrites = writes.map { r ->
-            SheetWriteRule(normRef(r.colRef, r.mode, "Write") ?: return, r.kind, r.mode)
+            val kind = r.kind.ifBlank { SheetWriteKind.FEEDBACK }
+            SheetWriteRule(normRef(r.colRef, r.mode, "Write") ?: return, kind, r.mode)
         }
-        // Purpose-appropriate rules: scanner needs employee→value, remark
-        // needs remark-kind lookup+write. (Legacy mixed conns keep working —
-        // each flow reads only its own kinds.)
-        if (connPurpose == SheetPurpose.SCANNER &&
+        // Legacy purpose-appropriate rules (libraries skip this — WHAT data
+        // flows is bound per-fragment, not here). Legacy mixed conns keep
+        // working — each flow reads only its own kinds.
+        val editingLegacyPurpose = if (wizardLibraryMode) "" else connPurpose
+        if (!wizardLibraryMode && connPurpose == SheetPurpose.SCANNER &&
             (normLookups.none { it.kind == SheetLookupKind.EMPLOYEE } ||
                 normWrites.none { it.kind == SheetWriteKind.VALUE })
         ) {
             showScErr("Scanner-এর জন্য lookup kind employee + write kind scanned value লাগবে")
             return
         }
-        if (connPurpose == SheetPurpose.REMARK &&
+        if (!wizardLibraryMode && connPurpose == SheetPurpose.REMARK &&
             (normLookups.none { it.kind in SheetLookupKind.REMARK_KINDS } ||
                 normWrites.none { it.kind in SheetWriteKind.REMARK_KINDS })
         ) {
@@ -1363,7 +1445,8 @@ class ConfigConnectorsFragment : Fragment() {
                     sheetName    = sheet.name,
                     tabPattern   = tabPattern,
                     headerRow    = headerRow,
-                    purpose      = connPurpose,
+                    purpose      = editingLegacyPurpose,
+                    isLibrary    = wizardLibraryMode,
                     scopeType    = scopeType,
                     scopeMonth   = scopeMonth,
                     scopeFrom    = scopeFrom,
@@ -1449,13 +1532,14 @@ class ConfigConnectorsFragment : Fragment() {
                     val idx = headerCells.indexOfFirst { it.trim() == ref.trim() }
                     return if (idx < 0) null else ConfigSheetParseUtil.colIndexToLetter(idx + 1)
                 }
+                fun kindTag(kind: String) = kind.trim().let { if (it.isBlank()) "" else "($it)" }
                 val lookRep = lookups.map { r ->
                     val l = resolve(r.colRef, r.mode)
-                    "${r.colRef.trim()}(${r.kind})→${l ?: "✕ NOT FOUND"}"
+                    "${r.colRef.trim()}${kindTag(r.kind)}→${l ?: "✕ NOT FOUND"}"
                 }
                 val writeRep = writes.map { r ->
                     val l = resolve(r.colRef, r.mode)
-                    "${r.colRef.trim()}(${r.kind})→${l ?: "✕ NOT FOUND"}"
+                    "${r.colRef.trim()}${kindTag(r.kind)}→${l ?: "✕ NOT FOUND"}"
                 }
                 val missing = lookRep.count { it.contains("NOT FOUND") } +
                     writeRep.count { it.contains("NOT FOUND") }

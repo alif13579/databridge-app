@@ -235,7 +235,7 @@
                     android:background="@drawable/bg_input_rounded"
                     android:padding="10dp" android:layout_marginBottom="14dp" />
 
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                <TextView android:id="@+id/tvScPurposeLabel" android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="FRAGMENT (ei sheet ta kon kaje lagbe)" android:textSize="10sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
 
