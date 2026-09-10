@@ -45,9 +45,11 @@ object RemarkSheetMirror {
 
     // Display formats a Sheets date cell can come back as (FORMATTED_VALUE).
     // dd/MM/yyyy is the local norm; the rest cover common sheet locales
-    // (incl. short-year "03-Jul-26" the sheet often renders).
+    // (incl. short-year "03-Jul-26" the sheet often renders, and US-style
+    // "M/d/yy" like "9/10/26").
     private val datePatterns = listOf(
         "yyyy-MM-dd", "dd/MM/yyyy", "dd-MM-yyyy", "d/M/yyyy", "M/d/yyyy",
+        "d/M/yy", "M/d/yy", "dd/MM/yy", "MM/dd/yy",
         "yyyy/MM/dd", "dd.MM.yyyy", "dd-MMM-yyyy", "d-MMM-yyyy",
         "dd-MMM-yy", "d-MMM-yy"
     ).map { DateTimeFormatter.ofPattern(it, Locale.ENGLISH) }
@@ -171,11 +173,16 @@ object RemarkSheetMirror {
     private fun lookupMatches(kind: String, cell: String, ctx: MirrorCtx): Boolean {
         if (kind == SheetLookupKind.TODAY) return isToday(cell, ctx.today)
         if (kind == SheetLookupKind.EMPLOYEE) return false // scanner-only, filtered before match
-        // created_at compares by DATE (sheet "03-Jul-2026" vs stamp
-        // "03-07-2026 14:30") — everything else exact trim match (blank == blank).
+        // created_at compares by DATE (sheet "09/10/2026" vs stamp
+        // "2026-09-10 14:41:38.608242+00") — slash cells like 09/10 are
+        // ambiguous (M/d vs d/M), so EITHER reading matching counts.
+        // Everything else exact trim match (blank == blank).
         if (kind == SheetLookupKind.CREATED_AT) {
-            val want = tryParseDate(lookupValue(kind, ctx)) ?: return lookupValue(kind, ctx).isBlank() && cell.trim().isBlank()
-            return tryParseDate(cell.trim()) == want
+            val rawWant = lookupValue(kind, ctx)
+            if (rawWant.isBlank()) return cell.trim().isBlank()
+            val want = tryParseDate(rawWant) ?: return false
+            if (tryParseDate(cell.trim()) == want) return true
+            return want in slashCandidates(cell.trim())
         }
         return cell.trim() == lookupValue(kind, ctx).trim()
     }
@@ -206,7 +213,11 @@ object RemarkSheetMirror {
     private fun createdAtWant(ctx: MirrorCtx): String {
         val raw = lookupValue(SheetLookupKind.CREATED_AT, ctx)
         if (raw.isBlank()) return "(খালি)"
-        return tryParseDate(raw)?.toString() ?: "$raw (date bojha jayni!)"
+        val parsed = tryParseDate(raw)?.toString()
+        // Debug-friendly: raw + parsed date + today, so a pasted message
+        // shows exactly what was compared (e.g. want 2026-09-10 vs today 2026-09-10).
+        return if (parsed != null) "$parsed [raw:$raw | today:${ctx.today}]"
+        else "$raw (date bojha jayni! today:${ctx.today})"
     }
 
     private fun writeValue(kind: String, ctx: MirrorCtx): String = when (kind) {
@@ -262,11 +273,8 @@ object RemarkSheetMirror {
             val o = arr.getJSONObject(0)
             fun s(k: String) = o.optString(k, "")
             val createdIso = s("created_at")
-            val createdDhaka = runCatching {
-                val instant = java.time.Instant.parse(createdIso)
-                java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm")
-                    .withZone(java.time.ZoneId.of("Asia/Dhaka")).format(instant)
-            }.getOrDefault(createdIso)
+            val createdDhaka = parseSupabaseInstantToDhaka(createdIso)
+                ?: createdIso
             val authorSid = s("author_system_id")
             mapOf(
                 SheetLookupKind.CREATED_AT to createdDhaka,
@@ -417,8 +425,9 @@ object RemarkSheetMirror {
             }
         }
         // No exact row: say WHICH rule never matched + WHAT the column
-        // actually holds (blank count + samples) so a format/empty mismatch
-        // is obvious without opening the sheet.
+        // actually holds (blank count + samples WITH parsed dates) so a
+        // format/empty mismatch is obvious without opening the sheet.
+        // Full detail goes to FirebaseErrorLogger; the toast stays short.
         val wantList = lookupCols.joinToString(", ") { (rule, _) ->
             "${rule.colRef.trim()}='${lookupWant(rule.kind, ctx)}'"
         }
@@ -427,28 +436,44 @@ object RemarkSheetMirror {
             if (cells.isEmpty()) "" else {
                 val blanks = cells.count { it.trim().isBlank() }
                 val samples = cells.map { it.trim() }.filter { it.isNotBlank() }
-                    .distinct().take(3).joinToString(" | ")
+                    .distinct().take(3)
+                    .joinToString(" | ") { s ->
+                        val p = tryParseDate(s)?.toString()
+                            ?: slashCandidates(s).firstOrNull()?.toString()
+                        if (p != null) "$s(→$p)" else s
+                    }
                 " ${letter} col: $blanks khali" +
                     (samples.ifBlank { "" }.let { if (it.isBlank()) "" else ", ache: $it" })
             }
         }.orEmpty()
         val filterTxt = if (filtered > 0) " ($filtered row filter-e bad)" else ""
+        val fullReason = "exact match নেই ($wantList — $scanned row দেখা হয়েছে$filterTxt$sampleTxt)। " +
+            "tab='$tabName' branch today=${ctx.today}। কখনো append হয় না"
+        FirebaseErrorLogger.log("RemarkSheetMirror", "mirror_miss_detail", fullReason,
+            mapOf("tab" to tabName, "scanned" to scanned.toString()))
         return@withContext FindResult.Miss(
             "exact match নেই ($wantList — $scanned row দেখা হয়েছে$filterTxt$sampleTxt)। কখনো append হয় না")
     }
 
-    /** True when a Sheets date cell (formatted text) falls on [today]. */
-    private fun isToday(cell: String, today: LocalDate): Boolean =
-        tryParseDate(cell.trim()) == today
+    /** True when a Sheets date cell (formatted text) falls on [today].
+     *  Slash cells like 09/10 are ambiguous (M/d vs d/M) — either reading
+     *  matching today counts. */
+    private fun isToday(cell: String, today: LocalDate): Boolean {
+        val t = cell.trim()
+        if (t.isEmpty()) return false
+        if (tryParseDate(t) == today) return true
+        return today in slashCandidates(t)
+    }
 
     /** Parses the sheet's zoo of date formats (plus our Dhaka stamp and ISO)
      *  to a LocalDate. Null when unparseable. */
     private fun tryParseDate(raw: String): LocalDate? {
-        if (raw.isEmpty()) return null
+        val t = raw.trim()
+        if (t.isEmpty()) return null
         for (fmt in datePatterns) {
             runCatching {
-                var d = LocalDate.parse(raw, fmt)
-                // Short-year cells ("10-Sep-26") parse to year 26 — roll forward.
+                var d = LocalDate.parse(t, fmt)
+                // Short-year cells ("10-Sep-26", "9/10/26") parse to year 26 — roll forward.
                 if (d.year < 100) d = d.plusYears(2000)
                 return d
             }
@@ -460,19 +485,85 @@ object RemarkSheetMirror {
             .map { java.time.format.DateTimeFormatter.ofPattern(it, java.util.Locale.ENGLISH) }
         for (fmt in extras) {
             runCatching {
-                var d = LocalDate.parse(raw, fmt)
+                var d = LocalDate.parse(t, fmt)
                 if (d.year < 100) d = d.plusYears(2000)
                 return d
             }
         }
         runCatching {
-            var d = LocalDate.parse(raw.substringBefore(" "),
+            var d = LocalDate.parse(t.substringBefore(" "),
                 java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy", java.util.Locale.ENGLISH))
             if (d.year < 100) d = d.plusYears(2000)
             return d
         }
-        runCatching { return java.time.Instant.parse(raw)
+        // Supabase created_at shapes: "2026-09-10T14:41:38.608242+00:00",
+        // "...Z", and the space variant "2026-09-10 14:41:38.608242+00".
+        // Instant.parse rejects +00:00, OffsetDateTime rejects the space
+        // form — normalizeIso fixes both before parsing (Dhaka date).
+        runCatching { return java.time.OffsetDateTime.parse(normalizeIso(t))
+            .atZoneSameInstant(java.time.ZoneId.of("Asia/Dhaka")).toLocalDate() }
+        runCatching { return java.time.Instant.parse(t)
             .atZone(java.time.ZoneId.of("Asia/Dhaka")).toLocalDate() }
+        // Bare "yyyy-MM-ddTHH:mm:ss" without zone (or space variant).
+        runCatching { return java.time.LocalDateTime.parse(t,
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.ENGLISH)).toLocalDate() }
+        runCatching { return java.time.LocalDateTime.parse(t.substringBefore("."),
+            java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME).toLocalDate() }
+        runCatching { return java.time.LocalDateTime.parse(normalizeIso(t).substringBefore("+").substringBefore("Z"),
+            java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME).toLocalDate() }
+        return null
+    }
+
+    /** "2026-09-10 14:41:38.608242+00" → "2026-09-10T14:41:38.608242+00:00"
+     *  so OffsetDateTime.parse accepts every Supabase created_at shape
+     *  (space/T separator, +00/+0000/+00:00/Z suffix). */
+    private fun normalizeIso(raw: String): String {
+        var s = raw.trim()
+        // Space separator → T ("2026-09-10 14:41:..." → "2026-09-10T14:41:...").
+        if (s.length > 10 && s[10] == ' ' && Regex("^\\d{4}-\\d{2}-\\d{2} ").containsMatchIn(s)) {
+            s = s.substring(0, 10) + "T" + s.substring(11)
+        }
+        // Bare trailing +00 / -00 (no minutes) → +00:00.
+        if (s.endsWith("+00") || s.endsWith("-00")) s += ":00"
+        // Compact +0000 / -0530 → +00:00 / -05:30.
+        val compactTz = Regex("([+-])(\\d{2})(\\d{2})$")
+        compactTz.find(s)?.let { m ->
+            s = s.dropLast(5) + "${m.groupValues[1]}${m.groupValues[2]}:${m.groupValues[3]}"
+        }
+        return s
+    }
+
+    /** Both slash readings of an ambiguous cell ("09/10/2026" → Sep 10 AND
+     *  Oct 9; "9/10/26" likewise). Unambiguous cells (day > 12, ISO, MMM)
+     *  yield ≤ 1 date. Used ONLY for date-equality checks, never ordering. */
+    private fun slashCandidates(raw: String): Set<LocalDate> {
+        val t = raw.trim()
+        if (t.isEmpty() || !t.contains('/')) return emptySet()
+        val out = LinkedHashSet<LocalDate>()
+        val slashFmts = listOf(
+            "M/d/yyyy", "d/M/yyyy", "MM/dd/yyyy", "dd/MM/yyyy",
+            "M/d/yy", "d/M/yy", "MM/dd/yy", "dd/MM/yy",
+        ).map { java.time.format.DateTimeFormatter.ofPattern(it, java.util.Locale.ENGLISH) }
+        for (f in slashFmts) {
+            runCatching {
+                var d = LocalDate.parse(t, f)
+                if (d.year < 100) d = d.plusYears(2000)
+                out.add(d)
+            }
+        }
+        return out
+    }
+
+    /** Supabase created_at ("...+00:00", "...Z", or space "+00" variant)
+     *  → Dhaka "dd-MM-yyyy HH:mm". Null when unparseable (caller falls
+     *  back to raw). */
+    private fun parseSupabaseInstantToDhaka(createdIso: String): String? {
+        val t = createdIso.trim()
+        if (t.isEmpty()) return null
+        val fmt = java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm")
+            .withZone(java.time.ZoneId.of("Asia/Dhaka"))
+        runCatching { return fmt.format(java.time.OffsetDateTime.parse(normalizeIso(t)).toInstant()) }
+        runCatching { return fmt.format(java.time.Instant.parse(t)) }
         return null
     }
 

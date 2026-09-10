@@ -259,8 +259,14 @@ object SheetCellCompare {
     fun dhakaToday(): java.time.LocalDate =
         java.time.LocalDate.now(ZONE_DHAKA)
 
-    /** "2026-09-10", "10/09/2026", "10-09-2026", "10.09.2026",
-     *  "10-Sep-2026"/"10-Sep-26", "2026/09/10" — else null. */
+    /** "2026-09-10", "10/09/2026", "09/10/2026" (M/d/yyyy), "9/10/26" (M/d/yy),
+     *  "10-09-2026", "10.09.2026", "10-Sep-2026"/"10-Sep-26", "2026/09/10",
+     *  Supabase ISO ("...+00:00"/"...Z"/space "+00" variant),
+     *  Dhaka stamp ("dd-MM-yyyy HH:mm") — else null.
+     *  NOTE: slash cells like 09/10 are ambiguous — this returns the FIRST
+     *  successful reading (d/M before M/d for 4-digit, kept for existing
+     *  dd/MM sheets). Date-EQUALITY checks (mirror lookup) try both
+     *  readings; only ordering (>/<) uses this single value. */
     fun parseDate(raw: String): java.time.LocalDate? {
         val t = raw.trim()
         if (t.isEmpty()) return null
@@ -268,6 +274,12 @@ object SheetCellCompare {
             java.time.format.DateTimeFormatter.ISO_LOCAL_DATE,
             java.time.format.DateTimeFormatter.ofPattern("d/M/yyyy", java.util.Locale.ENGLISH),
             java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("M/d/yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("MM/dd/yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("M/d/yy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("d/M/yy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("dd/MM/yy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("MM/dd/yy", java.util.Locale.ENGLISH),
             java.time.format.DateTimeFormatter.ofPattern("d-M-yyyy", java.util.Locale.ENGLISH),
             java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy", java.util.Locale.ENGLISH),
             java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd", java.util.Locale.ENGLISH),
@@ -277,6 +289,9 @@ object SheetCellCompare {
             java.time.format.DateTimeFormatter.ofPattern("dd-MMM-yyyy", java.util.Locale.ENGLISH),
             java.time.format.DateTimeFormatter.ofPattern("d-MMM-yy", java.util.Locale.ENGLISH),
             java.time.format.DateTimeFormatter.ofPattern("dd-MMM-yy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("yyyy.MM.dd", java.util.Locale.ENGLISH),
         )
         for (f in fmts) {
             try {
@@ -285,7 +300,33 @@ object SheetCellCompare {
                 return d
             } catch (_: Exception) { }
         }
+        // Dhaka stamp "dd-MM-yyyy HH:mm" → date part.
+        try {
+            var d = java.time.LocalDate.parse(t.substringBefore(" "),
+                java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy", java.util.Locale.ENGLISH))
+            if (d.year < 100) d = d.plusYears(2000)
+            return d
+        } catch (_: Exception) { }
+        // Supabase ISO offset ("...+00:00", space "+00" variant) → Dhaka date.
+        try { return java.time.OffsetDateTime.parse(normalizeIso(t)).atZoneSameInstant(ZONE_DHAKA).toLocalDate() }
+        catch (_: Exception) { }
+        try { return java.time.Instant.parse(t).atZone(ZONE_DHAKA).toLocalDate() }
+        catch (_: Exception) { }
         return null
+    }
+
+    /** "2026-09-10 14:41:38.608242+00" → "2026-09-10T14:41:38.608242+00:00". */
+    private fun normalizeIso(raw: String): String {
+        var s = raw.trim()
+        if (s.length > 10 && s[10] == ' ' && Regex("^\\d{4}-\\d{2}-\\d{2} ").containsMatchIn(s)) {
+            s = s.substring(0, 10) + "T" + s.substring(11)
+        }
+        if (s.endsWith("+00") || s.endsWith("-00")) s += ":00"
+        val compactTz = Regex("([+-])(\\d{2})(\\d{2})$")
+        compactTz.find(s)?.let { m ->
+            s = s.dropLast(5) + "${m.groupValues[1]}${m.groupValues[2]}:${m.groupValues[3]}"
+        }
+        return s
     }
 
     fun pass(op: String, cell: String, value: String, valueType: String = CcValueType.TEXT): Boolean {
