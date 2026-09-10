@@ -47,6 +47,8 @@ data class ScannerSheetConn(
     val colEnd: Int = 0,
     /** First data row. 0 = unset. */
     val dataStartRow: Int = 0,
+    /** Captured header labels (letter → text). See SheetLibrary. */
+    val headers: Map<String, String> = emptyMap(),
     /** Disabled connections are skipped by mirror/sync/test (kept for record). */
     val enabled: Boolean = true,
     /** Which fragment this sheet serves ([SheetPurpose]). Required. */

@@ -57,6 +57,10 @@ data class SheetLibrary(
     val colEnd: Int = 0,
     /** First data row (1-based). 0 = unset → headerRow + 1. */
     val dataStartRow: Int = 0,
+    /** Header labels captured at save time (letter → header text, non-blank
+     *  only). Socket dropdowns show "B — Consignment" from this; best-effort
+     *  (tab may not exist yet) — letters always work as fallback. */
+    val headers: Map<String, String> = emptyMap(),
     val enabled: Boolean = true,
     val scopeType: String = SheetScope.GLOBAL,
     val scopeMonth: String = "",
@@ -104,6 +108,14 @@ data class SheetLibrary(
         val s = effectiveColStart().coerceIn(1, 200)
         val e = effectiveColEnd().coerceIn(s, (s + 51).coerceAtMost(200))
         return (s..e).map { ConfigSheetParseUtil.colIndexToLetter(it) }
+    }
+
+    /** Dropdown label: "B — Consignment" or plain "B" when unknown. */
+    fun colLabel(letter: String): String {
+        val l = letter.trim().uppercase()
+        if (l.isEmpty()) return l
+        val h = headers[l]?.trim().orEmpty()
+        return if (h.isBlank()) l else "$l — $h"
     }
 }
 

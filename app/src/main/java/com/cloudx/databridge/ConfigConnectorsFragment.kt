@@ -1241,6 +1241,22 @@ class ConfigConnectorsFragment : Fragment() {
                     } catch (_: Exception) { "" }
                 }
                 val isNew = editingConnectionId.isBlank()
+                // Best-effort header capture for socket dropdown labels
+                // ("B — Consignment"). Silent skip when no cached token or the
+                // tab doesn't exist yet — letters still work as fallback.
+                val headerLabels: Map<String, String> = runCatching {
+                    val token = cachedAccessToken ?: return@runCatching emptyMap<String, String>()
+                    val tabForHeaders = ScannerSheetRepository.resolveTabName(tabPattern)
+                    val cells = withContext(Dispatchers.IO) {
+                        ConfigSheetDriveApi.fetchRowValues(
+                            token, sheet.id, tabForHeaders, headerRow, httpClient)
+                    }
+                    (range.colStart..range.colEnd).mapNotNull { idx ->
+                        val text = cells.getOrNull(idx - 1)?.trim().orEmpty()
+                        if (text.isBlank()) null
+                        else ConfigSheetParseUtil.colIndexToLetter(idx) to text
+                    }.toMap()
+                }.getOrDefault(emptyMap())
                 val conn = ScannerSheetConn(
                     connectionId = editingConnectionId,
                     nickname     = nickname,
@@ -1252,6 +1268,7 @@ class ConfigConnectorsFragment : Fragment() {
                     colStart     = range.colStart,
                     colEnd       = range.colEnd,
                     dataStartRow = range.dataStart,
+                    headers      = headerLabels,
                     purpose      = "",
                     isLibrary    = true,
                     scopeType    = scopeType,

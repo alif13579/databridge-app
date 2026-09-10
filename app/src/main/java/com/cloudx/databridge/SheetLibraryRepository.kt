@@ -77,6 +77,9 @@ object SheetLibraryRepository {
             colStart = conn.colStart,
             colEnd = conn.colEnd,
             dataStartRow = conn.dataStartRow,
+            headers = conn.headers.mapKeys { it.key.trim().uppercase() }
+                .filter { it.key.isNotBlank() && it.value.trim().isNotBlank() }
+                .mapValues { it.value.trim() },
             enabled = conn.enabled,
             scopeType = conn.scopeType,
             scopeMonth = conn.scopeMonth,

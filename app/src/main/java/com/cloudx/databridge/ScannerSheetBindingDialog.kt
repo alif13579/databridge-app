@@ -109,11 +109,19 @@ object ScannerSheetBindingDialog {
         var libraries: List<SheetLibrary> = emptyList()
         var bindings: List<ScannerBinding> = emptyList()
         var currentBinding: ScannerBinding? = null
-        // Parallel lists with mappingBox children.
-        val lookupFieldSpinners = mutableListOf<Spinner>()
-        val writeFieldSpinners = mutableListOf<Spinner>()
-        var lookupCols: List<SheetColRef> = emptyList()
-        var writeCols: List<SheetColRef> = emptyList()
+        fun fieldAdapter(fields: List<String>): ArrayAdapter<String> {
+            val labels = listOf("— field বেছে নিন —") + fields.map { ScannerField.label(it) }
+            return ArrayAdapter(ctx, android.R.layout.simple_spinner_item, labels)
+                .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        }
+
+        // ── Dynamic mapping rows: [+ Add] diye joto khushi lookup/write ──
+        // Column dropdown-e range letter + header ("B — Consignment").
+        data class MapRow(val colPos: () -> Int, val fieldPos: () -> Int)
+        val lookupMapRows = mutableListOf<MapRow>()
+        val writeMapRows = mutableListOf<MapRow>()
+        var mapCols: List<SheetColRef> = emptyList()
+        var currentLib: SheetLibrary? = null
 
         fun selectedBranchId(): String {
             val pos = branchSpinner.selectedItemPosition
@@ -123,63 +131,128 @@ object ScannerSheetBindingDialog {
             val pos = librarySpinner.selectedItemPosition
             return libraries.getOrNull(pos)
         }
+        fun colLabels(): List<String> {
+            val lib = currentLib
+            return mapCols.map { lib?.colLabel(it.colRef) ?: it.colRef.trim() }
+        }
+
+
+        fun mapSummary(
+            list: List<MapRow>, fields: List<String>, joiner: String,
+        ): String {
+            val cols = mapCols
+            val lib = currentLib
+            return list.mapNotNull { r ->
+                val c = cols.getOrNull(r.colPos()) ?: return@mapNotNull null
+                val field = (listOf("") + fields).getOrNull(r.fieldPos()).orEmpty()
+                if (field.isBlank()) null
+                else "${lib?.colLabel(c.colRef) ?: c.colRef.trim()}=${ScannerField.label(field)}"
+            }.joinToString(joiner)
+        }
+
         fun refreshSummary() {
-            val lib = selectedLibrary()
-            if (lib == null) { summaryView.text = ""; return }
-            fun picks(spinners: List<Spinner>, cols: List<SheetColRef>, fields: List<String>): String {
-                return cols.mapIndexedNotNull { i, col ->
-                    val pos = spinners.getOrNull(i)?.selectedItemPosition ?: 0
-                    val field = fields.getOrNull(pos) ?: ""
-                    if (field.isBlank()) null
-                    else "${col.colRef.trim()}=${ScannerField.label(field)}"
-                }.joinToString(" + ")
-            }
-            val l = picks(lookupFieldSpinners, lookupCols, listOf("") + ScannerField.LOOKUP_FIELDS)
-            val w = picks(writeFieldSpinners, writeCols, listOf("") + ScannerField.WRITE_FIELDS)
+            val l = mapSummary(lookupMapRows, ScannerField.LOOKUP_FIELDS, " + ")
+            val w = mapSummary(writeMapRows, ScannerField.WRITE_FIELDS, ", ")
             summaryView.text = when {
-                l.isBlank() || w.isBlank() -> "↳ প্রতিটা column-এর পাশে কোন scan data বসবে বেছে দিন।"
+                l.isBlank() || w.isBlank() -> "↳ + Add diye lookup + write row যোগ করুন।"
                 else -> "✅ $l মিলিয়ে row খুঁজে $w বসবে।"
             }
         }
-        fun fieldAdapter(fields: List<String>): ArrayAdapter<String> {
-            val labels = listOf("— field বেছে নিন —") + fields.map { ScannerField.label(it) }
-            return ArrayAdapter(ctx, android.R.layout.simple_spinner_item, labels)
-                .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-        }
-        fun mapRow(col: SheetColRef, fields: List<String>, preselected: String): Spinner {
+
+        fun addMapRow(
+            box: LinearLayout, list: MutableList<MapRow>,
+            fields: List<String>, preCol: String, preField: String,
+        ) {
+            val cols = mapCols
+            if (cols.isEmpty()) return
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(0, 6, 0, 2)
+                setBackgroundResource(R.drawable.bg_card_rounded)
+                val p = (ctx.resources.displayMetrics.density * 10).toInt()
+                setPadding(p, p / 2, p, p / 2)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = p / 2
+                }
             }
             val tv = TextView(ctx).apply {
-                text = "Column ${col.colRef.trim()}  →  ?"
                 textSize = 13f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 setTextColor(ctx.getColor(R.color.theme_text_primary))
             }
-            val sp = Spinner(ctx).apply {
-                adapter = fieldAdapter(fields)
-                val all = listOf("") + fields
-                setSelection(all.indexOf(preselected).takeIf { it >= 0 } ?: 0)
-                onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                    override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                        val f = all.getOrNull(pos).orEmpty()
-                        tv.text = "Column ${col.colRef.trim()}  →  " +
-                            (ScannerField.label(f).takeIf { f.isNotBlank() } ?: "?")
-                        refreshSummary()
-                    }
-                    override fun onNothingSelected(p: AdapterView<*>?) {}
-                }
+            val spCol = Spinner(ctx).apply {
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, colLabels())
+                    .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT)
             }
-            row.addView(tv); row.addView(sp)
-            mappingBox.addView(row)
-            // Fire once so label + summary seed correctly.
-            sp.onItemSelectedListener?.onItemSelected(null, null, sp.selectedItemPosition, 0)
-            return sp
+            spCol.setSelection(cols.indexOfFirst {
+                it.colRef.trim().equals(preCol.trim(), ignoreCase = true)
+            }.takeIf { it >= 0 }?.coerceIn(cols.indices) ?: 0)
+            val spField = Spinner(ctx).apply {
+                adapter = fieldAdapter(fields)
+                val all = listOf("") + fields
+                setSelection(all.indexOf(preField).takeIf { it >= 0 } ?: 0)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+            fun syncLabel() {
+                val c = cols.getOrNull(spCol.selectedItemPosition)
+                val all = listOf("") + fields
+                val f = all.getOrNull(spField.selectedItemPosition).orEmpty()
+                val lib = currentLib
+                tv.text = "${if (c != null) colLabels().getOrNull(cols.indexOf(c)) ?: c.colRef.trim() else "?"}  →  " +
+                    (ScannerField.label(f).takeIf { f.isNotBlank() } ?: "?")
+            }
+            val selListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    syncLabel()
+                    refreshSummary()
+                }
+                override fun onNothingSelected(p: AdapterView<*>?) {}
+            }
+            spCol.onItemSelectedListener = selListener
+            spField.onItemSelectedListener = selListener
+            val del = TextView(ctx).apply {
+                text = "✕ Remove"
+                textSize = 12f
+                setTextColor(ctx.getColor(R.color.theme_text_secondary))
+                setPadding(0, 8, 0, 4)
+            }
+            val mr = MapRow(
+                colPos = { spCol.selectedItemPosition },
+                fieldPos = { spField.selectedItemPosition },
+            )
+            del.setOnClickListener {
+                box.removeView(row)
+                list.remove(mr)
+                refreshSummary()
+            }
+            list.add(mr)
+            row.addView(tv); row.addView(spCol); row.addView(spField); row.addView(del)
+            box.addView(row)
+            syncLabel()
         }
+
+        fun collectMaps(
+            list: List<MapRow>, fields: List<String>,
+        ): List<ScannerFieldMap> {
+            val cols = mapCols
+            return list.mapNotNull { r ->
+                val c = cols.getOrNull(r.colPos()) ?: return@mapNotNull null
+                val field = (listOf("") + fields).getOrNull(r.fieldPos()).orEmpty()
+                if (field.isBlank()) return@mapNotNull null
+                ScannerFieldMap(colRef = c.colRef.trim(), mode = SheetColMode.INDEX, field = field)
+            }
+        }
+
+
+        // Lookup + write section containers (rows added dynamically).
+        val lookupMapBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        val writeMapBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         // ── Ignore helpers ─────────────────────────────────────────────
         data class IgnoreRow(
             val colPos: () -> Int,
@@ -189,9 +262,10 @@ object ScannerSheetBindingDialog {
         val ignoreRows = mutableListOf<IgnoreRow>()
 
         fun allLibCols(): List<Pair<String, SheetColRef>> {
-            val lookups = (lookupCols).map { "🔍 ${it.colRef.trim()}" to it }
-            val writes = (writeCols).map { "✏️ ${it.colRef.trim()}" to it }
-            return lookups + writes
+            val lib = currentLib
+            return mapCols.map { col ->
+                (lib?.colLabel(col.colRef) ?: col.colRef.trim()) to col
+            }
         }
 
         fun refreshIgnoreSummary() {
@@ -315,14 +389,14 @@ object ScannerSheetBindingDialog {
 
         fun renderMapping() {
             mappingBox.removeAllViews()
-            lookupFieldSpinners.clear()
-            writeFieldSpinners.clear()
+            lookupMapRows.clear()
+            writeMapRows.clear()
             val lib = selectedLibrary()
             if (lib == null) {
                 statusView.text = "এই branch-এ কোনো sheet library নেই — আগে Config → Connectors থেকে বানান।"
                 summaryView.text = ""
-                lookupCols = emptyList()
-                writeCols = emptyList()
+                mapCols = emptyList()
+                currentLib = null
                 currentBinding = null
                 renderIgnoreSection()
                 dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = false
@@ -330,13 +404,11 @@ object ScannerSheetBindingDialog {
             }
             currentBinding = bindings.firstOrNull { it.libraryId == lib.libraryId && it.enabled }
                 ?: bindings.firstOrNull { it.libraryId == lib.libraryId }
-            // Columns come from the library RANGE (letters) — mapping (which
-            // column holds what) is defined here, per fragment.
-            val rangeLetters = lib.columnLetters()
-            lookupCols = rangeLetters.map { SheetColRef(it, SheetColMode.INDEX) }
-            writeCols = rangeLetters.map { SheetColRef(it, SheetColMode.INDEX) }
-            if (lookupCols.isEmpty() || writeCols.isEmpty()) {
-                statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}”-এ lookup/write column নেই — library edit করে column দিন।"
+            currentLib = lib
+            // Columns come from the library RANGE + saved headers.
+            mapCols = lib.columnLetters().map { SheetColRef(it, SheetColMode.INDEX) }
+            if (mapCols.isEmpty()) {
+                statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}”-এ column range nei — library edit করে range দিন।"
                 summaryView.text = ""
                 renderIgnoreSection()
                 dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = false
@@ -344,20 +416,26 @@ object ScannerSheetBindingDialog {
             }
             val boundTxt = currentBinding?.let { "\n🔌 Bound: ${it.summary()}" }.orEmpty()
             statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}” • Tab: ${lib.tabPattern}$boundTxt"
-            mappingBox.addView(label("LOOKUP — সবগুলো মিললে row পাবে"))
-            lookupCols.forEach { col ->
-                val pre = currentBinding?.lookups
-                    ?.firstOrNull { it.colRef.trim().equals(col.colRef.trim(), ignoreCase = true) }
-                    ?.field.orEmpty()
-                lookupFieldSpinners.add(mapRow(col, ScannerField.LOOKUP_FIELDS, pre))
+            mappingBox.addView(label("LOOKUP — + Add diye multiple criteria (sobgulo milte hobe)"))
+            val lookupRowsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+            mappingBox.addView(lookupRowsBox)
+            (currentBinding?.lookups.orEmpty()).forEach { m ->
+                addMapRow(lookupRowsBox, lookupMapRows, ScannerField.LOOKUP_FIELDS, m.colRef, m.field)
             }
-            mappingBox.addView(label("WRITE — matched row-এর খালি ঘরে বসবে"))
-            writeCols.forEach { col ->
-                val pre = currentBinding?.writes
-                    ?.firstOrNull { it.colRef.trim().equals(col.colRef.trim(), ignoreCase = true) }
-                    ?.field.orEmpty()
-                writeFieldSpinners.add(mapRow(col, ScannerField.WRITE_FIELDS, pre))
+            mappingBox.addView(Button(ctx).apply {
+                text = "+ Add lookup"
+                setOnClickListener { addMapRow(lookupRowsBox, lookupMapRows, ScannerField.LOOKUP_FIELDS, "", "") }
+            })
+            mappingBox.addView(label("WRITE — single ba multiple column"))
+            val writeRowsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+            mappingBox.addView(writeRowsBox)
+            (currentBinding?.writes.orEmpty()).forEach { m ->
+                addMapRow(writeRowsBox, writeMapRows, ScannerField.WRITE_FIELDS, m.colRef, m.field)
             }
+            mappingBox.addView(Button(ctx).apply {
+                text = "+ Add write"
+                setOnClickListener { addMapRow(writeRowsBox, writeMapRows, ScannerField.WRITE_FIELDS, "", "") }
+            })
             dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = true
             refreshSummary()
             renderIgnoreSection()
@@ -438,18 +516,20 @@ object ScannerSheetBindingDialog {
                 val lib = selectedLibrary()
                 if (branchId.isBlank() || lib == null) return@setOnClickListener
                 fun collect(
-                    spinners: List<Spinner>, cols: List<SheetColRef>, fields: List<String>,
+                    rows: List<MapRow>, fields: List<String>,
                 ): List<ScannerFieldMap> {
-                    return cols.mapIndexedNotNull { i, col ->
-                        val field = fields.getOrNull(spinners.getOrNull(i)?.selectedItemPosition ?: 0).orEmpty()
-                        if (field.isBlank()) null
-                        else ScannerFieldMap(colRef = col.colRef.trim(), mode = col.mode, field = field)
+                    val cols = mapCols
+                    return rows.mapNotNull { r ->
+                        val c = cols.getOrNull(r.colPos()) ?: return@mapNotNull null
+                        val field = (listOf("") + fields).getOrNull(r.fieldPos()).orEmpty()
+                        if (field.isBlank()) return@mapNotNull null
+                        ScannerFieldMap(colRef = c.colRef.trim(), mode = SheetColMode.INDEX, field = field)
                     }
                 }
-                val lookups = collect(lookupFieldSpinners, lookupCols, listOf("") + ScannerField.LOOKUP_FIELDS)
-                val writes = collect(writeFieldSpinners, writeCols, listOf("") + ScannerField.WRITE_FIELDS)
+                val lookups = collect(lookupMapRows, ScannerField.LOOKUP_FIELDS)
+                val writes = collect(writeMapRows, ScannerField.WRITE_FIELDS)
                 if (lookups.isEmpty() || writes.isEmpty()) {
-                    Toast.makeText(ctx, "Lookup + Write অন্তত 1টা করে field বেছে দিন", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "Lookup + Write অন্তত 1টা করে row যোগ করুন (+ Add)", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 saveBtn.isEnabled = false

@@ -64,6 +64,7 @@ object ScannerSheetRepository {
                 colStart        = child.child("colStart").getValue(Long::class.java)?.toInt() ?: 0,
                 colEnd          = child.child("colEnd").getValue(Long::class.java)?.toInt() ?: 0,
                 dataStartRow    = child.child("dataStartRow").getValue(Long::class.java)?.toInt() ?: 0,
+                headers         = readHeaders(child),
                 // Missing = true (old conns predate the flag).
                 enabled         = child.child("enabled").getValue(Boolean::class.java) ?: true,
                 // Missing = false (legacy conns predate libraries).
@@ -79,6 +80,16 @@ object ScannerSheetRepository {
                 scopeTo         = child.child("scopeTo").getValue(String::class.java).orEmpty(),
             )
         }
+    }
+
+    private fun readHeaders(child: com.google.firebase.database.DataSnapshot): Map<String, String> {
+        return runCatching {
+            child.child("headers").children.mapNotNull { h ->
+                val k = h.key?.trim()?.uppercase().orEmpty()
+                val v = h.getValue(String::class.java)?.trim().orEmpty()
+                if (k.isBlank() || v.isBlank()) null else k to v
+            }.toMap()
+        }.getOrDefault(emptyMap())
     }
 
     /** Saves (creates or updates) a connection and appends one audit-history entry.
@@ -107,6 +118,10 @@ object ScannerSheetRepository {
             "colStart"        to conn.colStart,
             "colEnd"          to conn.colEnd,
             "dataStartRow"    to conn.dataStartRow,
+            "headers"         to conn.headers.filterKeys { it.trim().isNotEmpty() }
+                .mapKeys { it.key.trim().uppercase() }
+                .mapValues { it.value.trim() }
+                .filterValues { it.isNotEmpty() },
             "enabled"         to conn.enabled,
             "isLibrary"       to conn.isLibrary,
             "purpose"         to conn.purpose,
@@ -157,8 +172,7 @@ object ScannerSheetRepository {
         ).await()
     }
 
-    suspend fun deleteConnection(branchId: String, connectionId: String, actingUid: String, actingName: String) =        withContext(Dispatchers.IO) {
-            val branchRef = db.reference.child("config/connectors/$branchId")
+    suspend fun deleteConnection(branchId: String, connectionId: String, actingUid: String, actingName: String) =        withContext(Dispatchers.IO) {            val branchRef = db.reference.child("config/connectors/$branchId")
             branchRef.child("current").child(connectionId).removeValue().await()
             branchRef.child("history").push().setValue(
                 mapOf(
