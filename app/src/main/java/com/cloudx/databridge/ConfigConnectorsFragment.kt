@@ -287,7 +287,6 @@ class ConfigConnectorsFragment : Fragment() {
         spinnerScTabHybridToken = view.findViewById(R.id.spinnerScTabHybridToken)
         tvScTabPreview = view.findViewById(R.id.tvScTabPreview)
         setupTabBuilder()
-        setupScopeDatePickers()
 
         etScHeaderRow = view.findViewById(R.id.etScHeaderRow)
         layoutRuleLookups = view.findViewById(R.id.layoutRuleLookups)
@@ -325,6 +324,8 @@ class ConfigConnectorsFragment : Fragment() {
         layoutScScopeRange = view.findViewById(R.id.layoutScScopeRange)
         etScScopeFrom = view.findViewById(R.id.etScScopeFrom)
         etScScopeTo = view.findViewById(R.id.etScScopeTo)
+        // Bind AFTER the fields above exist — earlier wiring silently no-ops.
+        setupScopeDatePickers()
         setupWizardSpinners()
         btnScPickAccount?.setOnClickListener { pickGoogleAccount() }
         tvScSelectedSheet?.setOnClickListener { showSheetPicker() }
