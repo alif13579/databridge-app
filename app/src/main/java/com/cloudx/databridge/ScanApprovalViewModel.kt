@@ -347,7 +347,8 @@ class ScanApprovalViewModel : ViewModel() {
                 SheetColRef(m.colRef, m.mode) to valueOf(m.field)
             }
             when (val out = SheetLibraryRepository.writeBoundValues(
-                lib, token, lookups, writes, httpClient)) {
+                lib, token, lookups, writes, httpClient,
+                binding.effectiveIgnoreRules(), binding.ignoreLogic)) {
                 is ScannerSheetRepository.WriteResult.Success -> {
                     markSheetWritten(scan)
                     return ""

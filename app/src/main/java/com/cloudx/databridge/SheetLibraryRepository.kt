@@ -129,6 +129,8 @@ object SheetLibraryRepository {
                         updatedBy = child.child("updatedBy").getValue(String::class.java).orEmpty(),
                         updatedByName = child.child("updatedByName").getValue(String::class.java).orEmpty(),
                         updatedAt = child.child("updatedAt").getValue(Long::class.java) ?: 0L,
+                        ignoreLogic = parseIgnoreLogic(child),
+                        ignoreRules = parseIgnoreRules(child),
                     )
                 }.filter { it.libraryId.isNotBlank() }
             }.getOrDefault(emptyList())
@@ -153,7 +155,7 @@ object SheetLibraryRepository {
             ?: ref.push().key
             ?: System.currentTimeMillis().toString()
         val now = System.currentTimeMillis()
-        val data = mapOf(
+        val data = mutableMapOf<String, Any?>(
             "libraryId" to binding.libraryId,
             "lookups" to binding.lookups.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
                 .map { mapOf("colRef" to it.colRef.trim(), "mode" to it.mode, "field" to it.field) },
@@ -164,9 +166,45 @@ object SheetLibraryRepository {
             "updatedByName" to actingName,
             "updatedAt" to now,
         )
+        data.putAll(ignoreData(binding))
         ref.child(bindingId).setValue(data).await()
         bindingId
     }
+
+    private fun parseIgnoreRules(child: com.google.firebase.database.DataSnapshot): List<CcFetchFilter> =
+        child.child("ignoreRules").children.mapNotNull { r ->
+            val ref = r.child("colRef").getValue(String::class.java).orEmpty()
+            val op = r.child("op").getValue(String::class.java).orEmpty()
+            if (ref.isBlank() || op.isBlank()) null else CcFetchFilter(
+                colRef = ref,
+                mode = r.child("mode").getValue(String::class.java)
+                    ?.takeIf { it == SheetColMode.TEXT } ?: SheetColMode.INDEX,
+                op = op,
+                value = r.child("value").getValue(String::class.java).orEmpty(),
+            )
+        }
+
+    private fun parseIgnoreLogic(child: com.google.firebase.database.DataSnapshot): String =
+        child.child("ignoreLogic").getValue(String::class.java)
+            ?.takeIf { it == CcFilterLogic.AND } ?: CcFilterLogic.OR
+
+    private fun ignoreData(binding: CcBinding): Map<String, Any> = mapOf(
+        "ignoreLogic" to binding.ignoreLogic,
+        "ignoreRules" to binding.effectiveIgnoreRules()
+            .map {
+                mapOf("colRef" to it.colRef.trim(), "mode" to it.mode,
+                    "op" to it.op, "value" to it.value.trim())
+            },
+    )
+
+    private fun ignoreData(binding: ScannerBinding): Map<String, Any> = mapOf(
+        "ignoreLogic" to binding.ignoreLogic,
+        "ignoreRules" to binding.effectiveIgnoreRules()
+            .map {
+                mapOf("colRef" to it.colRef.trim(), "mode" to it.mode,
+                    "op" to it.op, "value" to it.value.trim())
+            },
+    )
 
     suspend fun deleteScannerBinding(branchId: String, bindingId: String) =
         withContext(Dispatchers.IO) {
@@ -223,6 +261,8 @@ object SheetLibraryRepository {
                                 value = r.child("value").getValue(String::class.java).orEmpty(),
                             )
                         },
+                        ignoreLogic = parseIgnoreLogic(child),
+                        ignoreRules = parseIgnoreRules(child),
                     )
                     if (binding.libraryId.isBlank()) null else binding
                 }
@@ -247,7 +287,7 @@ object SheetLibraryRepository {
         val bindingId = existingId
             ?: ref.push().key
             ?: System.currentTimeMillis().toString()
-        val data = mapOf(
+        val data = mutableMapOf<String, Any?>(
             "libraryId" to binding.libraryId,
             "lookups" to binding.lookups.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
                 .map { mapOf("colRef" to it.colRef.trim(), "mode" to it.mode, "field" to it.field) },
@@ -266,6 +306,7 @@ object SheetLibraryRepository {
             "updatedByName" to actingName,
             "updatedAt" to System.currentTimeMillis(),
         )
+        data.putAll(ignoreData(binding))
         ref.child(bindingId).setValue(data).await()
         bindingId
     }
@@ -284,6 +325,22 @@ object SheetLibraryRepository {
         branchId: String,
         date: java.time.LocalDate,
     ): List<ScannerSheetConn> = withContext(Dispatchers.IO) {
+        resolveCcTargets(branchId, date).map { it.conn }
+    }
+
+    /** Bound target: executor-ready connection + its binding (ignore rules,
+     *  fetch criteria) + library. Mirror, bulk sync and Live all resolve
+     *  through here so ignore/filter semantics stay identical. */
+    data class CcTarget(
+        val conn: ScannerSheetConn,
+        val binding: CcBinding,
+        val library: SheetLibrary,
+    )
+
+    suspend fun resolveCcTargets(
+        branchId: String,
+        date: java.time.LocalDate,
+    ): List<CcTarget> = withContext(Dispatchers.IO) {
         val bindings = loadCcBindings(branchId)
             .filter { it.enabled && it.effectiveLookups().isNotEmpty() && it.effectiveWrites().isNotEmpty() }
         if (bindings.isEmpty()) return@withContext emptyList()
@@ -294,7 +351,7 @@ object SheetLibraryRepository {
             if (!SheetScope.covers(lib.scopeType, lib.scopeMonth, lib.scopeFrom, lib.scopeTo, date)) {
                 return@mapNotNull null
             }
-            b.toConn(lib)
+            CcTarget(b.toConn(lib), b, lib)
         }
     }
 
@@ -332,6 +389,8 @@ object SheetLibraryRepository {
         lookupPairs: List<Pair<SheetColRef, String>>,
         writePairs: List<Pair<SheetColRef, String>>,
         http: okhttp3.OkHttpClient,
+        ignoreRules: List<CcFetchFilter> = emptyList(),
+        ignoreLogic: String = CcFilterLogic.OR,
     ): ScannerSheetRepository.WriteResult = withContext(Dispatchers.IO) {
         try {
             if (!library.enabled)
@@ -382,11 +441,47 @@ object SheetLibraryRepository {
                     accessToken, library.sheetId, tabName, cv.letter, http
                 )
             }
+            // Ignore columns (exclusion): unresolvable refs never block.
+            val ignoreCols = ignoreRules.mapNotNull { rule ->
+                val t = rule.colRef.trim()
+                if (t.isEmpty()) return@mapNotNull null
+                val letter = if (rule.mode != SheetColMode.TEXT) {
+                    if (Regex("^[A-Za-z]{1,3}$").matches(t)) t.uppercase()
+                    else {
+                        val idx = ConfigSheetParseUtil.parseColInput(t) ?: return@mapNotNull null
+                        ConfigSheetParseUtil.colIndexToLetter(idx)
+                    }
+                } else {
+                    val data = ConfigSheetDriveApi.fetchRowValues(
+                        accessToken, library.sheetId, tabName, headerRow, http
+                    )
+                    val idx = data.indexOfFirst { it.trim() == t }
+                    if (idx < 0) return@mapNotNull null
+                    ConfigSheetParseUtil.colIndexToLetter(idx + 1)
+                }
+                rule to letter
+            }
+            ignoreCols.map { it.second }.distinct().forEach { letter ->
+                if (!columns.containsKey(letter)) {
+                    columns[letter] = ConfigSheetDriveApi.fetchColumnValues(
+                        accessToken, library.sheetId, tabName, letter, http
+                    )
+                }
+            }
+            fun rowIgnored(i: Int): Boolean {
+                if (ignoreCols.isEmpty()) return false
+                val hits = ignoreCols.map { (rule, letter) ->
+                    SheetCellCompare.pass(
+                        rule.op, columns[letter]?.getOrNull(i).orEmpty(), rule.value)
+                }
+                return if (ignoreLogic == CcFilterLogic.AND) hits.all { it } else hits.any { it }
+            }
             val rowCount = columns.values.maxOfOrNull { it.size } ?: 0
             var targetRow = -1
             for (i in 0 until rowCount) {
                 if (!lookups.all { (columns[it.letter]?.getOrNull(i)?.trim().orEmpty()) == it.value }) continue
                 if (!writes.all { columns[it.letter]?.getOrNull(i)?.trim().isNullOrBlank() }) continue
+                if (rowIgnored(i)) continue
                 targetRow = i + 1
                 break
             }

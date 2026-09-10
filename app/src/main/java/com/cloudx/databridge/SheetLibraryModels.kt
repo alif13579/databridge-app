@@ -132,15 +132,26 @@ object CcFilterOp {
     const val NOT_BLANK = "notblank"  // cell bhora
     const val EQUALS = "equals"       // cell == value
     const val NOT_EQUALS = "notequals" // cell != value
-    val ALL = listOf(BLANK, NOT_BLANK, EQUALS, NOT_EQUALS)
+    const val GT = "gt"               // cell > value (number hole numeric)
+    const val GTE = "gte"             // cell >= value
+    const val LT = "lt"               // cell < value
+    const val LTE = "lte"             // cell <= value
+    val ALL = listOf(BLANK, NOT_BLANK, EQUALS, NOT_EQUALS, GT, GTE, LT, LTE)
     fun label(op: String): String = when (op) {
         BLANK -> "খালি হলে"
         NOT_BLANK -> "ভরা থাকলে"
         EQUALS -> "সমান হলে (value)"
         NOT_EQUALS -> "সমান না হলে (value)"
+        GT -> "> বড় হলে (value)"
+        GTE -> "≥ বড়/সমান (value)"
+        LT -> "< ছোট হলে (value)"
+        LTE -> "≤ ছোট/সমান (value)"
         else -> op.ifBlank { "— শর্ত —" }
     }
-    fun needsValue(op: String): Boolean = op == EQUALS || op == NOT_EQUALS
+    fun needsValue(op: String): Boolean = when (op) {
+        EQUALS, NOT_EQUALS, GT, GTE, LT, LTE -> true
+        else -> false
+    }
 }
 
 /** How multiple fetch filters combine. */
@@ -161,6 +172,46 @@ data class CcFetchFilter(
     val op: String = CcFilterOp.BLANK,
     val value: String = "",
 )
+
+/** Cell comparison shared by every executor (fetch + write, all fragments).
+ *  Numbers compare numerically (comma tolerated: "1,200"), everything else
+ *  case-insensitive text. Unknown op never blocks. */
+object SheetCellCompare {
+    fun pass(op: String, cell: String, value: String): Boolean {
+        val c = cell.trim()
+        val v = value.trim()
+        return when (op) {
+            CcFilterOp.BLANK -> c.isBlank()
+            CcFilterOp.NOT_BLANK -> c.isNotBlank()
+            CcFilterOp.EQUALS -> c == v
+            CcFilterOp.NOT_EQUALS -> c != v
+            CcFilterOp.GT -> compareOrdered(c, v) > 0
+            CcFilterOp.GTE -> compareOrdered(c, v) >= 0
+            CcFilterOp.LT -> compareOrdered(c, v) < 0
+            CcFilterOp.LTE -> compareOrdered(c, v) <= 0
+            else -> true
+        }
+    }
+
+    fun compareOrdered(a: String, b: String): Int {
+        val an = a.replace(",", "").toDoubleOrNull()
+        val bn = b.replace(",", "").toDoubleOrNull()
+        if (an != null && bn != null) return an.compareTo(bn)
+        return a.compareTo(b, ignoreCase = true)
+    }
+
+    /** True = row must be skipped. ANY (default): ekta milllei skip;
+     *  ALL: sob millei skip. */
+    fun ignoreHit(
+        rules: List<CcFetchFilter>,
+        logic: String,
+        cellOf: (CcFetchFilter) -> String,
+    ): Boolean {
+        if (rules.isEmpty()) return false
+        val hits = rules.map { pass(it.op, cellOf(it), it.value) }
+        return if (logic == CcFilterLogic.OR) hits.any { it } else hits.all { it }
+    }
+}
 
 /** Call Center's use of one library: which columns match a remark, which
  *  columns receive feedback/validation/validator_name. ALL lookups must
@@ -186,6 +237,10 @@ data class CcBinding(
     /** AND / OR — multiple filters kivabe combine hobe. */
     val filterLogic: String = CcFilterLogic.AND,
     val filters: List<CcFetchFilter> = emptyList(),
+    /** Ignore rules (exclusion): match korle row skip — fetch + write dujagay.
+     *  ANY (default): ekta milllei skip; ALL: sob millei skip. */
+    val ignoreLogic: String = CcFilterLogic.OR,
+    val ignoreRules: List<CcFetchFilter> = emptyList(),
 ) {
     fun effectiveLookups(): List<CcFieldMap> =
         lookups.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
@@ -196,11 +251,16 @@ data class CcBinding(
     fun effectiveFilters(): List<CcFetchFilter> =
         filters.filter { it.colRef.isNotBlank() && it.op.isNotBlank() }
 
+    fun effectiveIgnoreRules(): List<CcFetchFilter> =
+        ignoreRules.filter { it.colRef.isNotBlank() && it.op.isNotBlank() }
+
     /** Human summary: "C=Consignment ID → K=Feedback". */
     fun summary(): String {
         val l = effectiveLookups().joinToString(" + ") { "${it.colRef.trim()}=${CcField.label(it.field)}" }
         val w = effectiveWrites().joinToString(", ") { "${it.colRef.trim()}←${CcField.label(it.field)}" }
-        return "$l → $w"
+        val base = "$l → $w"
+        val n = effectiveIgnoreRules().size
+        return if (n > 0) "$base • ⛔ $n ignore" else base
     }
 
     /** Human fetch summary: "B theke ID • K blank (AND)". */
@@ -266,6 +326,10 @@ data class ScannerBinding(
     val updatedBy: String = "",
     val updatedByName: String = "",
     val updatedAt: Long = 0L,
+    /** Ignore rules (exclusion): match korle row skip — write path-e.
+     *  ANY (default): ekta milllei skip; ALL: sob millei skip. */
+    val ignoreLogic: String = CcFilterLogic.OR,
+    val ignoreRules: List<CcFetchFilter> = emptyList(),
 ) {
     fun effectiveLookups(): List<ScannerFieldMap> =
         lookups.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
@@ -273,10 +337,15 @@ data class ScannerBinding(
     fun effectiveWrites(): List<ScannerFieldMap> =
         writes.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
 
+    fun effectiveIgnoreRules(): List<CcFetchFilter> =
+        ignoreRules.filter { it.colRef.isNotBlank() && it.op.isNotBlank() }
+
     /** Human summary: "B=Employee ID → K=Scan text". */
     fun summary(): String {
         val l = effectiveLookups().joinToString(" + ") { "${it.colRef.trim()}=${ScannerField.label(it.field)}" }
         val w = effectiveWrites().joinToString(", ") { "${it.colRef.trim()}←${ScannerField.label(it.field)}" }
-        return "$l → $w"
+        val base = "$l → $w"
+        val n = effectiveIgnoreRules().size
+        return if (n > 0) "$base • ⛔ $n ignore" else base
     }
 }

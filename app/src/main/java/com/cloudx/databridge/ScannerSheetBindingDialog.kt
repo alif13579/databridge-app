@@ -68,13 +68,40 @@ object ScannerSheetBindingDialog {
             setTextColor(ctx.getColor(R.color.theme_text_primary))
             setPadding(0, 12, 0, 0)
         }
+        // Ignore rules (exclusion): match korle row skip — write path-e.
+        // ANY: ekta milllei skip; ALL: sob millei skip.
+        val ignoreLogicSpinner = Spinner(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        val ignoreBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        val ignoreSummaryView = TextView(ctx).apply {
+            textSize = 12f
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            setPadding(0, 8, 0, 0)
+        }
+        fun stepLabel(text: String) = TextView(ctx).apply {
+            this.text = text
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(ctx.getColor(R.color.theme_text_primary))
+            setPadding(0, 18, 0, 2)
+        }
+        root.addView(stepLabel("① Sheet"))
         root.addView(label("BRANCH"))
         root.addView(branchSpinner)
         root.addView(label("SHEET LIBRARY (Config → Connectors)"))
         root.addView(librarySpinner)
         root.addView(statusView)
+        root.addView(stepLabel("② Mapping (scan save)"))
         root.addView(mappingBox)
         root.addView(summaryView)
+        root.addView(stepLabel("③ Ignore (skip row — write)"))
+        root.addView(label("LOGIC"))
+        root.addView(ignoreLogicSpinner)
+        root.addView(ignoreBox)
+        root.addView(ignoreSummaryView)
         val scroll = ScrollView(ctx).apply { addView(root) }
 
         var dialog: android.app.AlertDialog? = null
@@ -153,6 +180,139 @@ object ScannerSheetBindingDialog {
             sp.onItemSelectedListener?.onItemSelected(null, null, sp.selectedItemPosition, 0)
             return sp
         }
+        // ── Ignore helpers ─────────────────────────────────────────────
+        data class IgnoreRow(
+            val colPos: () -> Int,
+            val opPos: () -> Int,
+            val valueText: () -> String,
+        )
+        val ignoreRows = mutableListOf<IgnoreRow>()
+
+        fun allLibCols(): List<Pair<String, SheetColRef>> {
+            val lookups = (lookupCols).map { "🔍 ${it.colRef.trim()}" to it }
+            val writes = (writeCols).map { "✏️ ${it.colRef.trim()}" to it }
+            return lookups + writes
+        }
+
+        fun refreshIgnoreSummary() {
+            val n = ignoreRows.size
+            val logic = if (ignoreLogicSpinner.selectedItemPosition == 1) "ALL" else "ANY"
+            ignoreSummaryView.text = if (n == 0) "⛔ Ignore rule nei — sob matched row cholbe"
+            else "⛔ $n rule • $logic — match korle row skip"
+        }
+
+        fun addIgnoreRow(preselected: CcFetchFilter?) {
+            val cols = allLibCols()
+            if (cols.isEmpty()) return
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundResource(R.drawable.bg_card_rounded)
+                val p = (ctx.resources.displayMetrics.density * 10).toInt()
+                setPadding(p, p / 2, p, p / 2)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = p / 2
+                }
+            }
+            val spCol = Spinner(ctx).apply {
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item,
+                    cols.map { it.first })
+                    .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+            spCol.setSelection(cols.indexOfFirst {
+                it.second.colRef.trim().equals(preselected?.colRef?.trim().orEmpty(), ignoreCase = true)
+            }.takeIf { it >= 0 }?.coerceIn(cols.indices) ?: 0)
+            val spOp = Spinner(ctx).apply {
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item,
+                    CcFilterOp.ALL.map { CcFilterOp.label(it) })
+                    .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+            spOp.setSelection(CcFilterOp.ALL.indexOf(preselected?.op).takeIf { it >= 0 } ?: 0)
+            val etVal = EditText(ctx).apply {
+                hint = "value (equals / > / < …)"
+                setText(preselected?.value.orEmpty())
+                textSize = 13f
+                setSingleLine()
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT)
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun afterTextChanged(s: android.text.Editable?) = refreshIgnoreSummary()
+                    override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                    override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                })
+            }
+            fun syncValVisibility() {
+                val op = CcFilterOp.ALL.getOrNull(spOp.selectedItemPosition).orEmpty()
+                etVal.visibility = if (CcFilterOp.needsValue(op)) View.VISIBLE else View.GONE
+            }
+            val selListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    syncValVisibility()
+                    refreshIgnoreSummary()
+                }
+                override fun onNothingSelected(p: AdapterView<*>?) {}
+            }
+            spCol.onItemSelectedListener = selListener
+            spOp.onItemSelectedListener = selListener
+            val del = TextView(ctx).apply {
+                text = "✕ Remove"
+                textSize = 12f
+                setTextColor(ctx.getColor(R.color.theme_text_secondary))
+                setPadding(0, 8, 0, 4)
+            }
+            val fr = IgnoreRow(
+                colPos = { spCol.selectedItemPosition },
+                opPos = { spOp.selectedItemPosition },
+                valueText = { etVal.text?.toString().orEmpty() },
+            )
+            del.setOnClickListener {
+                ignoreBox.removeView(row)
+                ignoreRows.remove(fr)
+                refreshIgnoreSummary()
+            }
+            ignoreRows.add(fr)
+            row.addView(spCol); row.addView(spOp); row.addView(etVal); row.addView(del)
+            ignoreBox.addView(row)
+            syncValVisibility()
+            refreshIgnoreSummary()
+        }
+
+        fun renderIgnoreSection() {
+            ignoreBox.removeAllViews()
+            ignoreRows.clear()
+            ignoreLogicSpinner.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item,
+                listOf("ANY — ekta milllei skip", "ALL — sob millei skip"))
+                .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            ignoreLogicSpinner.setSelection(
+                if (currentBinding?.ignoreLogic == CcFilterLogic.AND) 1 else 0)
+            ignoreLogicSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = refreshIgnoreSummary()
+                override fun onNothingSelected(p: AdapterView<*>?) {}
+            }
+            (currentBinding?.ignoreRules.orEmpty()).forEach { addIgnoreRow(it) }
+            refreshIgnoreSummary()
+        }
+
+        fun collectIgnore(): Pair<String, List<CcFetchFilter>> {
+            val cols = allLibCols()
+            val logic = if (ignoreLogicSpinner.selectedItemPosition == 1) CcFilterLogic.AND else CcFilterLogic.OR
+            val rules = ignoreRows.mapNotNull { r ->
+                val c = cols.getOrNull(r.colPos())?.second ?: return@mapNotNull null
+                val op = CcFilterOp.ALL.getOrNull(r.opPos()).orEmpty()
+                if (op.isBlank()) return@mapNotNull null
+                CcFetchFilter(colRef = c.colRef.trim(), mode = c.mode, op = op, value = r.valueText().trim())
+            }
+            return logic to rules
+        }
+
         fun renderMapping() {
             mappingBox.removeAllViews()
             lookupFieldSpinners.clear()
@@ -161,6 +321,10 @@ object ScannerSheetBindingDialog {
             if (lib == null) {
                 statusView.text = "এই branch-এ কোনো sheet library নেই — আগে Config → Connectors থেকে বানান।"
                 summaryView.text = ""
+                lookupCols = emptyList()
+                writeCols = emptyList()
+                currentBinding = null
+                renderIgnoreSection()
                 dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = false
                 return
             }
@@ -171,6 +335,7 @@ object ScannerSheetBindingDialog {
             if (lookupCols.isEmpty() || writeCols.isEmpty()) {
                 statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}”-এ lookup/write column নেই — library edit করে column দিন।"
                 summaryView.text = ""
+                renderIgnoreSection()
                 dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = false
                 return
             }
@@ -192,6 +357,7 @@ object ScannerSheetBindingDialog {
             }
             dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = true
             refreshSummary()
+            renderIgnoreSection()
         }
         fun loadLibrariesAndBindings() {
             val branchId = selectedBranchId()
@@ -199,6 +365,9 @@ object ScannerSheetBindingDialog {
             statusView.text = "⏳ Library আসছে..."
             mappingBox.removeAllViews()
             summaryView.text = ""
+            ignoreBox.removeAllViews()
+            ignoreRows.clear()
+            ignoreSummaryView.text = ""
             scope.launch {
                 val libs = SheetLibraryRepository.loadLibraries(branchId)
                 val binds = SheetLibraryRepository.loadScannerBindings(branchId)
@@ -253,6 +422,12 @@ object ScannerSheetBindingDialog {
             .setNeutralButton("Delete", null)
             .setNegativeButton("Cancel", null)
             .create()
+        // "+ Add ignore" lives right above the ignore summary (declared up
+        // front it can't see addIgnoreRow yet — local funs resolve in order).
+        root.addView(Button(ctx).apply {
+            text = "+ Add ignore"
+            setOnClickListener { addIgnoreRow(null) }
+        }, root.indexOfChild(ignoreSummaryView))
         dialog?.setOnShowListener {
             val saveBtn = dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
             saveBtn?.setOnClickListener {
@@ -293,6 +468,8 @@ object ScannerSheetBindingDialog {
                                 lookups = lookups,
                                 writes = writes,
                                 enabled = true,
+                                ignoreLogic = collectIgnore().first,
+                                ignoreRules = collectIgnore().second,
                             ),
                             uid, actingName,
                         )
