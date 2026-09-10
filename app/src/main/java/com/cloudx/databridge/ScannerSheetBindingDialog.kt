@@ -330,8 +330,11 @@ object ScannerSheetBindingDialog {
             }
             currentBinding = bindings.firstOrNull { it.libraryId == lib.libraryId && it.enabled }
                 ?: bindings.firstOrNull { it.libraryId == lib.libraryId }
-            lookupCols = lib.effectiveLookupCols()
-            writeCols = lib.effectiveWriteCols()
+            // Columns come from the library RANGE (letters) — mapping (which
+            // column holds what) is defined here, per fragment.
+            val rangeLetters = lib.columnLetters()
+            lookupCols = rangeLetters.map { SheetColRef(it, SheetColMode.INDEX) }
+            writeCols = rangeLetters.map { SheetColRef(it, SheetColMode.INDEX) }
             if (lookupCols.isEmpty() || writeCols.isEmpty()) {
                 statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}”-এ lookup/write column নেই — library edit করে column দিন।"
                 summaryView.text = ""

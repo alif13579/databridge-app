@@ -419,7 +419,7 @@
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="2dp" />
             </LinearLayout>
 
-            <!-- ── Step 4: dynamic lookup + write rules ── -->
+            <!-- ── Step 4: header + data range (sheets-tab style) ── -->
             <LinearLayout android:id="@+id/scStepView4"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" android:layout_marginTop="16dp" android:visibility="gone">
@@ -434,38 +434,50 @@
                     android:hint="1" android:inputType="number" android:maxLines="1"
                     android:layout_marginBottom="4dp" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Text-mode column যেই row-তে header খুঁজবে (সাধারণত 1)"
+                    android:text="Header text যেই row-তে থাকে (সাধারণত 1)"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="LOOKUP RULES (সবগুলো একই row-তে মিলতে হবে)" android:textSize="10sp" android:textStyle="bold"
+                    android:text="COLUMNS (letter ba number)" android:textSize="10sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Mode: Text = exact header, Column Index = letter/number। Kind: consignment/today (remark), employee (scanner)।"
-                    android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="5dp" />
-                <LinearLayout android:id="@+id/layoutRuleLookups"
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:orientation="horizontal" android:gravity="center_vertical"
+                    android:layout_marginBottom="4dp">
+                    <EditText android:id="@+id/etScColStart"
+                        android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp" android:textSize="14sp" android:gravity="center"
+                        android:hint="A / 1" android:inputType="text" android:maxLines="1"
+                        android:layout_marginEnd="6dp" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="→" android:textSize="16sp" android:textStyle="bold"
+                        android:textColor="@color/theme_text_secondary"
+                        android:paddingHorizontal="4dp" />
+                    <EditText android:id="@+id/etScColEnd"
+                        android:layout_width="0dp" android:layout_height="46dp" android:layout_weight="1"
+                        android:background="@drawable/bg_input_rounded"
+                        android:padding="10dp" android:textSize="14sp" android:gravity="center"
+                        android:hint="K / 11" android:inputType="text" android:maxLines="1"
+                        android:layout_marginStart="6dp" />
+                </LinearLayout>
+                <TextView android:id="@+id/tvScRangePreview"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:layout_marginBottom="4dp" />
-                <TextView android:id="@+id/btnAddLookupRule"
-                    android:layout_width="wrap_content" android:layout_height="36dp"
-                    android:gravity="center" android:text="+ Add lookup"
-                    android:textSize="13sp" android:textStyle="bold" android:textColor="#6D28D9"
-                    android:paddingHorizontal="12dp" android:layout_marginBottom="16dp" />
+                    android:textSize="12sp" android:textColor="@color/theme_text_secondary"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="10dp" android:layout_marginBottom="16dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="WRITE RULES (মিলে যাওয়া row-তে লিখবে)" android:textSize="10sp" android:textStyle="bold"
+                    android:text="DATA START ROW" android:textSize="10sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
+                <EditText android:id="@+id/etScDataStart"
+                    android:layout_width="120dp" android:layout_height="46dp"
+                    android:background="@drawable/bg_input_rounded"
+                    android:padding="10dp" android:textSize="14sp" android:gravity="center"
+                    android:hint="2" android:inputType="number" android:maxLines="1"
+                    android:layout_marginBottom="4dp" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="এক বা একাধিক column। Source: verdict / remark / note / status / today / consignment, validations column (remarks_status, author_name, created_at...), scanned value (scanner)।"
-                    android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="5dp" />
-                <LinearLayout android:id="@+id/layoutRuleWrites"
-                    android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:layout_marginBottom="4dp" />
-                <TextView android:id="@+id/btnAddWriteRule"
-                    android:layout_width="wrap_content" android:layout_height="36dp"
-                    android:gravity="center" android:text="+ Add write"
-                    android:textSize="13sp" android:textStyle="bold" android:textColor="#059669"
-                    android:paddingHorizontal="12dp" android:layout_marginBottom="16dp" />
+                    android:text="Header-er por prothom data row (sadharonoto header+1)"
+                    android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
 
                 <TextView android:id="@+id/btnScPreviewRules"
                     android:layout_width="wrap_content" android:layout_height="36dp"

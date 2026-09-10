@@ -25,6 +25,11 @@ data class SheetColRef(
 /** Neutral sheet entry in the library. Mirrors the [ScannerSheetConn]
  *  transport shape minus purpose/kinds so both can share UI + repo helpers.
  *
+ *  Column scope is a RANGE (sheets-tab style), not per-column rules:
+ *  [colStart]..[colEnd] (1-based, letters or numbers in the wizard),
+ *  headers in [headerRow], data from [dataStartRow]. Bindings map their own
+ *  columns (letters from this range, or exact header text) per fragment.
+ *
  *  Stored at `config/connectors/{branchId}/current/{libraryId}` with
  *  `isLibrary = true` (same node as legacy connectors — one list, two
  *  badges). History mirrors connectors: `config/connectors/{branchId}/history`.
@@ -40,11 +45,18 @@ data class SheetLibrary(
     val connectedBy: String = "",
     val connectedByName: String = "",
     val connectedAt: Long = 0L,
-    /** Columns a binding may match rows on. */
+    /** Legacy per-column lists (pre-range wizard). Ignored for new saves;
+     *  kept only so old rows still derive a range. */
     val lookupCols: List<SheetColRef> = emptyList(),
-    /** Columns a binding may write into. */
+    /** Legacy per-column lists (pre-range wizard). See [lookupCols]. */
     val writeCols: List<SheetColRef> = emptyList(),
     val headerRow: Int = 1,
+    /** Range start (1-based). 0 = unset → derived from legacy cols, else 1. */
+    val colStart: Int = 0,
+    /** Range end (1-based, inclusive). 0 = unset → derived, else 10. */
+    val colEnd: Int = 0,
+    /** First data row (1-based). 0 = unset → headerRow + 1. */
+    val dataStartRow: Int = 0,
     val enabled: Boolean = true,
     val scopeType: String = SheetScope.GLOBAL,
     val scopeMonth: String = "",
@@ -58,6 +70,41 @@ data class SheetLibrary(
         writeCols.filter { it.colRef.isNotBlank() }
 
     fun resolvedHeaderRow(): Int = if (headerRow in 1..20) headerRow else 1
+
+    private fun legacyColIndices(): List<Int> =
+        (lookupCols + writeCols).mapNotNull { ref ->
+            val t = ref.colRef.trim()
+            if (t.isEmpty()) return@mapNotNull null
+            if (ref.mode == SheetColMode.TEXT) return@mapNotNull null
+            if (Regex("^[A-Za-z]{1,3}$").matches(t)) {
+                var n = 0
+                t.uppercase().forEach { ch -> n = n * 26 + (ch - 'A' + 1) }
+                n
+            } else ConfigSheetParseUtil.parseColInput(t)
+        }
+
+    fun effectiveColStart(): Int {
+        if (colStart >= 1) return colStart
+        return legacyColIndices().minOrNull() ?: 1
+    }
+
+    fun effectiveColEnd(): Int {
+        val s = effectiveColStart()
+        if (colEnd >= s) return colEnd
+        return legacyColIndices().maxOrNull()?.coerceAtLeast(s) ?: 10
+    }
+
+    fun effectiveDataStartRow(): Int {
+        if (dataStartRow >= 1) return dataStartRow
+        return (resolvedHeaderRow() + 1).coerceAtMost(50)
+    }
+
+    /** Column letters in range (A..K) — binding dropdown source. Capped. */
+    fun columnLetters(): List<String> {
+        val s = effectiveColStart().coerceIn(1, 200)
+        val e = effectiveColEnd().coerceIn(s, (s + 51).coerceAtMost(200))
+        return (s..e).map { ConfigSheetParseUtil.colIndexToLetter(it) }
+    }
 }
 
 /** Scanner's bindable data fields (the registry other fragments copy).
@@ -266,8 +313,8 @@ data class CcBinding(
     /** Human fetch summary: "B theke ID • K blank (AND)". */
     fun fetchSummary(): String {
         val f = effectiveFilters()
-        if (fetchColRef.isBlank() && f.isEmpty()) return "default (1st lookup col, 1st write blank)"
-        val col = fetchColRef.trim().ifBlank { "1st lookup" }
+        if (fetchColRef.isBlank() && f.isEmpty()) return "default (range start, filter nei)"
+        val col = fetchColRef.trim().ifBlank { "range start" }
         if (f.isEmpty()) return "$col theke ID • filter nei"
         val logic = if (f.size > 1) " [${CcFilterLogic.label(filterLogic)}]" else ""
         val rules = f.joinToString(if (filterLogic == CcFilterLogic.OR) " OR " else " + ") {

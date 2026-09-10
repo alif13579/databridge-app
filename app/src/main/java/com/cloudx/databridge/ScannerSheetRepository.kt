@@ -61,6 +61,9 @@ object ScannerSheetRepository {
                     )
                 },
                 headerRow       = child.child("headerRow").getValue(Long::class.java)?.toInt() ?: 1,
+                colStart        = child.child("colStart").getValue(Long::class.java)?.toInt() ?: 0,
+                colEnd          = child.child("colEnd").getValue(Long::class.java)?.toInt() ?: 0,
+                dataStartRow    = child.child("dataStartRow").getValue(Long::class.java)?.toInt() ?: 0,
                 // Missing = true (old conns predate the flag).
                 enabled         = child.child("enabled").getValue(Boolean::class.java) ?: true,
                 // Missing = false (legacy conns predate libraries).
@@ -101,6 +104,9 @@ object ScannerSheetRepository {
             "writes"          to conn.writes.filter { it.colRef.isNotBlank() }
                 .map { mapOf("colRef" to it.colRef.trim(), "kind" to it.kind, "mode" to it.mode) },
             "headerRow"       to conn.resolvedHeaderRow(),
+            "colStart"        to conn.colStart,
+            "colEnd"          to conn.colEnd,
+            "dataStartRow"    to conn.dataStartRow,
             "enabled"         to conn.enabled,
             "isLibrary"       to conn.isLibrary,
             "purpose"         to conn.purpose,

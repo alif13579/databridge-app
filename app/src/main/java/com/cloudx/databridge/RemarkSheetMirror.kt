@@ -781,23 +781,16 @@ object RemarkSheetMirror {
             if (t.isEmpty()) return null
             return resolveLetter(accessToken, lib.sheetId, tabName, t, mode, headerRow, headerCache)
         }
-        val libLookupCols = lib.effectiveLookupCols()
-        val libWriteCols = lib.effectiveWriteCols()
-        // Fetch column: socket choice, else prothom lookup column.
-        val wantFetchRef = binding.fetchColRef.trim()
-            .ifBlank { libLookupCols.firstOrNull()?.colRef.orEmpty() }
+        // Fetch column: socket choice, else range-er prothom column.
+        val rangeStart = lib.columnLetters().firstOrNull().orEmpty()
+        val wantFetchRef = binding.fetchColRef.trim().ifBlank { rangeStart }
         val wantFetchMode = if (binding.fetchColRef.trim().isNotBlank()) binding.fetchColMode
-            else libLookupCols.firstOrNull()?.mode ?: SheetColMode.INDEX
+            else SheetColMode.INDEX
         if (wantFetchRef.isBlank())
             return LiveFetch(emptyList(), 0, 0, "Lookup column nei")
-        // Filters: socket rules, else [prothom write column blank].
+        // Filters: socket rules (na thakle filter nei — sob row).
         val socketRules = binding.effectiveFilters()
-        val rules: List<CcFetchFilter> = if (socketRules.isNotEmpty()) socketRules
-        else {
-            val firstWrite = libWriteCols.firstOrNull()
-            if (firstWrite == null) emptyList()
-            else listOf(CcFetchFilter(firstWrite.colRef, firstWrite.mode, CcFilterOp.BLANK, ""))
-        }
+        val rules: List<CcFetchFilter> = socketRules
         // Resolve + fetch every needed column once (header rows cached).
         val colValues = mutableMapOf<String, List<String>>()
         suspend fun colOf(ref: String, mode: String): List<String>? {

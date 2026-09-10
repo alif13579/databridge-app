@@ -41,6 +41,12 @@ data class ScannerSheetConn(
     /** Header row (1-based) that TEXT-mode refs match against. One per
      *  connection — all text refs on every rule resolve from this row. */
     val headerRow: Int = 1,
+    /** Library range (sheets-tab style). 0 = unset (see SheetLibrary). */
+    val colStart: Int = 0,
+    /** Library range end, inclusive. 0 = unset. */
+    val colEnd: Int = 0,
+    /** First data row. 0 = unset. */
+    val dataStartRow: Int = 0,
     /** Disabled connections are skipped by mirror/sync/test (kept for record). */
     val enabled: Boolean = true,
     /** Which fragment this sheet serves ([SheetPurpose]). Required. */
