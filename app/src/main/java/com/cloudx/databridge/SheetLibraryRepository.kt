@@ -187,6 +187,8 @@ object SheetLibraryRepository {
                     ?.takeIf { it == SheetColMode.TEXT } ?: SheetColMode.INDEX,
                 op = op,
                 value = r.child("value").getValue(String::class.java).orEmpty(),
+                valueType = r.child("valueType").getValue(String::class.java)
+                    ?.takeIf { CcValueType.isKnown(it) } ?: CcValueType.TEXT,
             )
         }
 
@@ -199,7 +201,7 @@ object SheetLibraryRepository {
         "ignoreRules" to binding.effectiveIgnoreRules()
             .map {
                 mapOf("colRef" to it.colRef.trim(), "mode" to it.mode,
-                    "op" to it.op, "value" to it.value.trim())
+                    "op" to it.op, "value" to it.value.trim(), "valueType" to it.valueType)
             },
     )
 
@@ -208,7 +210,7 @@ object SheetLibraryRepository {
         "ignoreRules" to binding.effectiveIgnoreRules()
             .map {
                 mapOf("colRef" to it.colRef.trim(), "mode" to it.mode,
-                    "op" to it.op, "value" to it.value.trim())
+                    "op" to it.op, "value" to it.value.trim(), "valueType" to it.valueType)
             },
     )
 
@@ -265,6 +267,8 @@ object SheetLibraryRepository {
                                     ?.takeIf { it == SheetColMode.TEXT } ?: SheetColMode.INDEX,
                                 op = op,
                                 value = r.child("value").getValue(String::class.java).orEmpty(),
+                                valueType = r.child("valueType").getValue(String::class.java)
+                                    ?.takeIf { CcValueType.isKnown(it) } ?: CcValueType.TEXT,
                             )
                         },
                         ignoreLogic = parseIgnoreLogic(child),
@@ -305,7 +309,7 @@ object SheetLibraryRepository {
             "filters" to binding.effectiveFilters()
                 .map {
                     mapOf("colRef" to it.colRef.trim(), "mode" to it.mode,
-                        "op" to it.op, "value" to it.value.trim())
+                        "op" to it.op, "value" to it.value.trim(), "valueType" to it.valueType)
                 },
             "enabled" to binding.enabled,
             "updatedBy" to actingUid,
@@ -477,8 +481,7 @@ object SheetLibraryRepository {
             fun rowIgnored(i: Int): Boolean {
                 if (ignoreCols.isEmpty()) return false
                 val hits = ignoreCols.map { (rule, letter) ->
-                    SheetCellCompare.pass(
-                        rule.op, columns[letter]?.getOrNull(i).orEmpty(), rule.value)
+                    SheetCellCompare.pass(rule.op, columns[letter]?.getOrNull(i).orEmpty(), rule.value, rule.valueType)
                 }
                 return if (ignoreLogic == CcFilterLogic.AND) hits.all { it } else hits.any { it }
             }

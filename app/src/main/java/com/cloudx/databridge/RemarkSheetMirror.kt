@@ -379,7 +379,8 @@ object RemarkSheetMirror {
             if (ignoreCols.isEmpty()) return false
             val hits = ignoreCols.map { (rule, letter) ->
                 SheetCellCompare.pass(
-                    rule.op, ignoreValues[letter].orEmpty().getOrNull(i).orEmpty(), rule.value)
+                    rule.op, ignoreValues[letter].orEmpty().getOrNull(i).orEmpty(), rule.value,
+                    rule.valueType)
             }
             return if (ignoreLogic == CcFilterLogic.AND) hits.all { it } else hits.any { it }
         }
@@ -621,7 +622,8 @@ object RemarkSheetMirror {
             if (ignoreCols.isEmpty()) return false
             val hits = ignoreCols.map { (rule, letter) ->
                 SheetCellCompare.pass(
-                    rule.op, ignoreValues[letter].orEmpty().getOrNull(i).orEmpty(), rule.value)
+                    rule.op, ignoreValues[letter].orEmpty().getOrNull(i).orEmpty(), rule.value,
+                    rule.valueType)
             }
             return if (ignoreLogic == CcFilterLogic.AND) hits.all { it } else hits.any { it }
         }
@@ -825,7 +827,7 @@ object RemarkSheetMirror {
             if (cid.isEmpty()) return@forEachIndexed
             val results = ruleCols.map { (r, values) ->
                 if (values == null) true // unresolvable rule never blocks
-                else SheetCellCompare.pass(r.op, values.getOrNull(i).orEmpty(), r.value)
+                else SheetCellCompare.pass(r.op, values.getOrNull(i).orEmpty(), r.value, r.valueType)
             }
             val pass = if (useOr && results.isNotEmpty()) results.any { it } else results.all { it }
             if (!pass) {
@@ -835,7 +837,7 @@ object RemarkSheetMirror {
             val ignored = ignoreCols.isNotEmpty() && run {
                 val hits = ignoreCols.map { (r, values) ->
                     if (values == null) false // unresolvable never blocks
-                    else SheetCellCompare.pass(r.op, values.getOrNull(i).orEmpty(), r.value)
+                    else SheetCellCompare.pass(r.op, values.getOrNull(i).orEmpty(), r.value, r.valueType)
                 }
                 if (binding.ignoreLogic == CcFilterLogic.AND) hits.all { it } else hits.any { it }
             }

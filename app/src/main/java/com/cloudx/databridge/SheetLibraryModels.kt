@@ -199,12 +199,12 @@ object CcFilterOp {
     fun label(op: String): String = when (op) {
         BLANK -> "খালি হলে"
         NOT_BLANK -> "ভরা থাকলে"
-        EQUALS -> "সমান হলে (value)"
-        NOT_EQUALS -> "সমান না হলে (value)"
-        GT -> "> বড় হলে (value)"
-        GTE -> "≥ বড়/সমান (value)"
-        LT -> "< ছোট হলে (value)"
-        LTE -> "≤ ছোট/সমান (value)"
+        EQUALS -> "সমান হলে"
+        NOT_EQUALS -> "সমান না হলে"
+        GT -> "> বড় হলে"
+        GTE -> "≥ বড়/সমান হলে"
+        LT -> "< ছোট হলে"
+        LTE -> "≤ ছোট/সমান হলে"
         else -> op.ifBlank { "— শর্ত —" }
     }
     fun needsValue(op: String): Boolean = when (op) {
@@ -213,14 +213,30 @@ object CcFilterOp {
     }
 }
 
+/** Filter value types: value field-e ki bosbe. */
+object CcValueType {
+    const val TEXT = "text"     // free text
+    const val NUMBER = "number" // numeric input (>, < numeric compare)
+    const val DATE = "date"     // calendar theke specific date
+    const val TODAY = "today"   // ajker date (auto, Dhaka)
+    val ALL = listOf(TEXT, NUMBER, DATE, TODAY)
+    fun label(t: String): String = when (t) {
+        NUMBER -> "সংখ্যা"
+        DATE -> "তারিখ"
+        TODAY -> "আজ (auto)"
+        else -> "লেখা"
+    }
+    fun isKnown(t: String): Boolean = t in ALL
+}
+
 /** How multiple fetch filters combine. */
 object CcFilterLogic {
     const val AND = "AND" // SOB filter milte hobe
     const val OR = "OR"   // JE KONO ekta millei hobe
     val ALL = listOf(AND, OR)
     fun label(logic: String): String = when (logic) {
-        OR -> "JE KONO ekta (OR)"
-        else -> "SOB gulo (AND)"
+        OR -> "যেকোনো একটা (OR)"
+        else -> "সবগুলো (AND)"
     }
 }
 
@@ -230,33 +246,74 @@ data class CcFetchFilter(
     val mode: String = SheetColMode.INDEX,
     val op: String = CcFilterOp.BLANK,
     val value: String = "",
+    /** [CcValueType]: text (default) / number / date / today. */
+    val valueType: String = CcValueType.TEXT,
 )
 
 /** Cell comparison shared by every executor (fetch + write, all fragments).
- *  Numbers compare numerically (comma tolerated: "1,200"), everything else
- *  case-insensitive text. Unknown op never blocks. */
+ *  [valueType] decides how value/equals work: number/date compare by value,
+ *  text compares exact strings. Unknown op never blocks. */
 object SheetCellCompare {
-    fun pass(op: String, cell: String, value: String): Boolean {
+    private val ZONE_DHAKA: java.time.ZoneId by lazy { java.time.ZoneId.of("Asia/Dhaka") }
+
+    fun dhakaToday(): java.time.LocalDate =
+        java.time.LocalDate.now(ZONE_DHAKA)
+
+    /** "2026-09-10", "10/09/2026", "10-09-2026", "10.09.2026",
+     *  "10-Sep-2026"/"10-Sep-26", "2026/09/10" — else null. */
+    fun parseDate(raw: String): java.time.LocalDate? {
+        val t = raw.trim()
+        if (t.isEmpty()) return null
+        val fmts = listOf(
+            java.time.format.DateTimeFormatter.ISO_LOCAL_DATE,
+            java.time.format.DateTimeFormatter.ofPattern("d/M/yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("d-M-yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("d.M.yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("d-MMM-yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("dd-MMM-yyyy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("d-MMM-yy", java.util.Locale.ENGLISH),
+            java.time.format.DateTimeFormatter.ofPattern("dd-MMM-yy", java.util.Locale.ENGLISH),
+        )
+        for (f in fmts) {
+            try {
+                var d = java.time.LocalDate.parse(t, f)
+                if (d.year < 100) d = d.plusYears(2000)
+                return d
+            } catch (_: Exception) { }
+        }
+        return null
+    }
+
+    fun pass(op: String, cell: String, value: String, valueType: String = CcValueType.TEXT): Boolean {
         val c = cell.trim()
-        val v = value.trim()
+        val t = if (valueType == CcValueType.TODAY) dhakaToday().toString() else value.trim()
         return when (op) {
             CcFilterOp.BLANK -> c.isBlank()
             CcFilterOp.NOT_BLANK -> c.isNotBlank()
-            CcFilterOp.EQUALS -> c == v
-            CcFilterOp.NOT_EQUALS -> c != v
-            CcFilterOp.GT -> compareOrdered(c, v) > 0
-            CcFilterOp.GTE -> compareOrdered(c, v) >= 0
-            CcFilterOp.LT -> compareOrdered(c, v) < 0
-            CcFilterOp.LTE -> compareOrdered(c, v) <= 0
+            CcFilterOp.EQUALS ->
+                if (valueType == CcValueType.TEXT) c == t else compareOrdered(c, t) == 0
+            CcFilterOp.NOT_EQUALS ->
+                if (valueType == CcValueType.TEXT) c != t else compareOrdered(c, t) != 0
+            CcFilterOp.GT -> compareOrdered(c, t) > 0
+            CcFilterOp.GTE -> compareOrdered(c, t) >= 0
+            CcFilterOp.LT -> compareOrdered(c, t) < 0
+            CcFilterOp.LTE -> compareOrdered(c, t) <= 0
             else -> true
         }
     }
 
     fun compareOrdered(a: String, b: String): Int {
-        val an = a.replace(",", "").toDoubleOrNull()
-        val bn = b.replace(",", "").toDoubleOrNull()
+        val an = a.replace(",", "").trim().toDoubleOrNull()
+        val bn = b.replace(",", "").trim().toDoubleOrNull()
         if (an != null && bn != null) return an.compareTo(bn)
-        return a.compareTo(b, ignoreCase = true)
+        val ad = parseDate(a)
+        val bd = parseDate(b)
+        if (ad != null && bd != null) return ad.compareTo(bd)
+        return a.trim().compareTo(b.trim(), ignoreCase = true)
     }
 
     /** True = row must be skipped. ANY (default): ekta milllei skip;
@@ -267,7 +324,7 @@ object SheetCellCompare {
         cellOf: (CcFetchFilter) -> String,
     ): Boolean {
         if (rules.isEmpty()) return false
-        val hits = rules.map { pass(it.op, cellOf(it), it.value) }
+        val hits = rules.map { pass(it.op, cellOf(it), it.value, it.valueType) }
         return if (logic == CcFilterLogic.OR) hits.any { it } else hits.all { it }
     }
 }

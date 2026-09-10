@@ -104,15 +104,15 @@ object CcSheetBindingDialog {
         root.addView(stepLabel("② Mapping (remark save)"))
         root.addView(mappingBox)
         root.addView(summaryView)
-        root.addView(stepLabel("③ Fetch criteria (Live list)"))
-        root.addView(label("ID KON COLUMN THEKE ASBE"))
+        root.addView(stepLabel("③ ফেচ ক্রাইটেরিয়া (Live list)"))
+        root.addView(label("ID কোন কলাম থেকে আসবে"))
         root.addView(fetchColSpinner)
-        root.addView(label("FILTER LOGIC"))
+        root.addView(label("ফিল্টার লজিক"))
         root.addView(filterLogicSpinner)
         root.addView(filterBox)
         root.addView(fetchSummaryView)
-        root.addView(stepLabel("④ Ignore (skip row — fetch + write)"))
-        root.addView(label("LOGIC"))
+        root.addView(stepLabel("④ ইগনোর (row বাদ — fetch + write)"))
+        root.addView(label("লজিক"))
         root.addView(ignoreLogicSpinner)
         root.addView(ignoreBox)
         root.addView(ignoreSummaryView)
@@ -173,9 +173,45 @@ object CcSheetBindingDialog {
             }
         }
 
+        /** Spinner adapter that grays out positions used on the OTHER side
+         *  (lookup cols can't be re-picked for write and vice versa — a
+         *  lookup column holds nothing). Programmatic preselect still works. */
+        open class UsedAdapter(
+            private val c: Context,
+            private val items: List<String>,
+        ) : ArrayAdapter<String>(c, android.R.layout.simple_spinner_item, items) {
+            var used: Set<Int> = emptySet()
+            init { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+            override fun isEnabled(position: Int) = !used.contains(position)
+            override fun getDropDownView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                val v = super.getDropDownView(position, convertView, parent) as TextView
+                if (used.contains(position)) {
+                    v.setTextColor(0xFF9CA3AF.toInt())
+                    v.text = "${items[position]} (used)"
+                } else {
+                    v.setTextColor(c.getColor(R.color.theme_text_primary))
+                    v.text = items[position]
+                }
+                return v
+            }
+        }
+        var lookupColAdapter: UsedAdapter? = null
+        var writeColAdapter: UsedAdapter? = null
+
+        fun updateMappingUsed() {
+            val la = lookupColAdapter ?: return
+            val wa = writeColAdapter ?: return
+            // Same position space (one column list) — cross-disable.
+            la.used = writeMapRows.map { it.colPos() }.toSet()
+            wa.used = lookupMapRows.map { it.colPos() }.toSet()
+            la.notifyDataSetChanged()
+            wa.notifyDataSetChanged()
+        }
+
         fun addMapRow(
             box: LinearLayout, list: MutableList<MapRow>,
             fields: List<String>, preCol: String, preField: String,
+            colAdapter: UsedAdapter?,
         ) {
             val cols = mapCols
             if (cols.isEmpty()) return
@@ -196,8 +232,11 @@ object CcSheetBindingDialog {
                 setTextColor(ctx.getColor(R.color.theme_text_primary))
             }
             val spCol = Spinner(ctx).apply {
-                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, colLabels())
-                    .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+                if (colAdapter != null) adapter = colAdapter
+                else {
+                    adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, colLabels())
+                        .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+                }
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT)
@@ -224,6 +263,7 @@ object CcSheetBindingDialog {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
                     syncLabel()
                     refreshSummary()
+                    updateMappingUsed()
                 }
                 override fun onNothingSelected(p: AdapterView<*>?) {}
             }
@@ -243,11 +283,13 @@ object CcSheetBindingDialog {
                 box.removeView(row)
                 list.remove(mr)
                 refreshSummary()
+                updateMappingUsed()
             }
             list.add(mr)
             row.addView(tv); row.addView(spCol); row.addView(spField); row.addView(del)
             box.addView(row)
             syncLabel()
+            updateMappingUsed()
         }
 
         fun collectMaps(
@@ -269,12 +311,14 @@ object CcSheetBindingDialog {
         // Lookup + write section containers (rows added dynamically).
         val lookupMapBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         val writeMapBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+
         // ── Step 3 helpers ─────────────────────────────────────────────
         // Parallel option list for the fetch-column spinner (null = default).
         var fetchColOptions: List<SheetColRef?> = emptyList()
         data class FilterRow(
             val colPos: () -> Int,
             val opPos: () -> Int,
+            val typePos: () -> Int,
             val valueText: () -> String,
         )
         val filterRows = mutableListOf<FilterRow>()
@@ -297,7 +341,9 @@ object CcSheetBindingDialog {
                 val entry = cols.getOrNull(r.colPos()) ?: return@mapNotNull null
                 val op = CcFilterOp.ALL.getOrNull(r.opPos()).orEmpty()
                 if (op.isBlank()) return@mapNotNull null
-                val v = if (CcFilterOp.needsValue(op)) " “${r.valueText().trim()}”" else ""
+                val t = CcValueType.ALL.getOrNull(r.typePos()) ?: CcValueType.TEXT
+                val v = if (t == CcValueType.TODAY) "আজ"
+                else " “${r.valueText().trim()}”"
                 "${entry.first} ${CcFilterOp.label(op)}$v"
             }
             fetchSummaryView.text = when {
@@ -305,6 +351,27 @@ object CcSheetBindingDialog {
                 else -> "📡 Live: $colTxt theke ID • ${rules.joinToString(if (logic == "OR") " OR " else " + ")}" +
                     if (rules.size > 1) " [${CcFilterLogic.label(logic)}]" else ""
             }
+        }
+
+        /** Calendar → EditText (yyyy-MM-dd), Dhaka today preselected. */
+        fun pickFilterDate(target: EditText) {
+            try {
+                val cal = java.util.Calendar.getInstance(
+                    java.util.TimeZone.getTimeZone("Asia/Dhaka"))
+                runCatching {
+                    val parts = target.text?.toString()?.trim()?.split("-")
+                    if (parts != null && parts.size == 3) {
+                        cal.set(parts[0].toInt(), parts[1].toInt() - 1, parts[2].toInt())
+                    }
+                }
+                android.app.DatePickerDialog(
+                    ctx,
+                    { _, y, m, d -> target.setText("%04d-%02d-%02d".format(y, m + 1, d)) },
+                    cal.get(java.util.Calendar.YEAR),
+                    cal.get(java.util.Calendar.MONTH),
+                    cal.get(java.util.Calendar.DAY_OF_MONTH),
+                ).show()
+            } catch (_: Exception) { }
         }
 
         fun addFilterRow(preselected: CcFetchFilter?) {
@@ -342,8 +409,19 @@ object CcSheetBindingDialog {
                     LinearLayout.LayoutParams.WRAP_CONTENT)
             }
             spOp.setSelection(CcFilterOp.ALL.indexOf(preselected?.op).takeIf { it >= 0 } ?: 0)
+            // Value type: লেখা / সংখ্যা / তারিখ / আজ — date-te calendar.
+            val spType = Spinner(ctx).apply {
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item,
+                    CcValueType.ALL.map { CcValueType.label(it) })
+                    .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+            spType.setSelection(
+                CcValueType.ALL.indexOf(preselected?.valueType).takeIf { it >= 0 } ?: 0)
             val etVal = EditText(ctx).apply {
-                hint = "value (equals/not-equals)"
+                hint = "value"
                 setText(preselected?.value.orEmpty())
                 textSize = 13f
                 setSingleLine()
@@ -356,12 +434,37 @@ object CcSheetBindingDialog {
                     override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                 })
             }
+            val autoLbl = TextView(ctx).apply {
+                text = "📅 আজকের তারিখ (auto)"
+                textSize = 12f
+                setTextColor(ctx.getColor(R.color.theme_text_secondary))
+                setPadding(0, 4, 0, 4)
+            }
+            val btnDate = Button(ctx).apply {
+                text = "📅 তারিখ বাছুন"
+                setOnClickListener { pickFilterDate(etVal) }
+            }
+            fun currentType() = CcValueType.ALL.getOrNull(spType.selectedItemPosition)
+                ?: CcValueType.TEXT
             fun syncValVisibility() {
                 val op = CcFilterOp.ALL.getOrNull(spOp.selectedItemPosition).orEmpty()
-                etVal.visibility = if (CcFilterOp.needsValue(op)) View.VISIBLE else View.GONE
+                val t = currentType()
+                val need = CcFilterOp.needsValue(op)
+                etVal.visibility = if (need && t != CcValueType.TODAY) View.VISIBLE else View.GONE
+                btnDate.visibility =
+                    if (need && t == CcValueType.DATE) View.VISIBLE else View.GONE
+                autoLbl.visibility =
+                    if (need && t == CcValueType.TODAY) View.VISIBLE else View.GONE
             }
             val selListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    if (currentType() == CcValueType.NUMBER) {
+                        etVal.inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                            android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or
+                            android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
+                    } else {
+                        etVal.inputType = android.text.InputType.TYPE_CLASS_TEXT
+                    }
                     syncValVisibility()
                     refreshFetchSummary()
                 }
@@ -369,6 +472,7 @@ object CcSheetBindingDialog {
             }
             spCol.onItemSelectedListener = selListener
             spOp.onItemSelectedListener = selListener
+            spType.onItemSelectedListener = selListener
             val del = TextView(ctx).apply {
                 text = "✕ Remove filter"
                 textSize = 12f
@@ -378,6 +482,7 @@ object CcSheetBindingDialog {
             val fr = FilterRow(
                 colPos = { spCol.selectedItemPosition },
                 opPos = { spOp.selectedItemPosition },
+                typePos = { spType.selectedItemPosition },
                 valueText = { etVal.text?.toString().orEmpty() },
             )
             del.setOnClickListener {
@@ -386,7 +491,8 @@ object CcSheetBindingDialog {
                 refreshFetchSummary()
             }
             filterRows.add(fr)
-            row.addView(spCol); row.addView(spOp); row.addView(etVal); row.addView(del)
+            row.addView(spCol); row.addView(spOp); row.addView(spType)
+            row.addView(etVal); row.addView(autoLbl); row.addView(btnDate); row.addView(del)
             filterBox.addView(row)
             syncValVisibility()
             refreshFetchSummary()
@@ -430,10 +536,13 @@ object CcSheetBindingDialog {
                 val c = cols.getOrNull(r.colPos())?.second ?: return@mapNotNull null
                 val op = CcFilterOp.ALL.getOrNull(r.opPos()).orEmpty()
                 if (op.isBlank()) return@mapNotNull null
-                CcFetchFilter(colRef = c.colRef.trim(), mode = c.mode, op = op, value = r.valueText().trim())
+                val t = CcValueType.ALL.getOrNull(r.typePos()) ?: CcValueType.TEXT
+                CcFetchFilter(colRef = c.colRef.trim(), mode = c.mode, op = op,
+                    value = r.valueText().trim(), valueType = t)
             }
             return Triple(col, logic, filters)
         }
+
 
         // ── Step 4 helpers (ignore rules — same row shape as filters) ──
         val ignoreFilterRows = mutableListOf<FilterRow>()
@@ -479,8 +588,18 @@ object CcSheetBindingDialog {
                     LinearLayout.LayoutParams.WRAP_CONTENT)
             }
             spOp.setSelection(CcFilterOp.ALL.indexOf(preselected?.op).takeIf { it >= 0 } ?: 0)
+            val spType = Spinner(ctx).apply {
+                adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item,
+                    CcValueType.ALL.map { CcValueType.label(it) })
+                    .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT)
+            }
+            spType.setSelection(
+                CcValueType.ALL.indexOf(preselected?.valueType).takeIf { it >= 0 } ?: 0)
             val etVal = EditText(ctx).apply {
-                hint = "value (equals / > / < …)"
+                hint = "value"
                 setText(preselected?.value.orEmpty())
                 textSize = 13f
                 setSingleLine()
@@ -493,12 +612,37 @@ object CcSheetBindingDialog {
                     override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                 })
             }
+            val autoLbl = TextView(ctx).apply {
+                text = "📅 আজকের তারিখ (auto)"
+                textSize = 12f
+                setTextColor(ctx.getColor(R.color.theme_text_secondary))
+                setPadding(0, 4, 0, 4)
+            }
+            val btnDate = Button(ctx).apply {
+                text = "📅 তারিখ বাছুন"
+                setOnClickListener { pickFilterDate(etVal) }
+            }
+            fun currentType() = CcValueType.ALL.getOrNull(spType.selectedItemPosition)
+                ?: CcValueType.TEXT
             fun syncValVisibility() {
                 val op = CcFilterOp.ALL.getOrNull(spOp.selectedItemPosition).orEmpty()
-                etVal.visibility = if (CcFilterOp.needsValue(op)) View.VISIBLE else View.GONE
+                val t = currentType()
+                val need = CcFilterOp.needsValue(op)
+                etVal.visibility = if (need && t != CcValueType.TODAY) View.VISIBLE else View.GONE
+                btnDate.visibility =
+                    if (need && t == CcValueType.DATE) View.VISIBLE else View.GONE
+                autoLbl.visibility =
+                    if (need && t == CcValueType.TODAY) View.VISIBLE else View.GONE
             }
             val selListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    if (currentType() == CcValueType.NUMBER) {
+                        etVal.inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+                            android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or
+                            android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
+                    } else {
+                        etVal.inputType = android.text.InputType.TYPE_CLASS_TEXT
+                    }
                     syncValVisibility()
                     refreshIgnoreSummary()
                 }
@@ -506,6 +650,7 @@ object CcSheetBindingDialog {
             }
             spCol.onItemSelectedListener = selListener
             spOp.onItemSelectedListener = selListener
+            spType.onItemSelectedListener = selListener
             val del = TextView(ctx).apply {
                 text = "✕ Remove"
                 textSize = 12f
@@ -515,6 +660,7 @@ object CcSheetBindingDialog {
             val fr = FilterRow(
                 colPos = { spCol.selectedItemPosition },
                 opPos = { spOp.selectedItemPosition },
+                typePos = { spType.selectedItemPosition },
                 valueText = { etVal.text?.toString().orEmpty() },
             )
             del.setOnClickListener {
@@ -523,7 +669,8 @@ object CcSheetBindingDialog {
                 refreshIgnoreSummary()
             }
             ignoreFilterRows.add(fr)
-            row.addView(spCol); row.addView(spOp); row.addView(etVal); row.addView(del)
+            row.addView(spCol); row.addView(spOp); row.addView(spType)
+            row.addView(etVal); row.addView(autoLbl); row.addView(btnDate); row.addView(del)
             ignoreBox.addView(row)
             syncValVisibility()
             refreshIgnoreSummary()
@@ -533,7 +680,7 @@ object CcSheetBindingDialog {
             ignoreBox.removeAllViews()
             ignoreFilterRows.clear()
             ignoreLogicSpinner.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item,
-                listOf("ANY — ekta milllei skip", "ALL — sob millei skip"))
+                listOf("ANY — একটা মিললেই বাদ", "ALL — সব মিললে বাদ"))
                 .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
             // Stored: OR = ANY (pos 0), AND = ALL (pos 1).
             ignoreLogicSpinner.setSelection(
@@ -553,7 +700,9 @@ object CcSheetBindingDialog {
                 val c = cols.getOrNull(r.colPos())?.second ?: return@mapNotNull null
                 val op = CcFilterOp.ALL.getOrNull(r.opPos()).orEmpty()
                 if (op.isBlank()) return@mapNotNull null
-                CcFetchFilter(colRef = c.colRef.trim(), mode = c.mode, op = op, value = r.valueText().trim())
+                val t = CcValueType.ALL.getOrNull(r.typePos()) ?: CcValueType.TEXT
+                CcFetchFilter(colRef = c.colRef.trim(), mode = c.mode, op = op,
+                    value = r.valueText().trim(), valueType = t)
             }
             return logic to rules
         }
@@ -589,28 +738,33 @@ object CcSheetBindingDialog {
             }
             val boundTxt = currentBinding?.let { "\n☎️ Bound: ${it.summary()}" }.orEmpty()
             statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}” • Tab: ${lib.tabPattern}$boundTxt"
+            // Shared column adapters — lookup-used cols inactive in write
+            // dropdown and vice versa (lookup column-e kichu boshe na).
+            lookupColAdapter = UsedAdapter(ctx, colLabels())
+            writeColAdapter = UsedAdapter(ctx, colLabels())
             mappingBox.addView(label("LOOKUP — + Add diye multiple criteria (sobgulo milte hobe)"))
             val lookupRowsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
             mappingBox.addView(lookupRowsBox)
             (currentBinding?.lookups.orEmpty()).forEach { m ->
-                addMapRow(lookupRowsBox, lookupMapRows, CcField.LOOKUP_FIELDS, m.colRef, m.field)
+                addMapRow(lookupRowsBox, lookupMapRows, CcField.LOOKUP_FIELDS, m.colRef, m.field, lookupColAdapter)
             }
             mappingBox.addView(Button(ctx).apply {
                 text = "+ Add lookup"
-                setOnClickListener { addMapRow(lookupRowsBox, lookupMapRows, CcField.LOOKUP_FIELDS, "", "") }
+                setOnClickListener { addMapRow(lookupRowsBox, lookupMapRows, CcField.LOOKUP_FIELDS, "", "", lookupColAdapter) }
             })
             mappingBox.addView(label("WRITE — single ba multiple column"))
             val writeRowsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
             mappingBox.addView(writeRowsBox)
             (currentBinding?.writes.orEmpty()).forEach { m ->
-                addMapRow(writeRowsBox, writeMapRows, CcField.WRITE_FIELDS, m.colRef, m.field)
+                addMapRow(writeRowsBox, writeMapRows, CcField.WRITE_FIELDS, m.colRef, m.field, writeColAdapter)
             }
             mappingBox.addView(Button(ctx).apply {
                 text = "+ Add write"
-                setOnClickListener { addMapRow(writeRowsBox, writeMapRows, CcField.WRITE_FIELDS, "", "") }
+                setOnClickListener { addMapRow(writeRowsBox, writeMapRows, CcField.WRITE_FIELDS, "", "", writeColAdapter) }
             })
             dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = true
             refreshSummary()
+            updateMappingUsed()
             renderFetchSection()
             renderIgnoreSection()
         }
