@@ -518,7 +518,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             setPadding(dp * 16, dp * 8, dp * 16, 0)
         }
         val etSearch = EditText(ctx).apply {
-            hint = "Search merchant..."
+            hint = "Search merchant, address, area, phone..."
             setTextColor(android.graphics.Color.parseColor("#0F172A"))
             setHintTextColor(android.graphics.Color.parseColor("#94A3B8"))
         }
@@ -534,8 +534,16 @@ class PettyCashRequestCreateFragment : Fragment() {
             override fun getView(pos: Int, cv: View?, parent: ViewGroup): View {
                 val v = super.getView(pos, cv, parent)
                 val s = list[pos]
-                val label = if (s.conveyanceAmount > 0) "${s.name}  (৳${formatAmount(s.conveyanceAmount)})" else s.name
-                (v.findViewById<View>(android.R.id.text1) as? TextView)?.text = label
+                val sub = listOfNotNull(
+                    s.areaName.takeIf { it.isNotBlank() },
+                    s.address.takeIf { it.isNotBlank() },
+                ).joinToString(" • ")
+                val label = (if (s.conveyanceAmount > 0) "${s.name}  (৳${formatAmount(s.conveyanceAmount)})" else s.name) +
+                    (if (sub.isNotBlank()) "\n$sub" else "")
+                (v.findViewById<View>(android.R.id.text1) as? TextView)?.let {
+                    it.text = label
+                    it.textSize = 13f
+                }
                 return v
             }
         }
@@ -561,8 +569,16 @@ class PettyCashRequestCreateFragment : Fragment() {
             override fun afterTextChanged(s: Editable?) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {
                 val q = s?.toString()?.trim() ?: ""
+                // Name/address/area match as typed; phone matches on digits
+                // only ("01516" finds "01516-123456" too).
+                val qDigits = q.replace(Regex("[^0-9]"), "")
                 filtered = if (q.isEmpty()) stores.toMutableList()
-                else stores.filter { it.name.contains(q, ignoreCase = true) }.toMutableList()
+                else stores.filter {
+                    it.name.contains(q, ignoreCase = true) ||
+                        it.address.contains(q, ignoreCase = true) ||
+                        it.areaName.contains(q, ignoreCase = true) ||
+                        (qDigits.isNotBlank() && it.phone.replace(Regex("[^0-9]"), "").contains(qDigits))
+                }.toMutableList()
                 listView.adapter = makeAdapter(filtered)
             }
         })
