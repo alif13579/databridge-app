@@ -316,17 +316,6 @@ object SheetCellCompare {
         return a.trim().compareTo(b.trim(), ignoreCase = true)
     }
 
-    /** True = row must be skipped. ANY (default): ekta milllei skip;
-     *  ALL: sob millei skip. */
-    fun ignoreHit(
-        rules: List<CcFetchFilter>,
-        logic: String,
-        cellOf: (CcFetchFilter) -> String,
-    ): Boolean {
-        if (rules.isEmpty()) return false
-        val hits = rules.map { pass(it.op, cellOf(it), it.value, it.valueType) }
-        return if (logic == CcFilterLogic.OR) hits.any { it } else hits.all { it }
-    }
 }
 
 /** Call Center's use of one library: which columns match a remark, which
@@ -350,13 +339,11 @@ data class CcBinding(
      *  column theke ID, prothom write column blank filter). */
     val fetchColRef: String = "",
     val fetchColMode: String = SheetColMode.INDEX,
-    /** AND / OR — multiple filters kivabe combine hobe. */
+    /** AND / OR — multiple filters kivabe combine hobe. Filters drive
+     *  BOTH fetch (Live list) and write targeting (mirror/bulk): row asbe
+     *  + likhbe sudhu filter pass korle. */
     val filterLogic: String = CcFilterLogic.AND,
     val filters: List<CcFetchFilter> = emptyList(),
-    /** Ignore rules (exclusion): match korle row skip — fetch + write dujagay.
-     *  ANY (default): ekta milllei skip; ALL: sob millei skip. */
-    val ignoreLogic: String = CcFilterLogic.OR,
-    val ignoreRules: List<CcFetchFilter> = emptyList(),
 ) {
     fun effectiveLookups(): List<CcFieldMap> =
         lookups.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
@@ -367,16 +354,13 @@ data class CcBinding(
     fun effectiveFilters(): List<CcFetchFilter> =
         filters.filter { it.colRef.isNotBlank() && it.op.isNotBlank() }
 
-    fun effectiveIgnoreRules(): List<CcFetchFilter> =
-        ignoreRules.filter { it.colRef.isNotBlank() && it.op.isNotBlank() }
-
     /** Human summary: "C=Consignment ID → K=Feedback". */
     fun summary(): String {
         val l = effectiveLookups().joinToString(" + ") { "${it.colRef.trim()}=${CcField.label(it.field)}" }
         val w = effectiveWrites().joinToString(", ") { "${it.colRef.trim()}←${CcField.label(it.field)}" }
         val base = "$l → $w"
-        val n = effectiveIgnoreRules().size
-        return if (n > 0) "$base • ⛔ $n ignore" else base
+        val n = effectiveFilters().size
+        return if (n > 0) "$base • $n filter" else base
     }
 
     /** Human fetch summary: "B theke ID • K blank (AND)". */
@@ -442,10 +426,10 @@ data class ScannerBinding(
     val updatedBy: String = "",
     val updatedByName: String = "",
     val updatedAt: Long = 0L,
-    /** Ignore rules (exclusion): match korle row skip — write path-e.
-     *  ANY (default): ekta milllei skip; ALL: sob millei skip. */
-    val ignoreLogic: String = CcFilterLogic.OR,
-    val ignoreRules: List<CcFetchFilter> = emptyList(),
+    /** AND / OR — multiple filters kivabe combine hobe. Filters drive
+     *  write targeting: row-te likhbe sudhu filter pass korle. */
+    val filterLogic: String = CcFilterLogic.AND,
+    val filters: List<CcFetchFilter> = emptyList(),
 ) {
     fun effectiveLookups(): List<ScannerFieldMap> =
         lookups.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
@@ -453,15 +437,15 @@ data class ScannerBinding(
     fun effectiveWrites(): List<ScannerFieldMap> =
         writes.filter { it.colRef.isNotBlank() && it.field.isNotBlank() }
 
-    fun effectiveIgnoreRules(): List<CcFetchFilter> =
-        ignoreRules.filter { it.colRef.isNotBlank() && it.op.isNotBlank() }
-
     /** Human summary: "B=Employee ID → K=Scan text". */
     fun summary(): String {
         val l = effectiveLookups().joinToString(" + ") { "${it.colRef.trim()}=${ScannerField.label(it.field)}" }
         val w = effectiveWrites().joinToString(", ") { "${it.colRef.trim()}←${ScannerField.label(it.field)}" }
         val base = "$l → $w"
-        val n = effectiveIgnoreRules().size
-        return if (n > 0) "$base • ⛔ $n ignore" else base
+        val n = effectiveFilters().size
+        return if (n > 0) "$base • $n filter" else base
     }
+
+    fun effectiveFilters(): List<CcFetchFilter> =
+        filters.filter { it.colRef.isNotBlank() && it.op.isNotBlank() }
 }

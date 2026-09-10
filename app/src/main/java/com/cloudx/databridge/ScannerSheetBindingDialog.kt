@@ -97,7 +97,7 @@ object ScannerSheetBindingDialog {
         root.addView(stepLabel("② Mapping (scan save)"))
         root.addView(mappingBox)
         root.addView(summaryView)
-        root.addView(stepLabel("③ ইগনোর (row বাদ — write)"))
+        root.addView(stepLabel("③ ফিল্টার (write)"))
         root.addView(label("লজিক"))
         root.addView(ignoreLogicSpinner)
         root.addView(ignoreBox)
@@ -313,8 +313,8 @@ object ScannerSheetBindingDialog {
         fun refreshIgnoreSummary() {
             val n = ignoreRows.size
             val logic = if (ignoreLogicSpinner.selectedItemPosition == 1) "ALL" else "ANY"
-            ignoreSummaryView.text = if (n == 0) "⛔ Ignore rule nei — sob matched row cholbe"
-            else "⛔ $n rule • $logic — match korle row skip"
+            ignoreSummaryView.text = if (n == 0) "🔍 Filter nei — sob matched row cholbe"
+            else "🔍 $n filter • $logic — pass korle row-te likhbe"
         }
 
         fun pickFilterDate(target: EditText) {
@@ -465,15 +465,15 @@ object ScannerSheetBindingDialog {
             ignoreBox.removeAllViews()
             ignoreRows.clear()
             ignoreLogicSpinner.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item,
-                listOf("ANY — একটা মিললেই বাদ", "ALL — সব মিললে বাদ"))
+                listOf("ANY — একটা মিললেই চলবে", "ALL — সব মিলতে হবে"))
                 .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
             ignoreLogicSpinner.setSelection(
-                if (currentBinding?.ignoreLogic == CcFilterLogic.AND) 1 else 0)
+                if (currentBinding?.filterLogic == CcFilterLogic.AND) 1 else 0)
             ignoreLogicSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) = refreshIgnoreSummary()
                 override fun onNothingSelected(p: AdapterView<*>?) {}
             }
-            (currentBinding?.ignoreRules.orEmpty()).forEach { addIgnoreRow(it) }
+            (currentBinding?.filters.orEmpty()).forEach { addIgnoreRow(it) }
             refreshIgnoreSummary()
         }
 
@@ -658,8 +658,8 @@ object ScannerSheetBindingDialog {
                                 lookups = lookups,
                                 writes = writes,
                                 enabled = true,
-                                ignoreLogic = collectIgnore().first,
-                                ignoreRules = collectIgnore().second,
+                                filterLogic = collectIgnore().first,
+                                filters = collectIgnore().second,
                             ),
                             uid, actingName,
                         )

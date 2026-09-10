@@ -105,8 +105,8 @@ object RemarkSheetMirror {
                 targets.forEach { target ->
                     when (val out = mirrorOneWithRetry(
                         target.conn, token, ctx,
-                        ignoreRules = target.binding.effectiveIgnoreRules(),
-                        ignoreLogic = target.binding.ignoreLogic,
+                        filters = target.binding.effectiveFilters(),
+                        filterLogic = target.binding.filterLogic,
                     )) {
                         is MirrorOutcome.Done -> okRows++
                         is MirrorOutcome.Skipped -> {
@@ -273,13 +273,13 @@ object RemarkSheetMirror {
      *  are returned at once — retrying changes nothing. */
     private suspend fun mirrorOneWithRetry(
         conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx, attempts: Int = 3,
-        ignoreRules: List<CcFetchFilter> = emptyList(),
-        ignoreLogic: String = CcFilterLogic.OR,
+        filters: List<CcFetchFilter> = emptyList(),
+        filterLogic: String = CcFilterLogic.AND,
     ): MirrorOutcome {
         var lastError = ""
         repeat(attempts) { n ->
             try {
-                return mirrorOne(conn, accessToken, ctx, ignoreRules, ignoreLogic)
+                return mirrorOne(conn, accessToken, ctx, filters, filterLogic)
             } catch (e: Exception) {
                 lastError = e.message?.take(120) ?: "sheet write failed"
                 if (n < attempts - 1) delay(if (n == 0) 2000L else 4000L)
@@ -292,13 +292,13 @@ object RemarkSheetMirror {
     // Skipped only for deliberate no-match skips.
     private suspend fun mirrorOne(
         conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx,
-        ignoreRules: List<CcFetchFilter> = emptyList(),
-        ignoreLogic: String = CcFilterLogic.OR,
+        filters: List<CcFetchFilter> = emptyList(),
+        filterLogic: String = CcFilterLogic.AND,
     ): MirrorOutcome = withContext(Dispatchers.IO) {
         // Row extras FIRST: lookups may point at row data (created_at,
         // author_name...) so values must exist before matching.
         val ctx2 = ctx.copy(extras = fetchRowExtras(ctx.consignmentId))
-        when (val found = findTargetRow(conn, accessToken, ctx2, ignoreRules, ignoreLogic)) {
+        when (val found = findTargetRow(conn, accessToken, ctx2, filters, filterLogic)) {
             is FindResult.Miss -> MirrorOutcome.Skipped(found.reason)
             is FindResult.Hit -> {
                 found.writes.forEach { (letter, kind) ->
@@ -330,8 +330,8 @@ object RemarkSheetMirror {
      *  nothing — never appended. */
     private suspend fun findTargetRow(
         conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx,
-        ignoreRules: List<CcFetchFilter> = emptyList(),
-        ignoreLogic: String = CcFilterLogic.OR,
+        filters: List<CcFetchFilter> = emptyList(),
+        filterLogic: String = CcFilterLogic.AND,
     ): FindResult = withContext(Dispatchers.IO) {
         // Mirror enforces remark-kind lookups only (employee belongs to the
         // scanner flow) and skips scanner value writes.
@@ -365,9 +365,9 @@ object RemarkSheetMirror {
         val columns = lookupCols.map { (_, letter) ->
             letter to ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tabName, letter, httpClient)
         }.toMap()
-        // Ignore columns (exclusion): unresolvable refs never block — noted
-        // in diag, skipped silently.
-        val ignoreCols = ignoreRules.mapNotNull { rule ->
+        // Targeting filters (same as Live fetch): unresolvable refs never
+        // block — noted in diag, skipped silently.
+        val ignoreCols = filters.mapNotNull { rule ->
             val letter = resolveLetter(accessToken, conn.sheetId, tabName,
                 rule.colRef, rule.mode, headerRow, headerCache) ?: return@mapNotNull null
             rule to letter
@@ -375,28 +375,29 @@ object RemarkSheetMirror {
         val ignoreValues = ignoreCols.map { (_, letter) ->
             letter to ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tabName, letter, httpClient)
         }.toMap()
-        fun rowIgnored(i: Int): Boolean {
+        fun rowFilteredOut(i: Int): Boolean {
             if (ignoreCols.isEmpty()) return false
             val hits = ignoreCols.map { (rule, letter) ->
                 SheetCellCompare.pass(
                     rule.op, ignoreValues[letter].orEmpty().getOrNull(i).orEmpty(), rule.value,
                     rule.valueType)
             }
-            return if (ignoreLogic == CcFilterLogic.AND) hits.all { it } else hits.any { it }
+            val pass = if (filterLogic == CcFilterLogic.OR) hits.any { it } else hits.all { it }
+            return !pass
         }
         val scanned = columns.values.maxOfOrNull { it.size } ?: 0
         if (scanned == 0) {
             return@withContext FindResult.Miss("tab '$tabName' খালি — tab/column মিলছে না")
         }
         val diag = StringBuilder()
-        var ignored = 0
+        var filtered = 0
         for (i in 0 until scanned) {
             val fails = lookupCols.filter { (rule, letter) ->
                 !lookupMatches(rule.kind, columns[letter].orEmpty().getOrNull(i).orEmpty(), ctx)
             }
             if (fails.isEmpty()) {
-                if (rowIgnored(i)) {
-                    ignored++
+                if (rowFilteredOut(i)) {
+                    filtered++
                     continue
                 }
                 val writePairs = writeCols.map { (rule, letter) -> letter to rule.kind }
@@ -410,9 +411,9 @@ object RemarkSheetMirror {
         val wantList = lookupCols.joinToString(", ") { (rule, _) ->
             "${rule.colRef.trim()}='${lookupWant(rule.kind, ctx)}'"
         }
-        val ignoreTxt = if (ignored > 0) " ($ignored row ignore rule-e bad)" else ""
+        val filterTxt = if (filtered > 0) " ($filtered row filter-e bad)" else ""
         return@withContext FindResult.Miss(
-            "exact match নেই ($wantList — $scanned row দেখা হয়েছে$ignoreTxt)। কখনো append হয় না")
+            "exact match নেই ($wantList — $scanned row দেখা হয়েছে$filterTxt)। কখনো append হয় না")
     }
 
     /** True when a Sheets date cell (formatted text) falls on [today]. */
@@ -542,7 +543,7 @@ object RemarkSheetMirror {
                 onProgress(conn.sheetName.ifBlank { conn.sheetId.ifBlank { branchId } })
                 try {
                     val c = bulkSyncOneConnection(token, branchId, conn, consolidated, today,
-                        target.binding.effectiveIgnoreRules(), target.binding.ignoreLogic)
+                        target.binding.effectiveFilters(), target.binding.filterLogic)
                     tot.scanned += c.scanned; tot.filled += c.filled
                     tot.syncedRows += c.syncedRows; tot.syncedCells += c.syncedCells
                     totNoCc += c.noCc; tot.ignored += c.ignored
@@ -554,7 +555,7 @@ object RemarkSheetMirror {
         if (totConns == 0) return@withContext "আজকের জন্য কোনো branch-এ CC binding নেই — CallCenter 🔌 থেকে sheet bind করুন (scope দেখুন)"
         var msg = "✓ ${tot.syncedRows} row synced (${tot.syncedCells} cells) · " +
             "${tot.filled} already filled · $totNoCc no CC yet · " +
-            "${tot.ignored} ignored · " +
+            "${tot.ignored} filter-e bad · " +
             "${tot.scanned} sheet rows দেখা ($totConns connection)"
         if (errs.isNotEmpty()) msg += " · ⚠ ${errs.size} error: ${errs.take(2).joinToString("; ")}" +
             if (errs.size > 2) "…" else ""
@@ -568,8 +569,8 @@ object RemarkSheetMirror {
         conn: ScannerSheetConn,
         consolidated: Map<String, BulkVals>,
         today: LocalDate,
-        ignoreRules: List<CcFetchFilter> = emptyList(),
-        ignoreLogic: String = CcFilterLogic.OR,
+        filters: List<CcFetchFilter> = emptyList(),
+        filterLogic: String = CcFilterLogic.AND,
     ): BulkCounts = withContext(Dispatchers.IO) {
         val res = BulkCounts()
         val lookups = conn.effectiveLookups()
@@ -608,8 +609,8 @@ object RemarkSheetMirror {
         suspend fun colValues(letter: String): List<String> =
             ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tabName, letter, httpClient)
         val cidCol = colValues(cidLetter)
-        // Ignore columns (exclusion): unresolvable refs never block.
-        val ignoreCols = ignoreRules.mapNotNull { rule ->
+        // Targeting filters (same as Live fetch): unresolvable refs never block.
+        val ignoreCols = filters.mapNotNull { rule ->
             val letter = resolveLetter(accessToken, conn.sheetId, tabName,
                 rule.colRef, rule.mode, headerRow, headerCache) ?: return@mapNotNull null
             rule to letter
@@ -618,14 +619,15 @@ object RemarkSheetMirror {
         ignoreCols.map { it.second }.distinct().forEach { letter ->
             ignoreValues[letter] = colValues(letter)
         }
-        fun rowIgnored(i: Int): Boolean {
+        fun rowFilteredOut(i: Int): Boolean {
             if (ignoreCols.isEmpty()) return false
             val hits = ignoreCols.map { (rule, letter) ->
                 SheetCellCompare.pass(
                     rule.op, ignoreValues[letter].orEmpty().getOrNull(i).orEmpty(), rule.value,
                     rule.valueType)
             }
-            return if (ignoreLogic == CcFilterLogic.AND) hits.all { it } else hits.any { it }
+            val pass = if (filterLogic == CcFilterLogic.OR) hits.any { it } else hits.all { it }
+            return !pass
         }
         val dateCols = mutableMapOf<String, List<String>>()
         dateLetters.values.distinct().forEach { letter -> dateCols[letter] = colValues(letter) }
@@ -637,7 +639,7 @@ object RemarkSheetMirror {
         for (i in cidCol.indices) {
             val cid = cidCol[i].trim()
             if (cid.isEmpty()) continue
-            if (rowIgnored(i)) { res.ignored++; continue }
+            if (rowFilteredOut(i)) { res.ignored++; continue }
             var dateOk = true
             dateLetters.forEach { (_, letter) ->
                 if (!isToday((dateCols[letter].orEmpty().getOrNull(i).orEmpty()).trim(), today)) dateOk = false
@@ -809,14 +811,6 @@ object RemarkSheetMirror {
             if (values == null) missing.add(r.colRef.trim())
             RuleCol(r, values)
         }
-        // Ignore rules (exclusion): unresolvable refs never block.
-        val ignoreRules = binding.effectiveIgnoreRules()
-        val ignoreCols = ignoreRules.mapNotNull { r ->
-            val values = colOf(r.colRef, r.mode) ?: run {
-                missing.add(r.colRef.trim()); return@mapNotNull null
-            }
-            RuleCol(r, values)
-        }
         val idCol = colOf(wantFetchRef, wantFetchMode)
             ?: return LiveFetch(emptyList(), 0, 0, "ID column '$wantFetchRef' paini")
         val useOr = socketRules.isNotEmpty() && binding.filterLogic == CcFilterLogic.OR
@@ -831,17 +825,6 @@ object RemarkSheetMirror {
             }
             val pass = if (useOr && results.isNotEmpty()) results.any { it } else results.all { it }
             if (!pass) {
-                dropped++
-                return@forEachIndexed
-            }
-            val ignored = ignoreCols.isNotEmpty() && run {
-                val hits = ignoreCols.map { (r, values) ->
-                    if (values == null) false // unresolvable never blocks
-                    else SheetCellCompare.pass(r.op, values.getOrNull(i).orEmpty(), r.value, r.valueType)
-                }
-                if (binding.ignoreLogic == CcFilterLogic.AND) hits.all { it } else hits.any { it }
-            }
-            if (ignored) {
                 dropped++
                 return@forEachIndexed
             }
