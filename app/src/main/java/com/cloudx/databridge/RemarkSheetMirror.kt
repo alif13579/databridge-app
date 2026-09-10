@@ -197,7 +197,16 @@ object RemarkSheetMirror {
         SheetLookupKind.CONSIGNMENT -> ctx.consignmentId
         SheetLookupKind.TODAY -> "আজকের তারিখ"
         SheetLookupKind.EMPLOYEE -> "(scanner)"
+        // Show the PARSED date, not the raw ISO stamp — readable + tells
+        // whether the want itself was understood.
+        SheetLookupKind.CREATED_AT -> createdAtWant(ctx)
         else -> lookupValue(kind, ctx).ifBlank { "(খালি)" }
+    }
+
+    private fun createdAtWant(ctx: MirrorCtx): String {
+        val raw = lookupValue(SheetLookupKind.CREATED_AT, ctx)
+        if (raw.isBlank()) return "(খালি)"
+        return tryParseDate(raw)?.toString() ?: "$raw (date bojha jayni!)"
     }
 
     private fun writeValue(kind: String, ctx: MirrorCtx): String = when (kind) {
@@ -407,13 +416,25 @@ object RemarkSheetMirror {
                 return@withContext FindResult.Hit(tabName, i + 1, writePairs, diag.toString(), scanned)
             }
         }
-        // No exact row: say WHICH rule never matched (first failing rule's want).
+        // No exact row: say WHICH rule never matched + WHAT the column
+        // actually holds (blank count + samples) so a format/empty mismatch
+        // is obvious without opening the sheet.
         val wantList = lookupCols.joinToString(", ") { (rule, _) ->
             "${rule.colRef.trim()}='${lookupWant(rule.kind, ctx)}'"
         }
+        val sampleTxt = lookupCols.firstOrNull()?.let { (rule, letter) ->
+            val cells = columns[letter].orEmpty()
+            if (cells.isEmpty()) "" else {
+                val blanks = cells.count { it.trim().isBlank() }
+                val samples = cells.map { it.trim() }.filter { it.isNotBlank() }
+                    .distinct().take(3).joinToString(" | ")
+                " ${letter} col: $blanks khali" +
+                    (samples.ifBlank { "" }.let { if (it.isBlank()) "" else ", ache: $it" })
+            }
+        }.orEmpty()
         val filterTxt = if (filtered > 0) " ($filtered row filter-e bad)" else ""
         return@withContext FindResult.Miss(
-            "exact match নেই ($wantList — $scanned row দেখা হয়েছে$filterTxt)। কখনো append হয় না")
+            "exact match নেই ($wantList — $scanned row দেখা হয়েছে$filterTxt$sampleTxt)। কখনো append হয় না")
     }
 
     /** True when a Sheets date cell (formatted text) falls on [today]. */
@@ -425,12 +446,30 @@ object RemarkSheetMirror {
     private fun tryParseDate(raw: String): LocalDate? {
         if (raw.isEmpty()) return null
         for (fmt in datePatterns) {
-            runCatching { return LocalDate.parse(raw, fmt) }
+            runCatching {
+                var d = LocalDate.parse(raw, fmt)
+                // Short-year cells ("10-Sep-26") parse to year 26 — roll forward.
+                if (d.year < 100) d = d.plusYears(2000)
+                return d
+            }
         }
-        // Our own Dhaka stamp ("dd-MM-yyyy HH:mm") and ISO instants.
+        // Extra shapes sheets actually contain: "Sep 10, 2026",
+        // "10 Sep 2026", "2026.09.10", plus our Dhaka stamp
+        // ("dd-MM-yyyy HH:mm") and ISO instants.
+        val extras = listOf("MMM d, yyyy", "d MMM yyyy", "yyyy.MM.dd")
+            .map { java.time.format.DateTimeFormatter.ofPattern(it, java.util.Locale.ENGLISH) }
+        for (fmt in extras) {
+            runCatching {
+                var d = LocalDate.parse(raw, fmt)
+                if (d.year < 100) d = d.plusYears(2000)
+                return d
+            }
+        }
         runCatching {
-            return LocalDate.parse(raw.substringBefore(" "),
+            var d = LocalDate.parse(raw.substringBefore(" "),
                 java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy", java.util.Locale.ENGLISH))
+            if (d.year < 100) d = d.plusYears(2000)
+            return d
         }
         runCatching { return java.time.Instant.parse(raw)
             .atZone(java.time.ZoneId.of("Asia/Dhaka")).toLocalDate() }
