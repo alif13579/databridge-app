@@ -718,8 +718,9 @@ object RemarkSheetMirror {
         branchIds.map { it.trim() }.filter { it.isNotBlank() }.distinct().map { branchId ->
             try {
                 // All-in-one: every ENABLED CC binding's sheet contributes IDs,
-                // each with its own fetch criteria (socket 🔌 Step 3). The
-                // LIVE CC SHEET dropdown narrows to one sheet when set.
+                // each with its own fetch criteria (socket 🔌 Step 3).
+                // Which sheet Live reads is defined ONLY by bindings now —
+                // the old LIVE CC SHEET dropdown is gone.
                 val bindings = SheetLibraryRepository.loadCcBindings(branchId)
                     .filter { it.enabled }
                 if (bindings.isEmpty())
@@ -727,23 +728,16 @@ object RemarkSheetMirror {
                         "CC binding nei — CallCenter 🔌 থেকে sheet bind করুন")
                 val libraries = SheetLibraryRepository.loadLibraries(branchId)
                     .filter { it.enabled }.associateBy { it.libraryId }
-                val liveRef = runCatching {
-                    ScannerSheetRepository.loadLiveCc(branchId)?.connectionId.orEmpty()
-                }.getOrDefault("")
                 val targets = bindings.mapNotNull { b ->
                     val lib = libraries[b.libraryId] ?: return@mapNotNull null
                     if (!SheetScope.covers(lib.scopeType, lib.scopeMonth,
                             lib.scopeFrom, lib.scopeTo, today)
                     ) return@mapNotNull null
-                    if (liveRef.isNotBlank() && liveRef != lib.libraryId) {
-                        return@mapNotNull null
-                    }
                     b to lib
                 }
                 if (targets.isEmpty())
                     return@map LiveBranchIds(branchId, emptyList(),
-                        if (liveRef.isNotBlank()) "Live sheet-e binding nei — 🔌 থেকে bind করুন"
-                        else "Ajker scope-e kono bound sheet nei")
+                        "Ajker scope-e kono bound sheet nei")
                 val ids = mutableListOf<String>()
                 var scanned = 0
                 var filtered = 0
