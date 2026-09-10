@@ -213,11 +213,7 @@ object RemarkSheetMirror {
     private fun createdAtWant(ctx: MirrorCtx): String {
         val raw = lookupValue(SheetLookupKind.CREATED_AT, ctx)
         if (raw.isBlank()) return "(খালি)"
-        val parsed = tryParseDate(raw)?.toString()
-        // Debug-friendly: raw + parsed date + today, so a pasted message
-        // shows exactly what was compared (e.g. want 2026-09-10 vs today 2026-09-10).
-        return if (parsed != null) "$parsed [raw:$raw | today:${ctx.today}]"
-        else "$raw (date bojha jayni! today:${ctx.today})"
+        return tryParseDate(raw)?.toString() ?: "$raw (date bojha jayni!)"
     }
 
     private fun writeValue(kind: String, ctx: MirrorCtx): String = when (kind) {
@@ -425,9 +421,8 @@ object RemarkSheetMirror {
             }
         }
         // No exact row: say WHICH rule never matched + WHAT the column
-        // actually holds (blank count + samples WITH parsed dates) so a
-        // format/empty mismatch is obvious without opening the sheet.
-        // Full detail goes to FirebaseErrorLogger; the toast stays short.
+        // actually holds (blank count + samples) so a format/empty mismatch
+        // is obvious without opening the sheet.
         val wantList = lookupCols.joinToString(", ") { (rule, _) ->
             "${rule.colRef.trim()}='${lookupWant(rule.kind, ctx)}'"
         }
@@ -436,21 +431,12 @@ object RemarkSheetMirror {
             if (cells.isEmpty()) "" else {
                 val blanks = cells.count { it.trim().isBlank() }
                 val samples = cells.map { it.trim() }.filter { it.isNotBlank() }
-                    .distinct().take(3)
-                    .joinToString(" | ") { s ->
-                        val p = tryParseDate(s)?.toString()
-                            ?: slashCandidates(s).firstOrNull()?.toString()
-                        if (p != null) "$s(→$p)" else s
-                    }
+                    .distinct().take(3).joinToString(" | ")
                 " ${letter} col: $blanks khali" +
                     (samples.ifBlank { "" }.let { if (it.isBlank()) "" else ", ache: $it" })
             }
         }.orEmpty()
         val filterTxt = if (filtered > 0) " ($filtered row filter-e bad)" else ""
-        val fullReason = "exact match নেই ($wantList — $scanned row দেখা হয়েছে$filterTxt$sampleTxt)। " +
-            "tab='$tabName' branch today=${ctx.today}। কখনো append হয় না"
-        FirebaseErrorLogger.log("RemarkSheetMirror", "mirror_miss_detail", fullReason,
-            mapOf("tab" to tabName, "scanned" to scanned.toString()))
         return@withContext FindResult.Miss(
             "exact match নেই ($wantList — $scanned row দেখা হয়েছে$filterTxt$sampleTxt)। কখনো append হয় না")
     }
