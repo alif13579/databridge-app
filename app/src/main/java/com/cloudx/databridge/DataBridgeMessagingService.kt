@@ -34,7 +34,6 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
         val body = data["body"]?.takeIf { it.isNotBlank() } ?: "একটি নতুন রিমার্ক এসেছে"
         val parcelId = data["consignment_id"].orEmpty()
         val scope = data["scope"].orEmpty()
-
         // scope="worker" means CC just wrote a remark this worker hasn't answered yet --
         // exactly what DeliveryReminderReceiver checks for. FCM data messages reach
         // onMessageReceived() even with the app fully closed (unlike the Realtime
@@ -49,6 +48,10 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
 
         RemarkPushChainLog.log("RemarkPushChain", "onMessageReceived: parcelId=$parcelId scope=$scope " +
             "-> AppNotificationManager.add()")
+        // FCM message ID is stable across redeliveries — same push arriving
+        // twice counts/lists once. Falls back to a content key when absent.
+        val dedupe = message.messageId?.takeIf { it.isNotBlank() }?.let { "fcm:$it" }
+            ?: "remark:$scope:$parcelId:$title:$body"
         AppNotificationManager.add(
             applicationContext,
             AppNotificationManager.NotifItem(
@@ -56,7 +59,8 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
                 message = body,
                 type = "remark",
                 parcelId = parcelId,
-                scope = scope
+                scope = scope,
+                dedupeKey = dedupe
             )
         )
     }
@@ -66,6 +70,8 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
     private fun onClaimMessage(data: Map<String, String>) {
         val title = data["title"]?.takeIf { it.isNotBlank() } ?: "Claim update"
         val body = data["body"]?.takeIf { it.isNotBlank() } ?: "Your request moved a stage"
+        val claimBranch = data["branch_id"].orEmpty()
+        val claimCode = data["claim_code"].orEmpty()
         AppNotificationManager.add(
             applicationContext,
             AppNotificationManager.NotifItem(
@@ -74,8 +80,9 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
                 type = "claim",
                 parcelId = data["claim_id"].orEmpty(),
                 scope = "claim",
-                claimBranchId = data["branch_id"].orEmpty(),
-                claimCode = data["claim_code"].orEmpty()
+                claimBranchId = claimBranch,
+                claimCode = claimCode,
+                dedupeKey = "claim:$claimBranch:$claimCode:$title:$body"
             )
         )
     }

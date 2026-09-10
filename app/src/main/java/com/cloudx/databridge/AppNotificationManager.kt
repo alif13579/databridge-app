@@ -48,7 +48,10 @@ object AppNotificationManager {
         val scope: String = "cc",      // "cc" | "worker" | "claim" — which fragment to open
         val claimBranchId: String = "", // claim push only — detail needs branch + code
         val claimCode: String = "",
-        var read: Boolean = false
+        var read: Boolean = false,
+        /** Stable across FCM redeliveries (FCM message ID or content key).
+         *  Same event arriving twice never double-counts / double-lists. */
+        val dedupeKey: String = "",
     )
 
     private const val MAX_NOTIFICATIONS = 50
@@ -86,8 +89,15 @@ object AppNotificationManager {
      * Add a new notification. Plays a sound, updates the badge, and (if the
      * permission is granted) posts a real status-bar notification.
      * Should be called from the main thread (or post to main).
+     *
+     * Duplicate deliveries of the same event (FCM redelivery on flaky
+     * networks, double-sent pushes) are dropped by [NotifItem.dedupeKey] —
+     * without this one push counted twice and listed twice.
      */
     fun add(context: Context, item: NotifItem) {
+        if (item.dedupeKey.isNotBlank() && _notifications.any { it.dedupeKey == item.dedupeKey }) {
+            return
+        }
         _notifications.add(0, item) // newest first
         if (_notifications.size > MAX_NOTIFICATIONS) {
             _notifications.removeAt(_notifications.lastIndex)
