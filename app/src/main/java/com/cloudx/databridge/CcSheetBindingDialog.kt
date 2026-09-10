@@ -436,6 +436,8 @@ object CcSheetBindingDialog {
                 val op = CcFilterOp.ALL.getOrNull(spOp.selectedItemPosition).orEmpty()
                 val t = currentType()
                 val need = CcFilterOp.needsValue(op)
+                // খালি/ভরা শর্তে value + type konotai lagena — lukiye rakho.
+                spType.visibility = if (need) View.VISIBLE else View.GONE
                 etVal.visibility = if (need && t != CcValueType.TODAY) View.VISIBLE else View.GONE
                 btnDate.visibility =
                     if (need && t == CcValueType.DATE) View.VISIBLE else View.GONE
