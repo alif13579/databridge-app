@@ -3929,8 +3929,10 @@ class CallCenterFragment : Fragment() {
         clearLiveList()
         tvEmpty.visibility = View.GONE
         if (!::layoutCcaLiveError.isInitialized) return
+        val connected = (activity as? MainActivity)?.getConnectedSheetEmail().orEmpty().trim()
+        val who = if (connected.isNotBlank()) "Connected as $connected — this account" else "The connected Google account"
         tvCcaLiveErrorMsg.text = "No access to the sheet\n\n" +
-            "The connected Google account cannot open this sheet. " +
+            "$who cannot open this sheet. " +
             "Switch to a Google account that has access, then Live will reload."
         layoutCcaLiveError.visibility = View.VISIBLE
     }

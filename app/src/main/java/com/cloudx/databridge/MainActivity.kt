@@ -176,6 +176,98 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     /** One-shot callback fired after the sheet Google account (re)connects. */
     var onSheetAccountSwitched: (() -> Unit)? = null
 
+    /** Email currently connected for Sheets on this device ("" when none). */
+    fun getConnectedSheetEmail(): String =
+        getSharedPreferences("connectors_google_account", MODE_PRIVATE)
+            .getString("connected_email", null).orEmpty()
+
+    // ── Guaranteed account picker for sheet switching ────────────────────
+    // signInIntent alone can silently reuse the cached account and skip the
+    // chooser UI entirely (the reported "no account selection appears").
+    // This flow ALWAYS shows UI first: the system account picker, then a
+    // silent sign-in for the picked address (consent screen only if Google
+    // demands fresh consent for the Sheets scopes).
+    private var pendingSheetEmail: String = ""
+
+    private val sheetAccountPickerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != RESULT_OK) {
+                Toast.makeText(this, "Account switch cancelled", Toast.LENGTH_SHORT).show()
+                return@registerForActivityResult
+            }
+            val email = result.data
+                ?.getStringExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME)
+                .orEmpty().trim()
+            if (email.isEmpty()) {
+                Toast.makeText(this, "No account picked", Toast.LENGTH_SHORT).show()
+                return@registerForActivityResult
+            }
+            completeSheetSwitch(email)
+        }
+
+    private val sheetConsentLauncher =
+        registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            if (result.resultCode != RESULT_OK) {
+                Toast.makeText(this, "Sheets permission denied for the picked account", Toast.LENGTH_LONG).show()
+                return@registerForActivityResult
+            }
+            // Consent granted — retry the silent sign-in for the same address.
+            if (pendingSheetEmail.isNotBlank()) completeSheetSwitch(pendingSheetEmail)
+        }
+
+    private fun sheetSwitchOptions(email: String): GoogleSignInOptions =
+        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(
+                com.google.android.gms.common.api.Scope(ConfigSheetDriveApi.SCOPE_DRIVE_FILE),
+                com.google.android.gms.common.api.Scope(ConfigSheetDriveApi.SCOPE_SHEETS_WRITE)
+            )
+            .setAccountName(email)
+            .build()
+
+    private fun completeSheetSwitch(email: String) {
+        pendingSheetEmail = email
+        try {
+            val client = GoogleSignIn.getClient(this, sheetSwitchOptions(email))
+            client.silentSignIn()
+                .addOnSuccessListener { account ->
+                    pendingSheetEmail = ""
+                    GoogleSignInHelper.rememberConnectedEmail(
+                        this, "connectors_google_account", account.email)
+                    Toast.makeText(this,
+                        "✓ Sheet account: ${account.email ?: email}",
+                        Toast.LENGTH_LONG).show()
+                    onSheetAccountSwitched?.invoke()
+                    onSheetAccountSwitched = null
+                }
+                .addOnFailureListener { e ->
+                    val apiEx = e as? ApiException
+                    val resolution = apiEx?.status?.resolution
+                    if (resolution != null) {
+                        // Fresh consent needed — show Google's consent screen.
+                        try {
+                            sheetConsentLauncher.launch(
+                                androidx.activity.result.IntentSenderRequest.Builder(resolution).build()
+                            )
+                        } catch (_: Exception) {
+                            pendingSheetEmail = ""
+                            Toast.makeText(this,
+                                "Consent screen failed: ${e.message}",
+                                Toast.LENGTH_LONG).show()
+                        }
+                    } else {
+                        pendingSheetEmail = ""
+                        Toast.makeText(this,
+                            "Switch failed: ${e.message}",
+                            Toast.LENGTH_LONG).show()
+                    }
+                }
+        } catch (e: Exception) {
+            pendingSheetEmail = ""
+            Toast.makeText(this, "Switch failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
     /** Always opens the Google account chooser (signs out first so a different
      *  account can be picked), then remembers the new grant device-wide.
      *  Unlike promptSheetAuthOnce() this never one-time-gates: it is the
@@ -187,10 +279,18 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             try {
                 sheetAuthClient.signOut().addOnCompleteListener {
                     try {
-                        sheetAuthLauncher.launch(sheetAuthClient.signInIntent)
+                        val picker = com.google.android.gms.common.AccountPicker
+                            .newChooseAccountIntent(
+                                com.google.android.gms.common.AccountPicker.AccountChooserOptions.Builder()
+                                    .setAllowableAccountsTypes(
+                                        listOf(com.google.android.gms.auth.GoogleAuthUtil.GOOGLE_ACCOUNT_TYPE))
+                                    .setAlwaysShowAccountPicker(true)
+                                    .build()
+                            )
+                        sheetAccountPickerLauncher.launch(picker)
                     } catch (e: Exception) {
                         Toast.makeText(this,
-                            "Sign-In launch failed: ${e.message}",
+                            "Account picker failed: ${e.message}",
                             Toast.LENGTH_LONG).show()
                     }
                 }
