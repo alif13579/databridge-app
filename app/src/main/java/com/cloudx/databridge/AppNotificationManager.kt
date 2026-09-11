@@ -95,7 +95,7 @@ object AppNotificationManager {
      * without this one push counted twice and listed twice.
      */
     fun add(context: Context, item: NotifItem) {
-        if (item.dedupeKey.isNotBlank() && _notifications.any { it.dedupeKey == item.dedupeKey }) {
+        if (item.dedupeKey.isNotBlank() && (_notifications.any { it.dedupeKey == item.dedupeKey } || item.dedupeKey in silentDedupeKeys)) {
             return
         }
         _notifications.add(0, item) // newest first
@@ -108,6 +108,26 @@ object AppNotificationManager {
         }
         playSound(context)
         showSystemNotification(context, item)
+    }
+
+    /** Silent reflection-only delivery: runs the open screens' remark
+     *  listeners (card/status refresh) with NO user-visible notification —
+     *  no bell entry, no badge, no sound, no status-bar popup.
+     *  Used for CC->CC fan-out: another CC agent's save must update my card
+     *  silently, exactly as Realtime would. Redeliveries are dropped via the
+     *  same dedupeKey (refresh itself is an idempotent fetch). */
+    private val silentDedupeKeys = mutableSetOf<String>()
+
+    fun dispatchSilentRemark(item: NotifItem) {
+        if (item.dedupeKey.isNotBlank()) {
+            if (_notifications.any { it.dedupeKey == item.dedupeKey } || !silentDedupeKeys.add(item.dedupeKey)) {
+                return
+            }
+            if (silentDedupeKeys.size > 200) silentDedupeKeys.clear()
+        }
+        if (item.type == "remark") {
+            remarkListeners.forEach { it(item) }
+        }
     }
 
     /** Mark all notifications as read and reset badge to 0. */

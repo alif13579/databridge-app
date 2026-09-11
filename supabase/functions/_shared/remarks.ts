@@ -111,8 +111,11 @@ async function notificationDetails(row: { consignment: string; author_system_id:
 }
 
 /** Sends one data-only FCM to each token with the given scope. Returns accepted count.
- *  UNREGISTERED tokens are deleted outright; all other failures are logged only. */
-async function sendToTokens(tokens: string[], scope: string, accessToken: string, projectId: string | undefined, title: string, body: string, consignment: string): Promise<number> {
+ *  UNREGISTERED tokens are deleted outright; all other failures are logged only.
+ *  [source] ('CC'/'WORKER') rides along in the payload so Android can silence
+ *  the user-visible notification for CC->CC fan-out while still running the
+ *  silent card/status reflection (older apps ignore the extra field). */
+async function sendToTokens(tokens: string[], scope: string, accessToken: string, projectId: string | undefined, title: string, body: string, consignment: string, source: string): Promise<number> {
   if (!tokens.length) return 0
   const outcomes = await Promise.all(tokens.map(async (token) => {
     const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId!)}/messages:send`, {
@@ -126,6 +129,7 @@ async function sendToTokens(tokens: string[], scope: string, accessToken: string
           type: 'remark', title, body,
           consignment_id: consignment,
           scope,
+          source,
           notif_parcel_id: consignment,
           notif_scope: scope,
         },
@@ -191,7 +195,7 @@ export async function sendRemarkPush(row: { consignment: string; branch_id: stri
       const accessToken = await googleAccessToken('https://www.googleapis.com/auth/firebase.messaging')
       const { title, body } = await notificationDetails(row, identity)
       const projectId = serviceAccount.project_id || firebaseProjectId
-      const accepted = await sendToTokens((devices ?? []).map((d) => (d as { token: string }).token), 'cc', accessToken, projectId, title, body, row.consignment)
+      const accepted = await sendToTokens((devices ?? []).map((d) => (d as { token: string }).token), 'cc', accessToken, projectId, title, body, row.consignment, row.source)
       const reason = accepted === matchedDevices ? 'accepted_by_fcm' : 'fcm_rejected_some_devices'
       console.info(`remark_push result: consignment=${row.consignment} scope=cc matched=${matchedDevices} accepted=${accepted} reason=${reason}`)
       return { recipient_scope: 'cc', matched_devices: matchedDevices, accepted, reason }
@@ -225,8 +229,8 @@ export async function sendRemarkPush(row: { consignment: string; branch_id: stri
 
     const { title, body } = await notificationDetails(row, identity)
     const projectId = serviceAccount.project_id || firebaseProjectId
-    const workerAccepted = await sendToTokens(workerTokens, 'worker', accessToken, projectId, title, body, row.consignment)
-    const ccAccepted = await sendToTokens(ccTokens, 'cc', accessToken, projectId, title, body, row.consignment)
+    const workerAccepted = await sendToTokens(workerTokens, 'worker', accessToken, projectId, title, body, row.consignment, row.source)
+    const ccAccepted = await sendToTokens(ccTokens, 'cc', accessToken, projectId, title, body, row.consignment, row.source)
     const accepted = workerAccepted + ccAccepted
     const reason = accepted === matchedDevices ? 'accepted_by_fcm' : 'fcm_rejected_some_devices'
     console.info(`remark_push result: consignment=${row.consignment} scope=worker+cc matched=${matchedDevices} (worker=${workerTokens.length} cc=${ccTokens.length}) accepted=${accepted} reason=${reason}`)

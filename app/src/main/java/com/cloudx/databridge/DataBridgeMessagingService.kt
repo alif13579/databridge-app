@@ -34,6 +34,7 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
         val body = data["body"]?.takeIf { it.isNotBlank() } ?: "একটি নতুন রিমার্ক এসেছে"
         val parcelId = data["consignment_id"].orEmpty()
         val scope = data["scope"].orEmpty()
+        val source = data["source"].orEmpty()
         // scope="worker" means CC just wrote a remark this worker hasn't answered yet --
         // exactly what DeliveryReminderReceiver checks for. FCM data messages reach
         // onMessageReceived() even with the app fully closed (unlike the Realtime
@@ -46,12 +47,30 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
             DeliveryReminderReceiver.arm(applicationContext)
         }
 
-        RemarkPushChainLog.log("RemarkPushChain", "onMessageReceived: parcelId=$parcelId scope=$scope " +
+        RemarkPushChainLog.log("RemarkPushChain", "onMessageReceived: parcelId=$parcelId scope=$scope source=$source " +
             "-> AppNotificationManager.add()")
         // FCM message ID is stable across redeliveries — same push arriving
         // twice counts/lists once. Falls back to a content key when absent.
         val dedupe = message.messageId?.takeIf { it.isNotBlank() }?.let { "fcm:$it" }
             ?: "remark:$scope:$parcelId:$title:$body"
+        // CC->CC fan-out is reflection-only: another CC agent's save updates
+        // my card silently (same as Realtime) — no popup, no sound, no bell.
+        // WORKER->CC and CC->worker pushes keep the visible notification.
+        // Missing source (older server) falls through to the visible path.
+        if (scope == "cc" && source == "CC") {
+            RemarkPushChainLog.log("RemarkPushChain", "onMessageReceived: CC->CC silent dispatch parcelId=$parcelId")
+            AppNotificationManager.dispatchSilentRemark(
+                AppNotificationManager.NotifItem(
+                    title = title,
+                    message = body,
+                    type = "remark",
+                    parcelId = parcelId,
+                    scope = scope,
+                    dedupeKey = dedupe
+                )
+            )
+            return
+        }
         AppNotificationManager.add(
             applicationContext,
             AppNotificationManager.NotifItem(
