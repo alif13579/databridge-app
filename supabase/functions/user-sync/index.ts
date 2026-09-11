@@ -123,8 +123,42 @@ Deno.serve(async (request) => {
         phone: str(b.phone).trim(),
         designation: str(b.designation).trim(),
       }
-      // 1) Authoritative Supabase write (employee_id-collision fallback inside).
-      await upsertUser(profile, targetUid)
+      // 1) Authoritative Supabase write, keyed by Firebase UID reference.
+      // Edit identity is the Firebase ACCOUNT (targetUid), never the
+      // system_id text: if the admin changed system_id (previous_system_id),
+      // rename via change_user_system_id FIRST — it refuses a taken id
+      // ("already used by another user") and migrates validations / claims /
+      // device-token references, so history never orphans and two accounts
+      // can never share one system_id (users.system_id is the PK, plus the
+      // users_by_systemId single-uid reverse index and run_{date}_{systemId}
+      // keys all assume one person per system_id).
+      const prevSystemId = str(b.previous_system_id).trim()
+      if (prevSystemId && prevSystemId !== systemId) {
+        const { error: renameError } = await admin.rpc('change_user_system_id', {
+          p_old: prevSystemId, p_new: systemId,
+        })
+        if (renameError) {
+          const msg = renameError.message || ''
+          // Legacy Firebase-only account (no Supabase row yet for the old
+          // id): fall through to the plain create-upsert below (the PK still
+          // guards a taken new id). Any other rename refusal stays an error.
+          if (!msg.includes('not found in users')) {
+            return reply({ error: msg.slice(0, 200) }, 409)
+          }
+        }
+      }
+      try {
+        await upsertUser(profile, targetUid)
+      } catch (e: unknown) {
+        const err = e as { code?: string; message?: string; details?: string }
+        const text = `${err?.message ?? ''} ${err?.details ?? ''}`
+        // Same system_id on two persons: PK refuses — surface as 409, and
+        // NEVER partially apply (the Firebase mirror below runs on success).
+        if (err?.code === '23505' || text.includes('duplicate key') || text.includes('already used')) {
+          return reply({ error: `system_id "${systemId}" already used by another user — unique রাখতেই হবে` }, 409)
+        }
+        throw e
+      }
       // 2) Best-effort Firebase backup mirror — never fails the save.
       let mirrored = false
       try {
@@ -142,7 +176,6 @@ Deno.serve(async (request) => {
           [`users_by_systemId/${systemId}/status`]: status,
         }
         await firebaseUpdatePaths(mirror)
-        const prevSystemId = str(b.previous_system_id).trim()
         if (prevSystemId && prevSystemId !== systemId) {
           await firebaseDelete(`users_by_systemId/${prevSystemId}`)
         }

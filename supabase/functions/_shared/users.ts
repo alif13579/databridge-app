@@ -35,6 +35,12 @@ import type { FirebaseProfile } from './firebase-auth.ts'
  * (This still applies to the employee_id-conflict fallback below — it reuses
  * the same payload, firebaseId included, so the rule above covers both
  * upsert attempts, not just the first.)
+ *
+ * NOTE on system_id changes: user_upsert renames via the change_user_system_id
+ * RPC BEFORE calling here, so by the time this runs, `profile.systemId` is
+ * already this account's row. Never call this with a system_id that belongs
+ * to a different Firebase account — the PK would merge two persons into one
+ * row (RLS, run keys and users_by_systemId all assume one person per id).
  */
 export async function upsertUser(profile: FirebaseProfile, firebaseId: string) {
   const payload = {
