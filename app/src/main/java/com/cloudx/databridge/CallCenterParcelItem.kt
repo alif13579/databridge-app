@@ -43,6 +43,10 @@ data class CallCenterParcelItem(
      *  dot). In Mix mode the dot shows each card's origin; dedup keeps a
      *  single card per consignment (request copy wins). */
     val dataSource: String = "request",
+    /** Live-only: the sheet row's own date (yyyyMMdd) this card was built
+     *  from. Drives date-wise run matching + silent-refresh change detection.
+     *  Blank on Request cards (their branch comes from the run index itself). */
+    val sheetDateKey: String = "",
 ) {
     /** remarkStatus (if set) always takes priority over the raw parcel status — this is
      *  what the card's status chip shows and what filters/tabs match against. */

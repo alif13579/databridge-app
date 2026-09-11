@@ -1677,6 +1677,12 @@ class CallCenterFragment : Fragment() {
     private var lastLiveRefreshMs = 0L
     private val LIVE_AUTO_REFRESH_MS = 45_000L
     private val LIVE_RESUME_REFRESH_MS = 30_000L
+    /** Latest Live build's per-consignment branch-miss reason (cid → Bangla
+     *  reason). Cards with empty branchIds are unsavable; this map tells the
+     *  save path WHY (no row date / no run / run without branch) so the toast
+     *  + error log are specific instead of generic. Rebuilt by every
+     *  buildLiveParcels() call. */
+    private var liveRunMissReason: Map<String, String> = emptyMap()
 
     // ── Run type selection (mirrors WorkerSpaceFragment pattern) ──────
     private lateinit var spinnerCcRunType: Spinner
@@ -3365,15 +3371,36 @@ class CallCenterFragment : Fragment() {
             }
             var failed = 0
             ready.forEach { target ->
-            // Belt-and-suspenders: items are normalized at build, but a stale
-            // cached card could still carry a legacy branch NAME — rescue to ID
-            // (and log it) so validations.branch_id never stores a name.
+            // Gate: branch_id must be a KNOWN branch ID — never a name.
+            // Live cards carry date-wise run-resolved IDs, but a stale cached
+            // card could still carry a legacy branch NAME ("Madanpur").
+            // Rescue locally, refresh the directory once on miss (covers
+            // newly created branches), and if it STILL isn't a known ID →
+            // BLOCK + log. Unsaved is strictly better than saved under a
+            // wrong branch (breaks RLS + reporting silently).
             val rawBranch = target.branchIds.firstOrNull().orEmpty()
-            val saveBranch = SupabaseBranchReader.canonicalBranchIdLocal(rawBranch, branchIdToName)
+            var saveBranch = SupabaseBranchReader.canonicalBranchIdLocal(rawBranch, branchIdToName)
             if (saveBranch != rawBranch) {
                 FirebaseErrorLogger.log("CallCenterFragment", "branch_name_rescued",
                     "Branch name '$rawBranch' rescued to ID '$saveBranch'",
                     mapOf("consignment" to target.id))
+            }
+            if (saveBranch.isBlank() || !branchIdToName.containsKey(saveBranch)) {
+                runCatching { SupabaseClaimsReader.fetchBranches() }.getOrNull().orEmpty()
+                    .forEach { opt ->
+                        if (opt.branchId.isNotBlank() && opt.name.isNotBlank()) {
+                            branchIdToName.putIfAbsent(opt.branchId, opt.name)
+                        }
+                    }
+                saveBranch = SupabaseBranchReader.canonicalBranchIdLocal(rawBranch, branchIdToName)
+            }
+            if (saveBranch.isBlank() || !branchIdToName.containsKey(saveBranch)) {
+                val why = liveRunMissReason[target.id]?.let { " ($it)" }.orEmpty()
+                FirebaseErrorLogger.log("CallCenterFragment", "branch_unresolved_blocked",
+                    "Save blocked: branch '$rawBranch' is not a known branch ID$why",
+                    mapOf("consignment" to target.id, "sheetDate" to target.sheetDateKey))
+                failed++
+                return@forEach
             }
             val ok = SupabaseRemarkValidationWriter.writeAwait(
                 assignedAgentSystemId = target.workerSystemId,
@@ -3401,7 +3428,11 @@ class CallCenterFragment : Fragment() {
             if (!isAdded) return@launch
             val totalFailed = failed + notReady.size
             if (totalFailed > 0) {
-                val extra = if (notReady.isNotEmpty()) " — ${notReady.size} টিতে agent/branch নেই" else ""
+                val runBlocked = notReady.count { liveRunMissReason.containsKey(it.id) }
+                val extra = buildString {
+                    if (notReady.isNotEmpty()) append(" — ${notReady.size} টিতে agent/branch নেই")
+                    if (runBlocked > 0) append(" (তার মধ্যে $runBlocked টির branch delivery run-এ পাওয়া যায়নি)")
+                }
                 Toast.makeText(requireContext(),
                     "⚠ $totalFailed টি save হয়নি$extra — network দেখে আবার চেষ্টা করুন",
                     Toast.LENGTH_LONG).show()
@@ -3574,15 +3605,23 @@ class CallCenterFragment : Fragment() {
                 }
                 if (gen != liveGeneration || !isAdded) return@launch
                 if (ccDataSource != "live" && ccDataSource != "mix") return@launch
-                val freshIds = sheetRes.flatMap { it.ids }.distinct().toSet()
+                // cid → row-date candidates (date-wise run truth) + change key.
+                // The silent tick compares (id → primary date), so an edited
+                // sheet date rebuilds the card even when the ID set is same.
+                val freshPairs = sheetRes.flatMap { it.ids }.distinct()
+                    .associate { it.cid to it.dateKeys.firstOrNull() }
+                val freshIds = freshPairs.keys
+                val cidDates = mutableMapOf<String, List<String>>()
+                sheetRes.forEach { r -> r.ids.forEach { e -> cidDates.putIfAbsent(e.cid, e.dateKeys) } }
                 lastLiveRefreshMs = System.currentTimeMillis()
                 if (ccDataSource == "live") {
-                    val currentIds = (allParcels.map { it.id } + liveMissingIds).toSet()
-                    if (freshIds == currentIds) return@launch // unchanged — stay silent
-                    val cidBranch = mutableMapOf<String, String>()
-                    sheetRes.forEach { r -> r.ids.forEach { cidBranch.putIfAbsent(it, r.branchId) } }
+                    val currentPairs = allParcels.associate { it.id to it.sheetDateKey.ifBlank { null } } +
+                        liveMissingIds.associateWith { null }
+                    if (freshPairs == currentPairs) return@launch // unchanged — stay silent
+                    val currentIds = currentPairs.keys
+                    val runResolution = resolveLiveRunBranches(cidDates, branches)
                     val (items, missing) = withContext(Dispatchers.IO) {
-                        buildLiveParcels(freshIds.toList(), cidBranch)
+                        buildLiveParcels(freshIds.toList(), runResolution, cidDates)
                     }
                     if (gen != liveGeneration || !isAdded || ccDataSource != "live") return@launch
                     val added = items.count { it.id !in currentIds }
@@ -3607,14 +3646,15 @@ class CallCenterFragment : Fragment() {
                     // Mix: Request-owned cards are never touched; only the Live
                     // extras are reconciled against the fresh sheet set.
                     val requestIds = (allParcels.map { it.id }.toSet() - mixLiveItems.map { it.id }.toSet())
-                    val oldExtraIds = (mixLiveItems.map { it.id } + liveMissingIds).toSet()
-                    if (freshIds - requestIds == oldExtraIds) return@launch // unchanged
-                    val cidBranch = mutableMapOf<String, String>()
-                    sheetRes.forEach { r -> r.ids.forEach { cidBranch.putIfAbsent(it, r.branchId) } }
+                    val oldExtraPairs = mixLiveItems.associate { it.id to it.sheetDateKey.ifBlank { null } } +
+                        liveMissingIds.associateWith { null }
+                    if (freshPairs.filterKeys { it !in requestIds } == oldExtraPairs) return@launch // unchanged
+                    val oldExtraIds = oldExtraPairs.keys
+                    val runResolution = resolveLiveRunBranches(cidDates, branches)
                     val liveOnly = (freshIds - requestIds).toList()
                     val (items, missing) = withContext(Dispatchers.IO) {
                         if (liveOnly.isEmpty()) emptyList<CallCenterParcelItem>() to emptyList()
-                        else buildLiveParcels(liveOnly, cidBranch)
+                        else buildLiveParcels(liveOnly, runResolution, cidDates)
                     }
                     if (gen != liveGeneration || !isAdded || ccDataSource != "mix") return@launch
                     val newExtraIds = (items.map { it.id } + missing).toSet()
@@ -3701,7 +3741,8 @@ class CallCenterFragment : Fragment() {
                     RemarkSheetMirror.fetchLiveConsignments(token, branches)
                 }
                 if (gen != liveGeneration || !isAdded || ccDataSource != "mix") return@launch
-                val ids = sheetRes.flatMap { it.ids }.distinct()
+                val liveEntries = sheetRes.flatMap { it.ids }.distinct()
+                val ids = liveEntries.map { it.cid }
                 if (ids.isEmpty()) {
                     val why = sheetRes.mapNotNull { r ->
                         r.note?.takeIf { it.isNotBlank() }
@@ -3711,10 +3752,11 @@ class CallCenterFragment : Fragment() {
                         "Mix Live: $why", Toast.LENGTH_LONG).show()
                     return@launch
                 }
-                val cidBranch = mutableMapOf<String, String>()
-                sheetRes.forEach { r -> r.ids.forEach { cidBranch.putIfAbsent(it, r.branchId) } }
+                val cidDates = mutableMapOf<String, List<String>>()
+                sheetRes.forEach { r -> r.ids.forEach { e -> cidDates.putIfAbsent(e.cid, e.dateKeys) } }
+                val runResolution = resolveLiveRunBranches(cidDates, branches)
                 val (items, missing) = withContext(Dispatchers.IO) {
-                    buildLiveParcels(ids, cidBranch)
+                    buildLiveParcels(ids, runResolution, cidDates)
                 }
                 if (gen != liveGeneration || !isAdded || ccDataSource != "mix") return@launch
                 mixLiveItems = items
@@ -3767,7 +3809,8 @@ class CallCenterFragment : Fragment() {
                     RemarkSheetMirror.fetchLiveConsignments(token, branches)
                 }
                 if (gen != liveGeneration || !isAdded) return@launch
-                val ids = sheetRes.flatMap { it.ids }.distinct()
+                val liveEntries = sheetRes.flatMap { it.ids }.distinct()
+                val ids = liveEntries.map { it.cid }
                 val notes = sheetRes.mapNotNull { r ->
                     r.note?.takeIf { it.isNotBlank() }?.let { "${branchIdToName[r.branchId] ?: r.branchId}: $it" }
                 }
@@ -3777,10 +3820,11 @@ class CallCenterFragment : Fragment() {
                     return@launch
                 }
                 tvLoadingPercent.text = "Firebase থেকে ${ids.size} parcel আনছে..."
-                val cidBranch = mutableMapOf<String, String>()
-                sheetRes.forEach { r -> r.ids.forEach { cidBranch.putIfAbsent(it, r.branchId) } }
+                val cidDates = mutableMapOf<String, List<String>>()
+                sheetRes.forEach { r -> r.ids.forEach { e -> cidDates.putIfAbsent(e.cid, e.dateKeys) } }
+                val runResolution = resolveLiveRunBranches(cidDates, branches)
                 val (items, missing) = withContext(Dispatchers.IO) {
-                    buildLiveParcels(ids, cidBranch)
+                    buildLiveParcels(ids, runResolution, cidDates)
                 }
                 if (gen != liveGeneration || !isAdded) return@launch
                 allParcels = items
@@ -3821,12 +3865,140 @@ class CallCenterFragment : Fragment() {
         tvEmpty.text = msg
     }
 
+    /** Date-wise Live branch resolution (strict `delivery_run` only).
+     *  [cidDates] maps each sheet ID to its row-date candidates (yyyyMMdd,
+     *  primary first — see RemarkSheetMirror.LiveId). For every distinct date
+     *  ONE branch-index range query per branch finds that date's runs, then
+     *  each run node is read ONCE and inverted in memory (run → its
+     *  consignments), so N sheet IDs sharing a run cost zero extra reads.
+     *  A cid is assigned ONLY from a run whose `consignments` actually
+     *  contains it on that row's own date — same parcel on another date may
+     *  legitimately belong to another agent/branch. `deliveryHub` (a NAME
+     *  like "Madanpur") is never consulted: only `resolvedBranchIds` (IDs,
+     *  locked at run creation) feeds saves. Anything unresolved lands in
+     *  [LiveRunResolution.missReason] and must BLOCK the save, never guess. */
+    private data class LiveRunResolution(
+        val branches: Map<String, List<String>> = emptyMap(),
+        val missReason: Map<String, String> = emptyMap(),
+    )
+
+    private suspend fun resolveLiveRunBranches(
+        cidDates: Map<String, List<String>>,
+        branches: List<String>,
+    ): LiveRunResolution = withContext(Dispatchers.IO) {
+        val cleanBranches = branches.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        val miss = mutableMapOf<String, String>()
+        val dated = cidDates.filter { it.value.isNotEmpty() }
+        (cidDates.keys - dated.keys).forEach { cid ->
+            miss[cid] = "sheet row-এর date পাওয়া যায়নি (lookup date column নেই/বোঝা যায়নি) — save blocked"
+        }
+        val out = mutableMapOf<String, List<String>>()
+        if (dated.isEmpty() || cleanBranches.isEmpty()) {
+            if (cleanBranches.isEmpty()) dated.keys.forEach { miss[it] = "কোনো branch assigned নেই — save blocked" }
+            return@withContext LiveRunResolution(out, miss)
+        }
+        fun prettyDate(dk: String): String =
+            if (dk.length == 8 && dk.all { it.isDigit() }) "${dk.substring(6)}/${dk.substring(4, 6)}/${dk.substring(0, 4)}" else dk
+        val db = com.google.firebase.database.FirebaseDatabase.getInstance()
+        val datesWithRuns = mutableSetOf<String>()
+        val emptyBranchCids = mutableSetOf<String>()
+        var dupRuns = 0
+        val maxPass = (dated.values.maxOfOrNull { it.size } ?: 0).coerceAtMost(4)
+        for (pass in 0 until maxPass) {
+            val pending = dated.keys.filter { it !in out }
+            if (pending.isEmpty()) break
+            val byDate = mutableMapOf<String, MutableList<String>>()
+            pending.forEach { cid ->
+                dated[cid]?.getOrNull(pass)?.let { dk -> byDate.getOrPut(dk) { mutableListOf() }.add(cid) }
+            }
+            if (byDate.isEmpty()) break
+            // One index range query per (branch × date) — today's runs for
+            // that date only (run_{yyyyMMdd}_* prefix, server-side).
+            val runIdsByDate: Map<String, List<String>> = coroutineScope {
+                byDate.keys.map { dateKey ->
+                    async {
+                        val runIds = mutableSetOf<String>()
+                        cleanBranches.forEach { branch ->
+                            val snap = runCatching {
+                                db.reference.child("courier/runs_by_branchId/$branch/delivery_run")
+                                    .orderByKey()
+                                    .startAt("run_${dateKey}_")
+                                    .endAt("run_${dateKey}_\uf8ff")
+                                    .get().await()
+                            }.getOrNull()
+                            snap?.children
+                                ?.mapNotNull { it.key?.trim()?.takeIf { k -> k.startsWith("run_") } }
+                                ?.let { runIds.addAll(it) }
+                        }
+                        dateKey to runIds.toList()
+                    }
+                }.awaitAll().toMap()
+            }
+            runIdsByDate.forEach { (dk, ids) -> if (ids.isNotEmpty()) datesWithRuns.add(dk) }
+            // Each run node read once; membership (consignments ∋ cid)
+            // decides the branch — never the sheet tab or deliveryHub name.
+            val runs = coroutineScope {
+                runIdsByDate.values.flatten().distinct().map { runId ->
+                    async {
+                        val snap = runCatching {
+                            db.reference.child("courier/run_routes/delivery_run/$runId").get().await()
+                        }.getOrNull()
+                        if (snap == null || !snap.exists()) return@async null
+                        val bids = snap.child("resolvedBranchIds").children
+                            .mapNotNull { it.getValue(String::class.java)?.trim()?.takeIf { id -> id.isNotBlank() } }
+                            .distinct()
+                        val cids = snap.child("consignments").children.mapNotNull { it.key }.toSet()
+                        Triple(runId, bids, cids)
+                    }
+                }.awaitAll().filterNotNull()
+            }
+            // Reverse index: which pending cid of THIS run's date does it hold?
+            val runsByDate = runIdsByDate.flatMap { (dk, ids) -> ids.map { it to dk } }.toMap()
+            val wantByDate = byDate.mapValues { (_, v) -> v.toSet() }
+            runs.forEach { (runId, bids, cids) ->
+                val dk = runsByDate[runId] ?: return@forEach
+                (wantByDate[dk] ?: return@forEach).forEach { cid ->
+                    if (cid !in cids || cid in out) {
+                        if (cid in cids && cid in out) dupRuns++
+                        return@forEach
+                    }
+                    if (bids.isEmpty()) {
+                        emptyBranchCids.add(cid)
+                    } else {
+                        out[cid] = bids
+                        emptyBranchCids.remove(cid)
+                    }
+                }
+            }
+        }
+        (dated.keys - out.keys).forEach { cid ->
+            val dk = dated[cid]?.firstOrNull()
+            miss[cid] = when {
+                cid in emptyBranchCids -> "delivery run পাওয়া গেছে কিন্তু run-এ branch ID (resolvedBranchIds) নেই — save blocked"
+                dk != null && dk !in datesWithRuns -> "${prettyDate(dk)} তারিখের কোনো delivery run নেই — save blocked"
+                dk != null -> "${prettyDate(dk)} তারিখের delivery run-এ এই ID নেই — save blocked"
+                else -> "sheet row-এর date পাওয়া যায়নি — save blocked"
+            }
+        }
+        if (dupRuns > 0) {
+            runCatching {
+                FirebaseErrorLogger.log("CallCenterFragment", "live_run_duplicate",
+                    "$dupRuns টি consignment একই তারিখে একাধিক delivery run-এ ছিল — প্রথম verified run-এর branch নেওয়া হয়েছে",
+                    mapOf("count" to dupRuns))
+            }
+        }
+        LiveRunResolution(out, miss)
+    }
+
     /** Same card fields as the Request pipeline, keyed by sheet consignment ID.
-     *  [cidBranch] is the sheet's branch per ID (fallback scope when neither
-     *  the consignment node nor validations name a branch). */
+     *  [runResolution] is the date-wise run truth (see resolveLiveRunBranches):
+     *  branch comes ONLY from the row's own date run — never the consignment
+     *  node's legacy deliveryHub name nor the sheet tab. Empty branchIds means
+     *  "unresolved, must not save" (saveCcRemarkForItems blocks those). */
     private suspend fun buildLiveParcels(
         ids: List<String>,
-        cidBranch: Map<String, String> = emptyMap(),
+        runResolution: LiveRunResolution = LiveRunResolution(),
+        cidDates: Map<String, List<String>> = emptyMap(),
     ): Pair<List<CallCenterParcelItem>, List<String>> = coroutineScope {
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
         val todayStartMs = bangladeshTodayStartMillis()
@@ -3867,13 +4039,14 @@ class CallCenterFragment : Fragment() {
                     }.orEmpty()
                     val agentSystemId = latestAny?.optString("assigned_to_system_id")
                         ?.trim().orEmpty()
-                    val fallbackHub = snap.child("deliveryHub").getValue(String::class.java)
-                        ?.trim().orEmpty()
-                    // Same name→ID rescue as the Request pipeline (see above).
-                    val scopedBranchIds = (if (fallbackHub.isNotBlank()) listOf(fallbackHub)
-                    else latestAny?.optString("branch_id")?.trim()
-                        ?.takeIf { it.isNotBlank() }?.let { listOf(it) }
-                        ?: cidBranch[cId]?.takeIf { it.isNotBlank() }?.let { listOf(it) }.orEmpty())
+                    // Date-wise run truth ONLY: the sheet row's own date run must
+                    // contain this cid (see resolveLiveRunBranches). The legacy
+                    // consignment-node deliveryHub ("Madanpur") and sheet-tab
+                    // names are NAMES — saving one into validations.branch_id
+                    // breaks RLS/reporting, so they are deliberately NOT
+                    // consulted here at all. Empty = unresolved = unsavable
+                    // (saveCcRemarkForItems blocks those with a specific reason).
+                    val scopedBranchIds = runResolution.branches[cId].orEmpty()
                         .map { SupabaseBranchReader.canonicalBranchIdLocal(it, branchIdToName) }
                         .filter { it.isNotBlank() }
                         .distinct()
@@ -3913,6 +4086,7 @@ class CallCenterFragment : Fragment() {
                         engagedAgents = engaged,
                         attemptCount = readCcAttempt(snap),
                         dataSource = "live",
+                        sheetDateKey = cidDates[cId]?.firstOrNull().orEmpty(),
                     )
                 } catch (_: Exception) {
                     synchronized(missing) { if (cId !in missing) missing.add(cId) }
@@ -3941,6 +4115,8 @@ class CallCenterFragment : Fragment() {
             }
         }
         // Sheet order preserve + missing in sheet order.
+        // Refresh the unsavable-reason map for the save path (see field doc).
+        liveRunMissReason = runResolution.missReason
         val order = ids.distinct()
         filled.sortedBy { order.indexOf(it.id) } to order.filter { it in missing }
     }

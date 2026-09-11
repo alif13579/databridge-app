@@ -824,9 +824,18 @@ object RemarkSheetMirror {
     /** Today's consignment IDs from one branch's live sheet ([config/liveCc]).
      *  [note] explains skips (no live sheet set, conn gone, no consignment
      *  lookup, empty) — callers surface it, never crash. */
+    /** One sheet-row ID plus its row-date candidates (yyyyMMdd, primary
+     *  first). Empty [dateKeys] = row date unknown (no date lookup mapped
+     *  or unparseable) — date-wise run matching is impossible for it, so a
+     *  remark save for it must block instead of guessing a branch. */
+    data class LiveId(
+        val cid: String,
+        val dateKeys: List<String> = emptyList(),
+    )
+
     data class LiveBranchIds(
         val branchId: String,
-        val ids: List<String>,
+        val ids: List<LiveId>,
         val note: String?,
     )
 
@@ -858,7 +867,8 @@ object RemarkSheetMirror {
                 if (targets.isEmpty())
                     return@map LiveBranchIds(branchId, emptyList(),
                         "Ajker scope-e kono bound sheet nei")
-                val ids = mutableListOf<String>()
+                val ids = mutableListOf<LiveId>()
+                val seenIds = mutableSetOf<String>()
                 var scanned = 0
                 var filtered = 0
                 val notes = mutableListOf<String>()
@@ -869,7 +879,7 @@ object RemarkSheetMirror {
                     scanned += seen
                     filtered += dropped
                     note?.let { notes.add("${lib.nickname.ifBlank { lib.sheetName }}: $it") }
-                    got.forEach { if (it !in ids) ids.add(it) }
+                    got.forEach { e -> if (seenIds.add(e.cid)) ids.add(e) }
                 }
                 val why = when {
                     ids.isNotEmpty() && notes.isNotEmpty() -> notes.joinToString("; ")
@@ -930,7 +940,32 @@ object RemarkSheetMirror {
         val idCol = colOf(wantFetchRef, wantFetchMode)
             ?: return LiveFetch(emptyList(), 0, 0, "ID column '$wantFetchRef' paini")
         val useOr = socketRules.isNotEmpty() && binding.filterLogic == CcFilterLogic.OR
-        val ids = mutableListOf<String>()
+        // Row-date columns (lookup date column — TODAY / CREATED_AT kinds):
+        // per-row date for date-wise run matching. Unresolvable refs are
+        // skipped (that row's date just stays unknown, never blocks fetch).
+        // Fetched through the same once-per-letter cache above, so this adds
+        // no extra sheet reads when the column was already fetched.
+        val dateKeyFmt = java.time.format.DateTimeFormatter.BASIC_ISO_DATE
+        val dateCols = binding.effectiveLookups()
+            .filter { it.field == CcField.TODAY || it.field == CcField.CREATED_AT }
+            .mapNotNull { rule -> colOf(rule.colRef, rule.mode) }
+        fun rowDateKeys(i: Int): List<String> {
+            val keys = mutableListOf<String>()
+            for (col in dateCols) {
+                val cell = col.getOrNull(i).orEmpty()
+                if (cell.isBlank()) continue
+                val primary = tryParseDate(cell) ?: continue
+                keys.add(primary.format(dateKeyFmt))
+                // Ambiguous slash cells (09/10 → Sep 10 AND Oct 9): keep both
+                // readings as fallback candidates, primary first.
+                slashCandidates(cell).map { it.format(dateKeyFmt) }
+                    .filter { it !in keys }.forEach { keys.add(it) }
+                break // first date column that yields a date wins
+            }
+            return keys
+        }
+        val ids = mutableListOf<LiveId>()
+        val seen = mutableSetOf<String>()
         var dropped = 0
         idCol.forEachIndexed { i, cell ->
             val cid = cell.trim()
@@ -944,7 +979,7 @@ object RemarkSheetMirror {
                 dropped++
                 return@forEachIndexed
             }
-            if (cid !in ids) ids.add(cid)
+            if (seen.add(cid)) ids.add(LiveId(cid, rowDateKeys(i)))
         }
         val note = when {
             missing.isNotEmpty() -> "column ${missing.distinct().joinToString(",")} paini (skip)"
@@ -954,7 +989,7 @@ object RemarkSheetMirror {
     }
 
     private data class LiveFetch(
-        val ids: List<String>,
+        val ids: List<LiveId>,
         val scanned: Int,
         val dropped: Int,
         val note: String?,
