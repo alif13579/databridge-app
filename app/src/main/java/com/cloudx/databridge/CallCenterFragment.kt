@@ -423,12 +423,7 @@ class CallCenterFragment : Fragment() {
         layoutCcaLiveError = view.findViewById(R.id.layoutCcaLiveError)
         tvCcaLiveErrorMsg = view.findViewById(R.id.twCcaLiveErrorMsg)
         view.findViewById<View>(R.id.btnCcaSwitchAccount)?.setOnClickListener {
-            val host = activity as? MainActivity ?: return@setOnClickListener
-            hideLiveErrorBox()
-            host.switchSheetAccount {
-                if (!isAdded) return@switchSheetAccount
-                if (ccDataSource == "live") loadLiveMode()
-            }
+            switchSheetAccountFlow()
         }
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
         btnSyncSheet = view.findViewById(R.id.btnCcaSyncSheet)
@@ -3669,20 +3664,105 @@ class CallCenterFragment : Fragment() {
     // The active mode gets a ✓ prefix; tapping the active one is a no-op
     // (setDataSource early-returns on same mode — no reload).
     private fun showSourceMenu(anchor: View) {
+        showCcMenuDialog()
+    }
+
+    private var ccMenuDialog: android.app.AlertDialog? = null
+    private var tvCcMenuProfile: TextView? = null
+
+    /** Unified ⋮ control panel: mode dropdown (Live/Request/Mix) + connected
+     *  Google profile with Switch + Sync Supabase → Sheet entry. Everything
+     *  lives here so no flow strands the agent without a next action. */
+    private fun showCcMenuDialog() {
         if (!isAdded) return
+        val ctx = requireContext()
+        val pad = (ctx.resources.displayMetrics.density * 16).toInt()
+        fun label(t: String) = TextView(ctx).apply {
+            text = t
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            setPadding(0, pad / 2, 0, 4)
+        }
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        box.addView(label("MODE"))
         val modes = listOf("live" to "📡 Live", "mix" to "🔀 Mix", "request" to "📋 Req")
-        val popup = android.widget.PopupMenu(requireContext(), anchor)
-        modes.forEachIndexed { i, (mode, label) ->
-            popup.menu.add(
-                android.view.Menu.NONE, i, i,
-                (if (ccDataSource == mode) "✓ " else "") + label
-            )
+        val spMode = Spinner(ctx).apply {
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item,
+                modes.map { it.second }).apply {
+                setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT)
         }
-        popup.setOnMenuItemClickListener { item ->
-            setDataSource(modes[item.itemId].first)
-            true
+        box.addView(spMode)
+        box.addView(label("GOOGLE ACCOUNT (SHEETS)"))
+        val tvProfile = TextView(ctx).apply {
+            textSize = 13f
+            setTextColor(ctx.getColor(R.color.theme_text_primary))
+            setPadding(0, 4, 0, 0)
         }
-        popup.show()
+        box.addView(tvProfile)
+        tvCcMenuProfile = tvProfile
+        val tvSwitch = TextView(ctx).apply {
+            text = "Switch account"
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(ctx.getColor(R.color.theme_accent))
+            setPadding(0, pad / 3, 0, pad / 3)
+            setOnClickListener { switchSheetAccountFlow() }
+        }
+        box.addView(tvSwitch)
+        val btnSync = Button(ctx).apply {
+            text = "⇪ Sync Supabase → Sheet"
+            setOnClickListener {
+                ccMenuDialog?.dismiss()
+                showSyncSheetDialog()
+            }
+        }
+        box.addView(btnSync)
+        refreshCcMenuProfile()
+        var initializing = true
+        spMode.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                if (initializing) return
+                setDataSource(modes[pos].first)
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        }
+        spMode.setSelection(modes.indexOfFirst { it.first == ccDataSource }.takeIf { it >= 0 } ?: 2)
+        initializing = false
+        ccMenuDialog?.dismiss()
+        ccMenuDialog = android.app.AlertDialog.Builder(ctx)
+            .setTitle("Call Center")
+            .setView(box)
+            .setNegativeButton("Close", null)
+            .create()
+        ccMenuDialog?.show()
+    }
+
+    private fun refreshCcMenuProfile() {
+        val tv = tvCcMenuProfile ?: return
+        if (!isAdded) return
+        val email = (activity as? MainActivity)?.getConnectedSheetEmail().orEmpty().trim()
+        tv.text = if (email.isNotBlank()) "Connected: $email" else "Not connected"
+    }
+
+    /** Shared sheet-account switch: old connection is forgotten by the host,
+     *  picker opens, and on success the profile label refreshes + Live
+     *  reloads when Live is the active mode. */
+    private fun switchSheetAccountFlow() {
+        val host = activity as? MainActivity ?: return
+        hideLiveErrorBox()
+        host.switchSheetAccount {
+            if (!isAdded) return@switchSheetAccount
+            refreshCcMenuProfile()
+            if (ccDataSource == "live") loadLiveMode()
+        }
     }
 
     private fun updateDataSourceToggle() {
@@ -3968,7 +4048,16 @@ class CallCenterFragment : Fragment() {
                 }
                 if (gen != liveGeneration || !isAdded) return@launch
                 if (token.isNullOrBlank()) {
-                    (activity as? MainActivity)?.promptSheetAuthOnce()
+                    // First visit with no grant: prompt, then AUTO-RELOAD Live
+                    // when the fresh account connects (previously it silently
+                    // stacked and Live stayed empty until a manual revisit).
+                    val host = activity as? MainActivity
+                    if (host != null) {
+                        host.onSheetAccountSwitched = {
+                            if (isAdded && ccDataSource == "live") loadLiveMode()
+                        }
+                        host.promptSheetAuthOnce()
+                    }
                     showLiveError("Google account not connected. Connect and open Live again.")
                     return@launch
                 }

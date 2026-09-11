@@ -181,6 +181,16 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         getSharedPreferences("connectors_google_account", MODE_PRIVATE)
             .getString("connected_email", null).orEmpty()
 
+    /** Forgets the remembered Sheets grant on this device ("old connection
+     *  goes away") — the next Sheets read behaves as not-connected until a
+     *  new account is picked. */
+    fun forgetSheetAccount() {
+        try {
+            getSharedPreferences("connectors_google_account", MODE_PRIVATE)
+                .edit().remove("connected_email").apply()
+        } catch (_: Exception) { }
+    }
+
     // ── Guaranteed account picker for sheet switching ────────────────────
     // signInIntent alone can silently reuse the cached account and skip the
     // chooser UI entirely (the reported "no account selection appears").
@@ -274,8 +284,13 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
      *  explicit "wrong account → switch" path (e.g. Live sheet 403). */
     fun switchSheetAccount(onSwitched: (() -> Unit)? = null) {
         if (onSwitched != null) onSheetAccountSwitched = onSwitched
+        // Old connection goes away FIRST (per explicit request): even if the
+        // user cancels the picker, this device is disconnected until a new
+        // account is picked — never silently stuck on the wrong account.
+        forgetSheetAccount()
         runOnUiThread {
             if (isFinishing || isDestroyed) return@runOnUiThread
+            Toast.makeText(this, "Opening Google account picker…", Toast.LENGTH_SHORT).show()
             try {
                 sheetAuthClient.signOut().addOnCompleteListener {
                     try {
