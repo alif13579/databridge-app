@@ -422,12 +422,8 @@ class CallCenterFragment : Fragment() {
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
         layoutCcaLiveError = view.findViewById(R.id.layoutCcaLiveError)
         tvCcaLiveErrorMsg = view.findViewById(R.id.twCcaLiveErrorMsg)
-        view.findViewById<View>(R.id.btnCcaSwitchAccount)?.setOnClickListener {
-            switchSheetAccountFlow()
-        }
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
-        btnSyncSheet = view.findViewById(R.id.btnCcaSyncSheet)
-        btnSyncSheet.setOnClickListener { startBulkSheetSync() }
+        // ⇪ Sync lives inside the ⋮ popup only (no duplicate header button).
         // ☎️ Sheet binding socket (admin-only: Config access). Binds library
         // columns to remark fields for mirror + bulk sync.
         view.findViewById<TextView>(R.id.btnCcaSheetBinding)?.let { socket ->
@@ -1662,7 +1658,7 @@ class CallCenterFragment : Fragment() {
     }
 
     // ── Header Sync to Sheet (bulk — same as the extension's ⇪ Sheet) ────
-    private lateinit var btnSyncSheet: TextView
+    // Entry point lives inside the ⋮ popup only (no duplicate header button).
 
     // ── Data source: Request (runs) vs Live CC (sheet IDs) vs Mix ──────────
     // Live CC reads today's consignment IDs from the branch's live sheet
@@ -3757,6 +3753,8 @@ class CallCenterFragment : Fragment() {
      *  reloads when Live is the active mode. */
     private fun switchSheetAccountFlow() {
         val host = activity as? MainActivity ?: return
+        // Account pick applies itself — the ⋮ popup goes away with it.
+        ccMenuDialog?.dismiss()
         hideLiveErrorBox()
         host.switchSheetAccount {
             if (!isAdded) return@switchSheetAccount
@@ -4166,7 +4164,7 @@ class CallCenterFragment : Fragment() {
         val who = if (connected.isNotBlank()) "Connected as $connected — this account" else "The connected Google account"
         tvCcaLiveErrorMsg.text = "No access to the sheet\n\n" +
             "$who cannot open this sheet. " +
-            "Switch to a Google account that has access, then Live will reload."
+            "Open the ⋮ menu to switch to a Google account that has access."
         layoutCcaLiveError.visibility = View.VISIBLE
     }
 

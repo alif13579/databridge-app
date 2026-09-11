@@ -69,15 +69,14 @@ object CcSheetBindingDialog {
             setTextColor(ctx.getColor(R.color.theme_text_secondary))
             setPadding(0, 8, 0, 0)
         }
-        val mappingBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         val summaryView = TextView(ctx).apply {
             textSize = 12.5f
             setTextColor(ctx.getColor(R.color.theme_text_primary))
             setPadding(0, 12, 0, 0)
         }
-        // Step 3: fetch criteria (Live ID list) — kon column theke ID +
-        // kon columns filter (AND/OR). Na set korle default: 1st lookup col
-        // theke ID, 1st write col blank filter.
+        // Step 3: fetch criteria (Live ID list) — which column gives IDs +
+        // which columns filter (AND/OR). Blank = default: 1st lookup col
+        // gives IDs, 1st write col blank filter.
         val fetchColSpinner = spinner()
         val filterLogicSpinner = spinner()
         val filterBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
@@ -86,22 +85,72 @@ object CcSheetBindingDialog {
             setTextColor(ctx.getColor(R.color.theme_text_primary))
             setPadding(0, 10, 0, 0)
         }
+        // ── Tabs: Lookup / Write / Filter ────────────────────────────────
+        // Long single scroll split into 3 tabs; each tab's button shows how
+        // many params it holds + ✓ when non-empty, so an empty tab is
+        // visible at a glance. Badge refresher is a var (assigned once all
+        // rows/spinners exist) so early helpers can already call it.
+        var refreshTabBadges: () -> Unit = {}
+        var activeSockTab = 0
+        val tabBtns = mutableListOf<TextView>()
+        val lookupRowsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        val writeRowsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        val lookupTabBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        val writeTabBox = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        val filterTabBox = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        fun paintSockTabs() {
+            tabBtns.forEachIndexed { i, b ->
+                val active = i == activeSockTab
+                b.setTypeface(b.typeface, if (active) android.graphics.Typeface.BOLD
+                    else android.graphics.Typeface.NORMAL)
+                b.setTextColor(ctx.getColor(
+                    if (active) R.color.theme_text_primary else R.color.theme_text_secondary))
+            }
+            lookupTabBox.visibility = if (activeSockTab == 0) View.VISIBLE else View.GONE
+            writeTabBox.visibility = if (activeSockTab == 1) View.VISIBLE else View.GONE
+            filterTabBox.visibility = if (activeSockTab == 2) View.VISIBLE else View.GONE
+        }
+        fun showSockTab(i: Int) {
+            activeSockTab = i.coerceIn(0, 2)
+            paintSockTabs()
+        }
         root.addView(stepLabel("① Sheet"))
         root.addView(label("BRANCH"))
         root.addView(branchSpinner)
         root.addView(label("SHEET LIBRARY (Config → Connectors)"))
         root.addView(librarySpinner)
         root.addView(statusView)
-        root.addView(stepLabel("② Mapping (remark save)"))
-        root.addView(mappingBox)
+        val sockTabBar = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 12, 0, 4)
+        }
+        listOf("Lookup", "Write", "Filter").forEachIndexed { i, t ->
+            val b = TextView(ctx).apply {
+                text = t
+                textSize = 13f
+                gravity = android.view.Gravity.CENTER
+                setPadding(pad / 2, pad / 3, pad / 2, pad / 3)
+                layoutParams = LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener { showSockTab(i) }
+            }
+            tabBtns.add(b)
+            sockTabBar.addView(b)
+        }
+        root.addView(sockTabBar)
+        // Tab bodies are filled later (listeners need the helpers below);
+        // boxes stay in position so order never shifts.
+        root.addView(lookupTabBox)
+        root.addView(writeTabBox)
+        root.addView(filterTabBox)
         root.addView(summaryView)
-        root.addView(stepLabel("③ Filters (Live fetch + write)"))
-        root.addView(label("Which column provides the ID"))
-        root.addView(fetchColSpinner)
-        root.addView(label("Filter logic"))
-        root.addView(filterLogicSpinner)
-        root.addView(filterBox)
-        root.addView(fetchSummaryView)
+        paintSockTabs()
         val scroll = ScrollView(ctx).apply { addView(root) }
 
         var dialog: android.app.AlertDialog? = null
@@ -270,12 +319,14 @@ object CcSheetBindingDialog {
                 list.remove(mr)
                 refreshSummary()
                 updateMappingUsed()
+                refreshTabBadges()
             }
             list.add(mr)
             row.addView(tv); row.addView(spCol); row.addView(spField); row.addView(del)
             box.addView(row)
             syncLabel()
             updateMappingUsed()
+            refreshTabBadges()
         }
 
         fun collectMaps(
@@ -293,10 +344,6 @@ object CcSheetBindingDialog {
 
 
 
-
-        // Lookup + write section containers (rows added dynamically).
-        val lookupMapBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        val writeMapBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
 
         // ── Step 3 helpers ─────────────────────────────────────────────
         // Parallel option list for the fetch-column spinner (null = default).
@@ -337,6 +384,7 @@ object CcSheetBindingDialog {
                 else -> "📡 Live: IDs from $colTxt • ${rules.joinToString(if (logic == "OR") " OR " else " + ")}" +
                     if (rules.size > 1) " [${CcFilterLogic.label(logic)}]" else ""
             }
+            refreshTabBadges()
         }
 
         /** Calendar → EditText (yyyy-MM-dd), Dhaka today preselected. */
@@ -477,6 +525,7 @@ object CcSheetBindingDialog {
                 filterBox.removeView(row)
                 filterRows.remove(fr)
                 refreshFetchSummary()
+                refreshTabBadges()
             }
             filterRows.add(fr)
             row.addView(spCol); row.addView(spOp); row.addView(spType)
@@ -484,6 +533,21 @@ object CcSheetBindingDialog {
             filterBox.addView(row)
             syncValVisibility()
             refreshFetchSummary()
+            refreshTabBadges()
+        }
+
+        // Tab badges: configured param counts + ✓ per non-empty tab.
+        refreshTabBadges = {
+            val l = lookupMapRows.size
+            val w = writeMapRows.size
+            var f = filterRows.size
+            try { if (fetchColSpinner.selectedItemPosition > 0) f++ } catch (_: Exception) { }
+            fun t(base: String, n: Int) = "$base ($n)${if (n > 0) " ✓" else ""}"
+            if (tabBtns.size == 3) {
+                tabBtns[0].text = t("Lookup", l)
+                tabBtns[1].text = t("Write", w)
+                tabBtns[2].text = t("Filter", f)
+            }
         }
 
         fun renderFetchSection() {
@@ -513,6 +577,7 @@ object CcSheetBindingDialog {
             }
             (b?.filters.orEmpty()).forEach { addFilterRow(it) }
             refreshFetchSummary()
+            refreshTabBadges()
         }
 
         fun collectFetch(): Triple<SheetColRef?, String, List<CcFetchFilter>> {
@@ -533,7 +598,8 @@ object CcSheetBindingDialog {
 
 
         fun renderMapping() {
-            mappingBox.removeAllViews()
+            lookupRowsBox.removeAllViews()
+            writeRowsBox.removeAllViews()
             lookupMapRows.clear()
             writeMapRows.clear()
             val lib = selectedLibrary()
@@ -544,6 +610,7 @@ object CcSheetBindingDialog {
                 currentLib = null
                 currentBinding = null
                 renderFetchSection()
+                refreshTabBadges()
                 dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = false
                 return
             }
@@ -556,6 +623,7 @@ object CcSheetBindingDialog {
                 statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}” has no column range — set a range in the library."
                 summaryView.text = ""
                 renderFetchSection()
+                refreshTabBadges()
                 dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = false
                 return
             }
@@ -565,40 +633,29 @@ object CcSheetBindingDialog {
             // dropdown and vice versa (lookup column-e kichu boshe na).
             lookupColAdapter = UsedAdapter(ctx, colLabels())
             writeColAdapter = UsedAdapter(ctx, colLabels())
-            mappingBox.addView(label("LOOKUP — + Add for multiple criteria (all must match)"))
-            val lookupRowsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-            mappingBox.addView(lookupRowsBox)
             (currentBinding?.lookups.orEmpty()).forEach { m ->
                 addMapRow(lookupRowsBox, lookupMapRows, CcField.LOOKUP_FIELDS, m.colRef, m.field, lookupColAdapter)
             }
-            mappingBox.addView(Button(ctx).apply {
-                text = "+ Add lookup"
-                setOnClickListener { addMapRow(lookupRowsBox, lookupMapRows, CcField.LOOKUP_FIELDS, "", "", lookupColAdapter) }
-            })
-            mappingBox.addView(label("WRITE — single ba multiple column"))
-            val writeRowsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-            mappingBox.addView(writeRowsBox)
             (currentBinding?.writes.orEmpty()).forEach { m ->
                 addMapRow(writeRowsBox, writeMapRows, CcField.WRITE_FIELDS, m.colRef, m.field, writeColAdapter)
             }
-            mappingBox.addView(Button(ctx).apply {
-                text = "+ Add write"
-                setOnClickListener { addMapRow(writeRowsBox, writeMapRows, CcField.WRITE_FIELDS, "", "", writeColAdapter) }
-            })
             dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = true
             refreshSummary()
             updateMappingUsed()
             renderFetchSection()
+            refreshTabBadges()
         }
         fun loadLibrariesAndBindings() {
             val branchId = selectedBranchId()
             if (branchId.isBlank()) return
             statusView.text = "⏳ Loading library..."
-            mappingBox.removeAllViews()
+            lookupRowsBox.removeAllViews()
+            writeRowsBox.removeAllViews()
             summaryView.text = ""
             filterBox.removeAllViews()
             filterRows.clear()
             fetchSummaryView.text = ""
+            refreshTabBadges()
             scope.launch {
                 val libs = SheetLibraryRepository.loadLibraries(branchId)
                 val binds = SheetLibraryRepository.loadCcBindings(branchId)
@@ -646,11 +703,29 @@ object CcSheetBindingDialog {
             }
         }
 
-        val btnAddFilter = Button(ctx).apply {
+        // Static tab bodies (rows fill the persistent rows boxes above).
+        lookupTabBox.addView(label("LOOKUP — + Add for multiple criteria (all must match)"))
+        lookupTabBox.addView(lookupRowsBox)
+        lookupTabBox.addView(Button(ctx).apply {
+            text = "+ Add lookup"
+            setOnClickListener { addMapRow(lookupRowsBox, lookupMapRows, CcField.LOOKUP_FIELDS, "", "", lookupColAdapter) }
+        })
+        writeTabBox.addView(label("WRITE — single or multiple columns"))
+        writeTabBox.addView(writeRowsBox)
+        writeTabBox.addView(Button(ctx).apply {
+            text = "+ Add write"
+            setOnClickListener { addMapRow(writeRowsBox, writeMapRows, CcField.WRITE_FIELDS, "", "", writeColAdapter) }
+        })
+        filterTabBox.addView(label("Which column provides the ID"))
+        filterTabBox.addView(fetchColSpinner)
+        filterTabBox.addView(label("Filter logic"))
+        filterTabBox.addView(filterLogicSpinner)
+        filterTabBox.addView(filterBox)
+        filterTabBox.addView(Button(ctx).apply {
             text = "+ Add filter"
             setOnClickListener { addFilterRow(null) }
-        }
-        root.addView(btnAddFilter, root.indexOfChild(fetchSummaryView))
+        })
+        filterTabBox.addView(fetchSummaryView)
 
         dialog = android.app.AlertDialog.Builder(ctx)
             .setTitle("☎️ CC ↔ Sheet binding")
