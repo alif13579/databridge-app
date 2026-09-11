@@ -101,6 +101,14 @@
             android:foregroundServiceType="dataSync"
             tools:targetApi="29" />
 
+        <!-- Background Sheet Sync (Call Center ⇪): minimizable date-range sync -->
+        <service
+            android:name=".SheetSyncService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            tools:targetApi="29" />
+
         <!-- Receives high-priority FCM data messages even while no screen is open. -->
         <service
             android:name=".DataBridgeMessagingService"

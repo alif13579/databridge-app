@@ -444,11 +444,14 @@ object RemarkSheetMirror {
     /** True when a Sheets date cell (formatted text) falls on [today].
      *  Slash cells like 09/10 are ambiguous (M/d vs d/M) — either reading
      *  matching today counts. */
-    private fun isToday(cell: String, today: LocalDate): Boolean {
+    private fun isToday(cell: String, today: LocalDate): Boolean = isDateOn(cell, today)
+
+    /** Same as [isToday] for an arbitrary ops day (range syncs). */
+    private fun isDateOn(cell: String, date: LocalDate): Boolean {
         val t = cell.trim()
         if (t.isEmpty()) return false
-        if (tryParseDate(t) == today) return true
-        return today in slashCandidates(t)
+        if (tryParseDate(t) == date) return true
+        return date in slashCandidates(t)
     }
 
     /** Parses the sheet's zoo of date formats (plus our Dhaka stamp and ISO)
@@ -569,23 +572,41 @@ object RemarkSheetMirror {
         var ignored: Int = 0,
     )
 
+    /** Structured progress for a range bulk sync (service notification +
+     *  dialog). [pending] = rows of the current sheet still to process. */
+    data class BulkProgress(
+        val day: LocalDate,
+        val dayIndex: Int, // 1-based
+        val dayCount: Int,
+        val label: String, // sheet/connection label
+        val rowsDone: Int,
+        val rowsTotal: Int,
+    ) {
+        val pending: Int get() = (rowsTotal - rowsDone).coerceAtLeast(0)
+    }
+
     /**
      * Bulk Sync to Sheet (Call Center header button, same as the extension's
      * ⇪ Sheet): branch-wise — every branch uses ONLY its own remark
-     * connections → its own sheet. Sheet-driven: read each connection's today
-     * tab, take rows whose write cells are blank, match by consignment id
-     * against Supabase's consolidated CC (latest CC remark per consignment
-     * today), fill ONLY the blank cells. Never overwrites filled cells,
-     * never appends. Returns a human-readable summary (Bangla).
+     * connections → its own sheet. Sheet-driven: read each connection's tab
+     * for EACH day in [startDate]..[endDate] (default: today only), take rows
+     * whose write cells are blank, match by consignment id against Supabase's
+     * consolidated CC (latest CC remark per consignment per day), fill ONLY
+     * the blank cells. Never overwrites filled cells, never appends. Returns
+     * a human-readable total summary.
      *
      * [onProgress] fires on the caller's thread (IO when called from a
      * coroutine) with short labels — post to main before touching views.
+     * [onProgressDetail] carries per-sheet row counts for notifications.
      */
     suspend fun bulkSyncToSheet(
         appContext: Context,
         branchIds: List<String>,
         onProgress: (String) -> Unit = {},
         onAuthNeeded: (() -> Unit)? = null,
+        startDate: LocalDate? = null,
+        endDate: LocalDate? = null,
+        onProgressDetail: ((BulkProgress) -> Unit)? = null,
     ): String = withContext(Dispatchers.IO) {
         val branches = branchIds.map { it.trim() }.filter { it.isNotBlank() }.distinct()
         if (branches.isEmpty()) return@withContext "no branch found"
@@ -595,7 +616,17 @@ object RemarkSheetMirror {
             return@withContext "Google account not connected — connect and tap Sync again"
         }
         val today = LocalDate.now(opsZone)
-        val todayStartIso = today.atStartOfDay(opsZone).toInstant().toString()
+        var start = startDate ?: today
+        var end = endDate ?: start
+        if (end.isBefore(start)) { val t = start; start = end; end = t }
+        val days = mutableListOf<LocalDate>()
+        var d = start
+        while (!d.isAfter(end) && days.size < 32) { days.add(d); d = d.plusDays(1) }
+        if (!d.isAfter(end)) return@withContext "Date range too large — max 31 days at once"
+        val rangeLabel = if (days.size == 1) days.first().toString()
+            else "${days.first()} → ${days.last()} (${days.size} days)"
+        val rangeStartIso = start.atStartOfDay(opsZone).toInstant().toString()
+        val rangeEndIso = end.plusDays(1).atStartOfDay(opsZone).toInstant().toString()
 
         // 1. Catalog: english remark → feedback (category).
         val catalog: Map<String, String> = try {
@@ -604,33 +635,41 @@ object RemarkSheetMirror {
                 .filterKeys { it.isNotEmpty() }
         } catch (_: Exception) { emptyMap() }
 
-        // 2. Consolidated CC per (branch, consignment) for today.
+        // 2. Consolidated CC per (branch, consignment, DAY): one Supabase read
+        // for the whole range, bucketed by the row's own Dhaka date (latest
+        // CC remark of that day wins — a parcel remarked on two days syncs
+        // each day separately).
         val consolidated = mutableMapOf<String, BulkVals>()
         for (branchId in branches) {
             val rows = try {
                 SupabaseClientManager.fetchValidations(
                     "RemarkSheetMirror", "bulk_sync", listOf(
                         "branch_id" to "eq.$branchId",
-                        "created_at" to "gte.$todayStartIso",
+                        "created_at" to "gte.$rangeStartIso",
+                        "created_at" to "lt.$rangeEndIso",
                         "order" to "created_at.desc",
                     )
                 )
             } catch (_: Exception) { emptyList() }
-            val latestCcByCid = mutableMapOf<String, org.json.JSONObject>()
-            val latestMsByCid = mutableMapOf<String, Long>()
+            val latestCcByKey = mutableMapOf<String, org.json.JSONObject>()
+            val latestMsByKey = mutableMapOf<String, Long>()
             rows.forEach { row ->
                 if (row.optString("source") != "CC") return@forEach
                 val cid = row.optString("consignment").trim()
                 if (cid.isEmpty()) return@forEach
                 val ms = SupabaseRemarkValidationWriter.parseDbTimestampMillis(row.optString("created_at"))
-                if (ms >= (latestMsByCid[cid] ?: -1L)) {
-                    latestMsByCid[cid] = ms
-                    latestCcByCid[cid] = row
+                if (ms <= 0L) return@forEach
+                val rowDay = java.time.Instant.ofEpochMilli(ms).atZone(opsZone).toLocalDate()
+                if (rowDay.isBefore(start) || rowDay.isAfter(end)) return@forEach
+                val key = "${branchId}__${rowDay}__$cid"
+                if (ms >= (latestMsByKey[key] ?: -1L)) {
+                    latestMsByKey[key] = ms
+                    latestCcByKey[key] = row
                 }
             }
-            latestCcByCid.forEach { (cid, row) ->
+            latestCcByKey.forEach { (key, row) ->
                 val fb = catalog[row.optString("remarks").trim()].orEmpty()
-                consolidated["${branchId}__$cid"] = BulkVals(
+                consolidated[key] = BulkVals(
                     feedback = fb,
                     validation = deriveValidation(fb),
                     validatorName = resolveAgentName(row.optString("author_system_id")),
@@ -638,38 +677,46 @@ object RemarkSheetMirror {
             }
         }
         if (consolidated.isEmpty())
-            return@withContext "No CC remarks today in Supabase — nothing to write"
+            return@withContext "No CC remarks in $rangeLabel in Supabase — nothing to write"
 
-        // 3. Per branch → its bound sheets → its own sheet.
+        // 3. Per day → per branch → its bound sheets → its own sheet.
         var totConns = 0
         val tot = BulkCounts()
         var totNoCc = 0
         val errs = mutableListOf<String>()
-        for (branchId in branches) {
-            val targets = try {
-                SheetLibraryRepository.resolveCcTargets(branchId, today)
-            } catch (e: Exception) {
-                errs.add("$branchId: binding unreadable")
-                continue
-            }
-            if (targets.isEmpty()) continue
-            for (target in targets) {
-                val conn = target.conn
-                totConns++
-                onProgress(conn.sheetName.ifBlank { conn.sheetId.ifBlank { branchId } })
-                try {
-                    val c = bulkSyncOneConnection(token, branchId, conn, consolidated, today,
-                        target.binding.effectiveFilters(), target.binding.filterLogic)
-                    tot.scanned += c.scanned; tot.filled += c.filled
-                    tot.syncedRows += c.syncedRows; tot.syncedCells += c.syncedCells
-                    totNoCc += c.noCc; tot.ignored += c.ignored
+        days.forEachIndexed { dayIdx, day ->
+            for (branchId in branches) {
+                val targets = try {
+                    SheetLibraryRepository.resolveCcTargets(branchId, day)
                 } catch (e: Exception) {
-                    errs.add("${conn.sheetName.ifBlank { branchId }}: ${e.message?.take(80) ?: "sync failed"}")
+                    errs.add("$branchId: binding unreadable")
+                    continue
+                }
+                if (targets.isEmpty()) continue
+                for (target in targets) {
+                    val conn = target.conn
+                    totConns++
+                    val label = conn.sheetName.ifBlank { conn.sheetId.ifBlank { branchId } }
+                    onProgress(label)
+                    try {
+                        val c = bulkSyncOneConnection(token, branchId, conn, consolidated, day,
+                            target.binding.effectiveFilters(), target.binding.filterLogic,
+                            tabName = tabForDay(conn.tabPattern, day),
+                            onRow = { done, total ->
+                                onProgressDetail?.invoke(
+                                    BulkProgress(day, dayIdx + 1, days.size, label, done, total))
+                            })
+                        tot.scanned += c.scanned; tot.filled += c.filled
+                        tot.syncedRows += c.syncedRows; tot.syncedCells += c.syncedCells
+                        totNoCc += c.noCc; tot.ignored += c.ignored
+                    } catch (e: Exception) {
+                        errs.add("${conn.sheetName.ifBlank { branchId }} ($day): ${e.message?.take(80) ?: "sync failed"}")
+                    }
                 }
             }
         }
-        if (totConns == 0) return@withContext "No CC binding in any branch for today — bind a sheet from the CallCenter socket (check scope)"
-        var msg = "✓ ${tot.syncedRows} row synced (${tot.syncedCells} cells) · " +
+        if (totConns == 0) return@withContext "No CC binding in any branch for $rangeLabel — bind a sheet from the CallCenter socket (check scope)"
+        var msg = "✓ $rangeLabel: ${tot.syncedRows} rows synced (${tot.syncedCells} cells) · " +
             "${tot.filled} already filled · $totNoCc no CC yet · " +
             "${tot.ignored} filtered out · " +
             "${tot.scanned} sheet rows scanned ($totConns connections)"
@@ -678,7 +725,17 @@ object RemarkSheetMirror {
         msg
     }
 
-    /** One connection → its own sheet: blank write cells × consolidated CC. */
+    /** Resolves a tab pattern for a specific ops day (noon Dhaka pins the
+     *  Y/M/D fields regardless of the phone's zone). */
+    private fun tabForDay(tabPattern: String, day: LocalDate): String {
+        val atNoon = java.util.Date.from(day.atTime(12, 0).atZone(opsZone).toInstant())
+        return ScannerSheetRepository.resolveTabName(tabPattern, atNoon)
+    }
+
+    /** One connection → its own sheet: blank write cells × consolidated CC.
+     *  [today] is the ops day being synced (date lookups + consolidated keys
+     *  are scoped to it); [tabName] overrides the tab when the caller already
+     *  resolved it for that day. [onRow] reports row progress. */
     private suspend fun bulkSyncOneConnection(
         accessToken: String,
         branchId: String,
@@ -687,6 +744,8 @@ object RemarkSheetMirror {
         today: LocalDate,
         filters: List<CcFetchFilter> = emptyList(),
         filterLogic: String = CcFilterLogic.AND,
+        tabName: String? = null,
+        onRow: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): BulkCounts = withContext(Dispatchers.IO) {
         val res = BulkCounts()
         val lookups = conn.effectiveLookups()
@@ -699,13 +758,14 @@ object RemarkSheetMirror {
             throw IllegalStateException("no lookup/write rule")
         val cidRule = lookups.firstOrNull { it.kind == SheetLookupKind.CONSIGNMENT }
             ?: throw IllegalStateException("no consignment lookup")
-        val tabName = ScannerSheetRepository.resolveTabName(conn.tabPattern)
+        val tab = tabName ?: ScannerSheetRepository.resolveTabName(conn.tabPattern)
         val headerRow = conn.resolvedHeaderRow()
         val headerCache = mutableMapOf<String, List<String>>()
-        val cidLetter = resolveLetter(accessToken, conn.sheetId, tabName,
+        val cidLetter = resolveLetter(accessToken, conn.sheetId, tab,
             cidRule.colRef, cidRule.mode, headerRow, headerCache)
             ?: throw IllegalStateException("consignment column '${cidRule.colRef.trim()}' not found")
-        // Date lookups verify the row is really today's (tab-scoped safety).
+        // Date lookups verify the row really belongs to the synced day
+        // (tab-scoped safety).
         // Other lookup kinds (feedback/validation/...) are the values being
         // filled, so matching on them would never hit a blank row — skipped.
         val dateRules = lookups.filter {
@@ -713,21 +773,21 @@ object RemarkSheetMirror {
         }
         val dateLetters = mutableMapOf<SheetLookupRule, String>()
         dateRules.forEach { rule ->
-            dateLetters[rule] = resolveLetter(accessToken, conn.sheetId, tabName,
+            dateLetters[rule] = resolveLetter(accessToken, conn.sheetId, tab,
                 rule.colRef, rule.mode, headerRow, headerCache)
                 ?: throw IllegalStateException("lookup column '${rule.colRef.trim()}' not found")
         }
         val writeLetters = writes.map { rule ->
-            rule to (resolveLetter(accessToken, conn.sheetId, tabName,
+            rule to (resolveLetter(accessToken, conn.sheetId, tab,
                 rule.colRef, rule.mode, headerRow, headerCache)
                 ?: throw IllegalStateException("write column '${rule.colRef.trim()}' not found"))
         }
         suspend fun colValues(letter: String): List<String> =
-            ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tabName, letter, httpClient)
+            ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tab, letter, httpClient)
         val cidCol = colValues(cidLetter)
         // Targeting filters (same as Live fetch): unresolvable refs never block.
         val ignoreCols = filters.mapNotNull { rule ->
-            val letter = resolveLetter(accessToken, conn.sheetId, tabName,
+            val letter = resolveLetter(accessToken, conn.sheetId, tab,
                 rule.colRef, rule.mode, headerRow, headerCache) ?: return@mapNotNull null
             rule to letter
         }
@@ -754,18 +814,21 @@ object RemarkSheetMirror {
         res.scanned = cidCol.size
         for (i in cidCol.indices) {
             val cid = cidCol[i].trim()
-            if (cid.isEmpty()) continue
+            if (cid.isEmpty()) {
+                if ((i + 1) % 20 == 0) onRow(i + 1, cidCol.size)
+                continue
+            }
             if (rowFilteredOut(i)) { res.ignored++; continue }
             var dateOk = true
             dateLetters.forEach { (_, letter) ->
-                if (!isToday((dateCols[letter].orEmpty().getOrNull(i).orEmpty()).trim(), today)) dateOk = false
+                if (!isDateOn((dateCols[letter].orEmpty().getOrNull(i).orEmpty()).trim(), today)) dateOk = false
             }
             if (!dateOk) continue
             val blanks = writeLetters.filter { (_, letter) ->
                 (writeCols[letter].orEmpty().getOrNull(i).orEmpty()).trim().isEmpty()
             }
             if (blanks.isEmpty()) { res.filled++; continue }
-            val vals = consolidated["${branchId}__$cid"] ?: run { res.noCc++; return@run null }
+            val vals = consolidated["${branchId}__${today}__$cid"] ?: run { res.noCc++; return@run null }
                 ?: continue
             for ((rule, letter) in blanks) {
                 val v = when (rule.kind) {
@@ -774,7 +837,7 @@ object RemarkSheetMirror {
                     else -> vals.validatorName
                 }
                 ConfigSheetDriveApi.writeCellValue(
-                    accessToken, conn.sheetId, tabName, letter, i + 1, v, httpClient
+                    accessToken, conn.sheetId, tab, letter, i + 1, v, httpClient
                 )
                 val col = writeCols[letter]!!
                 while (col.size <= i) col.add("")
@@ -783,7 +846,9 @@ object RemarkSheetMirror {
             }
             res.syncedRows++
             if (res.syncedRows % 10 == 0) delay(300) // Sheets quota safety
+            if ((i + 1) % 10 == 0) onRow(i + 1, cidCol.size)
         }
+        onRow(cidCol.size, cidCol.size)
         res
     }
 

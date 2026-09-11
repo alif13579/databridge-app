@@ -3478,45 +3478,189 @@ class CallCenterFragment : Fragment() {
 
     /**
      * Header ⇪ Sync to Sheet (bulk — same as the extension's ⇪ Sheet button):
-     * branch-wise, every branch uses ONLY its own remark connections → its own
-     * sheet. Reads each connection's today tab, takes rows whose write cells
-     * are blank, matches by consignment against Supabase's consolidated CC,
-     * fills ONLY blank cells. Single remarks save the same way on save; this
-     * backfills the ~50% that had no matching sheet row at save time.
+     * popup with a date-range picker (today default, any previous range) +
+     * Sync Now. The sync runs in [SheetSyncService] (background, minimizable —
+     * the popup need not stay open): progress lives in the notification
+     * ("Day X/Y · sheet · done/total · N pending") with a live mirror in the
+     * popup, and the TOTAL summary arrives as a flash notification at the end
+     * (plus in-popup when still open).
      */
+    private var syncDialog: android.app.AlertDialog? = null
+    private var syncFromDate: java.time.LocalDate =
+        java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
+    private var syncToDate: java.time.LocalDate =
+        java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
+    private var tvSyncRange: TextView? = null
+    private var tvSyncProgress: TextView? = null
+
     private fun startBulkSheetSync() {
-        if (!::btnSyncSheet.isInitialized) return
-        btnSyncSheet.isEnabled = false
-        val orig = btnSyncSheet.text.toString()
-        btnSyncSheet.text = "⏳ Sync…"
-                Toast.makeText(requireContext(), "⏳ Syncing sheet…", Toast.LENGTH_SHORT).show()
-        viewLifecycleOwner.lifecycleScope.launch {
-            val summary = try {
-                RemarkSheetMirror.bulkSyncToSheet(
-                    appContext = requireContext().applicationContext,
-                    branchIds = RbacManager.current.branchIds,
-                    onProgress = { label ->
-                        activity?.runOnUiThread {
-                            if (isAdded && ::btnSyncSheet.isInitialized) {
-                                btnSyncSheet.text = "⏳ $label".take(18)
-                            }
-                        }
-                    },
-                    onAuthNeeded = { activity?.runOnUiThread {
-                        (activity as? MainActivity)?.promptSheetAuthOnce()
-                    } }
-                )
-            } catch (e: Exception) {
-                "✕ Sync failed: ${e.message?.take(80) ?: "error"}"
+        showSyncSheetDialog()
+    }
+
+    private fun syncRangeLabel(): String =
+        if (syncFromDate == syncToDate) syncFromDate.toString()
+        else {
+            var n = 0
+            var d = syncFromDate
+            while (!d.isAfter(syncToDate) && n < 100) { n++; d = d.plusDays(1) }
+            "${syncFromDate} → ${syncToDate} ($n days)"
+        }
+
+    private fun showSyncSheetDialog() {
+        if (!isAdded) return
+        val ctx = requireContext()
+        val pad = (ctx.resources.displayMetrics.density * 16).toInt()
+        fun label(t: String) = TextView(ctx).apply {
+            text = t
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            setPadding(0, pad / 2, 0, 4)
+        }
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        box.addView(label("DATE RANGE (Dhaka)"))
+        val tvRange = TextView(ctx).apply {
+            text = syncRangeLabel()
+            textSize = 15f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(ctx.getColor(R.color.theme_text_primary))
+            setPadding(0, 4, 0, 4)
+        }
+        box.addView(tvRange)
+        tvSyncRange = tvRange
+        val quickRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        fun quickBtn(t: String, onTap: () -> Unit) = TextView(ctx).apply {
+            text = t
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            gravity = android.view.Gravity.CENTER
+            setTextColor(ctx.getColor(android.R.color.white))
+            setBackgroundResource(R.drawable.bg_filter_chip_active)
+            setPadding(pad / 2, pad / 3, pad / 2, pad / 3)
+            layoutParams = LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                if (t != "Today") leftMargin = pad / 3
             }
-            if (!isAdded) return@launch
-            btnSyncSheet.isEnabled = true
-            btnSyncSheet.text = if (summary.startsWith("✓")) "✓ Done" else "⚠ Retry"
-            Toast.makeText(requireContext(), summary, Toast.LENGTH_LONG).show()
-            viewLifecycleOwner.lifecycleScope.launch {
-                kotlinx.coroutines.delay(2500)
-                if (isAdded && ::btnSyncSheet.isInitialized) btnSyncSheet.text = orig
-            }
+            setOnClickListener { onTap() }
+        }
+        val dhakaToday = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
+        quickRow.addView(quickBtn("Today") {
+            syncFromDate = dhakaToday
+            syncToDate = dhakaToday
+            tvSyncRange?.text = syncRangeLabel()
+        })
+        quickRow.addView(quickBtn("Last 7 days") {
+            syncToDate = dhakaToday
+            syncFromDate = dhakaToday.minusDays(6)
+            tvSyncRange?.text = syncRangeLabel()
+        })
+        box.addView(quickRow)
+        tvRange.setOnClickListener { pickSyncDateRange() }
+        val tvProgress = TextView(ctx).apply {
+            textSize = 12f
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            setPadding(0, pad / 2, 0, 0)
+            visibility = View.GONE
+        }
+        box.addView(tvProgress)
+        tvSyncProgress = tvProgress
+        box.addView(TextView(ctx).apply {
+            text = "Minimizing keeps the sync running in the background — the total summary arrives as a notification."
+            textSize = 11f
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            setPadding(0, pad / 2, 0, 0)
+        })
+        syncDialog?.dismiss()
+        val dialog = android.app.AlertDialog.Builder(ctx)
+            .setTitle("⇪ Sync to Sheet")
+            .setView(box)
+            .setPositiveButton("Sync Now", null)
+            .setNegativeButton("Minimize", null)
+            .create()
+        syncDialog = dialog
+        // If a sync is already running, mirror its live progress here.
+        if (SheetSyncService.isRunning) {
+            tvProgress.visibility = View.VISIBLE
+            tvProgress.text = "⏳ Sync running — progress in the notification…"
+            SheetSyncService.onProgress = { p -> showSyncProgress(p) }
+            SheetSyncService.onFinish = { summary -> showSyncSummary(summary) }
+        }
+        dialog.show()
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+            startSheetSyncNow()
+        }
+        dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener {
+            dialog.dismiss()
+        }
+    }
+
+    private fun pickSyncDateRange() {
+        if (!isAdded) return
+        val toMs = { day: java.time.LocalDate ->
+            day.atStartOfDay(java.time.ZoneId.of("Asia/Dhaka")).toInstant().toEpochMilli()
+        }
+        val picker = com.google.android.material.datepicker.MaterialDatePicker.Builder.dateRangePicker()
+            .setTitleText("Select sync date range")
+            .setSelection(androidx.core.util.Pair(toMs(syncFromDate), toMs(syncToDate)))
+            .build()
+        picker.addOnPositiveButtonClickListener { selection ->
+            // UTC-midnight instants → Dhaka days (same pin as Scanner dates).
+            val from = java.time.Instant.ofEpochMilli(DhakaTime.dayStartMillis(selection.first))
+                .atZone(java.time.ZoneId.of("Asia/Dhaka")).toLocalDate()
+            val to = java.time.Instant.ofEpochMilli(DhakaTime.dayEndMillis(selection.second))
+                .atZone(java.time.ZoneId.of("Asia/Dhaka")).toLocalDate()
+            syncFromDate = from
+            syncToDate = to
+            tvSyncRange?.text = syncRangeLabel()
+        }
+        picker.show(parentFragmentManager, "sync_sheet_range_picker")
+    }
+
+    private fun startSheetSyncNow() {
+        if (!isAdded) return
+        val branches = RbacManager.current.branchIds
+        if (branches.isEmpty()) {
+            Toast.makeText(requireContext(), "No branch assigned to this account", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (SheetSyncService.isRunning) {
+            Toast.makeText(requireContext(), "Sync already running — see the notification", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val from = syncFromDate
+        val to = syncToDate
+        tvSyncProgress?.visibility = View.VISIBLE
+        tvSyncProgress?.text = "⏳ Starting sync ($from → $to)…"
+        SheetSyncService.onProgress = { p -> showSyncProgress(p) }
+        SheetSyncService.onFinish = { summary -> showSyncSummary(summary) }
+        val started = SheetSyncService.start(requireContext(), branches, from, to)
+        if (!started) {
+            tvSyncProgress?.text = "⚠ Could not start sync — try again"
+            Toast.makeText(requireContext(), "Could not start sync — try again", Toast.LENGTH_SHORT).show()
+        } else {
+            (activity as? MainActivity)?.promptSheetAuthOnce()
+        }
+    }
+
+    /** Live progress mirror (service already posts on the main thread). */
+    private fun showSyncProgress(p: RemarkSheetMirror.BulkProgress) {
+        if (!isAdded) return
+        val tv = tvSyncProgress ?: return
+        if (syncDialog?.isShowing != true) return
+        tv.visibility = View.VISIBLE
+        tv.text = "⏳ Day ${p.dayIndex}/${p.dayCount} · ${p.label} · " +
+            "${p.rowsDone}/${p.rowsTotal} rows · ${p.pending} pending"
+    }
+
+    /** Final total summary (in-popup when still open; always as notification). */
+    private fun showSyncSummary(summary: String) {
+        if (!isAdded) return
+        if (syncDialog?.isShowing == true) {
+            tvSyncProgress?.visibility = View.VISIBLE
+            tvSyncProgress?.text = summary
         }
     }
 
