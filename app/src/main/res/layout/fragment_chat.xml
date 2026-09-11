@@ -121,14 +121,14 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="কোনো conversation নেই"
+                android:text="No conversations"
                 android:textSize="15sp"
                 android:textStyle="bold"
                 android:textColor="@color/theme_text_secondary" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="+ বাটন চেপে নতুন message শুরু করুন"
+                android:text="Tap + to start a new message"
                 android:textSize="12sp"
                 android:textColor="@color/theme_text_muted"
                 android:layout_marginTop="4dp" />
@@ -210,11 +210,11 @@
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="📱" android:textSize="36sp" android:layout_marginBottom="10dp" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Phone number দিয়ে খুঁজুন"
+                    android:text="Search by phone number"
                     android:textSize="14sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:gravity="center" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="শুধু registered users কে message করা যাবে"
+                    android:text="Only registered users can be messaged"
                     android:textSize="12sp" android:textColor="@color/theme_text_muted"
                     android:layout_marginTop="4dp" android:gravity="center" />
             </LinearLayout>
@@ -237,11 +237,11 @@
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="🔍" android:textSize="36sp" android:layout_marginBottom="10dp" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="User পাওয়া যায়নি"
+                    android:text="User not found"
                     android:textSize="14sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:gravity="center" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="এই number টি registered নয়"
+                    android:text="This number is not registered"
                     android:textSize="12sp" android:textColor="@color/theme_text_muted"
                     android:layout_marginTop="4dp" android:gravity="center" />
             </LinearLayout>

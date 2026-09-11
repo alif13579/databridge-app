@@ -39,7 +39,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="14dp"
-        android:text="Transaction ID (ঐচ্ছিক)"
+        android:text="Transaction ID (optional)"
         android:textSize="11sp"
         android:textStyle="bold"
         android:textColor="#64748B" />

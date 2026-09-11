@@ -672,7 +672,7 @@ class MemoryFragment : Fragment() {
     private fun deleteEntry(entry: MemoryEntry) {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Delete entry?")
-            .setMessage("এই earning entry টি মুছে যাবে।")
+            .setMessage("This earning entry will be deleted.")
             .setPositiveButton("Delete") { _, _ ->
                 val uid = auth.currentUser?.uid ?: return@setPositiveButton
                 lifecycleScope.launch {

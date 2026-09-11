@@ -242,10 +242,10 @@ class DeliveryReminderReceiver : BroadcastReceiver() {
             }
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_email)
-            .setContentTitle("ডেলিভারি আপডেট দরকার — ${data.consignmentId}")
+            .setContentTitle("Delivery update needed — ${data.consignmentId}")
             .setContentText(
-                data.ccRemarkText.ifBlank { "CC পাঠিয়েছে — reply দিন" } +
-                    if (data.otherPendingCount > 0) " (+ আরও ${data.otherPendingCount}টা)" else ""
+                data.ccRemarkText.ifBlank { "CC sent an update — please reply" } +
+                    if (data.otherPendingCount > 0) " (+ ${data.otherPendingCount} more)" else ""
             )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)

@@ -295,12 +295,12 @@ object RemarkPopupOverlay {
         btnSave.setOnClickListener {
             val chosen = selected
             if (chosen == null) {
-                android.widget.Toast.makeText(context, "একটি রিমার্কস বেছে নিন", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, "Select a remark", android.widget.Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
             if (branchId.isBlank()) {
-                android.widget.Toast.makeText(context, "Branch তথ্য পাওয়া যায়নি", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, "Branch info not found", android.widget.Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
             // Saving state until the server answers — no dead-tap look, no double-save.
@@ -336,7 +336,7 @@ object RemarkPopupOverlay {
                     btnSave.isEnabled = true
                     btnSave.text = saveLabel
                     android.widget.Toast.makeText(
-                        context, "⚠ Save হয়নি — network দেখে আবার চেষ্টা করুন",
+                        context, "⚠ Save failed — check network and retry",
                         android.widget.Toast.LENGTH_LONG
                     ).show()
                 }

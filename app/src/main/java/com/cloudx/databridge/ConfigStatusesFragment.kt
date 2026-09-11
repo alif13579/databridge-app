@@ -258,7 +258,7 @@ class ConfigStatusesFragment : Fragment() {
                     }
                 }
             }
-            .setNegativeButton("বাতিল", null)
+            .setNegativeButton("Cancel", null)
             .show()
     }
 
@@ -282,7 +282,7 @@ class ConfigStatusesFragment : Fragment() {
 
         if (workerCount > 0 && canMigrate) {
             container.addView(TextView(ctx).apply {
-                text = "Worker remarks ($workerCount টি) — কোন status-এ migrate হবে:"
+                text = "Worker remarks ($workerCount) — migrate to which status:"
                 setPadding(0, (12 * resources.displayMetrics.density).toInt(), 0, 8)
             })
             spinWorker = Spinner(ctx).apply {
@@ -292,7 +292,7 @@ class ConfigStatusesFragment : Fragment() {
         }
         if (ccCount > 0 && canMigrate) {
             container.addView(TextView(ctx).apply {
-                text = "Agent/CC remarks ($ccCount টি) — কোন status-এ migrate হবে:"
+                text = "Agent/CC remarks ($ccCount) — migrate to which status:"
                 setPadding(0, (12 * resources.displayMetrics.density).toInt(), 0, 8)
             })
             spinCC = Spinner(ctx).apply {
@@ -302,9 +302,9 @@ class ConfigStatusesFragment : Fragment() {
         }
 
         val msg = when {
-            workerCount == 0 && ccCount == 0 -> "এই status স্থায়ীভাবে মুছে যাবে"
-            !canMigrate -> "Worker: $workerCount, Agent: $ccCount টি রিমার্ক আছে কিন্তু migrate করার মতো অন্য status নেই — সব মুছে যাবে"
-            else -> "Worker: $workerCount, Agent: $ccCount টি রিমার্ক অন্য status-এ মাইগ্রেট হবে"
+            workerCount == 0 && ccCount == 0 -> "This status will be deleted permanently"
+            !canMigrate -> "Worker: $workerCount, Agent: $ccCount remarks exist but there is no other status to migrate to — all will be deleted"
+            else -> "Worker: $workerCount, Agent: $ccCount remarks will migrate to another status"
         }
 
         AlertDialog.Builder(ctx)
@@ -318,7 +318,7 @@ class ConfigStatusesFragment : Fragment() {
                     others.getOrElse(spinCC?.selectedItemPosition ?: 0) { others.first() } else null
                 confirmDelete(key, migrateWorkerTarget, migrateCcTarget)
             }
-            .setNegativeButton("বাতিল", null)
+            .setNegativeButton("Cancel", null)
             .show()
     }
 
@@ -362,9 +362,9 @@ class ConfigStatusesFragment : Fragment() {
         val pri    = etNewPriority.text.toString().toIntOrNull() ?: 0
         val sort   = etNewSortOrder.text.toString().toIntOrNull() ?: 0
 
-        if (rawKey.isEmpty()) { showError("Status key দিন"); return }
-        if (ConfigState.statuses.contains(rawKey)) { showError("এই key ইতিমধ্যে আছে"); return }
-        if (bn.isEmpty() && en.isEmpty()) { showError("নাম দিন"); return }
+        if (rawKey.isEmpty()) { showError("Enter a status key"); return }
+        if (ConfigState.statuses.contains(rawKey)) { showError("This key already exists"); return }
+        if (bn.isEmpty() && en.isEmpty()) { showError("Enter a name"); return }
 
         val (nc, nb) = statusColors[newColorIdx]
         val newMeta  = ConfigState.statusMeta.toMutableMap()
@@ -432,7 +432,7 @@ class ConfigStatusesFragment : Fragment() {
             }
 
         val keyInput = input("e.g. PARTIAL", android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
-        val bnInput = input("বাংলা...")
+        val bnInput = input("Bangla...")
         val enInput = input("English...")
         val priorityInput = input("0", android.text.InputType.TYPE_CLASS_NUMBER)
         val sortOrderInput = input("0", android.text.InputType.TYPE_CLASS_NUMBER)
@@ -469,7 +469,7 @@ class ConfigStatusesFragment : Fragment() {
 
         content.addView(label("KEY"))
         content.addView(keyInput)
-        content.addView(label("বাংলা"))
+        content.addView(label("Bangla"))
         content.addView(bnInput)
         content.addView(label("English"))
         content.addView(enInput)
@@ -482,9 +482,9 @@ class ConfigStatusesFragment : Fragment() {
         content.addView(preview)
 
         val dialog = AlertDialog.Builder(ctx)
-            .setTitle("নতুন Status")
+            .setTitle("New status")
             .setView(content)
-            .setNegativeButton("বাতিল", null)
+            .setNegativeButton("Cancel", null)
             .setPositiveButton("Create", null)
             .create()
 
@@ -497,11 +497,11 @@ class ConfigStatusesFragment : Fragment() {
                 val sort = sortOrderInput.text.toString().toIntOrNull() ?: 0
 
                 when {
-                    rawKey.isEmpty() -> keyInput.error = "Status key দিন"
-                    ConfigState.statuses.contains(rawKey) -> keyInput.error = "এই key ইতিমধ্যে আছে"
+                    rawKey.isEmpty() -> keyInput.error = "Enter a status key"
+                    ConfigState.statuses.contains(rawKey) -> keyInput.error = "This key already exists"
                     bn.isEmpty() && en.isEmpty() -> {
-                        bnInput.error = "নাম দিন"
-                        enInput.error = "নাম দিন"
+                        bnInput.error = "Enter a name"
+                        enInput.error = "Enter a name"
                     }
                     else -> {
                         val (color, bg) = statusColors[selectedColorIdx]

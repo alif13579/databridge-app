@@ -478,9 +478,9 @@ object SheetLibraryRepository {
             if (!library.enabled)
                 return@withContext ScannerSheetRepository.WriteResult.Failure("Sheet library disabled")
             if (lookupPairs.isEmpty())
-                return@withContext ScannerSheetRepository.WriteResult.Failure("এই binding-এ lookup নেই")
+                return@withContext ScannerSheetRepository.WriteResult.Failure("this binding has no lookup")
             if (writePairs.isEmpty())
-                return@withContext ScannerSheetRepository.WriteResult.Failure("এই binding-এ write নেই")
+                return@withContext ScannerSheetRepository.WriteResult.Failure("this binding has no write")
             val tabName = ScannerSheetRepository.resolveTabName(library.tabPattern)
             val headerRow = library.resolvedHeaderRow()
 
@@ -504,14 +504,14 @@ object SheetLibraryRepository {
             for ((ref, value) in lookupPairs) {
                 val letter = letterOf(ref, "lookup")
                     ?: return@withContext ScannerSheetRepository.WriteResult.Failure(
-                        "lookup column '${ref.colRef.trim()}' পাওয়া যায়নি")
+                        "lookup column '${ref.colRef.trim()}' not found")
                 lookups.add(ColValue(ref, letter, value))
             }
             val writes = mutableListOf<ColValue>()
             for ((ref, value) in writePairs) {
                 val letter = letterOf(ref, "write")
                     ?: return@withContext ScannerSheetRepository.WriteResult.Failure(
-                        "write column '${ref.colRef.trim()}' পাওয়া যায়নি")
+                        "write column '${ref.colRef.trim()}' not found")
                 writes.add(ColValue(ref, letter, value))
             }
 

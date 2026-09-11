@@ -28,7 +28,7 @@ object RemarkPushChainLog {
 
     @Synchronized
     fun snapshot(): String = if (lines.isEmpty()) {
-        "এখনো কোনো log নেই — CC থেকে remark save করার পর এখানে ফিরে আসুন।"
+        "No logs yet — save a remark from CC, then come back here."
     } else {
         lines.joinToString("\n")
     }

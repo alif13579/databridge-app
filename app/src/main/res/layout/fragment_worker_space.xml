@@ -303,7 +303,7 @@
                 android:gravity="center"
                 android:padding="10dp"
                 android:visibility="gone"
-                android:text="🔒 Run বন্ধ হয়ে গেছে" />
+                android:text="🔒 Run is closed" />
 
             <!-- Pull-to-refresh + Parcel List -->
             <androidx.swiperefreshlayout.widget.SwipeRefreshLayout

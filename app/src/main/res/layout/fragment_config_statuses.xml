@@ -74,7 +74,7 @@
             android:visibility="gone">
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="+ নতুন Status" android:textSize="12sp" android:textStyle="bold"
+                android:text="+ New status" android:textSize="12sp" android:textStyle="bold"
                 android:textColor="@color/theme_text_primary" android:layout_marginBottom="12dp" />
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -91,7 +91,7 @@
                 <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                     android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="4dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="বাংলা" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                        android:text="Bangla" android:textSize="10sp" android:textColor="@color/theme_text_muted"
                         android:textStyle="bold" android:layout_marginBottom="4dp" />
                     <EditText android:id="@+id/etNewStatusBn" android:layout_width="match_parent"
                         android:layout_height="wrap_content" android:hint="বাংলা..."
@@ -120,7 +120,7 @@
                 android:inputType="number" android:layout_marginBottom="10dp" />
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Sort Order (বেশি = আগে দেখাবে)" android:textSize="10sp"
+                android:text="Sort order (higher = shows first)" android:textSize="10sp"
                 android:textColor="@color/theme_text_muted" android:textStyle="bold" android:layout_marginBottom="4dp" />
             <EditText android:id="@+id/etNewStatusSortOrder" android:layout_width="match_parent"
                 android:layout_height="wrap_content" android:hint="0"
@@ -148,7 +148,7 @@
                 android:textColor="#EF4444" android:visibility="gone" android:layout_marginBottom="8dp" />
 
             <Button android:id="@+id/btnCreateStatus" android:layout_width="match_parent"
-                android:layout_height="40dp" android:text="তৈরি করুন"
+                android:layout_height="40dp" android:text="Create"
                 android:textSize="13sp" android:textStyle="bold"
                 android:backgroundTint="#E8380D" android:textColor="@color/theme_bg_card" />
         </LinearLayout>

@@ -166,7 +166,7 @@ class ParcelDetailFragment : Fragment() {
             if (currentAgentPhone.isBlank()) {
                 Toast.makeText(
                     requireContext(),
-                    "⚠ এই parcel-এ এখনো কোনো worker touch করেনি, তাই agent-এর number পাওয়া যায়নি",
+                    "⚠ No worker has touched this parcel yet, so the agent number is unavailable",
                     Toast.LENGTH_LONG
                 ).show()
             } else {
@@ -267,7 +267,7 @@ class ParcelDetailFragment : Fragment() {
         if (pdRemarkOptions.isEmpty()) {
             val tv = TextView(requireContext())
             val scopeName = if (scope == "worker") "Worker" else "Call Center"
-            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই।\nAdmin-কে $scopeName remark config-এ remark যোগ করতে বলুন।"
+            tv.text = "⚠ No remark configured in Config.\nAsk the admin to add remarks in the $scopeName remark config."
             tv.textSize = 13f
             tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
             tv.setPadding(0, 24, 0, 24)
@@ -348,7 +348,7 @@ class ParcelDetailFragment : Fragment() {
                 // parcel yet (lastResolvedAgentSystemId only populates from remark history).
                 // Surfacing it here beats a false "saved" toast over a remark that never wrote.
                 Toast.makeText(requireContext(),
-                    "⚠ এই parcel-এ এখনো কোনো worker assign/touch করেনি, তাই remark save করা যাচ্ছে না",
+                    "⚠ No worker assigned/touched this parcel yet, so remarks cannot be saved",
                     Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
@@ -397,7 +397,7 @@ class ParcelDetailFragment : Fragment() {
                     btnSave.isEnabled = true
                     btnSave.text = saveOrigText
                     Toast.makeText(requireContext(),
-                        "⚠ Save হয়নি — network দেখে আবার চেষ্টা করুন",
+                        "⚠ Save failed — check network and retry",
                         Toast.LENGTH_LONG).show()
                 }
             }
@@ -706,7 +706,7 @@ class ParcelDetailFragment : Fragment() {
             listOf(
                 Entry(
                     status = "",
-                    remark = "Parcel তৈরি হয়েছে",
+                    remark = "Parcel created",
                     timeStr = sdf.format(Date(currentCreatedAt)),
                     author = "System",
                     role = "system",

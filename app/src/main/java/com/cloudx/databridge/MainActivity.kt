@@ -89,7 +89,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private val authStateListener = FirebaseAuth.AuthStateListener { refreshAuthUi() }
 
     private val callLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) nextPermissionStep() else showPermissionDialog("Call Permission", "অটো ডায়াল ফিচার কাজ করবে না।")
+        if (granted) nextPermissionStep() else showPermissionDialog("Call Permission", "Auto-dial will not work.")
     }
     private val phoneStateLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         // Not fatal to decline — Auto Call falls back to a less-reliable screen-focus
@@ -97,7 +97,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         nextPermissionStep()
     }
     private val cameraLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) nextPermissionStep() else showPermissionDialog("Camera Permission", "QR স্ক্যান ফিচার কাজ করবে না।")
+        if (granted) nextPermissionStep() else showPermissionDialog("Camera Permission", "QR scan will not work.")
     }
     private val callLogLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         // Not fatal to decline — no-answer detection just won't be available, same
@@ -221,7 +221,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             if (isFinishing || isDestroyed) return@runOnUiThread
             AlertDialog.Builder(this)
                 .setTitle("📄 Sheet sync")
-                .setMessage("Remarks sheet-e auto save-er jonno ekbar Google connect korun (nijer Gmail, one-time).")
+                .setMessage("Connect Google once (your own Gmail, one-time) to auto-save remarks to the sheet.")
                 .setPositiveButton("Connect") { _, _ ->
                     try {
                         sheetAuthClient.signOut().addOnCompleteListener {
@@ -353,10 +353,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             return
         }
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("App বন্ধ করবেন?")
-            .setMessage("DataBridge বন্ধ করতে চান?")
-            .setPositiveButton("হ্যাঁ, বন্ধ করুন") { _, _ -> super.onBackPressed() }
-            .setNegativeButton("না") { dialog, _ -> dialog.dismiss() }
+            .setTitle("Close the app?")
+            .setMessage("Do you want to close DataBridge?")
+            .setPositiveButton("Yes, close") { _, _ -> super.onBackPressed() }
+            .setNegativeButton("No") { dialog, _ -> dialog.dismiss() }
             .show()
     }
 
@@ -891,9 +891,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         val lower = raw.lowercase()
         return when {
             "system_id" in lower ->
-                "No system_id — admin onboard করেনি (employee edit)"
+                "No system_id — admin has not onboarded (employee edit)"
             "not signed in" in lower ->
-                "Not signed in — আবার login করো"
+                "Not signed in — please log in again"
             "no fcm token" in lower ->
                 "No FCM token on device"
             "network" in lower || "timeout" in lower || "unable to resolve" in lower ->
@@ -1152,7 +1152,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             if (!Settings.canDrawOverlays(this)) {
                 AlertDialog.Builder(this)
                     .setTitle("Overlay Permission Required")
-                    .setMessage("ব্যাকগ্রাউন্ডে অটো ডায়ালার ওপেন করতে 'Draw over other apps' পারমিশন প্রয়োজন।")
+                    .setMessage("The background auto-dialer needs the 'Draw over other apps' permission.")
                     .setPositiveButton("Allow") { _, _ ->
                         overlaySettingsOpened = true
                         startActivity(

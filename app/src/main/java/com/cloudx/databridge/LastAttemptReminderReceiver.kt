@@ -188,8 +188,8 @@ class LastAttemptReminderReceiver : BroadcastReceiver() {
             c.address.take(40),
             taka(c.cod),
         ).filter { it.isNotBlank() }.joinToString(" • ")
-        val body = "আজ last attempt (${c.attempt}) — আজই delivery করুন, না হলে merchant-কে জানিয়ে return করুন।\n$infoLine" +
-            if (otherCount > 0) "\n(+ আরও $otherCount টা বাকি)" else ""
+        val body = "Last attempt today (${c.attempt}) — deliver today, otherwise inform the merchant and return.\n$infoLine" +
+            if (otherCount > 0) "\n(+ $otherCount more pending)" else ""
 
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -221,7 +221,7 @@ class LastAttemptReminderReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_email)
-            .setContentTitle("⚠ Last attempt আজ — ${c.consignmentId}")
+            .setContentTitle("⚠ Last attempt today — ${c.consignmentId}")
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)

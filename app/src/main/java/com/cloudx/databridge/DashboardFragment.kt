@@ -94,20 +94,20 @@ class DashboardFragment : Fragment() {
         tvFunnelPendingValue = view.findViewById(R.id.tvVdFunnelPendingValue)
 
         cardTotalAssign.icon.text = "👥"
-        cardTotalAssign.label.text = "মোট অ্যাসাইন"
+        cardTotalAssign.label.text = "Total assigned"
         cardVerifyRequest.icon.text = "📞"
-        cardVerifyRequest.label.text = "ভেরিফাই রিকোয়েস্ট"
+        cardVerifyRequest.label.text = "Verify requests"
         cardHoldReturn.icon.text = "🛡️"
-        cardHoldReturn.label.text = "ভেরিফাইড (Hold/Return)"
+        cardHoldReturn.label.text = "Verified (Hold/Return)"
         cardDeliveryRequest.icon.text = "🚚"
-        cardDeliveryRequest.label.text = "ডেলিভারি রিকোয়েস্ট"
+        cardDeliveryRequest.label.text = "Delivery requests"
 
         subConfirmed.icon.text = "✅"
-        subConfirmed.subtitle.text = "কনফার্মড"
+        subConfirmed.subtitle.text = "Confirmed"
         subDelivered.icon.text = "🚚"
-        subDelivered.subtitle.text = "ডেলিভারড"
+        subDelivered.subtitle.text = "Delivered"
         subPending.icon.text = "⏰"
-        subPending.subtitle.text = "পেন্ডিং"
+        subPending.subtitle.text = "Pending"
 
         setRangeToThisWeek()
         tvDateRange.setOnClickListener { showDateRangePicker() }
@@ -184,11 +184,11 @@ class DashboardFragment : Fragment() {
         val deliveredPct = pct(state.delivered, state.deliveryRequest)
         val pendingPct = pct(state.pending, state.deliveryRequest)
         subConfirmed.value.text = state.confirmed.toString()
-        subConfirmed.subtitle.text = "কনফার্মড ($confirmedPct%)"
+        subConfirmed.subtitle.text = "Confirmed ($confirmedPct%)"
         subDelivered.value.text = state.delivered.toString()
-        subDelivered.subtitle.text = "ডেলিভারড ($deliveredPct%)"
+        subDelivered.subtitle.text = "Delivered ($deliveredPct%)"
         subPending.value.text = state.pending.toString()
-        subPending.subtitle.text = "পেন্ডিং ($pendingPct%)"
+        subPending.subtitle.text = "Pending ($pendingPct%)"
 
         tvFunnelTotalValue.text = "${state.totalAssign} (100%)"
         tvFunnelVerifyValue.text = "${state.verifyRequest} ($verifyPct% of Total Assign)"
@@ -199,11 +199,11 @@ class DashboardFragment : Fragment() {
         tvFunnelPendingValue.text = "${state.pending} ($pendingPct%)"
 
         tvQuickSummary.text = buildString {
-            append("• মোট অ্যাসাইন: ${state.totalAssign} (100%)\n")
-            append("• ভেরিফাই রিকোয়েস্ট: ${state.verifyRequest} ($verifyPct% of Total Assign)\n")
-            append("• ভেরিফাইড (Hold/Return): ${state.holdReturn} ($holdReturnPct% of Verify Request)\n")
-            append("• ডেলিভারি রিকোয়েস্ট: ${state.deliveryRequest} ($deliveryReqPct% of Verify Request)\n")
-            append("• কনফার্মড: ${state.confirmed} ($confirmedPct%), ডেলিভারড: ${state.delivered} ($deliveredPct%), পেন্ডিং: ${state.pending} ($pendingPct%)")
+            append("• Total assigned: ${state.totalAssign} (100%)\n")
+            append("• Verify requests: ${state.verifyRequest} ($verifyPct% of Total Assign)\n")
+            append("• Verified (Hold/Return): ${state.holdReturn} ($holdReturnPct% of Verify Request)\n")
+            append("• Delivery requests: ${state.deliveryRequest} ($deliveryReqPct% of Verify Request)\n")
+            append("• Confirmed: ${state.confirmed} ($confirmedPct%), Delivered: ${state.delivered} ($deliveredPct%), Pending: ${state.pending} ($pendingPct%)")
         }
     }
 
@@ -238,7 +238,7 @@ class DashboardFragment : Fragment() {
     private fun showDateRangePicker() {
         val options = arrayOf("Today", "Yesterday", "This Week", "Last 7 Days", "This Month", "Last 30 Days", "Custom Range")
         AlertDialog.Builder(requireContext())
-            .setTitle("Date Range বেছে নিন")
+            .setTitle("Select date range")
             .setItems(options) { _, which ->
                 val cal = Calendar.getInstance()
                 when (which) {
@@ -296,7 +296,7 @@ class DashboardFragment : Fragment() {
                     set(y2, m2, d2); set(Calendar.HOUR_OF_DAY, 23); set(Calendar.MINUTE, 59); set(Calendar.SECOND, 59)
                 }
                 if (to.timeInMillis < from.timeInMillis) {
-                    android.widget.Toast.makeText(requireContext(), "End date শুরুর তারিখের আগে হতে পারবে না", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(requireContext(), "End date cannot be before start date", android.widget.Toast.LENGTH_SHORT).show()
                     return@DatePickerDialog
                 }
                 rangeStartMs = from.timeInMillis
@@ -314,7 +314,7 @@ class DashboardFragment : Fragment() {
     private fun showAgentPicker() {
         val names = listOf("All Agents") + latestAgentOptions.map { it.name }
         AlertDialog.Builder(requireContext())
-            .setTitle("Agent বেছে নিন")
+            .setTitle("Select agent")
             .setItems(names.toTypedArray()) { _, which ->
                 if (which == 0) {
                     selectedAgentSystemId = null

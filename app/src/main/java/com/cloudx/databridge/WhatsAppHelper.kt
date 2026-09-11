@@ -49,7 +49,7 @@ object WhatsAppHelper {
     fun send(context: Context, phone: String, message: String): Boolean {
         val normalized = normalizePhone(phone)
         if (normalized.isBlank()) {
-            Toast.makeText(context, "⚠ Phone number নেই — WhatsApp message পাঠানো যায়নি", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "⚠ No phone number — WhatsApp message not sent", Toast.LENGTH_SHORT).show()
             return false
         }
         return try {
@@ -61,7 +61,7 @@ object WhatsAppHelper {
             context.startActivity(intent)
             true
         } catch (e: Exception) {
-            Toast.makeText(context, "⚠ WhatsApp খোলা যায়নি", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "⚠ Could not open WhatsApp", Toast.LENGTH_SHORT).show()
             false
         }
     }

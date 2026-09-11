@@ -79,7 +79,7 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
                 if (ownSystemId.isBlank()) {
                     _state.value = (_state.value ?: VerifyDeliveryFunnelState()).copy(
                         isLoading = false,
-                        error = "system_id পাওয়া যায়নি — admin-এর সাথে যোগাযোগ করুন"
+                        error = "system_id not found — contact your admin"
                     )
                     return@launch
                 }

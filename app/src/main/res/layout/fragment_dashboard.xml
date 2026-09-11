@@ -20,7 +20,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="ভেরিফাই ও ডেলিভারি রিকোয়েস্ট"
+            android:text="Verify and delivery requests"
             android:textSize="16sp"
             android:textStyle="bold"
             android:textColor="@color/theme_text_primary" />
@@ -115,7 +115,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="ডেলিভারি রিকোয়েস্টের সারাংশ"
+                android:text="Delivery request summary"
                 android:textSize="11.5sp"
                 android:textStyle="bold"
                 android:textColor="#0099B8" />
@@ -153,11 +153,11 @@
                 <View android:layout_width="4dp" android:layout_height="match_parent" android:background="#3B82F6" android:layout_marginEnd="10dp" />
                 <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
                     <TextView android:id="@+id/tvVdFunnelTotalLabel" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="মোট অ্যাসাইন" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
+                        android:text="Total assigned" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
                     <TextView android:id="@+id/tvVdFunnelTotalValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:textSize="18sp" android:textStyle="bold" android:textColor="#3B82F6" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="কল সেন্টার এজেন্টদের মোট অ্যাসাইনকৃত পার্সেল" android:textSize="10.5sp" android:textColor="@color/theme_text_secondary" />
+                        android:text="Total parcels assigned to call center agents" android:textSize="10.5sp" android:textColor="@color/theme_text_secondary" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -174,11 +174,11 @@
                 <View android:layout_width="4dp" android:layout_height="match_parent" android:background="#16A34A" android:layout_marginEnd="10dp" />
                 <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="ভেরিফাই রিকোয়েস্ট" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
+                        android:text="Verify requests" android:textSize="12sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
                     <TextView android:id="@+id/tvVdFunnelVerifyValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:textSize="18sp" android:textStyle="bold" android:textColor="#16A34A" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="মোট অ্যাসাইন থেকে যে ভেরিফাই রিকোয়েস্ট করা হয়েছে" android:textSize="10.5sp" android:textColor="@color/theme_text_secondary" />
+                        android:text="Verify requests made from total assigned" android:textSize="10.5sp" android:textColor="@color/theme_text_secondary" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -200,11 +200,11 @@
                     <View android:layout_width="4dp" android:layout_height="match_parent" android:background="#8B5CF6" android:layout_marginEnd="8dp" />
                     <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="ভেরিফাইড (Hold/Return)" android:textSize="10.5sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
+                            android:text="Verified (Hold/Return)" android:textSize="10.5sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
                         <TextView android:id="@+id/tvVdFunnelHoldReturnValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:textSize="16sp" android:textStyle="bold" android:textColor="#8B5CF6" />
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="যার জন্য পার্সেল ভেরিফাই হয়েছে (এগুলো আর ডেলিভারি হবে না)" android:textSize="9.5sp" android:textColor="@color/theme_text_secondary" />
+                            android:text="Parcels verified for this (these will not be delivered)" android:textSize="9.5sp" android:textColor="@color/theme_text_secondary" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -216,11 +216,11 @@
                     <View android:layout_width="4dp" android:layout_height="match_parent" android:background="#F97316" android:layout_marginEnd="8dp" />
                     <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="ডেলিভারি রিকোয়েস্ট" android:textSize="10.5sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
+                            android:text="Delivery requests" android:textSize="10.5sp" android:textStyle="bold" android:textColor="@color/theme_text_primary" />
                         <TextView android:id="@+id/tvVdFunnelDeliveryReqValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:textSize="16sp" android:textStyle="bold" android:textColor="#F97316" />
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="যে পার্সেলগুলো ডেলিভারির জন্য পাঠানো হয়েছে" android:textSize="9.5sp" android:textColor="@color/theme_text_secondary" />
+                            android:text="Parcels sent out for delivery" android:textSize="9.5sp" android:textColor="@color/theme_text_secondary" />
                     </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
@@ -237,7 +237,7 @@
                 <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
                     android:orientation="vertical" android:background="@drawable/bg_card_rounded" android:padding="8dp" android:layout_marginEnd="4dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="✅ কনফার্মড" android:textSize="10sp" android:textColor="@color/theme_text_secondary" />
+                        android:text="✅ Confirmed" android:textSize="10sp" android:textColor="@color/theme_text_secondary" />
                     <TextView android:id="@+id/tvVdFunnelConfirmedValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:textSize="14sp" android:textStyle="bold" android:textColor="#16A34A" />
                 </LinearLayout>
@@ -245,7 +245,7 @@
                 <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
                     android:orientation="vertical" android:background="@drawable/bg_card_rounded" android:padding="8dp" android:layout_marginEnd="4dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🚚 ডেলিভারড" android:textSize="10sp" android:textColor="@color/theme_text_secondary" />
+                        android:text="🚚 Delivered" android:textSize="10sp" android:textColor="@color/theme_text_secondary" />
                     <TextView android:id="@+id/tvVdFunnelDeliveredValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:textSize="14sp" android:textStyle="bold" android:textColor="#3B82F6" />
                 </LinearLayout>
@@ -253,7 +253,7 @@
                 <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
                     android:orientation="vertical" android:background="@drawable/bg_card_rounded" android:padding="8dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="⏳ পেন্ডিং" android:textSize="10sp" android:textColor="@color/theme_text_secondary" />
+                        android:text="⏳ Pending" android:textSize="10sp" android:textColor="@color/theme_text_secondary" />
                     <TextView android:id="@+id/tvVdFunnelPendingValue" android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:textSize="14sp" android:textStyle="bold" android:textColor="#CA8A04" />
                 </LinearLayout>
@@ -273,7 +273,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="📋 এই রিপোর্টের দ্রুত সারাংশ"
+                android:text="📋 Quick summary of this report"
                 android:textSize="11.5sp"
                 android:textStyle="bold"
                 android:textColor="@color/theme_text_primary" />

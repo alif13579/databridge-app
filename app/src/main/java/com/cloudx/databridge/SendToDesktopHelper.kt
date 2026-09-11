@@ -83,7 +83,7 @@ object SendToDesktopHelper {
         val uid = FirebaseAuth.getInstance().currentUser?.uid
         if (uid.isNullOrEmpty()) {
             withContext(Dispatchers.Main) {
-                Toast.makeText(context, "⚠ Login করা নেই — Desktop-এ পাঠানো যায়নি", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "⚠ Not logged in — could not send to Desktop", Toast.LENGTH_SHORT).show()
             }
             return
         }
@@ -129,16 +129,16 @@ object SendToDesktopHelper {
         withContext(Dispatchers.Main) {
             when (outcome) {
                 is SendOutcome.NoExtensionsConnected ->
-                    Toast.makeText(context, "⚠ কোনো Desktop connected নেই", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "⚠ No Desktop connected", Toast.LENGTH_SHORT).show()
                 is SendOutcome.LookupFailed ->
-                    Toast.makeText(context, "❌ Desktop-এ পাঠানো যায়নি", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "❌ Could not send to Desktop", Toast.LENGTH_SHORT).show()
                 is SendOutcome.Sent -> when {
                     outcome.successCount == outcome.totalCount ->
-                        Toast.makeText(context, "✅ Desktop-এ পাঠানো হয়েছে (${outcome.successCount})", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "✅ Sent to Desktop (${outcome.successCount})", Toast.LENGTH_SHORT).show()
                     outcome.successCount == 0 ->
-                        Toast.makeText(context, "❌ Desktop-এ পাঠানো যায়নি", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "❌ Could not send to Desktop", Toast.LENGTH_SHORT).show()
                     else ->
-                        Toast.makeText(context, "✅ পাঠানো হয়েছে ${outcome.successCount}/${outcome.totalCount} Desktop-এ", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "✅ Sent to ${outcome.successCount}/${outcome.totalCount} Desktops", Toast.LENGTH_SHORT).show()
                 }
             }
         }

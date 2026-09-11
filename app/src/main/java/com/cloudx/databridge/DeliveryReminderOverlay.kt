@@ -74,7 +74,7 @@ object DeliveryReminderOverlay {
         view.findViewById<TextView>(R.id.tvDrConsignment).text = data.consignmentId
         view.findViewById<TextView>(R.id.tvDrMoreCount).apply {
             isVisible = data.otherPendingCount > 0
-            text = "+ আরও ${data.otherPendingCount}টা pending request আছে"
+            text = "+ ${data.otherPendingCount} more pending requests"
         }
         view.findViewById<TextView>(R.id.tvDrCustomer).text =
             "${data.customerName.ifBlank { "Unknown customer" }} · ${data.customerPhone}"

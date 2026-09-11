@@ -777,7 +777,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
         AlertDialog.Builder(requireContext())
             .setTitle("Settle Confirm")
-            .setMessage("${item.requestCode} settle করবেন?")
+            .setMessage("Settle ${item.requestCode}?")
             .setView(dialogView)
             .setPositiveButton("Yes") { _, _ ->
                 val amount = etAmount.text?.toString()?.trim()?.toDoubleOrNull()

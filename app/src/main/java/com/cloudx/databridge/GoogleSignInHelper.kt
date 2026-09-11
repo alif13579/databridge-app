@@ -96,7 +96,7 @@ object GoogleSignInHelper {
         onError: (String) -> Unit
     ): String? {
         val acctObj = account.account ?: run {
-            onError("Account info নেই")
+            onError("No account info")
             return null
         }
         return withContext(Dispatchers.IO) {

@@ -136,7 +136,7 @@ object IncomingCallOverlay {
         val tvViewDetails = view.findViewById<View>(R.id.btnOverlayViewDetails)
         val tvNoMatch = view.findViewById<TextView>(R.id.tvOverlayNoMatch)
 
-        val displayName = if (match != null) match.name.ifBlank { "Unknown customer" } else "অজানা নম্বর"
+        val displayName = if (match != null) match.name.ifBlank { "Unknown customer" } else "Unknown number"
         tvMinimizedLabel.text = "📞 $displayName"
 
         // Both remaining navigation paths from this popup land in CallCenter or
@@ -200,9 +200,9 @@ object IncomingCallOverlay {
                         // No run found for this number — say so plainly; the
                         // finder button below jumps into CC search (number
                         // pre-filled, filter all) to find the parcel manually.
-                        text = "🔍 agent পাওয়া যায়নি — নিচে CC-তে খুঁজুন দিয়ে parcel টি বের করুন"
+                        text = "🔍 No agent found — use Find in CC below to locate the parcel"
                     } else {
-                        text = "🚚 আজ assign: ${assignee.name}"
+                        text = "🚚 Assigned today: ${assignee.name}"
                     }
                     isVisible = true
                 }
@@ -265,7 +265,7 @@ object IncomingCallOverlay {
         val showFinder = if (match != null) hasAnySearchAccess else lookupFromCcEnabled && hasAnySearchAccess
         btnSearch.isVisible = showFinder
         if (showFinder && useWorkerSearch) {
-            (btnSearch as? TextView)?.text = "🔍 খুঁজুন"
+            (btnSearch as? TextView)?.text = "🔍 Search"
         }
         btnSearch.setOnClickListener {
             if (useWorkerSearch) openWorkerSearch(context, rawPhone)
@@ -769,7 +769,7 @@ object IncomingCallOverlay {
                 if (ccAccess || workerAccess) {
                     val workerRoute = !ccAccess && workerAccess
                     view.findViewById<TextView>(R.id.btnOverlayAgentMissingSearch).apply {
-                        if (workerRoute) text = "🔍 খুঁজুন"
+                        if (workerRoute) text = "🔍 Search"
                         isVisible = true
                         setOnClickListener {
                             if (workerRoute) openWorkerSearch(context, rawPhone)
@@ -790,7 +790,7 @@ object IncomingCallOverlay {
                 // CC and worker alike: option pick OR note text suffices (same as
                 // CallCenterFragment's sheet) — never strand the saver.
                 if (chosen == null && noteText.isBlank()) {
-                    Toast.makeText(context, "একটি রিমার্কস বেছে নিন", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Select a remark", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 // CC note-only save (no predefined option picked) mirrors
@@ -812,8 +812,8 @@ object IncomingCallOverlay {
 
         if (options.isEmpty()) {
             val tv = TextView(context).apply {
-                text = if (isCc) "⚠ Config-এ কোনো remark সেট করা নেই। নোট হিসেবে লিখতে পারেন:"
-                else "⚠ Config-এ কোনো remark সেট করা নেই। Admin-কে remark যোগ করতে বলুন।"
+                text = if (isCc) "⚠ No remark configured in Config. You can write a note:"
+                else "⚠ No remark configured in Config. Ask the admin to add remarks."
                 textSize = 12f
                 setTextColor(0xFFF59E0B.toInt())
             }
@@ -910,7 +910,7 @@ object IncomingCallOverlay {
         val llFanout = view.findViewById<View>(R.id.llOverlayFanout)
         val tvFanoutText = view.findViewById<TextView>(R.id.tvOverlayFanoutText)
         val total = siblings.size + 1
-        tvFanoutText.text = "\"${match.consignmentId}\"-এর মতো একই নম্বরের মোট $total টি parcel আছে।\nসবগুলোতে একই remark দিতে চান?"
+        tvFanoutText.text = "There are $total parcels with the same number as \"${match.consignmentId}\".\nSave the same remark on all of them?"
         llFanout.isVisible = true
         clampOverlayBody(view)
         view.findViewById<View>(R.id.btnOverlayFanoutYes).setOnClickListener {
@@ -939,7 +939,7 @@ object IncomingCallOverlay {
         val btnCancel = view.findViewById<View>(R.id.btnOverlayRemarkCancel)
         val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
         if (branchId.isBlank()) {
-            Toast.makeText(context, "Branch তথ্য পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Branch info not found", Toast.LENGTH_SHORT).show()
             return
         }
         // Saving state until the server answers: the whole remark section hides
@@ -1027,8 +1027,8 @@ object IncomingCallOverlay {
             if (overlayView !== view) return@launch
             if (failCount == 0) {
                 tvConfirmation.text = if (consignmentIds.size > 1)
-                    "✓ ${consignmentIds.size} টি parcel এ remark save হয়েছে"
-                else "✓ রিমার্কস সেভ হয়েছে"
+                    "✓ Remark saved on ${consignmentIds.size} parcels"
+                else "✓ Remark saved"
                 tvConfirmation.setTextColor(0xFF15803D.toInt())
                 llRemarkSection.isVisible = false
                 view.findViewById<View>(R.id.llOverlayFanout).isVisible = false
@@ -1044,8 +1044,8 @@ object IncomingCallOverlay {
                 clampOverlayBody(view)
                 Toast.makeText(
                     context,
-                    if (okCount > 0) "⚠ $okCount টি save হয়েছে, $failCount টি হয়নি — আবার চেষ্টা করুন"
-                    else "⚠ Save হয়নি — network দেখে আবার চেষ্টা করুন",
+                    if (okCount > 0) "⚠ $okCount saved, $failCount failed — try again"
+                    else "⚠ Save failed — check network and retry",
                     Toast.LENGTH_LONG
                 ).show()
             }

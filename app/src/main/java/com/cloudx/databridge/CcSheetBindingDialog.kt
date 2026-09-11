@@ -95,10 +95,10 @@ object CcSheetBindingDialog {
         root.addView(stepLabel("② Mapping (remark save)"))
         root.addView(mappingBox)
         root.addView(summaryView)
-        root.addView(stepLabel("③ ফিল্টার (Live fetch + write)"))
-        root.addView(label("ID কোন কলাম থেকে আসবে"))
+        root.addView(stepLabel("③ Filters (Live fetch + write)"))
+        root.addView(label("Which column provides the ID"))
         root.addView(fetchColSpinner)
-        root.addView(label("ফিল্টার লজিক"))
+        root.addView(label("Filter logic"))
         root.addView(filterLogicSpinner)
         root.addView(filterBox)
         root.addView(fetchSummaryView)
@@ -119,7 +119,7 @@ object CcSheetBindingDialog {
             return libraries.getOrNull(pos)
         }
         fun fieldAdapter(fields: List<String>): ArrayAdapter<String> {
-            val labels = listOf("— field বেছে নিন —") + fields.map { CcField.label(it) }
+            val labels = listOf("— select a field —") + fields.map { CcField.label(it) }
             return ArrayAdapter(ctx, android.R.layout.simple_spinner_item, labels)
                 .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
         }
@@ -154,8 +154,8 @@ object CcSheetBindingDialog {
             val l = mapSummary(lookupMapRows, CcField.LOOKUP_FIELDS, " + ")
             val w = mapSummary(writeMapRows, CcField.WRITE_FIELDS, ", ")
             summaryView.text = when {
-                l.isBlank() || w.isBlank() -> "↳ + Add diye lookup + write row যোগ করুন।"
-                else -> "✅ $l মিলিয়ে row খুঁজে $w বসবে।"
+                l.isBlank() || w.isBlank() -> "↳ Add lookup + write rows with + Add."
+                else -> "✅ Finds the row matching $l, writes $w."
             }
         }
 
@@ -328,13 +328,13 @@ object CcSheetBindingDialog {
                 val op = CcFilterOp.ALL.getOrNull(r.opPos()).orEmpty()
                 if (op.isBlank()) return@mapNotNull null
                 val t = CcValueType.ALL.getOrNull(r.typePos()) ?: CcValueType.TEXT
-                val v = if (t == CcValueType.TODAY) "আজ"
+                val v = if (t == CcValueType.TODAY) "Today"
                 else " “${r.valueText().trim()}”"
                 "${entry.first} ${CcFilterOp.label(op)}$v"
             }
             fetchSummaryView.text = when {
-                rules.isEmpty() -> "📡 Live: $colTxt theke ID • filter nei (sob row)"
-                else -> "📡 Live: $colTxt theke ID • ${rules.joinToString(if (logic == "OR") " OR " else " + ")}" +
+                rules.isEmpty() -> "📡 Live: IDs from $colTxt • no filter (all rows)"
+                else -> "📡 Live: IDs from $colTxt • ${rules.joinToString(if (logic == "OR") " OR " else " + ")}" +
                     if (rules.size > 1) " [${CcFilterLogic.label(logic)}]" else ""
             }
         }
@@ -421,13 +421,13 @@ object CcSheetBindingDialog {
                 })
             }
             val autoLbl = TextView(ctx).apply {
-                text = "📅 আজকের তারিখ (auto)"
+                text = "📅 Today's date (auto)"
                 textSize = 12f
                 setTextColor(ctx.getColor(R.color.theme_text_secondary))
                 setPadding(0, 4, 0, 4)
             }
             val btnDate = Button(ctx).apply {
-                text = "📅 তারিখ বাছুন"
+                text = "📅 Pick a date"
                 setOnClickListener { pickFilterDate(etVal) }
             }
             fun currentType() = CcValueType.ALL.getOrNull(spType.selectedItemPosition)
@@ -538,7 +538,7 @@ object CcSheetBindingDialog {
             writeMapRows.clear()
             val lib = selectedLibrary()
             if (lib == null) {
-                statusView.text = "এই branch-এ কোনো sheet library নেই — আগে Config → Connectors থেকে বানান।"
+                statusView.text = "No sheet library in this branch — create one from Config → Connectors first."
                 summaryView.text = ""
                 mapCols = emptyList()
                 currentLib = null
@@ -553,7 +553,7 @@ object CcSheetBindingDialog {
             // Columns come from the library RANGE + saved headers.
             mapCols = lib.columnLetters().map { SheetColRef(it, SheetColMode.INDEX) }
             if (mapCols.isEmpty()) {
-                statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}”-এ column range নেই — library edit করে range দিন।"
+                statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}” has no column range — set a range in the library."
                 summaryView.text = ""
                 renderFetchSection()
                 dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = false
@@ -593,7 +593,7 @@ object CcSheetBindingDialog {
         fun loadLibrariesAndBindings() {
             val branchId = selectedBranchId()
             if (branchId.isBlank()) return
-            statusView.text = "⏳ Library আসছে..."
+            statusView.text = "⏳ Loading library..."
             mappingBox.removeAllViews()
             summaryView.text = ""
             filterBox.removeAllViews()
@@ -606,12 +606,12 @@ object CcSheetBindingDialog {
                     libraries = libs
                     bindings = binds
                     val labels = libs.map {
-                        val base = it.nickname.ifBlank { it.sheetName.ifBlank { "(নাম নেই)" } }
+                        val base = it.nickname.ifBlank { it.sheetName.ifBlank { "(no name)" } }
                         if (it.enabled) "$base • ${it.sheetName}" else "$base • disabled"
                     }
                     librarySpinner.adapter = ArrayAdapter(
                         ctx, android.R.layout.simple_spinner_item,
-                        labels.ifEmpty { listOf("— কোনো library নেই —") }
+                        labels.ifEmpty { listOf("— no library —") }
                     ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
                     renderMapping()
                 }
@@ -636,7 +636,7 @@ object CcSheetBindingDialog {
             }
             withContext(Dispatchers.Main) {
                 if (branches.isEmpty()) {
-                    statusView.text = "কোনো branch assigned নেই।"
+                    statusView.text = "No branch assigned."
                     return@withContext
                 }
                 branchSpinner.adapter = ArrayAdapter(
@@ -680,7 +680,7 @@ object CcSheetBindingDialog {
                 val lookups = collect(lookupMapRows, CcField.LOOKUP_FIELDS)
                 val writes = collect(writeMapRows, CcField.WRITE_FIELDS)
                 if (lookups.isEmpty() || writes.isEmpty()) {
-                    Toast.makeText(ctx, "Lookup + Write অন্তত 1টা করে row যোগ করুন (+ Add)", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "Add at least 1 lookup + 1 write row (+ Add)", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 saveBtn.isEnabled = false
@@ -725,7 +725,7 @@ object CcSheetBindingDialog {
             dialog?.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
                 val existing = currentBinding
                 if (existing == null || existing.bindingId.isBlank()) {
-                    Toast.makeText(ctx, "মুছার মতো binding নেই", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "No binding to delete", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 scope.launch {

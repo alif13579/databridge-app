@@ -129,7 +129,7 @@ class RoutingApprovalFragment : Fragment() {
         root.addView(titleRow)
 
         tvStatus = TextView(ctx).apply {
-            text = "⏳ Sheet পড়ছে..."
+            text = "⏳ Loading sheet..."
             textSize = 12f
             setTextColor(Color.parseColor("#6B7280"))
             setPadding(0, dp(2), 0, dp(12))
@@ -179,12 +179,12 @@ class RoutingApprovalFragment : Fragment() {
     private fun load() {
         if (loading) return
         loading = true
-        setStatus("⏳ Sheet পড়ছে...")
+        setStatus("⏳ Loading sheet...")
         lifecycleScope.launch {
             try {
                 val branches = myBranchIds
                 if (branches.isEmpty()) {
-                    setStatus("⚠ কোনো branch assigned নেই — admin-এর সাথে যোগাযোগ করুন")
+                    setStatus("No branch assigned — contact your admin")
                     return@launch
                 }
                 // Branch directory (id → name) for own-name matching + display.
@@ -204,7 +204,7 @@ class RoutingApprovalFragment : Fragment() {
                 if (!isAdded) return@launch
                 if (token.isNullOrBlank()) {
                     (activity as? MainActivity)?.promptSheetAuthOnce()
-                    setStatus("Sheet auth নেই — Google connect করে ⟳ চাপুন")
+                    setStatus("Sheet auth missing — connect Google and tap ⟳")
                     return@launch
                 }
                 val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
@@ -216,7 +216,7 @@ class RoutingApprovalFragment : Fragment() {
                     incoming.clear()
                     outgoing.clear()
                     render()
-                    setStatus("🔌 চাপ দিয়ে sheet bind করো — কোনো routing binding নেই")
+                    setStatus("Tap 🔌 to bind a sheet — no routing binding yet")
                     return@launch
                 }
                 // Fetch rows per bound sheet (parallel), then classify.
@@ -262,9 +262,9 @@ class RoutingApprovalFragment : Fragment() {
                 render()
                 val missCount = parcels.count { !it.foundInFirebase }
                 setStatus(
-                    if (parcels.isEmpty()) "Sheet খালি — এই branch-এর কোনো row নেই"
+                    if (parcels.isEmpty()) "Sheet is empty — no rows for this branch"
                     else "✓ ${incoming.size} incoming • ${outgoing.size} outgoing" +
-                        if (missCount > 0) " • $missCount টি Firebase-এ নেই" else ""
+                        if (missCount > 0) " • $missCount not in Firebase" else ""
                 )
             } catch (e: Exception) {
                 if (!isAdded) return@launch
@@ -380,7 +380,7 @@ class RoutingApprovalFragment : Fragment() {
         val ctx = requireContext()
         val branches = myBranchIds
         if (branches.isEmpty()) {
-            Toast.makeText(ctx, "কোনো branch assigned নেই", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, "No branch assigned", Toast.LENGTH_SHORT).show()
             return
         }
         lifecycleScope.launch {
@@ -418,7 +418,7 @@ class RoutingApprovalFragment : Fragment() {
                 libs = withContext(Dispatchers.IO) { reloadLibs(branchId) }
                 if (!isAdded) return
                 spLib.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
-                    if (libs.isEmpty()) listOf("— কোনো library নেই —")
+                    if (libs.isEmpty()) listOf("— no library —")
                     else libs.map { it.nickname.ifBlank { it.sheetName }.ifBlank { it.libraryId } })
             }
             spBranch.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
@@ -490,7 +490,7 @@ class RoutingApprovalFragment : Fragment() {
                 val branchId = branches.getOrNull(bi)
                 val lib = libs.getOrNull(li)
                 if (branchId.isNullOrBlank() || lib == null) {
-                    Toast.makeText(ctx, "Branch + library বেছে নিন", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "Select branch + library", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 lifecycleScope.launch {
@@ -531,7 +531,7 @@ class RoutingApprovalFragment : Fragment() {
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
                 val b = currentBinding
                 if (b == null) {
-                    Toast.makeText(ctx, "Delete করার মতো binding নেই", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "No binding to delete", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 lifecycleScope.launch {
@@ -574,8 +574,8 @@ class RoutingApprovalFragment : Fragment() {
         val list = if (tab == "incoming") incoming else outgoing
         if (list.isEmpty()) {
             box.addView(TextView(ctx).apply {
-                text = if (tab == "incoming") "Ajke kono incoming parcel nei"
-                else "Ajke kono outgoing parcel nei"
+                text = if (tab == "incoming") "No incoming parcels today"
+                else "No outgoing parcels today"
                 textSize = 13f
                 gravity = Gravity.CENTER
                 setTextColor(Color.parseColor("#9CA3AF"))
@@ -643,7 +643,7 @@ class RoutingApprovalFragment : Fragment() {
         metaLine("💰 COD ৳${parcel.cod}" +
             if (parcel.fbStatus.isNotBlank()) " • ${parcel.fbStatus}" else "")
         if (parcel.confirm.isNotBlank()) metaLine("📋 Sheet: ${parcel.confirm}")
-        if (!parcel.foundInFirebase) metaLine("⚠ Firebase-এ পাওয়া যায়নি — sheet ID মাত্র")
+        if (!parcel.foundInFirebase) metaLine("⚠ Not in Firebase — sheet ID only")
 
         if (isIncoming) {
             val btnRow = LinearLayout(ctx).apply {
@@ -668,7 +668,7 @@ class RoutingApprovalFragment : Fragment() {
             card.addView(btnRow)
         } else {
             card.addView(TextView(ctx).apply {
-                text = "Receiving branch (${parcel.toBranchName.ifBlank { "?" }}) approve korbe"
+                text = "Receiving branch (${parcel.toBranchName.ifBlank { "?" }}) will approve"
                 textSize = 11f
                 setTextColor(Color.parseColor("#9CA3AF"))
                 setPadding(0, dp(8), 0, 0)

@@ -449,7 +449,7 @@ class ConfigConnectorsFragment : Fragment() {
 
         // ── 📚 Libraries: full cards with per-sheet Used-by summary ──
         if (libraries.isNotEmpty()) {
-            sectionHeader("📚 Sheet library (${libraries.size}) — kon sheet kothay use hocche")
+            sectionHeader("📚 Sheet library (${libraries.size}) — where each sheet is used")
             libraries.forEach { conn ->
                 val card = android.widget.LinearLayout(ctx).apply {
                     orientation = android.widget.LinearLayout.VERTICAL
@@ -465,7 +465,7 @@ class ConfigConnectorsFragment : Fragment() {
                     gravity = android.view.Gravity.CENTER_VERTICAL
                 }
                 val title = TextView(ctx).apply {
-                    text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(নাম নেই)" } }
+                    text = conn.nickname.ifBlank { conn.sheetName.ifBlank { "(no name)" } }
                     textSize = 15f
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                     setTextColor(ctx.getColor(R.color.theme_text_primary))
@@ -492,8 +492,8 @@ class ConfigConnectorsFragment : Fragment() {
                 val rangeStart = ConfigSheetParseUtil.colIndexToLetter(libRange.effectiveColStart())
                 val rangeEnd = ConfigSheetParseUtil.colIndexToLetter(libRange.effectiveColEnd())
                 val colsLine = "header ${libRange.resolvedHeaderRow()} • " +
-                    "$rangeStart–$rangeEnd (${libRange.effectiveColEnd() - libRange.effectiveColStart() + 1}টি) • " +
-                    "data row ${libRange.effectiveDataStartRow()} থেকে"
+                    "$rangeStart–$rangeEnd (${libRange.effectiveColEnd() - libRange.effectiveColStart() + 1} cols) • " +
+                    "data row from ${libRange.effectiveDataStartRow()}"
                 // Used-by: every binding on this sheet in one place.
                 val scannerBinding = branchScannerBindings.firstOrNull { it.libraryId == conn.connectionId }
                 val ccBinding = branchCcBindings.firstOrNull { it.libraryId == conn.connectionId }
@@ -556,7 +556,7 @@ class ConfigConnectorsFragment : Fragment() {
         val ctx = context ?: return
         android.app.AlertDialog.Builder(ctx)
             .setTitle("Delete connection?")
-            .setMessage("\"${conn.nickname.ifBlank { conn.sheetName }}\" মুছে ফেলা হবে। এটা undo করা যাবে না।")
+            .setMessage("\"${conn.nickname.ifBlank { conn.sheetName }}\" will be deleted. This cannot be undone.")
             .setPositiveButton("Delete") { _, _ ->
                 viewLifecycleOwner.lifecycleScope.launch {
                     val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
@@ -605,12 +605,12 @@ class ConfigConnectorsFragment : Fragment() {
         val headerRow = collectHeaderRow()
         val s = collectColStart()
         if (s == null || s < 1) {
-            if (loud) showScErr("শুরুর column দিন (A বা 1)")
+            if (loud) showScErr("Enter a start column (A or 1)")
             return null
         }
         val e = collectColEnd()
         if (e == null || e < s) {
-            if (loud) showScErr("শেষ column দিন (${ConfigSheetParseUtil.colIndexToLetter(s)} বা $s থেকে বড়)")
+            if (loud) showScErr("Enter an end column (${ConfigSheetParseUtil.colIndexToLetter(s)} or larger than $s)")
             return null
         }
         return RangeSel(headerRow, s, e, collectDataStart(headerRow))
@@ -621,8 +621,8 @@ class ConfigConnectorsFragment : Fragment() {
         val s = collectColStart()
         val e = collectColEnd()
         if (s == null || s < 1 || e == null || e < s) {
-            tvScRangePreview?.text = "⚠ Column range দিন (A → K বা 1 → 11)"
-            tvScSummary?.text = "Header + column range + data row ঠিক করুন।"
+            tvScRangePreview?.text = "⚠ Enter a column range (A → K or 1 → 11)"
+            tvScSummary?.text = "Fix header + column range + data row."
             return
         }
         val startLetter = ConfigSheetParseUtil.colIndexToLetter(s)
@@ -630,10 +630,10 @@ class ConfigConnectorsFragment : Fragment() {
         val count = e - s + 1
         val dataStart = collectDataStart(headerRow)
         tvScRangePreview?.text =
-            "Columns: $startLetter ($s) – $endLetter ($e)  ·  মোট $count টি"
+            "Columns: $startLetter ($s) – $endLetter ($e)  ·  $count total"
         tvScSummary?.text =
-            "📚 Library: header row $headerRow • columns $startLetter–$endLetter (${count}টি) • data row $dataStart থেকে। " +
-                "Kon column-e ki jabe সেটা fragment-এর 🔌 থেকে ঠিক হবে।"
+            "📚 Library: header row $headerRow • columns $startLetter–$endLetter (${count} cols) • data row from $dataStart. " +
+                "Which column goes where is set from the fragment\u2019s socket."
     }
 
     /** Step-1 dropdowns: Branch + Fragment (extensible via SheetPurpose.ALL).
@@ -738,20 +738,20 @@ class ConfigConnectorsFragment : Fragment() {
 
     /** Normalized scope from the Step-1 inputs, or null (error already shown). */
     private fun collectScope(): ScopeSel? {
-        if (!SheetScope.isKnown(connScopeType)) { showScErr("Scope বেছে নিন"); return null }
+        if (!SheetScope.isKnown(connScopeType)) { showScErr("Select a scope"); return null }
         if (connScopeType == SheetScope.MONTH) {
             val month = (spinnerScScopeMonth?.selectedItemPosition ?: 0) + 1
             val year = etScScopeYear?.text?.toString()?.trim()?.toIntOrNull()
-            if (year == null || year !in 2000..2100) { showScErr("Year ঠিক দিন (2000–2100)"); return null }
+            if (year == null || year !in 2000..2100) { showScErr("Enter a valid year (2000–2100)"); return null }
             val norm = SheetScope.normMonth("%04d-%02d".format(year, month))
-                ?: run { showScErr("Month ঠিক নেই"); return null }
+                ?: run { showScErr("Invalid month"); return null }
             return ScopeSel(connScopeType, norm, "", "")
         }
         if (connScopeType == SheetScope.RANGE) {
             val from = SheetScope.normDay(etScScopeFrom?.text?.toString().orEmpty())
-                ?: run { showScErr("From date ঠিক দিন (yyyy-MM-dd)"); return null }
+                ?: run { showScErr("Enter a valid from date (yyyy-MM-dd)"); return null }
             val to = SheetScope.normDay(etScScopeTo?.text?.toString().orEmpty())
-                ?: run { showScErr("To date ঠিক দিন (yyyy-MM-dd)"); return null }
+                ?: run { showScErr("Enter a valid to date (yyyy-MM-dd)"); return null }
             if (from > to) { showScErr("From date To date-er pore hote parbena"); return null }
             return ScopeSel(connScopeType, "", from, to)
         }
@@ -800,7 +800,7 @@ class ConfigConnectorsFragment : Fragment() {
         etScColStart?.setText("A")
         etScColEnd?.setText("K")
         etScDataStart?.setText("2")
-        tvScSelectedSheet?.text = "— Sheet বেছে নিন —"
+        tvScSelectedSheet?.text = "— Select a sheet —"
         enterWizard()
     }
 
@@ -834,7 +834,7 @@ class ConfigConnectorsFragment : Fragment() {
         etScColStart?.setText(ConfigSheetParseUtil.colIndexToLetter(libRange.effectiveColStart()))
         etScColEnd?.setText(ConfigSheetParseUtil.colIndexToLetter(libRange.effectiveColEnd()))
         etScDataStart?.setText(libRange.effectiveDataStartRow().toString())
-        tvScSelectedSheet?.text = conn.sheetName.ifBlank { "— Sheet বেছে নিন —" }
+        tvScSelectedSheet?.text = conn.sheetName.ifBlank { "— Select a sheet —" }
         enterWizard()
     }
 
@@ -859,14 +859,14 @@ class ConfigConnectorsFragment : Fragment() {
     private fun attemptGoToStep(target: Int) {
         when (connectStep) {
             1 -> {
-                if (wizardBranchId.isBlank()) { showScErr("Branch বেছে নিন"); return }
+                if (wizardBranchId.isBlank()) { showScErr("Select a branch"); return }
                 if (collectScope() == null) return
-                if (googleAccount == null) { showScErr("প্রথমে Google account select করুন"); return }
+                if (googleAccount == null) { showScErr("Select a Google account first"); return }
             }
-            2 -> if (selectedSheet == null) { showScErr("একটি Sheet বেছে নিন"); return }
+            2 -> if (selectedSheet == null) { showScErr("Select a sheet"); return }
             3 -> {
                 if (collectTabPattern().isBlank()) {
-                    showScErr("Tab name দিন (type অনুযায়ী text/token)"); return
+                    showScErr("Enter a tab name (text/token by type)"); return
                 }
             }
         }
@@ -961,7 +961,7 @@ class ConfigConnectorsFragment : Fragment() {
     private fun pickGoogleAccount() {
         val client = googleSignInClient
         if (client == null) {
-            showScErr("Google Sign-In শুরু করা যায়নি" + (initError?.let { ": $it" } ?: ""))
+            showScErr("Google Sign-In failed to start" + (initError?.let { ": $it" } ?: ""))
             return
         }
         // Sign out first — otherwise Google Sign-In silently reuses whatever account is
@@ -1049,10 +1049,10 @@ class ConfigConnectorsFragment : Fragment() {
     }
 
     private fun showSheetPicker() {
-        if (googleAccount == null) { showScErr("প্রথমে Google account select করুন"); return }
+        if (googleAccount == null) { showScErr("Select a Google account first"); return }
         val ctx = context ?: return
         if (availableSheets.isEmpty()) {
-            Toast.makeText(ctx, "Sheet লোড হচ্ছে, একটু অপেক্ষা করুন", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, "Loading sheet, please wait", Toast.LENGTH_SHORT).show()
             loadSheetsForAccount()
             return
         }
@@ -1065,7 +1065,7 @@ class ConfigConnectorsFragment : Fragment() {
     }
 
     private fun updateSheetLabel() {
-        tvScSelectedSheet?.text = selectedSheet?.name ?: "— Sheet বেছে নিন —"
+        tvScSelectedSheet?.text = selectedSheet?.name ?: "— Select a sheet —"
         tvScSelectedSheet?.setTextColor(
             context?.getColor(
                 if (selectedSheet != null) R.color.theme_text_primary else R.color.theme_text_secondary
@@ -1178,7 +1178,7 @@ class ConfigConnectorsFragment : Fragment() {
     private fun updateTabPreview() {
         val pattern = collectTabPattern().ifBlank { "Day {dd}" }
         val resolved = ScannerSheetRepository.resolveTabName(pattern)
-        tvScTabPreview?.text = "আজকের Tab নাম হবে:  \"$resolved\""
+        tvScTabPreview?.text = "Today's tab will be:  \"$resolved\""
     }
 
     // ── Step 1: scope date pickers (calendar view, yyyy-MM-dd) ──────────────
@@ -1215,9 +1215,9 @@ class ConfigConnectorsFragment : Fragment() {
     private fun saveConnection() {
         val sheet = selectedSheet
         val acct  = googleAccount
-        if (sheet == null || acct == null) { showScErr("Account এবং Sheet select করা আবশ্যক"); return }
+        if (sheet == null || acct == null) { showScErr("Account and sheet selection is required"); return }
         val saveBranchId = wizardBranchId.ifBlank { selectedBranchId }
-        if (saveBranchId.isBlank()) { showScErr("Branch বেছে নিন (Step 1)"); return }
+        if (saveBranchId.isBlank()) { showScErr("Select a branch (Step 1)"); return }
         val scope = collectScope() ?: return
         val scopeType = scope.type
         val scopeMonth = scope.month
@@ -1303,7 +1303,7 @@ class ConfigConnectorsFragment : Fragment() {
     private fun previewRules() {
         val sheet = selectedSheet
         val acct = googleAccount
-        if (sheet == null || acct == null) { showScErr("Account এবং Sheet select করা আবশ্যক"); return }
+        if (sheet == null || acct == null) { showScErr("Account and sheet selection is required"); return }
         val range = collectRange(loud = true) ?: return
         val tab = ScannerSheetRepository.resolveTabName(
             collectTabPattern().ifBlank { "Day {dd}" })
@@ -1311,11 +1311,11 @@ class ConfigConnectorsFragment : Fragment() {
         scrollScRulePreview?.visibility = View.GONE
         tableScRulePreview?.removeAllViews()
         tvScRulePreview?.visibility = View.VISIBLE
-        tvScRulePreview?.text = "⏳ Preview আনছে..."
+        tvScRulePreview?.text = "⏳ Loading preview..."
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val token = fetchAccessToken() ?: run {
-                    if (isAdded) tvScRulePreview?.text = "⚠ Token পাওয়া যায়নি"
+                    if (isAdded) tvScRulePreview?.text = "⚠ Token unavailable"
                     return@launch
                 }
                 // Header row + 5 data rows after it, clipped to the range.
@@ -1341,12 +1341,12 @@ class ConfigConnectorsFragment : Fragment() {
                 }
                 if (!isAdded) return@launch
                 if (rows.isEmpty()) {
-                    tvScRulePreview?.text = "⚠ Tab '$tab'-এ row $headerRow থেকে data নেই"
+                    tvScRulePreview?.text = "⚠ Tab '$tab' has no data from row $headerRow"
                     return@launch
                 }
                 tvScRulePreview?.text =
                     "Tab '$tab' • header row $headerRow • $startLetter–$endLetter • " +
-                        "data row ${range.dataStart} থেকে"
+                        "data row from ${range.dataStart}"
                 // Table: letter header + fetched rows (first = header row tint).
                 renderPreviewTable(rows, range.colStart, range.colEnd)
                 scrollScRulePreview?.visibility = View.VISIBLE

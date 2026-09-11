@@ -31,7 +31,7 @@ internal fun ConfigSheetFragment.renderManagePanel() {
 
     tvOvSheet?.text = conn.sheetName
     tvOvTab?.text   = conn.tabName
-    tvOvCols?.text  = "${conn.columns.firstOrNull() ?: "A"}–${conn.columns.lastOrNull() ?: "J"} (${conn.columns.size}টি)"
+    tvOvCols?.text  = "${conn.columns.firstOrNull() ?: "A"}–${conn.columns.lastOrNull() ?: "J"} (${conn.columns.size} cols)"
     tvColPreviewMgr?.text = "${conn.columns.firstOrNull() ?: "A"} → ${conn.columns.lastOrNull() ?: "J"}  (${conn.columns.size} columns)"
     if (activeManageTab == "columns") fetchManageColPreview()
 }

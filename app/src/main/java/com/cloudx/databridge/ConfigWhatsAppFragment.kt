@@ -35,7 +35,7 @@ class ConfigWhatsAppFragment : Fragment() {
     private lateinit var tvBusy:                 TextView
 
     private val placeholderHint =
-        "ব্যবহারযোগ্য placeholder: {name} {phone} {address} {cod} {consignmentId} {hub}"
+        "Available placeholders: {name} {phone} {address} {cod} {consignmentId} {hub}"
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_config_whatsapp, container, false)
@@ -94,7 +94,7 @@ class ConfigWhatsAppFragment : Fragment() {
             val row = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_whatsapp_template, templateListContainer, false)
 
-            row.findViewById<TextView>(R.id.tvTemplateName).text = t.name.ifBlank { "(নাম নেই)" }
+            row.findViewById<TextView>(R.id.tvTemplateName).text = t.name.ifBlank { "(no name)" }
             row.findViewById<TextView>(R.id.tvTemplateBody).text = t.body
 
             row.findViewById<View>(R.id.btnEditTemplate).setOnClickListener { openEditDialog(t) }
@@ -115,7 +115,7 @@ class ConfigWhatsAppFragment : Fragment() {
         }
 
         val etName = EditText(ctx).apply {
-            hint = "Template নাম (e.g. Delivery Confirmation)"
+            hint = "Template name (e.g. Delivery Confirmation)"
             textSize = 13f
             setPadding(dp(10), dp(10), dp(10), dp(10))
             background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
@@ -132,7 +132,7 @@ class ConfigWhatsAppFragment : Fragment() {
         }
 
         val etBody = EditText(ctx).apply {
-            hint = "যেমন: প্রিয় {name}, আপনার পার্সেল {consignmentId} ডেলিভারির জন্য প্রস্তুত।"
+            hint = "e.g. Dear {name}, your parcel {consignmentId} is ready for delivery."
             textSize = 13f
             minLines = 4
             gravity = android.view.Gravity.TOP
@@ -146,10 +146,10 @@ class ConfigWhatsAppFragment : Fragment() {
         layout.addView(etBody)
 
         val dialog = AlertDialog.Builder(ctx)
-            .setTitle("নতুন WhatsApp Template")
+            .setTitle("New WhatsApp template")
             .setView(layout)
-            .setNegativeButton("বাতিল", null)
-            .setPositiveButton("তৈরি করুন", null)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Create", null)
             .create()
 
         dialog.setOnShowListener {
@@ -157,7 +157,7 @@ class ConfigWhatsAppFragment : Fragment() {
                 val name = etName.text.toString().trim()
                 val body = etBody.text.toString().trim()
                 if (name.isEmpty() || body.isEmpty()) {
-                    Toast.makeText(ctx, "নাম ও message body দুটোই দিন", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "Enter both a name and a message body", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 dialog.dismiss()
@@ -213,14 +213,14 @@ class ConfigWhatsAppFragment : Fragment() {
         layout.addView(etBody)
 
         AlertDialog.Builder(ctx)
-            .setTitle("Template Edit করুন")
+            .setTitle("Edit template")
             .setView(layout)
-            .setNegativeButton("বাতিল", null)
+            .setNegativeButton("Cancel", null)
             .setPositiveButton("Save") { _, _ ->
                 val name = etName.text.toString().trim()
                 val body = etBody.text.toString().trim()
                 if (name.isEmpty() || body.isEmpty()) {
-                    Toast.makeText(ctx, "নাম ও message body দুটোই দিন", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "Enter both a name and a message body", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
                 updateTemplate(template.id, name, body)
@@ -230,9 +230,9 @@ class ConfigWhatsAppFragment : Fragment() {
 
     private fun openDeleteDialog(template: ConfigState.WhatsAppTemplate) {
         AlertDialog.Builder(requireContext())
-            .setTitle("Template Delete করবেন?")
-            .setMessage("\"${template.name}\" — এই template কোনো remark-এর সাথে link করা থাকলে সেই link-ও কাজ করবে না।")
-            .setNegativeButton("বাতিল", null)
+            .setTitle("Delete template?")
+            .setMessage("\"${template.name}\" — if this template is linked to any remark, that link will stop working.")
+            .setNegativeButton("Cancel", null)
             .setPositiveButton("Delete") { _, _ -> deleteTemplate(template.id) }
             .show()
     }

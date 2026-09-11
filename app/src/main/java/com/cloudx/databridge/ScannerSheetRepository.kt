@@ -270,13 +270,13 @@ object ScannerSheetRepository {
             val headerRow = conn.resolvedHeaderRow()
             // Scanner rules: lookup kind=employee, write kind=value.
             val lookupRule = conn.effectiveScannerLookup()
-                ?: return@withContext WriteResult.Failure("এই connection-এ lookup rule নেই")
+                ?: return@withContext WriteResult.Failure("this connection has no lookup rule")
             val writeRule = conn.effectiveScannerWrite()
-                ?: return@withContext WriteResult.Failure("এই connection-এ write rule নেই")
+                ?: return@withContext WriteResult.Failure("this connection has no write rule")
             val matchLetter = resolveRuleLetter(accessToken, conn.sheetId, tabName, lookupRule, headerRow)
-                ?: return@withContext WriteResult.Failure("lookup column '${lookupRule.colRef.trim()}' পাওয়া যায়নি")
+                ?: return@withContext WriteResult.Failure("lookup column '${lookupRule.colRef.trim()}' not found")
             val writeLetter = resolveRuleLetter(accessToken, conn.sheetId, tabName, writeRule, headerRow)
-                ?: return@withContext WriteResult.Failure("write column '${writeRule.colRef.trim()}' পাওয়া যায়নি")
+                ?: return@withContext WriteResult.Failure("write column '${writeRule.colRef.trim()}' not found")
 
             val matchValues = ConfigSheetDriveApi.fetchColumnValues(
                 accessToken, conn.sheetId, tabName, matchLetter, httpClient

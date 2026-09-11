@@ -167,7 +167,7 @@ class PettyCashMyRequestsFragment : Fragment() {
     private fun showClaimsRangePicker() {
         val options = arrayOf("This Month", "Last Month", "Last 7 Days", "Last 30 Days", "All Time", "Custom Range")
         android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Date Range বেছে নিন")
+            .setTitle("Select date range")
             .setItems(options) { _, which ->
                 val cal = java.util.Calendar.getInstance()
                 when (which) {
@@ -225,7 +225,7 @@ class PettyCashMyRequestsFragment : Fragment() {
                     add(java.util.Calendar.DAY_OF_YEAR, 1) // inclusive end date
                 }
                 if (to.timeInMillis <= from.timeInMillis) {
-                    android.widget.Toast.makeText(requireContext(), "End date শুরুর তারিখের আগে হতে পারবে না", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(requireContext(), "End date cannot be before start date", android.widget.Toast.LENGTH_SHORT).show()
                     return@DatePickerDialog
                 }
                 claimsRangeStart = from.timeInMillis

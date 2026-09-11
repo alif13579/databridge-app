@@ -103,7 +103,7 @@ async function notificationDetails(row: { consignment: string; author_system_id:
   const author = typeof authorProfile?.name === 'string' && authorProfile.name.trim() ? authorProfile.name.trim() : 'Agent'
   const customer = typeof parcel?.recipientName === 'string' && parcel.recipientName.trim() ? parcel.recipientName.trim() : row.consignment
   const attempt = Number(parcel?.attempt) || 0
-  const base = (await resolveRemarkBn(row.source, row.remarks)) || 'নতুন রিমার্ক এসেছে'
+  const base = (await resolveRemarkBn(row.source, row.remarks)) || 'New remark arrived'
   return {
     title: `${author} — ${customer}`,
     body: `${base}\n📅 ${ageLabel(parcel?.createdAt, parcel?.updatedAt)}  •  🔁 ${attempt} attempt${attempt === 1 ? '' : 's'}`,

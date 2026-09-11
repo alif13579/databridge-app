@@ -76,13 +76,13 @@ object CrashReporter {
         }
         val scroll = android.widget.ScrollView(activity).apply { addView(tv) }
         android.app.AlertDialog.Builder(activity)
-            .setTitle("App crash হয়েছিল — log (auto-copied ✓)")
+            .setTitle("App crashed — log (auto-copied ✓)")
             .setView(scroll)
             .setPositiveButton("Copy again") { _, _ ->
                 if (copyToClipboard(activity, text)) {
-                    android.widget.Toast.makeText(activity, "Copied — chat-এ paste করে দিন", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(activity, "Copied — paste it into the chat", android.widget.Toast.LENGTH_SHORT).show()
                 } else {
-                    android.widget.Toast.makeText(activity, "⚠ Copy failed — text select করে manually copy করুন", android.widget.Toast.LENGTH_LONG).show()
+                    android.widget.Toast.makeText(activity, "⚠ Copy failed — select the text and copy manually", android.widget.Toast.LENGTH_LONG).show()
                 }
             }
             .setNeutralButton("Clear") { _, _ ->
@@ -94,9 +94,9 @@ object CrashReporter {
         // success toast, but nothing in the clipboard on some devices), so paste
         // must work even if the user never taps anything.
         if (copyToClipboard(activity, text)) {
-            android.widget.Toast.makeText(activity, "Crash log auto-copied — chat-এ paste করে দিন", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(activity, "Crash log auto-copied — paste it into the chat", android.widget.Toast.LENGTH_LONG).show()
         } else {
-            android.widget.Toast.makeText(activity, "⚠ Auto-copy failed — Copy again চাপুন বা select করে copy করুন", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(activity, "⚠ Auto-copy failed — tap Copy again or select and copy", android.widget.Toast.LENGTH_LONG).show()
         }
         return true
     }

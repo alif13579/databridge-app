@@ -422,7 +422,7 @@ class EmployeeFragment : Fragment() {
                 if (supabaseBranches.isEmpty() && branchSnap == null && isAdded) {
                     // Both sources failed — say so instead of silently showing raw ids.
                     Toast.makeText(requireContext(),
-                        "⚠ Branch names load হয়নি (${branchLoadError.ifBlank { "network error" }}) — ids দেখাচ্ছে",
+                        "⚠ Branch names failed to load (${branchLoadError.ifBlank { "network error" }}) — showing ids",
                         Toast.LENGTH_LONG).show()
                 }
                 val salariesSnap = runCatching {

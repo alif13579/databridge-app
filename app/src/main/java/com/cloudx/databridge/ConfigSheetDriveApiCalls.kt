@@ -53,7 +53,7 @@ internal fun ConfigSheetFragment.fetchDriveSpreadsheets(accessToken: String) =
     ConfigSheetDriveApi.fetchDriveSpreadsheets(accessToken, httpClient)
 
 internal fun ConfigSheetFragment.updateSheetPickerLabel() {
-    tvSelectedSheet?.text = selectedSheet?.name ?: "— Sheet বেছে নিন —"
+    tvSelectedSheet?.text = selectedSheet?.name ?: "— Select a sheet —"
     tvSelectedSheet?.setTextColor(
         android.graphics.Color.parseColor(if (selectedSheet != null) "#111827" else "#6B7280")
     )
@@ -62,7 +62,7 @@ internal fun ConfigSheetFragment.updateSheetPickerLabel() {
 internal fun ConfigSheetFragment.openSheetPickerDialog() {
     val ctx = context ?: return
     if (availableSheets.isEmpty()) {
-        toast("Sheet লোড হচ্ছে, একটু অপেক্ষা করুন")
+        toast("Loading sheet, please wait")
         return
     }
     SheetPickerDialog.show(ctx, availableSheets, selectedSheet) { sheet ->
@@ -109,7 +109,7 @@ internal fun ConfigSheetFragment.fetchSheetTabs(accessToken: String, sheetId: St
 
 internal fun ConfigSheetFragment.updateTabSpinner() {
     val ctx = context ?: return
-    val opts = listOf("— Tab বেছে নিন —") + availableTabs
+    val opts = listOf("— Select a tab —") + availableTabs
     spinnerTab?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
     val sel = availableTabs.indexOf(selectedTab)
     if (sel >= 0) spinnerTab?.setSelection(sel + 1) else spinnerTab?.setSelection(0)

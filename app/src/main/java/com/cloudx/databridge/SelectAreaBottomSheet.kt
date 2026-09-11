@@ -161,7 +161,7 @@ class SelectAreaBottomSheet : BottomSheetDialogFragment() {
 
         if (list.isEmpty()) {
             listContainer.addView(TextView(ctx).apply {
-                text = "কোনো area পাওয়া যায়নি"
+                text = "No area found"
                 textSize = 12f
                 gravity = Gravity.CENTER
                 setTextColor(ctx.getColor(R.color.theme_text_secondary))

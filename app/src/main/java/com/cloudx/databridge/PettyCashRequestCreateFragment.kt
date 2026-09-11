@@ -169,7 +169,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             when {
                 code.isNullOrBlank() -> Toast.makeText(requireContext(), "No code found", Toast.LENGTH_SHORT).show()
                 code.length != ScannerFragment.TRACKING_ID_LENGTH ->
-                    Toast.makeText(requireContext(), "⚠ আপনার স্ক্যান সঠিক নয়। পুনরায় স্ক্যান করুন।", Toast.LENGTH_LONG).show()
+                    Toast.makeText(requireContext(), "⚠ Invalid scan. Please scan again.", Toast.LENGTH_LONG).show()
                 else -> {
                     etConsignmentId.setText(code)
                     etConsignmentId.setSelection(code.length)
@@ -749,7 +749,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                 if (!isAdded) return@addOnCompleteListener
                 val cons = if (task.isSuccessful) task.result?.value as? Map<*, *> else null
                 if (cons == null) {
-                    tvConsignmentPreview.text = "⚠ এই ID-তে কোনো consignment পাওয়া যায়নি"
+                    tvConsignmentPreview.text = "⚠ No consignment found for this ID"
                     layoutConsignmentPreview.isVisible = true
                     return@addOnCompleteListener
                 }

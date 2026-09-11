@@ -97,8 +97,8 @@ object ScannerSheetBindingDialog {
         root.addView(stepLabel("② Mapping (scan save)"))
         root.addView(mappingBox)
         root.addView(summaryView)
-        root.addView(stepLabel("③ ফিল্টার (write)"))
-        root.addView(label("লজিক"))
+        root.addView(stepLabel("③ Filters (write)"))
+        root.addView(label("Logic"))
         root.addView(ignoreLogicSpinner)
         root.addView(ignoreBox)
         root.addView(ignoreSummaryView)
@@ -110,7 +110,7 @@ object ScannerSheetBindingDialog {
         var bindings: List<ScannerBinding> = emptyList()
         var currentBinding: ScannerBinding? = null
         fun fieldAdapter(fields: List<String>): ArrayAdapter<String> {
-            val labels = listOf("— field বেছে নিন —") + fields.map { ScannerField.label(it) }
+            val labels = listOf("— select a field —") + fields.map { ScannerField.label(it) }
             return ArrayAdapter(ctx, android.R.layout.simple_spinner_item, labels)
                 .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
         }
@@ -154,8 +154,8 @@ object ScannerSheetBindingDialog {
             val l = mapSummary(lookupMapRows, ScannerField.LOOKUP_FIELDS, " + ")
             val w = mapSummary(writeMapRows, ScannerField.WRITE_FIELDS, ", ")
             summaryView.text = when {
-                l.isBlank() || w.isBlank() -> "↳ + Add diye lookup + write row যোগ করুন।"
-                else -> "✅ $l মিলিয়ে row খুঁজে $w বসবে।"
+                l.isBlank() || w.isBlank() -> "↳ Add lookup + write rows with + Add."
+                else -> "✅ Finds the row matching $l, writes $w."
             }
         }
 
@@ -313,8 +313,8 @@ object ScannerSheetBindingDialog {
         fun refreshIgnoreSummary() {
             val n = ignoreRows.size
             val logic = if (ignoreLogicSpinner.selectedItemPosition == 1) "ALL" else "ANY"
-            ignoreSummaryView.text = if (n == 0) "🔍 Filter nei — sob matched row cholbe"
-            else "🔍 $n filter • $logic — pass korle row-te likhbe"
+            ignoreSummaryView.text = if (n == 0) "🔍 No filter — all matched rows apply"
+            else "🔍 $n filter(s) • $logic — matching rows will be written"
         }
 
         fun pickFilterDate(target: EditText) {
@@ -396,13 +396,13 @@ object ScannerSheetBindingDialog {
                 })
             }
             val autoLbl = TextView(ctx).apply {
-                text = "📅 আজকের তারিখ (auto)"
+                text = "📅 Today's date (auto)"
                 textSize = 12f
                 setTextColor(ctx.getColor(R.color.theme_text_secondary))
                 setPadding(0, 4, 0, 4)
             }
             val btnDate = Button(ctx).apply {
-                text = "📅 তারিখ বাছুন"
+                text = "📅 Pick a date"
                 setOnClickListener { pickFilterDate(etVal) }
             }
             fun currentType() = CcValueType.ALL.getOrNull(spType.selectedItemPosition)
@@ -467,7 +467,7 @@ object ScannerSheetBindingDialog {
             ignoreBox.removeAllViews()
             ignoreRows.clear()
             ignoreLogicSpinner.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item,
-                listOf("ANY — একটা মিললেই চলবে", "ALL — সব মিলতে হবে"))
+                listOf("ANY — one match is enough", "ALL — all must match"))
                 .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
             ignoreLogicSpinner.setSelection(
                 if (currentBinding?.filterLogic == CcFilterLogic.AND) 1 else 0)
@@ -499,7 +499,7 @@ object ScannerSheetBindingDialog {
             writeMapRows.clear()
             val lib = selectedLibrary()
             if (lib == null) {
-                statusView.text = "এই branch-এ কোনো sheet library নেই — আগে Config → Connectors থেকে বানান।"
+                statusView.text = "No sheet library in this branch — create one from Config → Connectors first."
                 summaryView.text = ""
                 mapCols = emptyList()
                 currentLib = null
@@ -514,7 +514,7 @@ object ScannerSheetBindingDialog {
             // Columns come from the library RANGE + saved headers.
             mapCols = lib.columnLetters().map { SheetColRef(it, SheetColMode.INDEX) }
             if (mapCols.isEmpty()) {
-                statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}”-এ column range nei — library edit করে range দিন।"
+                statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}” has no column range — set a range in the library."
                 summaryView.text = ""
                 renderIgnoreSection()
                 dialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.isEnabled = false
@@ -524,7 +524,7 @@ object ScannerSheetBindingDialog {
             statusView.text = "“${lib.nickname.ifBlank { lib.sheetName }}” • Tab: ${lib.tabPattern}$boundTxt"
             lookupColAdapter = UsedAdapter(ctx, colLabels())
             writeColAdapter = UsedAdapter(ctx, colLabels())
-            mappingBox.addView(label("LOOKUP — + Add diye multiple criteria (sobgulo milte hobe)"))
+            mappingBox.addView(label("LOOKUP — + Add for multiple criteria (all must match)"))
             val lookupRowsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
             mappingBox.addView(lookupRowsBox)
             (currentBinding?.lookups.orEmpty()).forEach { m ->
@@ -552,7 +552,7 @@ object ScannerSheetBindingDialog {
         fun loadLibrariesAndBindings() {
             val branchId = selectedBranchId()
             if (branchId.isBlank()) return
-            statusView.text = "⏳ Library আসছে..."
+            statusView.text = "⏳ Loading library..."
             mappingBox.removeAllViews()
             summaryView.text = ""
             ignoreBox.removeAllViews()
@@ -565,12 +565,12 @@ object ScannerSheetBindingDialog {
                     libraries = libs
                     bindings = binds
                     val labels = libs.map {
-                        val base = it.nickname.ifBlank { it.sheetName.ifBlank { "(নাম নেই)" } }
+                        val base = it.nickname.ifBlank { it.sheetName.ifBlank { "(no name)" } }
                         if (it.enabled) "$base • ${it.sheetName}" else "$base • disabled"
                     }
                     librarySpinner.adapter = ArrayAdapter(
                         ctx, android.R.layout.simple_spinner_item,
-                        labels.ifEmpty { listOf("— কোনো library নেই —") }
+                        labels.ifEmpty { listOf("— no library —") }
                     ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
                     renderMapping()
                 }
@@ -595,7 +595,7 @@ object ScannerSheetBindingDialog {
             }
             withContext(Dispatchers.Main) {
                 if (branches.isEmpty()) {
-                    statusView.text = "কোনো branch assigned নেই।"
+                    statusView.text = "No branch assigned."
                     return@withContext
                 }
                 branchSpinner.adapter = ArrayAdapter(
@@ -638,7 +638,7 @@ object ScannerSheetBindingDialog {
                 val lookups = collect(lookupMapRows, ScannerField.LOOKUP_FIELDS)
                 val writes = collect(writeMapRows, ScannerField.WRITE_FIELDS)
                 if (lookups.isEmpty() || writes.isEmpty()) {
-                    Toast.makeText(ctx, "Lookup + Write অন্তত 1টা করে row যোগ করুন (+ Add)", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "Add at least 1 lookup + 1 write row (+ Add)", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 saveBtn.isEnabled = false
@@ -681,7 +681,7 @@ object ScannerSheetBindingDialog {
             dialog?.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
                 val existing = currentBinding
                 if (existing == null || existing.bindingId.isBlank()) {
-                    Toast.makeText(ctx, "মুছার মতো binding নেই", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "No binding to delete", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 scope.launch {

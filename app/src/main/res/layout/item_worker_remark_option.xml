@@ -25,7 +25,7 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:text="Customer কে parcel delivery করা হচ্ছে"
+        android:text="Delivering parcel to customer"
         android:textSize="12sp"
         android:textColor="@color/theme_text_remark_opt"
         android:maxLines="2"

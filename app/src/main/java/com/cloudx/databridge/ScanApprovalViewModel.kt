@@ -296,7 +296,7 @@ class ScanApprovalViewModel : ViewModel() {
         // connections are no longer read — convert them to libraries).
         val boundResult = writeViaBindings(appContext, branch, scan, employeeId)
         if (boundResult != null) return boundResult
-        enqueueRetry(branch, scan, "no scanner binding — Scanner 🔌 থেকে sheet bind করুন")
+        enqueueRetry(branch, scan, "no scanner binding — bind a sheet from the Scanner socket")
         return "no scanner binding"
     }
 

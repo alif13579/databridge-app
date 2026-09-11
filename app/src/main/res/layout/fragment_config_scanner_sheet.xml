@@ -27,7 +27,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Branch + fragment wise single / multiple Google Sheet connect বা manage করুন"
+                android:text="Connect or manage single / multiple Google Sheets per branch + fragment"
                 android:textSize="12sp"
                 android:textColor="@color/theme_text_secondary"
                 android:layout_marginBottom="16dp" />
@@ -86,7 +86,7 @@
                 android:id="@+id/tvScNoConnections"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="এই শাখার জন্য এখনো কোনো Sheet connect করা হয়নি।"
+                android:text="No sheet connected for this branch yet."
                 android:gravity="center"
                 android:padding="16dp"
                 android:textColor="@color/theme_text_muted"
@@ -98,7 +98,7 @@
             <Button android:id="@+id/btnScAddConnection"
                 android:layout_width="match_parent"
                 android:layout_height="46dp"
-                android:text="+ নতুন Sheet Connect করুন"
+                android:text="+ Connect new sheet"
                 android:textSize="13sp"
                 android:textStyle="bold"
                 android:backgroundTint="#E8380D"
@@ -303,7 +303,7 @@
                 </LinearLayout>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="আপনি কোনো একটি Google account select করুন"
+                    android:text="Select a Google account"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="6dp" />
             </LinearLayout>
 
@@ -320,7 +320,7 @@
                     <TextView android:id="@+id/tvScSelectedSheet"
                         android:layout_width="match_parent" android:layout_height="46dp"
                         android:background="@drawable/bg_input_rounded" android:padding="10dp"
-                        android:gravity="center_vertical" android:text="— Sheet বেছে নিন —"
+                        android:gravity="center_vertical" android:text="— Select a sheet —"
                         android:textSize="13sp" android:textColor="@color/theme_text_secondary"
                         android:clickable="true" android:focusable="true" />
                     <ProgressBar android:id="@+id/pbScSheetLoad"
@@ -330,7 +330,7 @@
                 </FrameLayout>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="আপনার Google Drive এর spreadsheet গুলো লিস্ট হবে"
+                    android:text="Your Google Drive spreadsheets will be listed"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="6dp" />
             </LinearLayout>
 
@@ -415,7 +415,7 @@
                     android:padding="10dp" android:layout_marginBottom="6dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Type বেছে নিন — preview-te ajker tab name dekhe lock করুন"
+                    android:text="Select a type — lock it after checking today\u2019s tab name in the preview"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="2dp" />
             </LinearLayout>
 
@@ -434,7 +434,7 @@
                     android:hint="1" android:inputType="number" android:maxLines="1"
                     android:layout_marginBottom="4dp" />
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Header text যেই row-তে থাকে (সাধারণত 1)"
+                    android:text="The row containing the header text (usually 1)"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"

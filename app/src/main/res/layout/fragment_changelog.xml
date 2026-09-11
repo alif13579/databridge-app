@@ -65,7 +65,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:text="এখনো কোনো changelog note যোগ করা হয়নি।"
+            android:text="No changelog notes added yet."
             android:textSize="13sp"
             android:textColor="@color/theme_text_secondary"
             android:visibility="gone" />

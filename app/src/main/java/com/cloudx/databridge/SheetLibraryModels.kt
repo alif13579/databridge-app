@@ -132,7 +132,7 @@ object ScannerField {
         SCAN_VALUE -> "Scan text"
         SCAN_AT -> "Scan time"
         AGENT_NAME -> "Agent name"
-        else -> field.ifBlank { "— field বেছে নিন —" }
+        else -> field.ifBlank { "— select a field —" }
     }
 
     /** Fields allowed on the lookup side (exact-trim match). */
@@ -165,7 +165,7 @@ object CcField {
         VALIDATOR_NAME -> "Validator name"
         CREATED_AT -> "Created at (date)"
         AUTHOR_NAME -> "Author name"
-        else -> field.ifBlank { "— field বেছে নিন —" }
+        else -> field.ifBlank { "— select a field —" }
     }
 
     /** Lookup side: everything except the scanner-only field. */
@@ -197,15 +197,15 @@ object CcFilterOp {
     const val LTE = "lte"             // cell <= value
     val ALL = listOf(BLANK, NOT_BLANK, EQUALS, NOT_EQUALS, GT, GTE, LT, LTE)
     fun label(op: String): String = when (op) {
-        BLANK -> "খালি হলে"
-        NOT_BLANK -> "ভরা থাকলে"
-        EQUALS -> "সমান হলে"
-        NOT_EQUALS -> "সমান না হলে"
-        GT -> "> বড় হলে"
-        GTE -> "≥ বড়/সমান হলে"
-        LT -> "< ছোট হলে"
-        LTE -> "≤ ছোট/সমান হলে"
-        else -> op.ifBlank { "— শর্ত —" }
+        BLANK -> "When empty"
+        NOT_BLANK -> "When filled"
+        EQUALS -> "When equal"
+        NOT_EQUALS -> "When not equal"
+        GT -> "When greater (>) "
+        GTE -> "When greater or equal (≥)"
+        LT -> "When smaller (<)"
+        LTE -> "When smaller or equal (≤)"
+        else -> op.ifBlank { "— condition —" }
     }
     fun needsValue(op: String): Boolean = when (op) {
         EQUALS, NOT_EQUALS, GT, GTE, LT, LTE -> true
@@ -221,9 +221,9 @@ object CcValueType {
     const val TODAY = "today"   // ajker date (auto, Dhaka)
     val ALL = listOf(TEXT, NUMBER, DATE, TODAY)
     fun label(t: String): String = when (t) {
-        NUMBER -> "সংখ্যা"
-        DATE -> "তারিখ"
-        TODAY -> "আজ (auto)"
+        NUMBER -> "Number"
+        DATE -> "Date"
+        TODAY -> "Today (auto)"
         else -> "লেখা"
     }
     fun isKnown(t: String): Boolean = t in ALL
@@ -404,18 +404,18 @@ data class CcBinding(
         return if (n > 0) "$base • $n filter" else base
     }
 
-    /** Human fetch summary: "B theke ID • K blank (AND)". */
+    /** Human fetch summary: "IDs from B • K blank (AND)". */
     fun fetchSummary(): String {
         val f = effectiveFilters()
-        if (fetchColRef.isBlank() && f.isEmpty()) return "default (range start, filter nei)"
+        if (fetchColRef.isBlank() && f.isEmpty()) return "default (range start, no filter)"
         val col = fetchColRef.trim().ifBlank { "range start" }
-        if (f.isEmpty()) return "$col theke ID • filter nei"
+        if (f.isEmpty()) return "IDs from $col • no filter"
         val logic = if (f.size > 1) " [${CcFilterLogic.label(filterLogic)}]" else ""
         val rules = f.joinToString(if (filterLogic == CcFilterLogic.OR) " OR " else " + ") {
             val v = if (CcFilterOp.needsValue(it.op)) " “${it.value.trim()}”" else ""
             "${it.colRef.trim()} ${CcFilterOp.label(it.op)}$v"
         }
-        return "$col theke ID • $rules$logic"
+        return "IDs from $col • $rules$logic"
     }
 
     /** Executor shape: field keys ARE kind strings, so the mirror runs

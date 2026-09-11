@@ -41,7 +41,7 @@ internal fun ConfigSheetFragment.showAddFieldDialog(editField: String? = null) {
         .values.map { it.col }
         .toSet()
     val headerOptions = sheetHeaders.map { (letter, text) ->
-        if (letter in usedByFlatFields) "✓ $letter: $text  (ব্যবহৃত)" else "$letter: $text"
+        if (letter in usedByFlatFields) "✓ $letter: $text  (used)" else "$letter: $text"
     }
 
     val root = android.widget.LinearLayout(ctx).apply {
@@ -172,7 +172,7 @@ internal fun ConfigSheetFragment.showAddFieldDialog(editField: String? = null) {
         dynamicContainer.addView(colDropdown)
 
         val fixedInput = EditText(ctx).apply {
-            hint = "Fixed value লিখুন"
+            hint = "Enter a fixed value"
             background = resources.getDrawable(R.drawable.bg_input_rounded, null)
             setPadding(10.dp(), 10.dp(), 10.dp(), 10.dp())
             textSize = 13f
@@ -214,7 +214,7 @@ internal fun ConfigSheetFragment.showAddFieldDialog(editField: String? = null) {
     val scrollWrap = android.widget.ScrollView(ctx).apply { addView(root) }
 
     android.app.AlertDialog.Builder(ctx)
-        .setTitle(if (isEdit) "Field Edit করুন" else "New Field যোগ করুন")
+        .setTitle(if (isEdit) "Edit field" else "Add new field")
         .setView(scrollWrap)
         .setPositiveButton("Save") { _, _ ->
             val name = etFieldName.text.toString().trim()
@@ -224,7 +224,7 @@ internal fun ConfigSheetFragment.showAddFieldDialog(editField: String? = null) {
 
             if (!isEdit) {
                 if (fetchedNodeKeys.contains(name) || customMappingFields.any { it.first == name }) {
-                    toast("⚠ এই field আগে থেকেই আছে")
+                    toast("⚠ This field already exists")
                     return@setPositiveButton
                 }
                 customMappingFields.add(name to name)
@@ -259,7 +259,7 @@ internal fun ConfigSheetFragment.showAddFieldDialog(editField: String? = null) {
                     if (letter.isNotBlank()) {
                         val usedElsewhere = pendingMapping.filterKeys { it != name }.values.map { it.col }.toSet()
                         if (letter in usedElsewhere) {
-                            toast("⚠ এই column আগে থেকেই অন্য field-এ ব্যবহৃত হয়েছে")
+                            toast("⚠ This column is already used by another field")
                             return@setPositiveButton
                         }
                         val headerText = sheetHeaders[letter] ?: ""
@@ -385,7 +385,7 @@ internal fun ConfigSheetFragment.renderPkBuilder() {
 
     if (pendingPkParts.isEmpty()) {
         val tvEmpty = TextView(ctx).apply {
-            text = "\"+ Add Part\" দিয়ে prefix/column যোগ করুন"
+            text = "Add prefix/column with \"+ Add Part\""
             textSize = 11f
             setTextColor(ctx.getColor(R.color.theme_text_muted))
             setPadding(0, 4.dp(), 0, 4.dp())
@@ -443,7 +443,7 @@ internal fun ConfigSheetFragment.renderPkBuilder() {
             layoutParams = android.widget.LinearLayout.LayoutParams(0, 40.dp(), 1f)
                 .apply { marginEnd = 6.dp() }
             adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item,
-                if (headerOptions.isEmpty()) listOf("— কোনো column নেই —") else headerOptions)
+                if (headerOptions.isEmpty()) listOf("— no columns —") else headerOptions)
             val idx = headerLetters.indexOf(part.value).coerceAtLeast(0)
             setSelection(idx)
             visibility = if (part.type == "col" || part.type == "date") View.VISIBLE else View.GONE
@@ -505,7 +505,7 @@ internal fun ConfigSheetFragment.renderPkBuilder() {
 
 internal fun ConfigSheetFragment.updatePkPreview() {
     if (pendingPkParts.isEmpty()) {
-        tvPkPreview?.text = "⚠ কমপক্ষে একটা part যোগ করুন"
+        tvPkPreview?.text = "⚠ Add at least one part"
         tvPkPreview?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
         updateConnectButtonState()   // keep Exit/Save button in sync with pk edits
         return
@@ -555,7 +555,7 @@ internal fun ConfigSheetFragment.renderMappingStep() {
         btnAddPkPart?.visibility = View.GONE
         tvPkPreview?.text = ""
         val tvWaiting = TextView(ctx).apply {
-            text      = "⬆ উপরে node পিক করে \"Yes, confirm করো\" চাপুন — তারপর এখানে Primary Key ও Field mapping দেখাবে"
+            text      = "⬆ Pick a node above and tap \"Yes, confirm\" — then Primary Key and field mapping will show here"
             textSize  = 12f
             setTextColor(context!!.getColor(R.color.theme_text_muted))
             gravity   = android.view.Gravity.CENTER
@@ -588,7 +588,7 @@ internal fun ConfigSheetFragment.renderMappingStep() {
     val allFields = (fetchedNodeKeys.map { it to it } + customMappingFields).distinctBy { it.first }
     if (allFields.isEmpty()) {
         val tvEmpty = TextView(ctx).apply {
-            text      = "Node fetch করুন অথবা নিচে manually field add করুন"
+            text      = "Fetch a node or add fields manually below"
             textSize  = 12f
             setTextColor(context!!.getColor(R.color.theme_text_muted))
             gravity   = android.view.Gravity.CENTER
@@ -729,7 +729,7 @@ internal fun ConfigSheetFragment.renderMappingStep() {
                     // Guard against duplicate selection sneaking through (e.g. programmatic set)
                     val usedElsewhere = pendingMapping.filterKeys { it != field }.values.map { it.col }.toSet()
                     if (letter in usedElsewhere) {
-                        toast("⚠ এই column আগে থেকেই অন্য field-এ ব্যবহৃত হয়েছে")
+                        toast("⚠ This column is already used by another field")
                         refreshSpinnerAdapter() // revert visual selection
                         return
                     }

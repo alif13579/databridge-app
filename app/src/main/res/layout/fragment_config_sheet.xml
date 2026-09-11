@@ -19,7 +19,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Google Sheet সংযোগ"
+                android:text="Google Sheet connection"
                 android:textSize="14sp"
                 android:textStyle="bold"
                 android:textColor="?attr/colorOnSurface"
@@ -27,7 +27,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="শাখা বেছে নিয়ে Google Sheet connect বা manage করুন"
+                android:text="Select a branch to connect or manage Google Sheets"
                 android:textSize="12sp"
                 android:textColor="@color/theme_text_secondary"
                 android:layout_marginBottom="16dp" />
@@ -239,7 +239,7 @@
                 <Button android:id="@+id/btnBranchAction"
                     android:layout_width="match_parent"
                     android:layout_height="46dp"
-                    android:text="Connect করুন"
+                    android:text="Connect"
                     android:textSize="13sp"
                     android:textStyle="bold"
                     android:backgroundTint="#E8380D"
@@ -388,7 +388,7 @@
                 </LinearLayout>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="আপনি কোনো একটি Google account select করুন"
+                    android:text="Select a Google account"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="6dp" />
             </LinearLayout>
 
@@ -405,7 +405,7 @@
                     <TextView android:id="@+id/tvSelectedSheet"
                         android:layout_width="match_parent" android:layout_height="46dp"
                         android:background="@drawable/bg_input_rounded" android:padding="10dp"
-                        android:gravity="center_vertical" android:text="— Sheet বেছে নিন —"
+                        android:gravity="center_vertical" android:text="— Select a sheet —"
                         android:textSize="13sp" android:textColor="@color/theme_text_secondary"
                         android:clickable="true" android:focusable="true" />
                     <ProgressBar android:id="@+id/pbSheetLoad"
@@ -415,7 +415,7 @@
                 </FrameLayout>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="আপনার Google Drive এর spreadsheet গুলো লিস্ট হবে"
+                    android:text="Your Google Drive spreadsheets will be listed"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="6dp" />
             </LinearLayout>
 
@@ -451,7 +451,7 @@
                 </FrameLayout>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="নির্বাচিত Sheet এর tab গুলো"
+                    android:text="Tabs of the selected sheet"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginTop="6dp" />
             </LinearLayout>
 
@@ -471,7 +471,7 @@
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="শুরু (A বা 1)" android:textSize="10sp"
+                            android:text="Start (A or 1)" android:textSize="10sp"
                             android:textColor="@color/theme_text_muted" android:layout_marginBottom="4dp" />
                         <EditText android:id="@+id/etColStart"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -483,7 +483,7 @@
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="শেষ (J বা 10)" android:textSize="10sp"
+                            android:text="End (J or 10)" android:textSize="10sp"
                             android:textColor="@color/theme_text_muted" android:layout_marginBottom="4dp" />
                         <EditText android:id="@+id/etColEnd"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -560,7 +560,7 @@
                         android:background="@drawable/bg_card_rounded"
                         android:padding="12dp" android:textSize="11sp"
                         android:textColor="@color/theme_text_secondary"
-                        android:text="Column range দিলে এখানে sheet এর data দেখাবে..."
+                        android:text="Sheet data will show here once a column range is set..."
                         android:layout_marginBottom="8dp" />
 
                     <HorizontalScrollView
@@ -603,7 +603,7 @@
                         android:textSize="14sp" android:textStyle="bold"
                         android:textColor="@color/theme_text_primary" android:layout_marginBottom="2dp" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="ডেটা Firebase-এর কোন path-এ যাবে"
+                        android:text="Which Firebase path the data goes to"
                         android:textSize="11sp" android:textColor="@color/theme_text_muted"
                         android:layout_marginBottom="10dp" />
 
@@ -684,7 +684,7 @@
                         android:textSize="14sp" android:textStyle="bold"
                         android:textColor="@color/theme_text_primary" android:layout_marginBottom="2dp" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Firebase-এ যে key দিয়ে row সেভ হবে (required)। Prefix ও/অথবা একাধিক column জুড়ে বানান — যেমন: run_ + Date + AgentID"
+                        android:text="The key each row is saved under in Firebase (required). Build from a prefix and/or multiple columns — e.g. run_ + Date + AgentID"
                         android:textSize="11sp" android:textColor="@color/theme_text_muted"
                         android:layout_marginBottom="10dp" />
 
@@ -731,7 +731,7 @@
                         android:textSize="14sp" android:textStyle="bold"
                         android:textColor="@color/theme_text_primary" android:layout_marginBottom="2dp" />
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Sheet এর কোন column কোন Firebase field এ map হবে। ✓ মানে auto-detect হয়েছে।"
+                        android:text="Which sheet column maps to which Firebase field. ✓ means auto-detected."
                         android:textSize="11sp" android:textColor="@color/theme_text_muted"
                         android:layout_marginBottom="8dp" />
 
@@ -954,7 +954,7 @@
                 </HorizontalScrollView>
                 <Button android:id="@+id/btnColChange"
                     android:layout_width="match_parent" android:layout_height="42dp"
-                    android:text="✏ Positioning পরিবর্তন" android:textSize="12sp"
+                    android:text="✏ Change positioning" android:textSize="12sp"
                     android:textStyle="bold" android:backgroundTint="#3B82F6" android:textColor="@color/theme_bg_card" />
             </LinearLayout>
 
@@ -976,7 +976,7 @@
                             android:textStyle="bold" android:textColor="@color/theme_text_primary" />
                         <TextView android:id="@+id/tvSyncIntervalLabel"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="প্রতি 30 মিনিট" android:textSize="11sp" android:textColor="@color/theme_text_secondary" />
+                            android:text="Every 30 min" android:textSize="11sp" android:textColor="@color/theme_text_secondary" />
                     </LinearLayout>
 
                     <!-- Gear icon -->
@@ -995,13 +995,13 @@
                 <!-- Last synced info -->
                 <TextView android:id="@+id/tvLastSynced"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Last sync: কখনো না" android:textSize="11sp"
+                    android:text="Last sync: never" android:textSize="11sp"
                     android:textColor="@color/theme_text_muted" android:layout_marginBottom="12dp" />
 
                 <!-- Sync Now button -->
                 <Button android:id="@+id/btnSyncNow"
                     android:layout_width="match_parent" android:layout_height="44dp"
-                    android:text="🔄 Sync এখনই করুন" android:textSize="13sp"
+                    android:text="🔄 Sync now" android:textSize="13sp"
                     android:textStyle="bold" android:backgroundTint="#E8380D" android:textColor="@color/theme_bg_card" />
 
                 <!-- Run-index rebuild: backfills courier/runs_by_consignmentId for

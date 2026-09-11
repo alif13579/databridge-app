@@ -178,11 +178,11 @@ internal fun ConfigSheetFragment.colIndexToLetter(n: Int)    = ConfigSheetParseU
 
 internal fun ConfigSheetFragment.updateColPreview() {
     val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run {
-        tvColPreview?.text = "⚠ শুরু column দিন (A বা 1)"
+        tvColPreview?.text = "⚠ Enter a start column (A or 1)"
         return
     }
     val e = parseColInput(etColEnd?.text?.toString() ?: "") ?: run {
-        tvColPreview?.text = "⚠ শেষ column দিন (J বা 10)"
+        tvColPreview?.text = "⚠ Enter an end column (J or 10)"
         return
     }
     if (s < 1 || e < s) {
@@ -192,7 +192,7 @@ internal fun ConfigSheetFragment.updateColPreview() {
     val startLetter = colIndexToLetter(s)
     val endLetter   = colIndexToLetter(e)
     val count = e - s + 1
-    tvColPreview?.text = "Columns: $startLetter ($s) – $endLetter ($e)  ·  মোট $count টি"
+    tvColPreview?.text = "Columns: $startLetter ($s) – $endLetter ($e)  ·  $count total"
 }
 
 internal fun ConfigSheetFragment.updateSummary() {
@@ -204,13 +204,13 @@ internal fun ConfigSheetFragment.updateSummary() {
     val e = parseColInput(etColEnd?.text?.toString() ?: "") ?: 10
     val startLetter = colIndexToLetter(s.coerceAtLeast(1))
     val endLetter   = colIndexToLetter(e.coerceAtLeast(s))
-    tvSummary?.text = "✅ Summary\n\nAccount: $email\nSheet: $sheetName\nSheet ID: ${if (sheetId.length > 24) sheetId.take(24) + "…" else sheetId}\nTab: $tab\nColumns: $startLetter–$endLetter (${(e - s + 1).coerceAtLeast(1)}টি)\nBranch: ${branchLabel(activeBranch)}"
+    tvSummary?.text = "✅ Summary\n\nAccount: $email\nSheet: $sheetName\nSheet ID: ${if (sheetId.length > 24) sheetId.take(24) + "…" else sheetId}\nTab: $tab\nColumns: $startLetter–$endLetter (${(e - s + 1).coerceAtLeast(1)} cols)\nBranch: ${branchLabel(activeBranch)}"
 }
 
 internal fun ConfigSheetFragment.scheduleLivePreview() {
     previewJob?.cancel()
     val account = googleAccount ?: run {
-        tvLivePreview?.text = "Live preview দেখতে Google account sign in দরকার। Range save করা যাবে।"
+        tvLivePreview?.text = "Sign in with Google for live preview. The range can still be saved."
         scrollLivePreview?.visibility = View.GONE
         tableLivePreview?.removeAllViews()
         return
@@ -245,7 +245,7 @@ internal suspend fun ConfigSheetFragment.fetchAndShowLivePreview(
             try { GoogleAuthUtil.getToken(ctx, acctObj, ConfigSheetDriveApi.OAUTH_SCOPE) }
             catch (e: UserRecoverableAuthException) { null }
         } ?: run {
-            tvLivePreview?.text = "⚠ Token পাওয়া যায়নি"
+            tvLivePreview?.text = "⚠ Token unavailable"
             scrollLivePreview?.visibility = View.GONE
             return
         }
@@ -290,7 +290,7 @@ internal suspend fun ConfigSheetFragment.fetchAndShowLivePreview(
             return
         }
         if (rows.isEmpty()) {
-            tvLivePreview?.text = "⚠ এই range এ কোনো data নেই"
+            tvLivePreview?.text = "⚠ No data in this range"
             renderLivePreviewTable(emptyList(), colStart, colEnd)
             return
         }
@@ -382,7 +382,7 @@ internal fun ConfigSheetFragment.renderLivePreviewTable(
 internal fun ConfigSheetFragment.fetchManageColPreview() {
     val conn = activeConn() ?: return
     val signInAccount = GoogleSignIn.getLastSignedInAccount(requireContext()) ?: run {
-        tvColPreviewMgr?.text = "⚠ Google account দিয়ে reconnect করুন"
+        tvColPreviewMgr?.text = "⚠ Reconnect with a Google account"
         return
     }
 
@@ -412,7 +412,7 @@ internal fun ConfigSheetFragment.fetchManageColPreview() {
                 try { GoogleAuthUtil.getToken(ctx, acctObj, ConfigSheetDriveApi.OAUTH_SCOPE) }
                 catch (e: UserRecoverableAuthException) { null }
             } ?: run {
-                tvColPreviewMgr?.text = "⚠ Token পাওয়া যায়নি"
+                tvColPreviewMgr?.text = "⚠ Token unavailable"
                 return@launch
             }
 
@@ -453,22 +453,22 @@ internal fun ConfigSheetFragment.fetchManageColPreview() {
 
 internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
     val ctx = context ?: return
-    val account = googleAccount ?: run { toast("Google account নেই"); return }
+    val account = googleAccount ?: run { toast("No Google account"); return }
     val acctObj = account.account ?: return
 
     if (conn.columnMapping.isEmpty()) {
-        toast("⚠ Column mapping নেই — Step 5 complete করুন")
+        toast("⚠ No column mapping — complete Step 5")
         return
     }
     val pkParts: List<PkPart> = conn.effectivePkParts().ifEmpty {
         conn.columnMapping["consignmentId"]?.col?.let { listOf(PkPart("col", it)) } ?: emptyList()
     }
     if (pkParts.isEmpty()) {
-        toast("⚠ Primary key select করা নেই — Step 5 এ select করুন")
+        toast("⚠ No primary key selected — select it in Step 5")
         return
     }
 
-    setBusy(true, "Sheet fetch করছে...")
+    setBusy(true, "Fetching sheet...")
 
     try {
         // Needed before the courier/consignments status-change block further down can
@@ -483,7 +483,7 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
         val token = withContext(Dispatchers.IO) {
             try { GoogleAuthUtil.getToken(ctx, acctObj, ConfigSheetDriveApi.OAUTH_SCOPE) }
             catch (e: UserRecoverableAuthException) { null }
-        } ?: run { setBusy(false); toast("⚠ Token পাওয়া যায়নি"); return }
+        } ?: run { setBusy(false); toast("⚠ Token unavailable"); return }
 
         // ── 2. Fetch all sheet rows ───────────────────────────────
         val startLetter = colIndexToLetter(conn.colStart)
@@ -578,7 +578,7 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                                 // Fuzzy match — warn but still sync with original col
                                 resolvedMapping[field] = cm.col
                                 driftFields.add(Triple(field, cm.header,
-                                    "fuzzy: \"${cm.header}\" ≈ \"$bestHdr\" ($bestCol, ${(bestSim*100).toInt()}%) — মূল column ${cm.col} ব্যবহার করা হচ্ছে"))
+                                    "fuzzy: \"${cm.header}\" ≈ \"$bestHdr\" ($bestCol, ${(bestSim*100).toInt()}%) — using original column ${cm.col}"))
                             }
                             else ->
                                 driftFields.add(Triple(field, cm.header, "missing"))
@@ -630,22 +630,22 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
             val missing = driftFields.filter { it.third == "missing" }
             val message = buildString {
                 if (moved.isNotEmpty()) {
-                    append("📍 Column সরে গেছে (auto-corrected):\n")
+                    append("📍 Column moved (auto-corrected):\n")
                     moved.forEach { (f, h, i) -> append("  • \"$h\" ($f): ${i.removePrefix("moved: ")}\n") }
                     append("\n")
                 }
                 if (movedF.isNotEmpty()) {
-                    append("📍 Column খুব কাছাকাছি (auto-corrected):\n")
+                    append("📍 Column very close (auto-corrected):\n")
                     movedF.forEach { (f, h, i) -> append("  • \"$h\" ($f): ${i.removePrefix("moved~: ")}\n") }
                     append("\n")
                 }
                 if (fuzzy.isNotEmpty()) {
-                    append("⚠ Header পরিবর্তন সন্দেহ (fuzzy match — সতর্কতার সাথে confirm করুন):\n")
+                    append("⚠ Suspected header change (fuzzy match — confirm carefully):\n")
                     fuzzy.forEach { (f, _, i) -> append("  • $f: ${i.removePrefix("fuzzy: ")}\n") }
                     append("\n")
                 }
                 if (missing.isNotEmpty()) {
-                    append("❌ Header পাওয়া যায়নি (column পরীক্ষা করুন):\n")
+                    append("❌ Header not found (check columns):\n")
                     missing.forEach { (f, h, _) -> append("  • \"$h\" ($f)\n") }
                 }
             }
@@ -653,21 +653,21 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
             if (!isAdded) return
             val proceed = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
                 android.app.AlertDialog.Builder(ctx)
-                    .setTitle(if (hasMissing) "❌ Column Drift সনাক্ত!" else "⚠ Column পরিবর্তন")
+                    .setTitle(if (hasMissing) "❌ Column drift detected!" else "⚠ Columns changed")
                     .setMessage(message.trim())
-                    .setPositiveButton(if (hasMissing) "Reposition করুন" else "এভাবেই Sync করুন") { _, _ ->
+                    .setPositiveButton(if (hasMissing) "Reposition" else "Sync anyway") { _, _ ->
                         if (hasMissing) { openRangeEditor(); cont.resume(false) {} }
                         else cont.resume(true) {}
                     }
-                    .setNegativeButton("বাতিল") { _, _ -> cont.resume(false) {} }
+                    .setNegativeButton("Cancel") { _, _ -> cont.resume(false) {} }
                     .setCancelable(false)
                     .show()
             }
             if (!proceed) return
-            setBusy(true, "Sync করছে...")
+            setBusy(true, "Syncing...")
         }
 
-        if (dataRows.isEmpty()) { setBusy(false); toast("⚠ Sheet এ কোনো data নেই"); return }
+        if (dataRows.isEmpty()) { setBusy(false); toast("⚠ No data in sheet"); return }
 
         // ── 3. Build colLetter → index map ────────────────────────
         fun letterToIndex(letter: String): Int {
@@ -710,7 +710,7 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
         }
 
         // ── 4. Process rows ───────────────────────────────────────
-        setBusy(true, "Firebase sync করছে...")
+        setBusy(true, "Syncing Firebase...")
 
         var inserted = 0; var updated = 0; var skipped = 0
         val dateIssues = mutableListOf<String>()
@@ -913,21 +913,21 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
             var updatedAtMillis: Long? = if (updatedRaw.isNotBlank()) parseSheetTimestamp(updatedRaw) else null
 
             if (createdRaw.isNotBlank() && createdAtMillis == null) {
-                dateIssues.add("$conId → createdAt: বোঝা যায়নি (\"$createdRaw\")")
+                dateIssues.add("$conId → createdAt: unparseable (\"$createdRaw\")")
             }
             if (updatedRaw.isNotBlank() && updatedAtMillis == null) {
-                dateIssues.add("$conId → updatedAt: বোঝা যায়নি (\"$updatedRaw\")")
+                dateIssues.add("$conId → updatedAt: unparseable (\"$updatedRaw\")")
             }
             if (createdAtMillis != null && createdAtMillis!! > nowMillis) {
-                dateIssues.add("$conId → createdAt: ভবিষ্যতের তারিখ, বাদ দেওয়া হয়েছে")
+                dateIssues.add("$conId → createdAt: future date, skipped")
                 createdAtMillis = null
             }
             if (updatedAtMillis != null && updatedAtMillis!! > nowMillis) {
-                dateIssues.add("$conId → updatedAt: ভবিষ্যতের তারিখ, বাদ দেওয়া হয়েছে")
+                dateIssues.add("$conId → updatedAt: future date, skipped")
                 updatedAtMillis = null
             }
             if (createdAtMillis != null && updatedAtMillis != null && createdAtMillis!! > updatedAtMillis!!) {
-                dateIssues.add("$conId → createdAt, updatedAt-এর পরে হওয়ায় বাদ দেওয়া হয়েছে")
+                dateIssues.add("$conId → createdAt is after updatedAt, skipped")
                 createdAtMillis = null
             }
             createdAtMillis?.let { fieldMap["createdAt"] = it }
@@ -1219,7 +1219,7 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
             val processedSoFar = inserted + updated + skipped
             setBusy(
                 true,
-                "Firebase sync করছে...\n\n" +
+                "Syncing Firebase...\n\n" +
                 "✅ Inserted: $inserted   🔄 Updated: $updated   ⏭ Skipped: $skipped\n" +
                 "📦 Processed: $processedSoFar / ${dataRows.size}"
             )
@@ -1231,7 +1231,7 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
         // permission-denied. Mixed in, it would fail the whole row. Failures land
         // in writeFailures (shown below) without touching inserted/updated counts.
         if (runIndexUpdates.isNotEmpty()) {
-            setBusy(true, "Run index লিখছে... ($runIndexCount)")
+            setBusy(true, "Writing run index... ($runIndexCount)")
             withContext(Dispatchers.IO) {
                 try {
                     db.reference.updateChildren(runIndexUpdates).await()
@@ -1246,32 +1246,32 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
         if (!isAdded) return
         val issuesText = if (dateIssues.isNotEmpty()) {
             val shown = dateIssues.take(10).joinToString("\n") { "• $it" }
-            val more  = if (dateIssues.size > 10) "\n…আরও ${dateIssues.size - 10}টি" else ""
-            "\n\n⚠ Date সংক্রান্ত সমস্যা (${dateIssues.size}টি):\n$shown$more"
+            val more  = if (dateIssues.size > 10) "\n…${dateIssues.size - 10} more" else ""
+            "\n\n⚠ Date issues (${dateIssues.size}):\n$shown$more"
         } else ""
         // writeFailures means the row was COUNTED as inserted/updated above but the actual
         // Firebase write was rejected (permission-denied, validation rule, etc.) — shown
         // separately and loudly so this doesn't look like a silent success.
         val failuresText = if (writeFailures.isNotEmpty()) {
             val shown = writeFailures.take(10).joinToString("\n") { "• $it" }
-            val more  = if (writeFailures.size > 10) "\n…আরও ${writeFailures.size - 10}টি" else ""
-            "\n\n❌ Firebase-এ write ব্যর্থ হয়েছে (${writeFailures.size}টি) — এই row গুলো Inserted/Updated " +
-            "count-এ ধরা হয়েছে কিন্তু আসলে save হয়নি:\n$shown$more\n\n" +
-            "সাধারণত Firebase Security Rules-এ এই path-এ write permission নেই।"
+            val more  = if (writeFailures.size > 10) "\n…${writeFailures.size - 10} more" else ""
+            "\n\n❌ Firebase write failed (${writeFailures.size}) — these rows counted as Inserted/Updated " +
+            "but were not actually saved:\n$shown$more\n\n" +
+            "Usually this path has no write permission in Firebase Security Rules."
         } else ""
         val branchlessText = when {
             branchResolveFailures.isNotEmpty() -> {
                 val shown = branchResolveFailures.take(10).joinToString("\n") { "• $it" }
-                val more  = if (branchResolveFailures.size > 10) "\n…আরও ${branchResolveFailures.size - 10}টি" else ""
-                "\n\n⚠ runs_by_branchId resolve করতে ব্যর্থ (${branchResolveFailures.size}টি agent) — " +
-                "users_by_systemId বা users/ read সমস্যা:\n$shown$more"
+                val more  = if (branchResolveFailures.size > 10) "\n…${branchResolveFailures.size - 10} more" else ""
+                "\n\n⚠ Failed to resolve runs_by_branchId (${branchResolveFailures.size} agents) — " +
+                "users_by_systemId or users/ read problem:\n$shown$more"
             }
             branchlessAgentSystemIds.isNotEmpty() -> {
                 val shown = branchlessAgentSystemIds.take(10).joinToString(", ")
-                val more  = if (branchlessAgentSystemIds.size > 10) " …আরও ${branchlessAgentSystemIds.size - 10}টি" else ""
-                "\n\n⚠ এই agent-দের uid পাওয়া যায়নি বা branch_ids assign করা নেই বলে runs_by_branchId তৈরি হয়নি " +
-                "(${branchlessAgentSystemIds.size}টি systemId): $shown$more\n" +
-                "Employee edit থেকে এদের branch assign করুন।"
+                val more  = if (branchlessAgentSystemIds.size > 10) " …${branchlessAgentSystemIds.size - 10} more" else ""
+                "\n\n⚠ runs_by_branchId was not created because these agents\u2019 uids were not found or have no branch_ids assigned " +
+                "(${branchlessAgentSystemIds.size} systemIds): $shown$more\n" +
+                "Assign them branches from Employee edit."
             }
             else -> ""
         }
@@ -1287,8 +1287,8 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
             val shown = duplicateRuns.entries.take(10).joinToString("\n") { (cid, others) ->
                 "• $cid → " + others.distinct().joinToString(", ") { (sys, rid) -> "${nameMap[sys] ?: sys} ($rid)" }
             }
-            val more = if (duplicateRuns.size > 10) "\n…আরও ${duplicateRuns.size - 10}টি" else ""
-            "\n\n🔁 Duplicate parcel (${duplicateRuns.size}টি) — একই দিনে অন্য agent-এর run-এও আছে:\n$shown$more"
+            val more = if (duplicateRuns.size > 10) "\n…${duplicateRuns.size - 10} more" else ""
+            "\n\n🔁 Duplicate parcels (${duplicateRuns.size}) — also in another agent\u2019s run on the same day:\n$shown$more"
         } else ""
         android.app.AlertDialog.Builder(ctx)
             .setTitle(if (writeFailures.isEmpty() && duplicateRuns.isEmpty()) "✅ Sync Complete" else "⚠ Sync Complete — with errors")
@@ -1334,7 +1334,7 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
  */
 internal suspend fun ConfigSheetFragment.rebuildRunConsignmentIndex() {
     try {
-        setBusy(true, "Run index rebuild…\n\nBranch খুঁজছে...")
+        setBusy(true, "Run index rebuild…\n\nFinding branches...")
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
         var branchIds = RbacManager.current.branchIds.filter { it.isNotBlank() }.distinct()
         if (branchIds.isEmpty()) {
@@ -1351,7 +1351,7 @@ internal suspend fun ConfigSheetFragment.rebuildRunConsignmentIndex() {
         // Dhaka day (GMT+6 pinned) — run IDs are Dhaka-date keyed.
         val today = DhakaTime.todayKey()
         // Today's (runType, runId) from each branch index (server-side prefix range).
-        setBusy(true, "Run index rebuild…\n\nআজকের run খুঁজছে...")
+        setBusy(true, "Run index rebuild…\n\nFinding today\u2019s runs...")
         val runKeys = mutableSetOf<Pair<String, String>>()
         for (branchId in branchIds) {
             val typesSnap = try {
@@ -1375,7 +1375,7 @@ internal suspend fun ConfigSheetFragment.rebuildRunConsignmentIndex() {
         }
         if (runKeys.isEmpty()) {
             setBusy(false)
-            toast("আজকের কোনো run পাওয়া যায়নি")
+            toast("No runs found today")
             return
         }
         // Per run: status + consignment ids → index paths.
@@ -1420,9 +1420,9 @@ internal suspend fun ConfigSheetFragment.rebuildRunConsignmentIndex() {
         setBusy(false)
         if (!isAdded) return
         val msg = if (failures == 0) {
-            "✓ Run index rebuild শেষ\n\n${runKeys.size} run থেকে $indexed টি entry লেখা হয়েছে।"
+            "✓ Run index rebuild done\n\n$indexed entries written from ${runKeys.size} runs."
         } else {
-            "⚠ $indexed টি entry লেখা হয়েছে, $failures টি batch ব্যর্থ।\n\nপ্রথম error: $firstError\n\nসাধারণত Firebase Rules-এ write permission নেই।"
+            "⚠ $indexed entries written, $failures batches failed.\n\nFirst error: $firstError\n\nUsually missing Firebase Rules write permission."
         }
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Run index rebuild")

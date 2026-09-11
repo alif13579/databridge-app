@@ -10,24 +10,24 @@ object UserErrorText {
         val m = ((t?.message.orEmpty() + " " + t?.cause?.message.orEmpty()).lowercase())
         return when {
             "system id is missing" in m || "agent system id is required" in m ->
-                "আপনার system ID পাওয়া যায়নি — admin-এর সাথে যোগাযোগ করুন"
+                "Your system ID was not found — contact your admin"
             "a branch is required" in m ->
-                "Branch select করা হয়নি — branch বেছে আবার চেষ্টা করুন"
+                "No branch selected — select a branch and retry"
             "not signed in" in m || "no signed-in user" in m || "no firebase user" in m ->
-                "Login করা নেই — আবার login করে চেষ্টা করুন"
+                "Not logged in — log in and retry"
             "expired" in m || ("token" in m && "401" in m) ->
-                "Login session শেষ হয়ে গেছে — আবার login করে চেষ্টা করুন"
+                "Login session expired — log in and retry"
             "unknownhost" in m || "socket" in m || "timeout" in m || "network error" in m || "unable to resolve" in m ->
-                "Internet সংযোগে সমস্যা — connection check করে আবার চেষ্টা করুন"
+                "Internet connection problem — check connection and retry"
             "foreign key" in m || "23503" in m ->
-                "তথ্য sync-এ সমস্যা হয়েছে — আবার চেষ্টা করুন, না হলে admin-কে জানান"
+                "Data sync failed — retry, or inform the admin"
             "23502" in m || "null value in column" in m ->
-                "তথ্য sync-এ সমস্যা হয়েছে (খালি date/field) — app update করে আবার চেষ্টা করুন"
+                "Data sync failed (empty date/field) — update the app and retry"
             "http 400" in m || "missing" in m || "is required" in m ->
-                "কিছু তথ্য বাকি আছে — form check করে আবার চেষ্টা করুন"
+                "Some info is missing — check the form and retry"
             "http 401" in m || "unauthorized" in m ->
-                "Save করা যায়নি (অনুমতি সমস্যা) — আবার login করে চেষ্টা করুন"
-            else -> "Request save হয়নি — আবার চেষ্টা করুন"
+                "Save failed (permission issue) — log in and retry"
+            else -> "Request save failed — retry"
         }
     }
 }
@@ -62,7 +62,7 @@ object SupabaseErrorDialog {
             .setPositiveButton("Copy") { _, _ ->
                 val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("DataBridgeError", "$title\n$text"))
-                android.widget.Toast.makeText(ctx, "Copied — chat-এ paste করে দিন", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(ctx, "Copied — paste it into the chat", android.widget.Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Close", null)
             .show()

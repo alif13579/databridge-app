@@ -350,7 +350,7 @@ class ConfigRemarksFragment : Fragment() {
             row.findViewById<View>(R.id.btnDeleteRemark).setOnClickListener {
                 android.app.AlertDialog.Builder(requireContext())
                     .setTitle("Delete remark?")
-                    .setMessage("এই remark option টি মুছে যাবে।")
+                    .setMessage("This remark option will be deleted.")
                     .setPositiveButton("Delete") { _, _ -> handleDelete(activeStatus, r.id) }
                     .setNegativeButton("Cancel", null)
                     .show()
@@ -406,7 +406,7 @@ class ConfigRemarksFragment : Fragment() {
         val bn = etBn.text.toString().trim()
         val en = etEn.text.toString().trim()
         if (bn.isEmpty() && en.isEmpty()) {
-            Toast.makeText(requireContext(), "বাংলা বা English রিমার্ক দিন", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Enter a Bangla or English remark", Toast.LENGTH_SHORT).show()
             return
         }
         val sorted    = sortedStatuses()
@@ -430,7 +430,7 @@ class ConfigRemarksFragment : Fragment() {
         }
 
         val etBnEdit = android.widget.EditText(ctx).apply {
-            hint = "বাংলা রিমার্ক"
+            hint = "Bangla remark"
             setText(remark.text_bn)
             background = resources.getDrawable(R.drawable.bg_input_rounded, null)
             setPadding(dp(10), dp(10), dp(10), dp(10))
@@ -454,7 +454,7 @@ class ConfigRemarksFragment : Fragment() {
         }
 
         val etPriorityEdit = android.widget.EditText(ctx).apply {
-            hint = "Priority (বেশি = উপরে, default 0)"
+            hint = "Priority (higher = on top, default 0)"
             setText(if (remark.priority != 0) remark.priority.toString() else "")
             background = resources.getDrawable(R.drawable.bg_input_rounded, null)
             setPadding(dp(10), dp(10), dp(10), dp(10))
@@ -483,14 +483,14 @@ class ConfigRemarksFragment : Fragment() {
         }
 
         val tvTemplateLabel = TextView(ctx).apply {
-            text = "WhatsApp Template (ঐচ্ছিক)"
+            text = "WhatsApp Template (optional)"
             textSize = 10f
             setTextColor(ctx.getColor(R.color.theme_text_muted))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, 0, 0, dp(5))
         }
         val templates = ConfigState.whatsappTemplates.values.sortedBy { it.name }
-        val templateOptions = listOf("— কোনো Template না —") + templates.map { it.name }
+        val templateOptions = listOf("— No template —") + templates.map { it.name }
         val currentTemplateIdx = templates.indexOfFirst { it.id == remark.template_id }
         val templateSpinner = Spinner(ctx).apply {
             minimumHeight = dp(46)
@@ -503,14 +503,14 @@ class ConfigRemarksFragment : Fragment() {
         layout.addView(etBnEdit)
         layout.addView(etEnEdit)
         layout.addView(android.widget.TextView(ctx).apply {
-            text = "Feedback (খালি = blank লিখবে)"
+            text = "Feedback (blank = writes blank)"
             textSize = 10f
             setTextColor(ctx.getColor(R.color.theme_text_muted))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, 0, 0, dp(5))
         })
         val etVerdictEdit = android.widget.EditText(ctx).apply {
-            hint = "যেমন: Delivered / Failed"
+            hint = "e.g. Delivered / Failed"
             setText(remark.category)
             background = resources.getDrawable(R.drawable.bg_input_rounded, null)
             setPadding(dp(10), dp(10), dp(10), dp(10))
@@ -522,7 +522,7 @@ class ConfigRemarksFragment : Fragment() {
         }
         layout.addView(etVerdictEdit)
         layout.addView(android.widget.TextView(ctx).apply {
-            text = "Priority (বেশি = উপরে)"
+            text = "Priority (higher = on top)"
             textSize = 10f
             setTextColor(ctx.getColor(R.color.theme_text_muted))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -581,13 +581,13 @@ class ConfigRemarksFragment : Fragment() {
         layout.addView(etInstructionEdit)
 
         android.app.AlertDialog.Builder(ctx)
-            .setTitle("Remark Edit করুন")
+            .setTitle("Edit remark")
             .setView(layout)
             .setPositiveButton("Save") { _, _ ->
                 val newBn = etBnEdit.text.toString().trim()
                 val newEn = etEnEdit.text.toString().trim()
                 if (newBn.isEmpty() && newEn.isEmpty()) {
-                    Toast.makeText(ctx, "বাংলা বা English রিমার্ক দিন", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "Enter a Bangla or English remark", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
                 val newTemplateId = templates.getOrNull(templateSpinner.selectedItemPosition - 1)?.id ?: ""
@@ -634,7 +634,7 @@ class ConfigRemarksFragment : Fragment() {
         fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
         val sorted = sortedStatuses()
         if (sorted.isEmpty()) {
-            Toast.makeText(ctx, "আগে একটি status তৈরি করুন", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, "Create a status first", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -668,11 +668,11 @@ class ConfigRemarksFragment : Fragment() {
             ).apply { bottomMargin = dp(2) }
         }
 
-        val bnInput = input("বাংলা টেক্সট...")
+        val bnInput = input("Bangla text...")
         val enInput = input("English text...")
 
         val priorityInput = EditText(ctx).apply {
-            hint = "Priority (বেশি সংখ্যা = উপরে, default 0)"
+            hint = "Priority (higher number = on top, default 0)"
             textSize = 13f
             minHeight = dp(46)
             setPadding(dp(12), dp(8), dp(12), dp(8))
@@ -701,7 +701,7 @@ class ConfigRemarksFragment : Fragment() {
 
         // WhatsApp template picker (optional — "কোনো Template না" = no auto-message)
         val templates = ConfigState.whatsappTemplates.values.sortedBy { it.name }
-        val templateOptions = listOf("— কোনো Template না —") + templates.map { it.name }
+        val templateOptions = listOf("— No template —") + templates.map { it.name }
         val templateSpinner = Spinner(ctx).apply {
             minimumHeight = dp(46)
             background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
@@ -713,18 +713,18 @@ class ConfigRemarksFragment : Fragment() {
             adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, templateOptions)
         }
 
-        content.addView(label("বাংলা"))
+        content.addView(label("Bangla"))
         content.addView(bnInput)
         content.addView(label("English"))
         content.addView(enInput)
-        content.addView(label("Feedback (খালি = blank লিখবে)"))
-        val verdictInput = input("যেমন: Delivered / Failed")
+        content.addView(label("Feedback (blank = writes blank)"))
+        val verdictInput = input("e.g. Delivered / Failed")
         content.addView(verdictInput)
-        content.addView(label("Priority (বেশি = উপরে)"))
+        content.addView(label("Priority (higher = on top)"))
         content.addView(priorityInput)
         content.addView(label("Group"))
         content.addView(spinner)
-        content.addView(label("WhatsApp Template (ঐচ্ছিক)"))
+        content.addView(label("WhatsApp Template (optional)"))
         content.addView(templateSpinner)
 
         // Instruction: same "None / On Hold / Return" fixed dropdown as the main add
@@ -753,9 +753,9 @@ class ConfigRemarksFragment : Fragment() {
         content.addView(instructionInputCreate)
 
         val dialog = AlertDialog.Builder(ctx)
-            .setTitle("নতুন Remark")
+            .setTitle("New remark")
             .setView(content)
-            .setNegativeButton("বাতিল", null)
+            .setNegativeButton("Cancel", null)
             .setPositiveButton("Create", null)
             .create()
 
@@ -765,8 +765,8 @@ class ConfigRemarksFragment : Fragment() {
                 val en = enInput.text.toString().trim()
                 val target = sorted.getOrElse(spinner.selectedItemPosition) { activeStatus }
                 if (bn.isEmpty() && en.isEmpty()) {
-                    bnInput.error = "বাংলা বা English রিমার্ক দিন"
-                    enInput.error = "বাংলা বা English রিমার্ক দিন"
+                    bnInput.error = "Enter a Bangla or English remark"
+                    enInput.error = "Enter a Bangla or English remark"
                 } else {
                     dialog.dismiss()
                     val selectedTemplateId = templates.getOrNull(templateSpinner.selectedItemPosition - 1)?.id ?: ""

@@ -357,7 +357,7 @@ internal fun ConfigSheetFragment.renderBranchSections(
         } else {
             spinnerBranch?.visibility  = View.VISIBLE
             tvSingleBranch?.visibility = View.GONE
-            val opts = listOf("শাখা বেছে নিন...") + unconnectedBranches.map { branchLabel(it) }
+            val opts = listOf("Select branch...") + unconnectedBranches.map { branchLabel(it) }
             spinnerBranch?.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts)
             val sel = unconnectedBranches.indexOf(activeBranch)
             if (sel >= 0) spinnerBranch?.setSelection(sel + 1)
@@ -380,12 +380,12 @@ internal fun ConfigSheetFragment.updateBranchActionCard() {
         cardConnInfo?.visibility = View.VISIBLE
         tvConnInfoSheet?.text    = "📄 ${conn.sheetName}"
         tvConnInfoTab?.text      = "📑 Tab: ${conn.tabName}"
-        tvConnInfoCols?.text     = "📊 Columns: ${conn.columns.firstOrNull() ?: "A"}–${conn.columns.lastOrNull() ?: "J"} (${conn.columns.size}টি)"
+        tvConnInfoCols?.text     = "📊 Columns: ${conn.columns.firstOrNull() ?: "A"}–${conn.columns.lastOrNull() ?: "J"} (${conn.columns.size} cols)"
         btnBranchAction?.text    = "Manage"
         btnBranchAction?.setBackgroundColor(android.graphics.Color.parseColor("#16A34A"))
     } else {
         cardConnInfo?.visibility = View.GONE
-        btnBranchAction?.text    = "Connect করুন"
+        btnBranchAction?.text    = "Connect"
         btnBranchAction?.setBackgroundColor(android.graphics.Color.parseColor("#E8380D"))
     }
 }

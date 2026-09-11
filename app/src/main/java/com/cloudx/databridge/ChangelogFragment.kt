@@ -353,7 +353,7 @@ class ChangelogFragment : Fragment() {
 
             if (version.entries.isEmpty()) {
                 card.addView(TextView(ctx).apply {
-                    text = "কোনো changelog note নেই এই version-এর জন্য।"
+                    text = "No changelog notes for this version."
                     textSize = 12f
                     setTextColor(android.graphics.Color.parseColor("#94A3B8"))
                     setPadding(0, 8.dp(), 0, 0)

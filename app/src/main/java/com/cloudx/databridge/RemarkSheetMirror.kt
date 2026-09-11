@@ -88,7 +88,7 @@ object RemarkSheetMirror {
                 if (targets.isEmpty()) {
                     FirebaseErrorLogger.log("RemarkSheetMirror", "no_cc_binding",
                         "No CC binding for branch", mapOf("branchId" to branchId))
-                    toastMain(appContext, "Sheet: এই branch-এ CC binding নেই — CallCenter 🔌 থেকে sheet bind করুন")
+                    toastMain(appContext, "Sheet: no CC binding for this branch — bind a sheet from the CallCenter socket")
                     return@launch
                 }
                 val token = silentWriteToken(appContext.applicationContext)
@@ -202,17 +202,17 @@ object RemarkSheetMirror {
 
     private fun lookupWant(kind: String, ctx: MirrorCtx): String = when (kind) {
         SheetLookupKind.CONSIGNMENT -> ctx.consignmentId
-        SheetLookupKind.TODAY -> "আজকের তারিখ"
+        SheetLookupKind.TODAY -> "Today's date"
         SheetLookupKind.EMPLOYEE -> "(scanner)"
         // Show the PARSED date, not the raw ISO stamp — readable + tells
         // whether the want itself was understood.
         SheetLookupKind.CREATED_AT -> createdAtWant(ctx)
-        else -> lookupValue(kind, ctx).ifBlank { "(খালি)" }
+        else -> lookupValue(kind, ctx).ifBlank { "(blank)" }
     }
 
     private fun createdAtWant(ctx: MirrorCtx): String {
         val raw = lookupValue(SheetLookupKind.CREATED_AT, ctx)
-        if (raw.isBlank()) return "(খালি)"
+        if (raw.isBlank()) return "(blank)"
         return tryParseDate(raw)?.toString() ?: "$raw (date bojha jayni!)"
     }
 
@@ -298,7 +298,7 @@ object RemarkSheetMirror {
                 if (n < attempts - 1) delay(if (n == 0) 2000L else 4000L)
             }
         }
-        return MirrorOutcome.Skipped("$lastError ($attempts বার চেষ্টা করা হয়েছে)")
+        return MirrorOutcome.Skipped("$lastError ($attempts attempts)")
     }
 
     // mirrorOne throws on transport/write failures (retried above) and returns
@@ -353,7 +353,7 @@ object RemarkSheetMirror {
         val writes = conn.effectiveWrites()
             .filter { it.kind in SheetWriteKind.REMARK_KINDS }
         if (lookups.isEmpty() || writes.isEmpty()) {
-            return@withContext FindResult.Miss("remark lookup/write rule নেই — connection configure করুন")
+            return@withContext FindResult.Miss("no remark lookup/write rule — configure the connection")
         }
         val tabName = ScannerSheetRepository.resolveTabName(conn.tabPattern)
         val headerRow = conn.resolvedHeaderRow()
@@ -363,16 +363,16 @@ object RemarkSheetMirror {
             val letter = resolveLetter(accessToken, conn.sheetId, tabName,
                 rule.colRef, rule.mode, headerRow, headerCache)
                 ?: return@withContext FindResult.Miss(
-                    "lookup column '${rule.colRef.trim()}' পাওয়া যায়নি" +
-                        if (rule.mode == SheetColMode.TEXT) " (header row $headerRow-তে exact header নেই)" else " (letter/number ঠিক নেই)")
+                    "lookup column '${rule.colRef.trim()}' not found" +
+                        if (rule.mode == SheetColMode.TEXT) " (no exact header in header row $headerRow)" else " (letter/number invalid)")
             rule to letter
         }
         val writeCols = writes.map { rule ->
             val letter = resolveLetter(accessToken, conn.sheetId, tabName,
                 rule.colRef, rule.mode, headerRow, headerCache)
                 ?: return@withContext FindResult.Miss(
-                    "write column '${rule.colRef.trim()}' পাওয়া যায়নি" +
-                        if (rule.mode == SheetColMode.TEXT) " (header row $headerRow-তে exact header নেই)" else " (letter/number ঠিক নেই)")
+                    "write column '${rule.colRef.trim()}' not found" +
+                        if (rule.mode == SheetColMode.TEXT) " (no exact header in header row $headerRow)" else " (letter/number invalid)")
             rule to letter
         }
         val columns = lookupCols.map { (_, letter) ->
@@ -400,7 +400,7 @@ object RemarkSheetMirror {
         }
         val scanned = columns.values.maxOfOrNull { it.size } ?: 0
         if (scanned == 0) {
-            return@withContext FindResult.Miss("tab '$tabName' খালি — tab/column মিলছে না")
+            return@withContext FindResult.Miss("tab '$tabName' is empty — tab/column mismatch")
         }
         val diag = StringBuilder()
         var filtered = 0
@@ -438,7 +438,7 @@ object RemarkSheetMirror {
         }.orEmpty()
         val filterTxt = if (filtered > 0) " ($filtered row filter-e bad)" else ""
         return@withContext FindResult.Miss(
-            "exact match নেই ($wantList — $scanned row দেখা হয়েছে$filterTxt$sampleTxt)। কখনো append হয় না")
+            "no exact match ($wantList — $scanned rows scanned$filterTxt$sampleTxt). Never appended")
     }
 
     /** True when a Sheets date cell (formatted text) falls on [today].
@@ -588,11 +588,11 @@ object RemarkSheetMirror {
         onAuthNeeded: (() -> Unit)? = null,
     ): String = withContext(Dispatchers.IO) {
         val branches = branchIds.map { it.trim() }.filter { it.isNotBlank() }.distinct()
-        if (branches.isEmpty()) return@withContext "কোনো branch পাওয়া যায়নি"
+        if (branches.isEmpty()) return@withContext "no branch found"
         val token = silentWriteToken(appContext.applicationContext)
         if (token.isNullOrBlank()) {
             if (onAuthNeeded != null) onAuthNeeded()
-            return@withContext "Google account connected নেই — connect kore abar Sync chapun"
+            return@withContext "Google account not connected — connect and tap Sync again"
         }
         val today = LocalDate.now(opsZone)
         val todayStartIso = today.atStartOfDay(opsZone).toInstant().toString()
@@ -638,7 +638,7 @@ object RemarkSheetMirror {
             }
         }
         if (consolidated.isEmpty())
-            return@withContext "Supabase-এ আজকের কোনো CC remark নেই — লেখার কিছু নেই"
+            return@withContext "No CC remarks today in Supabase — nothing to write"
 
         // 3. Per branch → its bound sheets → its own sheet.
         var totConns = 0
@@ -649,7 +649,7 @@ object RemarkSheetMirror {
             val targets = try {
                 SheetLibraryRepository.resolveCcTargets(branchId, today)
             } catch (e: Exception) {
-                errs.add("$branchId: binding পড়া যায়নি")
+                errs.add("$branchId: binding unreadable")
                 continue
             }
             if (targets.isEmpty()) continue
@@ -668,11 +668,11 @@ object RemarkSheetMirror {
                 }
             }
         }
-        if (totConns == 0) return@withContext "আজকের জন্য কোনো branch-এ CC binding নেই — CallCenter 🔌 থেকে sheet bind করুন (scope দেখুন)"
+        if (totConns == 0) return@withContext "No CC binding in any branch for today — bind a sheet from the CallCenter socket (check scope)"
         var msg = "✓ ${tot.syncedRows} row synced (${tot.syncedCells} cells) · " +
             "${tot.filled} already filled · $totNoCc no CC yet · " +
-            "${tot.ignored} filter-e bad · " +
-            "${tot.scanned} sheet rows দেখা ($totConns connection)"
+            "${tot.ignored} filtered out · " +
+            "${tot.scanned} sheet rows scanned ($totConns connections)"
         if (errs.isNotEmpty()) msg += " · ⚠ ${errs.size} error: ${errs.take(2).joinToString("; ")}" +
             if (errs.size > 2) "…" else ""
         msg
@@ -696,15 +696,15 @@ object RemarkSheetMirror {
                 it.kind == SheetWriteKind.VALIDATOR_NAME
         }
         if (lookups.isEmpty() || writes.isEmpty())
-            throw IllegalStateException("lookup/write rule নেই")
+            throw IllegalStateException("no lookup/write rule")
         val cidRule = lookups.firstOrNull { it.kind == SheetLookupKind.CONSIGNMENT }
-            ?: throw IllegalStateException("consignment lookup নেই")
+            ?: throw IllegalStateException("no consignment lookup")
         val tabName = ScannerSheetRepository.resolveTabName(conn.tabPattern)
         val headerRow = conn.resolvedHeaderRow()
         val headerCache = mutableMapOf<String, List<String>>()
         val cidLetter = resolveLetter(accessToken, conn.sheetId, tabName,
             cidRule.colRef, cidRule.mode, headerRow, headerCache)
-            ?: throw IllegalStateException("consignment column '${cidRule.colRef.trim()}' পাওয়া যায়নি")
+            ?: throw IllegalStateException("consignment column '${cidRule.colRef.trim()}' not found")
         // Date lookups verify the row is really today's (tab-scoped safety).
         // Other lookup kinds (feedback/validation/...) are the values being
         // filled, so matching on them would never hit a blank row — skipped.
@@ -715,12 +715,12 @@ object RemarkSheetMirror {
         dateRules.forEach { rule ->
             dateLetters[rule] = resolveLetter(accessToken, conn.sheetId, tabName,
                 rule.colRef, rule.mode, headerRow, headerCache)
-                ?: throw IllegalStateException("lookup column '${rule.colRef.trim()}' পাওয়া যায়নি")
+                ?: throw IllegalStateException("lookup column '${rule.colRef.trim()}' not found")
         }
         val writeLetters = writes.map { rule ->
             rule to (resolveLetter(accessToken, conn.sheetId, tabName,
                 rule.colRef, rule.mode, headerRow, headerCache)
-                ?: throw IllegalStateException("write column '${rule.colRef.trim()}' পাওয়া যায়নি"))
+                ?: throw IllegalStateException("write column '${rule.colRef.trim()}' not found"))
         }
         suspend fun colValues(letter: String): List<String> =
             ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tabName, letter, httpClient)
@@ -794,9 +794,9 @@ object RemarkSheetMirror {
         feedback: String = "TEST", validatorName: String = "TEST",
     ): String =
         withContext(Dispatchers.IO) {
-            if (consignmentId.isBlank()) return@withContext "Consignment ID দিন"
+            if (consignmentId.isBlank()) return@withContext "Enter a consignment ID"
             val token = silentWriteToken(appContext.applicationContext)
-                ?: return@withContext "Google account connected নেই — Connectors থেকে account connect করুন"
+                ?: return@withContext "Google account not connected — connect an account from Connectors"
             val fb = feedback.trim()
             val ctx = MirrorCtx(consignmentId.trim(), fb, deriveValidation(fb), validatorName.trim(), LocalDate.now(opsZone))
             try {
@@ -806,14 +806,14 @@ object RemarkSheetMirror {
                     is FindResult.Hit -> {
                         val w = found.writes.joinToString(", ") { (l, k) ->
                             val v = writeValue(k, ctx2)
-                            "$l$k='${v.ifBlank { "(খালি)" }}'"
+                            "$l$k='${v.ifBlank { "(blank)" }}'"
                         }
-                        "✓ Row ${found.row} (tab '${found.tab}') মিলেছে\n${found.detail}\nলিখবে: $w\n${found.scanned} row দেখা হয়েছে। (কিছু লেখা হয়নি)"
+                        "✓ Row ${found.row} (tab '${found.tab}') matched\n${found.detail}\nWriting: $w\n${found.scanned} rows scanned. (Nothing written)"
                     }
                     is FindResult.Miss -> "✕ ${found.reason}"
                 }
             } catch (e: Exception) {
-                "✕ Sheet পড়া যায়নি: ${e.message?.take(100) ?: "error"}"
+                "✕ Could not read sheet: ${e.message?.take(100) ?: "error"}"
             }
         }
 
@@ -854,7 +854,7 @@ object RemarkSheetMirror {
                     .filter { it.enabled }
                 if (bindings.isEmpty())
                     return@map LiveBranchIds(branchId, emptyList(),
-                        "CC binding nei — CallCenter 🔌 থেকে sheet bind করুন")
+                        "No CC binding — bind a sheet from the CallCenter socket")
                 val libraries = SheetLibraryRepository.loadLibraries(branchId)
                     .filter { it.enabled }.associateBy { it.libraryId }
                 val targets = bindings.mapNotNull { b ->
@@ -890,7 +890,7 @@ object RemarkSheetMirror {
                 LiveBranchIds(branchId, ids, why)
             } catch (e: Exception) {
                 LiveBranchIds(branchId, emptyList(),
-                    e.message?.take(80) ?: "sheet পড়া যায়নি")
+                    e.message?.take(80) ?: "could not read sheet")
             }
         }
     }

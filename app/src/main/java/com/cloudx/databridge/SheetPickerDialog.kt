@@ -68,7 +68,7 @@ object SheetPickerDialog {
             setPadding(20.dp(), 4.dp(), 12.dp(), 12.dp())
         }
         val tvTitle = TextView(ctx).apply {
-            text = "Google Sheet বেছে নিন"
+            text = "Select a Google Sheet"
             textSize = 16f
             setTypeface(null, Typeface.BOLD)
             setTextColor(ctx.getColor(R.color.theme_text_primary))
@@ -104,7 +104,7 @@ object SheetPickerDialog {
             setPadding(0, 0, 8.dp(), 0)
         }
         val etSearch = EditText(ctx).apply {
-            hint = "Sheet এর নাম লিখুন..."
+            hint = "Type the sheet name..."
             setSingleLine(true)
             background = null
             textSize = 14f
@@ -147,7 +147,7 @@ object SheetPickerDialog {
         root.addView(scrollView)
 
         val tvEmpty = TextView(ctx).apply {
-            text = "🔍 কোনো sheet পাওয়া যায়নি"
+            text = "🔍 No sheet found"
             textSize = 13f
             setTextColor(ctx.getColor(R.color.theme_text_muted))
             gravity = Gravity.CENTER

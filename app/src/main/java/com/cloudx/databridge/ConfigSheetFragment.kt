@@ -545,7 +545,7 @@ class ConfigSheetFragment : Fragment() {
 
         btnFetchFields?.setOnClickListener {
             val suffix = etTargetNode?.text?.toString()?.trim()?.trim('/') ?: ""
-            if (suffix.isBlank()) { showErr("Node path দিন (courier/ এর পরের অংশ)"); return@setOnClickListener }
+            if (suffix.isBlank()) { showErr("Enter a node path (the part after courier/)"); return@setOnClickListener }
             val node = "courier/$suffix"
             targetNode = node
             nodeMappingConfirmed = true
@@ -560,7 +560,7 @@ class ConfigSheetFragment : Fragment() {
         btnRebuildRunIndex?.setOnClickListener {
             android.app.AlertDialog.Builder(requireContext())
                 .setTitle("Run index rebuild?")
-                .setMessage("আজকের সব run-এর consignment index (runs_by_consignmentId) আবার লিখবে। পুরনো sync-এ যেগুলো বাদ পড়েছে সেগুলো ঠিক হবে।")
+                .setMessage("Rewrites the consignment index (runs_by_consignmentId) for all of today's runs. Fixes entries missed by older syncs.")
                 .setPositiveButton("Rebuild") { _, _ ->
                     viewLifecycleOwner.lifecycleScope.launch { rebuildRunConsignmentIndex() }
                 }

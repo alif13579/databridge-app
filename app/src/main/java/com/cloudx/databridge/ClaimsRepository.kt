@@ -69,7 +69,7 @@ class ClaimsRepository {
         if (updates.containsKey("status")) {
             val fresh = get(claimId)
             if (fresh != null && fresh.status != old.status) {
-                error("এই request এর status এরই মধ্যে বদলে গেছে (${fresh.status}) — refresh করে আবার চেষ্টা করুন")
+                error("This request status already changed (${fresh.status}) — refresh and retry")
             }
         }
         // public.claims is written by full-row upsert (see SupabaseClaimsWriter.

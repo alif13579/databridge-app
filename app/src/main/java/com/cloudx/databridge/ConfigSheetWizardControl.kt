@@ -35,8 +35,8 @@ internal fun ConfigSheetFragment.renderSyncTab(conn: SheetConn) {
         saveSyncSettings(updated)
     }
     updateSyncGearState(conn.autoSync)
-    tvSyncIntervalLabel?.text = "প্রতি ${conn.syncIntervalMin} মিনিট"
-    tvLastSynced?.text = "Last sync: কখনো না"
+    tvSyncIntervalLabel?.text = "Every ${conn.syncIntervalMin} min"
+    tvLastSynced?.text = "Last sync: never"
 }
 
 internal fun ConfigSheetFragment.updateSyncGearState(enabled: Boolean) {
@@ -48,7 +48,7 @@ internal fun ConfigSheetFragment.updateSyncGearState(enabled: Boolean) {
 }
 
 internal fun ConfigSheetFragment.openIntervalPickerDialog(conn: SheetConn) {
-    val options = arrayOf("15 মিনিট", "30 মিনিট", "60 মিনিট", "120 মিনিট", "Custom...")
+    val options = arrayOf("15 min", "30 min", "60 min", "120 min", "Custom...")
     val values  = intArrayOf(15, 30, 60, 120, -1)
     val current = values.indexOfFirst { it == conn.syncIntervalMin }.let {
         if (it < 0) options.size - 1 else it // custom if not in list
@@ -64,12 +64,12 @@ internal fun ConfigSheetFragment.openIntervalPickerDialog(conn: SheetConn) {
                 val newInterval = values[which]
                 val updated = conn.copy(syncIntervalMin = newInterval)
                 updateActiveConn(updated)
-                tvSyncIntervalLabel?.text = "প্রতি $newInterval মিনিট"
+                tvSyncIntervalLabel?.text = "Every $newInterval min"
                 saveSyncSettings(updated)
                 dialog.dismiss()
             }
         }
-        .setNegativeButton("বাতিল", null)
+        .setNegativeButton("Cancel", null)
         .show()
 }
 
@@ -77,7 +77,7 @@ internal fun ConfigSheetFragment.showCustomIntervalInput(conn: SheetConn) {
     val ctx = context ?: return
     val input = android.widget.EditText(ctx).apply {
         inputType = android.text.InputType.TYPE_CLASS_NUMBER
-        hint = "মিনিট লিখুন (1-1440)"
+        hint = "Enter minutes (1-1440)"
         textSize = 14f
         setPadding(48, 32, 48, 32)
         if (conn.syncIntervalMin !in listOf(15, 30, 60, 120)) {
@@ -90,15 +90,15 @@ internal fun ConfigSheetFragment.showCustomIntervalInput(conn: SheetConn) {
         .setPositiveButton("Save") { _, _ ->
             val minutes = input.text.toString().trim().toIntOrNull()
             if (minutes == null || minutes < 1 || minutes > 1440) {
-                toast("⚠ 1 থেকে 1440 মিনিটের মধ্যে দিন")
+                toast("⚠ Enter between 1 and 1440 minutes")
                 return@setPositiveButton
             }
             val updated = conn.copy(syncIntervalMin = minutes)
             updateActiveConn(updated)
-            tvSyncIntervalLabel?.text = "প্রতি $minutes মিনিট"
+            tvSyncIntervalLabel?.text = "Every $minutes min"
             saveSyncSettings(updated)
         }
-        .setNegativeButton("বাতিল", null)
+        .setNegativeButton("Cancel", null)
         .show()
 }
 
@@ -171,20 +171,20 @@ internal fun ConfigSheetFragment.advanceStep() {
     tvConnError?.visibility = View.GONE
     when (connectStep) {
         1 -> {
-            if (googleAccount == null) { showErr("Google account select করুন"); return }
+            if (googleAccount == null) { showErr("Select a Google account"); return }
         }
         2 -> {
-            if (selectedSheet == null) { showErr("Sheet select করুন"); return }
+            if (selectedSheet == null) { showErr("Select a sheet"); return }
         }
         3 -> {
-            if (selectedTab.isBlank()) { showErr("Tab select করুন"); return }
+            if (selectedTab.isBlank()) { showErr("Select a tab"); return }
             selectedNickname = etNickname?.text?.toString()?.trim() ?: ""
-            if (selectedNickname.isBlank()) { showErr("Nickname দিন — এটা required"); return }
+            if (selectedNickname.isBlank()) { showErr("Enter a nickname — required"); return }
         }
         4 -> {
-            val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Valid start column দিন (A বা 1)"); return }
-            val e = parseColInput(etColEnd?.text?.toString() ?: "") ?: run { showErr("Valid end column দিন (J বা 10)"); return }
-            if (s < 1 || e < s) { showErr("start ≤ end হতে হবে"); return }
+            val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Enter a valid start column (A or 1)"); return }
+            val e = parseColInput(etColEnd?.text?.toString() ?: "") ?: run { showErr("Enter a valid end column (J or 10)"); return }
+            if (s < 1 || e < s) { showErr("start must be ≤ end"); return }
 
             // If sheetHeaders not yet populated, fetch header row first then proceed
             if (sheetHeaders.isEmpty() && googleAccount != null && selectedSheet != null && selectedTab.isNotBlank()) {
@@ -192,7 +192,7 @@ internal fun ConfigSheetFragment.advanceStep() {
                 val sheet   = selectedSheet!!
                 val tab     = selectedTab
                 viewLifecycleOwner.lifecycleScope.launch {
-                    setBusy(true, "Header fetch করছে...")
+                    setBusy(true, "Fetching header...")
                     try {
                         val token = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                             try { com.google.android.gms.auth.GoogleAuthUtil.getToken(requireContext(), account.account!!, ConfigSheetDriveApi.OAUTH_SCOPE) }
@@ -246,15 +246,15 @@ internal fun ConfigSheetFragment.showErr(msg: String) {
 }
 
 internal fun ConfigSheetFragment.handleConnect() {
-    if (!nodeMappingConfirmed) { showErr("আগে উপরে node পিক করে confirm করুন"); return }
-    if (pendingPkParts.isEmpty()) { showErr("Primary key এ কমপক্ষে একটা part (prefix/column) যোগ করুন — required"); return }
-    if (pendingPkParts.any { (it.type == "col" || it.type == "date") && it.value.isBlank() }) { showErr("Primary key এর Column/Date part-এ কলাম select করুন"); return }
-    val sheet   = selectedSheet ?: run { showErr("Sheet নেই"); return }
-    if (selectedTab.isBlank())  { showErr("Tab নেই"); return }
-    val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Valid start column দিন (A বা 1)"); return }
-    val e = parseColInput(etColEnd?.text?.toString() ?: "")   ?: run { showErr("Valid end column দিন (J বা 10)"); return }
-    if (s < 1 || e < s) { showErr("start ≤ end হতে হবে"); return }
-    if (pendingMapping.isEmpty() && pendingObjectMapping.isEmpty()) { showErr("কমপক্ষে একটা field map করুন"); return }
+    if (!nodeMappingConfirmed) { showErr("Pick and confirm a node above first"); return }
+    if (pendingPkParts.isEmpty()) { showErr("Add at least one part (prefix/column) to the primary key — required"); return }
+    if (pendingPkParts.any { (it.type == "col" || it.type == "date") && it.value.isBlank() }) { showErr("Select a column for the primary key Column/Date part"); return }
+    val sheet   = selectedSheet ?: run { showErr("No sheet"); return }
+    if (selectedTab.isBlank())  { showErr("No tab"); return }
+    val s = parseColInput(etColStart?.text?.toString() ?: "") ?: run { showErr("Enter a valid start column (A or 1)"); return }
+    val e = parseColInput(etColEnd?.text?.toString() ?: "")   ?: run { showErr("Enter a valid end column (J or 10)"); return }
+    if (s < 1 || e < s) { showErr("start must be ≤ end"); return }
+    if (pendingMapping.isEmpty() && pendingObjectMapping.isEmpty()) { showErr("Map at least one field"); return }
 
     // Match by the exact connectionId currently being managed/edited — do NOT fall back
     // to the first connection in the branch, or a fresh "+ New Sheet" flow would
@@ -329,15 +329,15 @@ internal fun ConfigSheetFragment.showReviewDialog(conn: SheetConn, isNew: Boolea
     root.addView(sectionTitle("TARGET NODE"))
     root.addView(valueLine(conn.targetNode, "#1D4ED8"))
 
-    root.addView(sectionTitle("PRIMARY KEY (sample থেকে তৈরি)"))
+    root.addView(sectionTitle("PRIMARY KEY (built from sample)"))
     root.addView(valueLine(tvPkPreview?.text?.toString()?.removePrefix("Preview (1st row): ")?.removePrefix("Preview: ") ?: "—"))
 
     root.addView(sectionTitle("MAPPED FIELDS (${conn.columnMapping.size + conn.objectColumnMapping.size})"))
     if (conn.columnMapping.isEmpty() && conn.objectColumnMapping.isEmpty()) {
-        root.addView(valueLine("⚠ কোনো field map করা হয়নি", "#F59E0B"))
+        root.addView(valueLine("⚠ No field mapped", "#F59E0B"))
     } else {
         conn.columnMapping.forEach { (field, colMap) ->
-            val sample = sampleSheetRow[colMap.col]?.takeIf { it.isNotBlank() } ?: "(খালি)"
+            val sample = sampleSheetRow[colMap.col]?.takeIf { it.isNotBlank() } ?: "(blank)"
             root.addView(valueLine("• $field  →  ${colMap.header.ifBlank { colMap.col }}  =  \"$sample\""))
         }
         conn.objectColumnMapping.forEach { (field, spec) ->
@@ -345,7 +345,7 @@ internal fun ConfigSheetFragment.showReviewDialog(conn: SheetConn, isNew: Boolea
                 s.startsWith("fixed:") -> "\"${s.removePrefix("fixed:")}\" (fixed)"
                 s.startsWith("col:") -> {
                     val letter = s.removePrefix("col:")
-                    val sample = sampleSheetRow[letter]?.takeIf { it.isNotBlank() } ?: "(খালি)"
+                    val sample = sampleSheetRow[letter]?.takeIf { it.isNotBlank() } ?: "(blank)"
                     "${sheetHeaders[letter] ?: letter} = \"$sample\""
                 }
                 else -> s
@@ -355,10 +355,10 @@ internal fun ConfigSheetFragment.showReviewDialog(conn: SheetConn, isNew: Boolea
     }
 
     android.app.AlertDialog.Builder(ctx)
-        .setTitle(if (isNew) "নতুন Sheet Connect করার আগে যাচাই করুন" else "Update করার আগে যাচাই করুন")
+        .setTitle(if (isNew) "Verify before connecting a new sheet" else "Verify before updating")
         .setView(scroll)
-        .setPositiveButton(if (isNew) "✅ Connect করুন" else "✅ Update করুন") { _, _ -> commitConnection(conn, isNew) }
-        .setNegativeButton("সম্পাদনা চালিয়ে যান", null)
+        .setPositiveButton(if (isNew) "✅ Connect" else "✅ Update") { _, _ -> commitConnection(conn, isNew) }
+        .setNegativeButton("Keep editing", null)
         .show()
 }
 
@@ -384,7 +384,7 @@ internal fun ConfigSheetFragment.commitConnection(conn: SheetConn, isNew: Boolea
         if (ok) {
             toast(if (isNew) "✅ $activeBranch connected!" else "✅ Range updated")
         } else {
-            toast("⚠ Firebase-এ save ব্যর্থ হয়েছে — নেটওয়ার্ক/permission চেক করে আবার চেষ্টা করুন")
+            toast("⚠ Save to Firebase failed — check network/permission and retry")
         }
     }
 }
@@ -639,7 +639,7 @@ internal fun ConfigSheetFragment.openRangeEditor() {
 // ── Account picker (JSX showPicker equivalent) ────────────────────
 internal fun ConfigSheetFragment.pickGoogleAccount() {
     val client = googleSignInClient ?: run {
-        toast("Google Sign-In initialize হয়নি")
+        toast("Google Sign-In not initialized")
         return
     }
     // Sign out first → forces the account chooser to show every time. Shared logic

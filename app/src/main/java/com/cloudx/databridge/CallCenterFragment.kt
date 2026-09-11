@@ -553,7 +553,7 @@ class CallCenterFragment : Fragment() {
         }
 
         // ── Gap ──────────────────────────────────────────────────────
-        root.addView(sectionTitle("Gap (প্রতিটা call এর মাঝে)"))
+        root.addView(sectionTitle("Gap (between calls)"))
         val gapSpinner = Spinner(ctx).apply {
             layoutParams = android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 44.dp())
@@ -586,11 +586,11 @@ class CallCenterFragment : Fragment() {
         fun buildStatusChecklist() {
             statusContainer.removeAllViews()
             statusCheckboxes.clear()
-            statusContainer.addView(sectionTitle("কোন কোন Status এ Call যাবে"))
+            statusContainer.addView(sectionTitle("Which statuses to call"))
             val allStatuses = StatusMetaCache.entries.entries.sortedByDescending { it.value.sortOrder }
             if (allStatuses.isEmpty()) {
                 statusContainer.addView(TextView(ctx).apply {
-                    text = "কোনো status পাওয়া যায়নি"; textSize = 12f
+                    text = "No status found"; textSize = 12f
                     setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
                 })
             }
@@ -606,7 +606,7 @@ class CallCenterFragment : Fragment() {
         }
 
         // ── Age condition ──────────────────────────────────────────────
-        root.addView(sectionTitle("Age Condition (ঐচ্ছিক)"))
+        root.addView(sectionTitle("Age Condition (optional)"))
         val ageRow = android.widget.LinearLayout(ctx).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
@@ -624,7 +624,7 @@ class CallCenterFragment : Fragment() {
             isEnabled = autoCallAgeEnabled
         }
         val tvAgeDaysLabel = TextView(ctx).apply {
-            text = " দিনের বেশি বয়স"
+            text = " days old or more"
             textSize = 13f
             setTextColor(android.graphics.Color.parseColor("#111827"))
         }
@@ -665,7 +665,7 @@ class CallCenterFragment : Fragment() {
                     .putInt("cc_auto_call_min_age_days", autoCallMinAgeDays)
                     .apply()
 
-                Toast.makeText(requireContext(), "Auto Call settings সেভ হয়েছে", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "Auto Call settings saved", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -687,7 +687,7 @@ class CallCenterFragment : Fragment() {
             if (dialCount > 0) { if (isNotEmpty()) append("  •  "); append("📞 ${dialCount}x attempt") }
             if (item.address.isNotBlank()) { if (isNotEmpty()) append("  •  "); append("📍 ${item.address.take(35).trimEnd()}") }
         }
-        tvAutoCallStatusLabel.text = "পরবর্তী কল আসছে"
+        tvAutoCallStatusLabel.text = "Next call coming up"
         tvAutoCallStatusName.text = item.customer
         tvAutoCallStatusInfo.text = infoLine
         tvAutoCallStatusInfo.visibility = if (infoLine.isNotEmpty()) View.VISIBLE else View.GONE
@@ -709,7 +709,7 @@ class CallCenterFragment : Fragment() {
             if (dialCount > 0) { if (isNotEmpty()) append("  •  "); append("📞 ${dialCount}x attempt") }
             if (nextItem.address.isNotBlank()) { if (isNotEmpty()) append("  •  "); append("📍 ${nextItem.address.take(35).trimEnd()}") }
         }
-        tvAutoCallStatusLabel.text = "এরপর কল যাবে"
+        tvAutoCallStatusLabel.text = "Calling next"
         tvAutoCallStatusName.text = nextItem.customer
         tvAutoCallStatusInfo.text = infoLine
         tvAutoCallStatusInfo.visibility = if (infoLine.isNotEmpty()) View.VISIBLE else View.GONE
@@ -739,7 +739,7 @@ class CallCenterFragment : Fragment() {
             // until they grant it, so nudge once per Auto Call start.
             Toast.makeText(
                 ctx,
-                "টিপ: Settings-এ Phone permission দিলে Auto Call আরও নির্ভরযোগ্যভাবে কাজ করবে।",
+                "Tip: granting Phone permission in Settings makes Auto Call more reliable.",
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -763,7 +763,7 @@ class CallCenterFragment : Fragment() {
                 matchesMode && matchesAge
             }
             if (eligible.isEmpty()) {
-                Toast.makeText(ctx, "এই filter অনুযায়ী কোনো parcel পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+                Toast.makeText(ctx, "No parcels match this filter", Toast.LENGTH_SHORT).show()
                 switchAutoCall.isChecked = false
                 return
             }
@@ -1030,8 +1030,8 @@ class CallCenterFragment : Fragment() {
                             createdAt to buildString {
                                 append("🕑 ").append(timeFmt.format(java.util.Date(createdAt)))
                                 append("\n").append(roleLabel).append(": ").append(authorName)
-                                if (remarksText.isNotBlank()) append("\nরিমার্কস: ").append(remarksText)
-                                if (noteText.isNotBlank()) append("\n⚠️ নোট: ").append(noteText)
+                                if (remarksText.isNotBlank()) append("\nRemarks: ").append(remarksText)
+                                if (noteText.isNotBlank()) append("\n⚠️ Note: ").append(noteText)
                             }
                         }.sortedBy { it.first }.joinToString("\n\n") { it.second }
                     }
@@ -1305,7 +1305,7 @@ class CallCenterFragment : Fragment() {
             historyEntries.add(
                 HistoryEntry(
                     action = "CREATED",
-                    remark = "Parcel তৈরি হয়েছে",
+                    remark = "Parcel created",
                     time = fullFmt.format(java.util.Date(item.createdAt)),
                     author = "System",
                     authorRole = "system"
@@ -1742,7 +1742,7 @@ class CallCenterFragment : Fragment() {
     }
 
     private fun loadData() {
-        showCcLoading("লোড হচ্ছে... 0%")
+        showCcLoading("Loading... 0%")
         ccShownPercent = 0
         ccIsLoading = true
         ccReprocessTotal = 0
@@ -1804,7 +1804,7 @@ class CallCenterFragment : Fragment() {
             ccIsLoading = false
             hideCcLoading()
             tvEmpty.visibility    = View.VISIBLE
-            tvEmpty.text          = "⚠ কোনো branch assigned নেই — admin-এর সাথে যোগাযোগ করুন"
+            tvEmpty.text          = "No branch assigned — contact your admin"
             return
         }
 
@@ -1993,7 +1993,7 @@ class CallCenterFragment : Fragment() {
     private fun showAgentDropdown() {
         val ctx = context ?: return
         if (ccAgentOptions.isEmpty()) {
-            Toast.makeText(ctx, "এখনো কোনো agent-এর parcel নেই", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, "No agent parcels yet", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -2157,7 +2157,7 @@ class CallCenterFragment : Fragment() {
             ccIsLoading = false
             hideCcLoading()
             tvEmpty.visibility    = View.VISIBLE
-            tvEmpty.text          = "📭\n\nকোনো run নেই"
+            tvEmpty.text          = "📭\n\nNo runs"
             syncCcEngagedAtListeners(emptySet())
             return
         }
@@ -2194,7 +2194,7 @@ class CallCenterFragment : Fragment() {
             ccIsLoading = false
             hideCcLoading()
             tvEmpty.visibility    = View.VISIBLE
-            tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
+            tvEmpty.text          = "📭\n\nNo consignments today"
             syncCcEngagedAtListeners(emptySet())
             return
         }
@@ -2310,7 +2310,7 @@ class CallCenterFragment : Fragment() {
         val target = computeCcLoadingPercent().coerceIn(0, 100)
         if (target <= ccShownPercent) return
         ccShownPercent = target
-        tvLoadingPercent.text = "লোড হচ্ছে... $target%"
+        tvLoadingPercent.text = "Loading... $target%"
     }
 
     // Guards the "no run" empty state against a race: each assigned branch's Phase 1
@@ -2564,7 +2564,7 @@ class CallCenterFragment : Fragment() {
             ccIsLoading = false
             hideCcLoading()
             tvEmpty.visibility    = View.VISIBLE
-            tvEmpty.text          = "📭\n\nআজকের কোনো consignment নেই"
+            tvEmpty.text          = "📭\n\nNo consignments today"
             return
         }
 
@@ -2772,7 +2772,7 @@ class CallCenterFragment : Fragment() {
         setupFilterTabs()
         // All detail fetches came back null (e.g. consignments deleted after
         // the run index listed them) — same meaning as the consignment gate.
-        if (parcels.isEmpty()) tvEmpty.text = "📭\n\nআজকের কোনো consignment নেই"
+        if (parcels.isEmpty()) tvEmpty.text = "📭\n\nNo consignments today"
         applyFilters()
         hideCcLoading()
         syncCcRemarkListeners(allParcels.map { it.id }.toSet())
@@ -2902,7 +2902,7 @@ class CallCenterFragment : Fragment() {
             .setPositiveButton("Copy") { _, _ ->
                 val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("RemarkPushChainLog", text))
-                android.widget.Toast.makeText(ctx, "Copied — Claude-কে paste করে দিন", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(ctx, "Copied — paste it into the chat", android.widget.Toast.LENGTH_SHORT).show()
             }
             .setNeutralButton("Clear") { _, _ -> RemarkPushChainLog.clear() }
             .setNegativeButton("Close", null)
@@ -3135,7 +3135,7 @@ class CallCenterFragment : Fragment() {
 
         if (options.isEmpty()) {
             val tv = TextView(requireContext())
-            tv.text = "⚠ Config-এ কোনো remark সেট করা নেই।\nAdmin-কে Call Center remark config-এ remark যোগ করতে বলুন।"
+            tv.text = "⚠ No remark configured in Config.\nAsk the admin to add remarks in the Call Center remark config."
             tv.textSize = 13f
             tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
             tv.setPadding(0, 24, 0, 24)
@@ -3241,14 +3241,14 @@ class CallCenterFragment : Fragment() {
                 dialog.dismiss()
                 val total = samePhoneParcels.size + 1
                 android.app.AlertDialog.Builder(requireContext())
-                    .setTitle("একই Customer — $total টি Parcel")
+                    .setTitle("Same customer — $total parcels")
                     .setMessage(
-                        "\"${item.customer}\" (${item.phone}) এর মোট $total টি parcel আছে।\n\n" +
-                        "সবগুলোতে একই remark দিতে চান?\n\n" +
-                        "• Yes — $total টি parcel এ save হবে\n" +
-                        "• No — শুধু ${item.id} তে save হবে"
+                        "\"${item.customer}\" (${item.phone}) has $total parcels in total.\n\n" +
+                        "Save the same remark on all of them?\n\n" +
+                        "• Yes — saves on all $total parcels\n" +
+                        "• No — saves only on ${item.id}"
                     )
-                    .setPositiveButton("Yes, সবগুলোতে") { _, _ ->
+                    .setPositiveButton("Yes, all") { _, _ ->
                         saveCcRemarkForItems(
                             items = listOf(item) + samePhoneParcels,
                             selectedStatus = selectedStatus,
@@ -3260,7 +3260,7 @@ class CallCenterFragment : Fragment() {
                             feedback = feedback
                         )
                     }
-                    .setNegativeButton("No, শুধু এটায়") { _, _ ->
+                    .setNegativeButton("No, only this one") { _, _ ->
                         saveCcRemarkForItems(
                             items = listOf(item),
                             selectedStatus = selectedStatus,
@@ -3445,11 +3445,11 @@ class CallCenterFragment : Fragment() {
             if (totalFailed > 0) {
                 val runBlocked = notReady.count { liveRunMissReason.containsKey(it.id) }
                 val extra = buildString {
-                    if (notReady.isNotEmpty()) append(" — ${notReady.size} টিতে agent/branch নেই")
-                    if (runBlocked > 0) append(" (তার মধ্যে $runBlocked টির branch delivery run-এ পাওয়া যায়নি)")
+                    if (notReady.isNotEmpty()) append(" — ${notReady.size} missing agent/branch")
+                    if (runBlocked > 0) append(" ($runBlocked of them have no branch in the delivery run)")
                 }
                 Toast.makeText(requireContext(),
-                    "⚠ $totalFailed টি save হয়নি$extra — network দেখে আবার চেষ্টা করুন",
+                    "⚠ $totalFailed failed to save$extra — check network and retry",
                     Toast.LENGTH_LONG).show()
             }
         }
@@ -3489,7 +3489,7 @@ class CallCenterFragment : Fragment() {
         btnSyncSheet.isEnabled = false
         val orig = btnSyncSheet.text.toString()
         btnSyncSheet.text = "⏳ Sync…"
-        Toast.makeText(requireContext(), "⏳ Sheet sync cholche…", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "⏳ Syncing sheet…", Toast.LENGTH_SHORT).show()
         viewLifecycleOwner.lifecycleScope.launch {
             val summary = try {
                 RemarkSheetMirror.bulkSyncToSheet(
@@ -3659,9 +3659,9 @@ class CallCenterFragment : Fragment() {
                     val gone = currentIds - freshIds
                     if (added > 0 || gone.isNotEmpty()) {
                         Toast.makeText(requireContext(),
-                            "📡 Live update: ${if (added > 0) "+$added নতুন" else ""}" +
+                            "📡 Live update: ${if (added > 0) "+$added new" else ""}" +
                             "${if (added > 0 && gone.isNotEmpty()) ", " else ""}" +
-                            "${if (gone.isNotEmpty()) "-${gone.size} সরে গেছে" else ""}",
+                            "${if (gone.isNotEmpty()) "-${gone.size} removed" else ""}",
                             Toast.LENGTH_SHORT).show()
                     }
                 } else {
@@ -3696,7 +3696,7 @@ class CallCenterFragment : Fragment() {
                         Toast.makeText(requireContext(),
                             "🔀 Mix update: ${if (added > 0) "+$added Live" else ""}" +
                             "${if (added > 0 && gone > 0) ", " else ""}" +
-                            "${if (gone > 0) "-$gone সরে গেছে" else ""}",
+                            "${if (gone > 0) "-$gone removed" else ""}",
                             Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -3756,7 +3756,7 @@ class CallCenterFragment : Fragment() {
                 if (token.isNullOrBlank()) {
                     (activity as? MainActivity)?.promptSheetAuthOnce()
                     Toast.makeText(requireContext(),
-                        "Sheet auth নেই — Mix-e sudhu Request dekhacche", Toast.LENGTH_LONG).show()
+                        "Sheet auth missing — showing Request only", Toast.LENGTH_LONG).show()
                     return@launch
                 }
                 val sheetRes = withContext(Dispatchers.IO) {
@@ -3792,7 +3792,7 @@ class CallCenterFragment : Fragment() {
                 syncCcRemarkListeners(allParcels.map { it.id }.toSet())
                 syncCcEngagedAtListeners(allParcels.map { it.id }.toSet())
                 if (items.isNotEmpty()) Toast.makeText(requireContext(),
-                    "🔀 Mix: Live theke ${items.size} parcel jog holo", Toast.LENGTH_SHORT).show()
+                    "🔀 Mix: ${items.size} parcels added from Live", Toast.LENGTH_SHORT).show()
             } catch (_: Exception) {
                 // Request list unaffected — Live extras just don't arrive.
             }
@@ -3807,7 +3807,7 @@ class CallCenterFragment : Fragment() {
      */
     private fun loadLiveMode() {
         val gen = ++liveGeneration
-        showCcLoading("Live sheet পড়ছে...")
+        showCcLoading("Loading Live sheet...")
         tvEmpty.visibility = View.GONE
         hideLiveErrorBox()
         viewLifecycleOwner.lifecycleScope.launch {
@@ -3846,7 +3846,7 @@ class CallCenterFragment : Fragment() {
                     }
                     return@launch
                 }
-                tvLoadingPercent.text = "Firebase থেকে ${ids.size} parcel আনছে..."
+                tvLoadingPercent.text = "Loading ${ids.size} parcels from Firebase..."
                 val cidDates = mutableMapOf<String, List<String>>()
                 sheetRes.forEach { r -> r.ids.forEach { e -> cidDates.putIfAbsent(e.cid, e.dateKeys) } }
                 val runResolution = resolveLiveRunBranches(cidDates, branches)
@@ -3860,7 +3860,7 @@ class CallCenterFragment : Fragment() {
                 hideLiveErrorBox()
                 if (items.isEmpty() && missing.isNotEmpty()) {
                     tvEmpty.visibility = View.VISIBLE
-                    tvEmpty.text = "Sheet-er ID-gulo Firebase-e paini — upore chip দেখুন"
+                    tvEmpty.text = "Sheet IDs not found in Firebase — see chips above"
                 } else {
                     tvEmpty.visibility = View.GONE
                 }
@@ -3960,11 +3960,11 @@ class CallCenterFragment : Fragment() {
         val miss = mutableMapOf<String, String>()
         val dated = cidDates.filter { it.value.isNotEmpty() }
         (cidDates.keys - dated.keys).forEach { cid ->
-            miss[cid] = "sheet row-এর date পাওয়া যায়নি (lookup date column নেই/বোঝা যায়নি) — save blocked"
+            miss[cid] = "sheet row date missing (no lookup date column / unparseable) — save blocked"
         }
         val out = mutableMapOf<String, List<String>>()
         if (dated.isEmpty() || cleanBranches.isEmpty()) {
-            if (cleanBranches.isEmpty()) dated.keys.forEach { miss[it] = "কোনো branch assigned নেই — save blocked" }
+            if (cleanBranches.isEmpty()) dated.keys.forEach { miss[it] = "no branch assigned — save blocked" }
             return@withContext LiveRunResolution(out, miss)
         }
         fun prettyDate(dk: String): String =
@@ -4044,16 +4044,16 @@ class CallCenterFragment : Fragment() {
         (dated.keys - out.keys).forEach { cid ->
             val dk = dated[cid]?.firstOrNull()
             miss[cid] = when {
-                cid in emptyBranchCids -> "delivery run পাওয়া গেছে কিন্তু run-এ branch ID (resolvedBranchIds) নেই — save blocked"
-                dk != null && dk !in datesWithRuns -> "${prettyDate(dk)} তারিখের কোনো delivery run নেই — save blocked"
-                dk != null -> "${prettyDate(dk)} তারিখের delivery run-এ এই ID নেই — save blocked"
-                else -> "sheet row-এর date পাওয়া যায়নি — save blocked"
+                cid in emptyBranchCids -> "delivery run found but the run has no branch ID — save blocked"
+                dk != null && dk !in datesWithRuns -> "no delivery run on ${prettyDate(dk)} — save blocked"
+                dk != null -> "this ID is not in the ${prettyDate(dk)} delivery run — save blocked"
+                else -> "sheet row date missing — save blocked"
             }
         }
         if (dupRuns > 0) {
             runCatching {
                 FirebaseErrorLogger.log("CallCenterFragment", "live_run_duplicate",
-                    "$dupRuns টি consignment একই তারিখে একাধিক delivery run-এ ছিল — প্রথম verified run-এর branch নেওয়া হয়েছে",
+                    "$dupRuns consignments were in multiple delivery runs on the same date — first verified run\u2019s branch used",
                     mapOf("count" to dupRuns))
             }
         }
@@ -4221,7 +4221,7 @@ class CallCenterFragment : Fragment() {
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = 12 }
                 setOnClickListener {
-                    Toast.makeText(ctx, "$id — Firebase-e paini (sheet ID)", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "$id — not in Firebase (sheet ID only)", Toast.LENGTH_SHORT).show()
                 }
             })
         }

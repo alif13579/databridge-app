@@ -373,7 +373,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             tvTitle.text = stage.title + if (isCurrent) " ◀" else ""
             if (isCurrent) tvTitle.setTextColor(android.graphics.Color.parseColor("#059669"))
             stepView.findViewById<TextView>(R.id.tvStepSubtitle).text =
-                stage.subtitle.ifBlank { if (isCurrent) "অপেক্ষমাণ" else "" }
+                stage.subtitle.ifBlank { if (isCurrent) "Pending" else "" }
             stepView.findViewById<TextView>(R.id.tvStepTime).text = if (isDone) formatDateTime(stage.at) else ""
 
             val tvDot = stepView.findViewById<TextView>(R.id.tvStepDot)

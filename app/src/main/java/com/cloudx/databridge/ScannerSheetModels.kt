@@ -149,7 +149,7 @@ object SheetPurpose {
         SCANNER -> "📷 Scanner (Scan → sheet)"
         REMARK -> "☎️ Call Center (Remark → sheet)"
         ROUTING -> "🛣️ Routing Approval (Routing → sheet)"
-        else -> purpose.ifBlank { "— Fragment বেছে নিন —" }
+        else -> purpose.ifBlank { "— Select a fragment —" }
     }
     fun isKnown(purpose: String): Boolean = purpose in ALL
 }
@@ -167,7 +167,7 @@ object SheetScope {
         RANGE -> "🗓 Date range"
         MONTH -> "📅 Month + Year"
         GLOBAL -> "🌍 Global (sob date)"
-        else -> "— Scope বেছে নিন —"
+        else -> "— Select a scope —"
     }
     fun isKnown(type: String): Boolean = type in ALL
 

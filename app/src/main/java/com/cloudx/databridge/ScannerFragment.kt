@@ -78,7 +78,7 @@ class ScannerFragment : Fragment() {
                 code.length != TRACKING_ID_LENGTH -> {
                     // Valid tracking IDs are always exactly 14 characters — length only, not
                     // digits-only (tracking IDs aren't guaranteed to be purely numeric).
-                    Toast.makeText(requireContext(), "⚠ আপনার স্ক্যান সঠিক নয়। পুনরায় স্ক্যান করুন।", Toast.LENGTH_LONG).show()
+                    Toast.makeText(requireContext(), "⚠ Invalid scan. Please scan again.", Toast.LENGTH_LONG).show()
                     if (isBatchMode) launchCamera()
                 }
                 else -> {
@@ -581,7 +581,7 @@ class ScannerFragment : Fragment() {
     private fun exportScansToCsv() {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("CSV Export")
-            .setItems(arrayOf("📤 Share করুন", "⬇️ Download করুন")) { _, which ->
+            .setItems(arrayOf("📤 Share", "⬇️ Download")) { _, which ->
                 if (which == 0) saveCsvAndShare() else saveCsvAndDownload()
             }
             .setNegativeButton("Cancel", null)
@@ -632,11 +632,11 @@ class ScannerFragment : Fragment() {
 
     private fun saveCsvAndShare() {
         val (csvContent, count) = buildCsvContent() ?: run {
-            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো scan নেই", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "⚠ No scans to export", Toast.LENGTH_SHORT).show()
             return
         }
         val uri = saveCsvToCache(csvContent) ?: run {
-            Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "⚠ Could not create file", Toast.LENGTH_SHORT).show()
             return
         }
         try {
@@ -648,19 +648,19 @@ class ScannerFragment : Fragment() {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            val chooser = Intent.createChooser(shareIntent, "CSV শেয়ার করুন").apply {
+            val chooser = Intent.createChooser(shareIntent, "Share CSV").apply {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             startActivity(chooser)
-            Toast.makeText(requireContext(), "📤 CSV পাঠানো হচ্ছে ($count rows)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "📤 Sharing CSV ($count rows)", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(requireContext(), "⚠ Share করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(requireContext(), "⚠ Share failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun saveCsvAndDownload() {
         val (csvContent, count) = buildCsvContent() ?: run {
-            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো scan নেই", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "⚠ No scans to export", Toast.LENGTH_SHORT).show()
             return
         }
         val fileName = "DataBridge_Scans_${System.currentTimeMillis()}.csv"
@@ -681,11 +681,11 @@ class ScannerFragment : Fragment() {
                 uri = android.net.Uri.fromFile(file)
             }
             if (uri == null) {
-                Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "⚠ Could not create file", Toast.LENGTH_SHORT).show()
                 return
             }
             resolver.openOutputStream(uri)?.use { out -> out.write(csvContent.toByteArray()) }
-            Toast.makeText(requireContext(), "✅ CSV Downloads এ সেভ হয়েছে ($count rows)", Toast.LENGTH_LONG).show()
+            Toast.makeText(requireContext(), "✅ CSV saved to Downloads ($count rows)", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(requireContext(), "⚠ Export failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
@@ -700,7 +700,7 @@ class ScannerFragment : Fragment() {
 
     private fun showDateRangePickerDialog() {
         val builder = com.google.android.material.datepicker.MaterialDatePicker.Builder.dateRangePicker()
-            .setTitleText("Date range বেছে নিন")
+            .setTitleText("Select date range")
 
         if (filterFromDate != null && filterToDate != null) {
             builder.setSelection(
@@ -756,7 +756,7 @@ class ScannerFragment : Fragment() {
             }
             btnUpload.visibility = View.GONE
             tvEmpty.text = if (filterFromDate != null || filterToDate != null)
-                "📦\n\nএই সময়সীমায় কোনো scan নেই"
+                "📦\n\nNo scans in this period"
             else
                 "📦\n\nNo uploaded scans found"
             layoutDateFilter.visibility = View.VISIBLE

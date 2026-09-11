@@ -52,7 +52,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Number এলে dialer auto খুলবে"
+                    android:text="Dialer opens automatically on incoming number"
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginTop="2dp" />
@@ -86,7 +86,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Dialer খুলে auto call শুরু"
+                    android:text="Open dialer and start auto call"
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginTop="2dp" />
@@ -124,7 +124,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Remark save হলে WhatsApp message খুলবে (agent-এর এক tap লাগবে)"
+                        android:text="Opens WhatsApp message on remark save (needs one agent tap)"
                         android:textColor="@color/theme_text_secondary"
                         android:textSize="12sp"
                         android:layout_marginTop="2dp" />
@@ -219,7 +219,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Incoming text/number clipboard-এ save হবে"
+                    android:text="Incoming text/number is saved to clipboard"
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginTop="2dp" />
@@ -263,7 +263,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="নতুন data এলে notification"
+                    android:text="Notification on new data"
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginTop="2dp" />
@@ -297,7 +297,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Data receive হলে sound"
+                    android:text="Sound on data receive"
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginTop="2dp" />
@@ -351,7 +351,7 @@
                     android:id="@+id/tvLoginSubtext"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Data cloud এ save করতে Login"
+                    android:text="Login to save data to cloud"
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginTop="2dp" />
@@ -397,7 +397,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Device থেকে সব data মুছবে"
+                    android:text="Deletes all data from device"
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginTop="2dp" />
@@ -462,7 +462,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Call না ধরলে auto redial করবে"
+                    android:text="Auto redials unanswered calls"
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginTop="2dp" />
@@ -495,7 +495,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Customer call এলে নাম/parcel info popup দেখাবে"
+                    android:text="Shows name/parcel info popup on customer calls"
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginTop="2dp" />
@@ -532,7 +532,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Incoming call / History dial এ number Call Center search box এ বসাবে"
+                    android:text="Puts incoming call / history dial numbers into the Call Center search box"
                     android:textColor="@color/theme_text_secondary"
                     android:textSize="12sp"
                     android:layout_marginTop="2dp" />

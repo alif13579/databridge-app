@@ -101,7 +101,7 @@
                 android:id="@+id/twCardValidationNote"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="⚡ Address খুঁজে পাচ্ছি না"
+                android:text="⚡ Address not found"
                 android:textSize="11sp"
                 android:textColor="#a78bfa"
                 android:layout_marginTop="4dp"

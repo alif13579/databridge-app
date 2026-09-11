@@ -203,7 +203,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Internet connection পাওয়া যাচ্ছে না। Connection ঠিক হলে automatically চালু হবে।"
+            android:text="No internet connection. It will start automatically when the connection is back."
             android:textSize="13sp"
             android:textColor="@color/theme_text_muted"
             android:gravity="center"

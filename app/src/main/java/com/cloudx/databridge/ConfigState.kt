@@ -103,10 +103,10 @@ object ConfigState {
     // Language options (mirrors JSX LANG_OPTIONS)
     data class LangOption(val value: String, val label: String)
     val LANG_OPTIONS = listOf(
-        LangOption("bn_bn", "Remark = বাংলা, Status = বাংলা"),
-        LangOption("bn_en", "Remark = বাংলা, Status = English"),
+        LangOption("bn_bn", "Remark = Bangla, Status = Bangla"),
+        LangOption("bn_en", "Remark = Bangla, Status = English"),
         LangOption("en_en", "Remark = English, Status = English"),
-        LangOption("en_bn", "Remark = English, Status = বাংলা"),
+        LangOption("en_bn", "Remark = English, Status = Bangla"),
     )
 
     // ── Mutable shared state ──────────────────────────────────────────────────

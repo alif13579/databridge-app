@@ -262,7 +262,7 @@ class CashManagementHomeFragment : Fragment() {
     private fun showExportShareChooser(range: Pair<Long, Long>?, format: ExportFormat) {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("${format.label} Export")
-            .setItems(arrayOf("📤 Share করুন", "⬇️ Download করুন")) { _, which ->
+            .setItems(arrayOf("📤 Share", "⬇️ Download")) { _, which ->
                 if (which == 0) exportAndShare(range, format) else exportAndDownload(range, format)
             }
             .setNegativeButton("Cancel", null)
@@ -372,11 +372,11 @@ class CashManagementHomeFragment : Fragment() {
 
     private fun exportAndShare(range: Pair<Long, Long>?, format: ExportFormat) {
         val (file, count) = buildExportFile(range, format) ?: run {
-            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো entry নেই", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "⚠ No entries to export", Toast.LENGTH_SHORT).show()
             return
         }
         val uri = fileProviderUri(file) ?: run {
-            Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "⚠ Could not create file", Toast.LENGTH_SHORT).show()
             return
         }
         try {
@@ -385,19 +385,19 @@ class CashManagementHomeFragment : Fragment() {
                 putExtra(android.content.Intent.EXTRA_STREAM, uri)
                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            val chooser = android.content.Intent.createChooser(shareIntent, "${format.label} শেয়ার করুন").apply {
+            val chooser = android.content.Intent.createChooser(shareIntent, "Share ${format.label}").apply {
                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             startActivity(chooser)
-            Toast.makeText(requireContext(), "📤 ${format.label} পাঠানো হচ্ছে ($count rows)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "📤 Sharing ${format.label} ($count rows)", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(requireContext(), "⚠ Share করা যায়নি: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(requireContext(), "⚠ Share failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun exportAndDownload(range: Pair<Long, Long>?, format: ExportFormat) {
         val (file, count) = buildExportFile(range, format) ?: run {
-            Toast.makeText(requireContext(), "⚠ Export করার মতো কোনো entry নেই", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "⚠ No entries to export", Toast.LENGTH_SHORT).show()
             return
         }
         try {
@@ -417,11 +417,11 @@ class CashManagementHomeFragment : Fragment() {
                 uri = android.net.Uri.fromFile(outFile)
             }
             if (uri == null) {
-                Toast.makeText(requireContext(), "⚠ File তৈরি করা যায়নি", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "⚠ Could not create file", Toast.LENGTH_SHORT).show()
                 return
             }
             resolver.openOutputStream(uri)?.use { out -> file.inputStream().use { input -> input.copyTo(out) } }
-            Toast.makeText(requireContext(), "✅ ${format.label} Downloads এ সেভ হয়েছে ($count rows)", Toast.LENGTH_LONG).show()
+            Toast.makeText(requireContext(), "✅ ${format.label} saved to Downloads ($count rows)", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Toast.makeText(requireContext(), "⚠ Export failed: ${e.message}", Toast.LENGTH_LONG).show()
         }

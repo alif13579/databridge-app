@@ -750,9 +750,9 @@ class WorkerSpaceFragment : Fragment() {
             // pick a configured option — never free-type a standalone note.
             val tv = TextView(requireContext())
             tv.text = if (remarkOptionsLoadFailed)
-                "⚠ Remark options load হয়নি (network)। Back গিয়ে আবার আসুন, না হলে পরে চেষ্টা করুন।"
+                "⚠ Remark options failed to load (network). Go back and reopen, or try later."
             else
-                "⚠ Config-এ কোনো Worker remark সেট করা নেই। Admin-কে Worker remark config-এ remark যোগ করতে বলুন।"
+                "⚠ No Worker remark configured in Config. Ask the admin to add remarks in the Worker remark config."
             tv.textSize = 13f
             tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
             tv.setPadding(0, 24, 0, 12)
@@ -760,7 +760,7 @@ class WorkerSpaceFragment : Fragment() {
 
             if (remarkOptionsLoadFailed) {
                 val btnRetry = android.widget.Button(requireContext())
-                btnRetry.text = "↻ আবার চেষ্টা করুন"
+                btnRetry.text = "↻ Retry"
                 btnRetry.setOnClickListener {
                     dialog.dismiss()
                     loadRemarkOptions()
@@ -844,14 +844,14 @@ class WorkerSpaceFragment : Fragment() {
                     dialog.dismiss()
                     val total = samePhoneParcels.size + 1
                     android.app.AlertDialog.Builder(requireContext())
-                        .setTitle("একই Customer — $total টি Parcel")
+                        .setTitle("Same customer — $total parcels")
                         .setMessage(
-                            "\"${item.customer}\" (${item.phone}) এর মোট $total টি parcel আছে।\n\n" +
-                            "সবগুলোতে একই remark দিতে চান?\n\n" +
-                            "• Yes — $total টি parcel এ \"$selectedLabel\" save হবে\n" +
-                            "• No — শুধু ${item.id} তে save হবে"
+                            "\"${item.customer}\" (${item.phone}) has $total parcels in total.\n\n" +
+                            "Save the same remark on all of them?\n\n" +
+                            "• Yes — saves \"$selectedLabel\" on all $total parcels\n" +
+                            "• No — saves only on ${item.id}"
                         )
-                        .setPositiveButton("Yes, সবগুলোতে") { _, _ ->
+                        .setPositiveButton("Yes, all") { _, _ ->
                             saveRemarkForItems(
                                 items = listOf(item) + samePhoneParcels,
                                 statusKey = statusKey,
@@ -861,7 +861,7 @@ class WorkerSpaceFragment : Fragment() {
                                 noteText = noteText
                             )
                         }
-                        .setNegativeButton("No, শুধু এটায়") { _, _ ->
+                        .setNegativeButton("No, only this one") { _, _ ->
                             saveRemarkForItems(
                                 items = listOf(item),
                                 statusKey = statusKey,
@@ -983,7 +983,7 @@ class WorkerSpaceFragment : Fragment() {
             if (!isAdded) return@launch
             if (failed > 0) {
                 android.widget.Toast.makeText(requireContext(),
-                    "⚠ $failed টি save হয়নি — network দেখে আবার চেষ্টা করুন",
+                    "⚠ $failed failed to save — check network and retry",
                     android.widget.Toast.LENGTH_LONG).show()
                 // Don't collapse cards / update local state for failed saves —
                 // keep them visible so the worker can retry instead of thinking done.
@@ -1029,7 +1029,7 @@ class WorkerSpaceFragment : Fragment() {
         val savedCount = items.size
         android.widget.Toast.makeText(
             requireContext(),
-            if (savedCount > 1) "✓ $savedCount টি parcel এ remark save হয়েছে" else "✓ Remark saved",
+            if (savedCount > 1) "✓ Remark saved on $savedCount parcels" else "✓ Remark saved",
             android.widget.Toast.LENGTH_SHORT
         ).show()
 
@@ -1269,7 +1269,7 @@ class WorkerSpaceFragment : Fragment() {
             historyEntries.add(
                 HistoryEntry(
                     action = "CREATED",
-                    remark = "Parcel তৈরি হয়েছে",
+                    remark = "Parcel created",
                     time = fullFmt.format(java.util.Date(item.createdAt)),
                     author = "System",
                     authorRole = "system"
@@ -1279,11 +1279,11 @@ class WorkerSpaceFragment : Fragment() {
 
         if (item.history.isEmpty()) {
             historyEntries.add(
-                HistoryEntry("ASSIGNED", "${auth.currentUser?.displayName ?: "Agent"} কে assign করা হয়েছে", "${item.time}", "System", "system")
+                HistoryEntry("ASSIGNED", "Assigned to ${auth.currentUser?.displayName ?: "Agent"}", "${item.time}", "System", "system")
             )
             if (item.validationNote.isNotBlank()) {
                 historyEntries.add(
-                    HistoryEntry("VERIFY REQUEST", item.validationNote, item.time, "আপনি", "agent")
+                    HistoryEntry("VERIFY REQUEST", item.validationNote, item.time, "You", "agent")
                 )
             }
             if (item.ccRemark.isNotBlank()) {
@@ -1293,7 +1293,7 @@ class WorkerSpaceFragment : Fragment() {
             }
             if (item.remarks.isNotBlank() && !item.validationRequest) {
                 historyEntries.add(
-                    HistoryEntry("CONFIRMED", item.remarks, "Just now", "আপনি", "agent")
+                    HistoryEntry("CONFIRMED", item.remarks, "Just now", "You", "agent")
                 )
             }
         } else {
@@ -1430,7 +1430,7 @@ class WorkerSpaceFragment : Fragment() {
                 } ?: run {
                     pbProgress.visibility = View.GONE
                     tvEmpty.visibility = View.VISIBLE
-                    tvEmpty.text = "⚠ System ID পাওয়া যায়নি"
+                    tvEmpty.text = "⚠ System ID not found"
                     return@launch
                 }
                 loadCustomOrder()
@@ -1735,7 +1735,7 @@ class WorkerSpaceFragment : Fragment() {
             syncEngagedAtListeners(emptySet())
             pbProgress.visibility = View.GONE
             tvEmpty.visibility = View.VISIBLE
-            tvEmpty.text = "📭\n\nকোনো run নেই"
+            tvEmpty.text = "📭\n\nNo runs"
             return
         }
 
@@ -1822,8 +1822,8 @@ class WorkerSpaceFragment : Fragment() {
         }
         tvRunClosedBanner.visibility = View.VISIBLE
         tvRunClosedBanner.text = if (selectedRunType == RUN_TYPE_ALL)
-            "🔒 বন্ধ: ${closedTypes.joinToString(", ") { formatRunTypeLabel(it) }}"
-        else "🔒 আজকের ${formatRunTypeLabel(selectedRunType)} বন্ধ হয়ে গেছে"
+            "🔒 Closed: ${closedTypes.joinToString(", ") { formatRunTypeLabel(it) }}"
+        else "🔒 Today's ${formatRunTypeLabel(selectedRunType)} is closed"
     }
 
     /** Deterministic today's run ID: run_{yyyyMMdd}_{systemId} — same formula used everywhere a run ID is needed.
@@ -2077,7 +2077,7 @@ class WorkerSpaceFragment : Fragment() {
             .setPositiveButton("Copy") { _, _ ->
                 val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("RemarkPushChainLog", text))
-                android.widget.Toast.makeText(ctx, "Copied — Claude-কে paste করে দিন", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(ctx, "Copied — paste it into the chat", android.widget.Toast.LENGTH_SHORT).show()
             }
             .setNeutralButton("Clear") { _, _ -> RemarkPushChainLog.clear() }
             .setNegativeButton("Close", null)

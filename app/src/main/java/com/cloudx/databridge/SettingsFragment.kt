@@ -77,7 +77,7 @@ class SettingsFragment : Fragment() {
             if (_binding != null) syncCallerIdSwitch()
             checkOverlayPermissionForCallerId()
         } else {
-            Toast.makeText(requireContext(), "Caller ID role granted হয়নি", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Caller ID role not granted", Toast.LENGTH_SHORT).show()
             if (_binding != null) syncCallerIdSwitch()
         }
     }
@@ -323,7 +323,7 @@ class SettingsFragment : Fragment() {
         }
         if (wantOn && !actuallyOn) {
             togglePrefs.edit().putBoolean(prefCallerIdPopup, false).apply()
-            Toast.makeText(ctx, "Caller ID বন্ধ হয়ে গেছিল (role/permission আর নেই) — আবার ON করো", Toast.LENGTH_LONG).show()
+            Toast.makeText(ctx, "Caller ID turned off (role/permission missing) — turn it ON again", Toast.LENGTH_LONG).show()
         }
         switchCallerIdPopup.setOnCheckedChangeListener(null)
         switchCallerIdPopup.isChecked = actuallyOn
@@ -350,7 +350,7 @@ class SettingsFragment : Fragment() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = ctx.getSystemService(Context.ROLE_SERVICE) as? RoleManager
             if (roleManager == null || !roleManager.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)) {
-                Toast.makeText(ctx, "এই device এ Caller ID feature support করে না", Toast.LENGTH_LONG).show()
+                Toast.makeText(ctx, "This device does not support the Caller ID feature", Toast.LENGTH_LONG).show()
                 syncCallerIdSwitch()
                 return
             }
@@ -362,7 +362,7 @@ class SettingsFragment : Fragment() {
             }
         } else {
             if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(ctx, "Settings থেকে Phone permission enable করো আগে", Toast.LENGTH_LONG).show()
+                Toast.makeText(ctx, "Enable Phone permission from Settings first", Toast.LENGTH_LONG).show()
                 syncCallerIdSwitch()
                 return
             }
@@ -378,7 +378,7 @@ class SettingsFragment : Fragment() {
     private fun checkOverlayPermissionForCallerId() {
         val ctx = requireContext()
         if (!Settings.canDrawOverlays(ctx)) {
-            Toast.makeText(ctx, "Popup দেখানোর জন্য \"Display over other apps\" enable করো", Toast.LENGTH_LONG).show()
+            Toast.makeText(ctx, "Enable \"Display over other apps\" to show popups", Toast.LENGTH_LONG).show()
             try {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${ctx.packageName}")))
             } catch (_: Exception) {

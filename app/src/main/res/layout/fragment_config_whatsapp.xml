@@ -16,7 +16,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="প্রতিটা Template Remark-এর সাথে link করলে, সেই remark ব্যবহার হলে WhatsApp-এ auto message দেখাবে (send করার আগে edit করা যাবে)।"
+            android:text="When a template is linked to a remark, using that remark shows an auto WhatsApp message (editable before sending)."
             android:textSize="11sp"
             android:textColor="@color/theme_text_muted"
             android:layout_marginBottom="12dp" />
@@ -63,7 +63,7 @@
             android:id="@+id/tvTemplateEmpty"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="কোনো WhatsApp template নেই, তৈরি করুন।"
+            android:text="No WhatsApp templates, create one."
             android:gravity="center"
             android:padding="20dp"
             android:textColor="@color/theme_text_muted"

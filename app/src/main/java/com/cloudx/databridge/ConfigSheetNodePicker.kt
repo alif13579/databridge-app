@@ -288,14 +288,14 @@ internal fun ConfigSheetFragment.unlockNodePicker() {
         return
     }
     android.app.AlertDialog.Builder(requireContext())
-        .setTitle("Node পরিবর্তন করবেন?")
-        .setMessage("Primary key ও field mapping ইতিমধ্যে সেট করা আছে। Node পরিবর্তন করলে এই mapping গুলো নতুন node এর জন্য সঠিক নাও হতে পারে। আপনাকে সেগুলো আবার review করতে হবে।\n\nContinue করবেন?")
-        .setPositiveButton("হ্যাঁ, Node পরিবর্তন করবো") { _, _ ->
+        .setTitle("Change node?")
+        .setMessage("Primary key and field mapping are already set. Changing the node may make these mappings wrong for the new node — review them again.\n\nContinue?")
+        .setPositiveButton("Yes, change node") { _, _ ->
             nodeMappingConfirmed = false
             renderNodePicker()
             renderMappingStep()
         }
-        .setNegativeButton("না, থাকুক", null)
+        .setNegativeButton("No, keep it", null)
         .show()
 }
 
@@ -336,7 +336,7 @@ internal fun ConfigSheetFragment.addNodeDropdownRow(
         layoutParams = android.widget.LinearLayout.LayoutParams(0,
             android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { height = 44.dp() }
     }
-    val labels = listOf("— select করুন —") + options + listOf("+ Create New")
+    val labels = listOf("— select —") + options + listOf("+ Create New")
     spinner.adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, labels)
     val selIdx = selectedKey?.let { options.indexOf(it) + 1 } ?: 0
     spinner.setSelection(selIdx.coerceAtLeast(0))
@@ -424,7 +424,7 @@ internal fun ConfigSheetFragment.addNodeActionRow(
         // all of them into a dropdown isn't useful, so hide "+ Next level?" and let the
         // user lock this path using the example preview below.
         row.addView(TextView(ctx).apply {
-            text = "⚠ $childCount টা dynamic ID — dropdown এ নয়, নিচের preview অনুযায়ী Lock করুন"
+            text = "⚠ $childCount dynamic IDs — not in the dropdown, Lock them per the preview below"
             textSize = 11f
             setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
             layoutParams = android.widget.LinearLayout.LayoutParams(0,
@@ -504,7 +504,7 @@ internal fun ConfigSheetFragment.addTreePreviewSection(
         ).apply { bottomMargin = 10.dp() }
     }
     box.addView(TextView(ctx).apply {
-        text = "⏳ Example data লোড হচ্ছে…"
+        text = "⏳ Loading example data…"
         textSize = 12f
         setTextColor(android.graphics.Color.parseColor("#6B7280"))
     })
@@ -527,7 +527,7 @@ internal fun ConfigSheetFragment.addTreePreviewSection(
         val firstChild = snap?.children?.firstOrNull { it.key != NODE_META_KEY }
         if (snap == null || !snap.exists() || firstChild == null) {
             box.addView(TextView(ctx).apply {
-                text = "⚠ এখানে এখনো কোনো example data নেই (খালি node) — child তৈরি করতে \"+ Next level?\" ব্যবহার করুন"
+                text = "⚠ No example data here yet (empty node) — use \"+ Next level?\" to create a child"
                 textSize = 12f
                 setTextColor(android.graphics.Color.parseColor("#F59E0B"))
             })
@@ -549,7 +549,7 @@ internal fun ConfigSheetFragment.addTreePreviewSection(
             setPadding(0, 6.dp(), 0, 6.dp())
         })
         box.addView(TextView(ctx).apply {
-            text = "☝️ এই node এর ডেটা এমন দেখতে। এটাকে target হিসেবে নিতে উপরের \"🔒 Lock this path\" চাপুন।"
+            text = "☝️ This node\u2019s data looks like this. Tap \"🔒 Lock this path\" above to target it."
             textSize = 11f
             setTextColor(android.graphics.Color.parseColor("#6B7280"))
             setPadding(0, 6.dp(), 0, 0)
@@ -603,12 +603,12 @@ internal fun ConfigSheetFragment.showCreateNewNodeInput(depth: Int) {
     btnConfirmNewNode?.setOnClickListener {
         val name = etNewNodeName?.text?.toString()?.trim()?.trim('/') ?: ""
         if (name.isBlank()) {
-            toast("⚠ Node name দিন")
+            toast("⚠ Enter a node name")
             return@setOnClickListener
         }
         // Firebase keys can't contain  . # $ [ ] /  — reject so this stays exactly one level.
         if (name.contains(Regex("[./#$\\[\\]]"))) {
-            toast("⚠ Node name এ  . # \$ [ ] /  ব্যবহার করা যাবে না")
+            toast("⚠ Node names cannot contain  . # $ [ ] /")
             return@setOnClickListener
         }
         nodePickerPath = nodePickerPath.subList(0, depth).toMutableList()
@@ -632,7 +632,7 @@ internal fun ConfigSheetFragment.showCreateNewNodeInput(depth: Int) {
             nodePickerRevealedDepth = depth
             nodeMappingConfirmed = false
             renderNodePicker()
-            toast("✅ courier/$newPath তৈরি হয়েছে")
+            toast("✅ courier/$newPath created")
         }
     }
     btnCancelNewNode?.setOnClickListener {
@@ -698,7 +698,7 @@ internal fun ConfigSheetFragment.fetchNodeKeys(node: String) {
             else snap
 
             if (!snap.exists() || exampleChild == null) {
-                tvFetchStatus?.text = "⚠ Data নেই — manually field add করুন"
+                tvFetchStatus?.text = "⚠ No data — add fields manually"
                 tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
                 nodePreviewData = emptyMap()
                 // When reconnecting an existing connection, keep the saved mapping visible even
@@ -725,7 +725,7 @@ internal fun ConfigSheetFragment.fetchNodeKeys(node: String) {
             }.toMap()
 
             if (keys.isEmpty()) {
-                tvFetchStatus?.text = "⚠ Keys পাওয়া যায়নি — manually add করুন"
+                tvFetchStatus?.text = "⚠ No keys found — add manually"
                 tvFetchStatus?.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
                 return@launch
             }

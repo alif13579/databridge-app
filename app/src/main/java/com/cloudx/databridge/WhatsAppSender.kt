@@ -74,7 +74,7 @@ object WhatsAppSender {
             val uri = Uri.parse("https://wa.me/$international?text=${Uri.encode(message)}")
             fragment.startActivity(Intent(Intent.ACTION_VIEW, uri))
         } catch (_: Exception) {
-            Toast.makeText(ctx, "WhatsApp খোলা যায়নি", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, "Could not open WhatsApp", Toast.LENGTH_SHORT).show()
         }
     }
 }

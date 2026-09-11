@@ -39,7 +39,7 @@
         android:id="@+id/tvAgentNoResults"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="কোনো ফলাফল পাওয়া যায়নি"
+        android:text="No results found"
         android:textSize="12sp"
         android:textColor="@color/theme_text_secondary"
         android:gravity="center"

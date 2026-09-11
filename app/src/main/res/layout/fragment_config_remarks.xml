@@ -120,7 +120,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="+ নতুন Remark"
+                android:text="+ New remark"
                 android:textSize="12sp"
                 android:textStyle="bold"
                 android:textColor="@color/theme_text_primary"
@@ -139,7 +139,7 @@
                     android:orientation="vertical"
                     android:layout_marginEnd="4dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="বাংলা" android:textSize="10sp" android:textColor="@color/theme_text_muted"
+                        android:text="Bangla" android:textSize="10sp" android:textColor="@color/theme_text_muted"
                         android:textStyle="bold" android:layout_marginBottom="4dp" />
                     <EditText
                         android:id="@+id/etRemarkBn"
@@ -222,7 +222,7 @@
                 android:id="@+id/btnAddRemark"
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
-                android:text="যোগ করুন"
+                android:text="Add"
                 android:textSize="13sp"
                 android:textStyle="bold"
                 android:backgroundTint="#E8380D"

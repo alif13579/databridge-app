@@ -155,7 +155,7 @@ Deno.serve(async (request) => {
         // Same system_id on two persons: PK refuses — surface as 409, and
         // NEVER partially apply (the Firebase mirror below runs on success).
         if (err?.code === '23505' || text.includes('duplicate key') || text.includes('already used')) {
-          return reply({ error: `system_id "${systemId}" already used by another user — unique রাখতেই হবে` }, 409)
+          return reply({ error: `system_id "${systemId}" is already used by another user — it must stay unique` }, 409)
         }
         throw e
       }
