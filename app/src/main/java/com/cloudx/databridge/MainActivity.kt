@@ -235,7 +235,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                         }
                     } catch (e: Exception) {
                         Toast.makeText(this,
-                            "Sign-In shuru kora jayni: ${e.message}",
+                            "Could not start Sign-In: ${e.message}",
                             Toast.LENGTH_LONG).show()
                     }
                 }

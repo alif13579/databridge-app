@@ -565,7 +565,7 @@ object CcSheetBindingDialog {
             // dropdown and vice versa (lookup column-e kichu boshe na).
             lookupColAdapter = UsedAdapter(ctx, colLabels())
             writeColAdapter = UsedAdapter(ctx, colLabels())
-            mappingBox.addView(label("LOOKUP — + Add diye multiple criteria (sobgulo milte hobe)"))
+            mappingBox.addView(label("LOOKUP — + Add for multiple criteria (all must match)"))
             val lookupRowsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
             mappingBox.addView(lookupRowsBox)
             (currentBinding?.lookups.orEmpty()).forEach { m ->

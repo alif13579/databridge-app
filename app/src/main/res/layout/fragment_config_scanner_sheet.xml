@@ -221,7 +221,7 @@
                     android:padding="10dp" android:layout_marginBottom="14dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="SCOPE (ei sheet kon date-er jonno)" android:textSize="10sp" android:textStyle="bold"
+                    android:text="SCOPE (which dates this sheet covers)" android:textSize="10sp" android:textStyle="bold"
                     android:textColor="@color/theme_text_secondary" android:layout_marginBottom="5dp" />
 
                 <Spinner android:id="@+id/spinnerScScope"
@@ -268,7 +268,7 @@
                 </LinearLayout>
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="Branch + scope wise single / multiple sheet — date dile appropriate sheet pawa jabe"
+                    android:text="Single / multiple sheets per branch + scope — the right sheet is picked by date"
                     android:textSize="11sp" android:textColor="@color/theme_text_muted" android:layout_marginBottom="16dp" />
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"

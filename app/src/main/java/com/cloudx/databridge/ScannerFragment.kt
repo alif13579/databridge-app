@@ -397,7 +397,7 @@ class ScannerFragment : Fragment() {
     private fun handleDelete(item: ScanItem) {
         if (item.uploaded) {
             if (item.status.equals("approved", ignoreCase = true)) {
-                Toast.makeText(requireContext(), "✓ Approved scan — delete kora jabe na", Toast.LENGTH_SHORT).show()
+                Toast.makeText(requireContext(), "✓ Approved scan — cannot delete", Toast.LENGTH_SHORT).show()
                 return
             }
             deleteFromFirebase(item)
@@ -543,7 +543,7 @@ class ScannerFragment : Fragment() {
         val key = item.firebaseKey
         if (key.isBlank()) return
         if (item.status.equals("approved", ignoreCase = true)) {
-            Toast.makeText(requireContext(), "✓ Approved scan — edit kora jabe na", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "✓ Approved scan — cannot edit", Toast.LENGTH_SHORT).show()
             return
         }
 

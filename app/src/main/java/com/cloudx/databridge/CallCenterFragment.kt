@@ -4204,7 +4204,7 @@ class CallCenterFragment : Fragment() {
         }
         scroller.visibility = View.VISIBLE
         box.addView(TextView(ctx).apply {
-            text = "⚠ Firebase-e nei:"
+            text = "⚠ Not in Firebase:"
             textSize = 11f
             setTextColor(ctx.getColor(R.color.theme_text_secondary))
             setPadding(0, 8, 12, 8)

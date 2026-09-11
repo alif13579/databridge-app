@@ -433,7 +433,7 @@ object RemarkSheetMirror {
                 val samples = cells.map { it.trim() }.filter { it.isNotBlank() }
                     .distinct().take(3).joinToString(" | ")
                 " ${letter} col: $blanks khali" +
-                    (samples.ifBlank { "" }.let { if (it.isBlank()) "" else ", ache: $it" })
+                    (samples.ifBlank { "" }.let { if (it.isBlank()) "" else ", found: $it" })
             }
         }.orEmpty()
         val filterTxt = if (filtered > 0) " ($filtered row filter-e bad)" else ""
@@ -866,7 +866,7 @@ object RemarkSheetMirror {
                 }
                 if (targets.isEmpty())
                     return@map LiveBranchIds(branchId, emptyList(),
-                        "Ajker scope-e kono bound sheet nei")
+                        "No bound sheet in today's scope")
                 val ids = mutableListOf<LiveId>()
                 val seenIds = mutableSetOf<String>()
                 var scanned = 0
@@ -885,7 +885,7 @@ object RemarkSheetMirror {
                     ids.isNotEmpty() && notes.isNotEmpty() -> notes.joinToString("; ")
                     ids.isNotEmpty() -> null
                     else -> notes.firstOrNull()
-                        ?: "Ajker kono consignment nei ($scanned row dekha)"
+                        ?: "No consignments today ($scanned rows scanned)"
                 }
                 LiveBranchIds(branchId, ids, why)
             } catch (e: Exception) {
@@ -917,7 +917,7 @@ object RemarkSheetMirror {
         val wantFetchMode = if (binding.fetchColRef.trim().isNotBlank()) binding.fetchColMode
             else SheetColMode.INDEX
         if (wantFetchRef.isBlank())
-            return LiveFetch(emptyList(), 0, 0, "Lookup column nei")
+            return LiveFetch(emptyList(), 0, 0, "No lookup column")
         // Filters: socket rules (na thakle filter nei — sob row).
         val socketRules = binding.effectiveFilters()
         val rules: List<CcFetchFilter> = socketRules
