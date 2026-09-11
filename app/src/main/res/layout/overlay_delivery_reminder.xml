@@ -100,7 +100,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="🗣 CC\u2019s latest remark"
+        android:text="🗣 CC-র শেষ Remark"
         android:textSize="11.5sp"
         android:textStyle="bold"
         android:textColor="#0099B8" />
@@ -136,7 +136,7 @@
         android:background="@drawable/bg_pc_input"
         android:gravity="center_vertical"
         android:paddingHorizontal="12dp"
-        android:text="🚚 I\u2019ll deliver today"
+        android:text="🚚 আজ ডেলিভারি করবো"
         android:textSize="13.5sp"
         android:textColor="#0F172A" />
 
@@ -148,7 +148,7 @@
         android:background="@drawable/bg_pc_input"
         android:gravity="center_vertical"
         android:paddingHorizontal="12dp"
-        android:text="✅ Delivered"
+        android:text="✅ ডেলিভারি হয়ে গেছে"
         android:textSize="13.5sp"
         android:textColor="#0F172A" />
 
@@ -160,7 +160,7 @@
         android:background="@drawable/bg_pc_input"
         android:gravity="center_vertical"
         android:paddingHorizontal="12dp"
-        android:text="⏰ I\u2019ll update later (again in 2 hours)"
+        android:text="⏰ পরে জানাচ্ছি (2 ঘণ্টা পরে আবার)"
         android:textSize="13.5sp"
         android:textColor="#0F172A" />
 

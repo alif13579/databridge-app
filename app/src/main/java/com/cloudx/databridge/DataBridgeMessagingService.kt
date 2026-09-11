@@ -30,8 +30,8 @@ class DataBridgeMessagingService : FirebaseMessagingService() {
             return
         }
 
-        val title = data["title"]?.takeIf { it.isNotBlank() } ?: "New remark"
-        val body = data["body"]?.takeIf { it.isNotBlank() } ?: "A new remark arrived"
+        val title = data["title"]?.takeIf { it.isNotBlank() } ?: "নতুন রিমার্ক"
+        val body = data["body"]?.takeIf { it.isNotBlank() } ?: "একটি নতুন রিমার্ক এসেছে"
         val parcelId = data["consignment_id"].orEmpty()
         val scope = data["scope"].orEmpty()
         val source = data["source"].orEmpty()

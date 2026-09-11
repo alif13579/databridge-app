@@ -74,7 +74,7 @@ object DeliveryReminderOverlay {
         view.findViewById<TextView>(R.id.tvDrConsignment).text = data.consignmentId
         view.findViewById<TextView>(R.id.tvDrMoreCount).apply {
             isVisible = data.otherPendingCount > 0
-            text = "+ ${data.otherPendingCount} more pending requests"
+            text = "+ আরও ${data.otherPendingCount}টা pending request আছে"
         }
         view.findViewById<TextView>(R.id.tvDrCustomer).text =
             "${data.customerName.ifBlank { "Unknown customer" }} · ${data.customerPhone}"
@@ -93,10 +93,10 @@ object DeliveryReminderOverlay {
         view.findViewById<View>(R.id.btnDrClose).setOnClickListener { dismissInternal() }
 
         view.findViewById<View>(R.id.optDrWillDeliver).setOnClickListener {
-            submitQuickRemark(context, data, "CONFIRMED", "The parcel will be delivered today")
+            submitQuickRemark(context, data, "CONFIRMED", "The parcel will be delivered today", "আজ ডেলিভারি করবো")
         }
         view.findViewById<View>(R.id.optDrDelivered).setOnClickListener {
-            submitQuickRemark(context, data, "DELIVERED", "The parcel has delivered to the customer")
+            submitQuickRemark(context, data, "DELIVERED", "The parcel has delivered to the customer", "ডেলিভারি হয়ে গেছে")
         }
         view.findViewById<View>(R.id.optDrOthers).setOnClickListener {
             // "পরে জানাচ্ছি" — no remark, one reminder in 2h.
@@ -134,8 +134,10 @@ object DeliveryReminderOverlay {
 
     /** Quick WORKER remark with catalog status + text (matches the
      *  validation_remarks WORKER options, so dashboards and Bangla labels
-     *  resolve it like any worker reply — and the pending request clears). */
-    private fun submitQuickRemark(context: Context, data: Data, status: String, remarkText: String) {
+     *  resolve it like any worker reply — and the pending request clears).
+     *  [remarksBnText] is the Bangla label: the server upserts the EN→BN pair
+     *  into the catalog, so push notifications resolve Bangla as before. */
+    private fun submitQuickRemark(context: Context, data: Data, status: String, remarkText: String, remarksBnText: String = "") {
         SupabaseRemarkValidationWriter.write(
             assignedAgentSystemId = data.assignedAgentSystemId,
             branchId = data.branchId,
@@ -144,7 +146,8 @@ object DeliveryReminderOverlay {
             remarksText = remarkText,
             noteText = "",
             source = "WORKER",
-            screen = "DeliveryReminderOverlay"
+            screen = "DeliveryReminderOverlay",
+            remarksBnText = remarksBnText
         )
         dismissInternal()
     }
