@@ -490,3 +490,55 @@ data class ScannerBinding(
     fun effectiveFilters(): List<CcFetchFilter> =
         filters.filter { it.colRef.isNotBlank() && it.op.isNotBlank() }
 }
+
+/** Routing Approval's use of one library: which columns carry the
+ *  consignment ID, the from-hub, the to-hub and the confirm/decision cell
+ *  (extension parity: ID=D, From=C, To=E, Confirm=K — configurable here).
+ *  Incoming vs outgoing is derived per row: To == own branch → incoming,
+ *  else From == own branch → outgoing (destination wins, same as extension).
+ *
+ *  Stored at `config/sheetBindings/{branchId}/routing/{bindingId}`
+ *  (one binding per library per branch — save upserts by libraryId).
+ */
+data class RoutingBinding(
+    val bindingId: String = "",
+    val libraryId: String = "",
+    val branchId: String = "",
+    val idCol: SheetColRef = SheetColRef("D"),
+    val fromCol: SheetColRef = SheetColRef("C"),
+    val toCol: SheetColRef = SheetColRef("E"),
+    val confirmCol: SheetColRef = SheetColRef("K"),
+    val enabled: Boolean = true,
+    val updatedBy: String = "",
+    val updatedByName: String = "",
+    val updatedAt: Long = 0L,
+) {
+    /** Human summary: "D=ID, C=From, E=To, K=Confirm". */
+    fun summary(): String {
+        fun s(r: SheetColRef) = r.colRef.trim().ifBlank { "—" }
+        return "${s(idCol)}=ID, ${s(fromCol)}=From, ${s(toCol)}=To, ${s(confirmCol)}=Confirm"
+    }
+
+    /** Executor shape: ID column rides as the consignment lookup so generic
+     *  match-by-ID executors keep working; from/to/confirm stay binding-side
+     *  (the routing fetch reads them directly). */
+    fun toRoutingConn(lib: SheetLibrary): ScannerSheetConn =
+        ScannerSheetConn(
+            connectionId = "routing:$bindingId",
+            nickname = lib.nickname,
+            branchId = branchId,
+            sheetId = lib.sheetId,
+            sheetName = lib.sheetName,
+            tabPattern = lib.tabPattern,
+            googleEmail = lib.googleEmail,
+            lookups = listOf(SheetLookupRule(idCol.colRef, SheetLookupKind.CONSIGNMENT, idCol.mode)),
+            writes = emptyList(),
+            headerRow = lib.headerRow,
+            enabled = enabled && lib.enabled,
+            purpose = SheetPurpose.ROUTING,
+            scopeType = lib.scopeType,
+            scopeMonth = lib.scopeMonth,
+            scopeFrom = lib.scopeFrom,
+            scopeTo = lib.scopeTo,
+        )
+}

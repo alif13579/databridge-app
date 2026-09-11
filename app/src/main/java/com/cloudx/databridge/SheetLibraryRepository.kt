@@ -304,6 +304,112 @@ object SheetLibraryRepository {
             ccBindingsRef(branchId).child(bindingId).removeValue().await()
         }
 
+    // ── Routing bindings ─────────────────────────────────────────────────
+    // One binding per library per branch: which sheet columns carry the
+    // consignment ID / from-hub / to-hub / confirm cell. The Routing
+    // Approval fragment's 🔌 socket edits these; fetch reads through them.
+
+    private fun routingBindingsRef(branchId: String) =
+        db.reference.child("config/sheetBindings/$branchId/routing")
+
+    private fun readColRef(node: com.google.firebase.database.DataSnapshot, key: String, default: String): SheetColRef {
+        val child = node.child(key)
+        val ref = child.child("colRef").getValue(String::class.java).orEmpty().ifBlank { default }
+        val mode = child.child("mode").getValue(String::class.java)
+            ?.takeIf { it == SheetColMode.TEXT } ?: SheetColMode.INDEX
+        return SheetColRef(ref, mode)
+    }
+
+    suspend fun loadRoutingBindings(branchId: String): List<RoutingBinding> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val snap = routingBindingsRef(branchId).get().await()
+                snap.children.mapNotNull { child ->
+                    val id = child.key ?: return@mapNotNull null
+                    val binding = RoutingBinding(
+                        bindingId = id,
+                        libraryId = child.child("libraryId").getValue(String::class.java).orEmpty(),
+                        branchId = branchId,
+                        idCol = readColRef(child, "idCol", "D"),
+                        fromCol = readColRef(child, "fromCol", "C"),
+                        toCol = readColRef(child, "toCol", "E"),
+                        confirmCol = readColRef(child, "confirmCol", "K"),
+                        enabled = child.child("enabled").getValue(Boolean::class.java) ?: true,
+                        updatedBy = child.child("updatedBy").getValue(String::class.java).orEmpty(),
+                        updatedByName = child.child("updatedByName").getValue(String::class.java).orEmpty(),
+                        updatedAt = child.child("updatedAt").getValue(Long::class.java) ?: 0L,
+                    )
+                    if (binding.libraryId.isBlank()) null else binding
+                }
+            }.getOrDefault(emptyList())
+        }
+
+    /** Saves (creates or updates) a Routing binding. One per library per
+     *  branch: a blank bindingId reuses the existing binding for
+     *  [binding.libraryId] when one exists. Returns the bindingId. */
+    suspend fun saveRoutingBinding(
+        binding: RoutingBinding,
+        actingUid: String,
+        actingName: String,
+    ): String = withContext(Dispatchers.IO) {
+        val ref = routingBindingsRef(binding.branchId)
+        val existingId = if (binding.bindingId.isBlank()) {
+            runCatching {
+                ref.orderByChild("libraryId").equalTo(binding.libraryId)
+                    .get().await().children.firstOrNull()?.key
+            }.getOrNull()
+        } else binding.bindingId
+        val bindingId = existingId
+            ?: ref.push().key
+            ?: System.currentTimeMillis().toString()
+        fun col(r: SheetColRef) = mapOf("colRef" to r.colRef.trim(), "mode" to r.mode)
+        val data = mutableMapOf<String, Any?>(
+            "libraryId" to binding.libraryId,
+            "idCol" to col(binding.idCol),
+            "fromCol" to col(binding.fromCol),
+            "toCol" to col(binding.toCol),
+            "confirmCol" to col(binding.confirmCol),
+            "enabled" to binding.enabled,
+            "updatedBy" to actingUid,
+            "updatedByName" to actingName,
+            "updatedAt" to System.currentTimeMillis(),
+        )
+        ref.child(bindingId).setValue(data).await()
+        bindingId
+    }
+
+    suspend fun deleteRoutingBinding(branchId: String, bindingId: String) =
+        withContext(Dispatchers.IO) {
+            routingBindingsRef(branchId).child(bindingId).removeValue().await()
+        }
+
+    /** Bound routing target: executor-ready connection + its binding +
+     *  library. Fetch resolves through here so scope semantics stay
+     *  identical with the CC/Mirror paths. */
+    data class RoutingTarget(
+        val conn: ScannerSheetConn,
+        val binding: RoutingBinding,
+        val library: SheetLibrary,
+    )
+
+    suspend fun resolveRoutingTargets(
+        branchId: String,
+        date: java.time.LocalDate,
+    ): List<RoutingTarget> = withContext(Dispatchers.IO) {
+        val bindings = loadRoutingBindings(branchId)
+            .filter { it.enabled && it.idCol.colRef.isNotBlank() }
+        if (bindings.isEmpty()) return@withContext emptyList()
+        val libraries = loadLibraries(branchId)
+            .filter { it.enabled }.associateBy { it.libraryId }
+        bindings.mapNotNull { b ->
+            val lib = libraries[b.libraryId] ?: return@mapNotNull null
+            if (!SheetScope.covers(lib.scopeType, lib.scopeMonth, lib.scopeFrom, lib.scopeTo, date)) {
+                return@mapNotNull null
+            }
+            RoutingTarget(b.toRoutingConn(lib), b, lib)
+        }
+    }
+
     /** Bound target: executor-ready connection + its binding (filters,
      *  fetch criteria) + library. Mirror, bulk sync and Live all resolve
      *  through here so filter semantics stay identical. */
