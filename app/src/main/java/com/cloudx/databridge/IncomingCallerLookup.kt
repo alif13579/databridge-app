@@ -147,8 +147,8 @@ object IncomingCallerLookup {
             try {
                 val wanted = consignmentIds.filter { it.isNotBlank() }.toSet()
                 if (wanted.isEmpty()) return@withContext emptyMap()
-                val today = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH)
-                    .format(java.util.Date())
+                // Dhaka day (GMT+6 pinned) — run IDs are Dhaka-date keyed.
+                val today = DhakaTime.todayKey()
                 val candidateKeys = mutableSetOf<Pair<String, String>>()
                 val covered = mutableSetOf<String>()
 

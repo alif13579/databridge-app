@@ -34,6 +34,8 @@ class ScannerFragment : Fragment() {
 
     private var currentTab = ScanTab.NEW_SCAN
     private var isBatchMode = false
+    // ✅ Approval tab embedded once (admin/Incharge only — see gate below).
+    private var approvalEmbedded = false
 
     // Date range filter for "All Scans" tab (millis). Defaults to today;
     // user can widen it via the date-range picker, or tap Clear for all-time.
@@ -56,6 +58,8 @@ class ScannerFragment : Fragment() {
     private lateinit var tvManualCount: TextView
     private lateinit var chipNewScan: TextView
     private lateinit var chipAllScans: TextView
+    private lateinit var chipApproval: TextView
+    private lateinit var approvalContainer: View
     private lateinit var adapter: ScannerAdapter
 
     private val auth = FirebaseAuth.getInstance()
@@ -93,7 +97,7 @@ class ScannerFragment : Fragment() {
         }
     }
 
-    enum class ScanTab { NEW_SCAN, ALL_SCANS }
+    enum class ScanTab { NEW_SCAN, ALL_SCANS, APPROVAL }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         return inflater.inflate(R.layout.fragment_scanner, container, false)
@@ -111,9 +115,11 @@ class ScannerFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        gateApprovalTab()
         if (currentTab == ScanTab.ALL_SCANS) {
             loadUploadedItems()
         }
+        // APPROVAL tab refreshes itself (embedded ScanQueueFragment).
     }
 
     override fun onDestroyView() {
@@ -159,8 +165,30 @@ class ScannerFragment : Fragment() {
         btnManual = view.findViewById(R.id.btnManual)
         chipNewScan = view.findViewById(R.id.chipNewScan)
         chipAllScans = view.findViewById(R.id.chipAllScans)
+        chipApproval = view.findViewById(R.id.chipApproval)
+        approvalContainer = view.findViewById(R.id.approvalContainer)
 
         updateDateFilterLabel() // reflect the today-by-default filter immediately
+        gateApprovalTab()
+    }
+
+    /** ✅ Approval tab gate — same role-NAME pattern as Leave/MainActivity:
+     *  any Incharge with a branch gets the shared approval queue inline;
+     *  everyone else never sees the tab. Re-checked on resume (RBAC loads
+     *  async — it may be empty on first view creation). */
+    private fun isApprovalUser(): Boolean {
+        val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
+        if (branchId.isBlank()) return false
+        return RbacManager.current.roleName.trim().equals(LEAVE_ACKNOWLEDGER_ROLE_NAME, ignoreCase = true)
+    }
+
+    private fun gateApprovalTab() {
+        if (!::chipApproval.isInitialized) return
+        val show = isApprovalUser()
+        chipApproval.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show && currentTab == ScanTab.APPROVAL) {
+            selectTab(ScanTab.NEW_SCAN)
+        }
     }
 
     private fun setupListeners() {
@@ -185,16 +213,47 @@ class ScannerFragment : Fragment() {
         btnUpload.setOnClickListener { uploadAll() }
 
         chipNewScan.setOnClickListener {
-            currentTab = ScanTab.NEW_SCAN
-            updateChipStyles()
-            render()
+            selectTab(ScanTab.NEW_SCAN)
         }
         chipAllScans.setOnClickListener {
-            currentTab = ScanTab.ALL_SCANS
-            updateChipStyles()
-            loadUploadedItems()
-            render()
+            selectTab(ScanTab.ALL_SCANS)
         }
+        chipApproval.setOnClickListener {
+            if (!isApprovalUser()) {
+                Toast.makeText(requireContext(), "Only Incharge can approve scans", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            selectTab(ScanTab.APPROVAL)
+        }
+    }
+
+    private fun selectTab(tab: ScanTab) {
+        currentTab = tab
+        updateChipStyles()
+        if (tab == ScanTab.APPROVAL) {
+            // Approval queue lives in the embedded child fragment (single +
+            // bulk approve, sheet write on approve — see ScanQueueFragment).
+            rv.visibility = View.GONE
+            tvEmpty.visibility = View.GONE
+            btnUpload.visibility = View.GONE
+            layoutDateFilter.visibility = View.GONE
+            btnExportCsv.visibility = View.GONE
+            approvalContainer.visibility = View.VISIBLE
+            if (!approvalEmbedded) {
+                approvalEmbedded = true
+                val branchId = RbacManager.current.branchIds.firstOrNull().orEmpty()
+                childFragmentManager.beginTransaction()
+                    .replace(R.id.approvalContainer, ScanQueueFragment.newInstance(branchId))
+                    .commit()
+            }
+            return
+        }
+        approvalContainer.visibility = View.GONE
+        rv.visibility = View.VISIBLE
+        if (tab == ScanTab.ALL_SCANS) {
+            loadUploadedItems()
+        }
+        render()
     }
 
     private fun updateBatchButtonStyle() {
@@ -217,23 +276,22 @@ class ScannerFragment : Fragment() {
     }
 
     private fun updateChipStyles() {
-        val isNew = currentTab == ScanTab.NEW_SCAN
-        chipNewScan.setBackgroundResource(
-            if (isNew) R.drawable.bg_filter_chip_active
-            else R.drawable.bg_filter_chip_inactive
+        paintTabChip(chipNewScan, currentTab == ScanTab.NEW_SCAN, purple = false)
+        paintTabChip(chipAllScans, currentTab == ScanTab.ALL_SCANS, purple = true)
+        if (::chipApproval.isInitialized && chipApproval.visibility == View.VISIBLE) {
+            paintTabChip(chipApproval, currentTab == ScanTab.APPROVAL, purple = true)
+        }
+    }
+
+    private fun paintTabChip(chip: TextView, active: Boolean, purple: Boolean) {
+        chip.setBackgroundResource(
+            if (!active) R.drawable.bg_filter_chip_inactive
+            else if (purple) R.drawable.bg_filter_chip_active_purple
+            else R.drawable.bg_filter_chip_active
         )
-        chipNewScan.setTextColor(
+        chip.setTextColor(
             requireContext().getColor(
-                if (isNew) android.R.color.white else R.color.theme_text_secondary
-            )
-        )
-        chipAllScans.setBackgroundResource(
-            if (!isNew) R.drawable.bg_filter_chip_active_purple
-            else R.drawable.bg_filter_chip_inactive
-        )
-        chipAllScans.setTextColor(
-            requireContext().getColor(
-                if (!isNew) android.R.color.white else R.color.theme_text_secondary
+                if (active) android.R.color.white else R.color.theme_text_secondary
             )
         )
     }
@@ -540,8 +598,8 @@ class ScannerFragment : Fragment() {
 
         if (items.isEmpty()) return null
 
-        val dateFmt = java.text.SimpleDateFormat("dd-MM-yyyy", java.util.Locale.getDefault())
-        val timeFmt = java.text.SimpleDateFormat("hh:mm:ss a", java.util.Locale.getDefault())
+        val dateFmt = DhakaTime.sdf("dd-MM-yyyy")
+        val timeFmt = DhakaTime.sdf("hh:mm:ss a")
 
         val csv = StringBuilder()
         csv.append("Timestamp,Date,Time,Scanned Data\n")
@@ -634,19 +692,11 @@ class ScannerFragment : Fragment() {
     }
 
     // ── Date range filter ─────────────────────────────────────────────
-    private fun todayStartMillis(): Long {
-        val cal = java.util.Calendar.getInstance()
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0)
-        cal.set(java.util.Calendar.SECOND, 0); cal.set(java.util.Calendar.MILLISECOND, 0)
-        return cal.timeInMillis
-    }
+    // All bounds are Dhaka days (GMT+6 pinned) — never the phone's zone, so
+    // "today" can't drift for a device set to another timezone.
+    private fun todayStartMillis(): Long = DhakaTime.dayStartMillis()
 
-    private fun todayEndMillis(): Long {
-        val cal = java.util.Calendar.getInstance()
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 23); cal.set(java.util.Calendar.MINUTE, 59)
-        cal.set(java.util.Calendar.SECOND, 59); cal.set(java.util.Calendar.MILLISECOND, 999)
-        return cal.timeInMillis
-    }
+    private fun todayEndMillis(): Long = DhakaTime.dayEndMillis()
 
     private fun showDateRangePickerDialog() {
         val builder = com.google.android.material.datepicker.MaterialDatePicker.Builder.dateRangePicker()
@@ -660,17 +710,11 @@ class ScannerFragment : Fragment() {
 
         val picker = builder.build()
         picker.addOnPositiveButtonClickListener { selection ->
-            // Normalize to full-day bounds: from = start of day, to = end of day
-            val cal = java.util.Calendar.getInstance()
-            cal.timeInMillis = selection.first
-            cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0)
-            cal.set(java.util.Calendar.SECOND, 0); cal.set(java.util.Calendar.MILLISECOND, 0)
-            filterFromDate = cal.timeInMillis
-
-            cal.timeInMillis = selection.second
-            cal.set(java.util.Calendar.HOUR_OF_DAY, 23); cal.set(java.util.Calendar.MINUTE, 59)
-            cal.set(java.util.Calendar.SECOND, 59); cal.set(java.util.Calendar.MILLISECOND, 999)
-            filterToDate = cal.timeInMillis
+            // Normalize to full Dhaka-day bounds: from = start of day, to =
+            // end of day. The picker hands UTC-midnight instants; pinning the
+            // calendar to Asia/Dhaka keeps the day the user actually picked.
+            filterFromDate = DhakaTime.dayStartMillis(selection.first)
+            filterToDate = DhakaTime.dayEndMillis(selection.second)
 
             updateDateFilterLabel()
             render()
@@ -685,7 +729,7 @@ class ScannerFragment : Fragment() {
             tvDateFilterLabel.text = "All time"
             btnClearDateFilter.visibility = View.GONE
         } else {
-            val fmt = java.text.SimpleDateFormat("d MMM", java.util.Locale.getDefault())
+            val fmt = DhakaTime.sdf("d MMM")
             tvDateFilterLabel.text = "${fmt.format(java.util.Date(from))} – ${fmt.format(java.util.Date(to))}"
             btnClearDateFilter.visibility = View.VISIBLE
         }
@@ -693,6 +737,8 @@ class ScannerFragment : Fragment() {
 
     // ── Render ─────────────────────────────────────────────────────────
     private fun render() {
+        // Approval tab owns its own list (embedded queue) — nothing to render here.
+        if (currentTab == ScanTab.APPROVAL) return
         val isNewTab = currentTab == ScanTab.NEW_SCAN
         val displayItems: List<ScanItem>
 

@@ -17,7 +17,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
@@ -104,7 +103,8 @@ class LastAttemptReminderReceiver : BroadcastReceiver() {
      *  today-confirmed ones excluded. */
     private suspend fun findCandidates(appContext: Context, systemId: String): List<Candidate> {
         val db = FirebaseDatabase.getInstance()
-        val today = SimpleDateFormat("yyyyMMdd", Locale.ENGLISH).format(Date())
+        // Dhaka day (GMT+6 pinned) — run IDs are Dhaka-date keyed.
+        val today = DhakaTime.todayKey()
         val indexSnap = try {
             db.reference.child("courier/runs_by_agentSystemId/$systemId").get().await()
         } catch (_: Exception) { return emptyList() }
@@ -253,8 +253,8 @@ class LastAttemptReminderReceiver : BroadcastReceiver() {
         /** Next nudge in 20–40 min, randomized so it doesn't feel robotic. */
         private fun jitteredDelay(): Long = (20 + Math.random() * 20).toLong() * 60_000L
 
-        private fun todayKey(): String =
-            SimpleDateFormat("yyyyMMdd", Locale.ENGLISH).format(Date())
+        /** Dhaka day key (GMT+6 pinned) — run IDs are Dhaka-date keyed. */
+        private fun todayKey(): String = DhakaTime.todayKey()
 
         /** Called from WorkerSpaceFragment.loadData() (beside the CC-request
          *  reminder arm) and boot — cheap no-op when nothing qualifies. */

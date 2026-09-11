@@ -1800,8 +1800,8 @@ class CallCenterFragment : Fragment() {
         ccExpectedPhase2Keys.clear()
         ccStableCandidateKeys = emptySet()
 
-        val todayDateKey = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH)
-            .format(java.util.Date())
+        // Dhaka day (GMT+6 pinned) — run IDs are Dhaka-date keyed.
+        val todayDateKey = DhakaTime.todayKey()
 
         // Agent name-map resolution and the range queries below are INDEPENDENT — the name
         // map is only consulted later, inside onBranchIndexesLoaded()'s filtering step, not
@@ -4268,11 +4268,11 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    /** Today's date as yyyyMMdd (e.g. "20260725") — year-first so plain string/key ordering
-     *  sorts chronologically. Used for runId construction and the courier/remarks_by_userId secondary
+    /** Today's date as yyyyMMdd in Dhaka (GMT+6 pinned, e.g. "20260725") —
+     *  year-first so plain string/key ordering sorts chronologically. Used
+     *  for runId construction and the courier/remarks_by_userId secondary
      *  index key — both now share this one format, so one helper covers both. */
-    private fun todayDateKeyYyyyMmDd(): String =
-        java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date())
+    private fun todayDateKeyYyyyMmDd(): String = DhakaTime.todayKey()
 
     /**
      * Extracts the date portion from a run ID of the form "run_{yyyyMMdd}_{employeeId}"
@@ -4288,7 +4288,8 @@ class CallCenterFragment : Fragment() {
         val day   = yyyymmdd.substring(6, 8).toIntOrNull() ?: return null
         if (month !in 1..12 || day !in 1..31) return null
         return try {
-            java.util.Calendar.getInstance().apply {
+            // Dhaka midnight (GMT+6 pinned) — run IDs are Dhaka-date keyed.
+            DhakaTime.calendar().apply {
                 clear()
                 set(year, month - 1, day, 0, 0, 0)
             }.timeInMillis

@@ -699,8 +699,8 @@ internal suspend fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
                             partFailed = true
                             ""
                         } else {
-                            java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH)
-                                .format(java.util.Date(millis))
+                            // Dhaka day (GMT+6 pinned) — run-ID date parts are Dhaka-date keyed.
+                            DhakaTime.dayKey(millis)
                         }
                     }
                     else -> ""
@@ -1348,8 +1348,8 @@ internal suspend fun ConfigSheetFragment.rebuildRunConsignmentIndex() {
             toast("No branches found")
             return
         }
-        val today = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH)
-            .format(java.util.Date())
+        // Dhaka day (GMT+6 pinned) — run IDs are Dhaka-date keyed.
+        val today = DhakaTime.todayKey()
         // Today's (runType, runId) from each branch index (server-side prefix range).
         setBusy(true, "Run index rebuild…\n\nআজকের run খুঁজছে...")
         val runKeys = mutableSetOf<Pair<String, String>>()

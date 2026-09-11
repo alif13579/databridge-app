@@ -5,9 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 /**
  * Adapter that supports two view types:
@@ -22,8 +20,11 @@ class ScannerAdapter(
     companion object {
         private const val TYPE_DATE_DIVIDER = 0
         private const val TYPE_ITEM = 1
-        private val TIME_FMT = SimpleDateFormat("h:mm a", Locale.getDefault())
-        private val DATE_FMT = SimpleDateFormat("d MMM yyyy, EEEE", Locale.getDefault())
+        // Dhaka (GMT+6) pinned — date dividers must follow the ops day, not
+        // the phone's zone (see DhakaTime).
+        private val TIME_FMT = DhakaTime.sdf("h:mm a")
+        private val DATE_FMT = DhakaTime.sdf("d MMM yyyy, EEEE")
+        private val DAY_KEY_FMT = DhakaTime.sdf("yyyy-MM-dd")
     }
 
     sealed class ListItem {
@@ -62,13 +63,12 @@ class ScannerAdapter(
     }
 
     private fun getDateLabel(ts: Long): String {
-        return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(ts))
+        return DAY_KEY_FMT.format(Date(ts))
     }
 
     private fun getRelativeDateLabel(ts: Long, dateLabel: String): String {
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        val yesterday = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            .format(Date(System.currentTimeMillis() - 86400000))
+        val today = DAY_KEY_FMT.format(Date())
+        val yesterday = DAY_KEY_FMT.format(Date(System.currentTimeMillis() - 86400000))
 
         val formatted = DATE_FMT.format(Date(ts))
         return when (dateLabel) {

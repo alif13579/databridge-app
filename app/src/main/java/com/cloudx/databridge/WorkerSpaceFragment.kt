@@ -1126,12 +1126,11 @@ class WorkerSpaceFragment : Fragment() {
         )
     }
 
-    /** Today's date as yyyyMMdd (e.g. "20260725") — year-first so plain string/key ordering
+    /** Today's date as yyyyMMdd in Dhaka (GMT+6 pinned, e.g. "20260725") — year-first so plain string/key ordering
      *  sorts chronologically. Used for runId construction. (Formerly also used for the
      *  courier/remarks_by_userId secondary index key, retired along with that path — see
      *  SupabaseRemarkValidationWriter's doc comment.) */
-    private fun todayDateKeyYyyyMmDd(): String =
-        java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.ENGLISH).format(java.util.Date())
+    private fun todayDateKeyYyyyMmDd(): String = DhakaTime.todayKey()
 
     /** Formats the gap between updatedAt and createdAt as a human-readable age
      *  (e.g. "2 Days", "1 Day", "5 Hours", "Just now"). */
@@ -1827,9 +1826,11 @@ class WorkerSpaceFragment : Fragment() {
         else "🔒 আজকের ${formatRunTypeLabel(selectedRunType)} বন্ধ হয়ে গেছে"
     }
 
-    /** Deterministic today's run ID: run_{yyyyMMdd}_{systemId} — same formula used everywhere a run ID is needed. */
+    /** Deterministic today's run ID: run_{yyyyMMdd}_{systemId} — same formula used everywhere a run ID is needed.
+     *  Date is the Dhaka day (GMT+6 pinned). */
     private fun computeTodayRunId(): String {
-        val today = java.util.Calendar.getInstance()
+        // Dhaka day (GMT+6 pinned) — run IDs are Dhaka-date keyed.
+        val today = DhakaTime.calendar()
         val yyyyMMdd = String.format(
             "%04d%02d%02d",
             today.get(java.util.Calendar.YEAR),

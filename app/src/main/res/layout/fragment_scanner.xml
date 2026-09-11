@@ -264,7 +264,23 @@
                 android:gravity="center"
                 android:clickable="true"
                 android:focusable="true"
-                android:layout_marginStart="4dp" />
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp" />
+
+            <!-- ✅ Approval queue (Incharge/admin only — visibility gated in code) -->
+            <TextView
+                android:id="@+id/chipApproval"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:text="✅ Approval"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:layout_marginStart="4dp"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 
@@ -293,6 +309,14 @@
         android:paddingTop="8dp"
         android:paddingBottom="100dp"
         android:clipToPadding="false" />
+
+    <!-- ✅ Approval queue host (Incharge/admin tab — child ScanQueueFragment) -->
+    <FrameLayout
+        android:id="@+id/approvalContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:visibility="gone" />
 
     <!-- Upload Button (hidden until items exist) -->
     <Button android:id="@+id/btnUpload"

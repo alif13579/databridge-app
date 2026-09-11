@@ -13,9 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 data class FunnelAgentOption(val systemId: String, val name: String)
 
@@ -166,7 +164,8 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
         rangeStartMs: Long, rangeEndMs: Long, scopeSid: String?
     ): List<RunEntry> = coroutineScope {
         val db = com.google.firebase.database.FirebaseDatabase.getInstance()
-        val fmt = SimpleDateFormat("yyyyMMdd", Locale.ENGLISH)
+        // Dhaka day keys (GMT+6 pinned) — run IDs are Dhaka-date keyed.
+        val fmt = DhakaTime.sdf("yyyyMMdd")
         val startKey = fmt.format(Date(rangeStartMs))
         val endKey = fmt.format(Date(rangeEndMs))
         val branchIds = RbacManager.current.branchIds

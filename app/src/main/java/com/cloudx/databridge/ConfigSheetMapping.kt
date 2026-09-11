@@ -510,7 +510,7 @@ internal fun ConfigSheetFragment.updatePkPreview() {
         updateConnectButtonState()   // keep Exit/Save button in sync with pk edits
         return
     }
-    val todayYyyyMmDd = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date())
+    val todayYyyyMmDd = DhakaTime.todayKey()
     val preview = pendingPkParts.joinToString("") { part ->
         when (part.type) {
             "fixed" -> part.value

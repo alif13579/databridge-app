@@ -7,9 +7,7 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 /** Incharge queue row: checkbox (bulk) + per-scan approve/reject. */
 class ScanQueueAdapter(
@@ -18,7 +16,8 @@ class ScanQueueAdapter(
     private val onSelectionChanged: (Int) -> Unit
 ) : RecyclerView.Adapter<ScanQueueAdapter.Holder>() {
 
-    private val timeFmt = SimpleDateFormat("d MMM, h:mm a", Locale.getDefault())
+    // Dhaka (GMT+6) pinned — scan times follow the ops day (see DhakaTime).
+    private val timeFmt = DhakaTime.sdf("d MMM, h:mm a")
 
     var items: List<QueuedScan> = emptyList()
         set(value) {
