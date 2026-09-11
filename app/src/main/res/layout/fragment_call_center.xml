@@ -594,6 +594,35 @@
                     android:padding="40dp"
                     android:visibility="gone" />
 
+                <!-- Live sheet-access error page: connected Google account
+                     cannot open the sheet. Offers a one-tap account switch. -->
+                <LinearLayout
+                    android:id="@+id/layoutCcaLiveError"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="40dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/twCcaLiveErrorMsg"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text="No access to the sheet"
+                        android:textSize="14sp"
+                        android:textColor="@color/theme_text_secondary"
+                        android:paddingBottom="16dp" />
+
+                    <Button
+                        android:id="@+id/btnCcaSwitchAccount"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Switch Google account" />
+                </LinearLayout>
+
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/rvCcaParcelList"
                     android:layout_width="match_parent"

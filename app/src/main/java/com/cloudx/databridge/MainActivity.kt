@@ -167,9 +167,40 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             GoogleSignInHelper.rememberConnectedEmail(
                 this, "connectors_google_account", account.email)
             Toast.makeText(this,
-                "✓ Google connected — ekhon theke remarks sheet-e auto save hobe",
+                "✓ Google connected — remarks will now auto-save to the sheet",
                 Toast.LENGTH_LONG).show()
+            onSheetAccountSwitched?.invoke()
+            onSheetAccountSwitched = null
         }
+
+    /** One-shot callback fired after the sheet Google account (re)connects. */
+    var onSheetAccountSwitched: (() -> Unit)? = null
+
+    /** Always opens the Google account chooser (signs out first so a different
+     *  account can be picked), then remembers the new grant device-wide.
+     *  Unlike promptSheetAuthOnce() this never one-time-gates: it is the
+     *  explicit "wrong account → switch" path (e.g. Live sheet 403). */
+    fun switchSheetAccount(onSwitched: (() -> Unit)? = null) {
+        if (onSwitched != null) onSheetAccountSwitched = onSwitched
+        runOnUiThread {
+            if (isFinishing || isDestroyed) return@runOnUiThread
+            try {
+                sheetAuthClient.signOut().addOnCompleteListener {
+                    try {
+                        sheetAuthLauncher.launch(sheetAuthClient.signInIntent)
+                    } catch (e: Exception) {
+                        Toast.makeText(this,
+                            "Sign-In launch failed: ${e.message}",
+                            Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                Toast.makeText(this,
+                    "Sign-In could not start: ${e.message}",
+                    Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     /** Thread-safe: mirror callbacks fire from IO coroutines. */
     fun promptSheetAuthOnce() {

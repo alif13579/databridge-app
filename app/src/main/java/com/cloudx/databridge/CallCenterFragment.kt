@@ -62,6 +62,10 @@ class CallCenterFragment : Fragment() {
     private lateinit var pbProgress: ProgressBar
     private lateinit var tvLoadingPercent: TextView
     private lateinit var tvEmpty: TextView
+    // Live sheet-access error page (connected Google account cannot open the
+    // sheet): message + one-tap account switch. Shown INSTEAD of tvEmpty.
+    private lateinit var layoutCcaLiveError: View
+    private lateinit var tvCcaLiveErrorMsg: TextView
     // Loading veil drawn ABOVE the parcel list (see layout order) — always
     // toggled together with the spinner + skeleton via showCcLoading()/hideCcLoading().
     private lateinit var loadingDim: View
@@ -416,6 +420,16 @@ class CallCenterFragment : Fragment() {
         loadingWrap = view.findViewById(R.id.llCcaLoadingWrap)
         skeletonBox = view.findViewById(R.id.llCcaSkeleton)
         tvEmpty = view.findViewById(R.id.twCcaEmptyState)
+        layoutCcaLiveError = view.findViewById(R.id.layoutCcaLiveError)
+        tvCcaLiveErrorMsg = view.findViewById(R.id.twCcaLiveErrorMsg)
+        view.findViewById<View>(R.id.btnCcaSwitchAccount)?.setOnClickListener {
+            val host = activity as? MainActivity ?: return@setOnClickListener
+            hideLiveErrorBox()
+            host.switchSheetAccount {
+                if (!isAdded) return@switchSheetAccount
+                if (ccDataSource == "live") loadLiveMode()
+            }
+        }
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
         btnSyncSheet = view.findViewById(R.id.btnCcaSyncSheet)
         btnSyncSheet.setOnClickListener { startBulkSheetSync() }
@@ -1734,6 +1748,7 @@ class CallCenterFragment : Fragment() {
         ccReprocessTotal = 0
         ccReprocessDone = 0
         tvEmpty.visibility    = View.GONE
+        hideLiveErrorBox()
         detachRunsListener()
         // Validation reads and Realtime are RLS-gated. Unlike Worker Space, Call
         // Center previously started its listeners before syncing this CC agent's
@@ -3615,6 +3630,13 @@ class CallCenterFragment : Fragment() {
                 sheetRes.forEach { r -> r.ids.forEach { e -> cidDates.putIfAbsent(e.cid, e.dateKeys) } }
                 lastLiveRefreshMs = System.currentTimeMillis()
                 if (ccDataSource == "live") {
+                    // Access revoked mid-session: the sheet now 403s — show the
+                    // access page instead of silently wiping into an empty list.
+                    if (freshIds.isEmpty() && sheetRes.mapNotNull { it.note?.takeIf { n -> n.isNotBlank() } }
+                            .any { isSheetAccessDenied(it) }) {
+                        showLiveAccessError()
+                        return@launch
+                    }
                     val currentPairs = allParcels.associate { it.id to it.sheetDateKey.ifBlank { null } } +
                         liveMissingIds.associateWith { null }
                     if (freshPairs == currentPairs) return@launch // unchanged — stay silent
@@ -3787,13 +3809,14 @@ class CallCenterFragment : Fragment() {
         val gen = ++liveGeneration
         showCcLoading("Live sheet পড়ছে...")
         tvEmpty.visibility = View.GONE
+        hideLiveErrorBox()
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val appCtx = requireContext().applicationContext
                 val branches = resolveSheetBranches()
                 if (gen != liveGeneration || !isAdded) return@launch
                 if (branches.isEmpty()) {
-                    showLiveError("⚠ কোনো branch assigned নেই — admin-এর সাথে যোগাযোগ করুন")
+                    showLiveError("No branch assigned to this account. Contact your admin.")
                     return@launch
                 }
                 val token = withContext(Dispatchers.IO) {
@@ -3802,7 +3825,7 @@ class CallCenterFragment : Fragment() {
                 if (gen != liveGeneration || !isAdded) return@launch
                 if (token.isNullOrBlank()) {
                     (activity as? MainActivity)?.promptSheetAuthOnce()
-                    showLiveError("Sheet auth নেই — popup থেকে Google connect করে Live-তে আবার চাপুন")
+                    showLiveError("Google account not connected. Connect and open Live again.")
                     return@launch
                 }
                 val sheetRes = withContext(Dispatchers.IO) {
@@ -3815,8 +3838,12 @@ class CallCenterFragment : Fragment() {
                     r.note?.takeIf { it.isNotBlank() }?.let { "${branchIdToName[r.branchId] ?: r.branchId}: $it" }
                 }
                 if (ids.isEmpty()) {
-                    val why = notes.firstOrNull() ?: "Live sheet-e ajker kono consignment nei"
-                    showLiveError("Live sheet খালি — $why")
+                    if (notes.any { isSheetAccessDenied(it) }) {
+                        showLiveAccessError()
+                    } else {
+                        val why = notes.firstOrNull() ?: "No consignments in the Live sheet today"
+                        showLiveError("Live sheet is empty — $why")
+                    }
                     return@launch
                 }
                 tvLoadingPercent.text = "Firebase থেকে ${ids.size} parcel আনছে..."
@@ -3830,6 +3857,7 @@ class CallCenterFragment : Fragment() {
                 allParcels = items
                 liveMissingIds = missing
                 hideCcLoading()
+                hideLiveErrorBox()
                 if (items.isEmpty() && missing.isNotEmpty()) {
                     tvEmpty.visibility = View.VISIBLE
                     tvEmpty.text = "Sheet-er ID-gulo Firebase-e paini — upore chip দেখুন"
@@ -3854,15 +3882,57 @@ class CallCenterFragment : Fragment() {
                 }
             } catch (e: Exception) {
                 if (gen != liveGeneration || !isAdded) return@launch
-                showLiveError("✕ Live load failed: ${e.message?.take(80) ?: "error"}")
+                if (isSheetAccessDenied(e.message)) showLiveAccessError()
+                else showLiveError("Live load failed: ${e.message?.take(80) ?: "error"}")
             }
         }
     }
 
+    private fun hideLiveErrorBox() {
+        if (::layoutCcaLiveError.isInitialized) layoutCcaLiveError.visibility = View.GONE
+    }
+
+    /** True when a sheet-fetch failure means "this Google account cannot open
+     *  the sheet" (HTTP 403 family) rather than an empty/missing sheet. */
+    private fun isSheetAccessDenied(text: String?): Boolean {
+        if (text.isNullOrBlank()) return false
+        return text.contains("403") ||
+            text.contains("insufficient authentication", ignoreCase = true) ||
+            text.contains("access denied", ignoreCase = true) ||
+            text.contains("access_denied", ignoreCase = true)
+    }
+
+    /** Clears any stale cards (e.g. request-mode parcels still visible after
+     *  a mode switch) so an error/empty state never renders on top of old
+     *  data. Live-mode errors only — request mode owns its own list. */
+    private fun clearLiveList() {
+        allParcels = emptyList()
+        liveMissingIds = emptyList()
+        setupFilterTabs()
+        applyFilters()
+        renderLiveMissingChips()
+    }
+
     private fun showLiveError(msg: String) {
         hideCcLoading()
+        hideLiveErrorBox()
+        clearLiveList()
         tvEmpty.visibility = View.VISIBLE
         tvEmpty.text = msg
+    }
+
+    /** Sheet-access error page (English): the connected Google account cannot
+     *  open the sheet. Stale cards are cleared first — Live must never fall
+     *  back to showing request-mode data here. */
+    private fun showLiveAccessError() {
+        hideCcLoading()
+        clearLiveList()
+        tvEmpty.visibility = View.GONE
+        if (!::layoutCcaLiveError.isInitialized) return
+        tvCcaLiveErrorMsg.text = "No access to the sheet\n\n" +
+            "The connected Google account cannot open this sheet. " +
+            "Switch to a Google account that has access, then Live will reload."
+        layoutCcaLiveError.visibility = View.VISIBLE
     }
 
     /** Date-wise Live branch resolution (strict `delivery_run` only).
