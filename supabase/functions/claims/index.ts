@@ -92,19 +92,31 @@ Deno.serve(async (request) => {
       }
       const isAdmin = callerRole === 'admin' || callerRole === 'manager'
       const { data: branch } = await admin.from('branches')
-        .select('branch_id,staff_uid,staff_role,petty_cash_poc_uid,accountant_uid,accountant_role,petty_cash_limit')
+        .select('branch_id,staff_uid,staff_uids,staff_role,staff_roles,petty_cash_poc_uid,petty_cash_poc_uids,petty_cash_poc_roles,accountant_uid,accountant_uids,accountant_role,accountant_roles,petty_cash_limit')
         .eq('branch_id', str(c.branch_id).trim()).maybeSingle()
-      const assignMatch = (auid: unknown, arole: unknown) => {
-        const u = typeof auid === 'string' ? auid.trim() : ''
-        const r = typeof arole === 'string' ? arole.trim() : ''
-        if (u) return u === callerUid
-        if (r) return r === callerRole
+      // Mirror PettyCashViewModel.resolveRoles app-side: a uid match on ANY
+      // uid slot (legacy singular + plural) OR a role match on ANY role slot.
+      // The old singular-only gate rejected legit staff — e.g. another
+      // incharge when staff_uid names one person — with "Only branch staff…"
+      // even though the app showed them the button.
+      const asList = (v: unknown): string[] => {
+        if (Array.isArray(v)) return v.map(x => String(x ?? '').trim()).filter(s => s !== '')
+        return typeof v === 'string' && v.trim() !== '' ? [v.trim()] : []
+      }
+      const matchAny = (uids: string[], roles: string[]) => {
+        if (uids.includes(callerUid)) return true
+        if (callerRole !== '' && roles.includes(callerRole)) return true
         return false
       }
-      const canStaff = isAdmin || assignMatch(branch?.staff_uid, branch?.staff_role)
-      const pocUid = typeof branch?.petty_cash_poc_uid === 'string' ? branch.petty_cash_poc_uid.trim() : ''
-      const canPoc = isAdmin || (pocUid !== '' && pocUid === callerUid)
-      const canAccounts = isAdmin || assignMatch(branch?.accountant_uid, branch?.accountant_role)
+      const canStaff = isAdmin || matchAny(
+        [...asList(branch?.staff_uids), ...asList(branch?.staff_uid)],
+        [...asList(branch?.staff_roles), ...asList(branch?.staff_role)])
+      const canPoc = isAdmin || matchAny(
+        [...asList(branch?.petty_cash_poc_uids), ...asList(branch?.petty_cash_poc_uid)],
+        asList(branch?.petty_cash_poc_roles))
+      const canAccounts = isAdmin || matchAny(
+        [...asList(branch?.accountant_uids), ...asList(branch?.accountant_uid)],
+        [...asList(branch?.accountant_roles), ...asList(branch?.accountant_role)])
       const branchLimit = typeof branch?.petty_cash_limit === 'number' && Number.isFinite(branch.petty_cash_limit)
         ? branch.petty_cash_limit : 0
 

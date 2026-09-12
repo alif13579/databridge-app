@@ -470,7 +470,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         when {
             canAcknowledge -> {
                 btnPrimary.isVisible = true
-                btnPrimary.text = "Acknowledge Request"
+                btnPrimary.text = "Authorise Request"
                 btnPrimary.setOnClickListener {
                     val comment = root.findViewById<android.widget.EditText>(R.id.etPcDetailComment).text?.toString()?.trim().orEmpty()
                     val amountText = root.findViewById<android.widget.EditText>(R.id.etPcDetailApprovedAmount).text?.toString()?.trim().orEmpty()
