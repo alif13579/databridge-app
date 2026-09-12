@@ -164,10 +164,10 @@ object SheetScope {
     const val GLOBAL = "global"
     val ALL = listOf(RANGE, MONTH, GLOBAL)
     fun label(type: String): String = when (type) {
-        RANGE -> "🗓 Date range"
+        RANGE -> "🗓 Date Range"
         MONTH -> "📅 Month + Year"
-        GLOBAL -> "🌍 Global (sob date)"
-        else -> "— Select a scope —"
+        GLOBAL -> "🌍 Global (All Dates)"
+        else -> "— Select a Scope —"
     }
     fun isKnown(type: String): Boolean = type in ALL
 

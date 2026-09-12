@@ -501,11 +501,11 @@ class ConfigConnectorsFragment : Fragment() {
                     append("USED BY\n")
                     append(if (scannerBinding != null && scannerBinding.enabled)
                         "🔌 Scanner: ${scannerBinding.summary()}"
-                    else "➖ Scanner: bind hoyni")
+                    else "➖ Scanner: Not Connected")
                     append("\n")
                     append(if (ccBinding != null && ccBinding.enabled)
                         "☎️ CC mirror: ${ccBinding.summary()}\n📡 Fetch: ${ccBinding.fetchSummary()}"
-                    else "➖ CC mirror: bind hoyni")
+                    else "➖ CC mirror: Not Connected")
                 }
                 card.addView(TextView(ctx).apply {
                     text = buildString {

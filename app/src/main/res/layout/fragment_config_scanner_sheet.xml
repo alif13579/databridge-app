@@ -369,7 +369,7 @@
                         android:layout_width="match_parent" android:layout_height="46dp"
                         android:background="@drawable/bg_input_rounded"
                         android:padding="10dp" android:textSize="13sp"
-                        android:hint="jemon: Routing"
+                        android:hint="Example: Routing"
                         android:inputType="text" android:maxLines="1" />
                 </LinearLayout>
 
@@ -393,7 +393,7 @@
                         android:layout_width="match_parent" android:layout_height="46dp"
                         android:background="@drawable/bg_input_rounded"
                         android:padding="10dp" android:textSize="13sp"
-                        android:hint="jemon: Routing {dd}"
+                        android:hint="Example: Routing {dd}"
                         android:inputType="text" android:maxLines="1"
                         android:layout_marginBottom="8dp" />
                     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"

@@ -1003,7 +1003,7 @@ object RemarkSheetMirror {
             RuleCol(r, values)
         }
         val idCol = colOf(wantFetchRef, wantFetchMode)
-            ?: return LiveFetch(emptyList(), 0, 0, "ID column '$wantFetchRef' paini")
+            ?: return LiveFetch(emptyList(), 0, 0, "ID column '$wantFetchRef' not found")
         val useOr = socketRules.isNotEmpty() && binding.filterLogic == CcFilterLogic.OR
         // Row-date columns (lookup date column — TODAY / CREATED_AT kinds):
         // per-row date for date-wise run matching. Unresolvable refs are
@@ -1047,7 +1047,7 @@ object RemarkSheetMirror {
             if (seen.add(cid)) ids.add(LiveId(cid, rowDateKeys(i)))
         }
         val note = when {
-            missing.isNotEmpty() -> "column ${missing.distinct().joinToString(",")} paini (skip)"
+            missing.isNotEmpty() -> "Column ${missing.distinct().joinToString(",")} not found (skipped)"
             else -> null
         }
         return LiveFetch(ids, idCol.size, dropped, note)

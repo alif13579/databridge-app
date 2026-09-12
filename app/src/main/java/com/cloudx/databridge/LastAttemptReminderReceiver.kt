@@ -230,7 +230,7 @@ class LastAttemptReminderReceiver : BroadcastReceiver() {
             .addAction(android.R.drawable.ic_menu_call, "📞 Call", callPi)
             .addAction(android.R.drawable.ic_menu_send, "✓ Delivered", actionPi(OUTCOME_DELIVERED, false, 10))
             .addAction(android.R.drawable.ic_menu_revert, "↩ Returned", actionPi(OUTCOME_RETURNED, false, 20))
-            .addAction(android.R.drawable.ic_menu_recent_history, "⏳ Ekhono na", actionPi(null, true, 30))
+            .addAction(android.R.drawable.ic_menu_recent_history, "⏳ Not Yet", actionPi(null, true, 30))
             .build()
         try {
             NotificationManagerCompat.from(context).notify(NOTIF_TAG, c.consignmentId.hashCode(), notification)
