@@ -39,10 +39,16 @@ Deno.serve(async (request) => {
       const role = (profile.roleId || '').trim()
       if (role === 'admin' || role === 'manager') return { ok: true as const, profile }
       const { data: branch } = await admin.from('branches')
-        .select('accountant_uid,accountant_role').eq('branch_id', branchId).maybeSingle()
-      const au = typeof branch?.accountant_uid === 'string' ? branch.accountant_uid.trim() : ''
-      const ar = typeof branch?.accountant_role === 'string' ? branch.accountant_role.trim() : ''
-      const allowed = (au !== '' && au === identity!.uid) || (ar !== '' && ar === role)
+        .select('accountant_uid,accountant_uids,accountant_role,accountant_roles').eq('branch_id', branchId).maybeSingle()
+      // Mirror PettyCashViewModel.resolveRoles app-side: uid match on ANY uid
+      // slot (legacy singular + plural) OR role match on ANY role slot.
+      const asList = (v: unknown): string[] => {
+        if (Array.isArray(v)) return v.map(x => String(x ?? '').trim()).filter(s => s !== '')
+        return typeof v === 'string' && v.trim() !== '' ? [v.trim()] : []
+      }
+      const uids = [...asList(branch?.accountant_uids), ...asList(branch?.accountant_uid)]
+      const roles = [...asList(branch?.accountant_roles), ...asList(branch?.accountant_role)]
+      const allowed = uids.includes(identity!.uid) || (role !== '' && roles.includes(role))
       if (!allowed) {
         errLog(action ?? 'petty_cash', 'forbidden', { branch_id: branchId, role })
         return { ok: false as const, response: reply({ error: 'Only accounts can manage this wallet' }, 403) }
