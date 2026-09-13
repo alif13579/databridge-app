@@ -4483,7 +4483,10 @@ class CallCenterFragment : Fragment() {
             }
             tvSearchCount.visibility = View.VISIBLE
             tvSearchCount.text = if (filtered.isEmpty()) {
-                "⚠ No results for \"$searchQuery\""
+                // Search only covers today's loaded list (branch/mode/agent/status scope).
+                // A parcel from another day or branch is correctly "not found" here —
+                // point to View Orders (global phone/ID search) instead of a dead end.
+                "⚠ No results for \"$searchQuery\" in today's list — try View Orders for all parcels"
             } else {
                 "${filtered.size} result${if (filtered.size > 1) "s" else ""} found"
             }
