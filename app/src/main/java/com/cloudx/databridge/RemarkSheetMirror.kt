@@ -562,6 +562,7 @@ object RemarkSheetMirror {
         val validation: String,
         val validatorName: String,
         val finalStatus: String, // Delivered / Return / Hold (family from consignment_status)
+        val action: String, // Reassigned (Delivered) / Hold (Hold) / blank (Return)
     )
 
     private data class BulkCounts(
@@ -670,11 +671,13 @@ object RemarkSheetMirror {
             }
             latestCcByKey.forEach { (key, row) ->
                 val fb = catalog[row.optString("remarks").trim()].orEmpty()
+                val fs = deriveFinalStatus(row.optString("consignment_status"))
                 consolidated[key] = BulkVals(
                     feedback = fb,
                     validation = deriveValidation(fb),
                     validatorName = resolveAgentName(row.optString("author_system_id")),
-                    finalStatus = deriveFinalStatus(row.optString("consignment_status")),
+                    finalStatus = fs,
+                    action = deriveActionFromFinalStatus(fs),
                 )
             }
         }
@@ -755,7 +758,8 @@ object RemarkSheetMirror {
             it.kind == SheetWriteKind.FEEDBACK ||
                 it.kind == SheetWriteKind.VALIDATION ||
                 it.kind == SheetWriteKind.VALIDATOR_NAME ||
-                it.kind == SheetWriteKind.CONSIGNMENT_STATUS
+                it.kind == SheetWriteKind.CONSIGNMENT_STATUS ||
+                it.kind == SheetWriteKind.ACTION
         }
         if (lookups.isEmpty() || writes.isEmpty())
             throw IllegalStateException("no lookup/write rule")
@@ -838,6 +842,7 @@ object RemarkSheetMirror {
                     SheetWriteKind.FEEDBACK -> vals.feedback
                     SheetWriteKind.VALIDATION -> vals.validation
                     SheetWriteKind.CONSIGNMENT_STATUS -> vals.finalStatus
+                    SheetWriteKind.ACTION -> vals.action
                     else -> vals.validatorName
                 }
                 ConfigSheetDriveApi.writeCellValue(

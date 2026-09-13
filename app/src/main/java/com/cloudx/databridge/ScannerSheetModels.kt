@@ -278,8 +278,9 @@ object SheetWriteKind {
     const val VALIDATION = "validation" // derived: Invalid iff feedback is Willing to receive today (blank stays blank), else Valid
     const val VALIDATOR_NAME = "validator_name" // CC agent who saved the remark
     const val CONSIGNMENT_STATUS = "consignment_status" // final family: Delivered / Return / Hold (from validations.consignment_status)
+    const val ACTION = "action" // derived from family: Delivered->Reassigned, Hold->Hold, else blank (Return)
     const val VALUE = "value" // scanner: the scanned value
-    val ALL = listOf(FEEDBACK, VALIDATION, VALIDATOR_NAME, CONSIGNMENT_STATUS, VALUE)
+    val ALL = listOf(FEEDBACK, VALIDATION, VALIDATOR_NAME, CONSIGNMENT_STATUS, ACTION, VALUE)
     /** Sources the mirror processes (everything except the scanner's value —
      *  value rules are skipped, never blank-written). */
     val REMARK_KINDS = ALL - VALUE
@@ -308,6 +309,13 @@ fun deriveFinalStatus(consignmentStatus: String): String {
         "return", "return requested" -> "Return"
         else -> "Hold"
     }
+}
+
+/** Derives Action for sheet from final family: Delivered->Reassigned, Hold->Hold, else blank. */
+fun deriveActionFromFinalStatus(finalStatus: String): String = when (finalStatus.trim()) {
+    "Delivered" -> "Reassigned"
+    "Hold" -> "Hold"
+    else -> ""
 }
 
 /** One lookup criterion: column [colRef] (per [mode]) must match [kind] on the
