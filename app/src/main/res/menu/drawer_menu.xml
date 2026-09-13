@@ -26,6 +26,11 @@
             android:title="Call Center"
             android:visible="false" />
         <item
+            android:id="@+id/nav_view_orders"
+            android:icon="@android:drawable/ic_menu_search"
+            android:title="View Orders"
+            android:visible="false" />
+        <item
             android:id="@+id/nav_virtual_routing"
             android:icon="@android:drawable/ic_menu_directions"
             android:title="Virtual Routing"

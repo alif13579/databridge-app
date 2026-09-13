@@ -40,8 +40,8 @@ android {
         applicationId = "com.cloudx.databridge"
         minSdk = 23
         targetSdk = 34
-        versionCode = 422
-        versionName = "6.10.85"
+        versionCode = 423
+        versionName = "6.10.86"
         multiDexEnabled = true                                         // ✅ Large app support
         vectorDrawables.useSupportLibrary = true       // ✅ Vector drawable on API 21+
         buildConfigField("String", "SUPABASE_URL", "\"${escapedBuildConfigValue(publicBuildConfigValue("SUPABASE_URL"))}\"")

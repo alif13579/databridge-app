@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_parcel_card"
+    android:padding="12dp"
+    android:layout_marginBottom="8dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tvVoCustomer"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Customer"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_primary" />
+
+        <TextView
+            android:id="@+id/tvVoStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Status"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvVoMeta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="ID · phone"
+        android:textSize="12sp"
+        android:textColor="@color/theme_text_secondary"
+        android:layout_marginTop="4dp" />
+
+    <TextView
+        android:id="@+id/tvVoAddress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Address"
+        android:textSize="12sp"
+        android:textColor="@color/theme_text_secondary"
+        android:layout_marginTop="2dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="6dp">
+
+        <TextView
+            android:id="@+id/tvVoCod"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="COD: ৳0"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_primary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tap &amp; hold for Journey Log"
+            android:textSize="10sp"
+            android:textColor="@color/theme_text_muted" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutVoRemarksBox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/bg_remark_chip"
+        android:padding="8dp"
+        android:layout_marginTop="8dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvVoRemarks"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textColor="@color/theme_text_primary" />
+
+        <TextView
+            android:id="@+id/tvVoRemarksTime"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="10sp"
+            android:textColor="@color/theme_text_muted"
+            android:layout_marginTop="2dp" />
+    </LinearLayout>
+
+</LinearLayout>

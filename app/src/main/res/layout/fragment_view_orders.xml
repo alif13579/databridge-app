@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/theme_bg_app">
+
+    <!-- Title -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="View Orders"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="@color/theme_text_primary"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="10dp" />
+
+    <!-- Google-like search bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@drawable/bg_search_bar"
+        android:padding="6dp"
+        android:paddingStart="14dp"
+        android:paddingEnd="6dp"
+        android:elevation="2dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🔍"
+            android:textSize="16sp"
+            android:alpha="0.6" />
+
+        <EditText
+            android:id="@+id/etVoSearch"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@null"
+            android:hint="Search phone number or consignment ID..."
+            android:textColorHint="@color/theme_text_secondary"
+            android:textColor="@color/theme_text_primary"
+            android:textSize="14sp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:inputType="text"
+            android:imeOptions="actionSearch"
+            android:maxLines="1"
+            android:singleLine="true" />
+
+        <TextView
+            android:id="@+id/tvVoClear"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:text="✕"
+            android:textSize="13sp"
+            android:textColor="@color/theme_text_secondary"
+            android:gravity="center"
+            android:visibility="gone"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="?attr/selectableItemBackgroundBorderless" />
+
+        <TextView
+            android:id="@+id/tvVoSearchBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Search"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:textColor="@android:color/white"
+            android:background="@drawable/bg_filter_chip_active"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
+    <!-- Result count -->
+    <TextView
+        android:id="@+id/tvVoCount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="12sp"
+        android:textColor="@color/theme_text_secondary"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="4dp"
+        android:paddingStart="18dp"
+        android:visibility="gone" />
+
+    <!-- Loading -->
+    <LinearLayout
+        android:id="@+id/layoutVoLoading"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical|center_horizontal"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginEnd="10dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Searching parcels..."
+            android:textSize="13sp"
+            android:textColor="@color/theme_text_secondary" />
+    </LinearLayout>
+
+    <!-- Empty / hint -->
+    <TextView
+        android:id="@+id/tvVoEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="🔍\n\nType a phone number or consignment ID above and tap Search.\n\nTap and hold any parcel card to see its Journey Log."
+        android:textSize="13sp"
+        android:textColor="@color/theme_text_secondary"
+        android:padding="32dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvVoList"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="12dp" />
+
+</LinearLayout>
