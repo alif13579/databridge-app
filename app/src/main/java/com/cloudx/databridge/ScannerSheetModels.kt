@@ -277,8 +277,9 @@ object SheetWriteKind {
     const val FEEDBACK = "feedback" // validation_remarks.category of the saved option
     const val VALIDATION = "validation" // derived: Invalid iff feedback is Willing to receive today (blank stays blank), else Valid
     const val VALIDATOR_NAME = "validator_name" // CC agent who saved the remark
+    const val CONSIGNMENT_STATUS = "consignment_status" // final family: Delivered / Return / Hold (from validations.consignment_status)
     const val VALUE = "value" // scanner: the scanned value
-    val ALL = listOf(FEEDBACK, VALIDATION, VALIDATOR_NAME, VALUE)
+    val ALL = listOf(FEEDBACK, VALIDATION, VALIDATOR_NAME, CONSIGNMENT_STATUS, VALUE)
     /** Sources the mirror processes (everything except the scanner's value —
      *  value rules are skipped, never blank-written). */
     val REMARK_KINDS = ALL - VALUE
@@ -290,6 +291,23 @@ fun deriveValidation(feedback: String): String {
     val f = feedback.trim()
     if (f.isEmpty()) return ""
     return if (f.equals("Willing to receive today", ignoreCase = true)) "Invalid" else "Valid"
+}
+
+/** Derives final family status for sheet: Delivered / Return / Hold.
+ *  Source: validations.consignment_status (live run status, sync_run_status).
+ *  Mapping covers the 12 distinct live values (case-insensitive):
+ *  - Delivered family: Delivered, Partial Delivery, Paid Return
+ *  - Return family: Return, Return Requested
+ *  - Hold family: everything else (Assigned*, On hold, On the Way*, Reattempt Requested, unknown/blank)
+ *  Keeps sheet column to 3 buckets as requested (not raw courier statuses). */
+fun deriveFinalStatus(consignmentStatus: String): String {
+    val s = consignmentStatus.trim().lowercase()
+    if (s.isEmpty()) return "Hold"
+    return when (s) {
+        "delivered", "partial delivery", "paid return" -> "Delivered"
+        "return", "return requested" -> "Return"
+        else -> "Hold"
+    }
 }
 
 /** One lookup criterion: column [colRef] (per [mode]) must match [kind] on the

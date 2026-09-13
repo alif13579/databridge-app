@@ -154,6 +154,7 @@ object CcField {
     const val FEEDBACK = SheetLookupKind.FEEDBACK
     const val VALIDATION = SheetLookupKind.VALIDATION
     const val VALIDATOR_NAME = SheetLookupKind.VALIDATOR_NAME
+    const val CONSIGNMENT_STATUS = SheetWriteKind.CONSIGNMENT_STATUS
     const val CREATED_AT = SheetLookupKind.CREATED_AT
     const val AUTHOR_NAME = SheetLookupKind.AUTHOR_NAME
 
@@ -163,6 +164,7 @@ object CcField {
         FEEDBACK -> "Feedback"
         VALIDATION -> "Validation"
         VALIDATOR_NAME -> "Validator name"
+        CONSIGNMENT_STATUS -> "Final Status (Delivered/Return/Hold)"
         CREATED_AT -> "Created at (date)"
         AUTHOR_NAME -> "Author name"
         else -> field.ifBlank { "— select a field —" }
@@ -174,8 +176,8 @@ object CcField {
         CREATED_AT, AUTHOR_NAME,
     )
 
-    /** Write side: mirror writes feedback / validation / validator_name only. */
-    val WRITE_FIELDS = listOf(FEEDBACK, VALIDATION, VALIDATOR_NAME)
+    /** Write side: mirror writes feedback / validation / validator_name / final status. */
+    val WRITE_FIELDS = listOf(FEEDBACK, VALIDATION, VALIDATOR_NAME, CONSIGNMENT_STATUS)
 }
 
 /** One column <-> CC-field pair inside a binding. */
