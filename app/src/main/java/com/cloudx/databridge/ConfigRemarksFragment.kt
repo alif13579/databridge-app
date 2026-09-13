@@ -325,8 +325,9 @@ class ConfigRemarksFragment : Fragment() {
                 tvPriority.visibility = View.GONE
             }
 
-            // Hold class badge — HARD = no delivery today, SOFT = follow-up.
-            // Same badge slot pattern as priority above; hidden when unclassified.
+            // Hold class badge — strict = locked (no delivery), non-strict =
+            // still possible. Same badge slot pattern as priority above;
+            // hidden when unclassified.
             val tvHoldClass = row.findViewById<TextView>(R.id.tvRemarkHoldClass)
             if (r.hold_class.isNotBlank()) {
                 tvHoldClass.text = ConfigState.holdClassLabel(r.hold_class)
@@ -591,10 +592,12 @@ class ConfigRemarksFragment : Fragment() {
         layout.addView(instructionSpinnerEdit)
         layout.addView(etInstructionEdit)
 
-        // Hold class: fixed "None / Strict / Follow-up" dropdown — HARD means
-        // confirmed no delivery today (counts toward guaranteed hold %), SOFT means
-        // uncertain / needs follow-up. '' (None) = unclassified, the common case
-        // for non-hold remarks. Same fixed-dropdown pattern as Instruction above.
+        // Hold class: fixed "None / Strict / Non-strict" dropdown — "strict" means
+        // locked, confirmed no delivery today (counts toward guaranteed hold %);
+        // "non-strict" means delivery still possible / needs follow-up. '' (None)
+        // = unclassified — allowed here so legacy rows aren't forced, but the
+        // create dialog below mandates an explicit pick. Same fixed-dropdown
+        // pattern as Instruction above.
         val holdClassLabels = listOf("None") + ConfigState.HOLD_CLASSES.map { ConfigState.holdClassLabel(it) }
         val currentHoldClassIdx = ConfigState.HOLD_CLASSES.indexOf(remark.hold_class)
         val holdClassSpinnerEdit = Spinner(ctx).apply {
@@ -788,10 +791,11 @@ class ConfigRemarksFragment : Fragment() {
         content.addView(instructionSpinnerCreate)
         content.addView(instructionInputCreate)
 
-        // Hold class: fixed "None / Strict / Follow-up" dropdown, same
-        // pattern as Instruction above. HARD (Strict) = confirmed no
-        // delivery today; SOFT (Follow-up) = uncertain, may still deliver.
-        val holdClassLabelsCreate = listOf("None") + ConfigState.HOLD_CLASSES.map { ConfigState.holdClassLabel(it) }
+        // Hold class: MANDATORY fixed dropdown — "strict" (locked, confirmed no
+        // delivery today) or "non-strict" (still possible, needs follow-up).
+        // Position 0 is a hint, not a value: Create is blocked until the admin
+        // picks one (see validation below). Same pattern as Instruction above.
+        val holdClassLabelsCreate = listOf("Select hold class...") + ConfigState.HOLD_CLASSES.map { ConfigState.holdClassLabel(it) }
         val holdClassSpinnerCreate = Spinner(ctx).apply {
             minimumHeight = dp(46)
             background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
@@ -820,6 +824,8 @@ class ConfigRemarksFragment : Fragment() {
                 if (bn.isEmpty() && en.isEmpty()) {
                     bnInput.error = "Enter a Bangla or English remark"
                     enInput.error = "Enter a Bangla or English remark"
+                } else if (holdClassSpinnerCreate.selectedItemPosition <= 0) {
+                    Toast.makeText(ctx, "Select hold class: Strict or Non-strict", Toast.LENGTH_SHORT).show()
                 } else {
                     dialog.dismiss()
                     val selectedTemplateId = templates.getOrNull(templateSpinner.selectedItemPosition - 1)?.id ?: ""

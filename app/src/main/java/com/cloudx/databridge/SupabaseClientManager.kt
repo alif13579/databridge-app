@@ -410,8 +410,9 @@ object SupabaseClientManager {
         // writes as Feedback (plus derived Validation + Validator Name) into
         // the branch's connected remark sheet on a CC save. Blank stays blank.
         val category: String,
-        // Hold class (validation_remarks.hold_class): HARD = confirmed no
-        // delivery today, SOFT = uncertain/follow-up, '' = unclassified.
+        // Hold class (validation_remarks.hold_class): "strict" = locked, no
+        // delivery today; "non-strict" = still possible, needs follow-up;
+        // '' = unclassified.
         val holdClass: String = "",
     )
 

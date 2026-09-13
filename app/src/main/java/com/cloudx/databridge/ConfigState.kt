@@ -58,13 +58,15 @@ object ConfigState {
         // remark sheet. Blank stays blank. Edited in ConfigRemarksFragment's
         // edit/create dialogs.
         val category: String = "",
-        // hold_class: HARD = confirmed no delivery today (no money, not at
-        // address — counts toward day-end "guaranteed hold %"); SOFT =
-        // uncertain, may still deliver (not answering phone — needs follow-up).
-        // '' = unclassified (non-hold remarks, legacy rows). Stored keys are
-        // stable (HARD/SOFT); dropdown shows friendly labels via
-        // holdClassLabel(). Edited in ConfigRemarksFragment's edit/create
-        // dialogs; written through admin_upsert_remark like category.
+        // hold_class: "strict" = locked, confirmed no delivery today (no money,
+        // not at address — counts toward day-end "guaranteed hold %");
+        // "non-strict" = delivery still possible, needs follow-up (not
+        // answering the phone). '' = unclassified (legacy rows). Defined ONLY
+        // here in the catalog — agent remark saves (validations rows) never
+        // carry a class. Stored values are lowercase stable keys; dropdown
+        // shows friendly labels via holdClassLabel(). Edited in
+        // ConfigRemarksFragment's edit/create dialogs; written through
+        // admin_upsert_remark like category.
         val hold_class: String = "",
     )
 
@@ -85,15 +87,15 @@ object ConfigState {
 
     /** Fixed hold-class options for the Remarks config's Hold Class dropdown —
      *  hardcoded per Alif's decision (not admin-configurable), same pattern as
-     *  INSTRUCTION_TYPES above. '' means unclassified and isn't a dropdown value
-     *  itself — the dropdown's first entry ("None") maps to it. */
-    const val HOLD_CLASS_HARD = "HARD"
-    const val HOLD_CLASS_SOFT = "SOFT"
-    val HOLD_CLASSES = listOf(HOLD_CLASS_HARD, HOLD_CLASS_SOFT)
+     *  INSTRUCTION_TYPES above. '' means unclassified and isn't itself a value —
+     *  the create dialog forces an explicit pick (Strict or Non-strict). */
+    const val HOLD_CLASS_STRICT = "strict"
+    const val HOLD_CLASS_NON_STRICT = "non-strict"
+    val HOLD_CLASSES = listOf(HOLD_CLASS_STRICT, HOLD_CLASS_NON_STRICT)
 
     fun holdClassLabel(holdClass: String): String = when (holdClass) {
-        HOLD_CLASS_HARD -> "Strict"
-        HOLD_CLASS_SOFT -> "Follow-up"
+        HOLD_CLASS_STRICT -> "Strict"
+        HOLD_CLASS_NON_STRICT -> "Non-strict"
         else -> holdClass
     }
 

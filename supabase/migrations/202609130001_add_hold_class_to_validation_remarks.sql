@@ -1,16 +1,17 @@
 -- 202609130001: add hold_class to validation_remarks.
 --
--- Hold verification needs two classes of hold: HARD (confirmed no delivery
--- today — e.g. no money, not at address) vs SOFT (uncertain — e.g. not
--- answering the phone, may still deliver). Day-end "guaranteed hold %" counts
--- HARD parcels over total hold parcels.
+-- Hold verification needs two classes of hold: "strict" (locked, confirmed no
+-- delivery today — e.g. no money, not at address) vs "non-strict" (delivery
+-- still possible — e.g. not answering the phone, needs follow-up). Day-end
+-- "guaranteed hold %" counts strict parcels over total hold parcels.
 --
 -- Shape follows the table's existing conventions (plain text, '' = unset —
 -- same as category/instruction_type; no CHECK so a future third class needs
--- no migration). Stored values are stable keys HARD/SOFT (see
--- ConfigState.HOLD_CLASS_*); '' means unclassified (free-text legacy rows,
--- non-hold remarks). Readers fall back to '' when the column is absent, so
--- old APKs / undeployed Edge Functions keep working.
+-- no migration). Stored values are lowercase stable keys strict/non-strict (see
+-- ConfigState.HOLD_CLASS_*); '' means unclassified. Hold class lives ONLY in
+-- this catalog — agent remark saves (validations rows) never carry it.
+-- Readers fall back to '' when the column is absent, so old APKs /
+-- undeployed Edge Functions keep working.
 --
 -- Reference safety:
 --   * No FK points to/from validation_remarks; admin_upsert_remark allowlists
