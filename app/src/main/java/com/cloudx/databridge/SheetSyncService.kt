@@ -54,7 +54,9 @@ class SheetSyncService : Service() {
         @Volatile var onProgress: ((RemarkSheetMirror.BulkProgress) -> Unit)? = null
 
         /** One-shot finish hook for an open dialog. Cleared after delivery. */
-        @Volatile var onFinish: ((String) -> Unit)? = null
+        @Volatile var onFinish: ((RemarkSheetMirror.BulkSyncResult) -> Unit)? = null
+        /** Compat hook for callers that still expect a String message. */
+        @Volatile var onFinishMessage: ((String) -> Unit)? = null
 
         /** Starts a sync; false when one is already running. */
         fun start(context: Context, branchIds: List<String>, start: LocalDate, end: LocalDate): Boolean {
@@ -107,13 +109,13 @@ class SheetSyncService : Service() {
             else 0
         )
         scope.launch {
-            val summary = try {
+            val result = try {
                 RemarkSheetMirror.bulkSyncToSheet(
                     appContext = applicationContext,
                     branchIds = branchIds,
                     onProgress = { /* label-level; detail carries counts */ },
                     // No onAuthNeeded: a service has no Activity for the auth
-                    // dialog — the no-token case returns as summary text.
+                    // dialog — the no-token case returns as result.
                     startDate = start,
                     endDate = end,
                     onProgressDetail = { p ->
@@ -126,9 +128,15 @@ class SheetSyncService : Service() {
                     }
                 )
             } catch (e: Exception) {
-                "Sync failed: ${e.message?.take(120) ?: "error"}"
+                RemarkSheetMirror.BulkSyncResult(
+                    rangeLabel = "$start → $end",
+                    totConns = 0, scanned = 0, filled = 0, syncedRows = 0, syncedCells = 0,
+                    overwrittenRows = 0, overwrittenCells = 0, noCc = 0, ignored = 0,
+                    errors = listOf(e.message?.take(80) ?: "sync failed"),
+                    ok = false, message = "Sync failed: ${e.message?.take(120) ?: "error"}"
+                )
             }
-            finishWithSummary(summary)
+            finishWithResult(result)
         }
         return START_NOT_STICKY
     }
@@ -183,9 +191,17 @@ class SheetSyncService : Service() {
         } catch (_: Exception) { }
     }
 
-    private fun finishWithSummary(summary: String) {
+    private fun finishWithResult(result: RemarkSheetMirror.BulkSyncResult) {
+        // Compat: keep String-based finish for older notif text, but structured for table popup.
+        val summary = result.toMessage()
+        // Also fire String hook if anyone still wired to it.
         try {
-            val ok = summary.trimStart().startsWith("✓")
+            val sCb = onFinishMessage
+            onFinishMessage = null
+            sCb?.let { android.os.Handler(android.os.Looper.getMainLooper()).post { it(summary) } }
+        } catch (_: Exception) { }
+        try {
+            val ok = result.ok
             val flash = NotificationCompat.Builder(this, CHANNEL_SUMMARY)
                 .setContentTitle(if (ok) "✓ Sheet sync done" else "⚠ Sheet sync finished")
                 .setContentText(summary.take(400))
@@ -213,12 +229,21 @@ class SheetSyncService : Service() {
                 val cb = onFinish
                 onFinish = null
                 onProgress = null
-                cb?.let { android.os.Handler(android.os.Looper.getMainLooper()).post { it(summary) } }
+                cb?.let { android.os.Handler(android.os.Looper.getMainLooper()).post { it(result) } }
             } catch (_: Exception) { }
         } finally {
             isRunning = false
             stopSelf()
         }
+    }
+
+    private fun finishWithSummary(summary: String) {
+        // Legacy wrapper — converts String to BulkSyncResult for unified path.
+        finishWithResult(RemarkSheetMirror.BulkSyncResult(
+            rangeLabel = "", totConns = 0, scanned = 0, filled = 0, syncedRows = 0, syncedCells = 0,
+            overwrittenRows = 0, overwrittenCells = 0, noCc = 0, ignored = 0,
+            errors = emptyList(), ok = summary.trimStart().startsWith("✓"), message = summary
+        ))
     }
 
     override fun onDestroy() {

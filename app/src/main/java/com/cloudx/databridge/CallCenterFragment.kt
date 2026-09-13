@@ -3584,7 +3584,7 @@ class CallCenterFragment : Fragment() {
             tvProgress.visibility = View.VISIBLE
             tvProgress.text = "⏳ Sync running — progress in the notification…"
             SheetSyncService.onProgress = { p -> showSyncProgress(p) }
-            SheetSyncService.onFinish = { summary -> showSyncSummary(summary) }
+            SheetSyncService.onFinish = { result -> showSyncResultTable(result) }
         }
         dialog.show()
         dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
@@ -3633,7 +3633,7 @@ class CallCenterFragment : Fragment() {
         tvSyncProgress?.visibility = View.VISIBLE
         tvSyncProgress?.text = "⏳ Starting sync ($from → $to)…"
         SheetSyncService.onProgress = { p -> showSyncProgress(p) }
-        SheetSyncService.onFinish = { summary -> showSyncSummary(summary) }
+        SheetSyncService.onFinish = { result -> showSyncResultTable(result) }
         val started = SheetSyncService.start(requireContext(), branches, from, to)
         if (!started) {
             tvSyncProgress?.text = "⚠ Could not start sync — try again"
@@ -3660,6 +3660,82 @@ class CallCenterFragment : Fragment() {
             tvSyncProgress?.visibility = View.VISIBLE
             tvSyncProgress?.text = summary
         }
+    }
+
+    /** Popup table for the bulk sync result — Count | Detail style. */
+    private fun showSyncResultTable(result: RemarkSheetMirror.BulkSyncResult) {
+        if (!isAdded) return
+        val summary = result.toMessage()
+        // Keep the inline progress line in sync dialog updated too (for minimized case).
+        if (syncDialog?.isShowing == true) {
+            tvSyncProgress?.visibility = View.VISIBLE
+            tvSyncProgress?.text = summary
+        }
+        val ctx = requireContext()
+        val pad = (ctx.resources.displayMetrics.density * 16).toInt()
+        val scroll = android.widget.ScrollView(ctx)
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        // Range header
+        box.addView(TextView(ctx).apply {
+            text = result.rangeLabel
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, pad / 3)
+        })
+        // Table header
+        fun headerRow(): LinearLayout = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(4, 6, 4, 6)
+            setBackgroundColor(0x11000000)
+        }
+        fun cell(text: String, weight: Float, bold: Boolean = false, size: Float = 12f): TextView = TextView(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight)
+            this.text = text
+            textSize = size
+            if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        val h = headerRow()
+        h.addView(cell("Metric", 1.6f, true, 11f))
+        h.addView(cell("Count", 0.7f, true, 11f))
+        h.addView(cell("Detail", 1.2f, true, 11f))
+        box.addView(h)
+        fun addRow(metric: String, count: String, detail: String = "") {
+            val r = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(4, 7, 4, 7)
+            }
+            r.addView(cell(metric, 1.6f))
+            r.addView(cell(count, 0.7f, true))
+            r.addView(cell(detail, 1.2f))
+            box.addView(r)
+        }
+        addRow("Connections", "${result.totConns}", "${result.scanned} rows scanned")
+        addRow("Already correct", "${result.filled}", "no write needed")
+        addRow("Rows filled", "${result.syncedRows}", "${result.syncedCells} cells (blank → latest)")
+        addRow("Rows updated", "${result.overwrittenRows}", "${result.overwrittenCells} cells (mismatch → latest)")
+        addRow("No CC yet", "${result.noCc}", "")
+        addRow("Filtered out", "${result.ignored}", "")
+        if (result.errors.isNotEmpty()) {
+            addRow("Errors", "${result.errors.size}", result.errors.take(2).joinToString("; "))
+        }
+        // Integrity row
+        box.addView(TextView(ctx).apply {
+            text = if (result.ok) "✓ Sheet now reflects latest Supabase truth" else result.message
+            textSize = 11f
+            setPadding(0, pad / 2, 0, 0)
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
+        })
+        scroll.addView(box)
+        // Dismiss the range picker dialog if still showing — table is the result.
+        try { syncDialog?.dismiss() } catch (_: Exception) {}
+        android.app.AlertDialog.Builder(ctx)
+            .setTitle(if (result.ok) "✓ Sync done" else "⚠ Sync finished")
+            .setView(scroll)
+            .setPositiveButton("OK", null)
+            .show()
     }
 
 

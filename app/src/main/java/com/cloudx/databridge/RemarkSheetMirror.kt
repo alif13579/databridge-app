@@ -589,6 +589,34 @@ object RemarkSheetMirror {
         val pending: Int get() = (rowsTotal - rowsDone).coerceAtLeast(0)
     }
 
+    /** Final result for the bulk sync popup table + notification. */
+    data class BulkSyncResult(
+        val rangeLabel: String,
+        val totConns: Int,
+        val scanned: Int,
+        val filled: Int,
+        val syncedRows: Int,
+        val syncedCells: Int,
+        val overwrittenRows: Int,
+        val overwrittenCells: Int,
+        val noCc: Int,
+        val ignored: Int,
+        val errors: List<String> = emptyList(),
+        val ok: Boolean = true,
+        val message: String = "",
+    ) {
+        fun toMessage(): String {
+            if (message.isNotBlank() && !ok) return message
+            var msg = "✓ $rangeLabel: ${syncedRows} rows filled (${syncedCells} cells)" +
+                (if (overwrittenRows > 0) " · ${overwrittenRows} rows updated (${overwrittenCells} cells overwritten)" else "") +
+                " · ${filled} already correct · ${noCc} no CC yet · " +
+                "${ignored} filtered out · " +
+                "${scanned} sheet rows scanned (${totConns} connections)"
+            if (errors.isNotEmpty()) msg += " · ⚠ ${errors.size} error: ${errors.take(2).joinToString("; ")}" + if (errors.size > 2) "…" else ""
+            return msg
+        }
+    }
+
     /**
      * Bulk Sync to Sheet (Call Center header button, same as the extension's
      * ⇪ Sheet): branch-wise — every branch uses ONLY its own remark
@@ -611,13 +639,13 @@ object RemarkSheetMirror {
         startDate: LocalDate? = null,
         endDate: LocalDate? = null,
         onProgressDetail: ((BulkProgress) -> Unit)? = null,
-    ): String = withContext(Dispatchers.IO) {
+    ): BulkSyncResult = withContext(Dispatchers.IO) {
         val branches = branchIds.map { it.trim() }.filter { it.isNotBlank() }.distinct()
-        if (branches.isEmpty()) return@withContext "no branch found"
+        if (branches.isEmpty()) return@withContext BulkSyncResult("—", 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "no branch found")
         val token = silentWriteToken(appContext.applicationContext)
         if (token.isNullOrBlank()) {
             if (onAuthNeeded != null) onAuthNeeded()
-            return@withContext "Google account not connected — connect and tap Sync again"
+            return@withContext BulkSyncResult("—", 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "Google account not connected — connect and tap Sync again")
         }
         val today = LocalDate.now(opsZone)
         var start = startDate ?: today
@@ -626,7 +654,7 @@ object RemarkSheetMirror {
         val days = mutableListOf<LocalDate>()
         var d = start
         while (!d.isAfter(end) && days.size < 32) { days.add(d); d = d.plusDays(1) }
-        if (!d.isAfter(end)) return@withContext "Date range too large — max 31 days at once"
+        if (!d.isAfter(end)) return@withContext BulkSyncResult("—", 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "Date range too large — max 31 days at once")
         val rangeLabel = if (days.size == 1) days.first().toString()
             else "${days.first()} → ${days.last()} (${days.size} days)"
         val rangeStartIso = start.atStartOfDay(opsZone).toInstant().toString()
@@ -684,7 +712,7 @@ object RemarkSheetMirror {
             }
         }
         if (consolidated.isEmpty())
-            return@withContext "No CC remarks in $rangeLabel in Supabase — nothing to write"
+            return@withContext BulkSyncResult(rangeLabel, 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "No CC remarks in $rangeLabel in Supabase — nothing to write")
 
         // 3. Per day → per branch → its bound sheets → its own sheet.
         var totConns = 0
@@ -723,15 +751,21 @@ object RemarkSheetMirror {
                 }
             }
         }
-        if (totConns == 0) return@withContext "No CC binding in any branch for $rangeLabel — bind a sheet from the CallCenter socket (check scope)"
-        var msg = "✓ $rangeLabel: ${tot.syncedRows} rows filled (${tot.syncedCells} cells)" +
-            (if (tot.overwrittenRows > 0) " · ${tot.overwrittenRows} rows updated (${tot.overwrittenCells} cells overwritten with latest)" else "") +
-            " · ${tot.filled} already correct · $totNoCc no CC yet · " +
-            "${tot.ignored} filtered out · " +
-            "${tot.scanned} sheet rows scanned ($totConns connections)"
-        if (errs.isNotEmpty()) msg += " · ⚠ ${errs.size} error: ${errs.take(2).joinToString("; ")}" +
-            if (errs.size > 2) "…" else ""
-        msg
+        if (totConns == 0) return@withContext BulkSyncResult(rangeLabel, 0, 0, 0, 0, 0, 0, 0, 0, 0, errs, false, "No CC binding in any branch for $rangeLabel — bind a sheet from the CallCenter socket (check scope)")
+        return@withContext BulkSyncResult(
+            rangeLabel = rangeLabel,
+            totConns = totConns,
+            scanned = tot.scanned,
+            filled = tot.filled,
+            syncedRows = tot.syncedRows,
+            syncedCells = tot.syncedCells,
+            overwrittenRows = tot.overwrittenRows,
+            overwrittenCells = tot.overwrittenCells,
+            noCc = totNoCc,
+            ignored = tot.ignored,
+            errors = errs.toList(),
+            ok = true,
+        )
     }
 
     /** Resolves a tab pattern for a specific ops day (noon Dhaka pins the
