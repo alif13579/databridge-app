@@ -102,6 +102,32 @@ object RemarkPopupOverlay {
         val btnCall = view.findViewById<TextView>(R.id.btnHrCall)
         btnCall.setOnClickListener { placeCall(context, match.phone) }
 
+        // Finder — same access routing as IncomingCallOverlay's finder: CC
+        // access jumps into Call Center search, worker-only users into their
+        // Space search (number pre-filled, filter all). Explicit tap, so the
+        // CC path bypasses the lookup toggle (force); permission still gated
+        // at the destination. Hidden when the user can use neither screen.
+        val btnFinder = view.findViewById<TextView>(R.id.btnHrFinder)
+        val hasCcAccess = RbacManager.hasPermission("nav_call_center")
+        val hasWorkerAccess = RbacManager.hasPermission("nav_space")
+        when {
+            hasCcAccess -> {
+                btnFinder.text = "🔍 CC"
+                btnFinder.setOnClickListener {
+                    openFinderSearch(context, match.phone, toWorker = false)
+                    dismissInternal()
+                }
+            }
+            hasWorkerAccess -> {
+                btnFinder.text = "🔍 Space"
+                btnFinder.setOnClickListener {
+                    openFinderSearch(context, match.phone, toWorker = true)
+                    dismissInternal()
+                }
+            }
+            else -> btnFinder.visibility = View.GONE
+        }
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -158,6 +184,24 @@ object RemarkPopupOverlay {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 })
             }
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Finder handoff into the app's search — same MainActivity deep-link
+     *  IncomingCallOverlay's finder uses (see handleNotificationIntent).
+     *  Worker route carries EXTRA_SEARCH_SCOPE="worker"; CC route carries
+     *  EXTRA_FORCE_CC_SEARCH so the explicit tap works even with the lookup
+     *  toggle off (permission still checked at the destination). */
+    private fun openFinderSearch(context: Context, rawPhone: String, toWorker: Boolean) {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(AppNotificationManager.EXTRA_SEARCH_PHONE, rawPhone)
+            if (toWorker) putExtra(AppNotificationManager.EXTRA_SEARCH_SCOPE, "worker")
+            else putExtra(AppNotificationManager.EXTRA_FORCE_CC_SEARCH, true)
+        }
+        try {
+            context.startActivity(intent)
         } catch (_: Exception) {
         }
     }

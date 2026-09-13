@@ -121,19 +121,41 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Call button -->
-    <TextView
-        android:id="@+id/btnHrCall"
+    <!-- Call + finder actions -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:background="@drawable/bg_overlay_cta_success"
-        android:text="📞 Call"
-        android:textColor="#FFFFFF"
-        android:textSize="13.5sp"
-        android:textStyle="bold"
-        android:gravity="center"
-        android:paddingVertical="10dp" />
+        android:orientation="horizontal"
+        android:layout_marginTop="12dp">
+
+        <TextView
+            android:id="@+id/btnHrCall"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="5dp"
+            android:background="@drawable/bg_overlay_cta_success"
+            android:text="📞 Call"
+            android:textColor="#FFFFFF"
+            android:textSize="13.5sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingVertical="10dp" />
+
+        <TextView
+            android:id="@+id/btnHrFinder"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="5dp"
+            android:background="@drawable/bg_overlay_cta"
+            android:text="🔍 Find"
+            android:textColor="#FFFFFF"
+            android:textSize="13.5sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingVertical="10dp" />
+    </LinearLayout>
 
     <!-- Remarks: collapsed behind a "Set Remarks" button by default (note box was always
          taking up space before), expands to the same chips+note+save shape used when

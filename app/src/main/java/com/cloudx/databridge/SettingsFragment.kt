@@ -152,7 +152,7 @@ class SettingsFragment : Fragment() {
 
     private fun setupListeners() {
         switchAutoDial.setOnCheckedChangeListener(null)
-        switchAutoDial.isChecked = togglePrefs.getBoolean("auto_dial", false)
+        switchAutoDial.isChecked = togglePrefs.getBoolean("auto_dial", true)
         switchAutoDial.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked && ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
                 Toast.makeText(requireContext(), "Call permission required", Toast.LENGTH_LONG).show()
@@ -162,7 +162,7 @@ class SettingsFragment : Fragment() {
         }
 
         switchAutoDialer.setOnCheckedChangeListener(null)
-        switchAutoDialer.isChecked = togglePrefs.getBoolean("auto_open_dialer", false)
+        switchAutoDialer.isChecked = togglePrefs.getBoolean("auto_open_dialer", true)
         switchAutoDialer.setOnCheckedChangeListener { _, isChecked ->
             togglePrefs.edit().putBoolean("auto_open_dialer", isChecked).apply()
         }

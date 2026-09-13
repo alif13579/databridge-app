@@ -423,7 +423,7 @@ class DataBridgeService : Service() {
                 if (togglePrefs.getBoolean("sound_on_receive", true)) playSound()
                 vibrateDevice()
                 if (record.type == "phone" && record.cleaned.isNotEmpty()) {
-                    val autoDial = togglePrefs.getBoolean("auto_dial", false)
+                    val autoDial = togglePrefs.getBoolean("auto_dial", true)
                     val lookupFromCcEnabled = togglePrefs.getBoolean("lookup_from_cc", false)
                     var handledByPopup = false
                     if (lookupFromCcEnabled && (RbacManager.hasPermission("nav_call_center") || RbacManager.hasPermission("nav_space"))) {
@@ -440,7 +440,7 @@ class DataBridgeService : Service() {
                     // Skipped when the popup already placed the call, so this never double-dials.
                     if (!handledByPopup) {
                         if (autoDial) triggerAutoDial(record.cleaned)
-                        else if (togglePrefs.getBoolean("auto_open_dialer", false)) triggerOpenDialer(record.cleaned)
+                        else if (togglePrefs.getBoolean("auto_open_dialer", true)) triggerOpenDialer(record.cleaned)
                     }
                 }
                 // Extension-sent consignment ID: same caller popup, fed by direct

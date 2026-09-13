@@ -30,7 +30,7 @@ object AutoDialHelper {
         val ctx = fragment.requireContext()
         val autoDial = forceDirect || ctx
             .getSharedPreferences("databridge_toggles", Context.MODE_PRIVATE)
-            .getBoolean("auto_dial", false)
+            .getBoolean("auto_dial", true)
 
         if (!autoDial) {
             openDialpad(fragment, normalizedPhone)
