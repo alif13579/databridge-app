@@ -37,6 +37,7 @@ data class BranchRunRow(
     val notDelivered: Int,
     val carried: Int,
     val noRequest: Int,
+    val seenOther: Int = 0,
 )
 
 data class BranchSummaryState(
@@ -58,6 +59,8 @@ data class BranchSummaryState(
     val notDelivered: Int = 0,
     val carried: Int = 0,
     val noRequest: Int = 0,
+    val seenOther: Int = 0,
+    val pending: Int = 0,
     val runs: List<BranchRunRow> = emptyList(),
     val truncated: Boolean = false,
 )
@@ -170,6 +173,8 @@ class BranchSummaryViewModel : ViewModel() {
                     notDelivered = runRows.sumOf { it.notDelivered },
                     carried = runRows.sumOf { it.carried },
                     noRequest = runRows.sumOf { it.noRequest },
+                    seenOther = runRows.sumOf { it.seenOther },
+                    pending = (runRows.sumOf { it.verifyRequested } - runRows.sumOf { it.validated }).coerceAtLeast(0),
                     runs = runRows,
                     truncated = truncated,
                 )
@@ -338,6 +343,7 @@ class BranchSummaryViewModel : ViewModel() {
         var notDelivered = 0
         var carried = 0
         var noRequest = 0
+        var seenOther = 0
 
         entry.statuses.forEach { (cid, runStatusRaw) ->
             val runDelivered = runStatusRaw.trim().lowercase() in DELIVERED_STATUSES
@@ -370,6 +376,9 @@ class BranchSummaryViewModel : ViewModel() {
                             else -> verifiedUnset++
                         }
                     }
+                } else {
+                    // CC answer outside window — not counted as verified in this range.
+                    noRequest++
                 }
                 "delivery_request" -> when {
                     runDelivered && inRange -> achievement++
@@ -381,12 +390,12 @@ class BranchSummaryViewModel : ViewModel() {
                     else -> carried++
                 }
                 // Any other CC remark in range still means the parcel was seen.
-                else -> if (!inRange) noRequest++ else Unit
+                else -> if (!inRange) noRequest++ else seenOther++
             }
         }
 
-        val validated = verified + achievement
         val deliveryRequest = achievement + notDelivered
+        val validated = verified + achievement + notDelivered + seenOther
         return BranchRunRow(
             runType = entry.runType,
             runId = entry.runId,
@@ -406,6 +415,7 @@ class BranchSummaryViewModel : ViewModel() {
             notDelivered = notDelivered,
             carried = carried,
             noRequest = noRequest,
+            seenOther = seenOther,
         )
     }
 }

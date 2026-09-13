@@ -208,10 +208,17 @@ class BranchSummaryFragment : Fragment() {
         val pct: (Int, Int) -> String = { n, base ->
             if (base > 0) "${Math.round(n * 100.0 / base)}%" else "—"
         }
+        // ── Header ───────────────────────────────────────────────────────
         addSummaryRow("🏃 Total runs", "${state.totalRuns}", "")
         addSummaryRow("\uD83D\uDCE6 Total parcels", "${state.totalParcels}", "")
+
+        // ── Validation funnel: requested → answered in window ───────────
+        addSectionHeader("Validation — requested → answered")
         addSummaryRow("\uD83D\uDCDE Verify requested", "${state.verifyRequested}", pct(state.verifyRequested, state.totalParcels))
-        addSummaryRow("✅ Validated", "${state.validated}", pct(state.validated, state.verifyRequested))
+        addSummaryRow("✅ Validated (answered in range)", "${state.validated}", pct(state.validated, state.verifyRequested))
+        if (state.pending > 0 || state.verifyRequested > 0)
+            addSummaryRow("⏳ Pending (requested, not answered)", "${state.pending}", pct(state.pending, state.verifyRequested))
+        // Validated breakdown (% of validated so funnel drop is visible)
         addSummaryRow("\uD83D\uDD12 Verified (hold/return)", "${state.verified}", pct(state.verified, state.validated))
         addSummaryRow("   🔒 Strict hold (locked)", "${state.verifiedStrict}", pct(state.verifiedStrict, state.verified))
         addSummaryRow("   🔄 Non-strict (follow-up)", "${state.verifiedNonStrict}", pct(state.verifiedNonStrict, state.verified))
@@ -219,10 +226,29 @@ class BranchSummaryFragment : Fragment() {
         if (state.verifiedUnset > 0)
             addSummaryRow("   ⚪ Unset hold", "${state.verifiedUnset}", pct(state.verifiedUnset, state.verified))
         addSummaryRow("\uD83D\uDE9A Delivery request", "${state.deliveryRequest}", pct(state.deliveryRequest, state.validated))
-        addSummaryRow("\uD83C\uDFC6 Achievement", "${state.achievement}", pct(state.achievement, state.deliveryRequest))
-        addSummaryRow("🚫 Not delivered", "${state.notDelivered}", pct(state.notDelivered, state.deliveryRequest))
-        addSummaryRow("➖ Previous days", "${state.carried}", "")
+        addSummaryRow("   \uD83C\uDFC6 Achievement (delivered)", "${state.achievement}", pct(state.achievement, state.deliveryRequest))
+        addSummaryRow("   🚫 Not delivered", "${state.notDelivered}", pct(state.notDelivered, state.deliveryRequest))
+        if (state.seenOther > 0)
+            addSummaryRow("👁️ Seen other (CC remark, not hold/return/delivery)", "${state.seenOther}", pct(state.seenOther, state.validated))
+
+        // ── Parcel fate — mutually exclusive, sums to total (intelligence: gap fix) ──
+        // hold = verified - return; verified = hold+return.  Partition:
+        // delivered(achievement) + hold + return + notDelivered + seenOther + carried + noRequest = total
+        val holdTotal = state.verified - state.verifiedReturn
+        addSectionHeader("Parcel fate — composition of total (sums to 100%)")
+        addSummaryRow("\uD83C\uDFC6 Delivered", "${state.achievement}", pct(state.achievement, state.totalParcels))
+        addSummaryRow("🔒 Hold", "$holdTotal", pct(holdTotal, state.totalParcels))
+        addSummaryRow("↩️ Return", "${state.verifiedReturn}", pct(state.verifiedReturn, state.totalParcels))
+        addSummaryRow("🚫 Not delivered", "${state.notDelivered}", pct(state.notDelivered, state.totalParcels))
+        if (state.seenOther > 0)
+            addSummaryRow("👁️ Seen other", "${state.seenOther}", pct(state.seenOther, state.totalParcels))
+        addSummaryRow("➖ Previous days (carried)", "${state.carried}", pct(state.carried, state.totalParcels))
         addSummaryRow("⚪ No request", "${state.noRequest}", pct(state.noRequest, state.totalParcels))
+        // Integrity hint — should be 100%
+        val fateSum = state.achievement + holdTotal + state.verifiedReturn + state.notDelivered + state.seenOther + state.carried + state.noRequest
+        if (fateSum != state.totalParcels && state.totalParcels > 0)
+            addSummaryRow("⚠️ Fate sum $fateSum ≠ total ${state.totalParcels}", "", "")
+
         if (state.truncated) addSummaryRow("⚠️ Showing first ${state.runs.size} runs", "", "")
 
         tvRunsHeader.text = "Runs (${state.runs.size})"
@@ -230,6 +256,22 @@ class BranchSummaryFragment : Fragment() {
         state.runs.forEach { run ->
             layoutRuns.addView(runCard(run, dateFmt))
         }
+    }
+
+    private fun addSectionHeader(title: String) {
+        val tv = TextView(requireContext()).apply {
+            text = title
+            textSize = 11f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(2, 14, 2, 4)
+            alpha = 0.7f
+        }
+        layoutSummary.addView(tv)
+        val div = View(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.setMargins(0, 0, 0, 4) }
+            setBackgroundColor(0x22000000)
+        }
+        layoutSummary.addView(div)
     }
 
     private fun addSummaryRow(label: String, count: String, percent: String) {
@@ -279,28 +321,40 @@ class BranchSummaryFragment : Fragment() {
             textSize = 12.5f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
-        val line = TextView(requireContext()).apply {
-            text = "\uD83D\uDCE6 ${run.total} · \uD83D\uDCDE ${run.verifyRequested} · " +
-                "✅ ${run.validated} (\uD83D\uDD12 ${run.verified}) · " +
-                "\uD83D\uDE9A ${run.deliveryRequest} · \uD83C\uDFC6 ${run.achievement}" +
-                if (run.notDelivered > 0 || run.carried > 0 || run.noRequest > 0)
-                    " · 🚫 ${run.notDelivered} · ➖ ${run.carried} · ⚪ ${run.noRequest}"
-                else ""
+        // ── Fate line: mutually exclusive, % of run total (your 10-parcel example) ──
+        // Delivered 50% + Hold 20% + Return 30% = 100% when others 0.  Uses run.total as base.
+        fun pct(n: Int): String = if (run.total > 0) "${Math.round(n * 100.0 / run.total)}%" else "—"
+        val holdTotal = run.verified - run.verifiedReturn
+        val fateLine = TextView(requireContext()).apply {
+            text = "\uD83C\uDFC6 Delivered ${run.achievement} (${pct(run.achievement)}) · " +
+                "🔒 Hold $holdTotal (${pct(holdTotal)}) · " +
+                "↩️ Return ${run.verifiedReturn} (${pct(run.verifiedReturn)})" +
+                (if (run.notDelivered > 0) " · 🚫 Not delivered ${run.notDelivered} (${pct(run.notDelivered)})" else "") +
+                (if (run.seenOther > 0) " · 👁️ Seen ${run.seenOther} (${pct(run.seenOther)})" else "") +
+                (if (run.carried > 0) " · ➖ Carried ${run.carried} (${pct(run.carried)})" else "") +
+                (if (run.noRequest > 0) " · ⚪ No request ${run.noRequest} (${pct(run.noRequest)})" else "")
             textSize = 12f
         }
+        val funnelLine = TextView(requireContext()).apply {
+            val pending = (run.verifyRequested - run.validated).coerceAtLeast(0)
+            text = "\uD83D\uDCE6 total ${run.total} · \uD83D\uDCDE requested ${run.verifyRequested} · " +
+                "✅ validated ${run.validated} · ⏳ pending $pending"
+            textSize = 11f
+            alpha = 0.8f
+        }
+        card.addView(header)
+        card.addView(fateLine)
+        card.addView(funnelLine)
         if (run.verified > 0) {
             val holdLine = TextView(requireContext()).apply {
-                text = "🔒 Strict ${run.verifiedStrict} · 🔄 Non-strict ${run.verifiedNonStrict}" +
+                text = "  🔒 Strict ${run.verifiedStrict} · 🔄 Non-strict ${run.verifiedNonStrict}" +
                     if (run.verifiedReturn > 0) " · ↩️ Return ${run.verifiedReturn}" else "" +
-                    if (run.verifiedUnset > 0) " · ⚪ Unset ${run.verifiedUnset}" else ""
-                textSize = 12f
+                    if (run.verifiedUnset > 0) " · ⚪ Unset ${run.verifiedUnset}" else "" +
+                    "  (of ${run.verified} verified)"
+                textSize = 11f
+                alpha = 0.85f
             }
-            card.addView(header)
-            card.addView(line)
             card.addView(holdLine)
-        } else {
-            card.addView(header)
-            card.addView(line)
         }
         return card
     }
