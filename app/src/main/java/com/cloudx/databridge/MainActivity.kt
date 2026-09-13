@@ -1556,6 +1556,47 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         bottomNav.selectedItemId = R.id.nav_space
     }
 
+    /** View Orders finder handoff: opens Call Center with a raw [query]
+     *  (consignment ID or phone) pre-filled in its search box.
+     *
+     *  Unlike navigateToCallCenterWithSearch(), the query is NOT passed
+     *  through toLocalSearchNumber() — that helper strips non-digits, which
+     *  would mangle alphanumeric consignment IDs (e.g. "ADHK123" -> "123").
+     *  Both search boxes match IDs as substrings, so the raw query works for
+     *  phones and IDs alike. Always an explicit tap, so no lookup-toggle
+     *  gate (same force=true semantics as the overlay finder); permission
+     *  still gated. */
+    fun navigateToCallCenterWithQuery(query: String) {
+        val q = query.trim()
+        if (q.isEmpty() || !RbacManager.hasPermission("nav_call_center")) return
+        val alreadyOnCc = supportFragmentManager.findFragmentById(R.id.container) is CallCenterFragment
+        if (alreadyOnCc) {
+            (supportFragmentManager.findFragmentById(R.id.container) as? CallCenterFragment)
+                ?.applySearchPhone(q)
+            return
+        }
+
+        previousBottomNavItemBeforeCcSearch = bottomNav.selectedItemId
+        pendingCcSearchPhone = q
+        bottomNav.selectedItemId = R.id.nav_call_center
+    }
+
+    /** Worker mirror of navigateToCallCenterWithQuery: opens Worker Space
+     *  with a raw consignment-ID-or-phone [query] pre-filled. */
+    fun navigateToWorkerSpaceWithQuery(query: String) {
+        val q = query.trim()
+        if (q.isEmpty() || !RbacManager.hasPermission("nav_space")) return
+        val alreadyOnWorker = supportFragmentManager.findFragmentById(R.id.container) is WorkerSpaceFragment
+        if (alreadyOnWorker) {
+            (supportFragmentManager.findFragmentById(R.id.container) as? WorkerSpaceFragment)
+                ?.applySearchPhone(q)
+            return
+        }
+
+        pendingWorkerSearchPhone = q
+        bottomNav.selectedItemId = R.id.nav_space
+    }
+
     /**
      * Telecom/caller-ID numbers arrive as +8801XXXXXXXXX (or 880...); parcel
      * data and both search boxes use local 01XXXXXXXXX — normalize to that

@@ -86,6 +86,58 @@
             android:focusable="true" />
     </LinearLayout>
 
+    <!-- Recent searches -->
+    <LinearLayout
+        android:id="@+id/layoutVoRecent"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginTop="8dp"
+        android:paddingStart="18dp"
+        android:paddingEnd="16dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Recent"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="@color/theme_text_secondary" />
+
+            <TextView
+                android:id="@+id/tvVoClearAllRecent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Clear all"
+                android:textSize="12sp"
+                android:textColor="@color/theme_text_muted"
+                android:padding="4dp"
+                android:clickable="true"
+                android:focusable="true" />
+        </LinearLayout>
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:layout_marginTop="4dp">
+
+            <LinearLayout
+                android:id="@+id/layoutVoRecentChips"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+    </LinearLayout>
+
     <!-- Result count -->
     <TextView
         android:id="@+id/tvVoCount"

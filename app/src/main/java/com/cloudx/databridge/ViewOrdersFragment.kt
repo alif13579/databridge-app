@@ -1,5 +1,6 @@
 package com.cloudx.databridge
 
+import android.content.Context
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -10,6 +11,7 @@ import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.DiffUtil
@@ -62,10 +64,19 @@ class ViewOrdersFragment : Fragment() {
     private lateinit var tvEmpty: TextView
     private lateinit var rvList: RecyclerView
     private lateinit var adapter: ViewOrdersAdapter
+    private lateinit var layoutRecent: View
+    private lateinit var layoutRecentChips: LinearLayout
+    private lateinit var tvClearAllRecent: TextView
 
     private var searchJob: Job? = null
     private var debounceJob: Job? = null
     private var searchGeneration = 0
+
+    companion object {
+        private const val PREFS_VIEW_ORDERS = "view_orders"
+        private const val KEY_RECENT_SEARCHES = "recent_searches"
+        private const val MAX_RECENT = 10
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -80,13 +91,24 @@ class ViewOrdersFragment : Fragment() {
         layoutLoading = view.findViewById(R.id.layoutVoLoading)
         tvEmpty = view.findViewById(R.id.tvVoEmpty)
         rvList = view.findViewById(R.id.rvVoList)
+        layoutRecent = view.findViewById(R.id.layoutVoRecent)
+        layoutRecentChips = view.findViewById(R.id.layoutVoRecentChips)
+        tvClearAllRecent = view.findViewById(R.id.tvVoClearAllRecent)
 
         adapter = ViewOrdersAdapter(
             onToggleExpand = { /* handled inside adapter */ },
-            onLongPress = { showJourneyDialog(it) }
+            onLongPress = { showJourneyDialog(it) },
+            onCall = { onCallParcel(it) },
+            onFinder = { onFinderParcel(it) }
         )
         rvList.layoutManager = LinearLayoutManager(requireContext())
         rvList.adapter = adapter
+        renderRecentSearches()
+
+        tvClearAllRecent.setOnClickListener {
+            saveRecentSearches(emptyList())
+            renderRecentSearches()
+        }
 
         tvSearchBtn.setOnClickListener { runSearch() }
         tvClear.setOnClickListener {
@@ -128,6 +150,116 @@ class ViewOrdersFragment : Fragment() {
         tvEmpty.text = "🔍\n\nType a phone number or consignment ID above and tap Search.\n\nTap and hold any parcel card to see its Journey Log."
     }
 
+    // ---- Recent searches (per-device, max 10, newest first) ----
+
+    private fun prefs() =
+        requireContext().getSharedPreferences(PREFS_VIEW_ORDERS, Context.MODE_PRIVATE)
+
+    private fun loadRecentSearches(): MutableList<String> {
+        val raw = prefs().getString(KEY_RECENT_SEARCHES, "").orEmpty()
+        if (raw.isBlank()) return mutableListOf()
+        return raw.split("\n").map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+    }
+
+    private fun saveRecentSearches(list: List<String>) {
+        prefs().edit().putString(KEY_RECENT_SEARCHES, list.joinToString("\n")).apply()
+    }
+
+    private fun addRecentSearch(query: String) {
+        val q = query.trim()
+        if (q.length < 3) return
+        val list = loadRecentSearches()
+        list.removeAll { it.equals(q, ignoreCase = true) }
+        list.add(0, q)
+        val capped = list.take(MAX_RECENT)
+        saveRecentSearches(capped)
+        renderRecentSearches()
+    }
+
+    private fun renderRecentSearches() {
+        if (!::layoutRecentChips.isInitialized) return
+        val recents = loadRecentSearches()
+        layoutRecent.visibility = if (recents.isEmpty()) View.GONE else View.VISIBLE
+        layoutRecentChips.removeAllViews()
+        val ctx = requireContext()
+        val density = ctx.resources.displayMetrics.density
+        for (q in recents) {
+            val chip = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setBackgroundResource(R.drawable.bg_filter_chip_inactive)
+                val padH = (10 * density).toInt()
+                val padV = (6 * density).toInt()
+                setPadding(padH, padV, (6 * density).toInt(), padV)
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                lp.marginEnd = (8 * density).toInt()
+                layoutParams = lp
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    etSearch.setText(q)
+                    etSearch.setSelection(q.length)
+                    runSearch()
+                }
+            }
+            val tvQuery = TextView(ctx).apply {
+                text = q
+                textSize = 12f
+                setTextColor(ctx.getColor(R.color.theme_text_primary))
+            }
+            val tvX = TextView(ctx).apply {
+                text = "  ✕"
+                textSize = 12f
+                setTextColor(ctx.getColor(R.color.theme_text_muted))
+                setPadding((6 * density).toInt(), 0, 0, 0)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    val updated = loadRecentSearches()
+                        .filterNot { it.equals(q, ignoreCase = true) }
+                    saveRecentSearches(updated)
+                    renderRecentSearches()
+                }
+            }
+            chip.addView(tvQuery)
+            chip.addView(tvX)
+            layoutRecentChips.addView(chip)
+        }
+    }
+
+    // ---- Card actions: call + finder ----
+
+    private fun onCallParcel(item: ViewOrderParcel) {
+        if (item.phone.isBlank()) {
+            Toast.makeText(requireContext(), "No phone number on this parcel", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AutoDialHelper.dial(this, item.phone)
+    }
+
+    /**
+     * Finder: jumps to this consignment's search in Call Center or Worker
+     * Space, based on the user's access. Call Center wins when the user has
+     * both (same priority as the incoming-call overlay finder); workers
+     * land in their own Space search instead.
+     */
+    private fun onFinderParcel(item: ViewOrderParcel) {
+        val main = activity as? MainActivity ?: return
+        val ccAccess = RbacManager.hasPermission("nav_call_center")
+        val workerAccess = RbacManager.hasPermission("nav_space")
+        when {
+            ccAccess -> main.navigateToCallCenterWithQuery(item.id)
+            workerAccess -> main.navigateToWorkerSpaceWithQuery(item.id)
+            else -> Toast.makeText(
+                requireContext(),
+                "No access to Call Center or Space", Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     private fun runSearch() {
         val query = etSearch.text?.toString()?.trim().orEmpty()
         if (query.length < 3) {
@@ -135,6 +267,7 @@ class ViewOrdersFragment : Fragment() {
             tvEmpty.text = "Type at least 3 characters of the phone number or consignment ID."
             return
         }
+        addRecentSearch(query)
         searchJob?.cancel()
         val generation = ++searchGeneration
         tvEmpty.visibility = View.GONE
@@ -457,7 +590,9 @@ class ViewOrdersFragment : Fragment() {
     /** Simple card adapter: tap expands/collapses, long-press opens Journey Log. */
     class ViewOrdersAdapter(
         private val onToggleExpand: () -> Unit,
-        private val onLongPress: (ViewOrderParcel) -> Unit
+        private val onLongPress: (ViewOrderParcel) -> Unit,
+        private val onCall: (ViewOrderParcel) -> Unit = {},
+        private val onFinder: (ViewOrderParcel) -> Unit = {}
     ) : ListAdapter<ViewOrderParcel, ViewOrdersAdapter.Holder>(Diff()) {
 
         var expandedId: String? = null
@@ -473,6 +608,8 @@ class ViewOrdersFragment : Fragment() {
             val tvMeta: TextView = v.findViewById(R.id.tvVoMeta)
             val tvAddress: TextView = v.findViewById(R.id.tvVoAddress)
             val tvCod: TextView = v.findViewById(R.id.tvVoCod)
+            val btnCall: TextView = v.findViewById(R.id.btnVoCall)
+            val btnFinder: TextView = v.findViewById(R.id.btnVoFinder)
             val remarksBox: View = v.findViewById(R.id.layoutVoRemarksBox)
             val tvRemarks: TextView = v.findViewById(R.id.tvVoRemarks)
             val tvRemarksTime: TextView = v.findViewById(R.id.tvVoRemarksTime)
@@ -513,6 +650,18 @@ class ViewOrdersFragment : Fragment() {
 
             val isExpanded = expandedId == item.id
             holder.tvAddress.maxLines = if (isExpanded) Int.MAX_VALUE else 2
+
+            // Finder label shows the destination: CC when the user has Call
+            // Center access, otherwise their Space search.
+            val ccAccess = RbacManager.hasPermission("nav_call_center")
+            val workerAccess = RbacManager.hasPermission("nav_space")
+            holder.btnFinder.text = when {
+                ccAccess -> "🔍 CC"
+                workerAccess -> "🔍 Space"
+                else -> "🔍 Find"
+            }
+            holder.btnCall.setOnClickListener { onCall(item) }
+            holder.btnFinder.setOnClickListener { onFinder(item) }
 
             holder.itemView.setOnClickListener {
                 expandedId = if (isExpanded) null else item.id
