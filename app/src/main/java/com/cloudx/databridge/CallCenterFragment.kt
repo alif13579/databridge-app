@@ -1740,6 +1740,13 @@ class CallCenterFragment : Fragment() {
         ccReprocessDone = 0
         tvEmpty.visibility    = View.GONE
         hideLiveErrorBox()
+        // Every Request/Mix (re)load funnels through here — including Live→Request
+        // and Request→Mix switches. Drop stale cards from UNDER the loading veil
+        // (it is drawn above the list) so the skeleton never renders on top of old
+        // parcels. Display-only: allParcels, filter chips and statusFilter are
+        // untouched — applyFilters() restores from state when the new data lands,
+        // and the empty/error gates below take over the screen on failure.
+        if (::adapter.isInitialized) adapter.submitParcels(emptyList())
         detachRunsListener()
         // Validation reads and Realtime are RLS-gated. Unlike Worker Space, Call
         // Center previously started its listeners before syncing this CC agent's
