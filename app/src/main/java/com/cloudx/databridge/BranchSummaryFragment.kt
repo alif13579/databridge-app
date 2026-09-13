@@ -231,21 +231,50 @@ class BranchSummaryFragment : Fragment() {
         if (state.seenOther > 0)
             addSummaryRow("👁️ Seen other (CC remark, not hold/return/delivery)", "${state.seenOther}", pct(state.seenOther, state.validated))
 
-        // ── Parcel fate — mutually exclusive, sums to total (intelligence: gap fix) ──
-        // hold = verified - return; verified = hold+return.  Partition:
-        // delivered(achievement) + hold + return + notDelivered + seenOther + carried + noRequest = total
-        val holdTotal = state.verified - state.verifiedReturn
-        addSectionHeader("Parcel fate — composition of total (sums to 100%)")
-        addSummaryRow("\uD83C\uDFC6 Delivered", "${state.achievement}", pct(state.achievement, state.totalParcels))
-        addSummaryRow("🔒 Hold", "$holdTotal", pct(holdTotal, state.totalParcels))
-        addSummaryRow("↩️ Return", "${state.verifiedReturn}", pct(state.verifiedReturn, state.totalParcels))
-        addSummaryRow("🚫 Not delivered", "${state.notDelivered}", pct(state.notDelivered, state.totalParcels))
-        if (state.seenOther > 0)
-            addSummaryRow("👁️ Seen other", "${state.seenOther}", pct(state.seenOther, state.totalParcels))
-        addSummaryRow("➖ Previous days (carried)", "${state.carried}", pct(state.carried, state.totalParcels))
-        addSummaryRow("⚪ No request", "${state.noRequest}", pct(state.noRequest, state.totalParcels))
-        // Integrity hint — should be 100%
-        val fateSum = state.achievement + holdTotal + state.verifiedReturn + state.notDelivered + state.seenOther + state.carried + state.noRequest
+        // ── Your rule: Assigned = delivered + return + hold(rest) ──
+        // Delivered = delivery family (achievement), Return = return family (return_verified),
+        // Hold = rest = total - delivered - return.  Validated = verified (hold_verified/return_verified)
+        // i.e. On Hold validated = strict+non-strict, Return validated = return (always 100%).
+        val delivered = state.achievement
+        val returnCnt = state.verifiedReturn
+        val holdTotal = (state.totalParcels - delivered - returnCnt).coerceAtLeast(0)
+        val onHoldValidated = (state.verifiedStrict + state.verifiedNonStrict).coerceAtMost(holdTotal)
+        val onHoldNotValidated = (holdTotal - onHoldValidated).coerceAtLeast(0)
+
+        addSectionHeader("Parcel fate — Assigned = Delivered + Return + Hold (rest)")
+        addSummaryRow("\uD83C\uDFC6 Delivered (family)", "$delivered", pct(delivered, state.totalParcels))
+        addSummaryRow("↩️ Return (family)", "$returnCnt", pct(returnCnt, state.totalParcels))
+        addSummaryRow("🔒 Hold (rest)", "$holdTotal", pct(holdTotal, state.totalParcels))
+        if (state.seenOther > 0 || state.carried > 0 || state.noRequest > 0 || state.notDelivered > 0) {
+            addSummaryRow("  ↳ detail: 🚫 Not delivered ${state.notDelivered} · 👁️ Seen ${state.seenOther} · ➖ Carried ${state.carried} · ⚪ No req ${state.noRequest}", "", "")
+        }
+
+        // Intelligence table — your exact shape: Count | Percent | Validation | Not Validated
+        // Assigned 10 | Delivered 4 40% - - | On Hold 3 30% 2(66%) 1(34%) | Return 3 30% 3(100%)
+        // Validation = verified (hold_verified/return_verified) count inside that fate.
+        addSectionHeader("Fate table — Count | Percent | Validated | Not validated")
+        addFateTableHeader()
+        val total = state.totalParcels
+        addFateTableRow("Assigned", total, if (total > 0) "—" else "—", "—", "—", isHeader = false)
+        addFateTableRow("Delivered", delivered, pct(delivered, total), "—", "—")
+        run {
+            val vPct = pct(onHoldValidated, holdTotal)
+            val nvPct = pct(onHoldNotValidated, holdTotal)
+            addFateTableRow(
+                "On Hold", holdTotal, pct(holdTotal, total),
+                if (holdTotal > 0) "$onHoldValidated ($vPct)" else "—",
+                if (holdTotal > 0) "$onHoldNotValidated ($nvPct)" else "—",
+            )
+        }
+        run {
+            addFateTableRow(
+                "Return", returnCnt, pct(returnCnt, total),
+                if (returnCnt > 0) "$returnCnt (${pct(returnCnt, returnCnt)})" else "—",
+                if (returnCnt > 0) "0 (${pct(0, returnCnt)})" else "—",
+            )
+        }
+        // Integrity: Assigned should equal delivered+return+hold
+        val fateSum = delivered + returnCnt + holdTotal
         if (fateSum != state.totalParcels && state.totalParcels > 0)
             addSummaryRow("⚠️ Fate sum $fateSum ≠ total ${state.totalParcels}", "", "")
 
@@ -272,6 +301,46 @@ class BranchSummaryFragment : Fragment() {
             setBackgroundColor(0x22000000)
         }
         layoutSummary.addView(div)
+    }
+
+    private fun addFateTableHeader() {
+        val row = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(2, 6, 2, 6)
+            setBackgroundColor(0x11000000)
+        }
+        fun cell(text: String, weight: Float, bold: Boolean = true): TextView = TextView(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight)
+            this.text = text
+            textSize = 11f
+            if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+            alpha = 0.85f
+        }
+        row.addView(cell("", 1.2f))
+        row.addView(cell("Count", 0.7f))
+        row.addView(cell("Percent", 0.8f))
+        row.addView(cell("Validated", 1.1f))
+        row.addView(cell("Not validated", 1.1f))
+        layoutSummary.addView(row)
+    }
+
+    private fun addFateTableRow(label: String, count: Int, percent: String, validated: String, notValidated: String, isHeader: Boolean = false) {
+        val row = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(2, 7, 2, 7)
+        }
+        fun cell(text: String, weight: Float, bold: Boolean = false): TextView = TextView(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight)
+            this.text = text
+            textSize = 12f
+            if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        row.addView(cell(label, 1.2f))
+        row.addView(cell("$count", 0.7f, true))
+        row.addView(cell(percent, 0.8f))
+        row.addView(cell(validated, 1.1f))
+        row.addView(cell(notValidated, 1.1f))
+        layoutSummary.addView(row)
     }
 
     private fun addSummaryRow(label: String, count: String, percent: String) {
@@ -321,41 +390,86 @@ class BranchSummaryFragment : Fragment() {
             textSize = 12.5f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
-        // ── Fate line: mutually exclusive, % of run total (your 10-parcel example) ──
-        // Delivered 50% + Hold 20% + Return 30% = 100% when others 0.  Uses run.total as base.
-        fun pct(n: Int): String = if (run.total > 0) "${Math.round(n * 100.0 / run.total)}%" else "—"
-        val holdTotal = run.verified - run.verifiedReturn
+        // ── Your rule per run: Hold = rest = total - delivered - return ──
+        fun pct(n: Int, base: Int): String = if (base > 0) "${Math.round(n * 100.0 / base)}%" else "—"
+        fun pctOfTotal(n: Int): String = pct(n, run.total)
+        val delivered = run.achievement
+        val returnCnt = run.verifiedReturn
+        val holdTotal = (run.total - delivered - returnCnt).coerceAtLeast(0)
+        val onHoldValidated = (run.verifiedStrict + run.verifiedNonStrict).coerceAtMost(holdTotal)
+        val onHoldNotValidated = (holdTotal - onHoldValidated).coerceAtLeast(0)
+
+        // Compact fate line (Assigned = Delivered + Return + Hold)
         val fateLine = TextView(requireContext()).apply {
-            text = "\uD83C\uDFC6 Delivered ${run.achievement} (${pct(run.achievement)}) · " +
-                "🔒 Hold $holdTotal (${pct(holdTotal)}) · " +
-                "↩️ Return ${run.verifiedReturn} (${pct(run.verifiedReturn)})" +
-                (if (run.notDelivered > 0) " · 🚫 Not delivered ${run.notDelivered} (${pct(run.notDelivered)})" else "") +
-                (if (run.seenOther > 0) " · 👁️ Seen ${run.seenOther} (${pct(run.seenOther)})" else "") +
-                (if (run.carried > 0) " · ➖ Carried ${run.carried} (${pct(run.carried)})" else "") +
-                (if (run.noRequest > 0) " · ⚪ No request ${run.noRequest} (${pct(run.noRequest)})" else "")
+            text = "\uD83C\uDFC6 Delivered $delivered (${pctOfTotal(delivered)}) · " +
+                "🔒 Hold $holdTotal (${pctOfTotal(holdTotal)}) · " +
+                "↩️ Return $returnCnt (${pctOfTotal(returnCnt)})"
             textSize = 12f
         }
         val funnelLine = TextView(requireContext()).apply {
             val pending = (run.verifyRequested - run.validated).coerceAtLeast(0)
-            text = "\uD83D\uDCE6 total ${run.total} · \uD83D\uDCDE requested ${run.verifyRequested} · " +
-                "✅ validated ${run.validated} · ⏳ pending $pending"
+            text = "\uD83D\uDCE6 total ${run.total} · \uD83D\uDCDE req ${run.verifyRequested} · ✅ val ${run.validated} · ⏳ pend $pending"
             textSize = 11f
             alpha = 0.8f
         }
         card.addView(header)
         card.addView(fateLine)
         card.addView(funnelLine)
-        if (run.verified > 0) {
-            val holdLine = TextView(requireContext()).apply {
-                text = "  🔒 Strict ${run.verifiedStrict} · 🔄 Non-strict ${run.verifiedNonStrict}" +
-                    if (run.verifiedReturn > 0) " · ↩️ Return ${run.verifiedReturn}" else "" +
-                    if (run.verifiedUnset > 0) " · ⚪ Unset ${run.verifiedUnset}" else "" +
-                    "  (of ${run.verified} verified)"
-                textSize = 11f
-                alpha = 0.85f
-            }
-            card.addView(holdLine)
-        }
+
+        // Table inside card — mirrors summary fate table (Assigned is run.total)
+        card.addView(runFateTableHeader())
+        card.addView(runFateRow("Assigned", run.total, "—", "—", "—"))
+        card.addView(runFateRow("Delivered", delivered, pctOfTotal(delivered), "—", "—"))
+        card.addView(runFateRow(
+            "On Hold", holdTotal, pctOfTotal(holdTotal),
+            if (holdTotal > 0) "$onHoldValidated (${pct(onHoldValidated, holdTotal)})" else "—",
+            if (holdTotal > 0) "$onHoldNotValidated (${pct(onHoldNotValidated, holdTotal)})" else "—",
+        ))
+        card.addView(runFateRow(
+            "Return", returnCnt, pctOfTotal(returnCnt),
+            if (returnCnt > 0) "$returnCnt (${pct(returnCnt, returnCnt)})" else "—",
+            if (returnCnt > 0) "0 (${pct(0, returnCnt)})" else "—",
+        ))
         return card
+    }
+
+    private fun runFateTableHeader(): View {
+        val row = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(2, 8, 2, 4)
+            setBackgroundColor(0x11000000)
+        }
+        fun cell(text: String, weight: Float): TextView = TextView(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight)
+            this.text = text
+            textSize = 10.5f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            alpha = 0.8f
+        }
+        row.addView(cell("", 1.2f))
+        row.addView(cell("Count", 0.7f))
+        row.addView(cell("%", 0.7f))
+        row.addView(cell("Validated", 1.0f))
+        row.addView(cell("Not val.", 1.0f))
+        return row
+    }
+
+    private fun runFateRow(label: String, count: Int, percent: String, validated: String, notValidated: String): View {
+        val row = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(2, 5, 2, 5)
+        }
+        fun cell(text: String, weight: Float, bold: Boolean = false): TextView = TextView(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight)
+            this.text = text
+            textSize = 11f
+            if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        row.addView(cell(label, 1.2f))
+        row.addView(cell("$count", 0.7f, true))
+        row.addView(cell(percent, 0.7f))
+        row.addView(cell(validated, 1.0f))
+        row.addView(cell(notValidated, 1.0f))
+        return row
     }
 }
