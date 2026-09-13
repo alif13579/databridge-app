@@ -549,8 +549,12 @@ object SupabaseRemarkValidationWriter {
      *  the caller's onResult fires — resolveRemarkBn(JSONObject) in the fragments reads
      *  that field directly. A row whose remark has no catalog match (free-typed note,
      *  or saved before the catalog existed) simply doesn't get the field added; the
-     *  fragments' resolveRemarkBn() already falls back to English for that case. */
-    private suspend fun withRemarkLabels(rows: List<JSONObject>, screen: String): List<JSONObject> {
+     *  fragments' resolveRemarkBn() already falls back to English for that case.
+     *
+     *  Public (not private) so CallCenterFragment.buildLiveParcels can run this same
+     *  step: Live reads validations via fetchValidations() directly, while Request
+     *  mode gets it inside fetchNewRemarksSince(). Logic unchanged. */
+    suspend fun withRemarkLabels(rows: List<JSONObject>, screen: String): List<JSONObject> {
         if (rows.isEmpty()) return rows
         rows.groupBy { it.optString("source").trim() }.forEach { (source, sourceRows) ->
             if (source.isBlank()) return@forEach

@@ -4030,6 +4030,11 @@ class CallCenterFragment : Fragment() {
     private fun loadLiveMode() {
         val gen = ++liveGeneration
         showCcLoading("Loading Live sheet...")
+        // Stale Request cards sit UNDER the loading veil (it is drawn above the
+        // list) — clear them first so the skeleton never renders on top of old
+        // parcels. Same helper the Live error paths already use; tvEmpty stays
+        // hidden until this load (or its error) decides what to show.
+        clearLiveList()
         tvEmpty.visibility = View.GONE
         hideLiveErrorBox()
         viewLifecycleOwner.lifecycleScope.launch {
@@ -4318,6 +4323,11 @@ class CallCenterFragment : Fragment() {
                 )
             )
         }
+        // Parity with Request mode (fetchNewRemarksSince runs this internally):
+        // inject remarks_bn from the catalog so card badges resolve Bangla even
+        // when ccRemarkOptions hasn't loaded yet. Same rows, one extra batched
+        // catalog read per distinct source — no other behavior changes.
+        SupabaseRemarkValidationWriter.withRemarkLabels(allRows, "CallCenterFragment")
         val rowsByCid = allRows.groupBy { it.optString("consignment") }
         val nameMap = ensureAgentNameMap()
         val missing = mutableListOf<String>()
