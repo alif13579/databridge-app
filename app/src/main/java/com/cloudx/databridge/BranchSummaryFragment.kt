@@ -238,7 +238,9 @@ class BranchSummaryFragment : Fragment() {
         val delivered = state.achievement
         val returnCnt = state.verifiedReturn
         val holdTotal = (state.totalParcels - delivered - returnCnt).coerceAtLeast(0)
-        val onHoldValidated = (state.verifiedStrict + state.verifiedNonStrict).coerceAtMost(holdTotal)
+        // Unset IS hold_verified (verified++) — so validated = ALL hold_verified incl. unset.
+        // Not validated = untouched rest only.
+        val onHoldValidated = (state.verified - state.verifiedReturn).coerceAtMost(holdTotal)
         val onHoldNotValidated = (holdTotal - onHoldValidated).coerceAtLeast(0)
 
         addSectionHeader("Parcel fate — Assigned = Delivered + Return + Hold (rest)")
@@ -255,7 +257,7 @@ class BranchSummaryFragment : Fragment() {
         addSectionHeader("Fate table — Count | Percent | Validated | Not validated")
         addFateTableHeader()
         val total = state.totalParcels
-        addFateTableRow("Assigned", total, if (total > 0) "—" else "—", "—", "—", isHeader = false)
+        addFateTableRow("Assigned", total, if (total > 0) "—" else "—", "—", "—")
         addFateTableRow("Delivered", delivered, pct(delivered, total), "—", "—")
         run {
             val vPct = pct(onHoldValidated, holdTotal)
@@ -277,6 +279,23 @@ class BranchSummaryFragment : Fragment() {
         val fateSum = delivered + returnCnt + holdTotal
         if (fateSum != state.totalParcels && state.totalParcels > 0)
             addSummaryRow("⚠️ Fate sum $fateSum ≠ total ${state.totalParcels}", "", "")
+
+        // ── Agents (incharge only — worker sees self, 1 row is noise) ──
+        if (!state.selfScope && state.agents.isNotEmpty()) {
+            addSectionHeader("Agents (${state.agents.size}) — Assigned | Delivered | On Hold | Validated | Return")
+            addAgentTableHeader()
+            state.agents.forEach { a ->
+                val vPct = pct(a.onHoldValidated, a.holdTotal)
+                addAgentTableRow(
+                    label = if (a.runs > 1) "${a.agentName} (${a.runs} runs)" else a.agentName,
+                    assigned = "${a.total}",
+                    delivered = "${a.delivered} (${pct(a.delivered, a.total)})",
+                    onHold = "${a.holdTotal}",
+                    validated = if (a.holdTotal > 0) "${a.onHoldValidated} ($vPct)" else "—",
+                    returnCnt = "${a.returnCnt} (${pct(a.returnCnt, a.total)})",
+                )
+            }
+        }
 
         if (state.truncated) addSummaryRow("⚠️ Showing first ${state.runs.size} runs", "", "")
 
@@ -324,7 +343,49 @@ class BranchSummaryFragment : Fragment() {
         layoutSummary.addView(row)
     }
 
-    private fun addFateTableRow(label: String, count: Int, percent: String, validated: String, notValidated: String, isHeader: Boolean = false) {
+    private fun addAgentTableHeader() {
+        val row = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(2, 6, 2, 6)
+            setBackgroundColor(0x11000000)
+        }
+        fun cell(text: String, weight: Float): TextView = TextView(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight)
+            this.text = text
+            textSize = 11f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            alpha = 0.85f
+        }
+        row.addView(cell("Agent", 1.4f))
+        row.addView(cell("Assigned", 0.8f))
+        row.addView(cell("Delivered", 1.0f))
+        row.addView(cell("On Hold", 0.7f))
+        row.addView(cell("Validated", 0.9f))
+        row.addView(cell("Return", 0.8f))
+        layoutSummary.addView(row)
+    }
+
+    private fun addAgentTableRow(label: String, assigned: String, delivered: String, onHold: String, validated: String, returnCnt: String) {
+        val row = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(2, 7, 2, 7)
+        }
+        fun cell(text: String, weight: Float, bold: Boolean = false): TextView = TextView(requireContext()).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight)
+            this.text = text
+            textSize = 12f
+            if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        row.addView(cell(label, 1.4f))
+        row.addView(cell(assigned, 0.8f, true))
+        row.addView(cell(delivered, 1.0f))
+        row.addView(cell(onHold, 0.7f, true))
+        row.addView(cell(validated, 0.9f))
+        row.addView(cell(returnCnt, 0.8f))
+        layoutSummary.addView(row)
+    }
+
+    private fun addFateTableRow(label: String, count: Int, percent: String, validated: String, notValidated: String) {
         val row = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(2, 7, 2, 7)
@@ -396,7 +457,8 @@ class BranchSummaryFragment : Fragment() {
         val delivered = run.achievement
         val returnCnt = run.verifiedReturn
         val holdTotal = (run.total - delivered - returnCnt).coerceAtLeast(0)
-        val onHoldValidated = (run.verifiedStrict + run.verifiedNonStrict).coerceAtMost(holdTotal)
+        // Same unset fix as summary: unset IS hold_verified → validated.
+        val onHoldValidated = (run.verified - run.verifiedReturn).coerceAtMost(holdTotal)
         val onHoldNotValidated = (holdTotal - onHoldValidated).coerceAtLeast(0)
 
         // Compact fate line (Assigned = Delivered + Return + Hold)

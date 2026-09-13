@@ -40,11 +40,25 @@ data class BranchRunRow(
     val seenOther: Int = 0,
 )
 
+/** One agent's aggregate row (incharge view — group of run rows). */
+data class BranchAgentRow(
+    val agentSystemId: String,
+    val agentName: String,
+    val runs: Int,
+    val total: Int,
+    val delivered: Int,
+    val returnCnt: Int,
+    val holdTotal: Int,
+    val onHoldValidated: Int,
+    val onHoldNotValidated: Int,
+)
+
 data class BranchSummaryState(
     val isLoading: Boolean = true,
     val error: String? = null,
     val scopeName: String = "",
     val selfScope: Boolean = false,
+    val agents: List<BranchAgentRow> = emptyList(),
     val totalRuns: Int = 0,
     val totalParcels: Int = 0,
     val verifyRequested: Int = 0,
@@ -117,7 +131,7 @@ class BranchSummaryViewModel : ViewModel() {
                 if (entries.isEmpty()) {
                     _state.value = BranchSummaryState(
                         isLoading = false,
-                        scopeName = if (selfScope) (systemIdToName[ownSystemId] ?: ownSystemId) else "Branch",
+                        scopeName = if (selfScope) (systemIdToName[ownSystemId] ?: ownSystemId) else branchId,
                         selfScope = selfScope,
                     )
                     return@launch
@@ -153,12 +167,34 @@ class BranchSummaryViewModel : ViewModel() {
                     classifyRun(e, ccByConsignment, workerReqByConsignment, rangeStartMs, rangeEndMs, scopeSid, holdClassOf)
                 }.sortedWith(compareBy({ it.dateKey }, { it.runId }))
 
+                // Agent aggregates for incharge view (Assigned = Delivered + Return + Hold rest,
+                // On Hold validated = ALL hold_verified incl. unset — unset is verified, not untouched).
+                val agentRows = runRows.groupBy { it.agentSystemId }.map { (sid, rows) ->
+                    val total = rows.sumOf { it.total }
+                    val delivered = rows.sumOf { it.achievement }
+                    val returnCnt = rows.sumOf { it.verifiedReturn }
+                    val holdTotal = (total - delivered - returnCnt).coerceAtLeast(0)
+                    val onHoldValidated = (rows.sumOf { it.verified - it.verifiedReturn }).coerceAtMost(holdTotal)
+                    BranchAgentRow(
+                        agentSystemId = sid,
+                        agentName = systemIdToName[sid] ?: sid,
+                        runs = rows.size,
+                        total = total,
+                        delivered = delivered,
+                        returnCnt = returnCnt,
+                        holdTotal = holdTotal,
+                        onHoldValidated = onHoldValidated,
+                        onHoldNotValidated = (holdTotal - onHoldValidated).coerceAtLeast(0),
+                    )
+                }.sortedByDescending { it.total }
+
                 _state.value = BranchSummaryState(
                     isLoading = false,
                     scopeName = if (selfScope) {
                         systemIdToName[ownSystemId].orEmpty().ifBlank { ownSystemId }
-                    } else "Branch",
+                    } else branchId,
                     selfScope = selfScope,
+                    agents = agentRows,
                     totalRuns = runRows.size,
                     totalParcels = runRows.sumOf { it.total },
                     verifyRequested = runRows.sumOf { it.verifyRequested },
