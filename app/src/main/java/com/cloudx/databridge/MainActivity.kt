@@ -620,6 +620,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                 R.id.nav_config         -> loadFragment(ConfigFragment())
                 R.id.nav_access_manager -> loadFragment(AccessManagerFragment())
                 R.id.nav_reports   -> loadFragment(ReportsFragment())
+                R.id.nav_branch_summary -> loadFragment(BranchSummaryFragment())
                 R.id.nav_settings  -> loadFragment(SettingsFragment())
                 R.id.nav_support   -> loadFragment(SupportFragment())
                 R.id.nav_connect   -> loadFragment(ConnectFragment())
@@ -1112,6 +1113,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         menu.findItem(R.id.nav_space)?.isVisible = RbacManager.hasPermission("nav_space")
         menu.findItem(R.id.nav_call_center)?.isVisible = RbacManager.hasPermission("nav_call_center")
         menu.findItem(R.id.nav_view_orders)?.isVisible = RbacManager.hasPermission("nav_view_orders")
+        menu.findItem(R.id.nav_branch_summary)?.isVisible = RbacManager.hasPermission("nav_branch_summary")
         menu.findItem(R.id.nav_virtual_routing)?.isVisible = RbacManager.hasPermission("nav_virtual_routing")
     }
 

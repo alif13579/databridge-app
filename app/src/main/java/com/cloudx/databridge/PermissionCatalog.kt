@@ -9,6 +9,7 @@ object PermissionCatalog {
         Perm("nav_my_tasks",       "My Tasks",        "See assigned tasks"),
         Perm("nav_approvals",      "Routing Approval", "View and approve routed parcels"),
         Perm("nav_reports",        "Reports",         "View reports"),
+        Perm("nav_branch_summary", "Branch Summary",  "Branch run + validation summary by date range"),
         Perm("nav_settings",       "Settings",        "Access app settings"),
         Perm("nav_support",        "Support",         "View support/help"),
         Perm("nav_space",          "Space",           "Space module (Worker view)"),
