@@ -213,6 +213,11 @@ class BranchSummaryFragment : Fragment() {
         addSummaryRow("\uD83D\uDCDE Verify requested", "${state.verifyRequested}", pct(state.verifyRequested, state.totalParcels))
         addSummaryRow("✅ Validated", "${state.validated}", pct(state.validated, state.verifyRequested))
         addSummaryRow("\uD83D\uDD12 Verified (hold/return)", "${state.verified}", pct(state.verified, state.validated))
+        addSummaryRow("   🔒 Strict hold (locked)", "${state.verifiedStrict}", pct(state.verifiedStrict, state.verified))
+        addSummaryRow("   🔄 Non-strict (follow-up)", "${state.verifiedNonStrict}", pct(state.verifiedNonStrict, state.verified))
+        addSummaryRow("   ↩️ Return", "${state.verifiedReturn}", pct(state.verifiedReturn, state.verified))
+        if (state.verifiedUnset > 0)
+            addSummaryRow("   ⚪ Unset hold", "${state.verifiedUnset}", pct(state.verifiedUnset, state.verified))
         addSummaryRow("\uD83D\uDE9A Delivery request", "${state.deliveryRequest}", pct(state.deliveryRequest, state.validated))
         addSummaryRow("\uD83C\uDFC6 Achievement", "${state.achievement}", pct(state.achievement, state.deliveryRequest))
         addSummaryRow("🚫 Not delivered", "${state.notDelivered}", pct(state.notDelivered, state.deliveryRequest))
@@ -283,8 +288,20 @@ class BranchSummaryFragment : Fragment() {
                 else ""
             textSize = 12f
         }
-        card.addView(header)
-        card.addView(line)
+        if (run.verified > 0) {
+            val holdLine = TextView(requireContext()).apply {
+                text = "🔒 Strict ${run.verifiedStrict} · 🔄 Non-strict ${run.verifiedNonStrict}" +
+                    if (run.verifiedReturn > 0) " · ↩️ Return ${run.verifiedReturn}" else "" +
+                    if (run.verifiedUnset > 0) " · ⚪ Unset ${run.verifiedUnset}" else ""
+                textSize = 12f
+            }
+            card.addView(header)
+            card.addView(line)
+            card.addView(holdLine)
+        } else {
+            card.addView(header)
+            card.addView(line)
+        }
         return card
     }
 }

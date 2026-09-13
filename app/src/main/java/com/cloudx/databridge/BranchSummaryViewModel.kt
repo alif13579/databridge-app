@@ -28,6 +28,10 @@ data class BranchRunRow(
     val verifyRequested: Int,
     val validated: Int,
     val verified: Int,
+    val verifiedStrict: Int = 0,
+    val verifiedNonStrict: Int = 0,
+    val verifiedReturn: Int = 0,
+    val verifiedUnset: Int = 0,
     val deliveryRequest: Int,
     val achievement: Int,
     val notDelivered: Int,
@@ -45,6 +49,10 @@ data class BranchSummaryState(
     val verifyRequested: Int = 0,
     val validated: Int = 0,
     val verified: Int = 0,
+    val verifiedStrict: Int = 0,
+    val verifiedNonStrict: Int = 0,
+    val verifiedReturn: Int = 0,
+    val verifiedUnset: Int = 0,
     val deliveryRequest: Int = 0,
     val achievement: Int = 0,
     val notDelivered: Int = 0,
@@ -122,6 +130,14 @@ class BranchSummaryViewModel : ViewModel() {
                 val allIds = used.flatMap { it.statuses.keys }.toSet().toList()
                 val ccGteMs = rangeStartMs - CARRY_DAYS * 24L * 60L * 60L * 1000L
                 val rows = fetchValidationRows(allIds, ccGteMs)
+                // Hold class lives only in the validation_remarks catalog
+                // (validations rows never carry it) — map winning remark text
+                // to its class for the strict/non-strict split below.
+                val holdClassOf: Map<String, String> = runCatching {
+                    SupabaseClientManager.fetchRemarkOptions("BranchSummaryViewModel", "CC")
+                        .filter { it.textEn.isNotBlank() }
+                        .associate { it.textEn.trim().lowercase() to it.holdClass.trim().lowercase() }
+                }.getOrDefault(emptyMap())
                 val ccByConsignment = rows.filter {
                     it.optString("source").equals("CC", ignoreCase = true)
                 }.groupBy { it.optString("consignment") }
@@ -131,7 +147,7 @@ class BranchSummaryViewModel : ViewModel() {
                 }.groupBy { it.optString("consignment") }
 
                 val runRows = used.map { e ->
-                    classifyRun(e, ccByConsignment, workerReqByConsignment, rangeStartMs, rangeEndMs, scopeSid)
+                    classifyRun(e, ccByConsignment, workerReqByConsignment, rangeStartMs, rangeEndMs, scopeSid, holdClassOf)
                 }.sortedWith(compareBy({ it.dateKey }, { it.runId }))
 
                 _state.value = BranchSummaryState(
@@ -145,6 +161,10 @@ class BranchSummaryViewModel : ViewModel() {
                     verifyRequested = runRows.sumOf { it.verifyRequested },
                     validated = runRows.sumOf { it.validated },
                     verified = runRows.sumOf { it.verified },
+                    verifiedStrict = runRows.sumOf { it.verifiedStrict },
+                    verifiedNonStrict = runRows.sumOf { it.verifiedNonStrict },
+                    verifiedReturn = runRows.sumOf { it.verifiedReturn },
+                    verifiedUnset = runRows.sumOf { it.verifiedUnset },
                     deliveryRequest = runRows.sumOf { it.deliveryRequest },
                     achievement = runRows.sumOf { it.achievement },
                     notDelivered = runRows.sumOf { it.notDelivered },
@@ -306,9 +326,14 @@ class BranchSummaryViewModel : ViewModel() {
         rangeStartMs: Long,
         rangeEndMs: Long,
         scopeSid: String?,
+        holdClassOf: Map<String, String> = emptyMap(),
     ): BranchRunRow {
         var verifyRequested = 0
         var verified = 0
+        var verifiedStrict = 0
+        var verifiedNonStrict = 0
+        var verifiedReturn = 0
+        var verifiedUnset = 0
         var achievement = 0
         var notDelivered = 0
         var carried = 0
@@ -334,7 +359,18 @@ class BranchSummaryViewModel : ViewModel() {
             val latestMs = createdMs(latest)
             val inRange = latestMs in rangeStartMs..rangeEndMs
             when (latest.optString("remarks_status").trim().lowercase()) {
-                "hold_verified", "return_verified" -> if (inRange) verified++
+                "hold_verified", "return_verified" -> if (inRange) {
+                    verified++
+                    if (latest.optString("remarks_status").trim().equals("return_verified", ignoreCase = true)) {
+                        verifiedReturn++
+                    } else {
+                        when (holdClassOf[latest.optString("remarks").trim().lowercase()].orEmpty()) {
+                            ConfigState.HOLD_CLASS_STRICT -> verifiedStrict++
+                            ConfigState.HOLD_CLASS_NON_STRICT -> verifiedNonStrict++
+                            else -> verifiedUnset++
+                        }
+                    }
+                }
                 "delivery_request" -> when {
                     runDelivered && inRange -> achievement++
                     inRange -> notDelivered++
@@ -361,6 +397,10 @@ class BranchSummaryViewModel : ViewModel() {
             verifyRequested = verifyRequested,
             validated = validated,
             verified = verified,
+            verifiedStrict = verifiedStrict,
+            verifiedNonStrict = verifiedNonStrict,
+            verifiedReturn = verifiedReturn,
+            verifiedUnset = verifiedUnset,
             deliveryRequest = deliveryRequest,
             achievement = achievement,
             notDelivered = notDelivered,
