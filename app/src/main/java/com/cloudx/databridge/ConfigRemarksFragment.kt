@@ -185,6 +185,7 @@ class ConfigRemarksFragment : Fragment() {
                         instruction_text = r.optString("instruction_text"),
                         is_active = r.optBoolean("is_active", true),
                         category = r.optString("category"),
+                        hold_class = r.optString("hold_class"),
                     )
                     // Grouped by target_status for the status-chip picker, same shape
                     // bindStatusChips()/bindRemarksList() already expect — validation_remarks
@@ -322,6 +323,16 @@ class ConfigRemarksFragment : Fragment() {
                 tvPriority.visibility = View.VISIBLE
             } else {
                 tvPriority.visibility = View.GONE
+            }
+
+            // Hold class badge — HARD = no delivery today, SOFT = follow-up.
+            // Same badge slot pattern as priority above; hidden when unclassified.
+            val tvHoldClass = row.findViewById<TextView>(R.id.tvRemarkHoldClass)
+            if (r.hold_class.isNotBlank()) {
+                tvHoldClass.text = ConfigState.holdClassLabel(r.hold_class)
+                tvHoldClass.visibility = View.VISIBLE
+            } else {
+                tvHoldClass.visibility = View.GONE
             }
 
             // Target status spinner on the card
@@ -580,6 +591,28 @@ class ConfigRemarksFragment : Fragment() {
         layout.addView(instructionSpinnerEdit)
         layout.addView(etInstructionEdit)
 
+        // Hold class: fixed "None / Strict / Follow-up" dropdown — HARD means
+        // confirmed no delivery today (counts toward guaranteed hold %), SOFT means
+        // uncertain / needs follow-up. '' (None) = unclassified, the common case
+        // for non-hold remarks. Same fixed-dropdown pattern as Instruction above.
+        val holdClassLabels = listOf("None") + ConfigState.HOLD_CLASSES.map { ConfigState.holdClassLabel(it) }
+        val currentHoldClassIdx = ConfigState.HOLD_CLASSES.indexOf(remark.hold_class)
+        val holdClassSpinnerEdit = Spinner(ctx).apply {
+            minimumHeight = dp(46)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, null)
+            setPadding(dp(8), 0, dp(8), 0)
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, holdClassLabels)
+            setSelection(if (currentHoldClassIdx >= 0) currentHoldClassIdx + 1 else 0)
+        }
+        layout.addView(android.widget.TextView(ctx).apply {
+            text = "Hold Class"
+            textSize = 10f
+            setTextColor(ctx.getColor(R.color.theme_text_muted))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, dp(10), 0, dp(5))
+        })
+        layout.addView(holdClassSpinnerEdit)
+
         android.app.AlertDialog.Builder(ctx)
             .setTitle("Edit remark")
             .setView(layout)
@@ -597,7 +630,9 @@ class ConfigRemarksFragment : Fragment() {
                 val newInstructionType = if (newInstructionPos <= 0) "" else ConfigState.INSTRUCTION_TYPES.getOrElse(newInstructionPos - 1) { "" }
                 val newInstructionText = if (newInstructionType.isNotBlank()) etInstructionEdit.text.toString().trim() else ""
                 val newCategory = etVerdictEdit.text.toString().trim()
-                handleEdit(group, remark.id, newBn, newEn, newTemplateId, newTargetStatus, newPriority, newInstructionType, newInstructionText, newCategory)
+                val newHoldClassPos = holdClassSpinnerEdit.selectedItemPosition
+                val newHoldClass = if (newHoldClassPos <= 0) "" else ConfigState.HOLD_CLASSES.getOrElse(newHoldClassPos - 1) { "" }
+                handleEdit(group, remark.id, newBn, newEn, newTemplateId, newTargetStatus, newPriority, newInstructionType, newInstructionText, newCategory, newHoldClass)
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -606,7 +641,7 @@ class ConfigRemarksFragment : Fragment() {
     private fun handleEdit(
         group: String, id: String, newBn: String, newEn: String, newTemplateId: String, newTargetStatus: String,
         newPriority: Int = 0, newInstructionType: String = "", newInstructionText: String = "",
-        newCategory: String = "",
+        newCategory: String = "", newHoldClass: String = "",
     ) {
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Saving...")
@@ -616,6 +651,7 @@ class ConfigRemarksFragment : Fragment() {
                 .put("template_id", newTemplateId).put("priority", newPriority)
                 .put("instruction_type", newInstructionType).put("instruction_text", newInstructionText)
                 .put("category", newCategory)
+                .put("hold_class", newHoldClass)
             when (val result = SupabaseRemarkValidationWriter.adminUpsertRemark(activeScope.source, id, remark)) {
                 is SupabaseRemarkValidationWriter.AdminResult.Ok -> {
                     reloadConfig(); bindAll(); setBusy(false)
@@ -752,6 +788,23 @@ class ConfigRemarksFragment : Fragment() {
         content.addView(instructionSpinnerCreate)
         content.addView(instructionInputCreate)
 
+        // Hold class: fixed "None / Strict / Follow-up" dropdown, same
+        // pattern as Instruction above. HARD (Strict) = confirmed no
+        // delivery today; SOFT (Follow-up) = uncertain, may still deliver.
+        val holdClassLabelsCreate = listOf("None") + ConfigState.HOLD_CLASSES.map { ConfigState.holdClassLabel(it) }
+        val holdClassSpinnerCreate = Spinner(ctx).apply {
+            minimumHeight = dp(46)
+            background = resources.getDrawable(R.drawable.bg_input_rounded, ctx.theme)
+            setPadding(dp(8), 0, dp(8), 0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, holdClassLabelsCreate)
+        }
+        content.addView(label("Hold Class"))
+        content.addView(holdClassSpinnerCreate)
+
         val dialog = AlertDialog.Builder(ctx)
             .setTitle("New remark")
             .setView(content)
@@ -775,7 +828,9 @@ class ConfigRemarksFragment : Fragment() {
                     val instructionType = if (instructionPos <= 0) "" else ConfigState.INSTRUCTION_TYPES.getOrElse(instructionPos - 1) { "" }
                     val instructionText = if (instructionType.isNotBlank()) instructionInputCreate.text.toString().trim() else ""
                     val verdict = verdictInput.text.toString().trim()
-                    addRemark(bn, en, target, selectedTemplateId, priority, instructionType, instructionText, verdict)
+                    val holdClassPos = holdClassSpinnerCreate.selectedItemPosition
+                    val holdClass = if (holdClassPos <= 0) "" else ConfigState.HOLD_CLASSES.getOrElse(holdClassPos - 1) { "" }
+                    addRemark(bn, en, target, selectedTemplateId, priority, instructionType, instructionText, verdict, holdClass)
                 }
             }
         }
@@ -795,6 +850,7 @@ class ConfigRemarksFragment : Fragment() {
         instructionType: String = "",
         instructionText: String = "",
         category: String = "",
+        holdClass: String = "",
         onSuccess: () -> Unit = {},
     ) {
         viewLifecycleOwner.lifecycleScope.launch {
@@ -808,6 +864,7 @@ class ConfigRemarksFragment : Fragment() {
                 .put("instruction_type", instructionType)
                 .put("instruction_text", instructionText)
                 .put("category", category)
+                .put("hold_class", holdClass)
             when (val result = SupabaseRemarkValidationWriter.adminUpsertRemark(activeScope.source, "", remark)) {
                 is SupabaseRemarkValidationWriter.AdminResult.Ok -> {
                     activeStatus = target

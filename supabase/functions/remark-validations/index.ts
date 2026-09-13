@@ -273,6 +273,7 @@ Deno.serve(async (request) => {
         if (typeof row.instruction_type === 'string') existing.instruction_type = row.instruction_type
         if (typeof row.instruction_text === 'string') existing.instruction_text = row.instruction_text
         if (typeof row.is_active === 'boolean') existing.is_active = row.is_active
+        if (typeof row.hold_class === 'string') existing.hold_class = row.hold_class
         existing.updated_at = new Date().toISOString()
         // id rides along on `existing` from the select('*') above, but the
         // filter (.eq('id', remarkId)) is what targets the row — destructure
@@ -307,6 +308,7 @@ Deno.serve(async (request) => {
         instruction_type: typeof row.instruction_type === 'string' ? row.instruction_type : '',
         instruction_text: typeof row.instruction_text === 'string' ? row.instruction_text : '',
         is_active: typeof row.is_active === 'boolean' ? row.is_active : true,
+        hold_class: typeof row.hold_class === 'string' ? row.hold_class : '',
         updated_at: new Date().toISOString(),
       }
       const { data, error } = await admin.from('validation_remarks')

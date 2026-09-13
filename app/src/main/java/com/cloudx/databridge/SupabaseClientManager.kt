@@ -410,6 +410,9 @@ object SupabaseClientManager {
         // writes as Feedback (plus derived Validation + Validator Name) into
         // the branch's connected remark sheet on a CC save. Blank stays blank.
         val category: String,
+        // Hold class (validation_remarks.hold_class): HARD = confirmed no
+        // delivery today, SOFT = uncertain/follow-up, '' = unclassified.
+        val holdClass: String = "",
     )
 
     /** Loads every active remark option for [source] ('CC' or 'WORKER') directly from
@@ -428,7 +431,7 @@ object SupabaseClientManager {
             return@withContext emptyList()
         }
         val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/validation_remarks" +
-            "?select=id,remarks_bn,remarks_en,target_status,template_id,priority,instruction_type,instruction_text,category" +
+            "?select=id,remarks_bn,remarks_en,target_status,template_id,priority,instruction_type,instruction_text,category,hold_class" +
             "&source=eq.${source.encodeParam()}&is_active=eq.true&order=priority.desc"
         try {
             val response = httpClient.newCall(
@@ -456,6 +459,7 @@ object SupabaseClientManager {
                         priority = row.optInt("priority", 0), instructionType = row.optStr("instruction_type"),
                         instructionText = row.optStr("instruction_text"),
                         category = row.optStr("category"),
+                        holdClass = row.optStr("hold_class"),
                     )
                 }
             }

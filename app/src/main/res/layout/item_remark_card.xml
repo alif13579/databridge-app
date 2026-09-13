@@ -32,6 +32,17 @@
                 android:paddingTop="2dp" android:paddingBottom="2dp"
                 android:layout_marginStart="8dp"
                 android:visibility="gone" />
+
+            <TextView android:id="@+id/tvRemarkHoldClass"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="Strict"
+                android:textSize="10sp" android:textStyle="bold"
+                android:textColor="@color/theme_text_secondary"
+                android:background="@drawable/bg_filter_chip_inactive"
+                android:paddingStart="7dp" android:paddingEnd="7dp"
+                android:paddingTop="2dp" android:paddingBottom="2dp"
+                android:layout_marginStart="6dp"
+                android:visibility="gone" />
         </LinearLayout>
 
         <TextView android:id="@+id/tvRemarkEn" android:layout_width="match_parent"
