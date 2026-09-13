@@ -567,9 +567,11 @@ object RemarkSheetMirror {
 
     private data class BulkCounts(
         var scanned: Int = 0,
-        var filled: Int = 0,
-        var syncedRows: Int = 0,
-        var syncedCells: Int = 0,
+        var filled: Int = 0, // already correct — no write needed
+        var syncedRows: Int = 0, // rows where at least one blank was filled
+        var syncedCells: Int = 0, // blank cells filled
+        var overwrittenRows: Int = 0, // rows where at least one mismatch was corrected
+        var overwrittenCells: Int = 0, // cells overwritten with latest
         var noCc: Int = 0,
         var ignored: Int = 0,
     )
@@ -713,6 +715,7 @@ object RemarkSheetMirror {
                             })
                         tot.scanned += c.scanned; tot.filled += c.filled
                         tot.syncedRows += c.syncedRows; tot.syncedCells += c.syncedCells
+                        tot.overwrittenRows += c.overwrittenRows; tot.overwrittenCells += c.overwrittenCells
                         totNoCc += c.noCc; tot.ignored += c.ignored
                     } catch (e: Exception) {
                         errs.add("${conn.sheetName.ifBlank { branchId }} ($day): ${e.message?.take(80) ?: "sync failed"}")
@@ -721,8 +724,9 @@ object RemarkSheetMirror {
             }
         }
         if (totConns == 0) return@withContext "No CC binding in any branch for $rangeLabel — bind a sheet from the CallCenter socket (check scope)"
-        var msg = "✓ $rangeLabel: ${tot.syncedRows} rows synced (${tot.syncedCells} cells) · " +
-            "${tot.filled} already filled · $totNoCc no CC yet · " +
+        var msg = "✓ $rangeLabel: ${tot.syncedRows} rows filled (${tot.syncedCells} cells)" +
+            (if (tot.overwrittenRows > 0) " · ${tot.overwrittenRows} rows updated (${tot.overwrittenCells} cells overwritten with latest)" else "") +
+            " · ${tot.filled} already correct · $totNoCc no CC yet · " +
             "${tot.ignored} filtered out · " +
             "${tot.scanned} sheet rows scanned ($totConns connections)"
         if (errs.isNotEmpty()) msg += " · ⚠ ${errs.size} error: ${errs.take(2).joinToString("; ")}" +
@@ -831,30 +835,50 @@ object RemarkSheetMirror {
                 if (!isDateOn((dateCols[letter].orEmpty().getOrNull(i).orEmpty()).trim(), today)) dateOk = false
             }
             if (!dateOk) continue
-            val blanks = writeLetters.filter { (_, letter) ->
-                (writeCols[letter].orEmpty().getOrNull(i).orEmpty()).trim().isEmpty()
-            }
-            if (blanks.isEmpty()) { res.filled++; continue }
             val vals = consolidated["${branchId}__${today}__$cid"] ?: run { res.noCc++; return@run null }
                 ?: continue
-            for ((rule, letter) in blanks) {
+            // Better solution: sheet always reflects latest Supabase truth.
+            // Check BEFORE writing: which write cells need fill (blank) vs overwrite (mismatch).
+            // Latest blank never overwrites a filled cell with blank (keeps existing).
+            val needs = mutableListOf<Triple<SheetWriteRule, String, String>>() // rule, letter, newValue
+            val alreadyCorrect = mutableListOf<Triple<SheetWriteRule, String, String>>()
+            for ((rule, letter) in writeLetters) {
+                val current = (writeCols[letter].orEmpty().getOrNull(i).orEmpty()).trim()
                 val v = when (rule.kind) {
                     SheetWriteKind.FEEDBACK -> vals.feedback
                     SheetWriteKind.VALIDATION -> vals.validation
                     SheetWriteKind.CONSIGNMENT_STATUS -> vals.finalStatus
                     SheetWriteKind.ACTION -> vals.action
                     else -> vals.validatorName
-                }
+                }.trim()
+                if (v.isEmpty()) continue // never clear a cell with blank latest
+                if (current == v) alreadyCorrect.add(Triple(rule, letter, v))
+                else needs.add(Triple(rule, letter, v))
+            }
+            if (needs.isEmpty()) { res.filled++; continue }
+            // Perform writes: blank fills + mismatched overwrites both use same API.
+            var filledInRow = 0
+            var overwrittenInRow = 0
+            for ((_, letter, v) in needs) {
+                val current = (writeCols[letter].orEmpty().getOrNull(i).orEmpty()).trim()
+                if (current.isEmpty()) filledInRow++ else overwrittenInRow++
                 ConfigSheetDriveApi.writeCellValue(
                     accessToken, conn.sheetId, tab, letter, i + 1, v, httpClient
                 )
                 val col = writeCols[letter]!!
                 while (col.size <= i) col.add("")
                 col[i] = v
-                res.syncedCells++
             }
-            res.syncedRows++
-            if (res.syncedRows % 10 == 0) delay(300) // Sheets quota safety
+            if (filledInRow > 0) {
+                res.syncedRows++
+                res.syncedCells += filledInRow
+            }
+            if (overwrittenInRow > 0) {
+                res.overwrittenRows++
+                res.overwrittenCells += overwrittenInRow
+            }
+            // Throttle every ~10 row writes (fills + overwrites combined).
+            if ((res.syncedRows + res.overwrittenRows) % 10 == 0) delay(300)
             if ((i + 1) % 10 == 0) onRow(i + 1, cidCol.size)
         }
         onRow(cidCol.size, cidCol.size)
