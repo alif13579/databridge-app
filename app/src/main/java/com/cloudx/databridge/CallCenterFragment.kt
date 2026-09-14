@@ -3606,6 +3606,7 @@ class CallCenterFragment : Fragment() {
             tvProgress.visibility = View.VISIBLE
             tvProgress.text = "⏳ Sync running — progress in the notification…"
             SheetSyncService.onProgress = { p -> showSyncProgress(p) }
+            SheetSyncService.onStallMessage = { m -> showSyncStall(m) }
             SheetSyncService.onFinish = { result -> showSyncResultTable(result) }
         }
         dialog.show()
@@ -3615,6 +3616,23 @@ class CallCenterFragment : Fragment() {
         dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.setOnClickListener {
             dialog.dismiss()
         }
+        // While a sync runs, Sync Now must not stay tappable (double-tap is
+        // single-flight-guarded, but a live button looks broken).
+        setSyncNowState(SheetSyncService.isRunning)
+    }
+
+    /** Sync Now button reflects the real run state (called on open/start/fail). */
+    private fun setSyncNowState(running: Boolean) {
+        try {
+            val btn = syncDialog?.getButton(android.app.AlertDialog.BUTTON_POSITIVE) ?: return
+            if (running) {
+                btn.text = "⏳ Syncing…"
+                btn.isEnabled = false
+            } else {
+                btn.text = "Sync Now"
+                btn.isEnabled = true
+            }
+        } catch (_: Exception) { }
     }
 
     private fun pickSyncDateRange() {
@@ -3648,6 +3666,7 @@ class CallCenterFragment : Fragment() {
         }
         if (SheetSyncService.isRunning) {
             Toast.makeText(requireContext(), "Sync already running — see the notification", Toast.LENGTH_SHORT).show()
+            setSyncNowState(true)
             return
         }
         val from = syncFromDate
@@ -3655,14 +3674,25 @@ class CallCenterFragment : Fragment() {
         tvSyncProgress?.visibility = View.VISIBLE
         tvSyncProgress?.text = "⏳ Starting sync ($from → $to)…"
         SheetSyncService.onProgress = { p -> showSyncProgress(p) }
+        SheetSyncService.onStallMessage = { m -> showSyncStall(m) }
         SheetSyncService.onFinish = { result -> showSyncResultTable(result) }
         val started = SheetSyncService.start(requireContext(), branches, from, to)
         if (!started) {
             tvSyncProgress?.text = "⚠ Could not start sync — try again"
             Toast.makeText(requireContext(), "Could not start sync — try again", Toast.LENGTH_SHORT).show()
+            setSyncNowState(false)
         } else {
+            setSyncNowState(true)
             (activity as? MainActivity)?.promptSheetAuthOnce()
         }
+    }
+
+    /** Quota-backoff stall note (service already posts on the main thread). */
+    private fun showSyncStall(msg: String) {
+        if (!isAdded) return
+        if (syncDialog?.isShowing != true) return
+        tvSyncProgress?.visibility = View.VISIBLE
+        tvSyncProgress?.text = msg
     }
 
     /** Live progress mirror (service already posts on the main thread). */

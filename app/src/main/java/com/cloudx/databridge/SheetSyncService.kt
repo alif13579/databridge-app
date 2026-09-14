@@ -55,6 +55,8 @@ class SheetSyncService : Service() {
 
         /** One-shot finish hook for an open dialog. Cleared after delivery. */
         @Volatile var onFinish: ((RemarkSheetMirror.BulkSyncResult) -> Unit)? = null
+        /** Quota-backoff stall notes for an open dialog (main thread). Cleared after delivery. */
+        @Volatile var onStallMessage: ((String) -> Unit)? = null
         /** Compat hook for callers that still expect a String message. */
         @Volatile var onFinishMessage: ((String) -> Unit)? = null
 
@@ -82,6 +84,9 @@ class SheetSyncService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    @Volatile private var lastProgress: RemarkSheetMirror.BulkProgress? = null
+    private var lastRange: Pair<LocalDate, LocalDate>? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -100,6 +105,8 @@ class SheetSyncService : Service() {
             return START_NOT_STICKY
         }
         ensureChannels()
+        lastRange = start to end
+        lastProgress = null
         ServiceCompat.startForeground(
             this,
             NOTIF_PROGRESS_ID,
@@ -118,7 +125,16 @@ class SheetSyncService : Service() {
                     // dialog — the no-token case returns as result.
                     startDate = start,
                     endDate = end,
+                    onStall = { msg ->
+                        try {
+                            onStallMessage?.let { cb ->
+                                android.os.Handler(android.os.Looper.getMainLooper()).post { cb(msg) }
+                            }
+                        } catch (_: Exception) { }
+                        stallNotify(msg)
+                    },
                     onProgressDetail = { p ->
+                        lastProgress = p
                         try {
                             onProgress?.let { cb ->
                                 android.os.Handler(android.os.Looper.getMainLooper()).post { cb(p) }
@@ -192,6 +208,21 @@ class SheetSyncService : Service() {
         } catch (_: Exception) { }
     }
 
+    /** Quota-backoff stall note — same progress notification, stalled text. */
+    private fun stallNotify(msg: String) {
+        try {
+            val p = lastProgress
+            val r = lastRange
+            val text = if (p != null) "Day ${p.dayIndex}/${p.dayCount} · ${p.label} · $msg" else msg
+            val nm = NotificationManagerCompat.from(this)
+            nm.notify(
+                NOTIF_PROGRESS_ID,
+                progressNotification(text, p?.rowsDone ?: 0, p?.rowsTotal ?: 0,
+                    r?.first ?: LocalDate.now(), r?.second ?: LocalDate.now())
+            )
+        } catch (_: Exception) { }
+    }
+
     private fun finishWithResult(result: RemarkSheetMirror.BulkSyncResult) {
         // Compat: keep String-based finish for older notif text, but structured for table popup.
         val summary = result.toMessage()
@@ -230,6 +261,7 @@ class SheetSyncService : Service() {
                 val cb = onFinish
                 onFinish = null
                 onProgress = null
+                onStallMessage = null
                 cb?.let { android.os.Handler(android.os.Looper.getMainLooper()).post { it(result) } }
             } catch (_: Exception) { }
         } finally {

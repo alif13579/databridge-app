@@ -701,6 +701,7 @@ object RemarkSheetMirror {
         startDate: LocalDate? = null,
         endDate: LocalDate? = null,
         onProgressDetail: ((BulkProgress) -> Unit)? = null,
+        onStall: ((String) -> Unit)? = null,
     ): BulkSyncResult = withContext(Dispatchers.IO) {
         val appNow = dhakaNowLabel()
         val branches = branchIds.map { it.trim() }.filter { it.isNotBlank() }.distinct()
@@ -806,6 +807,7 @@ object RemarkSheetMirror {
                     try {
                         val c = bulkSyncOneConnection(token, branchId, conn, consolidated, day,
                             tabName = tabForDay(conn.tabPattern, day),
+                            onStall = onStall,
                             onRow = { done, total ->
                                 onProgressDetail?.invoke(
                                     BulkProgress(day, dayIdx + 1, days.size, label, done, total))
@@ -864,6 +866,7 @@ object RemarkSheetMirror {
         consolidated: Map<String, BulkVals>,
         today: LocalDate,
         tabName: String? = null,
+        onStall: ((String) -> Unit)? = null,
         onRow: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): BulkCounts = withContext(Dispatchers.IO) {
         val res = BulkCounts()
@@ -931,7 +934,7 @@ object RemarkSheetMirror {
         }
         res.scanned = cidCol.size
         val pending = mutableListOf<PendingWrite>()
-        suspend fun flushQueue() = flushPending(accessToken, conn.sheetId, tab, pending, res)
+        suspend fun flushQueue() = flushPending(accessToken, conn.sheetId, tab, pending, res, onStall)
         for (i in cidCol.indices) {
             val cid = cidCol[i].trim()
             if (cid.isEmpty()) {
@@ -999,12 +1002,16 @@ object RemarkSheetMirror {
     private suspend fun flushPending(
         accessToken: String, sheetId: String, tab: String,
         pending: MutableList<PendingWrite>, res: BulkCounts,
+        onStall: ((String) -> Unit)? = null,
     ) {
         if (pending.isEmpty()) return
         val cells = pending.map { Triple(it.letter, it.row, it.value) }
         val waits = listOf(0L, 30_000L, 60_000L)
         waits.forEachIndexed { attempt, waitMs ->
-            if (waitMs > 0) delay(waitMs)
+            if (waitMs > 0) {
+                try { onStall?.invoke("⏳ Google quota — retrying in ${waitMs / 1000}s…") } catch (_: Exception) { }
+                delay(waitMs)
+            }
             try {
                 ConfigSheetDriveApi.batchWriteCellValues(accessToken, sheetId, tab, cells, httpClient)
                 val rowsF = mutableSetOf<Int>()
