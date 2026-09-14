@@ -608,6 +608,8 @@ object RemarkSheetMirror {
         var overwrittenCells: Int = 0, // cells overwritten with latest
         var noCc: Int = 0,
         var ignored: Int = 0,
+        var dateMismatch: Int = 0, // rows skipped: sheet date cell ≠ sync day
+        val dateSamples: MutableList<String> = mutableListOf(), // distinct sheet date cells seen on mismatches (max ~5)
         val skippedWrites: MutableList<String> = mutableListOf(), // write cols unresolvable — skipped, rest synced
         val syncedKinds: MutableSet<String> = mutableSetOf(), // write kinds actually resolved in this run
     )
@@ -656,6 +658,8 @@ object RemarkSheetMirror {
         val appNow: String = "",
         val syncedCols: List<String> = emptyList(),
         val skippedWrites: List<String> = emptyList(),
+        val dateMismatch: Int = 0,
+        val dateSamples: List<String> = emptyList(),
     ) {
         fun toMessage(): String {
             if (message.isNotBlank() && !ok) return message
@@ -664,6 +668,8 @@ object RemarkSheetMirror {
                 " · ${filled} already correct · ${noCc} no CC yet · " +
                 "${ignored} filtered out · " +
                 "${scanned} sheet rows scanned (${totConns} connections)"
+            if (dateMismatch > 0) msg += " · ⚠ ${dateMismatch} rows: sheet date ≠ sync day" +
+                (if (dateSamples.isNotEmpty()) " (sheet has: ${dateSamples.take(3).joinToString(" | ")})" else "")
             if (skippedWrites.isNotEmpty()) msg += " · ⚠ skipped cols: ${skippedWrites.joinToString(", ")}"
             if (errors.isNotEmpty()) msg += " · ⚠ ${errors.size} error: ${errors.take(2).joinToString("; ")}" + if (errors.size > 2) "…" else ""
             return msg
@@ -799,6 +805,8 @@ object RemarkSheetMirror {
                         tot.syncedRows += c.syncedRows; tot.syncedCells += c.syncedCells
                         tot.overwrittenRows += c.overwrittenRows; tot.overwrittenCells += c.overwrittenCells
                         totNoCc += c.noCc; tot.ignored += c.ignored
+                        tot.dateMismatch += c.dateMismatch
+                        c.dateSamples.forEach { if (tot.dateSamples.size < 5 && !tot.dateSamples.contains(it)) tot.dateSamples.add(it) }
                         c.skippedWrites.forEach { if (!tot.skippedWrites.contains(it)) tot.skippedWrites.add(it) }
                         tot.syncedKinds.addAll(c.syncedKinds)
                     } catch (e: Exception) {
@@ -824,6 +832,8 @@ object RemarkSheetMirror {
             appNow = appNow,
             syncedCols = tot.syncedKinds.toList().sorted(),
             skippedWrites = tot.skippedWrites.toList().sorted(),
+            dateMismatch = tot.dateMismatch,
+            dateSamples = tot.dateSamples.toList(),
         )
     }
 
@@ -939,10 +949,18 @@ object RemarkSheetMirror {
             }
             if (rowFilteredOut(i)) { res.ignored++; continue }
             var dateOk = true
+            var dateSample = ""
             dateLetters.forEach { (_, letter) ->
-                if (!isDateOn((dateCols[letter].orEmpty().getOrNull(i).orEmpty()).trim(), today)) dateOk = false
+                val cell = (dateCols[letter].orEmpty().getOrNull(i).orEmpty()).trim()
+                if (dateSample.isEmpty()) dateSample = cell
+                if (!isDateOn(cell, today)) dateOk = false
             }
-            if (!dateOk) continue
+            if (!dateOk) {
+                res.dateMismatch++
+                val s = dateSample.ifBlank { "(blank)" }
+                if (res.dateSamples.size < 5 && !res.dateSamples.contains(s)) res.dateSamples.add(s)
+                continue
+            }
             val vals = consolidated["${branchId}__${today}__$cid"] ?: run { res.noCc++; return@run null }
                 ?: continue
             // Better solution: sheet always reflects latest Supabase truth.

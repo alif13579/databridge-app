@@ -3747,6 +3747,11 @@ class CallCenterFragment : Fragment() {
         addRow("Rows updated", "${result.overwrittenRows}", "${result.overwrittenCells} cells (mismatch → latest)")
         addRow("No CC yet", "${result.noCc}", "")
         addRow("Filtered out", "${result.ignored}", "")
+        if (result.dateMismatch > 0) {
+            addRow("Date mismatch", "${result.dateMismatch}",
+                "sheet date ≠ ${result.rangeLabel}" +
+                    (if (result.dateSamples.isNotEmpty()) " (has: ${result.dateSamples.take(3).joinToString(" | ")})" else ""))
+        }
         if (result.syncedCols.isNotEmpty()) {
             addRow("Columns", "${result.syncedCols.size}", result.syncedCols.joinToString(", "))
         }
