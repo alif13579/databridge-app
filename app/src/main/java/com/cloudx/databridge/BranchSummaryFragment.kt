@@ -243,16 +243,16 @@ class BranchSummaryFragment : Fragment() {
         val onHoldValidated = (state.verified - state.verifiedReturn).coerceAtMost(holdTotal)
         val onHoldNotValidated = (holdTotal - onHoldValidated).coerceAtLeast(0)
 
-        addSectionHeader("Parcel fate — Assigned = Delivered + Return + Hold (rest)")
+        addSectionHeader("Parcel fate — Assigned = Delivered + Returned + Hold (rest)")
         addSummaryRow("\uD83C\uDFC6 Delivered (family)", "$delivered", pct(delivered, state.totalParcels))
-        addSummaryRow("↩️ Return (family)", "$returnCnt", pct(returnCnt, state.totalParcels))
+        addSummaryRow("↩️ Returned (family)", "$returnCnt", pct(returnCnt, state.totalParcels))
         addSummaryRow("🔒 Hold (rest)", "$holdTotal", pct(holdTotal, state.totalParcels))
         if (state.seenOther > 0 || state.carried > 0 || state.noRequest > 0 || state.notDelivered > 0) {
             addSummaryRow("  ↳ detail: 🚫 Not delivered ${state.notDelivered} · 👁️ Seen ${state.seenOther} · ➖ Carried ${state.carried} · ⚪ No req ${state.noRequest}", "", "")
         }
 
         // Intelligence table — your exact shape: Count | Percent | Validation | Not Validated
-        // Assigned 10 | Delivered 4 40% - - | On Hold 3 30% 2(66%) 1(34%) | Return 3 30% 3(100%)
+        // Assigned 10 | Delivered 4 40% - - | On Hold 3 30% 2(66%) 1(34%) | Returned 3 30% 3(100%)
         // Validation = verified (hold_verified/return_verified) count inside that fate.
         addSectionHeader("Fate table — Count | Percent | Validated | Not validated")
         addFateTableHeader()
@@ -270,19 +270,19 @@ class BranchSummaryFragment : Fragment() {
         }
         run {
             addFateTableRow(
-                "Return", returnCnt, pct(returnCnt, total),
+                "Returned", returnCnt, pct(returnCnt, total),
                 if (returnCnt > 0) "$returnCnt (${pct(returnCnt, returnCnt)})" else "—",
                 if (returnCnt > 0) "0 (${pct(0, returnCnt)})" else "—",
             )
         }
-        // Integrity: Assigned should equal delivered+return+hold
+        // Integrity: Assigned should equal delivered+returned+hold
         val fateSum = delivered + returnCnt + holdTotal
         if (fateSum != state.totalParcels && state.totalParcels > 0)
             addSummaryRow("⚠️ Fate sum $fateSum ≠ total ${state.totalParcels}", "", "")
 
         // ── Agents (incharge only — worker sees self, 1 row is noise) ──
         if (!state.selfScope && state.agents.isNotEmpty()) {
-            addSectionHeader("Agents (${state.agents.size}) — Assigned | Delivered | On Hold | Validated | Return")
+            addSectionHeader("Agents (${state.agents.size}) — Assigned | Delivered | On Hold | Validated | Returned")
             addAgentTableHeader()
             state.agents.forEach { a ->
                 val vPct = pct(a.onHoldValidated, a.holdTotal)
@@ -361,7 +361,7 @@ class BranchSummaryFragment : Fragment() {
         row.addView(cell("Delivered", 1.0f))
         row.addView(cell("On Hold", 0.7f))
         row.addView(cell("Validated", 0.9f))
-        row.addView(cell("Return", 0.8f))
+        row.addView(cell("Returned", 0.8f))
         layoutSummary.addView(row)
     }
 
@@ -461,11 +461,11 @@ class BranchSummaryFragment : Fragment() {
         val onHoldValidated = (run.verified - run.verifiedReturn).coerceAtMost(holdTotal)
         val onHoldNotValidated = (holdTotal - onHoldValidated).coerceAtLeast(0)
 
-        // Compact fate line (Assigned = Delivered + Return + Hold)
+        // Compact fate line (Assigned = Delivered + Returned + Hold)
         val fateLine = TextView(requireContext()).apply {
             text = "\uD83C\uDFC6 Delivered $delivered (${pctOfTotal(delivered)}) · " +
                 "🔒 Hold $holdTotal (${pctOfTotal(holdTotal)}) · " +
-                "↩️ Return $returnCnt (${pctOfTotal(returnCnt)})"
+                "↩️ Returned $returnCnt (${pctOfTotal(returnCnt)})"
             textSize = 12f
         }
         val funnelLine = TextView(requireContext()).apply {
@@ -488,7 +488,7 @@ class BranchSummaryFragment : Fragment() {
             if (holdTotal > 0) "$onHoldNotValidated (${pct(onHoldNotValidated, holdTotal)})" else "—",
         ))
         card.addView(runFateRow(
-            "Return", returnCnt, pctOfTotal(returnCnt),
+            "Returned", returnCnt, pctOfTotal(returnCnt),
             if (returnCnt > 0) "$returnCnt (${pct(returnCnt, returnCnt)})" else "—",
             if (returnCnt > 0) "0 (${pct(0, returnCnt)})" else "—",
         ))

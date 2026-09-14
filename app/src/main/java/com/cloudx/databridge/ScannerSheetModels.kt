@@ -306,7 +306,7 @@ fun deriveFinalStatus(consignmentStatus: String): String {
     if (s.isEmpty()) return "Hold"
     return when (s) {
         "delivered", "partial delivery", "paid return" -> "Delivered"
-        "return", "return requested" -> "Return"
+        "return", "return requested" -> "Returned"
         else -> "Hold"
     }
 }

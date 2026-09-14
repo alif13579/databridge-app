@@ -598,8 +598,8 @@ object RemarkSheetMirror {
         val feedback: String,
         val validation: String,
         val validatorName: String,
-        val finalStatus: String, // Delivered / Return / Hold (family from consignment_status)
-        val action: String, // Re-assigned (Delivered) / Hold (Hold) / blank (Return)
+        val finalStatus: String, // Delivered / Returned / Hold (family from consignment_status)
+        val action: String, // Re-assigned (Delivered) / Hold (Hold) / blank (Returned)
     )
 
     private data class BulkCounts(
