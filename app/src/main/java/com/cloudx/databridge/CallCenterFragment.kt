@@ -3771,11 +3771,83 @@ class CallCenterFragment : Fragment() {
         scroll.addView(box)
         // Dismiss the range picker dialog if still showing — table is the result.
         try { syncDialog?.dismiss() } catch (_: Exception) {}
-        android.app.AlertDialog.Builder(ctx)
+        // Bindings (tab/lookups/writes) load in the background for the 📋 Copy
+        // report — the table never waits on them.
+        var bindingSection: String? = null
+        viewLifecycleOwner.lifecycleScope.launch {
+            bindingSection = try {
+                withTimeoutOrNull(8000) { loadSyncBindingSection() }
+            } catch (_: Exception) { null }
+        }
+        val resultDialog = android.app.AlertDialog.Builder(ctx)
             .setTitle(if (result.ok) "✓ Sync done" else "⚠ Sync finished")
             .setView(scroll)
             .setPositiveButton("OK", null)
-            .show()
+            .setNeutralButton("📋 Copy", null)
+            .create()
+        resultDialog.show()
+        resultDialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
+            copySyncReport(buildSyncReportText(result, bindingSection))
+        }
+    }
+
+    /** One-shot binding snapshot for the copy-paste sync report: branch →
+     *  sheet/tab/scope + lookup/write/fetch mapping. Best-effort (IO). */
+    private suspend fun loadSyncBindingSection(): String = withContext(Dispatchers.IO) {
+        try {
+            val branches = RbacManager.current.branchIds
+            if (branches.isEmpty()) return@withContext "Branches: (none assigned)"
+            val sb = StringBuilder()
+            branches.forEach { branchId ->
+                val libs = SheetLibraryRepository.loadLibraries(branchId).filter { it.enabled }
+                val binds = SheetLibraryRepository.loadCcBindings(branchId).filter { it.enabled }
+                if (binds.isEmpty()) {
+                    sb.appendLine("Branch $branchId: no CC binding")
+                    return@forEach
+                }
+                binds.forEach { b ->
+                    val lib = libs.firstOrNull { it.libraryId == b.libraryId }
+                    sb.appendLine("Branch $branchId · Sheet \"${lib?.nickname?.ifBlank { lib?.sheetName } ?: "?"}\" tab=\"${lib?.tabPattern ?: "?"}\" scope=${lib?.scopeType ?: "?"}")
+                    sb.appendLine("  Lookup: ${b.effectiveLookups().joinToString(" + ") { "${it.colRef.trim()}=${it.field}" }.ifBlank { "(none)" }}")
+                    sb.appendLine("  Write: ${b.effectiveWrites().joinToString(", ") { "${it.colRef.trim()}=${it.field}" }.ifBlank { "(none)" }}")
+                    sb.appendLine("  Fetch: ${b.fetchSummary()}")
+                }
+            }
+            sb.toString().trim().ifBlank { "(empty)" }
+        } catch (e: Exception) {
+            "bindings unreadable: ${e.message?.take(100) ?: "error"}"
+        }
+    }
+
+    /** Full copy-paste sync diagnostics: result + app + bindings. */
+    private fun buildSyncReportText(result: RemarkSheetMirror.BulkSyncResult, bindings: String?): String {
+        val ctx = requireContext()
+        val pInfo = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+        val vCode = if (android.os.Build.VERSION.SDK_INT >= 28) pInfo.longVersionCode.toString()
+            else @Suppress("DEPRECATION") pInfo.versionCode.toString()
+        return buildString {
+            appendLine("DataBridge sync report — ${result.rangeLabel}")
+            appendLine("App v${pInfo.versionName} ($vCode) · ${result.appNow.ifBlank { RemarkSheetMirror.dhakaNowLabel() }}")
+            appendLine("connections=${result.totConns} scanned=${result.scanned} filled=${result.filled}")
+            appendLine("rowsFilled=${result.syncedRows} cellsFilled=${result.syncedCells} rowsUpdated=${result.overwrittenRows} cellsOverwritten=${result.overwrittenCells}")
+            appendLine("noCc=${result.noCc} ignored=${result.ignored} dateMismatch=${result.dateMismatch}")
+            appendLine("dateSamples=${result.dateSamples.joinToString(" | ").ifBlank { "-" }}")
+            appendLine("syncedCols=${result.syncedCols.joinToString(",").ifBlank { "-" }}")
+            appendLine("skippedWrites=${result.skippedWrites.joinToString("; ").ifBlank { "-" }}")
+            appendLine("errors(${result.errors.size})=${result.errors.joinToString(" || ").ifBlank { "-" }}")
+            appendLine("--- bindings ---")
+            appendLine(bindings ?: "(bindings still loading — tap Copy again in a few seconds)")
+        }.trim()
+    }
+
+    private fun copySyncReport(text: String) {
+        if (!isAdded) return
+        try {
+            val cm = requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("DataBridge sync report", text))
+            Toast.makeText(requireContext(), "📋 Copied — paste it in chat", Toast.LENGTH_SHORT).show()
+        } catch (_: Exception) { }
     }
 
 
