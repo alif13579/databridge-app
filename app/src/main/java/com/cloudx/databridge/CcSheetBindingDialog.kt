@@ -85,8 +85,9 @@ object CcSheetBindingDialog {
             setTextColor(ctx.getColor(R.color.theme_text_primary))
             setPadding(0, 10, 0, 0)
         }
-        // ── Tabs: Lookup / Write / Filter ────────────────────────────────
-        // Long single scroll split into 3 tabs; each tab's button shows how
+        // ── Tabs: Fetching Data / Lookup / Write ───────────────────────
+        // Fetching is the FIRST criteria (which rows to pull), then Lookup
+        // (row match) + Write (what lands where). Each tab's button shows how
         // many params it holds + ✓ when non-empty, so an empty tab is
         // visible at a glance. Badge refresher is a var (assigned once all
         // rows/spinners exist) so early helpers can already call it.
@@ -112,9 +113,9 @@ object CcSheetBindingDialog {
                 b.setTextColor(ctx.getColor(
                     if (active) R.color.theme_text_primary else R.color.theme_text_secondary))
             }
-            lookupTabBox.visibility = if (activeSockTab == 0) View.VISIBLE else View.GONE
-            writeTabBox.visibility = if (activeSockTab == 1) View.VISIBLE else View.GONE
-            filterTabBox.visibility = if (activeSockTab == 2) View.VISIBLE else View.GONE
+            filterTabBox.visibility = if (activeSockTab == 0) View.VISIBLE else View.GONE
+            lookupTabBox.visibility = if (activeSockTab == 1) View.VISIBLE else View.GONE
+            writeTabBox.visibility = if (activeSockTab == 2) View.VISIBLE else View.GONE
         }
         fun showSockTab(i: Int) {
             activeSockTab = i.coerceIn(0, 2)
@@ -130,7 +131,7 @@ object CcSheetBindingDialog {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, 12, 0, 4)
         }
-        listOf("Lookup", "Write", "Filter").forEachIndexed { i, t ->
+        listOf("Fetching Data", "Lookup", "Write").forEachIndexed { i, t ->
             val b = TextView(ctx).apply {
                 text = t
                 textSize = 13f
@@ -146,9 +147,9 @@ object CcSheetBindingDialog {
         root.addView(sockTabBar)
         // Tab bodies are filled later (listeners need the helpers below);
         // boxes stay in position so order never shifts.
+        root.addView(filterTabBox)
         root.addView(lookupTabBox)
         root.addView(writeTabBox)
-        root.addView(filterTabBox)
         root.addView(summaryView)
         paintSockTabs()
         val scroll = ScrollView(ctx).apply { addView(root) }
@@ -345,7 +346,7 @@ object CcSheetBindingDialog {
 
 
 
-        // ── Step 3 helpers ─────────────────────────────────────────────
+        // ── Step 1 helpers ─────────────────────────────────────────────
         // Parallel option list for the fetch-column spinner (null = default).
         var fetchColOptions: List<SheetColRef?> = emptyList()
         data class FilterRow(
@@ -544,9 +545,9 @@ object CcSheetBindingDialog {
             try { if (fetchColSpinner.selectedItemPosition > 0) f++ } catch (_: Exception) { }
             fun t(base: String, n: Int) = "$base ($n)${if (n > 0) " ✓" else ""}"
             if (tabBtns.size == 3) {
-                tabBtns[0].text = t("Lookup", l)
-                tabBtns[1].text = t("Write", w)
-                tabBtns[2].text = t("Filter", f)
+                tabBtns[0].text = t("Fetching Data", f)
+                tabBtns[1].text = t("Lookup", l)
+                tabBtns[2].text = t("Write", w)
             }
         }
 
@@ -716,6 +717,7 @@ object CcSheetBindingDialog {
             text = "+ Add write"
             setOnClickListener { addMapRow(writeRowsBox, writeMapRows, CcField.WRITE_FIELDS, "", "", writeColAdapter) }
         })
+        filterTabBox.addView(label("FETCHING DATA — which rows to pull (first criteria)"))
         filterTabBox.addView(label("Which column provides the ID"))
         filterTabBox.addView(fetchColSpinner)
         filterTabBox.addView(label("Filter logic"))

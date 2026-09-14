@@ -20,12 +20,18 @@ import java.util.Locale
  * CC-remark → Google Sheet mirror (best-effort, never blocks).
  *
  * After a CC remark saves to Supabase, this writes Feedback / Validation /
- * Validator Name into the branch's connected remark sheet: the row where ALL
- * lookup rules match exactly. No matching row → skip + log (never append).
+ * Validator Name / Final Status / Action into the branch's connected remark
+ * sheet: the row where the IDENTITY lookups match (consignment + date).
+ * Value fields are always overwritten with the latest — never matched, so a
+ * second remark always finds its row. No matching row → skip + log (never
+ * append).
  *
- * Feedback = validation_remarks.category of the saved option (blank stays
- * blank). Validation = derived from Feedback (Willing to receive today →
- * Invalid, blank → blank, else Valid). Validator Name = CC agent who saved.
+ * Feedback = validation_remarks.category of the saved option. Validation =
+ * derived from Feedback (Willing to receive today → Invalid, blank stays
+ * blank and is skipped, else Valid). Validator Name = CC agent who saved.
+ * Final Status = family of the latest validations.consignment_status
+ * (Delivered/Return/Hold). Action = derived (Delivered→Re-assigned,
+ * Hold→Hold, Return→blank-skipped).
  *
  * Remark connections are the same connector list as the scanner
  * (config/connectors/{branchId}/current, ConfigConnectorsFragment) —
@@ -131,8 +137,10 @@ object RemarkSheetMirror {
     /** Values available to lookup/write rules for one remark save. feedback /
      *  validation / validatorName ride along from the caller (guaranteed
      *  fresh — the just-saved row may not be readable yet); created_at /
-     *  author_name come from [extras], fetched from the latest validations
-     *  row after the sheet row matches. Blank stays blank — never skipped. */
+     *  author_name / finalStatus / action come from [extras], fetched from the
+     *  latest validations row after the sheet row matches. Blank stays blank
+     *  for lookups — never skipped. Blank WRITES are skipped (never clear a
+     *  cell with blank latest — bulk parity). */
     data class MirrorCtx(
         val consignmentId: String,
         val feedback: String,
@@ -140,6 +148,8 @@ object RemarkSheetMirror {
         val validatorName: String,
         val today: LocalDate,
         val extras: Map<String, String> = emptyMap(),
+        val finalStatus: String = "",
+        val action: String = "",
     )
 
     private val LETTER_RE = Regex("^[A-Za-z]{1,3}$")
@@ -220,6 +230,8 @@ object RemarkSheetMirror {
         SheetWriteKind.FEEDBACK -> ctx.feedback
         SheetWriteKind.VALIDATION -> ctx.validation
         SheetWriteKind.VALIDATOR_NAME -> ctx.validatorName
+        SheetWriteKind.CONSIGNMENT_STATUS -> ctx.finalStatus
+        SheetWriteKind.ACTION -> ctx.action
         else -> ""
     }
 
@@ -240,16 +252,18 @@ object RemarkSheetMirror {
     }
 
     /** Latest validations row for [cid] → extras map (row columns + resolved
-     *  names). Best-effort: empty map on any failure (caller values cover the
-     *  core kinds). */
+     *  names + derived sheet values). Best-effort: empty map on any failure
+     *  (caller values cover the core kinds; blank writes are skipped so a
+     *  failed fetch can never clear sheet cells). */
     private suspend fun fetchRowExtras(cid: String): Map<String, String> {
         return try {
             val token = SupabaseClientManager.getAccessToken() ?: return emptyMap()
-            // Only what lookups can reference: created_at + author_name.
+            // What lookups/writes can reference: created_at + author_name +
+            // consignment_status (→ Final Status + Action).
             // Names resolve via Firebase (resolveAgentName) so an
             // RLS-sensitive users join can never sink this read.
             val plainUrl = "${SupabaseConfig.PROJECT_URL}/rest/v1/validations" +
-                "?select=author_system_id,created_at" +
+                "?select=author_system_id,created_at,consignment_status" +
                 "&consignment=eq.${cid.encodeParam()}" +
                 "&order=created_at.desc&limit=1"
             val text = withContext(Dispatchers.IO) {
@@ -272,9 +286,12 @@ object RemarkSheetMirror {
             val createdDhaka = parseSupabaseInstantToDhaka(createdIso)
                 ?: createdIso
             val authorSid = s("author_system_id")
+            val finalStatus = deriveFinalStatus(s("consignment_status"))
             mapOf(
                 SheetLookupKind.CREATED_AT to createdDhaka,
                 SheetLookupKind.AUTHOR_NAME to resolveAgentName(authorSid),
+                SheetWriteKind.CONSIGNMENT_STATUS to finalStatus,
+                SheetWriteKind.ACTION to deriveActionFromFinalStatus(finalStatus),
             )
         } catch (_: Exception) {
             emptyMap()
@@ -309,15 +326,25 @@ object RemarkSheetMirror {
         filterLogic: String = CcFilterLogic.AND,
     ): MirrorOutcome = withContext(Dispatchers.IO) {
         // Row extras FIRST: lookups may point at row data (created_at,
-        // author_name...) so values must exist before matching.
-        val ctx2 = ctx.copy(extras = fetchRowExtras(ctx.consignmentId))
+        // author_name...) so values must exist before matching. Final Status
+        // + Action also ride in via extras (latest row's consignment_status).
+        val extras = fetchRowExtras(ctx.consignmentId)
+        val ctx2 = ctx.copy(
+            extras = extras,
+            finalStatus = extras[SheetWriteKind.CONSIGNMENT_STATUS].orEmpty(),
+            action = extras[SheetWriteKind.ACTION].orEmpty(),
+        )
         when (val found = findTargetRow(conn, accessToken, ctx2, filters, filterLogic)) {
             is FindResult.Miss -> MirrorOutcome.Skipped(found.reason)
             is FindResult.Hit -> {
                 found.writes.forEach { (letter, kind) ->
+                    // Latest wins, but a blank latest never clears a filled
+                    // cell (bulk parity — e.g. extras fetch failed mid-save).
+                    val v = writeValue(kind, ctx2)
+                    if (v.isBlank()) return@forEach
                     ConfigSheetDriveApi.writeCellValue(
                         accessToken, conn.sheetId, found.tab, letter, found.row,
-                        writeValue(kind, ctx2), httpClient
+                        v, httpClient
                     )
                 }
                 MirrorOutcome.Done(found.row)
@@ -339,17 +366,24 @@ object RemarkSheetMirror {
      *  today's tab → resolve every lookup colRef (letter or header) → fetch
      *  each column once → first row where ALL rules match exactly. Each write
      *  colRef resolves the same way; unresolvable write columns fail the whole
-     *  match (writing half the rules would corrupt the row). Exact match or
-     *  nothing — never appended. */
+     *  match (writing half the rules would corrupt the row). Identity match
+     *  only (consignment + date/author) — the VALUE fields this mirror writes
+     *  (feedback/validation/validator/final-status/action) never participate:
+     *  matching on them would mean "mirror only when the sheet already holds
+     *  the new value", so a second remark could never find its row to
+     *  overwrite. Latest always overwrites on a match — never appended. */
     private suspend fun findTargetRow(
         conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx,
         filters: List<CcFetchFilter> = emptyList(),
         filterLogic: String = CcFilterLogic.AND,
     ): FindResult = withContext(Dispatchers.IO) {
         // Mirror enforces remark-kind lookups only (employee belongs to the
-        // scanner flow) and skips scanner value writes.
+        // scanner flow) and skips scanner value writes. Write-kind fields are
+        // excluded from matching (see doc above) — they are overwritten, not
+        // matched.
+        val writeKinds = SheetWriteKind.REMARK_KINDS.toSet()
         val lookups = conn.effectiveLookups()
-            .filter { it.kind in SheetLookupKind.REMARK_KINDS }
+            .filter { it.kind in SheetLookupKind.REMARK_KINDS && it.kind !in writeKinds }
         val writes = conn.effectiveWrites()
             .filter { it.kind in SheetWriteKind.REMARK_KINDS }
         if (lookups.isEmpty() || writes.isEmpty()) {
@@ -562,7 +596,7 @@ object RemarkSheetMirror {
         val validation: String,
         val validatorName: String,
         val finalStatus: String, // Delivered / Return / Hold (family from consignment_status)
-        val action: String, // Reassigned (Delivered) / Hold (Hold) / blank (Return)
+        val action: String, // Re-assigned (Delivered) / Hold (Hold) / blank (Return)
     )
 
     private data class BulkCounts(
@@ -973,7 +1007,12 @@ object RemarkSheetMirror {
             val ctx = MirrorCtx(consignmentId.trim(), fb, deriveValidation(fb), validatorName.trim(), LocalDate.now(opsZone))
             try {
                 // Extras first (see mirrorOne): lookups may reference row data.
-                val ctx2 = ctx.copy(extras = fetchRowExtras(ctx.consignmentId))
+                val extras = fetchRowExtras(ctx.consignmentId)
+                val ctx2 = ctx.copy(
+                    extras = extras,
+                    finalStatus = extras[SheetWriteKind.CONSIGNMENT_STATUS].orEmpty(),
+                    action = extras[SheetWriteKind.ACTION].orEmpty(),
+                )
                 when (val found = findTargetRow(conn, token, ctx2)) {
                     is FindResult.Hit -> {
                         val w = found.writes.joinToString(", ") { (l, k) ->

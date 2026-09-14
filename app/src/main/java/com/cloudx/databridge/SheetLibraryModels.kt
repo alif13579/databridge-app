@@ -166,7 +166,7 @@ object CcField {
         VALIDATION -> "Validation"
         VALIDATOR_NAME -> "Validator name"
         CONSIGNMENT_STATUS -> "Final Status (Delivered/Return/Hold)"
-        ACTION -> "Action (Reassigned/Hold)"
+        ACTION -> "Action (Re-assigned/Hold)"
         CREATED_AT -> "Created at (date)"
         AUTHOR_NAME -> "Author name"
         else -> field.ifBlank { "— select a field —" }
