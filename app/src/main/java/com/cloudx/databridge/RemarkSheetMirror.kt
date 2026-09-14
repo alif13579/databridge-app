@@ -247,6 +247,43 @@ object RemarkSheetMirror {
         return name
     }
 
+    /** system_ids → display names in ONE users read (Supabase source of
+     *  truth, caller token's RLS scope). Misses resolve per-row via
+     *  [resolveAgentName] (Firebase fallback). Empty map on any failure —
+     *  never throws, so sync never blocks on names. */
+    private suspend fun fetchValidatorNames(systemIds: Set<String>): Map<String, String> {
+        if (systemIds.isEmpty()) return emptyMap()
+        return try {
+            val token = SupabaseClientManager.getAccessToken() ?: return emptyMap()
+            val ids = systemIds.joinToString(",") { java.net.URLEncoder.encode(it, "UTF-8") }
+            val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/users" +
+                "?select=system_id,name&system_id=in.($ids)&limit=1000"
+            val text = withContext(Dispatchers.IO) {
+                SupabaseClientManager.httpClient.newCall(
+                    okhttp3.Request.Builder().url(url)
+                        .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                        .addHeader("Authorization", "Bearer $token")
+                        .addHeader("Accept", "application/json")
+                        .get().build()
+                ).execute().use { resp ->
+                    if (!resp.isSuccessful) return@withContext null
+                    resp.body?.string()
+                }
+            } ?: return emptyMap()
+            val arr = org.json.JSONArray(text)
+            buildMap {
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val sid = o.optString("system_id").trim()
+                    val name = o.optString("name").trim()
+                    if (sid.isNotEmpty() && name.isNotEmpty()) put(sid, name)
+                }
+            }
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
     /** Latest validations row for [cid] → extras map (row columns + resolved
      *  names + derived sheet values). Best-effort: empty map on any failure
      *  (caller values cover the core kinds; blank writes are skipped so a
@@ -725,13 +762,20 @@ object RemarkSheetMirror {
                     latestCcByKey[key] = row
                 }
             }
+            // One batched name read for every author in this branch (RLS
+            // branch-scoped, same visibility as the row fetch above) — per-row
+            // resolveAgentName stays as fallback (Firebase cross-branch/legacy).
+            val batchNames = fetchValidatorNames(
+                latestCcByKey.values.map { it.optString("author_system_id").trim() }
+                    .filter { it.isNotEmpty() }.toSet())
             latestCcByKey.forEach { (key, row) ->
                 val fb = catalog[row.optString("remarks").trim()].orEmpty()
                 val fs = deriveFinalStatus(row.optString("consignment_status"))
+                val sid = row.optString("author_system_id").trim()
                 consolidated[key] = BulkVals(
                     feedback = fb,
                     validation = deriveValidation(fb),
-                    validatorName = resolveAgentName(row.optString("author_system_id")),
+                    validatorName = batchNames[sid] ?: resolveAgentName(sid),
                     finalStatus = fs,
                     action = deriveActionFromFinalStatus(fs),
                 )
