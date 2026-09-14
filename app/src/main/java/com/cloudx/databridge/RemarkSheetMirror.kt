@@ -611,10 +611,11 @@ object RemarkSheetMirror {
         var overwrittenCells: Int = 0, // cells overwritten with latest
         var noCc: Int = 0,
         var ignored: Int = 0,
-        var dateMismatch: Int = 0, // rows skipped: sheet date cell ≠ sync day
+        var dateMismatch: Int = 0, // rows skipped: sheet date cell ≠ sync day (other dates in sheet, expected)
         val dateSamples: MutableList<String> = mutableListOf(), // distinct sheet date cells seen on mismatches (max ~5)
         val skippedWrites: MutableList<String> = mutableListOf(), // write cols unresolvable — skipped, rest synced
         val syncedKinds: MutableSet<String> = mutableSetOf(), // write kinds actually resolved in this run
+        val perKind: MutableMap<String, Int> = mutableMapOf(), // total cells written per write kind (fill+overwrite)
     )
 
     /** App clock label (Asia/Dhaka) for the sync popup — lets the agent verify
@@ -663,6 +664,7 @@ object RemarkSheetMirror {
         val skippedWrites: List<String> = emptyList(),
         val dateMismatch: Int = 0,
         val dateSamples: List<String> = emptyList(),
+        val perKind: Map<String, Int> = emptyMap(), // per write column totals (e.g. action→7)
     ) {
         fun toMessage(): String {
             if (message.isNotBlank() && !ok) return message
@@ -671,7 +673,13 @@ object RemarkSheetMirror {
                 " · ${filled} already correct · ${noCc} no CC yet · " +
                 "${ignored} filtered out · " +
                 "${scanned} sheet rows scanned (${totConns} connections)"
-            if (dateMismatch > 0) msg += " · ⚠ ${dateMismatch} rows: sheet date ≠ sync day" +
+            if (perKind.isNotEmpty()) {
+                val per = syncedCols.sorted().joinToString(", ") { k -> "$k(${perKind[k] ?: 0})" }
+                msg += " · cols: $per"
+            } else if (syncedCols.isNotEmpty()) {
+                msg += " · cols: ${syncedCols.joinToString(", ")}"
+            }
+            if (dateMismatch > 0) msg += " · ${dateMismatch} rows skipped (sheet date ≠ ${rangeLabel} — other dates, expected)" +
                 (if (dateSamples.isNotEmpty()) " (sheet has: ${dateSamples.take(3).joinToString(" | ")})" else "")
             if (skippedWrites.isNotEmpty()) msg += " · ⚠ skipped cols: ${skippedWrites.joinToString(", ")}"
             if (errors.isNotEmpty()) msg += " · ⚠ ${errors.size} error: ${errors.take(2).joinToString("; ")}" + if (errors.size > 2) "…" else ""
@@ -820,6 +828,7 @@ object RemarkSheetMirror {
                         c.dateSamples.forEach { if (tot.dateSamples.size < 5 && !tot.dateSamples.contains(it)) tot.dateSamples.add(it) }
                         c.skippedWrites.forEach { if (!tot.skippedWrites.contains(it)) tot.skippedWrites.add(it) }
                         tot.syncedKinds.addAll(c.syncedKinds)
+                        c.perKind.forEach { (k, v) -> tot.perKind[k] = (tot.perKind[k] ?: 0) + v }
                     } catch (e: Exception) {
                         errs.add("${conn.sheetName.ifBlank { branchId }} ($day): ${e.message?.take(140) ?: "sync failed"}")
                     }
@@ -845,6 +854,7 @@ object RemarkSheetMirror {
             skippedWrites = tot.skippedWrites.toList().sorted(),
             dateMismatch = tot.dateMismatch,
             dateSamples = tot.dateSamples.toList(),
+            perKind = tot.perKind.toMap(),
         )
     }
 
@@ -978,9 +988,9 @@ object RemarkSheetMirror {
             // Queue, don't write: 1 batchUpdate per ~200 cells keeps us far
             // under Google's ~60 writes/min quota (HTTP 429). Counts land on
             // successful flush, so a quota failure never over-reports.
-            for ((_, letter, v) in needs) {
+            for ((rule, letter, v) in needs) {
                 val current = (writeCols[letter].orEmpty().getOrNull(i).orEmpty()).trim()
-                pending.add(PendingWrite(letter, i + 1, v, current.isEmpty()))
+                pending.add(PendingWrite(letter, i + 1, v, current.isEmpty(), rule.kind))
                 val col = writeCols[letter]!!
                 while (col.size <= i) col.add("")
                 col[i] = v
@@ -994,7 +1004,7 @@ object RemarkSheetMirror {
     }
 
     /** One queued cell write (letter, 1-based row, value, blank→fill vs overwrite). */
-    private data class PendingWrite(val letter: String, val row: Int, val value: String, val isFill: Boolean)
+    private data class PendingWrite(val letter: String, val row: Int, val value: String, val isFill: Boolean, val kind: String)
 
     /** Flushes [pending] via batchUpdate with quota backoff (try now, +30s,
      *  +60s on HTTP 429), crediting synced/overwritten counts only on
@@ -1021,6 +1031,7 @@ object RemarkSheetMirror {
                 pending.forEach {
                     if (it.isFill) { fills++; rowsF.add(it.row) }
                     else { overs++; rowsO.add(it.row) }
+                    res.perKind[it.kind] = (res.perKind[it.kind] ?: 0) + 1
                 }
                 if (fills > 0) { res.syncedRows += rowsF.size; res.syncedCells += fills }
                 if (overs > 0) { res.overwrittenRows += rowsO.size; res.overwrittenCells += overs }

@@ -3778,11 +3778,14 @@ class CallCenterFragment : Fragment() {
         addRow("No CC yet", "${result.noCc}", "")
         addRow("Filtered out", "${result.ignored}", "")
         if (result.dateMismatch > 0) {
-            addRow("Date mismatch", "${result.dateMismatch}",
-                "sheet date ≠ ${result.rangeLabel}" +
+            addRow("Skipped — other dates", "${result.dateMismatch}",
+                "sheet date ≠ selected ${result.rangeLabel} — other dates, expected" +
                     (if (result.dateSamples.isNotEmpty()) " (has: ${result.dateSamples.take(3).joinToString(" | ")})" else ""))
         }
-        if (result.syncedCols.isNotEmpty()) {
+        if (result.perKind.isNotEmpty()) {
+            val colsDetail = result.syncedCols.sorted().joinToString(", ") { k -> "$k(${result.perKind[k] ?: 0})" }
+            addRow("Columns", "${result.syncedCols.size}", colsDetail)
+        } else if (result.syncedCols.isNotEmpty()) {
             addRow("Columns", "${result.syncedCols.size}", result.syncedCols.joinToString(", "))
         }
         if (result.skippedWrites.isNotEmpty()) {
@@ -3862,7 +3865,10 @@ class CallCenterFragment : Fragment() {
             appendLine("rowsFilled=${result.syncedRows} cellsFilled=${result.syncedCells} rowsUpdated=${result.overwrittenRows} cellsOverwritten=${result.overwrittenCells}")
             appendLine("noCc=${result.noCc} ignored=${result.ignored} dateMismatch=${result.dateMismatch}")
             appendLine("dateSamples=${result.dateSamples.joinToString(" | ").ifBlank { "-" }}")
-            appendLine("syncedCols=${result.syncedCols.joinToString(",").ifBlank { "-" }}")
+            val colsLine = if (result.perKind.isNotEmpty())
+                result.syncedCols.sorted().joinToString(", ") { k -> "$k(${result.perKind[k] ?: 0})" }
+            else result.syncedCols.joinToString(",")
+            appendLine("syncedCols=${colsLine.ifBlank { "-" }}")
             appendLine("skippedWrites=${result.skippedWrites.joinToString("; ").ifBlank { "-" }}")
             appendLine("errors(${result.errors.size})=${result.errors.joinToString(" || ").ifBlank { "-" }}")
             appendLine("--- bindings ---")
