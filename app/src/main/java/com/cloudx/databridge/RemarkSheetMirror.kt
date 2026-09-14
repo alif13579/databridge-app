@@ -930,6 +930,8 @@ object RemarkSheetMirror {
             writeCols[letter] = colValues(letter).toMutableList()
         }
         res.scanned = cidCol.size
+        val pending = mutableListOf<PendingWrite>()
+        suspend fun flushQueue() = flushPending(accessToken, conn.sheetId, tab, pending, res)
         for (i in cidCol.indices) {
             val cid = cidCol[i].trim()
             if (cid.isEmpty()) {
@@ -970,33 +972,61 @@ object RemarkSheetMirror {
                 else needs.add(Triple(rule, letter, v))
             }
             if (needs.isEmpty()) { res.filled++; continue }
-            // Perform writes: blank fills + mismatched overwrites both use same API.
-            var filledInRow = 0
-            var overwrittenInRow = 0
+            // Queue, don't write: 1 batchUpdate per ~200 cells keeps us far
+            // under Google's ~60 writes/min quota (HTTP 429). Counts land on
+            // successful flush, so a quota failure never over-reports.
             for ((_, letter, v) in needs) {
                 val current = (writeCols[letter].orEmpty().getOrNull(i).orEmpty()).trim()
-                if (current.isEmpty()) filledInRow++ else overwrittenInRow++
-                ConfigSheetDriveApi.writeCellValue(
-                    accessToken, conn.sheetId, tab, letter, i + 1, v, httpClient
-                )
+                pending.add(PendingWrite(letter, i + 1, v, current.isEmpty()))
                 val col = writeCols[letter]!!
                 while (col.size <= i) col.add("")
                 col[i] = v
             }
-            if (filledInRow > 0) {
-                res.syncedRows++
-                res.syncedCells += filledInRow
-            }
-            if (overwrittenInRow > 0) {
-                res.overwrittenRows++
-                res.overwrittenCells += overwrittenInRow
-            }
-            // Throttle every ~10 row writes (fills + overwrites combined).
-            if ((res.syncedRows + res.overwrittenRows) % 10 == 0) delay(300)
+            if (pending.size >= 200) flushQueue()
             if ((i + 1) % 10 == 0) onRow(i + 1, cidCol.size)
         }
+        flushQueue()
         onRow(cidCol.size, cidCol.size)
         res
+    }
+
+    /** One queued cell write (letter, 1-based row, value, blank→fill vs overwrite). */
+    private data class PendingWrite(val letter: String, val row: Int, val value: String, val isFill: Boolean)
+
+    /** Flushes [pending] via batchUpdate with quota backoff (try now, +30s,
+     *  +60s on HTTP 429), crediting synced/overwritten counts only on
+     *  success. Throws with a wait-and-retry message on persistent failure. */
+    private suspend fun flushPending(
+        accessToken: String, sheetId: String, tab: String,
+        pending: MutableList<PendingWrite>, res: BulkCounts,
+    ) {
+        if (pending.isEmpty()) return
+        val cells = pending.map { Triple(it.letter, it.row, it.value) }
+        val waits = listOf(0L, 30_000L, 60_000L)
+        waits.forEachIndexed { attempt, waitMs ->
+            if (waitMs > 0) delay(waitMs)
+            try {
+                ConfigSheetDriveApi.batchWriteCellValues(accessToken, sheetId, tab, cells, httpClient)
+                val rowsF = mutableSetOf<Int>()
+                val rowsO = mutableSetOf<Int>()
+                var fills = 0
+                var overs = 0
+                pending.forEach {
+                    if (it.isFill) { fills++; rowsF.add(it.row) }
+                    else { overs++; rowsO.add(it.row) }
+                }
+                if (fills > 0) { res.syncedRows += rowsF.size; res.syncedCells += fills }
+                if (overs > 0) { res.overwrittenRows += rowsO.size; res.overwrittenCells += overs }
+                pending.clear()
+                return
+            } catch (e: Exception) {
+                val quota = e.message.orEmpty().contains("429")
+                if (!quota || attempt == waits.lastIndex) throw java.io.IOException(
+                    if (quota) "Sheets quota 429 — Google allows ~1 write/sec; wait 1-2 min and Sync again " +
+                        "(${cells.size} cells pending). ${e.message?.take(80).orEmpty()}"
+                    else e.message?.take(140) ?: "sheet write failed")
+            }
+        }
     }
 
     /** Dry-run for the Connectors Test button: same match as the live mirror

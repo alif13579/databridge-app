@@ -196,6 +196,50 @@ object ConfigSheetDriveApi {
     }
 
     /**
+     * Writes many cells in as few HTTP requests as possible (up to [chunkSize]
+     * ranges per `values:batchUpdate` call) — same RAW semantics as
+     * [writeCellValue]. Bulk sync MUST use this: one request per cell blows
+     * through Google's ~60 writes/min quota (HTTP 429) on any real-size sync.
+     * Throws [IOException] on HTTP error (429 text preserved for backoff).
+     */
+    fun batchWriteCellValues(
+        accessToken: String,
+        sheetId: String,
+        tabName: String,
+        cells: List<Triple<String, Int, String>>, // (letter, 1-based row, value)
+        httpClient: OkHttpClient,
+        chunkSize: Int = 200,
+    ) {
+        if (cells.isEmpty()) return
+        val quoted = quoteTabRef(tabName)
+        cells.chunked(chunkSize.coerceAtLeast(1)).forEach { chunk ->
+            val data = org.json.JSONArray()
+            chunk.forEach { (letter, row, value) ->
+                data.put(org.json.JSONObject()
+                    .put("range", "$quoted!$letter$row")
+                    .put("majorDimension", "ROWS")
+                    .put("values", org.json.JSONArray().put(org.json.JSONArray().put(value))))
+            }
+            val payload = org.json.JSONObject()
+                .put("valueInputOption", "RAW")
+                .put("data", data)
+            val req = Request.Builder()
+                .url("https://sheets.googleapis.com/v4/spreadsheets/$sheetId/values:batchUpdate")
+                .header("Authorization", "Bearer $accessToken")
+                .post(payload.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) throw IOException("Sheets batch write API ${resp.code}: ${resp.body?.string()?.take(300)}")
+            }
+        }
+    }
+
+    /** `'Tab Name'` quoting for A1 ranges (spaces/symbols); plain tabs untouched. */
+    private fun quoteTabRef(tabName: String): String {
+        val t = tabName.trim()
+        return if (t.any { it in " '!\"()+-*/:?@" }) "'" + t.replace("'", "''") + "'" else t
+    }
+    /**
      * Appends a new row at the end of a tab, writing `columnLetter` -> value at whatever row
      * Sheets decides is "the end" (respects existing data, won't overwrite). Used when every
      * existing row for an agent already has data in the target column — see the scanner
