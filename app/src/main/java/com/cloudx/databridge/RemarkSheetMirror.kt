@@ -574,7 +574,22 @@ object RemarkSheetMirror {
         var overwrittenCells: Int = 0, // cells overwritten with latest
         var noCc: Int = 0,
         var ignored: Int = 0,
+        val skippedWrites: MutableList<String> = mutableListOf(), // write cols unresolvable — skipped, rest synced
+        val syncedKinds: MutableSet<String> = mutableSetOf(), // write kinds actually resolved in this run
     )
+
+    /** App clock label (Asia/Dhaka) for the sync popup — lets the agent verify
+     *  the phone's time matches ops timezone. e.g. "14 Sep 2026, 02:30 PM
+     *  (Asia/Dhaka GMT+6)". */
+    fun dhakaNowLabel(): String {
+        return try {
+            val now = java.time.ZonedDateTime.now(opsZone)
+            val fmt = java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm:ss a", java.util.Locale.ENGLISH)
+            "${now.format(fmt)} (${opsZone.id} GMT+6)"
+        } catch (_: Exception) {
+            java.time.LocalDate.now(opsZone).toString() + " (Asia/Dhaka)"
+        }
+    }
 
     /** Structured progress for a range bulk sync (service notification +
      *  dialog). [pending] = rows of the current sheet still to process. */
@@ -604,6 +619,9 @@ object RemarkSheetMirror {
         val errors: List<String> = emptyList(),
         val ok: Boolean = true,
         val message: String = "",
+        val appNow: String = "",
+        val syncedCols: List<String> = emptyList(),
+        val skippedWrites: List<String> = emptyList(),
     ) {
         fun toMessage(): String {
             if (message.isNotBlank() && !ok) return message
@@ -612,6 +630,7 @@ object RemarkSheetMirror {
                 " · ${filled} already correct · ${noCc} no CC yet · " +
                 "${ignored} filtered out · " +
                 "${scanned} sheet rows scanned (${totConns} connections)"
+            if (skippedWrites.isNotEmpty()) msg += " · ⚠ skipped cols: ${skippedWrites.joinToString(", ")}"
             if (errors.isNotEmpty()) msg += " · ⚠ ${errors.size} error: ${errors.take(2).joinToString("; ")}" + if (errors.size > 2) "…" else ""
             return msg
         }
@@ -640,12 +659,13 @@ object RemarkSheetMirror {
         endDate: LocalDate? = null,
         onProgressDetail: ((BulkProgress) -> Unit)? = null,
     ): BulkSyncResult = withContext(Dispatchers.IO) {
+        val appNow = dhakaNowLabel()
         val branches = branchIds.map { it.trim() }.filter { it.isNotBlank() }.distinct()
-        if (branches.isEmpty()) return@withContext BulkSyncResult("—", 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "no branch found")
+        if (branches.isEmpty()) return@withContext BulkSyncResult("—", 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "no branch found", appNow)
         val token = silentWriteToken(appContext.applicationContext)
         if (token.isNullOrBlank()) {
             if (onAuthNeeded != null) onAuthNeeded()
-            return@withContext BulkSyncResult("—", 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "Google account not connected — connect and tap Sync again")
+            return@withContext BulkSyncResult("—", 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "Google account not connected — connect and tap Sync again", appNow)
         }
         val today = LocalDate.now(opsZone)
         var start = startDate ?: today
@@ -654,7 +674,7 @@ object RemarkSheetMirror {
         val days = mutableListOf<LocalDate>()
         var d = start
         while (!d.isAfter(end) && days.size < 32) { days.add(d); d = d.plusDays(1) }
-        if (!d.isAfter(end)) return@withContext BulkSyncResult("—", 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "Date range too large — max 31 days at once")
+        if (!d.isAfter(end)) return@withContext BulkSyncResult("—", 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "Date range too large — max 31 days at once", appNow)
         val rangeLabel = if (days.size == 1) days.first().toString()
             else "${days.first()} → ${days.last()} (${days.size} days)"
         val rangeStartIso = start.atStartOfDay(opsZone).toInstant().toString()
@@ -712,7 +732,7 @@ object RemarkSheetMirror {
             }
         }
         if (consolidated.isEmpty())
-            return@withContext BulkSyncResult(rangeLabel, 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "No CC remarks in $rangeLabel in Supabase — nothing to write")
+            return@withContext BulkSyncResult(rangeLabel, 0, 0, 0, 0, 0, 0, 0, 0, 0, emptyList(), false, "No CC remarks in $rangeLabel in Supabase — nothing to write", appNow)
 
         // 3. Per day → per branch → its bound sheets → its own sheet.
         var totConns = 0
@@ -745,13 +765,15 @@ object RemarkSheetMirror {
                         tot.syncedRows += c.syncedRows; tot.syncedCells += c.syncedCells
                         tot.overwrittenRows += c.overwrittenRows; tot.overwrittenCells += c.overwrittenCells
                         totNoCc += c.noCc; tot.ignored += c.ignored
+                        c.skippedWrites.forEach { if (!tot.skippedWrites.contains(it)) tot.skippedWrites.add(it) }
+                        tot.syncedKinds.addAll(c.syncedKinds)
                     } catch (e: Exception) {
-                        errs.add("${conn.sheetName.ifBlank { branchId }} ($day): ${e.message?.take(80) ?: "sync failed"}")
+                        errs.add("${conn.sheetName.ifBlank { branchId }} ($day): ${e.message?.take(140) ?: "sync failed"}")
                     }
                 }
             }
         }
-        if (totConns == 0) return@withContext BulkSyncResult(rangeLabel, 0, 0, 0, 0, 0, 0, 0, 0, 0, errs, false, "No CC binding in any branch for $rangeLabel — bind a sheet from the CallCenter socket (check scope)")
+        if (totConns == 0) return@withContext BulkSyncResult(rangeLabel, 0, 0, 0, 0, 0, 0, 0, 0, 0, errs, false, "No CC binding in any branch for $rangeLabel — bind a sheet from the CallCenter socket (check scope)", appNow)
         return@withContext BulkSyncResult(
             rangeLabel = rangeLabel,
             totConns = totConns,
@@ -765,6 +787,9 @@ object RemarkSheetMirror {
             ignored = tot.ignored,
             errors = errs.toList(),
             ok = true,
+            appNow = appNow,
+            syncedCols = tot.syncedKinds.toList().sorted(),
+            skippedWrites = tot.skippedWrites.toList().sorted(),
         )
     }
 
@@ -822,10 +847,25 @@ object RemarkSheetMirror {
                 rule.colRef, rule.mode, headerRow, headerCache)
                 ?: throw IllegalStateException("lookup column '${rule.colRef.trim()}' not found")
         }
-        val writeLetters = writes.map { rule ->
-            rule to (resolveLetter(accessToken, conn.sheetId, tab,
+        val writeLetters = mutableListOf<Pair<SheetWriteRule, String>>()
+        writes.forEach { rule ->
+            val letter = resolveLetter(accessToken, conn.sheetId, tab,
                 rule.colRef, rule.mode, headerRow, headerCache)
-                ?: throw IllegalStateException("write column '${rule.colRef.trim()}' not found"))
+            if (letter == null) {
+                // New columns (Final Status / Action) added to the binding but
+                // missing in the sheet/library must NOT kill the whole sync —
+                // old Feedback/Validation/Validator columns keep syncing, the
+                // missing one is reported in the popup as skipped.
+                val tag = "${rule.kind} (${rule.colRef.trim()})"
+                if (!res.skippedWrites.contains(tag)) res.skippedWrites.add(tag)
+            } else {
+                writeLetters.add(rule to letter)
+                res.syncedKinds.add(rule.kind)
+            }
+        }
+        if (writeLetters.isEmpty()) {
+            val missing = writes.joinToString(", ") { "${it.kind} '${it.colRef.trim()}'" }
+            throw IllegalStateException("write column not found ($missing) — tab '$tab' header row $headerRow check koro")
         }
         suspend fun colValues(letter: String): List<String> =
             ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tab, letter, httpClient)

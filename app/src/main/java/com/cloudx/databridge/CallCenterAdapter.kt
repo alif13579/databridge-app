@@ -73,7 +73,17 @@ class CallCenterAdapter(
             override val stableKey get() = "header:${group.workerName}"
         }
 
-        data class CardRow(val parcel: CallCenterParcelItem, val isExpanded: Boolean, val isConflicted: Boolean) : Row() {
+        data class CardRow(
+            val parcel: CallCenterParcelItem,
+            val isExpanded: Boolean,
+            val isConflicted: Boolean,
+            /** 1-based position within the same-phone group (display order). */
+            val phoneIndex: Int = 1,
+            /** Total parcels sharing this phone number (1 = unique). */
+            val phoneTotal: Int = 1,
+            /** All parcels sharing this phone number (display order) — for the agent popup. */
+            val phoneMates: List<CallCenterParcelItem> = emptyList(),
+        ) : Row() {
             override val stableKey get() = "card:${parcel.id}"
         }
     }
@@ -113,7 +123,28 @@ class CallCenterAdapter(
                 ))
             }
         }
-        submitList(rows)
+        // Same-number counter (1/2, 2/2) in display order. Blank phones never group.
+        val cardsInOrder = rows.filterIsInstance<Row.CardRow>()
+        val phoneGroups = cardsInOrder
+            .filter { it.parcel.phone.normalizedPhone().isNotBlank() }
+            .groupBy { it.parcel.phone.normalizedPhone() }
+        val phonePos = mutableMapOf<String, Int>()
+        val numbered = rows.map { row ->
+            if (row !is Row.CardRow) row
+            else {
+                val key = row.parcel.phone.normalizedPhone()
+                val mates = phoneGroups[key]?.map { it.parcel } ?: emptyList()
+                if (key.isBlank() || mates.size < 2) row.copy(
+                    phoneIndex = 1, phoneTotal = 1, phoneMates = emptyList()
+                )
+                else {
+                    val idx = (phonePos[key] ?: 0) + 1
+                    phonePos[key] = idx
+                    row.copy(phoneIndex = idx, phoneTotal = mates.size, phoneMates = mates)
+                }
+            }
+        }
+        submitList(numbered)
     }
 
     /** Returns the parcel at [position] if that row is a card row, else null (e.g. a header row). */
@@ -162,6 +193,9 @@ class CallCenterAdapter(
                 row.parcel,
                 row.isExpanded,
                 row.isConflicted,
+                phoneIndex = row.phoneIndex,
+                phoneTotal = row.phoneTotal,
+                phoneMates = row.phoneMates,
                 statusLang = statusLang,
                 glowColor = callStates[row.parcel.id],
                 onToggleExpand = { toggleExpanded(row.parcel.id) },
@@ -218,6 +252,7 @@ class CallCenterAdapter(
         private val tvCustomer: TextView = view.findViewById(R.id.tvAgtCustomer)
 
         private val tvMeta: TextView = view.findViewById(R.id.tvAgtMeta)
+        private val tvPhoneCount: TextView = view.findViewById(R.id.tvAgtPhoneCount)
         private val tvAddress: TextView = view.findViewById(R.id.tvAgtAddress)
         private val tvCod: TextView = view.findViewById(R.id.tvAgtCod)
         private val tvAge: TextView = view.findViewById(R.id.tvAgtAge)
@@ -244,6 +279,9 @@ class CallCenterAdapter(
             item: CallCenterParcelItem,
             isExpanded: Boolean,
             isConflicted: Boolean,
+            phoneIndex: Int = 1,
+            phoneTotal: Int = 1,
+            phoneMates: List<CallCenterParcelItem> = emptyList(),
             statusLang: String,
             glowColor: Int?,
             onToggleExpand: () -> Unit,
@@ -270,9 +308,29 @@ class CallCenterAdapter(
                 tvCallCount.visibility = View.GONE
             }
             tvMeta.text = "${item.id} · ${item.phone}"
+            // Same-number counter (1/2, 2/2) — only when this phone has >1 parcel.
+            // Tap shows which agents hold those parcels.
+            if (phoneTotal > 1) {
+                tvPhoneCount.text = "$phoneIndex/$phoneTotal"
+                tvPhoneCount.visibility = View.VISIBLE
+                tvPhoneCount.setOnClickListener {
+                    showPhoneMatesDialog(itemView.context, item.phone, phoneMates, item.id)
+                }
+            } else {
+                tvPhoneCount.visibility = View.GONE
+                tvPhoneCount.setOnClickListener(null)
+            }
             tvAddress.text = "📍 ${item.address}"
             tvCod.text = "৳${item.cod}"
             tvSplitWarning.visibility = if (isConflicted) View.VISIBLE else View.GONE
+            if (isConflicted) {
+                tvSplitWarning.setOnClickListener {
+                    val mates = phoneMates.ifEmpty { listOf(item) }
+                    showPhoneMatesDialog(itemView.context, item.phone, mates, item.id)
+                }
+            } else {
+                tvSplitWarning.setOnClickListener(null)
+            }
             tvAge.text = "${WorkerParcelAdapter.formatAgeCompact(item.createdAt)}  ·  A${item.attemptCount}"
             val (ageColor, ageBold) = WorkerParcelAdapter.ageColorFor(item.createdAt)
             tvAge.setTextColor(ageColor)
@@ -373,6 +431,52 @@ class CallCenterAdapter(
             btnSetRemarks.setOnClickListener { onSetRemarks(item) }
             btnWhatsapp.setOnClickListener { onWhatsappToAgent(item) }
             btnSendToDesktop.setOnClickListener { onSendToDesktop(item) }
+        }
+
+        private fun showPhoneMatesDialog(
+            ctx: android.content.Context,
+            phone: String,
+            mates: List<CallCenterParcelItem>,
+            currentId: String,
+        ) {
+            if (mates.isEmpty()) return
+            // Distinct agents holding this number's parcels (display order).
+            val seen = linkedSetOf<String>()
+            val lines = mates.mapNotNull { m ->
+                val agent = m.worker.ifBlank { "(unknown agent)" }
+                val key = "${m.workerSystemId.ifBlank { agent }}|${m.id}"
+                if (!seen.add(key)) null
+                else {
+                    val mark = if (m.id == currentId) "● " else "○ "
+                    val branch = m.branch.ifBlank { "" }.let { if (it.isBlank()) "" else " · $it" }
+                    "$mark$agent — ${m.id}$branch"
+                }
+            }
+            val agentCount = mates.map { it.workerSystemId.ifBlank { it.worker } }.distinct().size
+            val box = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                val pad = (ctx.resources.displayMetrics.density * 16).toInt()
+                setPadding(pad, pad / 2, pad, pad / 2)
+            }
+            box.addView(TextView(ctx).apply {
+                text = "📞 $phone · ${mates.size} parcels · $agentCount agents"
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, 0, 0, 8)
+            })
+            lines.forEach { line ->
+                box.addView(TextView(ctx).apply {
+                    text = line
+                    textSize = 13f
+                    setPadding(0, 6, 0, 6)
+                })
+            }
+            val scroll = android.widget.ScrollView(ctx).apply { addView(box) }
+            android.app.AlertDialog.Builder(ctx)
+                .setTitle("Same number parcels")
+                .setView(scroll)
+                .setPositiveButton("OK", null)
+                .show()
         }
     }
 

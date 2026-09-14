@@ -191,6 +191,27 @@
                     android:textColor="@color/theme_accent"
                     android:textStyle="bold" />
 
+                <!-- Same-number parcel counter (1/2, 2/2) — visible only when this
+                     phone number has >1 parcel. Tap shows the agents holding them. -->
+                <TextView
+                    android:id="@+id/tvAgtPhoneCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="1/2"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_accent"
+                    android:background="@drawable/bg_age_badge"
+                    android:paddingStart="7dp"
+                    android:paddingEnd="7dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:layout_marginStart="6dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:includeFontPadding="false"
+                    android:visibility="gone" />
+
                 <TextView
                     android:id="@+id/tvAgtStatusBadge"
                     android:layout_width="wrap_content"

@@ -3529,6 +3529,20 @@ class CallCenterFragment : Fragment() {
         }
         box.addView(tvRange)
         tvSyncRange = tvRange
+        // App clock (Dhaka) + device zone — timezone match verify korar jonno.
+        box.addView(TextView(ctx).apply {
+            val dhakaNow = RemarkSheetMirror.dhakaNowLabel()
+            val deviceZone = try { java.util.TimeZone.getDefault().id } catch (_: Exception) { "?" }
+            val deviceNow = try {
+                java.text.SimpleDateFormat("dd MMM yyyy, hh:mm:ss a", java.util.Locale.ENGLISH)
+                    .apply { timeZone = java.util.TimeZone.getDefault() }
+                    .format(java.util.Date())
+            } catch (_: Exception) { "" }
+            text = "🕒 App: $dhakaNow\n📱 Phone: $deviceNow ($deviceZone)"
+            textSize = 11.5f
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            setPadding(0, 4, 0, 2)
+        })
         val quickRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
         fun quickBtn(t: String, onTap: () -> Unit) = TextView(ctx).apply {
             text = t
@@ -3678,11 +3692,18 @@ class CallCenterFragment : Fragment() {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, pad / 2)
         }
-        // Range header
+        // Range header + app clock (Dhaka) — timezone match verify korar jonno.
         box.addView(TextView(ctx).apply {
             text = result.rangeLabel
             textSize = 13f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, 2)
+        })
+        box.addView(TextView(ctx).apply {
+            val whenTxt = result.appNow.ifBlank { RemarkSheetMirror.dhakaNowLabel() }
+            text = "🕒 App: $whenTxt"
+            textSize = 11.5f
+            setTextColor(ctx.getColor(R.color.theme_text_secondary))
             setPadding(0, 0, 0, pad / 3)
         })
         // Table header
@@ -3718,6 +3739,12 @@ class CallCenterFragment : Fragment() {
         addRow("Rows updated", "${result.overwrittenRows}", "${result.overwrittenCells} cells (mismatch → latest)")
         addRow("No CC yet", "${result.noCc}", "")
         addRow("Filtered out", "${result.ignored}", "")
+        if (result.syncedCols.isNotEmpty()) {
+            addRow("Columns", "${result.syncedCols.size}", result.syncedCols.joinToString(", "))
+        }
+        if (result.skippedWrites.isNotEmpty()) {
+            addRow("Skipped cols", "${result.skippedWrites.size}", result.skippedWrites.joinToString("; "))
+        }
         if (result.errors.isNotEmpty()) {
             addRow("Errors", "${result.errors.size}", result.errors.take(2).joinToString("; "))
         }

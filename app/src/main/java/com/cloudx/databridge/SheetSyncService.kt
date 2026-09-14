@@ -132,8 +132,9 @@ class SheetSyncService : Service() {
                     rangeLabel = "$start → $end",
                     totConns = 0, scanned = 0, filled = 0, syncedRows = 0, syncedCells = 0,
                     overwrittenRows = 0, overwrittenCells = 0, noCc = 0, ignored = 0,
-                    errors = listOf(e.message?.take(80) ?: "sync failed"),
-                    ok = false, message = "Sync failed: ${e.message?.take(120) ?: "error"}"
+                    errors = listOf(e.message?.take(140) ?: "sync failed"),
+                    ok = false, message = "Sync failed: ${e.message?.take(200) ?: "error"}",
+                    appNow = RemarkSheetMirror.dhakaNowLabel()
                 )
             }
             finishWithResult(result)
