@@ -389,6 +389,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             initApp(savedInstanceState == null)
             handleNotificationIntent(intent)
             maybeRequestNotificationPermission()
+            // Sideload self-update: silent GitHub Releases check (max once/24h,
+            // dialog only when a newer APK is published).
+            AppUpdateManager.silentCheck(this)
         } else {
             permissionStep = 0
             overlaySettingsOpened = false

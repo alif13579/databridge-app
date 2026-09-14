@@ -56,6 +56,8 @@ class SettingsFragment : Fragment() {
     private lateinit var btnClearHistory: Button
     private lateinit var pbClearHistory: ProgressBar
     private lateinit var tvAppVersion: TextView
+    private lateinit var btnCheckUpdate: Button
+    private lateinit var tvUpdateStatus: TextView
 
     private val auth = FirebaseAuth.getInstance()
     private lateinit var appPrefs: AppPreferences
@@ -133,7 +135,8 @@ class SettingsFragment : Fragment() {
         btnClearHistory      = binding.findViewById(R.id.btnClearHistory)
         pbClearHistory       = binding.findViewById(R.id.pbClearHistory)
         tvAppVersion         = binding.findViewById(R.id.tvAppVersion)
-        // ✅ Read the real version from build config so it always matches the APK
+        btnCheckUpdate       = binding.findViewById(R.id.btnCheckUpdate)
+        tvUpdateStatus       = binding.findViewById(R.id.tvUpdateStatus)        // ✅ Read the real version from build config so it always matches the APK
         tvAppVersion.text    = try {
             val pInfo = requireContext().packageManager.getPackageInfo(requireContext().packageName, 0)
             "v${pInfo.versionName} • DataBridge"
@@ -279,6 +282,35 @@ class SettingsFragment : Fragment() {
                 .setPositiveButton("Clear All") { _, _ -> clearAllHistory() }
                 .setNegativeButton("Cancel", null)
                 .show()
+        }
+
+        btnCheckUpdate.setOnClickListener { manualUpdateCheck() }
+    }
+
+    /** Manual "⬇ Check for update" — always hits GitHub, never throttled. */
+    private fun manualUpdateCheck() {
+        if (!isAdded) return
+        btnCheckUpdate.isEnabled = false
+        tvUpdateStatus.visibility = View.VISIBLE
+        tvUpdateStatus.text = "⏳ Checking GitHub for updates…"
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val info = AppUpdateManager.fetchLatest()
+                if (!isAdded) return@launch
+                when {
+                    info == null -> tvUpdateStatus.text = "⚠ Check failed — net off / rate-limited?"
+                    AppUpdateManager.isNewer(requireContext(), info) -> {
+                        tvUpdateStatus.text = "🎉 v${info.versionName} available"
+                        AppUpdateManager.showUpdateDialog(requireActivity(), info)
+                    }
+                    else -> tvUpdateStatus.text =
+                        "✅ Latest already (v${AppUpdateManager.currentName(requireContext())})"
+                }
+            } catch (_: Exception) {
+                if (isAdded) tvUpdateStatus.text = "⚠ Check failed — try again"
+            } finally {
+                if (isAdded) btnCheckUpdate.isEnabled = true
+            }
         }
     }
 

@@ -37,6 +37,10 @@
     <!-- Restarts IncomingCallLegacyWatcherService after reboot on API 23-28, where the
          foreground service doesn't survive a restart on its own — see BootCompletedReceiver. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Self-update via GitHub Releases: installer intent for the downloaded APK.
+         Android 8+ additionally needs a one-time "install unknown apps" grant,
+         requested inline by AppUpdateManager. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- 📷 Camera Hardware Feature (required=false → camera ছাড়া devices-এও install হবে) -->
     <uses-feature
