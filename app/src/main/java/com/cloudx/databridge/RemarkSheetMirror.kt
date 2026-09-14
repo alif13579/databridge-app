@@ -111,11 +111,7 @@ object RemarkSheetMirror {
                 var okRows = 0
                 var lastSkip = ""
                 targets.forEach { target ->
-                    when (val out = mirrorOneWithRetry(
-                        target.conn, token, ctx,
-                        filters = target.binding.effectiveFilters(),
-                        filterLogic = target.binding.filterLogic,
-                    )) {
+                    when (val out = mirrorOneWithRetry(target.conn, token, ctx)) {
                         is MirrorOutcome.Done -> okRows++
                         is MirrorOutcome.Skipped -> {
                             lastSkip = out.reason
@@ -303,13 +299,11 @@ object RemarkSheetMirror {
      *  are returned at once — retrying changes nothing. */
     private suspend fun mirrorOneWithRetry(
         conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx, attempts: Int = 3,
-        filters: List<CcFetchFilter> = emptyList(),
-        filterLogic: String = CcFilterLogic.AND,
     ): MirrorOutcome {
         var lastError = ""
         repeat(attempts) { n ->
             try {
-                return mirrorOne(conn, accessToken, ctx, filters, filterLogic)
+                return mirrorOne(conn, accessToken, ctx)
             } catch (e: Exception) {
                 lastError = e.message?.take(120) ?: "sheet write failed"
                 if (n < attempts - 1) delay(if (n == 0) 2000L else 4000L)
@@ -322,8 +316,6 @@ object RemarkSheetMirror {
     // Skipped only for deliberate no-match skips.
     private suspend fun mirrorOne(
         conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx,
-        filters: List<CcFetchFilter> = emptyList(),
-        filterLogic: String = CcFilterLogic.AND,
     ): MirrorOutcome = withContext(Dispatchers.IO) {
         // Row extras FIRST: lookups may point at row data (created_at,
         // author_name...) so values must exist before matching. Final Status
@@ -334,7 +326,7 @@ object RemarkSheetMirror {
             finalStatus = extras[SheetWriteKind.CONSIGNMENT_STATUS].orEmpty(),
             action = extras[SheetWriteKind.ACTION].orEmpty(),
         )
-        when (val found = findTargetRow(conn, accessToken, ctx2, filters, filterLogic)) {
+        when (val found = findTargetRow(conn, accessToken, ctx2)) {
             is FindResult.Miss -> MirrorOutcome.Skipped(found.reason)
             is FindResult.Hit -> {
                 found.writes.forEach { (letter, kind) ->
@@ -374,8 +366,6 @@ object RemarkSheetMirror {
      *  overwrite. Latest always overwrites on a match — never appended. */
     private suspend fun findTargetRow(
         conn: ScannerSheetConn, accessToken: String, ctx: MirrorCtx,
-        filters: List<CcFetchFilter> = emptyList(),
-        filterLogic: String = CcFilterLogic.AND,
     ): FindResult = withContext(Dispatchers.IO) {
         // Mirror enforces remark-kind lookups only (employee belongs to the
         // scanner flow) and skips scanner value writes. Write-kind fields are
@@ -412,41 +402,18 @@ object RemarkSheetMirror {
         val columns = lookupCols.map { (_, letter) ->
             letter to ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tabName, letter, httpClient)
         }.toMap()
-        // Targeting filters (same as Live fetch): unresolvable refs never
-        // block — noted in diag, skipped silently.
-        val ignoreCols = filters.mapNotNull { rule ->
-            val letter = resolveLetter(accessToken, conn.sheetId, tabName,
-                rule.colRef, rule.mode, headerRow, headerCache) ?: return@mapNotNull null
-            rule to letter
-        }
-        val ignoreValues = ignoreCols.map { (_, letter) ->
-            letter to ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tabName, letter, httpClient)
-        }.toMap()
-        fun rowFilteredOut(i: Int): Boolean {
-            if (ignoreCols.isEmpty()) return false
-            val hits = ignoreCols.map { (rule, letter) ->
-                SheetCellCompare.pass(
-                    rule.op, ignoreValues[letter].orEmpty().getOrNull(i).orEmpty(), rule.value,
-                    rule.valueType)
-            }
-            val pass = if (filterLogic == CcFilterLogic.OR) hits.any { it } else hits.all { it }
-            return !pass
-        }
+        // NOTE: socket fetch filters do NOT apply here — fetching defines the
+        // Live ID list only, never write targeting. Row match = lookups only.
         val scanned = columns.values.maxOfOrNull { it.size } ?: 0
         if (scanned == 0) {
             return@withContext FindResult.Miss("tab '$tabName' is empty — tab/column mismatch")
         }
         val diag = StringBuilder()
-        var filtered = 0
         for (i in 0 until scanned) {
             val fails = lookupCols.filter { (rule, letter) ->
                 !lookupMatches(rule.kind, columns[letter].orEmpty().getOrNull(i).orEmpty(), ctx)
             }
             if (fails.isEmpty()) {
-                if (rowFilteredOut(i)) {
-                    filtered++
-                    continue
-                }
                 val writePairs = writeCols.map { (rule, letter) -> letter to rule.kind }
                 lookupCols.forEach { (rule, letter) ->
                     diag.append("${rule.colRef.trim()}(${letter})='${lookupWant(rule.kind, ctx)}' ✓; ")
@@ -470,9 +437,8 @@ object RemarkSheetMirror {
                     (samples.ifBlank { "" }.let { if (it.isBlank()) "" else ", found: $it" })
             }
         }.orEmpty()
-        val filterTxt = if (filtered > 0) " ($filtered row filter-e bad)" else ""
         return@withContext FindResult.Miss(
-            "no exact match ($wantList — $scanned rows scanned$filterTxt$sampleTxt). Never appended")
+            "no exact match ($wantList — $scanned rows scanned$sampleTxt). Never appended")
     }
 
     /** True when a Sheets date cell (formatted text) falls on [today].
@@ -795,7 +761,6 @@ object RemarkSheetMirror {
                     onProgress(label)
                     try {
                         val c = bulkSyncOneConnection(token, branchId, conn, consolidated, day,
-                            target.binding.effectiveFilters(), target.binding.filterLogic,
                             tabName = tabForDay(conn.tabPattern, day),
                             onRow = { done, total ->
                                 onProgressDetail?.invoke(
@@ -854,8 +819,6 @@ object RemarkSheetMirror {
         conn: ScannerSheetConn,
         consolidated: Map<String, BulkVals>,
         today: LocalDate,
-        filters: List<CcFetchFilter> = emptyList(),
-        filterLogic: String = CcFilterLogic.AND,
         tabName: String? = null,
         onRow: (done: Int, total: Int) -> Unit = { _, _ -> },
     ): BulkCounts = withContext(Dispatchers.IO) {
@@ -914,26 +877,8 @@ object RemarkSheetMirror {
         suspend fun colValues(letter: String): List<String> =
             ConfigSheetDriveApi.fetchColumnValues(accessToken, conn.sheetId, tab, letter, httpClient)
         val cidCol = colValues(cidLetter)
-        // Targeting filters (same as Live fetch): unresolvable refs never block.
-        val ignoreCols = filters.mapNotNull { rule ->
-            val letter = resolveLetter(accessToken, conn.sheetId, tab,
-                rule.colRef, rule.mode, headerRow, headerCache) ?: return@mapNotNull null
-            rule to letter
-        }
-        val ignoreValues = mutableMapOf<String, List<String>>()
-        ignoreCols.map { it.second }.distinct().forEach { letter ->
-            ignoreValues[letter] = colValues(letter)
-        }
-        fun rowFilteredOut(i: Int): Boolean {
-            if (ignoreCols.isEmpty()) return false
-            val hits = ignoreCols.map { (rule, letter) ->
-                SheetCellCompare.pass(
-                    rule.op, ignoreValues[letter].orEmpty().getOrNull(i).orEmpty(), rule.value,
-                    rule.valueType)
-            }
-            val pass = if (filterLogic == CcFilterLogic.OR) hits.any { it } else hits.all { it }
-            return !pass
-        }
+        // NOTE: socket fetch filters do NOT apply here — fetching defines the
+        // Live ID list only, never write targeting. Every looked-up row syncs.
         val dateCols = mutableMapOf<String, List<String>>()
         dateLetters.values.distinct().forEach { letter -> dateCols[letter] = colValues(letter) }
         val writeCols = mutableMapOf<String, MutableList<String>>()
@@ -947,7 +892,6 @@ object RemarkSheetMirror {
                 if ((i + 1) % 20 == 0) onRow(i + 1, cidCol.size)
                 continue
             }
-            if (rowFilteredOut(i)) { res.ignored++; continue }
             var dateOk = true
             var dateSample = ""
             dateLetters.forEach { (_, letter) ->

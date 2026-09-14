@@ -384,9 +384,9 @@ data class CcBinding(
      *  column theke ID, prothom write column blank filter). */
     val fetchColRef: String = "",
     val fetchColMode: String = SheetColMode.INDEX,
-    /** AND / OR — multiple filters kivabe combine hobe. Filters drive
-     *  BOTH fetch (Live list) and write targeting (mirror/bulk): row asbe
-     *  + likhbe sudhu filter pass korle. */
+    /** AND / OR — multiple fetch filters kivabe combine hobe. Filters drive
+     *  ONLY the Live ID list (fetching): mirror/bulk write path-e filter
+     *  lagena — lookup match holei likhbe. */
     val filterLogic: String = CcFilterLogic.AND,
     val filters: List<CcFetchFilter> = emptyList(),
 ) {
