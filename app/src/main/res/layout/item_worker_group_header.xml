@@ -111,6 +111,21 @@
             android:paddingBottom="2dp"
             android:background="@color/theme_bg_yellow"
             android:layout_marginStart="6dp" />
+
+        <TextView
+            android:id="@+id/tvGroupDelivery"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0 ❗"
+            android:textSize="10sp"
+            android:textColor="@color/theme_red"
+            android:textStyle="bold"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:background="@color/theme_bg_red"
+            android:layout_marginStart="6dp" />
     </LinearLayout>
 
 </LinearLayout>

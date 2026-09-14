@@ -39,6 +39,10 @@ data class CallCenterParcelItem(
     val engagedAgents: List<EngagedAgent> = emptyList(),
     val attemptCount: Int = 0,
     val history: List<HistoryEntry> = emptyList(),
+    /** Hold class ("strict"/"non-strict"/"") of the parcel's latest CC remark,
+     *  mapped via HoldClassCache from the remark's english text — drives the
+     *  yellow non-strict count in the agent group header. */
+    val holdClass: String = "",
     /** Data source for the card dot: "request" (red dot) or "live" (green
      *  dot). In Mix mode the dot shows each card's origin; dedup keeps a
      *  single card per consignment (request copy wins). */

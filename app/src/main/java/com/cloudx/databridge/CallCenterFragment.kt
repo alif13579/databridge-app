@@ -2602,6 +2602,9 @@ class CallCenterFragment : Fragment() {
             // common warm-cache path where attachRootRunTypesListener()'s early fire-and-forget
             // call already finished.)
             val nameMapDeferred = async { ensureAgentNameMap() }
+            // Hold-class catalog rides along the same way (cached 10 min —
+            // warm path costs nothing) for the header's yellow count.
+            val holdMapDeferred = async { HoldClassCache.get() }
 
             // Stage-4 denominator: the per-consignment tail is the slowest phase,
             // so each completed fetch below advances the bar 80→100.
@@ -2709,6 +2712,7 @@ class CallCenterFragment : Fragment() {
                         val remarkLabel = remarkLabelNote
 
                         val nameMap = nameMapDeferred.await()
+                        val holdMap = holdMapDeferred.await()
                         Triple(
                             CallCenterParcelItem(
                                 id                = cId,
@@ -2732,7 +2736,9 @@ class CallCenterFragment : Fragment() {
                                 createdAt         = createdAtVal,
                                 updatedAt         = updatedAtVal,
                                 engagedAgents     = EngagedStateManager.parseEngagedAgents(engagedAtSnapDeferred.await()),
-                                attemptCount      = attemptVal
+                                attemptCount      = attemptVal,
+                                holdClass         = HoldClassCache.classOf(
+                                    holdMap, latestTodayEntry?.optStr("remarks").orEmpty()),
                             ),
                             remarkRows,
                             agentSystemId
@@ -2999,6 +3005,8 @@ class CallCenterFragment : Fragment() {
                         remarkStatus = liveRemarkStatus,
                         validationRequest = isVerifyRequestStatus(liveRemarkStatus),
                         validationNote = if (isVerifyRequestStatus(liveRemarkStatus)) latestRemark else "",
+                        holdClass = HoldClassCache.classOf(
+                            HoldClassCache.get(), latestRemarkRow.optStr("remarks").orEmpty()),
                         remarksAt = createdAt
                     )
                 }
@@ -4440,6 +4448,7 @@ class CallCenterFragment : Fragment() {
         SupabaseRemarkValidationWriter.withRemarkLabels(allRows, "CallCenterFragment")
         val rowsByCid = allRows.groupBy { it.optString("consignment") }
         val nameMap = ensureAgentNameMap()
+        val holdMap = HoldClassCache.get()
         val missing = mutableListOf<String>()
         val items = ids.distinct().map { cId ->
             async(Dispatchers.IO) {
@@ -4508,6 +4517,8 @@ class CallCenterFragment : Fragment() {
                         updatedAt = snap.child("updatedAt").getValue(Long::class.java) ?: 0L,
                         engagedAgents = engaged,
                         attemptCount = readCcAttempt(snap),
+                        holdClass = HoldClassCache.classOf(
+                            holdMap, latestToday?.optString("remarks").orEmpty()),
                         dataSource = "live",
                         sheetDateKey = cidDates[cId]?.firstOrNull().orEmpty(),
                     )

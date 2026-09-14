@@ -216,6 +216,7 @@ class CallCenterAdapter(
         private val tvWorkerMeta: TextView = view.findViewById(R.id.tvGroupWorkerMeta)
         private val tvConfirmed: TextView = view.findViewById(R.id.tvGroupConfirmed)
         private val tvPending: TextView = view.findViewById(R.id.tvGroupPending)
+        private val tvDelivery: TextView = view.findViewById(R.id.tvGroupDelivery)
 
         fun bind(group: WorkerGroup, onGroupClick: ((WorkerGroup) -> Unit)?) {
             tvWorkerName.text = group.workerName
@@ -224,7 +225,8 @@ class CallCenterAdapter(
             tvWorkerMeta.text = "${group.branch} · ${group.parcels.size} parcels"
 
             // Photo when we have one (same load/fallback pattern as item_user_card.xml in
-            // EmployeeFragment); otherwise keep the generic 👤 placeholder icon.
+            // EmployeeFragment); otherwise an initial-letter avatar — nobody uploads
+            // photos today, so the generic 👤 is only the last resort for blank names.
             if (group.workerPhotoUrl.isNotBlank()) {
                 ivWorkerAvatar.visibility = View.VISIBLE
                 tvWorkerIcon.visibility = View.GONE
@@ -236,12 +238,34 @@ class CallCenterAdapter(
             } else {
                 ivWorkerAvatar.visibility = View.GONE
                 tvWorkerIcon.visibility = View.VISIBLE
+                val initial = group.workerName.trim().firstOrNull()?.uppercase()
+                if (initial != null) {
+                    tvWorkerIcon.text = initial
+                    tvWorkerIcon.textSize = 13f
+                    tvWorkerIcon.setTypeface(tvWorkerIcon.typeface, android.graphics.Typeface.BOLD)
+                    tvWorkerIcon.setTextColor(0xFFFFFFFF.toInt())
+                    tvWorkerIcon.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
+                } else {
+                    tvWorkerIcon.text = "👤"
+                    tvWorkerIcon.textSize = 14f
+                    tvWorkerIcon.setTypeface(null, android.graphics.Typeface.NORMAL)
+                    tvWorkerIcon.setBackgroundResource(0)
+                }
             }
 
-            val confirmedCount = group.parcels.count { it.status == "confirmed" }
-            val pendingCount = group.parcels.count { it.status == "pending" }
-            tvConfirmed.text = "$confirmedCount ✓"
-            tvPending.text = "$pendingCount ◌"
+            // 3-color counts from live remark data (never the raw run status):
+            // green = validated (hold_verified + return_verified),
+            // yellow = latest remark in the non-strict class (follow-up),
+            // red = delivery_request.
+            val validatedCount = group.parcels.count { HoldClassCache.isValidated(it.remarkStatus) }
+            val nonStrictCount = group.parcels.count { HoldClassCache.isNonStrict(it.holdClass) }
+            val deliveryCount = group.parcels.count { HoldClassCache.isDeliveryRequest(it.remarkStatus) }
+            tvConfirmed.text = "$validatedCount ✓"
+            tvConfirmed.contentDescription = "$validatedCount validated"
+            tvPending.text = "$nonStrictCount ◌"
+            tvPending.contentDescription = "$nonStrictCount non-strict follow-up"
+            tvDelivery.text = "$deliveryCount ❗"
+            tvDelivery.contentDescription = "$deliveryCount delivery requests"
 
             itemView.setOnClickListener { onGroupClick?.invoke(group) }
         }

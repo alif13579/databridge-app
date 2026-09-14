@@ -993,6 +993,9 @@ class WorkerSpaceFragment : Fragment() {
 
         // Local state update for all affected parcels.
         val updatedIds = items.map { it.id }.toSet()
+        val savedHoldClass = HoldClassCache.classOf(
+            HoldClassCache.get(),
+            selectedOption?.englishLabel?.ifBlank { selectedLabel } ?: selectedLabel)
         allParcels = allParcels.map { p ->
             if (p.id !in updatedIds) return@map p
             val newHistory = p.history + HistoryEntry(
@@ -1006,6 +1009,7 @@ class WorkerSpaceFragment : Fragment() {
                 remarkStatus = statusKey,
                 remarks = selectedLabel,
                 validationRequest = isVerifyRequestStatus(statusKey),
+                holdClass = savedHoldClass,
                 history = newHistory
             )
         }
@@ -1649,6 +1653,8 @@ class WorkerSpaceFragment : Fragment() {
                 remarkStatus = status,
                 validationRequest = isVerifyRequestStatus(status),
                 validationNote = if (isVerifyRequestStatus(status)) remarkText else "",
+                holdClass = HoldClassCache.classOf(
+                    HoldClassCache.peek(), latestRemarkRow.optStr("remarks").orEmpty()),
                 remarksAt = createdAt,
                 history = mergeHistoryEntries(item.history, newHistory)
             )
@@ -1894,6 +1900,8 @@ class WorkerSpaceFragment : Fragment() {
             deferred.await()
         }
         val todayRowsByConsignment = todayRemarkRows.groupBy { it.optStr("consignment") }
+        // Hold-class catalog for the yellow stat (cached 10 min — warm path is free).
+        val holdMapBulk = HoldClassCache.get()
 
         // Step 3: fetch consignment details for EVERY consignment IN PARALLEL. Full Supabase
         // history is intentionally not fetched here; the journey sheet loads it on demand.
@@ -1979,6 +1987,8 @@ class WorkerSpaceFragment : Fragment() {
                     engagedAgents = engagedAgentsValBulk,
                     attemptCount = attemptVal,
                     history = emptyList(),
+                    holdClass = HoldClassCache.classOf(
+                        holdMapBulk, latestTodayRawEntry?.optStr("remarks").orEmpty()),
                     // Preserve the run's canonical branch IDs for a later worker remark
                     // write. Without this, Worker -> CC notifications/status updates are
                     // filtered out whenever a worker's default branch differs from the run.
@@ -2218,7 +2228,23 @@ class WorkerSpaceFragment : Fragment() {
             }
 
             tvStatTotalValue.text = counts.values.sum().toString()
-            buildWsDynamicStatChips(counts)
+            // Fixed 3-color summary (same rule as the CC agent header): green =
+            // validated (hold_verified + return_verified), yellow = latest remark
+            // in the non-strict class, red = delivery_request.
+            val holdMap = HoldClassCache.get()
+            var validated = 0
+            var nonStrict = 0
+            var delivery = 0
+            rows.forEach { row ->
+                val st = row.optStr("remarks_status")?.trim().orEmpty()
+                if (HoldClassCache.isValidated(st)) validated++
+                if (HoldClassCache.isDeliveryRequest(st)) delivery++
+                if (HoldClassCache.isNonStrict(
+                        HoldClassCache.classOf(holdMap, row.optStr("remarks").orEmpty())
+                    )
+                ) nonStrict++
+            }
+            buildWsDynamicStatChips(counts, Triple(validated, nonStrict, delivery))
         }
     }
 
@@ -2227,8 +2253,23 @@ class WorkerSpaceFragment : Fragment() {
      *  already use) — label/color resolved via StatusMetaCache with a graceful fallback (raw
      *  status text, neutral gray) for anything not configured there. Reuses CallCenterFragment's
      *  item_cc_stat_chip.xml layout rather than adding a near-identical duplicate. */
-    private fun buildWsDynamicStatChips(counts: Map<String, Int>) {
+    private fun buildWsDynamicStatChips(counts: Map<String, Int>, fixed: Triple<Int, Int, Int> = Triple(0, 0, 0)) {
         layoutWsStatDynamic.removeAllViews()
+        // Fixed 3-color chips first (always visible, even at 0 — same meaning
+        // as the CC agent header badges).
+        val ctx = requireContext()
+        fun addFixedChip(value: Int, label: String, colorRes: Int) {
+            val chip = layoutInflater.inflate(R.layout.item_cc_stat_chip, layoutWsStatDynamic, false)
+            chip.findViewById<TextView>(R.id.tvCcStatChipValue).apply {
+                text = value.toString()
+                setTextColor(ctx.getColor(colorRes))
+            }
+            chip.findViewById<TextView>(R.id.tvCcStatChipLabel).text = label
+            layoutWsStatDynamic.addView(chip)
+        }
+        addFixedChip(fixed.first, "Validated", R.color.theme_green)
+        addFixedChip(fixed.second, "Non-strict", R.color.theme_yellow)
+        addFixedChip(fixed.third, "Delivery", R.color.theme_red)
         val sorted = counts.entries.sortedWith(
             compareByDescending<Map.Entry<String, Int>> { StatusMetaCache.entries[it.key]?.sortOrder ?: 0 }
                 .thenByDescending { it.value }

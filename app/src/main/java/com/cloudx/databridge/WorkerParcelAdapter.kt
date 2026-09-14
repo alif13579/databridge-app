@@ -40,6 +40,9 @@ data class WorkerParcelItem(
     val engagedAgents: List<EngagedAgent> = emptyList(),
     val attemptCount: Int = 0,
     val history: List<HistoryEntry> = emptyList(),
+    /** Hold class ("strict"/"non-strict"/"") of the latest remark's english
+     *  text via HoldClassCache — drives the yellow non-strict worker stat. */
+    val holdClass: String = "",
     /** The consignment's own resolvedBranchIds (locked in at run-creation time — see
      *  ConfigSheetWizardSteps), NOT the currently signed-in worker's branch_ids. A remark's
      *  validations.branch_id must match the CONSIGNMENT's branch for RLS (branch_id = any
