@@ -244,8 +244,9 @@ class ConfigStatusesFragment : Fragment() {
         tvPrev.setTextColor(android.graphics.Color.parseColor(c0))
         tvPrev.setBackgroundColor(android.graphics.Color.parseColor(bg0))
 
-        // Ignore-list editor: pre-filled with the current list, or the built-in
-        // terminal default when never configured (what-you-see-is-what-applies).
+        // Ignore-list editor: the status's own saved list (empty = built-in terminal
+        // default, see hint). Dropdown = every status key + every custom saved
+        // anywhere, so saved customs are reusable.
         view.findViewById<TextView>(R.id.tvIgnoreHint).text =
             "Empty = built-in default (${defaultIgnoredWhenActual().joinToString(", ")})"
         val ignoreWorking = buildIgnoreEditor(
@@ -253,8 +254,10 @@ class ConfigStatusesFragment : Fragment() {
             view.findViewById(R.id.ignoreChipContainer),
             view.findViewById(R.id.spinnerIgnoreActual),
             view.findViewById(R.id.btnAddIgnore),
-            meta.ignoredWhenActual.ifEmpty { defaultIgnoredWhenActual() },
-            options = { ConfigState.statuses.filter { it != key } },
+            view.findViewById(R.id.etCustomIgnore),
+            view.findViewById(R.id.btnAddCustomIgnore),
+            meta.ignoredWhenActual,
+            options = { ignoreOptionsFor(key) },
         )
 
         AlertDialog.Builder(ctx)
@@ -532,10 +535,32 @@ class ConfigStatusesFragment : Fragment() {
         createIgnoreRow.addView(createIgnoreSpinner)
         createIgnoreRow.addView(createIgnoreAdd)
         content.addView(createIgnoreRow)
+        val createCustomInput = input("Custom actual status (e.g. Cancelled)")
+        val createCustomRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(4) }
+        }
+        createCustomInput.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        val createCustomAdd = Button(ctx).apply {
+            text = "＋ Custom"
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        createCustomRow.addView(createCustomInput)
+        createCustomRow.addView(createCustomAdd)
+        content.addView(createCustomRow)
         val createIgnoreWorking = buildIgnoreEditor(
             ctx, createIgnoreChips, createIgnoreSpinner, createIgnoreAdd,
+            createCustomInput, createCustomAdd,
             emptyList(),
-            options = { ConfigState.statuses },
+            // Self key unknown until typed — exclude it at save time instead.
+            options = { ignoreOptionsFor("") },
         )
         content.addView(label("Color"))
         content.addView(picker)
@@ -566,7 +591,11 @@ class ConfigStatusesFragment : Fragment() {
                     else -> {
                         val (color, bg) = statusColors[selectedColorIdx]
                         dialog.dismiss()
-                        createStatus(rawKey, bn, en, pri, sort, color, bg, createIgnoreWorking.toList())
+                        // Drop any entry matching the new key itself (ignoring in
+                        // itself is meaningless).
+                        val ignores = createIgnoreWorking
+                            .filter { !it.equals(rawKey, ignoreCase = true) }.toList()
+                        createStatus(rawKey, bn, en, pri, sort, color, bg, ignores)
                     }
                 }
             }
@@ -630,16 +659,30 @@ class ConfigStatusesFragment : Fragment() {
 
     // ── Ignore-list editor helper ─────────────────────────────────────────────
     /**
+     * Dropdown pool for the ignore editor: every status key PLUS every custom text
+     * saved in any status's ignore list — so a custom added once (e.g. "Cancelled")
+     * is reusable from the dropdown later. Nothing hardcoded: the pool is purely
+     * what exists in config.
+     */
+    private fun ignoreOptionsFor(selfKey: String): List<String> =
+        (ConfigState.statuses + ConfigState.statusMeta.values.flatMap { it.ignoredWhenActual })
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.equals(selfKey, ignoreCase = true) }
+            .distinctBy { it.lowercase() }
+
+    /**
      * "Ignored when actual is" multi-add editor: removable chip rows + a spinner
      * with ＋ Add for appending more actual statuses. Returns the working list
      * (mutated in place by the UI — snapshot with .toList() on save).
-     * [initial] is copied, so callers can pre-fill the built-in default.
+     * [initial] is copied — pass the status's own saved list (empty = default applies).
      */
     private fun buildIgnoreEditor(
         ctx: android.content.Context,
         chipContainer: LinearLayout,
         spinner: Spinner,
         addBtn: View,
+        customInput: EditText,
+        customAddBtn: View,
         initial: List<String>,
         options: () -> List<String>,
     ): MutableList<String> {
@@ -687,6 +730,20 @@ class ConfigStatusesFragment : Fragment() {
             if (working.none { it.equals(picked, ignoreCase = true) }) {
                 working.add(picked)
                 render()
+            }
+        }
+        // Free-text customs (e.g. Cancelled, Completed — courier actuals that may not
+        // exist as status keys). Saved with the status, then reusable via options().
+        customAddBtn.setOnClickListener {
+            val text = customInput.text.toString().trim()
+            when {
+                text.isEmpty() -> customInput.error = "Type a status"
+                working.any { it.equals(text, ignoreCase = true) } -> customInput.error = "Already in list"
+                else -> {
+                    working.add(text)
+                    customInput.setText("")
+                    render()
+                }
             }
         }
         render()

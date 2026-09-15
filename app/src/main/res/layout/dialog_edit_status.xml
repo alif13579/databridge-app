@@ -58,13 +58,24 @@
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:orientation="vertical" android:layout_marginBottom="4dp" />
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:orientation="horizontal" android:layout_marginBottom="10dp">
+            android:orientation="horizontal" android:layout_marginBottom="6dp">
             <Spinner android:id="@+id/spinnerIgnoreActual"
                 android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:layout_marginEnd="6dp" />
             <Button android:id="@+id/btnAddIgnore"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="＋ Add" android:textSize="12sp" android:minHeight="0dp" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:layout_marginBottom="10dp">
+            <EditText android:id="@+id/etCustomIgnore"
+                android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginEnd="6dp"
+                android:hint="Custom actual status (e.g. Cancelled)" android:textSize="13sp" android:padding="8dp"
+                android:background="@drawable/bg_input_rounded" android:inputType="text" android:singleLine="true" />
+            <Button android:id="@+id/btnAddCustomIgnore"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="＋ Custom" android:textSize="12sp" android:minHeight="0dp" />
         </LinearLayout>
 
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
