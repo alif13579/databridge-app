@@ -84,11 +84,13 @@ data class HistoryEntry(
      *  [WorkerParcelAdapter.withResponseGaps] rather than stored — this is UI-derived, not
      *  raw data. */
     val responseGapMinutes: Long? = null,
-    /** From the remark's call_logs field (worker remark-save call log verification) —
-     *  how many calls were made to this number today, and their combined talk duration.
-     *  0/0 when the remark has no call_logs (e.g. no permission, or nothing matched). */
+    /** From the remark's synced call evidence (validations.call_count etc. — today's
+     *  dial summary for this number, recorded by the saver's device). 0/0 = no dials
+     *  recorded (or pre-feature row); max/cut sharpen true-vs-fake dial reads. */
     val callLogCount: Int = 0,
-    val callLogTotalDurationSec: Int = 0
+    val callLogTotalDurationSec: Int = 0,
+    val callLogMaxTalkSec: Int = 0,
+    val callLogCut: Int = 0
 )
 
 class WorkerParcelAdapter(
@@ -558,6 +560,18 @@ class WorkerParcelAdapter(
                 days >= 3 -> red to false
                 days >= 2 -> yellow to false
                 else      -> grey to false
+            }
+        }
+
+        /** Journey/timeline call-evidence line, shared by every renderer so the
+         *  supervisor reads the same shape everywhere. Null when count is 0
+         *  (nothing recorded — pre-feature row or no dials). */
+        fun callLogLine(count: Int, totalSec: Int, maxSec: Int, cut: Int): String? {
+            if (count <= 0) return null
+            return buildString {
+                append("📞 $count call${if (count == 1) "" else "s"}, ${totalSec}s total")
+                if (maxSec > 0) append(" · longest ${maxSec}s")
+                if (cut > 0) append(" · ⚠ $cut cut")
             }
         }
 

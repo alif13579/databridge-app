@@ -100,6 +100,19 @@ Deno.serve(async (request) => {
       const parcelPromise = firebaseRead(
         identity, `courier/consignments/${encodeURIComponent(row.consignment)}`
       ) as Promise<Record<string, unknown> | null>
+      // Call-track evidence (today's dial summary from the agent's device).
+      // Nullable = unknown (older app / no permission); 0 = known zero.
+      const intOrNull = (v: unknown): number | null => {
+        if (v === null || v === undefined || v === '') return null
+        const n = typeof v === 'number' ? Math.trunc(v) : parseInt(String(v), 10)
+        return Number.isFinite(n) && n >= 0 ? n : null
+      }
+      const callFields = {
+        call_count: intOrNull(row.call_count),
+        call_talk_sec: intOrNull(row.call_talk_sec),
+        call_max_talk_sec: intOrNull(row.call_max_talk_sec),
+        call_cut: intOrNull(row.call_cut),
+      }
       // Worker writes have the same assigned agent and author; reuse the verified profile instead
       // of doing another Firebase profile lookup for the same person.
       const parcel = await parcelPromise
@@ -113,8 +126,19 @@ Deno.serve(async (request) => {
         remarks: typeof row.remarks === 'string' ? row.remarks : '',
         note: typeof row.note === 'string' ? row.note : '',
         customer_phone: typeof parcel?.recipientPhone === 'string' ? parcel.recipientPhone.trim() : '',
+        ...callFields,
       }
-      const { error } = await admin.from('validations').insert(savedRow)
+      let { error } = await admin.from('validations').insert(savedRow)
+      if (error && error.code === '42703') {
+        // Migration not applied yet on this project: retry without the call
+        // columns rather than failing the whole remark save.
+        errLog('write', 'call_columns_missing_retry', { consignment: savedRow.consignment })
+        delete (savedRow as Record<string, unknown>).call_count
+        delete (savedRow as Record<string, unknown>).call_talk_sec
+        delete (savedRow as Record<string, unknown>).call_max_talk_sec
+        delete (savedRow as Record<string, unknown>).call_cut
+        ;({ error } = await admin.from('validations').insert(savedRow))
+      }
       if (error) {
         errLog('write', 'db_insert_failed', { consignment: savedRow.consignment, pg_code: error.code, pg_message: error.message })
         throw error
@@ -209,7 +233,7 @@ Deno.serve(async (request) => {
       const page = Math.max(0, Number(body.page) || 0)
       const pageSize = Math.min(100, Math.max(1, Number(body.page_size) || 50))
       let query = admin.from('validations')
-        .select('id,consignment,branch_id,assigned_to_system_id,author_system_id,source,remarks_status,consignment_status,remarks,note,customer_phone,created_at,author:users!validations_author_system_id_fkey(name,employee_id,role),assigned:users!validations_assigned_to_system_id_fkey(name,employee_id,role)')
+        .select('id,consignment,branch_id,assigned_to_system_id,author_system_id,source,remarks_status,consignment_status,remarks,note,customer_phone,call_count,call_talk_sec,call_max_talk_sec,call_cut,created_at,author:users!validations_author_system_id_fkey(name,employee_id,role),assigned:users!validations_assigned_to_system_id_fkey(name,employee_id,role)')
         .eq('branch_id', body.branch_id).gte('created_at', body.start_iso).lt('created_at', body.end_iso)
       for (const field of ['consignment', 'assigned_to_system_id', 'author_system_id', 'remarks_status', 'consignment_status', 'source'] as const) {
         if (typeof body[field] === 'string' && body[field].trim()) query = query.eq(field, body[field].trim())

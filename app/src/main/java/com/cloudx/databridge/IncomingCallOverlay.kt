@@ -1000,7 +1000,8 @@ object IncomingCallOverlay {
                             } ?: "",
                             feedback = chosen?.category.orEmpty(),
                             validatorName = validatorName,
-                            appContext = context.applicationContext
+                            appContext = context.applicationContext,
+                            callPhone = match.phone
                         )
                     }
                 } else {
@@ -1018,7 +1019,8 @@ object IncomingCallOverlay {
                             screen = "IncomingCallOverlay",
                             remarksBnText = chosen?.let {
                                 it.label.takeIf { label -> label.isNotBlank() && label != it.englishLabel }
-                            } ?: ""
+                            } ?: "",
+                            callPhone = match.phone
                         )
                     }
                 }

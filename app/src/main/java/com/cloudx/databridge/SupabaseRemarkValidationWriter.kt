@@ -47,7 +47,8 @@ object SupabaseRemarkValidationWriter {
               screen: String, remarksBnText: String = "",
               feedback: String = "", validatorName: String = "",
               appContext: android.content.Context? = null,
-              onSheetAuthNeeded: (() -> Unit)? = null) {
+              onSheetAuthNeeded: (() -> Unit)? = null,
+              callPhone: String = "") {
         if (assignedAgentSystemId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
             val missing = buildList {
                 if (assignedAgentSystemId.isBlank()) add("assignedAgentSystemId")
@@ -61,7 +62,17 @@ object SupabaseRemarkValidationWriter {
             .put("assigned_to_system_id", assignedAgentSystemId)
             .put("source", source)
             .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)
-            .apply { if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText) }),             screen,
+            .apply {
+                if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText)
+                // Today's dial evidence for this number (device-local call log).
+                // Null/absent = unknown (older app / no permission); 0 = known zero.
+                CallAttemptStore.summarizeToday(callPhone)?.let { s ->
+                    put("call_count", s.count)
+                    put("call_talk_sec", s.talkSec)
+                    put("call_max_talk_sec", s.maxTalkSec)
+                    put("call_cut", s.cut)
+                }
+            }),             screen,
             "supabase_validation_write", consignmentId) { response ->
                 // The validation write is intentionally independent from push delivery, so
                 // a saved remark can still have push={reason:...}. Keep that outcome in the
@@ -97,7 +108,8 @@ object SupabaseRemarkValidationWriter {
               screen: String, remarksBnText: String = "",
               feedback: String = "", validatorName: String = "",
               appContext: android.content.Context? = null,
-              onSheetAuthNeeded: (() -> Unit)? = null): Boolean {
+              onSheetAuthNeeded: (() -> Unit)? = null,
+              callPhone: String = ""): Boolean {
         if (assignedAgentSystemId.isBlank() || branchId.isBlank() || consignmentId.isBlank()) {
             val missing = buildList {
                 if (assignedAgentSystemId.isBlank()) add("assignedAgentSystemId")
@@ -113,7 +125,15 @@ object SupabaseRemarkValidationWriter {
             .put("assigned_to_system_id", assignedAgentSystemId)
             .put("source", source)
             .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)
-            .apply { if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText) }), screen,
+            .apply {
+                if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText)
+                CallAttemptStore.summarizeToday(callPhone)?.let { s ->
+                    put("call_count", s.count)
+                    put("call_talk_sec", s.talkSec)
+                    put("call_max_talk_sec", s.maxTalkSec)
+                    put("call_cut", s.cut)
+                }
+            }), screen,
             "supabase_validation_write", consignmentId) { response ->
                 deferred.complete(response)
             }

@@ -183,6 +183,8 @@ class WorkerSpaceFragment : Fragment() {
         // Still-expanded card may have been swept while backgrounded (or its socket
         // blipped) — re-mark so the ring survives dialer-out-and-back.
         remarkExpandedCard()
+        // Resolve dials started here against the call log now that we're back.
+        viewLifecycleOwner.lifecycleScope.launch { CallAttemptStore.resolvePending() }
     }
 
     /** Pre-fills and applies the search box (popup finder handoff). Resets the
@@ -476,6 +478,7 @@ class WorkerSpaceFragment : Fragment() {
         adapter = WorkerParcelAdapter(
             onCall = { item ->
                 AutoDialHelper.dial(this, item.phone) // ✅ auto-dial / dialpad / SIM chooser
+                CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_WORKER)
             },            onSetRemarks = { item ->
                 showWorkerRemarksDialog(item)
             },
@@ -506,6 +509,7 @@ class WorkerSpaceFragment : Fragment() {
                 onSwipeRight = { position ->
                     adapter.currentList.getOrNull(position)?.let { item ->
                         AutoDialHelper.dial(this, item.phone)
+                        CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_WORKER)
                         // Expand this card's remarks drawer immediately so it's visible to
                         // anyone else on the same screen that this parcel is being worked on.
                         adapter.expandedItemId = item.id
@@ -1015,7 +1019,9 @@ class WorkerSpaceFragment : Fragment() {
                     // Blank when englishLabel is missing/blank (falls back to selectedLabel
                     // itself above, i.e. already the same text as what's stored) — validation_remarks
                     // only needs an entry when the English and Bangla text actually differ.
-                    remarksBnText = selectedOption?.englishLabel?.takeIf { it.isNotBlank() }?.let { selectedLabel } ?: ""
+                    remarksBnText = selectedOption?.englishLabel?.takeIf { it.isNotBlank() }?.let { selectedLabel } ?: "",
+                    // Today's dial evidence for this number (supervisor talk tracking).
+                    callPhone = p.phone
                 )
                 if (ok) EngagedStateManager.clearEngaged(p.id, userId) else failed++
             }
@@ -1152,7 +1158,8 @@ class WorkerSpaceFragment : Fragment() {
         status: String,
         remarksText: String,
         noteText: String = "",
-        remarksBnText: String = ""
+        remarksBnText: String = "",
+        callPhone: String = ""
     ): Boolean {
         if (systemId.isBlank() || branchId.isBlank()) return false
 
@@ -1165,7 +1172,8 @@ class WorkerSpaceFragment : Fragment() {
             noteText = noteText,
             source = "WORKER",
             screen = "WorkerSpaceFragment",
-            remarksBnText = remarksBnText
+            remarksBnText = remarksBnText,
+            callPhone = callPhone
         )
     }
 
@@ -1401,6 +1409,19 @@ class WorkerSpaceFragment : Fragment() {
                     tvGap.visibility = View.GONE
                 }
 
+                // Call evidence for this remark (supervisor true-vs-fake dial read).
+                val tvCallLogs = timelineView.findViewById<TextView>(R.id.twTimelineCallLogs)
+                val callLine = WorkerParcelAdapter.callLogLine(
+                    entry.callLogCount, entry.callLogTotalDurationSec,
+                    entry.callLogMaxTalkSec, entry.callLogCut
+                )
+                if (callLine != null) {
+                    tvCallLogs.text = callLine
+                    tvCallLogs.visibility = View.VISIBLE
+                } else {
+                    tvCallLogs.visibility = View.GONE
+                }
+
                 layoutTimeline.addView(timelineView)
             }
         }
@@ -1453,7 +1474,11 @@ class WorkerSpaceFragment : Fragment() {
                 authorPhotoUrl = authorUser?.optStr("photo_url")?.trim().orEmpty()
                     .ifBlank { photoMap[authorSystemId].orEmpty() },
                 createdAt = createdAt,
-                cardBadgeText = rRemarks
+                cardBadgeText = rRemarks,
+                callLogCount = r.optInt("call_count"),
+                callLogTotalDurationSec = r.optInt("call_talk_sec"),
+                callLogMaxTalkSec = r.optInt("call_max_talk_sec"),
+                callLogCut = r.optInt("call_cut")
             )
         }.sortedBy { it.createdAt }
     }

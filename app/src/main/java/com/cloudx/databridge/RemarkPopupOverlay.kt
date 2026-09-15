@@ -369,7 +369,8 @@ object RemarkPopupOverlay {
                     remarksBnText = chosen.label.takeIf { it.isNotBlank() && it != chosen.englishLabel } ?: "",
                     feedback = if (source == "CC") chosen.category else "",
                     validatorName = if (source == "CC") validatorName else "",
-                    appContext = context.applicationContext
+                    appContext = context.applicationContext,
+                    callPhone = match.phone
                 )
                 if (overlayView !== view) return@launch
                 if (ok) {

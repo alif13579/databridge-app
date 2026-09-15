@@ -157,6 +157,12 @@ class ParcelDetailFragment : Fragment() {
         view.findViewById<View>(R.id.btnPdCall).setOnClickListener {
             if (currentPhone.isNotBlank()) {
                 AutoDialHelper.dial(this, currentPhone)
+                // Call-track: resolved on resume (talk proves true dial for supervisor).
+                CallAttemptStore.beginDial(
+                    parcelId, currentPhone,
+                    CallAttemptStore.KIND_MANUAL,
+                    if (scope == "worker") CallAttemptStore.ROLE_WORKER else CallAttemptStore.ROLE_CC
+                )
             }
         }
         view.findViewById<View>(R.id.btnPdSetRemarks).setOnClickListener {
@@ -208,6 +214,12 @@ class ParcelDetailFragment : Fragment() {
     override fun onDestroyView() {
         timelineRealtimeJob?.cancel()
         super.onDestroyView()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Resolve dials started here against the call log now that we're back.
+        viewLifecycleOwner.lifecycleScope.launch { CallAttemptStore.resolvePending() }
     }
 
     // ── Set Remarks (reachable from a notification tap — same capability the
@@ -382,6 +394,7 @@ class ParcelDetailFragment : Fragment() {
                     feedback = if (source == "CC") selectedFeedback else "",
                     validatorName = if (source == "CC") validatorName else "",
                     appContext = requireContext().applicationContext,
+                    callPhone = currentPhone,
                     onSheetAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() }
                 )
                 if (!isAdded) return@launch
@@ -625,7 +638,9 @@ class ParcelDetailFragment : Fragment() {
             val photoUrl: String,
             val createdAt:Long,
             val callLogCount: Int = 0,
-            val callLogTotalDurationSec: Int = 0
+            val callLogTotalDurationSec: Int = 0,
+            val callLogMaxTalkSec: Int = 0,
+            val callLogCut: Int = 0
         )
 
         val sdf = SimpleDateFormat("dd-MM-yy  hh:mm a", Locale.getDefault())
@@ -695,7 +710,11 @@ class ParcelDetailFragment : Fragment() {
                     else                  -> ""
                 }
 
-                Entry(rStatus, display, timeStr, author, role, photoUrl, createdAt)
+                Entry(rStatus, display, timeStr, author, role, photoUrl, createdAt,
+                    callLogCount = r.optInt("call_count"),
+                    callLogTotalDurationSec = r.optInt("call_talk_sec"),
+                    callLogMaxTalkSec = r.optInt("call_max_talk_sec"),
+                    callLogCut = r.optInt("call_cut"))
             }
             .sortedBy { it.createdAt }   // oldest first → timeline reads top-to-bottom
 
@@ -730,7 +749,11 @@ class ParcelDetailFragment : Fragment() {
                     author = e.author,
                     authorRole = e.role,
                     authorPhotoUrl = e.photoUrl,
-                    createdAt = e.createdAt
+                    createdAt = e.createdAt,
+                    callLogCount = e.callLogCount,
+                    callLogTotalDurationSec = e.callLogTotalDurationSec,
+                    callLogMaxTalkSec = e.callLogMaxTalkSec,
+                    callLogCut = e.callLogCut
                 )
             }
         ).withIndex().mapNotNull { (i, h) -> h.responseGapMinutes?.let { i to it } }.toMap()
@@ -811,8 +834,12 @@ class ParcelDetailFragment : Fragment() {
 
                 // Call attempts on this entry — matches CallCenterFragment's Journey Log dialog.
                 val tvCallLogs = row.findViewById<TextView>(R.id.twTimelineCallLogs)
-                if (entry.callLogCount > 0) {
-                    tvCallLogs.text = "📞 ${entry.callLogCount} call${if (entry.callLogCount == 1) "" else "s"}, ${entry.callLogTotalDurationSec}s total"
+                val callLine = WorkerParcelAdapter.callLogLine(
+                    entry.callLogCount, entry.callLogTotalDurationSec,
+                    entry.callLogMaxTalkSec, entry.callLogCut
+                )
+                if (callLine != null) {
+                    tvCallLogs.text = callLine
                     tvCallLogs.visibility = View.VISIBLE
                 } else {
                     tvCallLogs.visibility = View.GONE

@@ -86,6 +86,12 @@ class ViewOrdersFragment : Fragment() {
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
     ): View = inflater.inflate(R.layout.fragment_view_orders, container, false)
 
+    override fun onResume() {
+        super.onResume()
+        // Resolve dials started here against the call log now that we're back.
+        viewLifecycleOwner.lifecycleScope.launch { CallAttemptStore.resolvePending() }
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         etSearch = view.findViewById(R.id.etVoSearch)
@@ -242,6 +248,9 @@ class ViewOrdersFragment : Fragment() {
             return
         }
         AutoDialHelper.dial(this, item.phone)
+        // Call-track: resolved on resume (talk proves true dial for supervisor).
+        val role = if (RbacManager.hasPermission("nav_call_center")) CallAttemptStore.ROLE_CC else CallAttemptStore.ROLE_WORKER
+        CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, role)
     }
 
     /**

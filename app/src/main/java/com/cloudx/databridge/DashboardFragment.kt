@@ -204,7 +204,20 @@ class DashboardFragment : Fragment() {
             append("• Verified (Hold/Return): ${state.holdReturn} ($holdReturnPct% of Verify Request)\n")
             append("• Delivery requests: ${state.deliveryRequest} ($deliveryReqPct% of Verify Request)\n")
             append("• Confirmed: ${state.confirmed} ($confirmedPct%), Delivered: ${state.delivered} ($deliveredPct%), Pending: ${state.pending} ($pendingPct%)")
+            val t = state.talk
+            if (t.remarks > 0) {
+                val ansPct = pct(t.answered, t.remarks)
+                append("\n• Talk: ${t.dials} dials · ${fmtDur(t.talkSec)} talk · ${t.answered}/${t.remarks} answered ($ansPct%)")
+                if (t.cut > 0) append(" · ⚠ ${t.cut} cut")
+            }
         }
+    }
+
+    private fun fmtDur(totalSec: Int): String {
+        if (totalSec < 60) return "${totalSec}s"
+        val m = totalSec / 60
+        if (m < 60) return "${m}m"
+        return "${m / 60}h${m % 60}m"
     }
 
     private fun pct(part: Int, whole: Int): Int = if (whole <= 0) 0 else Math.round(part * 100f / whole)

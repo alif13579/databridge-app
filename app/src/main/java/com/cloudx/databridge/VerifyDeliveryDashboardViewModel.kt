@@ -29,6 +29,18 @@ data class VerifyDeliveryFunnelState(
     val delivered: Int = 0,
     val pending: Int = 0,
     val agentOptions: List<FunnelAgentOption> = emptyList(),
+    val talk: TalkTotals = TalkTotals(),
+)
+
+/** Supervisor talk tracking: synced per-remark call evidence (validations.call_*)
+ *  aggregated over the same scope. Rows without call columns (pre-feature) are
+ *  skipped — [remarks] counts only rows that carry call data. */
+data class TalkTotals(
+    val remarks: Int = 0,
+    val dials: Int = 0,
+    val talkSec: Int = 0,
+    val answered: Int = 0,
+    val cut: Int = 0,
 )
 
 /**
@@ -127,6 +139,7 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
                     delivered = counts.delivered,
                     pending = counts.pending,
                     agentOptions = agentOptions,
+                    talk = aggregateTalk(remarkRows, scopeSid),
                 )
             } catch (e: Exception) {
                 _state.value = (_state.value ?: VerifyDeliveryFunnelState()).copy(
@@ -282,6 +295,35 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
                 )
             }
         }.awaitAll().flatten()
+    }
+
+    // ── Talk aggregation (supervisor true-vs-fake dial read) ────────────────
+
+    /**
+     * Sums synced call evidence over [rows] in the same author scope as the funnel
+     * (null scope = team All = every author). Only rows that actually carry call
+     * columns count — pre-feature rows are invisible here, never zero-diluted.
+     */
+    private fun aggregateTalk(rows: List<JSONObject>, scopeSid: String?): TalkTotals {
+        var remarks = 0
+        var dials = 0
+        var talkSec = 0
+        var answered = 0
+        var cut = 0
+        rows.forEach { r ->
+            if (!scopeSid.isNullOrBlank() &&
+                !r.optString("author_system_id").trim().equals(scopeSid, ignoreCase = true)
+            ) return@forEach
+            if (r.isNull("call_count")) return@forEach
+            remarks++
+            val c = r.optInt("call_count")
+            val t = r.optInt("call_talk_sec")
+            dials += c
+            talkSec += t
+            if (r.optInt("call_max_talk_sec") > 0) answered++
+            cut += r.optInt("call_cut")
+        }
+        return TalkTotals(remarks, dials, talkSec, answered, cut)
     }
 
     // ── Classification ────────────────────────────────────────────────────────

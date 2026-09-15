@@ -147,7 +147,8 @@ object DeliveryReminderOverlay {
             noteText = "",
             source = "WORKER",
             screen = "DeliveryReminderOverlay",
-            remarksBnText = remarksBnText
+            remarksBnText = remarksBnText,
+            callPhone = data.customerPhone
         )
         dismissInternal()
     }

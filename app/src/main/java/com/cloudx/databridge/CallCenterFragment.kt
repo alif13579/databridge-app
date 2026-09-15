@@ -315,6 +315,9 @@ class CallCenterFragment : Fragment() {
         // Still-expanded card may have been swept while backgrounded (or its socket
         // blipped) — re-mark so the ring survives dialer-out-and-back.
         remarkExpandedCard()
+        // Resolve any dial started from here (manual tap/swipe): match pending dials
+        // against the call log now that we're back — records talk vs instant-cut.
+        viewLifecycleOwner.lifecycleScope.launch { CallAttemptStore.resolvePending() }
     }
 
     override fun onDestroyView() {
@@ -854,6 +857,9 @@ class CallCenterFragment : Fragment() {
                 if (talkDurationSec != null || !CallLogHelper.hasPermission(ctx)) {
                     DialCountStore.increment(ctx, id)
                 }
+                // Call-track record (supervisor talk report): measured talk + elapsed,
+                // null talk = log entry never appeared.
+                CallAttemptStore.recordVerified(id, phone, dialStartMs, talkDurationSec, totalDurationSec, CallAttemptStore.KIND_AUTO, CallAttemptStore.ROLE_CC)
 
                 val noAnswer = talkDurationSec == 0 && totalDurationSec >= AUTO_NO_ANSWER_MIN_RING_SECONDS
 
@@ -882,6 +888,7 @@ class CallCenterFragment : Fragment() {
                         delay(1000L)
                         val redialTalk = CallLogHelper.getLastCallDurationSeconds(ctx, phone, redialStartMs)
                         val redialTotal = ((System.currentTimeMillis() - redialStartMs) / 1000L).toInt()
+                        CallAttemptStore.recordVerified(id, phone, redialStartMs, redialTalk, redialTotal, CallAttemptStore.KIND_AUTO, CallAttemptStore.ROLE_CC)
                         if (redialTalk != null && redialTalk > 0) break // answered — stop
                         if (redialTotal < AUTO_NO_ANSWER_MIN_RING_SECONDS) break // auto-cut — stop
                     }
@@ -1043,6 +1050,9 @@ class CallCenterFragment : Fragment() {
         adapter = CallCenterAdapter(
             onCall = { item ->
                 AutoDialHelper.dial(this@CallCenterFragment, item.phone)
+                // Call-track: pending dial resolved on resume (talk duration proves
+                // true dial vs instant-cut fake for the supervisor report).
+                CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_CC)
                 verifyAndIncrementDialCount(item.id, item.phone)
                 callCardStates[item.id] = colorCallDone
                 pushCallStates()
@@ -1142,6 +1152,7 @@ class CallCenterFragment : Fragment() {
                 onSwipeRight = { position ->
                     adapter.parcelAt(position)?.let { item ->
                         AutoDialHelper.dial(this@CallCenterFragment, item.phone)
+                        CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_CC)
                         verifyAndIncrementDialCount(item.id, item.phone)
                         callCardStates[item.id] = colorCallDone
                         pushCallStates()
@@ -1266,8 +1277,10 @@ class CallCenterFragment : Fragment() {
                 authorPhotoUrl = authorUser?.optStr("photo_url")?.trim().orEmpty()
                     .ifBlank { systemIdToPhotoUrl[authorSystemId].orEmpty() },
                 createdAt = createdAt,
-                callLogCount = 0,
-                callLogTotalDurationSec = 0
+                callLogCount = r.optInt("call_count"),
+                callLogTotalDurationSec = r.optInt("call_talk_sec"),
+                callLogMaxTalkSec = r.optInt("call_max_talk_sec"),
+                callLogCut = r.optInt("call_cut")
             )
         }.sortedBy { it.createdAt }
     }
@@ -1403,8 +1416,12 @@ class CallCenterFragment : Fragment() {
                     tvGap.visibility = View.GONE
                 }
 
-                if (entry.callLogCount > 0) {
-                    tvCallLogs.text = "📞 ${entry.callLogCount} call${if (entry.callLogCount == 1) "" else "s"}, ${entry.callLogTotalDurationSec}s total"
+                val callLine = WorkerParcelAdapter.callLogLine(
+                    entry.callLogCount, entry.callLogTotalDurationSec,
+                    entry.callLogMaxTalkSec, entry.callLogCut
+                )
+                if (callLine != null) {
+                    tvCallLogs.text = callLine
                     tvCallLogs.visibility = View.VISIBLE
                 } else {
                     tvCallLogs.visibility = View.GONE
@@ -3382,7 +3399,8 @@ class CallCenterFragment : Fragment() {
             remarksText = "",
             noteText = noteText,
             source = "CC",
-            screen = "CallCenterFragment"
+            screen = "CallCenterFragment",
+            callPhone = item.phone
         )
 
         allParcels = allParcels.map {
@@ -3483,6 +3501,8 @@ class CallCenterFragment : Fragment() {
                 feedback = feedback,
                 validatorName = validatorName,
                 appContext = appCtx,
+                // Today's dial evidence for this number (supervisor talk tracking).
+                callPhone = target.phone,
                 // No Config access needed: first save without a Sheets grant pops
                 // a one-time Google auth dialog (MainActivity, own Gmail).
                 onSheetAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() }

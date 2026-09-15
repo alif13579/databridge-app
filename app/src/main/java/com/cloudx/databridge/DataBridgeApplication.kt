@@ -68,6 +68,9 @@ class DataBridgeApplication : Application() {
 
         // ✅ Engaged-ring tracked set (powers the background/logout auto-clear guards)
         EngagedStateManager.init(this)
+        // ✅ Call-attempt store (pending dials resolve even if the app died mid-call)
+        CallAttemptStore.init(this)
+        GlobalScope.launch(Dispatchers.IO) { CallAttemptStore.resolvePending() }
     }
 
     override fun onTerminate() {
