@@ -1668,8 +1668,7 @@ class CallCenterFragment : Fragment() {
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
         sortedEntries.forEach { (statusKey, count) ->
-            // Language drives en vs bn (config/language/ccLang) — humanizeKey fallback
-            // inside getStatusConfig guarantees never raw UPPER_SNAKE even on cache miss.
+            // Strictly config-defined per config/language/ccLang (en vs bn) — no hardcoded guess.
             val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, ccStatusLang).label
             filters.add(FilterTab(statusKey, "$label($count)"))
         }
@@ -3132,7 +3131,7 @@ class CallCenterFragment : Fragment() {
                     val target = opt.targetStatus.ifBlank { return@mapNotNull null }
                     val metaEntry = StatusMetaCache.entries[target]
                         ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(target, ignoreCase = true) }?.value
-                    val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: StatusMetaCache.humanizeKey(target)
+                    val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
                     CcRemarkOption(
                         icon = "💬",
                         label = label,

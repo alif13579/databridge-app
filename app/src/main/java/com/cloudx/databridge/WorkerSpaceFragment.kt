@@ -370,8 +370,7 @@ class WorkerSpaceFragment : Fragment() {
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
         sortedEntries.forEach { (statusKey, count) ->
-            // Language drives en vs bn (config/language/workerLang) — humanizeKey fallback
-            // inside getStatusConfig guarantees never raw UPPER_SNAKE even on cache miss.
+            // Strictly config-defined per config/language/workerLang (en vs bn) — no hardcoded guess.
             val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, workerStatusLang).label
             filters.add(FilterTab(statusKey, "$label($count)"))
         }
@@ -753,7 +752,7 @@ class WorkerSpaceFragment : Fragment() {
                     val target = opt.targetStatus.ifBlank { return@mapNotNull null }
                     val metaEntry = StatusMetaCache.entries[target]
                         ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(target, ignoreCase = true) }?.value
-                    val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: StatusMetaCache.humanizeKey(target)
+                    val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
                     WorkerRemarkOption(
                         icon = "💬",
                         label = label,
@@ -2397,7 +2396,7 @@ class WorkerSpaceFragment : Fragment() {
             val tvLabel = chip.findViewById<TextView>(R.id.tvCcStatChipLabel)
             tvValue.text = count.toString()
             tvValue.setTextColor(meta?.color ?: android.graphics.Color.GRAY)
-            tvLabel.text = meta?.en?.takeIf { it.isNotBlank() } ?: StatusMetaCache.humanizeKey(status)
+            tvLabel.text = meta?.en?.takeIf { it.isNotBlank() } ?: status
             layoutWsStatDynamic.addView(chip)
         }
     }

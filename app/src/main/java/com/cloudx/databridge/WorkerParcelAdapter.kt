@@ -625,23 +625,19 @@ class WorkerParcelAdapter(
         }
 
         fun getStatusConfig(context: android.content.Context, status: String, statusLang: String = "bn"): StatusConfig {
-            // Exact first, then case-insensitive: remark keys vary in case
-            // (VERIFY_REQUEST vs verify_request) while statusMeta keys may not —
-            // an exact-only lookup shows the raw UPPER_SNAKE key on chips/badges.
+            // Strictly config-defined — no hardcoded label guess. Exact first, then
+            // case-insensitive (remark keys vary in case: VERIFY_REQUEST vs verify_request).
+            // Missing config → raw key in neutral gray (admin gap signal, fix in Config → Statuses).
             val entry = StatusMetaCache.entries[status]
                 ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(status, ignoreCase = true) }?.value
             entry?.let {
                 val primary = if (statusLang == "en") it.en else it.bn
                 val other = if (statusLang == "en") it.bn else it.en
-                // Per user: chips must never show raw UPPER_SNAKE — prefer en, then bn, then humanized.
-                val label = primary.ifBlank { other }.ifBlank { StatusMetaCache.humanizeKey(status) }
-                return StatusConfig(it.color, it.bg, label)
+                return StatusConfig(it.color, it.bg, primary.ifBlank { other }.ifBlank { status })
             }
-            // Cache miss — StatusMetaCache not yet loaded or this status not in config.
-            // Humanize so chip never looks like DELIVERY_REQUEST — shows "Delivery Request".
             val neutral   = android.graphics.Color.parseColor("#6B7280")
             val neutralBg = android.graphics.Color.parseColor("#F3F4F6")
-            return StatusConfig(neutral, neutralBg, StatusMetaCache.humanizeKey(status))
+            return StatusConfig(neutral, neutralBg, status)
         }
     }
 
