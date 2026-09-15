@@ -43,7 +43,9 @@ data class ViewOrderParcel(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
 ) {
-    val effectiveStatus: String get() = remarkStatus.ifBlank { status }
+    /** Same terminal-wins rule as CallCenterParcelItem.effectiveStatus. */
+    val effectiveStatus: String get() =
+        if (isTerminalParcelStatus(status)) status else remarkStatus.ifBlank { status }
 }
 
 /**

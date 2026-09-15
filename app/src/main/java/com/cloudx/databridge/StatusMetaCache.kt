@@ -130,3 +130,35 @@ fun parseLangPair(value: String): Pair<String, String> {
     val statusLang = parts.getOrNull(1)?.takeIf { it == "bn" || it == "en" } ?: "bn"
     return remarkLang to statusLang
 }
+
+/**
+ * Known terminal actual-status keys (lowercase). Covers the delivered family
+ * (BranchSummaryViewModel.DELIVERED_STATUSES), the return family
+ * (deriveFinalStatus in ScannerSheetModels.kt) and cancelled — including short
+ * forms like "partial"/"exchange" that contain no terminal root below.
+ */
+private val TERMINAL_STATUS_KEYS = setOf(
+    "delivered", "partial delivery", "partial", "paid return", "exchange",
+    "return", "return requested", "cancelled", "canceled", "completed", "complete", "success",
+)
+
+/**
+ * Whether [status] (a parcel's ACTUAL delivery status, e.g. courier/consignments
+ * status) is terminal — the parcel journey is over. Case-insensitive exact match
+ * against TERMINAL_STATUS_KEYS above, plus English-root matching (same approach
+ * as the terminal check in LastAttemptReminderReceiver) since statuses are
+ * admin-configured, not a fixed enum.
+ *
+ * Used by every effectiveStatus getter: a terminal actual status always wins
+ * over a stale remark status (e.g. a parcel delivered AFTER a verify_request
+ * remark shows "Delivered", not "Verify Request"). Non-terminal actuals keep
+ * the old behavior (remark wins when set).
+ */
+fun isTerminalParcelStatus(status: String): Boolean {
+    val s = status.trim()
+    if (s.isEmpty()) return false
+    val lower = s.lowercase(java.util.Locale.ENGLISH)
+    if (lower in TERMINAL_STATUS_KEYS) return true
+    return lower.contains("deliver") || lower.contains("return") ||
+        lower.contains("cancel") || lower.contains("complet") || lower.contains("success")
+}
