@@ -43,9 +43,11 @@ data class ViewOrderParcel(
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
 ) {
-    /** Same terminal-wins rule as CallCenterParcelItem.effectiveStatus. */
+    /** Same rule as CallCenterParcelItem.effectiveStatus (see
+     *  StatusMetaCache.isRemarkIgnoredInActual). */
     val effectiveStatus: String get() =
-        if (isTerminalParcelStatus(status)) status else remarkStatus.ifBlank { status }
+        if (StatusMetaCache.isRemarkIgnoredInActual(remarkStatus, status)) status
+        else remarkStatus.ifBlank { status }
 }
 
 /**

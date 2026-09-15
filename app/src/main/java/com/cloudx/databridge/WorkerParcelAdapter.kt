@@ -51,11 +51,12 @@ data class WorkerParcelItem(
      *  whose current branch differs from this specific consignment's. */
     val branchIds: List<String> = emptyList()
 ) {
-    /** Same terminal-wins rule as CallCenterParcelItem.effectiveStatus: a terminal
-     *  actual status beats a stale remark; otherwise remarkStatus (if set) wins.
-     *  This is what the card's status chip shows and what filters/tabs match against. */
+    /** Same rule as CallCenterParcelItem.effectiveStatus (see
+     *  StatusMetaCache.isRemarkIgnoredInActual). This is what the card's status
+     *  chip shows and what filters/tabs match against. */
     val effectiveStatus: String get() =
-        if (isTerminalParcelStatus(status)) status else remarkStatus.ifBlank { status }
+        if (StatusMetaCache.isRemarkIgnoredInActual(remarkStatus, status)) status
+        else remarkStatus.ifBlank { status }
 }
 
 data class HistoryEntry(

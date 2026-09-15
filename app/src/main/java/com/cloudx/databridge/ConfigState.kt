@@ -29,6 +29,10 @@ object ConfigState {
         val priority: Int    = 0,  // authority — see StatusMetaCache.Entry.priority's doc
         val sortOrder: Int   = 0,  // display/worklist order — see StatusMetaCache.Entry.sortOrder's doc
         val builtIn:  Boolean = false,
+        // Actual statuses this remark status is ignored in (effective chip/filter
+        // shows the actual instead) — mirrors config/statusMeta/{key}/ignoredWhenActual,
+        // multi-add edited in ConfigStatusesFragment. Empty = built-in terminal default.
+        val ignoredWhenActual: List<String> = emptyList(),
     )
 
     data class Remark(

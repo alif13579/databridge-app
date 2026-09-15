@@ -20,6 +20,7 @@ import kotlinx.coroutines.tasks.await
  * Features:
  *  - List all statuses sorted by priority
  *  - Edit built-in & custom statuses (bn name, en name, color, priority)
+ *  - Per-status "ignored when actual is" lists (multi-add — drives effectiveStatus)
  *  - Create new custom status
  *  - Delete custom status with remark migration
  *  - Color picker (10 preset colors from STATUS_COLORS)
@@ -115,7 +116,16 @@ class ConfigStatusesFragment : Fragment() {
                     val bg = s.child("bg").getValue(String::class.java) ?: "#F3F4F6"
                     val pri = s.child("priority").getValue(Int::class.java) ?: 0
                     val sortOrder = s.child("sortOrder").getValue(Int::class.java) ?: 0
-                    loadedMeta[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, sortOrder, false)
+                    val ignoredNode = s.child("ignoredWhenActual")
+                    val ignoredFromChildren = ignoredNode.children
+                        .mapNotNull { it.getValue(String::class.java)?.trim() }
+                        .filter { it.isNotEmpty() }
+                    val ignored = ignoredFromChildren.ifEmpty {
+                        ignoredNode.getValue(String::class.java)
+                            ?.split(',', '\n').orEmpty()
+                            .map { it.trim() }.filter { it.isNotEmpty() }
+                    }
+                    loadedMeta[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, sortOrder, false, ignored)
                     loadedStatuses.add(key)
                 }
             }
@@ -185,8 +195,10 @@ class ConfigStatusesFragment : Fragment() {
             tvCustom.visibility = View.GONE
 
             val breakdown = if (count > 0) " (Worker $countW · Agent $countCC)" else ""
+            val ignoreTxt = if (meta.ignoredWhenActual.isEmpty()) "Ignores: default"
+                else "Ignores in ${meta.ignoredWhenActual.size}: ${meta.ignoredWhenActual.take(3).joinToString(", ")}${if (meta.ignoredWhenActual.size > 3) "…" else ""}"
             row.findViewById<TextView>(R.id.tvStatusSubtitle).text =
-                "$key · Authority: ${meta.priority} · Sort: ${meta.sortOrder} · $count remark${if (count != 1) "s" else ""}$breakdown"
+                "$key · Authority: ${meta.priority} · Sort: ${meta.sortOrder} · $count remark${if (count != 1) "s" else ""}$breakdown · $ignoreTxt"
 
             row.findViewById<View>(R.id.btnEditStatus).setOnClickListener { openEditDialog(key) }
 
@@ -232,6 +244,19 @@ class ConfigStatusesFragment : Fragment() {
         tvPrev.setTextColor(android.graphics.Color.parseColor(c0))
         tvPrev.setBackgroundColor(android.graphics.Color.parseColor(bg0))
 
+        // Ignore-list editor: pre-filled with the current list, or the built-in
+        // terminal default when never configured (what-you-see-is-what-applies).
+        view.findViewById<TextView>(R.id.tvIgnoreHint).text =
+            "Empty = built-in default (${defaultIgnoredWhenActual().joinToString(", ")})"
+        val ignoreWorking = buildIgnoreEditor(
+            ctx,
+            view.findViewById(R.id.ignoreChipContainer),
+            view.findViewById(R.id.spinnerIgnoreActual),
+            view.findViewById(R.id.btnAddIgnore),
+            meta.ignoredWhenActual.ifEmpty { defaultIgnoredWhenActual() },
+            options = { ConfigState.statuses.filter { it != key } },
+        )
+
         AlertDialog.Builder(ctx)
             .setTitle("Edit Status")
             .setView(view)
@@ -241,7 +266,7 @@ class ConfigStatusesFragment : Fragment() {
                 val newPri = etPri.text.toString().toIntOrNull() ?: meta.priority
                 val newSort = etSort.text.toString().toIntOrNull() ?: meta.sortOrder
                 val (nc, nb) = statusColors[editColorIdx]
-                val updated = meta.copy(bn = newBn, en = newEn, color = nc, bg = nb, priority = newPri, sortOrder = newSort)
+                val updated = meta.copy(bn = newBn, en = newEn, color = nc, bg = nb, priority = newPri, sortOrder = newSort, ignoredWhenActual = ignoreWorking.toList())
                 val newMeta = ConfigState.statusMeta.toMutableMap()
                 newMeta[key] = updated
                 ConfigState.statusMeta = newMeta
@@ -477,6 +502,41 @@ class ConfigStatusesFragment : Fragment() {
         content.addView(priorityInput)
         content.addView(label("Sort Order (display order)"))
         content.addView(sortOrderInput)
+        content.addView(label("Ignored when actual is (＋ add multiple, empty = terminal default)"))
+        val createIgnoreChips = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        content.addView(createIgnoreChips)
+        val createIgnoreRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(4) }
+        }
+        val createIgnoreSpinner = Spinner(ctx).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val createIgnoreAdd = Button(ctx).apply {
+            text = "＋ Add"
+            textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        createIgnoreRow.addView(createIgnoreSpinner)
+        createIgnoreRow.addView(createIgnoreAdd)
+        content.addView(createIgnoreRow)
+        val createIgnoreWorking = buildIgnoreEditor(
+            ctx, createIgnoreChips, createIgnoreSpinner, createIgnoreAdd,
+            emptyList(),
+            options = { ConfigState.statuses },
+        )
         content.addView(label("Color"))
         content.addView(picker)
         content.addView(preview)
@@ -506,7 +566,7 @@ class ConfigStatusesFragment : Fragment() {
                     else -> {
                         val (color, bg) = statusColors[selectedColorIdx]
                         dialog.dismiss()
-                        createStatus(rawKey, bn, en, pri, sort, color, bg)
+                        createStatus(rawKey, bn, en, pri, sort, color, bg, createIgnoreWorking.toList())
                     }
                 }
             }
@@ -526,6 +586,7 @@ class ConfigStatusesFragment : Fragment() {
         sortOrder: Int,
         color: String,
         bg: String,
+        ignoredWhenActual: List<String> = emptyList(),
         onSuccess: () -> Unit = {},
     ) {
         val newMeta = ConfigState.statusMeta.toMutableMap()
@@ -537,6 +598,7 @@ class ConfigStatusesFragment : Fragment() {
             priority = priority,
             sortOrder = sortOrder,
             builtIn = false,
+            ignoredWhenActual = ignoredWhenActual,
         )
         ConfigState.statusMeta = newMeta
         ConfigState.statuses = ConfigState.statuses + key
@@ -564,6 +626,71 @@ class ConfigStatusesFragment : Fragment() {
     private fun showError(msg: String) {
         tvCreateError.text = "⚠ $msg"
         tvCreateError.visibility = View.VISIBLE
+    }
+
+    // ── Ignore-list editor helper ─────────────────────────────────────────────
+    /**
+     * "Ignored when actual is" multi-add editor: removable chip rows + a spinner
+     * with ＋ Add for appending more actual statuses. Returns the working list
+     * (mutated in place by the UI — snapshot with .toList() on save).
+     * [initial] is copied, so callers can pre-fill the built-in default.
+     */
+    private fun buildIgnoreEditor(
+        ctx: android.content.Context,
+        chipContainer: LinearLayout,
+        spinner: Spinner,
+        addBtn: View,
+        initial: List<String>,
+        options: () -> List<String>,
+    ): MutableList<String> {
+        val working = initial.toMutableList()
+        fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+        fun render() {
+            chipContainer.removeAllViews()
+            if (working.isEmpty()) {
+                chipContainer.addView(TextView(ctx).apply {
+                    text = "(empty = built-in terminal default applies)"
+                    textSize = 11f
+                    setTextColor(ctx.getColor(R.color.theme_text_muted))
+                    setPadding(0, dp(2), 0, dp(2))
+                })
+            }
+            working.forEach { entry ->
+                val row = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding(0, dp(2), 0, dp(2))
+                }
+                row.addView(TextView(ctx).apply {
+                    text = entry
+                    textSize = 13f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+                row.addView(Button(ctx).apply {
+                    text = "✕"
+                    textSize = 12f
+                    minHeight = 0
+                    minimumHeight = 0
+                    setPadding(dp(10), dp(2), dp(10), dp(2))
+                    setOnClickListener { working.remove(entry); render() }
+                })
+                chipContainer.addView(row)
+            }
+            val opts = options().filter { o -> working.none { it.equals(o, ignoreCase = true) } }
+            spinner.adapter =
+                ArrayAdapter(ctx, android.R.layout.simple_spinner_dropdown_item, opts.ifEmpty { listOf("(no more statuses)") })
+            spinner.isEnabled = opts.isNotEmpty()
+            addBtn.isEnabled = opts.isNotEmpty()
+        }
+        addBtn.setOnClickListener {
+            val picked = spinner.selectedItem as? String ?: return@setOnClickListener
+            if (picked.isBlank() || picked.startsWith("(no more")) return@setOnClickListener
+            if (working.none { it.equals(picked, ignoreCase = true) }) {
+                working.add(picked)
+                render()
+            }
+        }
+        render()
+        return working
     }
 
     // ── Color picker helper ───────────────────────────────────────────────────
@@ -622,6 +749,9 @@ class ConfigStatusesFragment : Fragment() {
                     "bg"        to m.bg,
                     "priority"  to m.priority,
                     "sortOrder" to m.sortOrder,
+                    // Empty list is dropped by RTDB on write → reads back as
+                    // "never configured" → built-in terminal default. Same outcome.
+                    "ignoredWhenActual" to m.ignoredWhenActual,
                 )
             }
             db.reference.child("config/statusMeta").setValue(payload).await()

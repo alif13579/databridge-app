@@ -49,6 +49,25 @@
             android:inputType="number" android:layout_marginBottom="10dp" />
 
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Ignored when actual is (this remark hides, actual shows)" android:textSize="10sp" android:textColor="#9CA3AF"
+            android:textStyle="bold" android:layout_marginBottom="4dp" />
+        <TextView android:id="@+id/tvIgnoreHint"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:textSize="11sp" android:textColor="#9CA3AF" android:layout_marginBottom="4dp" />
+        <LinearLayout android:id="@+id/ignoreChipContainer"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="vertical" android:layout_marginBottom="4dp" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:layout_marginBottom="10dp">
+            <Spinner android:id="@+id/spinnerIgnoreActual"
+                android:layout_width="0dp" android:layout_height="wrap_content"
+                android:layout_weight="1" android:layout_marginEnd="6dp" />
+            <Button android:id="@+id/btnAddIgnore"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="＋ Add" android:textSize="12sp" android:minHeight="0dp" />
+        </LinearLayout>
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="Color" android:textSize="10sp" android:textColor="#9CA3AF"
             android:textStyle="bold" android:layout_marginBottom="6dp" />
         <LinearLayout android:id="@+id/colorPickerEdit"

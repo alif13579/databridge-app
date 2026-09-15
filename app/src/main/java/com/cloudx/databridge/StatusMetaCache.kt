@@ -41,6 +41,18 @@ object StatusMetaCache {
         // order) now reads .sortOrder instead. Mirrors config/statusMeta/{key}/sortOrder,
         // a separate admin-edited field from priority/authority. Defaults to 0.
         val sortOrder: Int = 0,
+        // Actual statuses this remark status is IGNORED in — i.e. when the parcel's
+        // real status is one of these, the card chip / filter key shows the actual
+        // status instead of this remark (e.g. hold_verified ignored in Delivered).
+        // Mirrors config/statusMeta/{key}/ignoredWhenActual (admin-edited, multi-add
+        // in ConfigStatusesFragment). Empty set + hasIgnoredWhenActual=false means the
+        // field was never configured → built-in terminal default applies (see
+        // isRemarkIgnoredInActual). Compared case-insensitively.
+        val ignoredWhenActual: Set<String> = emptySet(),
+        // True only when the ignoredWhenActual node EXISTS in Firebase — distinguishes
+        // "admin configured" (exact list wins) from "never configured" (default wins).
+        // Note: an emptied list is dropped by RTDB on save, so empty also = default.
+        val hasIgnoredWhenActual: Boolean = false,
     )
 
     @Volatile
@@ -71,7 +83,18 @@ object StatusMetaCache {
                     .getValue(Boolean::class.java) ?: true
                 val priority = s.child("priority").getValue(Int::class.java) ?: 0
                 val sortOrder = s.child("sortOrder").getValue(Int::class.java) ?: 0
-                map[key] = Entry(bn, en, color, bg, updatesParcelStatus, priority, sortOrder)
+                val ignoredNode = s.child("ignoredWhenActual")
+                val hasIgnored = ignoredNode.exists()
+                // RTDB stores lists as numeric-keyed maps; also accept a hand-typed
+                // comma/newline-separated string for console edits.
+                val ignoredFromChildren = ignoredNode.children
+                    .mapNotNull { it.getValue(String::class.java)?.trim() }
+                    .filter { it.isNotEmpty() }
+                val ignoredFromString = ignoredNode.getValue(String::class.java)
+                    ?.split(',', '\n').orEmpty()
+                    .map { it.trim() }.filter { it.isNotEmpty() }
+                val ignored = (ignoredFromChildren + ignoredFromString).toSet()
+                map[key] = Entry(bn, en, color, bg, updatesParcelStatus, priority, sortOrder, ignored, hasIgnored)
             }
             if (map.isNotEmpty()) entries = map
         } catch (_: Exception) {
@@ -149,10 +172,9 @@ private val TERMINAL_STATUS_KEYS = setOf(
  * as the terminal check in LastAttemptReminderReceiver) since statuses are
  * admin-configured, not a fixed enum.
  *
- * Used by every effectiveStatus getter: a terminal actual status always wins
- * over a stale remark status (e.g. a parcel delivered AFTER a verify_request
- * remark shows "Delivered", not "Verify Request"). Non-terminal actuals keep
- * the old behavior (remark wins when set).
+ * This is only the BUILT-IN DEFAULT for unconfigured remark statuses (see
+ * isRemarkIgnoredInActual) — the effective rule lives in
+ * config/statusMeta/{remarkKey}/ignoredWhenActual, editable per status.
  */
 fun isTerminalParcelStatus(status: String): Boolean {
     val s = status.trim()
@@ -161,4 +183,45 @@ fun isTerminalParcelStatus(status: String): Boolean {
     if (lower in TERMINAL_STATUS_KEYS) return true
     return lower.contains("deliver") || lower.contains("return") ||
         lower.contains("cancel") || lower.contains("complet") || lower.contains("success")
+}
+
+/**
+ * Built-in default ignore list, shown pre-filled in the admin editor for
+ * statuses that never configured ignoredWhenActual. Canonical display form of
+ * the terminal family (Delivered + Return + cancelled/complete).
+ */
+fun defaultIgnoredWhenActual(): List<String> = listOf(
+    "Delivered", "Partial Delivery", "Partial", "Paid Return", "Exchange",
+    "Return", "Return Requested", "Cancelled", "Completed",
+)
+
+/**
+ * The configured ignore list for [remarkStatus], or null when that status never
+ * configured one (→ built-in terminal default applies). Lookup is exact-first,
+ * then case-insensitive (remark keys vary in case: VERIFY_REQUEST vs verify_req).
+ */
+fun StatusMetaCache.ignoredActualsFor(remarkStatus: String): Set<String>? {
+    if (remarkStatus.isBlank()) return null
+    val entry = entries[remarkStatus]
+        ?: entries.entries.firstOrNull { it.key.equals(remarkStatus, ignoreCase = true) }?.value
+        ?: return null
+    return if (entry.hasIgnoredWhenActual) entry.ignoredWhenActual else null
+}
+
+/**
+ * Single source of truth for effectiveStatus: should [remarkStatus] be IGNORED
+ * (actual status shown instead) when the parcel's actual status is [actualStatus]?
+ *
+ * - Remark status configured an ignore list → exact (case-insensitive) match wins.
+ * - Never configured → built-in terminal default (isTerminalParcelStatus).
+ *
+ * Remark text on the card is unaffected — only the chip/filter key changes.
+ */
+fun StatusMetaCache.isRemarkIgnoredInActual(remarkStatus: String, actualStatus: String): Boolean {
+    if (remarkStatus.isBlank() || actualStatus.isBlank()) return false
+    val configured = ignoredActualsFor(remarkStatus)
+    if (configured != null) {
+        return configured.any { it.equals(actualStatus, ignoreCase = true) }
+    }
+    return isTerminalParcelStatus(actualStatus)
 }

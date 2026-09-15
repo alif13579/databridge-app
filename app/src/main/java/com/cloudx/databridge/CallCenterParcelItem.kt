@@ -52,10 +52,10 @@ data class CallCenterParcelItem(
      *  Blank on Request cards (their branch comes from the run index itself). */
     val sheetDateKey: String = "",
 ) {
-    /** Effective status for chips/filters/card badge: a TERMINAL actual status
-     *  (delivered/return/cancel family — see isTerminalParcelStatus) always wins
-     *  over a stale remark (e.g. delivered after a verify_request shows
-     *  "Delivered"); otherwise remarkStatus (if set) takes priority over status. */
+    /** Effective status for chips/filters/card badge — see
+     *  StatusMetaCache.isRemarkIgnoredInActual: ignored (config list or terminal
+     *  default) → actual status shows; otherwise remarkStatus (if set) wins. */
     val effectiveStatus: String get() =
-        if (isTerminalParcelStatus(status)) status else remarkStatus.ifBlank { status }
+        if (StatusMetaCache.isRemarkIgnoredInActual(remarkStatus, status)) status
+        else remarkStatus.ifBlank { status }
 }
