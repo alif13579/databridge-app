@@ -1668,8 +1668,9 @@ class CallCenterFragment : Fragment() {
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
         sortedEntries.forEach { (statusKey, count) ->
-            // Always EN label for chips — never raw UPPER_SNAKE (see StatusMetaCache.humanizeKey fallback)
-            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, "en").label
+            // Language drives en vs bn (config/language/ccLang) — humanizeKey fallback
+            // inside getStatusConfig guarantees never raw UPPER_SNAKE even on cache miss.
+            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, ccStatusLang).label
             filters.add(FilterTab(statusKey, "$label($count)"))
         }
 

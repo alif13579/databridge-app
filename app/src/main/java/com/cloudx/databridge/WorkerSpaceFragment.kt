@@ -370,8 +370,9 @@ class WorkerSpaceFragment : Fragment() {
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
         sortedEntries.forEach { (statusKey, count) ->
-            // Always EN for chips — never raw UPPER_SNAKE
-            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, "en").label
+            // Language drives en vs bn (config/language/workerLang) — humanizeKey fallback
+            // inside getStatusConfig guarantees never raw UPPER_SNAKE even on cache miss.
+            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, workerStatusLang).label
             filters.add(FilterTab(statusKey, "$label($count)"))
         }
 
