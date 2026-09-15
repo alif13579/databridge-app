@@ -377,7 +377,8 @@ class CallCenterAdapter(
             // Computed here — before the card border/glow block below and the remark
             // tint further down — since both of those need it.
             val remarkColor: Int? = if (item.remarks.isNotBlank() && item.remarkStatus.isNotBlank()) {
-                StatusMetaCache.entries[item.remarkStatus]?.color
+                (StatusMetaCache.entries[item.remarkStatus]
+                    ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(item.remarkStatus, ignoreCase = true) }?.value)?.color
             } else null
 
             // Card border/glow — when a remark is present use its color for the border so

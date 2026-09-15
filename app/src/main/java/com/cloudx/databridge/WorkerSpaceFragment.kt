@@ -361,13 +361,17 @@ class WorkerSpaceFragment : Fragment() {
         // ConfigStatusesFragment) — higher sortOrder first. Ties broken alphabetically
         // for a stable order; unconfigured statuses (sortOrder 0) sort last together.
         val sortedEntries = statusCounts.entries.sortedWith(
-            compareByDescending<Map.Entry<String, Int>> { StatusMetaCache.entries[it.key]?.sortOrder ?: 0 }
+            compareByDescending<Map.Entry<String, Int>> {
+                (StatusMetaCache.entries[it.key]
+                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(it.key, ignoreCase = true) }?.value)?.sortOrder ?: 0
+            }
                 .thenBy { it.key }
         )
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
         sortedEntries.forEach { (statusKey, count) ->
-            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, workerStatusLang).label
+            // Always EN for chips — never raw UPPER_SNAKE
+            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, "en").label
             filters.add(FilterTab(statusKey, "$label($count)"))
         }
 
@@ -393,7 +397,8 @@ class WorkerSpaceFragment : Fragment() {
             val statusKey = chip.tag as? String ?: continue
             val isActive = statusKey == activeFilter
             val metaColor: Int? = if (statusKey == "all") null
-                else StatusMetaCache.entries[statusKey]?.color
+                else (StatusMetaCache.entries[statusKey]
+                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(statusKey, ignoreCase = true) }?.value)?.color
             chip.isSelected = isActive
             if (isActive && metaColor != null) {
                 try {
@@ -746,7 +751,8 @@ class WorkerSpaceFragment : Fragment() {
                     if (label.isBlank()) return@mapNotNull null
                     val target = opt.targetStatus.ifBlank { return@mapNotNull null }
                     val metaEntry = StatusMetaCache.entries[target]
-                    val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
+                        ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(target, ignoreCase = true) }?.value
+                    val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: StatusMetaCache.humanizeKey(target)
                     WorkerRemarkOption(
                         icon = "💬",
                         label = label,
@@ -2376,17 +2382,21 @@ class WorkerSpaceFragment : Fragment() {
         addFixedChip(fixed.second, "Non-strict", R.color.theme_yellow)
         addFixedChip(fixed.third, "Delivery", R.color.theme_red)
         val sorted = counts.entries.sortedWith(
-            compareByDescending<Map.Entry<String, Int>> { StatusMetaCache.entries[it.key]?.sortOrder ?: 0 }
+            compareByDescending<Map.Entry<String, Int>> {
+                (StatusMetaCache.entries[it.key]
+                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(it.key, ignoreCase = true) }?.value)?.sortOrder ?: 0
+            }
                 .thenByDescending { it.value }
         )
         sorted.forEach { (status, count) ->
             val meta = StatusMetaCache.entries[status]
+                ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(status, ignoreCase = true) }?.value
             val chip = layoutInflater.inflate(R.layout.item_cc_stat_chip, layoutWsStatDynamic, false)
             val tvValue = chip.findViewById<TextView>(R.id.tvCcStatChipValue)
             val tvLabel = chip.findViewById<TextView>(R.id.tvCcStatChipLabel)
             tvValue.text = count.toString()
             tvValue.setTextColor(meta?.color ?: android.graphics.Color.GRAY)
-            tvLabel.text = meta?.en?.takeIf { it.isNotBlank() } ?: status
+            tvLabel.text = meta?.en?.takeIf { it.isNotBlank() } ?: StatusMetaCache.humanizeKey(status)
             layoutWsStatDynamic.addView(chip)
         }
     }

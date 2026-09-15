@@ -254,7 +254,8 @@ class WorkerParcelAdapter(
         // When a remarkStatus color is available, tint both the remarks background and the
         // card border so the card visually pops and draws the worker's attention.
         val remarkColor: Int? = if (item.remarks.isNotBlank() && item.remarkStatus.isNotBlank()) {
-            StatusMetaCache.entries[item.remarkStatus]?.color
+            (StatusMetaCache.entries[item.remarkStatus]
+                ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(item.remarkStatus, ignoreCase = true) }?.value)?.color
         } else null
 
         if (item.remarks.isNotBlank()) {
@@ -539,7 +540,8 @@ class WorkerParcelAdapter(
         fun sortByPriority(parcels: List<WorkerParcelItem>): List<WorkerParcelItem> {
             fun effectiveAge(p: WorkerParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
             fun statusPriority(p: WorkerParcelItem): Int =
-                StatusMetaCache.entries[p.effectiveStatus]?.sortOrder ?: 0
+                (StatusMetaCache.entries[p.effectiveStatus]
+                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(p.effectiveStatus, ignoreCase = true) }?.value)?.sortOrder ?: 0
             val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
             return groups.values
                 .sortedWith(
@@ -631,13 +633,15 @@ class WorkerParcelAdapter(
             entry?.let {
                 val primary = if (statusLang == "en") it.en else it.bn
                 val other = if (statusLang == "en") it.bn else it.en
-                return StatusConfig(it.color, it.bg, primary.ifBlank { other }.ifBlank { status })
+                // Per user: chips must never show raw UPPER_SNAKE — prefer en, then bn, then humanized.
+                val label = primary.ifBlank { other }.ifBlank { StatusMetaCache.humanizeKey(status) }
+                return StatusConfig(it.color, it.bg, label)
             }
             // Cache miss — StatusMetaCache not yet loaded or this status not in config.
-            // Show raw status key in neutral gray so nothing is silently hidden.
+            // Humanize so chip never looks like DELIVERY_REQUEST — shows "Delivery Request".
             val neutral   = android.graphics.Color.parseColor("#6B7280")
             val neutralBg = android.graphics.Color.parseColor("#F3F4F6")
-            return StatusConfig(neutral, neutralBg, status)
+            return StatusConfig(neutral, neutralBg, StatusMetaCache.humanizeKey(status))
         }
     }
 

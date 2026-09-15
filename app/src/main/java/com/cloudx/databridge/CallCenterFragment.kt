@@ -1658,13 +1658,18 @@ class CallCenterFragment : Fragment() {
         // ConfigStatusesFragment) — higher sortOrder first. Ties broken alphabetically
         // for a stable order; unconfigured statuses (sortOrder 0) sort last together.
         val sortedEntries = statusCounts.entries.sortedWith(
-            compareByDescending<Map.Entry<String, Int>> { StatusMetaCache.entries[it.key]?.sortOrder ?: 0 }
+            compareByDescending<Map.Entry<String, Int>> {
+                (StatusMetaCache.entries[it.key]
+                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(it.key, ignoreCase = true) }?.value
+                    )?.sortOrder ?: 0
+            }
                 .thenBy { it.key }
         )
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
         sortedEntries.forEach { (statusKey, count) ->
-            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, ccStatusLang).label
+            // Always EN label for chips — never raw UPPER_SNAKE (see StatusMetaCache.humanizeKey fallback)
+            val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, "en").label
             filters.add(FilterTab(statusKey, "$label($count)"))
         }
 
@@ -1689,7 +1694,8 @@ class CallCenterFragment : Fragment() {
             val statusKey = chip.tag as? String ?: continue
             val isActive = statusKey == statusFilter
             val metaColor: Int? = if (statusKey == "all") null
-                else StatusMetaCache.entries[statusKey]?.color
+                else (StatusMetaCache.entries[statusKey]
+                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(statusKey, ignoreCase = true) }?.value)?.color
             chip.isSelected = isActive
             if (isActive && metaColor != null) {
                 try {
@@ -3124,7 +3130,8 @@ class CallCenterFragment : Fragment() {
                     if (label.isBlank()) return@mapNotNull null
                     val target = opt.targetStatus.ifBlank { return@mapNotNull null }
                     val metaEntry = StatusMetaCache.entries[target]
-                    val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
+                        ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(target, ignoreCase = true) }?.value
+                    val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: StatusMetaCache.humanizeKey(target)
                     CcRemarkOption(
                         icon = "💬",
                         label = label,

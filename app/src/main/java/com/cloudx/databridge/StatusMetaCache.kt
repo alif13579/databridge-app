@@ -89,8 +89,19 @@ object StatusMetaCache {
 
     /** Picks the bn or en label for [statusKey] per [statusLang] ("bn"/"en"). Null if not in cache. */
     fun labelOrNull(statusKey: String, statusLang: String): String? {
-        val e = entries[statusKey] ?: return null
+        val e = entries[statusKey]
+            ?: entries.entries.firstOrNull { it.key.equals(statusKey, ignoreCase = true) }?.value
+            ?: return null
         return if (statusLang == "en") e.en else e.bn
+    }
+
+    /** Humanizes a raw UPPER_SNAKE key into Title Case — e.g. DELIVERY_REQUEST → Delivery Request.
+     *  Used as last-resort chip/card label so a missing config never shows raw ugly keys. */
+    fun humanizeKey(raw: String): String {
+        if (raw.isBlank()) return raw
+        return raw.trim().replace('_', ' ').split(' ').filter { it.isNotBlank() }.joinToString(" ") { w ->
+            w.lowercase().replaceFirstChar { c -> c.uppercaseChar() }
+        }
     }
 
     /**
