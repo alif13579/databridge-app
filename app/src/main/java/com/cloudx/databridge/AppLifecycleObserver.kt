@@ -32,6 +32,26 @@ class AppLifecycleObserver(private val application: Application) : DefaultLifecy
 
     override fun onStop(owner: LifecycleOwner) {
         updateDeviceStatus(UserRepository.STATUS_AWAY, attachInactiveHook = false)
+        sweepOwnEngagement()
+    }
+
+    /**
+     * App inactive (background) → auto-clear this device's CARD engaged_at entries.
+     * Overlay entries are skipped (call popup may still be up and refreshing).
+     * Still-expanded cards re-mark on fragment resume, so dialer-out-and-back
+     * restores the ring; process death is covered by the onDisconnect hook.
+     * Best-effort: onStop is time-limited, whatever doesn't flush is swept later.
+     */
+    private fun sweepOwnEngagement() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val uid = auth.currentUser?.uid ?: return@launch
+                EngagedStateManager.clearAllTrackedNow(uid, EngagedStateManager.SOURCE_CARD)
+                Log.d(TAG, "Background engaged sweep done")
+            } catch (e: Exception) {
+                Log.e(TAG, "Background engaged sweep failed: ${e.message}")
+            }
+        }
     }
 
     private fun updateDeviceStatus(status: String, attachInactiveHook: Boolean) {

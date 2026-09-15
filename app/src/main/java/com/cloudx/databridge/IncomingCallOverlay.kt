@@ -1091,14 +1091,15 @@ object IncomingCallOverlay {
         }
         if (overlayEngagedIds.isEmpty()) return
         // (Re)mark everything tracked — new ids get their first stamp, old
-        // ones get a freshness refresh.
-        overlayEngagedIds.forEach { EngagedStateManager.markEngaged(it, uid, name, role) }
+        // ones get a freshness refresh. Source "overlay": the app-background sweep
+        // spares these while the popup is up (still on the call).
+        overlayEngagedIds.forEach { EngagedStateManager.markEngaged(it, uid, name, role, EngagedStateManager.SOURCE_OVERLAY) }
         // (Re)arm the refresh while anything is tracked.
         engagedRefreshRunnable?.let { mainHandler.removeCallbacks(it) }
         val refresh = object : Runnable {
             override fun run() {
                 if (overlayEngagedIds.isEmpty() || overlayView == null) return
-                overlayEngagedIds.forEach { EngagedStateManager.markEngaged(it, overlayEngagedUid, name, role) }
+                overlayEngagedIds.forEach { EngagedStateManager.markEngaged(it, overlayEngagedUid, name, role, EngagedStateManager.SOURCE_OVERLAY) }
                 mainHandler.postDelayed(this, ENGAGED_REFRESH_MS)
             }
         }

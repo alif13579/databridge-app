@@ -101,7 +101,10 @@ class WorkerParcelAdapter(
     private val onExpand: (WorkerParcelItem) -> Unit = {},
     /** Fired when a card transitions expanded -> collapsed, including when switching
      *  straight to a different card (the previously-expanded one collapses too). */
-    private val onCollapse: (WorkerParcelItem) -> Unit = {}
+    private val onCollapse: (WorkerParcelItem) -> Unit = {},
+    /** Fallback when the collapsed card is no longer in the list (data refresh moved
+     *  it) so onCollapse can't run — the fragment clears by id. */
+    private val onCollapseById: (String) -> Unit = {}
 ) : ListAdapter<WorkerParcelItem, WorkerParcelAdapter.Holder>(Diff()) {
 
     var expandedItemId: String? = null
@@ -331,7 +334,6 @@ class WorkerParcelAdapter(
 
         holder.itemView.setOnClickListener {
             val previousId = expandedItemId
-            val previousPos = previousExpandedPosition
 
             if (isExpanded) {
                 // Collapse current
@@ -345,10 +347,14 @@ class WorkerParcelAdapter(
                 previousExpandedPosition = position
                 notifyItemChanged(position)
                 onExpand(item)
-                // Collapse previously expanded item (if any)
-                if (previousId != null && previousPos != null && previousPos != position) {
-                    notifyItemChanged(previousPos)
-                    currentList.getOrNull(previousPos)?.let { onCollapse(it) }
+                // Collapse previously expanded item (if any). Looked up BY ID, not by
+                // the stale position — a data refresh between the two taps can move
+                // rows, and collapsing the wrong row leaks the real one's entry.
+                if (previousId != null && previousId != item.id) {
+                    val prevPos = (0 until itemCount).firstOrNull { getItem(it).id == previousId }
+                    if (prevPos != null) notifyItemChanged(prevPos)
+                    currentList.firstOrNull { it.id == previousId }?.let { onCollapse(it) }
+                        ?: onCollapseById(previousId)
                 }
             }
         }

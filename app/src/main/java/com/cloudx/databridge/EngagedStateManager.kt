@@ -1,7 +1,10 @@
 package com.cloudx.databridge
 
+import android.content.Context
+import android.util.Log
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.FirebaseDatabase
+import kotlinx.coroutines.tasks.await
 
 /** One agent's engagement entry — mirrors one child of engaged_at/{agentUid}. photoUrl is
  *  resolved separately (via UserNameResolver, cached) since it isn't stored in the entry
@@ -51,16 +54,107 @@ data class EngagedAgent(
  *           the case where an agent expands a card, then the app crashes or is killed
  *           before either clear path runs, which would otherwise leave that agent's avatar
  *           showing forever with no way to clear it except a manual Firebase edit.
+ *
+ * LEAK GUARDS (engaged_at entries must never outlive the engagement — each one also
+ * costs Firebase storage + per-read bandwidth on every parcel fetch):
+ *   1. onDisconnect per entry (markEngaged arms it): the Firebase server removes the
+ *      entry when this client's socket drops — crash, force-stop, kill, network loss.
+ *      Same pattern sessions/presence already use (ConnectFragment, DataBridgeService).
+ *   2. Tracked-set sweep: every mark is recorded locally (memory + SharedPreferences,
+ *      per source "card"/"overlay"). App background (AppLifecycleObserver.onStop) clears
+ *      this device's "card" entries; logout (AuthManager.signOut) clears all of them.
+ *      Card entries are re-marked on fragment resume while still expanded, so the
+ *      dialer-out-and-back flow restores the ring instead of losing it.
+ *   3. Passive sweeper (sweepStaleEntries): every engaged_at read deletes entries older
+ *      than 30 min (6x the display window — absorbs cross-device clock skew), capped per
+ *      read. Browsing garbage-collects other agents'/devices' leftovers over time.
+ *   4. Collapse/navigate holes closed at the call sites: adapter collapse paths that
+ *      used to drop the callback (filter refresh, missing previous item) now clear by id,
+ *      and both fragments clear the expanded card on destroy + re-mark on resume.
  */
 object EngagedStateManager {
 
+    const val SOURCE_CARD = "card"
+    const val SOURCE_OVERLAY = "overlay"
+
     private const val ENGAGED_NODE = "engaged_at"
     private const val STALE_AFTER_MS = 5 * 60 * 1000L // 5 minutes
+    private const val SWEEP_AFTER_MS = 30 * 60 * 1000L // 30 minutes (conservative vs clock skew)
+    private const val SWEEP_MAX_PER_READ = 5
+    private const val TRACKED_MAX = 500
+    private const val PREFS = "engaged_state"
+    private const val KEY_TRACKED = "tracked" // Set<String> of "consignmentId|source"
+
+    private const val TAG = "EngagedStateManager"
+
+    @Volatile
+    private var appContext: Context? = null
+    private val lock = Any()
+    // consignmentId -> sources that marked it on this device. LinkedHashMap = oldest first.
+    private val tracked = LinkedHashMap<String, MutableSet<String>>()
+
+    /** Call once from DataBridgeApplication.onCreate — enables the tracked-set guards. */
+    fun init(context: Context) {
+        appContext = context.applicationContext
+        loadTracked()
+    }
+
+    private fun prefs() =
+        appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    private fun loadTracked() {
+        try {
+            val saved = prefs()?.getStringSet(KEY_TRACKED, emptySet()).orEmpty()
+            synchronized(lock) {
+                tracked.clear()
+                saved.forEach { entry ->
+                    val cid = entry.substringBefore("|")
+                    val src = entry.substringAfter("|", SOURCE_CARD)
+                    if (cid.isNotBlank()) tracked.getOrPut(cid) { mutableSetOf() }.add(src)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "loadTracked failed: ${e.message}")
+        }
+    }
+
+    private fun persistTracked() {
+        try {
+            val flat = synchronized(lock) {
+                tracked.flatMap { (cid, sources) -> sources.map { "$cid|$it" } }.toSet()
+            }
+            prefs()?.edit()?.putStringSet(KEY_TRACKED, flat)?.apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "persistTracked failed: ${e.message}")
+        }
+    }
+
+    private fun track(cid: String, source: String) {
+        synchronized(lock) {
+            tracked.getOrPut(cid) { mutableSetOf() }.add(source)
+            while (tracked.size > TRACKED_MAX) {
+                tracked.entries.iterator().let { it.next(); it.remove() }
+            }
+        }
+        persistTracked()
+    }
+
+    private fun untrack(cid: String, source: String? = null) {
+        synchronized(lock) {
+            if (source == null) tracked.remove(cid)
+            else {
+                tracked[cid]?.remove(source)
+                if (tracked[cid].isNullOrEmpty()) tracked.remove(cid)
+            }
+        }
+        persistTracked()
+    }
 
     fun nodePath(consignmentId: String): String = "courier/consignments/$consignmentId/$ENGAGED_NODE"
 
-    fun markEngaged(consignmentId: String, agentUid: String, agentName: String, agentRole: String) {
+    fun markEngaged(consignmentId: String, agentUid: String, agentName: String, agentRole: String, source: String = SOURCE_CARD) {
         if (consignmentId.isBlank() || agentUid.isBlank()) return
+        track(consignmentId, source)
         val ref = FirebaseDatabase.getInstance()
             .reference.child("${nodePath(consignmentId)}/$agentUid")
         val payload = mapOf(
@@ -69,6 +163,14 @@ object EngagedStateManager {
             "agentRole" to agentRole
         )
         ref.setValue(payload)
+        // Guard 1: server removes this entry when our socket drops (crash/kill/blip).
+        // Re-armed on every mark, so each refresh extends it. Best-effort — a failed
+        // arm just falls back to the tracked-set sweep + staleness window.
+        try {
+            ref.onDisconnect().removeValue()
+        } catch (e: Exception) {
+            Log.w(TAG, "onDisconnect arm failed for $consignmentId: ${e.message}")
+        }
     }
 
     /** Called when that parcel's remarks are submitted, or the card collapses — from either
@@ -81,9 +183,60 @@ object EngagedStateManager {
      *  passes, not a broken feature. */
     fun clearEngaged(consignmentId: String, agentUid: String) {
         if (consignmentId.isBlank() || agentUid.isBlank()) return
+        untrack(consignmentId)
         FirebaseDatabase.getInstance()
             .reference.child("${nodePath(consignmentId)}/$agentUid")
             .removeValue()
+    }
+
+    /**
+     * Guard 2: clears every entry THIS device marked (tracked set), optionally limited
+     * to one [onlySource] ("card" for app-background — overlay entries stay while the
+     * call popup is up and refreshing). Logout passes null to clear everything.
+     * Best-effort per entry; onDisconnect + sweeper cover whatever fails here.
+     */
+    suspend fun clearAllTrackedNow(agentUid: String, onlySource: String? = null) {
+        if (agentUid.isBlank()) return
+        val ids = synchronized(lock) {
+            tracked.filter { (_, sources) -> onlySource == null || onlySource in sources }
+                .keys.toList()
+        }.take(300)
+        val db = FirebaseDatabase.getInstance()
+        ids.forEach { cid ->
+            try {
+                db.reference.child("${nodePath(cid)}/$agentUid").removeValue().await()
+            } catch (_: Exception) {
+            }
+            untrack(cid, onlySource)
+        }
+    }
+
+    /**
+     * Guard 3: passive garbage collection — deletes entries older than [olderThanMs]
+     * (default 30 min, far beyond the 5-min display window to absorb clock skew),
+     * capped at [max] per read so one historic node can't cause a write storm.
+     * Safe to call on every engaged_at snapshot: fresh entries (including our own)
+     * never match, and deletions only remove provably-dead presence.
+     */
+    fun sweepStaleEntries(
+        consignmentId: String,
+        engagedAtSnapshot: DataSnapshot,
+        olderThanMs: Long = SWEEP_AFTER_MS,
+        max: Int = SWEEP_MAX_PER_READ
+    ) {
+        if (consignmentId.isBlank()) return
+        try {
+            val now = System.currentTimeMillis()
+            val db = FirebaseDatabase.getInstance()
+            engagedAtSnapshot.children.mapNotNull { child ->
+                val ts = child.child("timestamp").getValue(Long::class.java) ?: return@mapNotNull null
+                if (ts > 0 && now - ts > olderThanMs) child.key else null
+            }.take(max).forEach { key ->
+                db.reference.child("${nodePath(consignmentId)}/$key").removeValue()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "sweep failed for $consignmentId: ${e.message}")
+        }
     }
 
     /** True if [timestamp] represents a still-fresh engagement (within the staleness window).

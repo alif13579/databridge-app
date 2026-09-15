@@ -312,9 +312,15 @@ class CallCenterFragment : Fragment() {
             lastLiveRefreshMs != 0L && isAdded) {
             refreshLiveSheetSilently(fromResume = true)
         }
+        // Still-expanded card may have been swept while backgrounded (or its socket
+        // blipped) — re-mark so the ring survives dialer-out-and-back.
+        remarkExpandedCard()
     }
 
     override fun onDestroyView() {
+        // Screen going away with a card open never fires collapse — clear it here
+        // so the engaged_at entry doesn't leak into the next visit.
+        try { clearExpandedEngagement() } catch (_: Exception) { }
         // ✅ Fix #8: Cancel pending search debounce job
         searchJob?.cancel()
         searchJob = null
@@ -957,6 +963,55 @@ class CallCenterFragment : Fragment() {
         return allParcels.filter { it.phone.normalizedPhone() == normalized }
     }
 
+    /** Marks [item]'s whole same-phone group engaged (local glow + Firebase). Single
+     *  place for it — card expand, notification deep-link expand and resume re-mark
+     *  (heals the background sweep / socket-blip clear while the card is still open). */
+    private fun markGroupEngaged(item: CallCenterParcelItem) {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        val uid = user.uid
+        if (uid.isBlank()) return
+        val group = samePhoneGroup(item)
+        val agent = EngagedAgent(
+            uid = uid,
+            name = user.displayName.orEmpty().ifBlank { "CC Agent" },
+            timestamp = System.currentTimeMillis(),
+            photoUrl = user.photoUrl?.toString().orEmpty()
+        )
+        applyLocalCcEngagement(group.map { it.id }.toSet(), agent)
+        group.forEach { p ->
+            EngagedStateManager.markEngaged(
+                consignmentId = p.id,
+                agentUid = uid,
+                agentName = agent.name,
+                agentRole = "cc"
+            )
+        }
+    }
+
+    /** Clears whatever card is currently expanded (Firebase + local glow). Used when
+     *  the expanded card leaves the screen without a collapse event: filter/data
+     *  refresh dropping it, fragment destroy (tab switch), never the remark-save
+     *  path (that one already cleared per target). */
+    private fun clearExpandedEngagement() {
+        if (!::adapter.isInitialized) return
+        val id = adapter.expandedItemId ?: return
+        adapter.collapseExpanded()
+        val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        val item = allParcels.firstOrNull { it.id == id }
+        val group = if (item != null) samePhoneGroup(item) else allParcels.filter { it.id == id }
+        removeLocalCcEngagement(group.map { it.id }.toSet(), uid)
+        group.forEach { EngagedStateManager.clearEngaged(it.id, uid) }
+    }
+
+    /** Re-marks the still-expanded card — heals the background sweep and any socket
+     *  blip that fired its onDisconnect hook while the card stayed open. No-op when
+     *  nothing is expanded or data hasn't loaded yet. */
+    private fun remarkExpandedCard() {
+        if (!hasLoadedCcDataOnce || !isAdded || !::adapter.isInitialized) return
+        val id = adapter.expandedItemId ?: return
+        allParcels.firstOrNull { it.id == id }?.let { markGroupEngaged(it) }
+    }
+
     /** Only counts a dial attempt once the system call log actually confirms it happened —
      *  not just that we asked Android to place the call, which can silently fail (permission
      *  denied mid-flow, no dialer app, etc.) without AutoDialHelper knowing. Falls back to
@@ -1060,31 +1115,17 @@ class CallCenterFragment : Fragment() {
                 }
             },
             onLongPress = { item -> showActionHistoryDialog(item) },
-            onExpand = { item ->
-                val user = FirebaseAuth.getInstance().currentUser
-                val uid = user?.uid.orEmpty()
-                val group = samePhoneGroup(item)
-                val agent = EngagedAgent(
-                    uid = uid,
-                    name = user?.displayName.orEmpty().ifBlank { "CC Agent" },
-                    timestamp = System.currentTimeMillis(),
-                    photoUrl = user?.photoUrl?.toString().orEmpty()
-                )
-                applyLocalCcEngagement(group.map { it.id }.toSet(), agent)
-                group.forEach { p ->
-                    EngagedStateManager.markEngaged(
-                        consignmentId = p.id,
-                        agentUid = uid,
-                        agentName = agent.name,
-                        agentRole = "cc"
-                    )
-                }
-            },
+            onExpand = { item -> markGroupEngaged(item) },
             onCollapse = { item ->
                 val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
                 val group = samePhoneGroup(item)
                 removeLocalCcEngagement(group.map { it.id }.toSet(), uid)
                 group.forEach { p -> EngagedStateManager.clearEngaged(p.id, uid) }
+            },
+            // Previous card fell out of the visible list (filter/data refresh) — clear
+            // by id so its engaged_at entry doesn't leak with no item to collapse.
+            onCollapseById = { cid ->
+                EngagedStateManager.clearEngaged(cid, FirebaseAuth.getInstance().currentUser?.uid.orEmpty())
             }
         )
         adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()
@@ -2371,6 +2412,9 @@ class CallCenterFragment : Fragment() {
                             EngagedStateManager.parseEngagedAgents(snapshot)
                         }
                         replaceCcEngagedAgents(id, agents)
+                        // Passive garbage collection: delete provably-dead (>30 min)
+                        // entries (other devices' crash leftovers) on every read.
+                        EngagedStateManager.sweepStaleEntries(id, snapshot)
                     }
                 }
 
@@ -4784,6 +4828,9 @@ class CallCenterFragment : Fragment() {
             // Don't collapse — set expansion to the notification target before submit
             adapter.expandedItemId = targetId
             pendingExpandParcelId = null
+            // Deep-link expand bypasses the adapter toggle, so no engaged mark fired —
+            // mark here, otherwise this card never shows a ring for colleagues.
+            filtered.firstOrNull { it.id == targetId }?.let { markGroupEngaged(it) }
         } else if (autoCallJob?.isActive == true && adapter.expandedItemId != null) {
             // Auto-call running — keep the expanded card's drawer open for remarks entry.
         } else if (adapter.expandedItemId != null && filtered.none { it.id == adapter.expandedItemId }) {
@@ -4794,7 +4841,10 @@ class CallCenterFragment : Fragment() {
             // EngagedStateManager.markEngaged() write that same tap triggers (see onExpand
             // in setupAdapter()) echoing back through this fragment's live parcels listener —
             // the Call/Remarks buttons would flash open then snap shut.
-            adapter.collapseExpanded()
+            //
+            // clearExpandedEngagement (not bare collapseExpanded()): collapsing without
+            // the onCollapse callback would leak this card's engaged_at entry.
+            clearExpandedEngagement()
         }
         // While a load cycle is in flight, "empty" only means "not loaded yet" —
         // never show the empty state (it would flash stale text like "No Run"

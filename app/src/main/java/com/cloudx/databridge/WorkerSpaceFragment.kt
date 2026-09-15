@@ -180,6 +180,9 @@ class WorkerSpaceFragment : Fragment() {
             (activity as? MainActivity)?.pendingWorkerSearchPhone = null
             applySearchPhone(it)
         }
+        // Still-expanded card may have been swept while backgrounded (or its socket
+        // blipped) — re-mark so the ring survives dialer-out-and-back.
+        remarkExpandedCard()
     }
 
     /** Pre-fills and applies the search box (popup finder handoff). Resets the
@@ -195,6 +198,9 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        // Screen going away with a card open never fires collapse — clear it here
+        // so the engaged_at entry doesn't leak into the next visit.
+        try { clearExpandedEngagement() } catch (_: Exception) { }
         // ✅ Fix #7: Cancel pending search debounce job
         searchJob?.cancel()
         searchJob = null
@@ -419,6 +425,53 @@ class WorkerSpaceFragment : Fragment() {
         return allParcels.filter { it.phone.normalizedPhone() == normalized }
     }
 
+    /** Marks [item]'s whole same-phone group engaged (local glow + Firebase). Single
+     *  place for it — card expand, notification deep-link expand and resume re-mark
+     *  (heals the background sweep / socket-blip clear while the card is still open). */
+    private fun markGroupEngaged(item: WorkerParcelItem) {
+        val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser ?: return
+        val uid = user.uid
+        if (uid.isBlank()) return
+        val group = samePhoneGroup(item)
+        val agent = EngagedAgent(
+            uid = uid,
+            name = user.displayName.orEmpty().ifBlank { "Worker" },
+            timestamp = System.currentTimeMillis(),
+            photoUrl = user.photoUrl?.toString().orEmpty()
+        )
+        applyLocalEngagement(group.map { it.id }.toSet(), agent)
+        group.forEach { p ->
+            EngagedStateManager.markEngaged(
+                consignmentId = p.id,
+                agentUid = uid,
+                agentName = agent.name,
+                agentRole = "worker"
+            )
+        }
+    }
+
+    /** Clears whatever card is currently expanded (Firebase + local glow). Used when
+     *  the expanded card leaves the screen without a collapse event: fragment
+     *  destroy (tab switch). Never the remark-save path (that one clears per target). */
+    private fun clearExpandedEngagement() {
+        if (!::adapter.isInitialized) return
+        val id = adapter.expandedItemId ?: return
+        adapter.expandedItemId = null
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        val item = allParcels.firstOrNull { it.id == id }
+        val group = if (item != null) samePhoneGroup(item) else allParcels.filter { it.id == id }
+        removeLocalEngagement(group.map { it.id }.toSet(), uid)
+        group.forEach { EngagedStateManager.clearEngaged(it.id, uid) }
+    }
+
+    /** Re-marks the still-expanded card — heals the background sweep and any socket
+     *  blip that fired its onDisconnect hook while the card stayed open. */
+    private fun remarkExpandedCard() {
+        if (!isAdded || !::adapter.isInitialized) return
+        val id = adapter.expandedItemId ?: return
+        allParcels.firstOrNull { it.id == id }?.let { markGroupEngaged(it) }
+    }
+
     private fun setupAdapter() {
         adapter = WorkerParcelAdapter(
             onCall = { item ->
@@ -429,31 +482,17 @@ class WorkerSpaceFragment : Fragment() {
             onLongPress = { item ->
                 showActionHistoryDialog(item)
             },
-            onExpand = { item ->
-                val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-                val uid = user?.uid.orEmpty()
-                val group = samePhoneGroup(item)
-                val agent = EngagedAgent(
-                    uid = uid,
-                    name = user?.displayName.orEmpty().ifBlank { "Worker" },
-                    timestamp = System.currentTimeMillis(),
-                    photoUrl = user?.photoUrl?.toString().orEmpty()
-                )
-                applyLocalEngagement(group.map { it.id }.toSet(), agent)
-                group.forEach { p ->
-                    EngagedStateManager.markEngaged(
-                        consignmentId = p.id,
-                        agentUid = uid,
-                        agentName = agent.name,
-                        agentRole = "worker"
-                    )
-                }
-            },
+            onExpand = { item -> markGroupEngaged(item) },
             onCollapse = { item ->
                 val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
                 val group = samePhoneGroup(item)
                 removeLocalEngagement(group.map { it.id }.toSet(), uid)
                 group.forEach { p -> EngagedStateManager.clearEngaged(p.id, uid) }
+            },
+            // Previous card fell out of the list (data refresh moved it) — clear by id
+            // so its engaged_at entry doesn't leak with no item to collapse.
+            onCollapseById = { cid ->
+                EngagedStateManager.clearEngaged(cid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty())
             }
         )
 
@@ -1516,6 +1555,9 @@ class WorkerSpaceFragment : Fragment() {
                             EngagedStateManager.parseEngagedAgents(snapshot)
                         }
                         replaceEngagedAgents(id, agents)
+                        // Passive garbage collection: delete provably-dead (>30 min)
+                        // entries (other devices' crash leftovers) on every read.
+                        EngagedStateManager.sweepStaleEntries(id, snapshot)
                     }
                 }
 
@@ -2170,6 +2212,9 @@ class WorkerSpaceFragment : Fragment() {
         if (targetId != null) {
             adapter.expandedItemId = targetId
             pendingExpandParcelId = null
+            // Deep-link expand bypasses the adapter toggle, so no engaged mark fired —
+            // mark here, otherwise this card never shows a ring for colleagues.
+            filtered.firstOrNull { it.id == targetId }?.let { markGroupEngaged(it) }
         }
         adapter.submitList(filtered)
         tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE

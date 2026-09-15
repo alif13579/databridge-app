@@ -30,7 +30,10 @@ class CallCenterAdapter(
     private val onExpand: (CallCenterParcelItem) -> Unit = {},
     /** Fired when a card transitions expanded -> collapsed, including when switching
      *  straight to a different card (the previously-expanded one collapses too). */
-    private val onCollapse: (CallCenterParcelItem) -> Unit = {}
+    private val onCollapse: (CallCenterParcelItem) -> Unit = {},
+    /** Fallback when the collapsed card is no longer in the visible list (filter/data
+     *  refresh dropped it) so onCollapse can't run — the fragment clears by id. */
+    private val onCollapseById: (String) -> Unit = {}
 ) : ListAdapter<CallCenterAdapter.Row, RecyclerView.ViewHolder>(RowDiff()) {
 
     var expandedItemId: String? = null
@@ -164,8 +167,11 @@ class CallCenterAdapter(
         if (wasCollapsed) {
             parcels.firstOrNull { it.id == id }?.let { onExpand(it) }
             // Switching straight to a different card also collapses whatever was open.
+            // If the previous card fell out of the visible list, clear by id so its
+            // engaged_at entry doesn't leak (no item object to hand to onCollapse).
             if (previousId != null && previousId != id) {
                 parcels.firstOrNull { it.id == previousId }?.let { onCollapse(it) }
+                    ?: onCollapseById(previousId)
             }
         } else {
             parcels.firstOrNull { it.id == id }?.let { onCollapse(it) }

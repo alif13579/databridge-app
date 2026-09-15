@@ -65,6 +65,9 @@ class DataBridgeApplication : Application() {
         lifecycleObserver = AppLifecycleObserver(this)
         lifecycleObserver?.register()
         Log.d(TAG, "🔹 AppLifecycleObserver registered")
+
+        // ✅ Engaged-ring tracked set (powers the background/logout auto-clear guards)
+        EngagedStateManager.init(this)
     }
 
     override fun onTerminate() {
