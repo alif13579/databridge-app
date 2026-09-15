@@ -133,29 +133,30 @@
 
                 <TextView
                     android:id="@+id/tvParcelCustomer"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_weight="1"
                     android:text="Rahim Mia"
                     android:textColor="@color/theme_text_primary"
                     android:textSize="13sp"
                     android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end"
                     android:includeFontPadding="false" />
 
-                <!-- Drag handle — visible only in Custom sort mode (see
-                     WorkerParcelAdapter.dragEnabled). Touch-drag to reorder
-                     road-plan-wise; long-press stays the history popup. -->
+                <!-- Drag handle — RIGHT side for thumb reach, visible only in Custom
+                     sort mode (see WorkerParcelAdapter.dragEnabled). 48dp grab target,
+                     full row height; touch-drag to reorder road-plan-wise; long-press
+                     stays the history popup. -->
                 <TextView
                     android:id="@+id/tvDragHandle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
+                    android:layout_width="48dp"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
                     android:text="⋮⋮"
-                    android:textSize="16sp"
+                    android:textSize="18sp"
                     android:textStyle="bold"
                     android:textColor="@color/theme_text_muted"
-                    android:paddingStart="12dp"
-                    android:paddingTop="4dp"
-                    android:paddingBottom="4dp"
-                    android:layout_marginStart="8dp"
                     android:visibility="gone" />
 
             </LinearLayout>

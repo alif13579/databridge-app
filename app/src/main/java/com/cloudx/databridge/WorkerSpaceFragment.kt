@@ -533,6 +533,36 @@ class WorkerSpaceFragment : Fragment() {
             ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
         ) {
             override fun isLongPressDragEnabled() = false
+            // Default needs the dragged card halfway over its neighbour before swapping —
+            // feels late/heavy. A quarter overlap reorders responsively without misfires.
+            override fun getMoveThreshold(vh: RecyclerView.ViewHolder): Float = 0.25f
+            /**
+             * Deterministic landing: the row containing the dragged card's vertical
+             * center wins (nearest edge as fallback). The default implementation can
+             * dither between two rows on slow drags, which reads as "dropped between,
+             * landed elsewhere" — this + the cyan strip agree on one spot.
+             */
+            override fun chooseDropTarget(
+                selected: RecyclerView.ViewHolder,
+                dropTargets: MutableList<RecyclerView.ViewHolder>,
+                curX: Int, curY: Int
+            ): RecyclerView.ViewHolder? {
+                val centerY = curY + selected.itemView.height / 2
+                var best: RecyclerView.ViewHolder? = null
+                var bestDist = Int.MAX_VALUE
+                for (vh in dropTargets) {
+                    if (vh.bindingAdapterPosition == RecyclerView.NO_POSITION) continue
+                    val top = vh.itemView.top
+                    val bottom = vh.itemView.bottom
+                    if (centerY in top..bottom) return vh
+                    val dist = minOf(kotlin.math.abs(centerY - top), kotlin.math.abs(centerY - bottom))
+                    if (dist < bestDist) {
+                        bestDist = dist
+                        best = vh
+                    }
+                }
+                return best ?: super.chooseDropTarget(selected, dropTargets, curX, curY)
+            }
             override fun onSelectedChanged(
                 vh: RecyclerView.ViewHolder?,
                 actionState: Int
@@ -547,6 +577,7 @@ class WorkerSpaceFragment : Fragment() {
                         android.view.HapticFeedbackConstants.LONG_PRESS
                     )
                     vh.itemView.animate().scaleX(1.03f).scaleY(1.03f).setDuration(120).start()
+                    vh.itemView.elevation = 12f * vh.itemView.resources.displayMetrics.density
                 }
             }
             override fun onMove(
@@ -574,6 +605,7 @@ class WorkerSpaceFragment : Fragment() {
             override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
                 super.clearView(rv, vh)
                 vh.itemView.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                vh.itemView.elevation = 0f
                 adapter.endDragOrder()
                 if (dragActive) {
                     dragActive = false
