@@ -61,35 +61,45 @@ object StatusMetaCache {
             val map = mutableMapOf<String, Entry>()
             snap.children.forEach { s ->
                 val key = s.key ?: return@forEach
-                val bn = s.child("bn").getValue(String::class.java)?.trim().orEmpty().ifBlank { key }
-                val en = s.child("en").getValue(String::class.java)?.trim().orEmpty().ifBlank { key }
-                val colorHex = s.child("color").getValue(String::class.java)?.trim().orEmpty()
-                val bgHex = s.child("bg").getValue(String::class.java)?.trim().orEmpty()
-                val color = try {
-                    android.graphics.Color.parseColor(colorHex.ifBlank { "#6B7280" })
-                } catch (_: Exception) {
-                    android.graphics.Color.GRAY
+                try {
+                    val bn = s.child("bn").getValue(String::class.java)?.trim().orEmpty().ifBlank { key }
+                    val en = s.child("en").getValue(String::class.java)?.trim().orEmpty().ifBlank { key }
+                    val colorHex = s.child("color").getValue(String::class.java)?.trim().orEmpty()
+                    val bgHex = s.child("bg").getValue(String::class.java)?.trim().orEmpty()
+                    val color = try {
+                        android.graphics.Color.parseColor(colorHex.ifBlank { "#6B7280" })
+                    } catch (_: Exception) {
+                        android.graphics.Color.GRAY
+                    }
+                    val bg = try {
+                        android.graphics.Color.parseColor(bgHex.ifBlank { "#F3F4F6" })
+                    } catch (_: Exception) {
+                        android.graphics.Color.LTGRAY
+                    }
+                    val updatesParcelStatus = s.child("updatesParcelStatus")
+                        .getValue(Boolean::class.java) ?: true
+                    val sortOrder = s.child("sortOrder").getValue(Int::class.java) ?: 0
+                    val ignoredNode = s.child("ignoredWhenActual")
+                    val hasIgnored = ignoredNode.exists()
+                    // RTDB stores lists as numeric-keyed maps; also accept a hand-typed
+                    // comma/newline-separated string for console edits. NOTE: the String
+                    // read must only run when the node has NO children — reading a
+                    // list-form node as String throws DatabaseException and used to abort
+                    // the whole refresh, leaving every chip as a raw key.
+                    val ignoredFromChildren = ignoredNode.children
+                        .mapNotNull { it.getValue(String::class.java)?.trim() }
+                        .filter { it.isNotEmpty() }
+                    val ignoredFromString = if (ignoredNode.hasChildren()) emptyList()
+                    else ignoredNode.getValue(String::class.java)
+                        ?.split(',', '\n').orEmpty()
+                        .map { it.trim() }.filter { it.isNotEmpty() }
+                    val ignored = (ignoredFromChildren + ignoredFromString).toSet()
+                    map[key] = Entry(bn, en, color, bg, updatesParcelStatus, sortOrder, ignored, hasIgnored)
+                } catch (e: Exception) {
+                    // One malformed status node must never poison the whole cache —
+                    // skip it and keep every other status resolvable.
+                    StatusChipDiag.nodeSkipped(key, "${e.javaClass.simpleName}: ${e.message}")
                 }
-                val bg = try {
-                    android.graphics.Color.parseColor(bgHex.ifBlank { "#F3F4F6" })
-                } catch (_: Exception) {
-                    android.graphics.Color.LTGRAY
-                }
-                val updatesParcelStatus = s.child("updatesParcelStatus")
-                    .getValue(Boolean::class.java) ?: true
-                val sortOrder = s.child("sortOrder").getValue(Int::class.java) ?: 0
-                val ignoredNode = s.child("ignoredWhenActual")
-                val hasIgnored = ignoredNode.exists()
-                // RTDB stores lists as numeric-keyed maps; also accept a hand-typed
-                // comma/newline-separated string for console edits.
-                val ignoredFromChildren = ignoredNode.children
-                    .mapNotNull { it.getValue(String::class.java)?.trim() }
-                    .filter { it.isNotEmpty() }
-                val ignoredFromString = ignoredNode.getValue(String::class.java)
-                    ?.split(',', '\n').orEmpty()
-                    .map { it.trim() }.filter { it.isNotEmpty() }
-                val ignored = (ignoredFromChildren + ignoredFromString).toSet()
-                map[key] = Entry(bn, en, color, bg, updatesParcelStatus, sortOrder, ignored, hasIgnored)
             }
             if (map.isNotEmpty()) entries = map
             lastRefreshOk = true

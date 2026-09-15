@@ -58,6 +58,12 @@ object StatusChipDiag {
         store(line)
     }
 
+    fun nodeSkipped(key: String, err: String) {
+        val line = "node SKIPPED key='$key' err='$err'"
+        Log.w(TAG, line)
+        store(line)
+    }
+
     data class Chip(
         val raw: String,
         val count: Int,
