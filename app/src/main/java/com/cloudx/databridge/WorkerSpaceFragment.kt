@@ -389,12 +389,17 @@ class WorkerSpaceFragment : Fragment() {
         )
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
+        val diagChips = mutableListOf<StatusChipDiag.Chip>()
         sortedEntries.forEach { (bucket, count) ->
             val statusKey = displayFor(bucket)
+            val hit = StatusMetaCache.findEntry(statusKey) != null
             // Strictly config-defined per config/language/workerLang (en vs bn) — no hardcoded guess.
             val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, workerStatusLang).label
+            diagChips.add(StatusChipDiag.Chip(statusKey, count, label, hit))
             filters.add(FilterTab(statusKey, "$label($count)"))
         }
+        StatusChipDiag.logBuild("Worker", total, StatusMetaCache.entries.size,
+            StatusMetaCache.lastRefreshOk, StatusMetaCache.lastRefreshError, workerStatusLang, diagChips)
 
         for (filter in filters) {
             val chip = LayoutInflater.from(requireContext())
@@ -2391,6 +2396,7 @@ class WorkerSpaceFragment : Fragment() {
      *  item_cc_stat_chip.xml layout rather than adding a near-identical duplicate. */
     private fun buildWsDynamicStatChips(counts: Map<String, Int>, fixed: Triple<Int, Int, Int> = Triple(0, 0, 0)) {
         layoutWsStatDynamic.removeAllViews()
+        val diagStatChips = mutableListOf<StatusChipDiag.Chip>()
         // Fixed 3-color chips first (always visible, even at 0 — same meaning
         // as the CC agent header badges).
         val ctx = requireContext()
@@ -2419,9 +2425,13 @@ class WorkerSpaceFragment : Fragment() {
             val tvLabel = chip.findViewById<TextView>(R.id.tvCcStatChipLabel)
             tvValue.text = count.toString()
             tvValue.setTextColor(meta?.color ?: android.graphics.Color.GRAY)
-            tvLabel.text = StatusMetaCache.labelOrNull(status, workerStatusLang) ?: status
+            val statLabel = StatusMetaCache.labelOrNull(status, workerStatusLang) ?: status
+            tvLabel.text = statLabel
             layoutWsStatDynamic.addView(chip)
+            diagStatChips.add(StatusChipDiag.Chip(status, count, statLabel, meta != null))
         }
+        StatusChipDiag.logBuild("WorkerStat", counts.values.sum(), StatusMetaCache.entries.size,
+            StatusMetaCache.lastRefreshOk, StatusMetaCache.lastRefreshError, workerStatusLang, diagStatChips)
     }
 
 

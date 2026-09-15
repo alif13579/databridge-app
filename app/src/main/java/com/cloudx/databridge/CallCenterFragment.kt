@@ -1692,12 +1692,17 @@ class CallCenterFragment : Fragment() {
         )
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
+        val diagChips = mutableListOf<StatusChipDiag.Chip>()
         sortedEntries.forEach { (bucket, count) ->
             val statusKey = displayFor(bucket)
+            val hit = StatusMetaCache.findEntry(statusKey) != null
             // Strictly config-defined per config/language/ccLang (en vs bn) — no hardcoded guess.
             val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, ccStatusLang).label
+            diagChips.add(StatusChipDiag.Chip(statusKey, count, label, hit))
             filters.add(FilterTab(statusKey, "$label($count)"))
         }
+        StatusChipDiag.logBuild("CC", total, StatusMetaCache.entries.size,
+            StatusMetaCache.lastRefreshOk, StatusMetaCache.lastRefreshError, ccStatusLang, diagChips)
 
         for (filter in filters) {
             val chip = layoutInflater.inflate(R.layout.item_filter_chip, layoutFilterTabs, false) as TextView
