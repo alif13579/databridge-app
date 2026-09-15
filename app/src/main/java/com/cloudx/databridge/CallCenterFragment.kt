@@ -1267,6 +1267,7 @@ class CallCenterFragment : Fragment() {
             val authorEmployeeId = authorUser?.optStr("employee_id")?.trim().orEmpty()
                 .ifBlank { systemIdToEmployeeId[authorSystemId].orEmpty() }
             val authorLabel = if (authorEmployeeId.isBlank()) authorName else "$authorName ($authorEmployeeId)"
+            val (callN, callT) = WorkerParcelAdapter.parseCallLog(r)
             HistoryEntry(
                 action = status.ifBlank { "NOTE" }.uppercase(),
                 remark = remarks,
@@ -1277,10 +1278,8 @@ class CallCenterFragment : Fragment() {
                 authorPhotoUrl = authorUser?.optStr("photo_url")?.trim().orEmpty()
                     .ifBlank { systemIdToPhotoUrl[authorSystemId].orEmpty() },
                 createdAt = createdAt,
-                callLogCount = r.optInt("call_count"),
-                callLogTotalDurationSec = r.optInt("call_talk_sec"),
-                callLogMaxTalkSec = r.optInt("call_max_talk_sec"),
-                callLogCut = r.optInt("call_cut")
+                callLogCount = callN,
+                callLogTotalDurationSec = callT
             )
         }.sortedBy { it.createdAt }
     }
@@ -1416,10 +1415,7 @@ class CallCenterFragment : Fragment() {
                     tvGap.visibility = View.GONE
                 }
 
-                val callLine = WorkerParcelAdapter.callLogLine(
-                    entry.callLogCount, entry.callLogTotalDurationSec,
-                    entry.callLogMaxTalkSec, entry.callLogCut
-                )
+                val callLine = WorkerParcelAdapter.callLogLine(entry.callLogCount, entry.callLogTotalDurationSec)
                 if (callLine != null) {
                     tvCallLogs.text = callLine
                     tvCallLogs.visibility = View.VISIBLE

@@ -248,10 +248,8 @@ remark record — every "Set Remarks" save, from both apps, lands here)*
 | `note` | text | null | |
 | `source` | text | null | check: `'CC'` / `'WORKER'` (was `'validator'`/`'verification_request'` originally); was named `"from"`. **Known inconsistency, found via live query, not present in any migration file:** the column's default is still `'verification_request'::text` — migration 12 updated the check constraint to `'CC'`/`'WORKER'` but never touched the column default, so an insert that omits `source` entirely would violate the table's own check constraint. No migration file shows this because it was never fixed at the migration-file level; flagging it here rather than silently correcting it, since it's a live data-integrity gap someone should decide how to handle (fix the default, or confirm every insert path always sets `source` explicitly and the stale default is unreachable dead weight) |
 | `consignment_status` | text | null | |
-| `call_count` | int | null | today's dial count for the number (device-recorded at save; null = unknown, 0 = known zero) |
-| `call_talk_sec` | int | null | sum of talk seconds (null = unknown) |
-| `call_max_talk_sec` | int | null | longest single talk (null = unknown) |
-| `call_cut` | int | null | instant-cut count, 0s + <10s elapsed (null = unknown) |
+| `call_talk_sec` | int | null | today's total talk seconds for the number (null = unknown, 0 = known zero talk) |
+| `call_log` | jsonb | null | per-talk [{t: epoch ms, d: seconds}] talked dials only (null = unknown) |
 
 RLS: read = own branch (any of `my_branch_ids()`) OR assigned worker;
 insert = own branch + author is self. `anon` granted SELECT (see history

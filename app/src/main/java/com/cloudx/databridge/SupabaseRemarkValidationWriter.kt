@@ -64,13 +64,15 @@ object SupabaseRemarkValidationWriter {
             .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)
             .apply {
                 if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText)
-                // Today's dial evidence for this number (device-local call log).
-                // Null/absent = unknown (older app / no permission); 0 = known zero.
+                // Today's talk evidence for this number (device-local call log).
+                // Null/absent = unknown (older app / no permission); 0 = known zero talk.
                 CallAttemptStore.summarizeToday(callPhone)?.let { s ->
-                    put("call_count", s.count)
                     put("call_talk_sec", s.talkSec)
-                    put("call_max_talk_sec", s.maxTalkSec)
-                    put("call_cut", s.cut)
+                    put("call_log", org.json.JSONArray().apply {
+                        s.talks.take(200).forEach { t ->
+                            put(org.json.JSONObject().put("t", t.atMs).put("d", t.durSec))
+                        }
+                    })
                 }
             }),             screen,
             "supabase_validation_write", consignmentId) { response ->
@@ -128,10 +130,12 @@ object SupabaseRemarkValidationWriter {
             .apply {
                 if (remarksBnText.isNotBlank()) put("remarks_bn", remarksBnText)
                 CallAttemptStore.summarizeToday(callPhone)?.let { s ->
-                    put("call_count", s.count)
                     put("call_talk_sec", s.talkSec)
-                    put("call_max_talk_sec", s.maxTalkSec)
-                    put("call_cut", s.cut)
+                    put("call_log", org.json.JSONArray().apply {
+                        s.talks.take(200).forEach { t ->
+                            put(org.json.JSONObject().put("t", t.atMs).put("d", t.durSec))
+                        }
+                    })
                 }
             }), screen,
             "supabase_validation_write", consignmentId) { response ->

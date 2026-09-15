@@ -34,7 +34,8 @@ object CallAttemptStore {
     const val ROLE_WORKER = "worker"
     const val ROLE_CC = "cc"
 
-    /** 0-sec dial returning faster than this = instant cut (fake pattern). */
+    /** 0-sec dial returning faster than this = instant cut (fake pattern). Kept for
+     *  local diagnostics; the synced payload carries talk evidence only. */
     const val CUT_ELAPSED_MAX_SEC = 10
     private const val PENDING_TIMEOUT_MIN = 10L
     private const val RETAIN_DAYS = 7
@@ -47,10 +48,13 @@ object CallAttemptStore {
     private const val TAG = "CallAttemptStore"
 
     data class Summary(
-        val count: Int,
         val talkSec: Int,
-        val maxTalkSec: Int,
-        val cut: Int
+        val talks: List<Talk>
+    )
+
+    data class Talk(
+        val atMs: Long,
+        val durSec: Int
     )
 
     private data class Pending(
@@ -148,9 +152,10 @@ object CallAttemptStore {
     // ── summary for remark-save payloads ─────────────────────────────────────
 
     /**
-     * TODAY's (device-local midnight) dial summary for [phone], or null when unknown
-     * (no READ_CALL_LOG and no locally recorded attempts). Zero-count with permission
-     * is a KNOWN zero ("saved remark with 0 dials") — not null.
+     * TODAY's (device-local midnight) talk evidence for [phone]: total talk seconds
+     * plus per-talk (timestamp, seconds) for the call_log JSON — talked dials only
+     * (duration > 0, verified via call log). Null when unknown (no READ_CALL_LOG
+     * and no locally recorded attempts). Zero-talk with permission is a KNOWN zero.
      */
     fun summarizeToday(phone: String): Summary? {
         return try {
@@ -158,16 +163,18 @@ object CallAttemptStore {
             val target = norm(phone)
             if (target.isBlank()) return null
             val dayStart = dayStartMs()
-            val recs = loadRecords().filter { it.phoneNorm == target && it.atMs >= dayStart }
-            if (recs.isEmpty()) {
-                return if (CallLogHelper.hasPermission(ctx)) Summary(0, 0, 0, 0) else null
+            val talks = loadRecords()
+                .filter { it.phoneNorm == target && it.atMs >= dayStart }
+                .mapNotNull { r -> r.durationSec?.takeIf { it > 0 }?.let { Talk(r.atMs, it) } }
+            if (talks.isEmpty()) {
+                // Distinguish "no talks" (known zero, permission OK) from unknown.
+                if (!CallLogHelper.hasPermission(ctx)) return null
+                // Permission OK but nothing talked: known zero only if we actually
+                // observed dials today (else the agent may dial later — still unknown
+                // vs zero is indistinguishable here, report known zero).
+                return Summary(0, emptyList())
             }
-            Summary(
-                count = recs.size,
-                talkSec = recs.sumOf { it.durationSec ?: 0 },
-                maxTalkSec = recs.maxOfOrNull { it.durationSec ?: 0 } ?: 0,
-                cut = recs.count { (it.durationSec ?: 0) == 0 && it.elapsedSec < CUT_ELAPSED_MAX_SEC }
-            )
+            Summary(talks.sumOf { it.durSec }, talks)
         } catch (e: Exception) {
             Log.w(TAG, "summarizeToday failed: ${e.message}")
             null

@@ -32,15 +32,13 @@ data class VerifyDeliveryFunnelState(
     val talk: TalkTotals = TalkTotals(),
 )
 
-/** Supervisor talk tracking: synced per-remark call evidence (validations.call_*)
- *  aggregated over the same scope. Rows without call columns (pre-feature) are
- *  skipped — [remarks] counts only rows that carry call data. */
+/** Supervisor talk tracking: synced per-remark talk evidence (validations.call_talk_sec
+ *  + call_log) aggregated over the same scope. Rows without talk data (pre-feature)
+ *  are skipped — [remarks] counts only rows that carry call columns. */
 data class TalkTotals(
     val remarks: Int = 0,
-    val dials: Int = 0,
     val talkSec: Int = 0,
     val answered: Int = 0,
-    val cut: Int = 0,
 )
 
 /**
@@ -306,24 +304,19 @@ class VerifyDeliveryDashboardViewModel : ViewModel() {
      */
     private fun aggregateTalk(rows: List<JSONObject>, scopeSid: String?): TalkTotals {
         var remarks = 0
-        var dials = 0
         var talkSec = 0
         var answered = 0
-        var cut = 0
         rows.forEach { r ->
             if (!scopeSid.isNullOrBlank() &&
                 !r.optString("author_system_id").trim().equals(scopeSid, ignoreCase = true)
             ) return@forEach
-            if (r.isNull("call_count")) return@forEach
+            if (r.isNull("call_talk_sec") && r.optJSONArray("call_log") == null) return@forEach
             remarks++
-            val c = r.optInt("call_count")
             val t = r.optInt("call_talk_sec")
-            dials += c
             talkSec += t
-            if (r.optInt("call_max_talk_sec") > 0) answered++
-            cut += r.optInt("call_cut")
+            if (t > 0) answered++
         }
-        return TalkTotals(remarks, dials, talkSec, answered, cut)
+        return TalkTotals(remarks, talkSec, answered)
     }
 
     // ── Classification ────────────────────────────────────────────────────────

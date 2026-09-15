@@ -638,9 +638,7 @@ class ParcelDetailFragment : Fragment() {
             val photoUrl: String,
             val createdAt:Long,
             val callLogCount: Int = 0,
-            val callLogTotalDurationSec: Int = 0,
-            val callLogMaxTalkSec: Int = 0,
-            val callLogCut: Int = 0
+            val callLogTotalDurationSec: Int = 0
         )
 
         val sdf = SimpleDateFormat("dd-MM-yy  hh:mm a", Locale.getDefault())
@@ -710,11 +708,10 @@ class ParcelDetailFragment : Fragment() {
                     else                  -> ""
                 }
 
+                val (callN, callT) = WorkerParcelAdapter.parseCallLog(r)
                 Entry(rStatus, display, timeStr, author, role, photoUrl, createdAt,
-                    callLogCount = r.optInt("call_count"),
-                    callLogTotalDurationSec = r.optInt("call_talk_sec"),
-                    callLogMaxTalkSec = r.optInt("call_max_talk_sec"),
-                    callLogCut = r.optInt("call_cut"))
+                    callLogCount = callN,
+                    callLogTotalDurationSec = callT)
             }
             .sortedBy { it.createdAt }   // oldest first → timeline reads top-to-bottom
 
@@ -751,9 +748,7 @@ class ParcelDetailFragment : Fragment() {
                     authorPhotoUrl = e.photoUrl,
                     createdAt = e.createdAt,
                     callLogCount = e.callLogCount,
-                    callLogTotalDurationSec = e.callLogTotalDurationSec,
-                    callLogMaxTalkSec = e.callLogMaxTalkSec,
-                    callLogCut = e.callLogCut
+                    callLogTotalDurationSec = e.callLogTotalDurationSec
                 )
             }
         ).withIndex().mapNotNull { (i, h) -> h.responseGapMinutes?.let { i to it } }.toMap()
@@ -832,12 +827,9 @@ class ParcelDetailFragment : Fragment() {
                     tvGap.visibility = View.GONE
                 }
 
-                // Call attempts on this entry — matches CallCenterFragment's Journey Log dialog.
+                // Talk evidence on this entry — matches CallCenterFragment's Journey Log dialog.
                 val tvCallLogs = row.findViewById<TextView>(R.id.twTimelineCallLogs)
-                val callLine = WorkerParcelAdapter.callLogLine(
-                    entry.callLogCount, entry.callLogTotalDurationSec,
-                    entry.callLogMaxTalkSec, entry.callLogCut
-                )
+                val callLine = WorkerParcelAdapter.callLogLine(entry.callLogCount, entry.callLogTotalDurationSec)
                 if (callLine != null) {
                     tvCallLogs.text = callLine
                     tvCallLogs.visibility = View.VISIBLE

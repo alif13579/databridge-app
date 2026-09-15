@@ -84,13 +84,11 @@ data class HistoryEntry(
      *  [WorkerParcelAdapter.withResponseGaps] rather than stored — this is UI-derived, not
      *  raw data. */
     val responseGapMinutes: Long? = null,
-    /** From the remark's synced call evidence (validations.call_count etc. — today's
-     *  dial summary for this number, recorded by the saver's device). 0/0 = no dials
-     *  recorded (or pre-feature row); max/cut sharpen true-vs-fake dial reads. */
+    /** From the remark's synced talk evidence (validations.call_talk_sec +
+     *  call_log) — today's total talk seconds for this number at save time.
+     *  0/0 = no talk recorded (pre-feature row or unknown). */
     val callLogCount: Int = 0,
-    val callLogTotalDurationSec: Int = 0,
-    val callLogMaxTalkSec: Int = 0,
-    val callLogCut: Int = 0
+    val callLogTotalDurationSec: Int = 0
 )
 
 class WorkerParcelAdapter(
@@ -563,16 +561,23 @@ class WorkerParcelAdapter(
             }
         }
 
-        /** Journey/timeline call-evidence line, shared by every renderer so the
-         *  supervisor reads the same shape everywhere. Null when count is 0
-         *  (nothing recorded — pre-feature row or no dials). */
-        fun callLogLine(count: Int, totalSec: Int, maxSec: Int, cut: Int): String? {
-            if (count <= 0) return null
-            return buildString {
-                append("📞 $count call${if (count == 1) "" else "s"}, ${totalSec}s total")
-                if (maxSec > 0) append(" · longest ${maxSec}s")
-                if (cut > 0) append(" · ⚠ $cut cut")
-            }
+        /** Journey/timeline talk line, shared by every renderer so the supervisor
+         *  reads the same shape everywhere. Null when nothing talked. */
+        fun callLogLine(count: Int, totalSec: Int): String? {
+            if (count <= 0 || totalSec <= 0) return null
+            return "📞 ${totalSec}s talk · $count call${if (count == 1) "" else "s"}"
+        }
+
+        /** (talkCount, talkSec) from a validations row's call_talk_sec + call_log. */
+        fun parseCallLog(r: org.json.JSONObject): Pair<Int, Int> {
+            val arr = r.optJSONArray("call_log")
+            val n = arr?.length() ?: 0
+            if (n <= 0 && (r.isNull("call_talk_sec") || !r.has("call_talk_sec"))) return 0 to 0
+            val total = r.optInt("call_talk_sec")
+            if (total > 0 || n <= 0) return n to total
+            var sum = 0
+            for (i in 0 until n) sum += arr!!.optJSONObject(i)?.optInt("d") ?: 0
+            return n to sum
         }
 
         fun getStatusConfig(context: android.content.Context, status: String, statusLang: String = "bn"): StatusConfig {

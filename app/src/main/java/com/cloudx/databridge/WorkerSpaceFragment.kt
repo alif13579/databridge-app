@@ -1409,12 +1409,9 @@ class WorkerSpaceFragment : Fragment() {
                     tvGap.visibility = View.GONE
                 }
 
-                // Call evidence for this remark (supervisor true-vs-fake dial read).
+                // Talk evidence for this remark (supervisor true-vs-fake dial read).
                 val tvCallLogs = timelineView.findViewById<TextView>(R.id.twTimelineCallLogs)
-                val callLine = WorkerParcelAdapter.callLogLine(
-                    entry.callLogCount, entry.callLogTotalDurationSec,
-                    entry.callLogMaxTalkSec, entry.callLogCut
-                )
+                val callLine = WorkerParcelAdapter.callLogLine(entry.callLogCount, entry.callLogTotalDurationSec)
                 if (callLine != null) {
                     tvCallLogs.text = callLine
                     tvCallLogs.visibility = View.VISIBLE
@@ -1465,6 +1462,7 @@ class WorkerSpaceFragment : Fragment() {
             val authorLabel = if (authorEmployeeId.isBlank()) resolvedAuthorName else "$resolvedAuthorName ($authorEmployeeId)"
             val author = if (isFromDeliveryAgent) authorLabel else "$authorLabel · CC"
 
+            val (callN, callT) = WorkerParcelAdapter.parseCallLog(r)
             HistoryEntry(
                 action = rStatus.ifBlank { "NOTE" }.uppercase(),
                 remark = rRemarks,
@@ -1475,10 +1473,8 @@ class WorkerSpaceFragment : Fragment() {
                     .ifBlank { photoMap[authorSystemId].orEmpty() },
                 createdAt = createdAt,
                 cardBadgeText = rRemarks,
-                callLogCount = r.optInt("call_count"),
-                callLogTotalDurationSec = r.optInt("call_talk_sec"),
-                callLogMaxTalkSec = r.optInt("call_max_talk_sec"),
-                callLogCut = r.optInt("call_cut")
+                callLogCount = callN,
+                callLogTotalDurationSec = callT
             )
         }.sortedBy { it.createdAt }
     }

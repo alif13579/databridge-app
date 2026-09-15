@@ -207,8 +207,7 @@ class DashboardFragment : Fragment() {
             val t = state.talk
             if (t.remarks > 0) {
                 val ansPct = pct(t.answered, t.remarks)
-                append("\n• Talk: ${t.dials} dials · ${fmtDur(t.talkSec)} talk · ${t.answered}/${t.remarks} answered ($ansPct%)")
-                if (t.cut > 0) append(" · ⚠ ${t.cut} cut")
+                append("\n• Talk: ${fmtDur(t.talkSec)} talk · ${t.answered}/${t.remarks} answered ($ansPct%)")
             }
         }
     }
