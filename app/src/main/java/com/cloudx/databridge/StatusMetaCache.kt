@@ -91,9 +91,7 @@ object StatusMetaCache {
      *  Strictly config-defined — no hardcoded guess. Missing config returns null so the
      *  caller shows the raw key (admin gap signal, fix in Config → Statuses). */
     fun labelOrNull(statusKey: String, statusLang: String): String? {
-        val e = entries[statusKey]
-            ?: entries.entries.firstOrNull { it.key.equals(statusKey, ignoreCase = true) }?.value
-            ?: return null
+        val e = findEntry(statusKey) ?: return null
         return if (statusLang == "en") e.en else e.bn
     }
 
@@ -104,20 +102,49 @@ object StatusMetaCache {
      * "verify_request" — a remark/attempt outcome, not a real delivery-status change).
      */
     fun updatesParcelStatus(statusKey: String): Boolean {
-        val e = entries[statusKey]
-            ?: entries.entries.firstOrNull { it.key.equals(statusKey, ignoreCase = true) }?.value
-        return e?.updatesParcelStatus ?: true
+        return findEntry(statusKey)?.updatesParcelStatus ?: true
+    }
+
+    /** Admin key rule — identical to ConfigStatusesFragment create
+     *  (trim + UPPER + whitespace→_). Parcel actuals arrive Title Case with
+     *  spaces ("Assigned for Delivery") while config nodes are UPPER_SNAKE
+     *  ("ASSIGNED_FOR_DELIVERY"); norm makes them meet. */
+    fun normKey(s: String): String = s.trim().uppercase().replace("\\s+".toRegex(), "_")
+
+    /** True when [a] and [b] are the same status under the admin key rule
+     *  (case + space/underscore-insensitive). Use for every status
+     *  comparison instead of == / equals(ignoreCase). */
+    fun sameStatus(a: String, b: String): Boolean = normKey(a) == normKey(b)
+
+    /** Single lookup for config/statusMeta: exact → norm-match (covers case
+     *  AND space/underscore variants) → legacy ignoreCase. Null = unconfigured. */
+    fun findEntry(statusKey: String): Entry? {
+        if (statusKey.isBlank()) return null
+        entries[statusKey]?.let { return it }
+        val n = normKey(statusKey)
+        entries.entries.firstOrNull { normKey(it.key) == n }?.let { return it.value }
+        return entries.entries.firstOrNull { it.key.equals(statusKey, ignoreCase = true) }?.value
+    }
+
+    /** Config node's own key casing for [statusKey], or null when unconfigured. */
+    fun configKeyFor(statusKey: String): String? {
+        if (statusKey.isBlank()) return null
+        if (entries.containsKey(statusKey)) return statusKey
+        val n = normKey(statusKey)
+        entries.keys.firstOrNull { normKey(it) == n }?.let { return it }
+        return entries.keys.firstOrNull { it.equals(statusKey, ignoreCase = true) }
     }
 
     /** Canonical grouping key for chips/filters: the config key's own casing when
-     *  known (exact, else case-insensitive), otherwise the raw key lowercased.
-     *  This keeps VERIFY_REQUEST vs verify_request in ONE bucket instead of two
-     *  duplicate chips. Display label/color still come from getStatusConfig(). */
+     *  known (exact, norm, else case-insensitive), otherwise the raw key trimmed
+     *  with ORIGINAL casing preserved — never lowercased (lowercasing is what
+     *  made "Assigned for Delivery" render as "assigned for delivery").
+     *  Bucketing stays case/space-insensitive via normKey at the call sites.
+     *  Display label/color still come from getStatusConfig(). */
     fun canonicalStatusKey(raw: String): String {
         if (raw.isBlank()) return raw
-        entries[raw]?.let { return raw }
-        entries.keys.firstOrNull { it.equals(raw, ignoreCase = true) }?.let { return it }
-        return raw.lowercase()
+        configKeyFor(raw)?.let { return it }
+        return raw.trim()
     }
 
     /** config/statusMeta/{key}/priority is intentionally UNREAD — its only consumer
@@ -163,9 +190,7 @@ fun parseLangPair(value: String): Pair<String, String> {
  */
 fun StatusMetaCache.ignoredActualsFor(remarkStatus: String): Set<String>? {
     if (remarkStatus.isBlank()) return null
-    val entry = entries[remarkStatus]
-        ?: entries.entries.firstOrNull { it.key.equals(remarkStatus, ignoreCase = true) }?.value
-        ?: return null
+    val entry = findEntry(remarkStatus) ?: return null
     return if (entry.hasIgnoredWhenActual) entry.ignoredWhenActual else null
 }
 
@@ -183,5 +208,5 @@ fun StatusMetaCache.ignoredActualsFor(remarkStatus: String): Set<String>? {
 fun StatusMetaCache.isRemarkIgnoredInActual(remarkStatus: String, actualStatus: String): Boolean {
     if (remarkStatus.isBlank() || actualStatus.isBlank()) return false
     val configured = ignoredActualsFor(remarkStatus) ?: return false
-    return configured.any { it.equals(actualStatus, ignoreCase = true) }
+    return configured.any { sameStatus(it, actualStatus) }
 }

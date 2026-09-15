@@ -752,9 +752,9 @@ class CallCenterFragment : Fragment() {
                     return@filter p.remarks == AUTO_NO_ANSWER_REMARK_TEXT
                 }
                 val matchesMode = when (autoCallMode) {
-                    // Case-insensitive — autoCallStatuses keys may differ in case
+                    // Norm-aware — autoCallStatuses keys may differ in case/spacing
                     // from stored effectiveStatus (VERIFY_REQUEST vs verify_request).
-                    "status" -> autoCallStatuses.any { s -> p.effectiveStatus.equals(s, ignoreCase = true) }
+                    "status" -> autoCallStatuses.any { s -> StatusMetaCache.sameStatus(p.effectiveStatus, s) }
                     "aging"  -> true // aging mode ignores status entirely
                     else     -> p.status.equals("pending", ignoreCase = true)
                 }
@@ -1652,12 +1652,22 @@ class CallCenterFragment : Fragment() {
         layoutFilterTabs.removeAllViews()
         val scoped       = scopedParcels()
         val total        = scoped.size
-        // Case-insensitive bucketing via canonical key — same status in different
-        // cases stays in ONE chip instead of two duplicate chips.
-        val statusCounts = scoped.groupingBy { StatusMetaCache.canonicalStatusKey(it.effectiveStatus) }.eachCount()
+        // Case-insensitive bucketing via norm key — same status in different
+        // cases spellings stays in ONE chip ("Assigned for Delivery" vs
+        // "ASSIGNED_FOR_DELIVERY"). Display keeps config-key casing when known,
+        // else first-seen raw with original casing (never lowercased).
+        val buckets = LinkedHashMap<String, Pair<String, Int>>()
+        scoped.forEach { p ->
+            val display = StatusMetaCache.canonicalStatusKey(p.effectiveStatus)
+            val b = StatusMetaCache.normKey(display)
+            val e = buckets[b]
+            buckets[b] = if (e == null) display to 1 else e.first to e.second + 1
+        }
+        val statusCounts = buckets.mapValues { it.value.second }
+        val displayFor: (String) -> String = { b -> buckets[b]?.first ?: b }
 
-        // Reset active filter if it no longer exists in data (case-insensitive).
-        if (statusFilter != "all" && statusCounts.keys.none { it.equals(statusFilter, ignoreCase = true) }) {
+        // Reset active filter if it no longer exists in data (norm-aware).
+        if (statusFilter != "all" && buckets.keys.none { StatusMetaCache.sameStatus(it, statusFilter) }) {
             statusFilter = "all"
         }
 
@@ -1666,15 +1676,14 @@ class CallCenterFragment : Fragment() {
         // for a stable order; unconfigured statuses (sortOrder 0) sort last together.
         val sortedEntries = statusCounts.entries.sortedWith(
             compareByDescending<Map.Entry<String, Int>> {
-                (StatusMetaCache.entries[it.key]
-                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(it.key, ignoreCase = true) }?.value
-                    )?.sortOrder ?: 0
+                StatusMetaCache.findEntry(displayFor(it.key))?.sortOrder ?: 0
             }
                 .thenBy { it.key }
         )
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
-        sortedEntries.forEach { (statusKey, count) ->
+        sortedEntries.forEach { (bucket, count) ->
+            val statusKey = displayFor(bucket)
             // Strictly config-defined per config/language/ccLang (en vs bn) — no hardcoded guess.
             val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, ccStatusLang).label
             filters.add(FilterTab(statusKey, "$label($count)"))
@@ -1699,10 +1708,9 @@ class CallCenterFragment : Fragment() {
         for (i in 0 until layoutFilterTabs.childCount) {
             val chip = layoutFilterTabs.getChildAt(i) as? TextView ?: continue
             val statusKey = chip.tag as? String ?: continue
-            val isActive = statusKey == statusFilter
-            val metaColor: Int? = if (statusKey == "all") null
-                else (StatusMetaCache.entries[statusKey]
-                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(statusKey, ignoreCase = true) }?.value)?.color
+            val isActive = StatusMetaCache.sameStatus(statusKey, statusFilter)
+            val metaColor: Int? = if (StatusMetaCache.sameStatus(statusKey, "all")) null
+                else StatusMetaCache.findEntry(statusKey)?.color
             chip.isSelected = isActive
             if (isActive && metaColor != null) {
                 try {
@@ -3136,8 +3144,7 @@ class CallCenterFragment : Fragment() {
                     val englishLabel = opt.textEn.ifBlank { opt.textBn }
                     if (label.isBlank()) return@mapNotNull null
                     val target = opt.targetStatus.ifBlank { return@mapNotNull null }
-                    val metaEntry = StatusMetaCache.entries[target]
-                        ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(target, ignoreCase = true) }?.value
+                    val metaEntry = StatusMetaCache.findEntry(target)
                     val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
                     CcRemarkOption(
                         icon = "💬",
@@ -4815,9 +4822,9 @@ class CallCenterFragment : Fragment() {
             tvSearchCount.visibility = View.GONE
         }
 
-        // Status filter — case-insensitive match, remark status takes priority over parcel status
-        filtered = if (statusFilter == "all") filtered
-                   else filtered.filter { it.effectiveStatus.equals(statusFilter, ignoreCase = true) }
+        // Status filter — norm-aware match (case + space/underscore), remark status takes priority over parcel status
+        filtered = if (StatusMetaCache.sameStatus(statusFilter, "all")) filtered
+                   else filtered.filter { StatusMetaCache.sameStatus(it.effectiveStatus, statusFilter) }
 
         // When both Priority Queue and All Agents are selected, surface priority
         // (validation-requested) parcels first — stable sort keeps each group's
@@ -4843,7 +4850,7 @@ class CallCenterFragment : Fragment() {
         val total = scoped.size
         val confirmed = scoped.count { it.validationRequest }
         val pending = scoped.count { it.remarks.isNotBlank() }
-        val rejected = scoped.count { it.effectiveStatus.equals("rejected", ignoreCase = true) }
+        val rejected = scoped.count { StatusMetaCache.sameStatus(it.effectiveStatus, "rejected") }
         val validationCount = scoped.count { it.validationRequest }
 
         tvStatTotal.text = total.toString()

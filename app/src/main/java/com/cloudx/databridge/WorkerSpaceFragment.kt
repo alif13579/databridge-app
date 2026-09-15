@@ -350,13 +350,22 @@ class WorkerSpaceFragment : Fragment() {
     private fun setupFilterTabs() {
         layoutFilterTabs.removeAllViews()
         val total       = allParcels.size
-        // Case-insensitive bucketing via canonical key — VERIFY_REQUEST vs
-        // verify_request stay in ONE chip instead of two duplicate chips.
-        val statusCounts = allParcels.groupingBy { StatusMetaCache.canonicalStatusKey(it.effectiveStatus) }.eachCount()
+        // Norm-aware bucketing — VERIFY_REQUEST vs verify_request stay in ONE chip,
+        // and "Assigned for Delivery" vs "ASSIGNED_FOR_DELIVERY" too. Display keeps
+        // config-key casing when known, else first-seen raw (never lowercased).
+        val buckets = LinkedHashMap<String, Pair<String, Int>>()
+        allParcels.forEach { p ->
+            val display = StatusMetaCache.canonicalStatusKey(p.effectiveStatus)
+            val b = StatusMetaCache.normKey(display)
+            val e = buckets[b]
+            buckets[b] = if (e == null) display to 1 else e.first to e.second + 1
+        }
+        val statusCounts = buckets.mapValues { it.value.second }
+        val displayFor: (String) -> String = { b -> buckets[b]?.first ?: b }
 
-        // Reset active filter if it no longer exists in data (case-insensitive —
-        // the stored key may differ in case from the canonical bucket key).
-        if (activeFilter != "all" && statusCounts.keys.none { it.equals(activeFilter, ignoreCase = true) }) {
+        // Reset active filter if it no longer exists in data (norm-aware —
+        // the stored key may differ in case/spacing from the bucket key).
+        if (activeFilter != "all" && buckets.keys.none { StatusMetaCache.sameStatus(it, activeFilter) }) {
             activeFilter = "all"
         }
 
@@ -365,14 +374,14 @@ class WorkerSpaceFragment : Fragment() {
         // for a stable order; unconfigured statuses (sortOrder 0) sort last together.
         val sortedEntries = statusCounts.entries.sortedWith(
             compareByDescending<Map.Entry<String, Int>> {
-                (StatusMetaCache.entries[it.key]
-                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(it.key, ignoreCase = true) }?.value)?.sortOrder ?: 0
+                StatusMetaCache.findEntry(displayFor(it.key))?.sortOrder ?: 0
             }
                 .thenBy { it.key }
         )
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
-        sortedEntries.forEach { (statusKey, count) ->
+        sortedEntries.forEach { (bucket, count) ->
+            val statusKey = displayFor(bucket)
             // Strictly config-defined per config/language/workerLang (en vs bn) — no hardcoded guess.
             val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, workerStatusLang).label
             filters.add(FilterTab(statusKey, "$label($count)"))
@@ -398,10 +407,9 @@ class WorkerSpaceFragment : Fragment() {
         for (i in 0 until layoutFilterTabs.childCount) {
             val chip = layoutFilterTabs.getChildAt(i) as TextView
             val statusKey = chip.tag as? String ?: continue
-            val isActive = statusKey == activeFilter
-            val metaColor: Int? = if (statusKey == "all") null
-                else (StatusMetaCache.entries[statusKey]
-                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(statusKey, ignoreCase = true) }?.value)?.color
+            val isActive = StatusMetaCache.sameStatus(statusKey, activeFilter)
+            val metaColor: Int? = if (StatusMetaCache.sameStatus(statusKey, "all")) null
+                else StatusMetaCache.findEntry(statusKey)?.color
             chip.isSelected = isActive
             if (isActive && metaColor != null) {
                 try {
@@ -753,8 +761,7 @@ class WorkerSpaceFragment : Fragment() {
                     val label = if (remarkLang == "en") opt.textEn.ifBlank { opt.textBn } else opt.textBn.ifBlank { opt.textEn }
                     if (label.isBlank()) return@mapNotNull null
                     val target = opt.targetStatus.ifBlank { return@mapNotNull null }
-                    val metaEntry = StatusMetaCache.entries[target]
-                        ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(target, ignoreCase = true) }?.value
+                    val metaEntry = StatusMetaCache.findEntry(target)
                     val preview = StatusMetaCache.labelOrNull(target, statusLang) ?: target
                     WorkerRemarkOption(
                         icon = "💬",
@@ -2266,11 +2273,11 @@ class WorkerSpaceFragment : Fragment() {
             tvSearchCount.visibility = View.GONE
         }
 
-        // Status filter — case-insensitive match against effectiveStatus (remarkStatus takes
+        // Status filter — norm-aware match against effectiveStatus (remarkStatus takes
         // priority over raw status), same rule setupFilterTabs() uses to build the chips —
         // otherwise a parcel's chip-count bucket and its actual filtered bucket disagree.
-        filtered = if (activeFilter == "all") filtered
-                   else filtered.filter { it.effectiveStatus.equals(activeFilter, ignoreCase = true) }
+        filtered = if (StatusMetaCache.sameStatus(activeFilter, "all")) filtered
+                   else filtered.filter { StatusMetaCache.sameStatus(it.effectiveStatus, activeFilter) }
 
         // No re-sort needed here: allParcels is already ordered by sortByGroupAge()
         // (same-phone parcels adjacent, oldest group/parcel first), and filtering
@@ -2388,20 +2395,18 @@ class WorkerSpaceFragment : Fragment() {
         addFixedChip(fixed.third, "Delivery", R.color.theme_red)
         val sorted = counts.entries.sortedWith(
             compareByDescending<Map.Entry<String, Int>> {
-                (StatusMetaCache.entries[it.key]
-                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(it.key, ignoreCase = true) }?.value)?.sortOrder ?: 0
+                StatusMetaCache.findEntry(it.key)?.sortOrder ?: 0
             }
                 .thenByDescending { it.value }
         )
         sorted.forEach { (status, count) ->
-            val meta = StatusMetaCache.entries[status]
-                ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(status, ignoreCase = true) }?.value
+            val meta = StatusMetaCache.findEntry(status)
             val chip = layoutInflater.inflate(R.layout.item_cc_stat_chip, layoutWsStatDynamic, false)
             val tvValue = chip.findViewById<TextView>(R.id.tvCcStatChipValue)
             val tvLabel = chip.findViewById<TextView>(R.id.tvCcStatChipLabel)
             tvValue.text = count.toString()
             tvValue.setTextColor(meta?.color ?: android.graphics.Color.GRAY)
-            tvLabel.text = meta?.en?.takeIf { it.isNotBlank() } ?: status
+            tvLabel.text = StatusMetaCache.labelOrNull(status, workerStatusLang) ?: status
             layoutWsStatDynamic.addView(chip)
         }
     }

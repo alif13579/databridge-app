@@ -254,8 +254,7 @@ class WorkerParcelAdapter(
         // When a remarkStatus color is available, tint both the remarks background and the
         // card border so the card visually pops and draws the worker's attention.
         val remarkColor: Int? = if (item.remarks.isNotBlank() && item.remarkStatus.isNotBlank()) {
-            (StatusMetaCache.entries[item.remarkStatus]
-                ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(item.remarkStatus, ignoreCase = true) }?.value)?.color
+            StatusMetaCache.findEntry(item.remarkStatus)?.color
         } else null
 
         if (item.remarks.isNotBlank()) {
@@ -540,8 +539,7 @@ class WorkerParcelAdapter(
         fun sortByPriority(parcels: List<WorkerParcelItem>): List<WorkerParcelItem> {
             fun effectiveAge(p: WorkerParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
             fun statusPriority(p: WorkerParcelItem): Int =
-                (StatusMetaCache.entries[p.effectiveStatus]
-                    ?: StatusMetaCache.entries.entries.firstOrNull { e -> e.key.equals(p.effectiveStatus, ignoreCase = true) }?.value)?.sortOrder ?: 0
+                StatusMetaCache.findEntry(p.effectiveStatus)?.sortOrder ?: 0
             val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
             return groups.values
                 .sortedWith(
@@ -625,19 +623,19 @@ class WorkerParcelAdapter(
         }
 
         fun getStatusConfig(context: android.content.Context, status: String, statusLang: String = "bn"): StatusConfig {
-            // Strictly config-defined — no hardcoded label guess. Exact first, then
-            // case-insensitive (remark keys vary in case: VERIFY_REQUEST vs verify_request).
-            // Missing config → raw key in neutral gray (admin gap signal, fix in Config → Statuses).
-            val entry = StatusMetaCache.entries[status]
-                ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(status, ignoreCase = true) }?.value
+            // Strictly config-defined — no hardcoded label guess. Lookup is
+            // norm-aware (case + space/underscore: "Assigned for Delivery"
+            // meets "ASSIGNED_FOR_DELIVERY"). Missing config → raw key trimmed
+            // with original casing (admin gap signal, fix in Config → Statuses).
+            val entry = StatusMetaCache.findEntry(status)
             entry?.let {
                 val primary = if (statusLang == "en") it.en else it.bn
                 val other = if (statusLang == "en") it.bn else it.en
-                return StatusConfig(it.color, it.bg, primary.ifBlank { other }.ifBlank { status })
+                return StatusConfig(it.color, it.bg, primary.ifBlank { other }.ifBlank { status.trim() })
             }
             val neutral   = android.graphics.Color.parseColor("#6B7280")
             val neutralBg = android.graphics.Color.parseColor("#F3F4F6")
-            return StatusConfig(neutral, neutralBg, status)
+            return StatusConfig(neutral, neutralBg, status.trim())
         }
     }
 

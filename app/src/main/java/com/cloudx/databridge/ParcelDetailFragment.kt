@@ -251,8 +251,7 @@ class ParcelDetailFragment : Fragment() {
                     val label = opt.textBn.ifBlank { opt.textEn }
                     if (label.isBlank()) return@mapNotNull null
                     val target = opt.targetStatus.ifBlank { return@mapNotNull null }
-                    val metaEntry = StatusMetaCache.entries[target]
-                        ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(target, ignoreCase = true) }?.value
+                    val metaEntry = StatusMetaCache.findEntry(target)
                     val preview = StatusMetaCache.labelOrNull(target, detailStatusLang) ?: target
                     PdRemarkOption(
                         icon = "💬",
