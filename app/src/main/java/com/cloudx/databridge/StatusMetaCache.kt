@@ -45,7 +45,15 @@ object StatusMetaCache {
     var entries: Map<String, Entry> = emptyMap()
         private set
 
-    suspend fun refresh() {
+    @Volatile
+    private var lastRefreshMs: Long = 0L
+    private const val REFRESH_TTL_MS = 30_000L
+
+    suspend fun refresh(force: Boolean = false) {
+        // Coalesce rapid re-entry (CC + Worker both refresh on cold start, plus the
+        // independent onViewCreated refresh). Once loaded, skip network for 30s —
+        // keeps chip rebuilds instant when switching tabs and avoids duplicate gets.
+        if (!force && entries.isNotEmpty() && System.currentTimeMillis() - lastRefreshMs < REFRESH_TTL_MS) return
         try {
             val snap = FirebaseDatabase.getInstance().reference.child("config/statusMeta").get().await()
             val map = mutableMapOf<String, Entry>()
@@ -91,7 +99,10 @@ object StatusMetaCache {
                     android.util.Log.w("StatusMetaCache", "Skipped status node '$key': ${e.message}")
                 }
             }
-            if (map.isNotEmpty()) entries = map
+            if (map.isNotEmpty()) {
+                entries = map
+                lastRefreshMs = System.currentTimeMillis()
+            }
         } catch (e: Exception) {
             // Keep whatever was cached before (or the empty default) — callers fall back gracefully.
         }
