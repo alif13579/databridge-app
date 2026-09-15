@@ -45,17 +45,7 @@ object StatusMetaCache {
     var entries: Map<String, Entry> = emptyMap()
         private set
 
-    // Last refresh() outcome — surfaced in the StatusChipDiag chip-build logs so a
-    // raw-key screenshot can be matched to "cache was empty / refresh failed".
-    @Volatile var lastRefreshOk: Boolean = false
-        private set
-    @Volatile var lastRefreshAt: Long = 0L
-        private set
-    @Volatile var lastRefreshError: String = ""
-        private set
-
     suspend fun refresh() {
-        StatusChipDiag.refreshStart()
         try {
             val snap = FirebaseDatabase.getInstance().reference.child("config/statusMeta").get().await()
             val map = mutableMapOf<String, Entry>()
@@ -98,19 +88,12 @@ object StatusMetaCache {
                 } catch (e: Exception) {
                     // One malformed status node must never poison the whole cache —
                     // skip it and keep every other status resolvable.
-                    StatusChipDiag.nodeSkipped(key, "${e.javaClass.simpleName}: ${e.message}")
+                    android.util.Log.w("StatusMetaCache", "Skipped status node '$key': ${e.message}")
                 }
             }
             if (map.isNotEmpty()) entries = map
-            lastRefreshOk = true
-            lastRefreshAt = System.currentTimeMillis()
-            lastRefreshError = ""
-            StatusChipDiag.refreshOk(map.size, map.keys)
         } catch (e: Exception) {
             // Keep whatever was cached before (or the empty default) — callers fall back gracefully.
-            lastRefreshOk = false
-            lastRefreshError = "${e.javaClass.simpleName}: ${e.message}"
-            StatusChipDiag.refreshFail(lastRefreshError)
         }
     }
 

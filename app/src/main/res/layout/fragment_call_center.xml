@@ -535,18 +535,11 @@
                 <!-- /layoutCcaCollapsibleSection -->
             </LinearLayout>
 
-            <!-- Status Filter Tabs + diagnostics copy -->
-            <LinearLayout
+            <!-- Status Filter Tabs -->
+            <HorizontalScrollView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:background="@drawable/bg_header">
-
-            <HorizontalScrollView
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
+                android:background="@drawable/bg_header"
                 android:scrollbars="none">
 
                 <LinearLayout
@@ -558,18 +551,6 @@
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp" />
             </HorizontalScrollView>
-
-                <!-- Temporary: copies StatusChipDiag output for the raw-key issue -->
-                <TextView
-                    android:id="@+id/btnCopyChipDiag"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📋"
-                    android:textSize="18sp"
-                    android:padding="12dp"
-                    android:visibility="gone"
-                    android:contentDescription="Copy status diagnostics" />
-            </LinearLayout>
 
             <!-- Pull-to-refresh + Parcel List Container — the RecyclerView is now the SOLE
                  scrolling element (fills remaining space below the fixed header/tabs), which

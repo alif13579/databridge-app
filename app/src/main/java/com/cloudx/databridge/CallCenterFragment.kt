@@ -1,9 +1,6 @@
 package com.cloudx.databridge
 
 import android.Manifest
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -61,8 +58,6 @@ class CallCenterFragment : Fragment() {
     private lateinit var tvModeDropdown: TextView
     private lateinit var tvBranchDropdown: TextView
     private lateinit var layoutFilterTabs: LinearLayout
-    // Temporary diagnostics copy button (raw-key chip issue) — visible once parcels load.
-    private lateinit var btnCopyChipDiag: TextView
     private lateinit var rvParcelList: RecyclerView
     private lateinit var pbProgress: ProgressBar
     private lateinit var tvLoadingPercent: TextView
@@ -437,12 +432,6 @@ class CallCenterFragment : Fragment() {
         tvSortByDropdown.setOnClickListener { showCcSortByDropdown() }
         tvSortByDropdown.setOnLongClickListener { showRemarkPushChainLogDialog(); true }
         layoutFilterTabs = view.findViewById(R.id.layoutCcaFilterTabs)
-        btnCopyChipDiag = view.findViewById(R.id.btnCopyChipDiag)
-        btnCopyChipDiag.setOnClickListener {
-            val cm = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("StatusChipDiag", StatusChipDiag.dump()))
-            Toast.makeText(requireContext(), "Diagnostics copied — paste it to chat", Toast.LENGTH_LONG).show()
-        }
         rvParcelList = view.findViewById(R.id.rvCcaParcelList)
         pbProgress = view.findViewById(R.id.twCcaProgressBar)
         tvLoadingPercent = view.findViewById(R.id.twCcaLoadingPercent)
@@ -1703,17 +1692,12 @@ class CallCenterFragment : Fragment() {
         )
 
         val filters = mutableListOf(FilterTab("all", "All($total)"))
-        val diagChips = mutableListOf<StatusChipDiag.Chip>()
         sortedEntries.forEach { (bucket, count) ->
             val statusKey = displayFor(bucket)
-            val hit = StatusMetaCache.findEntry(statusKey) != null
             // Strictly config-defined per config/language/ccLang (en vs bn) — no hardcoded guess.
             val label = WorkerParcelAdapter.getStatusConfig(requireContext(), statusKey, ccStatusLang).label
-            diagChips.add(StatusChipDiag.Chip(statusKey, count, label, hit))
             filters.add(FilterTab(statusKey, "$label($count)"))
         }
-        StatusChipDiag.logBuild("CC", total, StatusMetaCache.entries.size,
-            StatusMetaCache.lastRefreshOk, StatusMetaCache.lastRefreshError, ccStatusLang, diagChips)
 
         for (filter in filters) {
             val chip = layoutInflater.inflate(R.layout.item_filter_chip, layoutFilterTabs, false) as TextView
@@ -1725,10 +1709,6 @@ class CallCenterFragment : Fragment() {
                 applyFilters()
             }
             layoutFilterTabs.addView(chip)
-        }
-        // Show the diagnostics copy button once parcels have loaded.
-        if (::btnCopyChipDiag.isInitialized) {
-            btnCopyChipDiag.visibility = if (total > 0) View.VISIBLE else View.GONE
         }
         updateFilterChips()
     }
