@@ -23,16 +23,9 @@ object StatusMetaCache {
         // outcome) shouldn't overwrite the parcel's actual courier/consignments/{id}/status.
         // Defaults to true (old behavior) for any status that doesn't set this field.
         val updatesParcelStatus: Boolean = true,
-        // AUTHORITY level for courier-sync vs remark-status conflicts — NOT display order
-        // (see sortOrder below for that). Mirrors config/statusMeta/{key}/priority, the same
-        // field ConfigStatusesFragment's admin panel edits. Used by
-        // ConfigSheetWizardSteps.kt's propagation to decide whether an incoming
-        // courier/consignments/status change should overwrite an existing
-        // remarks_by_userId/.../final_status: higher authority wins, so e.g. a
-        // human-verified "Return Verified" outcome isn't silently overwritten by a lower-
-        // authority courier sync status. Defaults to 0 (loses every genuine comparison) for
-        // any status that doesn't set this field — an unconfigured status should never
-        // silently outrank a configured one.
+        // AUTHORITY level — RETIRED, unread (see the note below on priority).
+        // Mirrors config/statusMeta/{key}/priority, still parsed + preserved on save
+        // so existing Firebase values are never lost. Defaults to 0.
         val priority: Int = 0,
         // Chip / worklist DISPLAY order — higher sorts first. This is what priority used to
         // mean before that field was repurposed for authority above; every call site that
@@ -117,12 +110,10 @@ object StatusMetaCache {
     fun updatesParcelStatus(statusKey: String): Boolean =
         entries[statusKey]?.updatesParcelStatus ?: true
 
-    /** Authority level for [statusKey], for deciding whether an incoming status should
-     *  overwrite an existing one in a courier-sync-vs-remark conflict. Unconfigured
-     *  statuses get 0, same as Entry's default — see Entry.priority's doc for why an
-     *  unconfigured status must never outrank a configured one. */
-    fun authorityOf(statusKey: String): Int =
-        entries[statusKey]?.priority ?: 0
+    /** config/statusMeta/{key}/priority is intentionally UNREAD (legacy data kept
+     *  as-is in Firebase): its only consumer — sheet-sync propagation into the
+     *  retired courier/remarks_by_userId index — was removed, and the ignore-list
+     *  system replaced authority-based conflict rules. */
 }
 
 /**

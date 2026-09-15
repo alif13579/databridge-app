@@ -35,7 +35,6 @@ class ConfigStatusesFragment : Fragment() {
     private lateinit var etNewKey:            EditText
     private lateinit var etNewBn:             EditText
     private lateinit var etNewEn:             EditText
-    private lateinit var etNewPriority:       EditText
     private lateinit var etNewSortOrder:      EditText
     private lateinit var colorPickerNew:      LinearLayout
     private lateinit var tvColorPreviewNew:   TextView
@@ -67,7 +66,6 @@ class ConfigStatusesFragment : Fragment() {
         etNewKey            = view.findViewById(R.id.etNewStatusKey)
         etNewBn             = view.findViewById(R.id.etNewStatusBn)
         etNewEn             = view.findViewById(R.id.etNewStatusEn)
-        etNewPriority       = view.findViewById(R.id.etNewStatusPriority)
         etNewSortOrder      = view.findViewById(R.id.etNewStatusSortOrder)
         colorPickerNew      = view.findViewById(R.id.colorPickerNew)
         tvColorPreviewNew   = view.findViewById(R.id.tvColorPreviewNew)
@@ -198,7 +196,7 @@ class ConfigStatusesFragment : Fragment() {
             val ignoreTxt = if (meta.ignoredWhenActual.isEmpty()) "Ignores: none"
                 else "Ignores in ${meta.ignoredWhenActual.size}: ${meta.ignoredWhenActual.take(3).joinToString(", ")}${if (meta.ignoredWhenActual.size > 3) "…" else ""}"
             row.findViewById<TextView>(R.id.tvStatusSubtitle).text =
-                "$key · Authority: ${meta.priority} · Sort: ${meta.sortOrder} · $count remark${if (count != 1) "s" else ""}$breakdown · $ignoreTxt"
+                "$key · Sort: ${meta.sortOrder} · $count remark${if (count != 1) "s" else ""}$breakdown · $ignoreTxt"
 
             row.findViewById<View>(R.id.btnEditStatus).setOnClickListener { openEditDialog(key) }
 
@@ -218,7 +216,6 @@ class ConfigStatusesFragment : Fragment() {
 
         val etBn   = view.findViewById<EditText>(R.id.etEditStatusBn)
         val etEn   = view.findViewById<EditText>(R.id.etEditStatusEn)
-        val etPri  = view.findViewById<EditText>(R.id.etEditStatusPriority)
         val etSort = view.findViewById<EditText>(R.id.etEditStatusSortOrder)
         val picker = view.findViewById<LinearLayout>(R.id.colorPickerEdit)
         val tvPrev = view.findViewById<TextView>(R.id.tvEditColorPreview)
@@ -227,7 +224,6 @@ class ConfigStatusesFragment : Fragment() {
         tvHint.text = key
         etBn.setText(meta.bn)
         etEn.setText(meta.en)
-        etPri.setText(meta.priority.toString())
         etSort.setText(meta.sortOrder.toString())
 
         // Find matching color index
@@ -266,10 +262,11 @@ class ConfigStatusesFragment : Fragment() {
             .setPositiveButton("Save") { _, _ ->
                 val newBn  = etBn.text.toString().trim().ifEmpty { meta.bn }
                 val newEn  = etEn.text.toString().trim().ifEmpty { meta.en }
-                val newPri = etPri.text.toString().toIntOrNull() ?: meta.priority
                 val newSort = etSort.text.toString().toIntOrNull() ?: meta.sortOrder
                 val (nc, nb) = statusColors[editColorIdx]
-                val updated = meta.copy(bn = newBn, en = newEn, color = nc, bg = nb, priority = newPri, sortOrder = newSort, ignoredWhenActual = ignoreWorking.toList())
+                // priority is legacy data (kept as-is, no longer edited — the retired
+                // authority system was its only consumer).
+                val updated = meta.copy(bn = newBn, en = newEn, color = nc, bg = nb, sortOrder = newSort, ignoredWhenActual = ignoreWorking.toList())
                 val newMeta = ConfigState.statusMeta.toMutableMap()
                 newMeta[key] = updated
                 ConfigState.statusMeta = newMeta
@@ -387,7 +384,6 @@ class ConfigStatusesFragment : Fragment() {
         val rawKey = etNewKey.text.toString().trim().uppercase().replace("\\s+".toRegex(), "_")
         val bn     = etNewBn.text.toString().trim()
         val en     = etNewEn.text.toString().trim()
-        val pri    = etNewPriority.text.toString().toIntOrNull() ?: 0
         val sort   = etNewSortOrder.text.toString().toIntOrNull() ?: 0
 
         if (rawKey.isEmpty()) { showError("Enter a status key"); return }
@@ -401,7 +397,6 @@ class ConfigStatusesFragment : Fragment() {
             en       = en.ifEmpty { bn },
             color    = nc,
             bg       = nb,
-            priority = pri,
             sortOrder = sort,
             builtIn  = false,
         )
@@ -420,7 +415,7 @@ class ConfigStatusesFragment : Fragment() {
                 Toast.makeText(requireContext(), "Status create failed", Toast.LENGTH_LONG).show()
             }
         }
-        etNewKey.setText(""); etNewBn.setText(""); etNewEn.setText(""); etNewPriority.setText("0"); etNewSortOrder.setText("0")
+        etNewKey.setText(""); etNewBn.setText(""); etNewEn.setText(""); etNewSortOrder.setText("0")
         newColorIdx = 0; updateCreateColorPreview()
         bindStatusList()
     }
@@ -462,15 +457,22 @@ class ConfigStatusesFragment : Fragment() {
         val keyInput = input("e.g. PARTIAL", android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS)
         val bnInput = input("Bangla...")
         val enInput = input("English...")
-        val priorityInput = input("0", android.text.InputType.TYPE_CLASS_NUMBER)
         val sortOrderInput = input("0", android.text.InputType.TYPE_CLASS_NUMBER)
         val picker = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(8), 0, dp(8))
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
             ).apply { bottomMargin = dp(4) }
+        }
+        val pickerScroll = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            addView(picker)
         }
         val preview = TextView(ctx).apply {
             text = "Preview"
@@ -501,8 +503,6 @@ class ConfigStatusesFragment : Fragment() {
         content.addView(bnInput)
         content.addView(label("English"))
         content.addView(enInput)
-        content.addView(label("Authority Level (courier sync vs. remark)"))
-        content.addView(priorityInput)
         content.addView(label("Sort Order (display order)"))
         content.addView(sortOrderInput)
         content.addView(label("Ignored when actual is (＋ add multiple, empty = never ignored)"))
@@ -563,7 +563,7 @@ class ConfigStatusesFragment : Fragment() {
             options = { ignoreOptionsFor("") },
         )
         content.addView(label("Color"))
-        content.addView(picker)
+        content.addView(pickerScroll)
         content.addView(preview)
 
         val dialog = AlertDialog.Builder(ctx)
@@ -578,7 +578,6 @@ class ConfigStatusesFragment : Fragment() {
                 val rawKey = keyInput.text.toString().trim().uppercase().replace("\\s+".toRegex(), "_")
                 val bn = bnInput.text.toString().trim()
                 val en = enInput.text.toString().trim()
-                val pri = priorityInput.text.toString().toIntOrNull() ?: 0
                 val sort = sortOrderInput.text.toString().toIntOrNull() ?: 0
 
                 when {
@@ -595,7 +594,7 @@ class ConfigStatusesFragment : Fragment() {
                         // itself is meaningless).
                         val ignores = createIgnoreWorking
                             .filter { !it.equals(rawKey, ignoreCase = true) }.toList()
-                        createStatus(rawKey, bn, en, pri, sort, color, bg, ignores)
+                        createStatus(rawKey, bn, en, sort, color, bg, ignores)
                     }
                 }
             }
@@ -611,7 +610,6 @@ class ConfigStatusesFragment : Fragment() {
         key: String,
         bn: String,
         en: String,
-        priority: Int,
         sortOrder: Int,
         color: String,
         bg: String,
@@ -624,7 +622,6 @@ class ConfigStatusesFragment : Fragment() {
             en = en.ifEmpty { bn },
             color = color,
             bg = bg,
-            priority = priority,
             sortOrder = sortOrder,
             builtIn = false,
             ignoredWhenActual = ignoredWhenActual,
