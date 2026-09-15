@@ -581,9 +581,15 @@ class WorkerParcelAdapter(
         }
 
         fun getStatusConfig(context: android.content.Context, status: String, statusLang: String = "bn"): StatusConfig {
-            StatusMetaCache.entries[status]?.let { entry ->
-                val label = if (statusLang == "en") entry.en else entry.bn
-                return StatusConfig(entry.color, entry.bg, label.ifBlank { status })
+            // Exact first, then case-insensitive: remark keys vary in case
+            // (VERIFY_REQUEST vs verify_request) while statusMeta keys may not —
+            // an exact-only lookup shows the raw UPPER_SNAKE key on chips/badges.
+            val entry = StatusMetaCache.entries[status]
+                ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(status, ignoreCase = true) }?.value
+            entry?.let {
+                val primary = if (statusLang == "en") it.en else it.bn
+                val other = if (statusLang == "en") it.bn else it.en
+                return StatusConfig(it.color, it.bg, primary.ifBlank { other }.ifBlank { status })
             }
             // Cache miss — StatusMetaCache not yet loaded or this status not in config.
             // Show raw status key in neutral gray so nothing is silently hidden.
