@@ -195,7 +195,7 @@ class ConfigStatusesFragment : Fragment() {
             tvCustom.visibility = View.GONE
 
             val breakdown = if (count > 0) " (Worker $countW · Agent $countCC)" else ""
-            val ignoreTxt = if (meta.ignoredWhenActual.isEmpty()) "Ignores: default"
+            val ignoreTxt = if (meta.ignoredWhenActual.isEmpty()) "Ignores: none"
                 else "Ignores in ${meta.ignoredWhenActual.size}: ${meta.ignoredWhenActual.take(3).joinToString(", ")}${if (meta.ignoredWhenActual.size > 3) "…" else ""}"
             row.findViewById<TextView>(R.id.tvStatusSubtitle).text =
                 "$key · Authority: ${meta.priority} · Sort: ${meta.sortOrder} · $count remark${if (count != 1) "s" else ""}$breakdown · $ignoreTxt"
@@ -244,11 +244,11 @@ class ConfigStatusesFragment : Fragment() {
         tvPrev.setTextColor(android.graphics.Color.parseColor(c0))
         tvPrev.setBackgroundColor(android.graphics.Color.parseColor(bg0))
 
-        // Ignore-list editor: the status's own saved list (empty = built-in terminal
-        // default, see hint). Dropdown = every status key + every custom saved
+        // Ignore-list editor: the status's own saved list (empty = never ignored,
+        // remark always shows). Dropdown = every status key + every custom saved
         // anywhere, so saved customs are reusable.
         view.findViewById<TextView>(R.id.tvIgnoreHint).text =
-            "Empty = built-in default (${defaultIgnoredWhenActual().joinToString(", ")})"
+            "Empty = never ignored (this remark always shows)"
         val ignoreWorking = buildIgnoreEditor(
             ctx,
             view.findViewById(R.id.ignoreChipContainer),
@@ -505,7 +505,7 @@ class ConfigStatusesFragment : Fragment() {
         content.addView(priorityInput)
         content.addView(label("Sort Order (display order)"))
         content.addView(sortOrderInput)
-        content.addView(label("Ignored when actual is (＋ add multiple, empty = terminal default)"))
+        content.addView(label("Ignored when actual is (＋ add multiple, empty = never ignored)"))
         val createIgnoreChips = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -692,7 +692,7 @@ class ConfigStatusesFragment : Fragment() {
             chipContainer.removeAllViews()
             if (working.isEmpty()) {
                 chipContainer.addView(TextView(ctx).apply {
-                    text = "(empty = built-in terminal default applies)"
+                    text = "(empty = never ignored)"
                     textSize = 11f
                     setTextColor(ctx.getColor(R.color.theme_text_muted))
                     setPadding(0, dp(2), 0, dp(2))
@@ -807,7 +807,7 @@ class ConfigStatusesFragment : Fragment() {
                     "priority"  to m.priority,
                     "sortOrder" to m.sortOrder,
                     // Empty list is dropped by RTDB on write → reads back as
-                    // "never configured" → built-in terminal default. Same outcome.
+                    // "never configured" → never ignored. Same outcome.
                     "ignoredWhenActual" to m.ignoredWhenActual,
                 )
             }

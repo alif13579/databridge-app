@@ -31,7 +31,7 @@ object ConfigState {
         val builtIn:  Boolean = false,
         // Actual statuses this remark status is ignored in (effective chip/filter
         // shows the actual instead) — mirrors config/statusMeta/{key}/ignoredWhenActual,
-        // multi-add edited in ConfigStatusesFragment. Empty = built-in terminal default.
+        // multi-add edited in ConfigStatusesFragment. Empty = never ignored.
         val ignoredWhenActual: List<String> = emptyList(),
     )
 
