@@ -524,6 +524,12 @@ class WorkerSpaceFragment : Fragment() {
             )
         ).attachToRecyclerView(rvParcelList)
 
+        // Disable change animations — otherwise every notifyItemMoved cross-fades
+        // and feels laggy. Drag needs instant visual swaps.
+        (rvParcelList.itemAnimator as? androidx.recyclerview.widget.SimpleItemAnimator)
+            ?.supportsChangeAnimations = false
+        rvParcelList.itemAnimator?.changeDuration = 0L
+
         // Custom-mode drag: vertical reorder via the ⋮⋮ handle only (long-press
         // drag stays OFF so long-press keeps opening the history popup, and
         // swipe stays call/remarks). Smoothness: mid-drag moves views ONLY
@@ -533,36 +539,9 @@ class WorkerSpaceFragment : Fragment() {
             ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0
         ) {
             override fun isLongPressDragEnabled() = false
-            // Default needs the dragged card halfway over its neighbour before swapping —
-            // feels late/heavy. A quarter overlap reorders responsively without misfires.
-            override fun getMoveThreshold(vh: RecyclerView.ViewHolder): Float = 0.25f
-            /**
-             * Deterministic landing: the row containing the dragged card's vertical
-             * center wins (nearest edge as fallback). The default implementation can
-             * dither between two rows on slow drags, which reads as "dropped between,
-             * landed elsewhere" — this + the cyan strip agree on one spot.
-             */
-            override fun chooseDropTarget(
-                selected: RecyclerView.ViewHolder,
-                dropTargets: MutableList<RecyclerView.ViewHolder>,
-                curX: Int, curY: Int
-            ): RecyclerView.ViewHolder? {
-                val centerY = curY + selected.itemView.height / 2
-                var best: RecyclerView.ViewHolder? = null
-                var bestDist = Int.MAX_VALUE
-                for (vh in dropTargets) {
-                    if (vh.bindingAdapterPosition == RecyclerView.NO_POSITION) continue
-                    val top = vh.itemView.top
-                    val bottom = vh.itemView.bottom
-                    if (centerY in top..bottom) return vh
-                    val dist = minOf(kotlin.math.abs(centerY - top), kotlin.math.abs(centerY - bottom))
-                    if (dist < bestDist) {
-                        bestDist = dist
-                        best = vh
-                    }
-                }
-                return best ?: super.chooseDropTarget(selected, dropTargets, curX, curY)
-            }
+            // Slightly lower than default (0.5) so the swap feels responsive without
+            // being twitchy. 0.25 was too eager; 0.35 is the sweet spot.
+            override fun getMoveThreshold(vh: RecyclerView.ViewHolder): Float = 0.35f
             override fun onSelectedChanged(
                 vh: RecyclerView.ViewHolder?,
                 actionState: Int
@@ -586,6 +565,9 @@ class WorkerSpaceFragment : Fragment() {
                 target: RecyclerView.ViewHolder
             ): Boolean {
                 if (sortMode != "custom") return false
+                // Drag only makes sense on the full list — filtered/search mixes a
+                // subset with hidden items, so drops land unpredictably. Keep it simple.
+                if (searchQuery.isNotBlank() || activeFilter != "all") return false
                 val from = vh.bindingAdapterPosition
                 val to = target.bindingAdapterPosition
                 if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
@@ -594,10 +576,11 @@ class WorkerSpaceFragment : Fragment() {
                 // Mirror into the adapter's drag snapshot FIRST so every rebind from
                 // here on (scroll, range refresh) shows the dragged order, not stale data.
                 if (!adapter.moveDragItem(from, to)) return false
-                val movingId = ids[from]
-                val targetId = ids[to]
-                applyScratchMove(movingId, targetId)
-                java.util.Collections.swap(ids, from, to)
+                val movingId = ids.removeAt(from)
+                val targetId = ids[to.coerceIn(ids.indices)]
+                // Insert movingId at the visual drop position in the full order.
+                applyScratchMove(movingId, targetId, from < to)
+                ids.add(to, movingId)
                 refreshDropHint(targetId)
                 return true
             }
@@ -675,19 +658,23 @@ class WorkerSpaceFragment : Fragment() {
     }
 
     /**
-     * Scratch-order move used mid-drag: same full-list slot math as the old
-     * immediate version, but applied to [dragScratch] with zero UI work, so
-     * every drag step stays a cheap index op + one notifyItemMoved.
+     * Scratch-order move used mid-drag: [movingId] is inserted at the visual
+     * drop position (before target when moving up, after when moving down).
+     * [movingDown] comes from the visible list direction so the full order
+     * matches exactly where the user dropped, even with hidden/filtered gaps.
      */
-    private fun applyScratchMove(movingId: String, targetId: String) {
+    private fun applyScratchMove(movingId: String, targetId: String, movingDown: Boolean) {
         val scratch = dragScratch ?: return
         if (movingId == targetId) return
-        val origFrom = scratch.indexOf(movingId)
-        val origTo = scratch.indexOf(targetId)
-        if (origFrom < 0 || origTo < 0) return
-        scratch.removeAt(origFrom)
-        val insertAt = scratch.indexOf(targetId)
-        scratch.add(if (origFrom < origTo) insertAt + 1 else insertAt, movingId)
+        val fromIdx = scratch.indexOf(movingId)
+        if (fromIdx < 0) return
+        scratch.removeAt(fromIdx)
+        val targetIdx = scratch.indexOf(targetId)
+        if (targetIdx < 0) {
+            scratch.add(movingId)
+            return
+        }
+        scratch.add(if (movingDown) targetIdx + 1 else targetIdx, movingId)
     }
 
     /** Shows/hides the ⋮⋮ handle; called on every sort-mode change. */

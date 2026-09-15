@@ -134,11 +134,13 @@ class WorkerParcelAdapter(
         dropTargetId = null
     }
 
-    /** Swaps two rows in the drag snapshot + animates. False = invalid indices. */
+    /** Moves a row in the drag snapshot + animates. Handles non-adjacent jumps. */
     fun moveDragItem(from: Int, to: Int): Boolean {
         val list = dragList ?: return false
         if (from !in list.indices || to !in list.indices) return false
-        java.util.Collections.swap(list, from, to)
+        if (from == to) return true
+        val item = list.removeAt(from)
+        list.add(to, item)
         notifyItemMoved(from, to)
         return true
     }
