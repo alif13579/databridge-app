@@ -124,6 +124,10 @@ class ParcelDetailFragment : Fragment() {
     // Cache: uid → display name (resolved lazily from Firebase via UserNameResolver)
     private val uidNameCache = mutableMapOf<String, String>()
     private val uidPhotoCache = mutableMapOf<String, String>()
+    // Status-label language for this page — resolved from config/language/{workerLang|ccLang}
+    // by scope (same source WorkerSpaceFragment/CallCenterFragment use). Defaults to "bn"
+    // (previous behavior) until the resolve completes.
+    private var detailStatusLang: String = "bn"
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?
@@ -195,8 +199,19 @@ class ParcelDetailFragment : Fragment() {
             }
         }
 
-        loadPdRemarkOptions()
-        loadParcelInfo()
+        // Resolve status-label lang first so remark previews + badges use the same
+        // language the originating screen's chips use (not a forced "bn").
+        viewLifecycleOwner.lifecycleScope.launch {
+            runCatching {
+                val path = if (scope == "worker") "config/language/workerLang" else "config/language/ccLang"
+                val v = withContext(Dispatchers.IO) {
+                    db.reference.child(path).get().await().getValue(String::class.java)
+                }.orEmpty().ifBlank { if (scope == "worker") ConfigState.workerLang else ConfigState.ccLang }
+                detailStatusLang = parseLangPair(v.ifBlank { "bn_bn" }).second
+            }
+            loadPdRemarkOptions()
+            loadParcelInfo()
+        }
         if (scope == "worker") loadOwnWorkerSystemId()
     }
 
@@ -238,7 +253,7 @@ class ParcelDetailFragment : Fragment() {
                     val target = opt.targetStatus.ifBlank { return@mapNotNull null }
                     val metaEntry = StatusMetaCache.entries[target]
                         ?: StatusMetaCache.entries.entries.firstOrNull { it.key.equals(target, ignoreCase = true) }?.value
-                    val preview = StatusMetaCache.labelOrNull(target, "bn") ?: target
+                    val preview = StatusMetaCache.labelOrNull(target, detailStatusLang) ?: target
                     PdRemarkOption(
                         icon = "💬",
                         label = label,
@@ -316,7 +331,8 @@ class ParcelDetailFragment : Fragment() {
 
             tvIcon.text = opt.icon
             tvText.text = opt.label
-            tvTag.text  = "→${opt.statusPreview.uppercase()}"
+            // Preview is already a config label — never uppercase it (breaks bn text).
+            tvTag.text  = "→${opt.statusPreview}"
             tvTag.visibility = View.VISIBLE
 
             optView.setOnClickListener {
@@ -436,7 +452,7 @@ class ParcelDetailFragment : Fragment() {
                         progressBar.visibility = View.GONE
 
                         val ctx          = context ?: return
-                        val lang         = if (scope == "worker") "bn" else "bn"
+                        val lang         = detailStatusLang
                         val customer     = snap.child("recipientName").getValue(String::class.java) ?: "—"
                         val phone        = snap.child("recipientPhone").getValue(String::class.java) ?: "—"
                         val address      = snap.child("recipientAddress").getValue(String::class.java) ?: "—"
@@ -643,7 +659,7 @@ class ParcelDetailFragment : Fragment() {
         )
 
         val sdf = SimpleDateFormat("dd-MM-yy  hh:mm a", Locale.getDefault())
-        val lang = "bn"
+        val lang = detailStatusLang
 
         // Resolve display names + photos for any author system IDs we see — same shared
         // resolver WorkerSpaceFragment/CallCenterFragment's Journey Log dialogs use.
@@ -796,7 +812,8 @@ class ParcelDetailFragment : Fragment() {
                 val tvStatusBadge = row.findViewById<TextView>(R.id.twTimelineStatus)
                 if (entry.status.isNotBlank()) {
                     val cfg = WorkerParcelAdapter.getStatusConfig(ctx, entry.status, lang)
-                    tvStatusBadge.text = entry.status.uppercase()
+                    // Config-defined label — never the raw UPPER_SNAKE key.
+                    tvStatusBadge.text = cfg.label
                     tvStatusBadge.setTextColor(cfg.color)
                     tvStatusBadge.backgroundTintList =
                         android.content.res.ColorStateList.valueOf(cfg.bg)

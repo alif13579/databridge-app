@@ -59,6 +59,12 @@ object IncomingCallerLookup {
 
             // Best-effort; a stale/empty label cache still leaves us the raw status string.
             runCatching { StatusMetaCache.refresh() }
+            // Status-label lang from admin config (ccLang), fallback "en" (previous behavior).
+            val statusLang = runCatching {
+                val v = db.reference.child("config/language/ccLang").get().await()
+                    .getValue(String::class.java).orEmpty()
+                parseLangPair(v.ifBlank { ConfigState.ccLang.ifBlank { "bn_en" } }).second
+            }.getOrDefault("en")
 
             val matches = coroutineScope {
                 ids.map { id ->
@@ -74,7 +80,7 @@ object IncomingCallerLookup {
                             cod = snap.child("collectableAmount").getValue(String::class.java)?.toDoubleOrNull()?.toInt()
                                 ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0,
                             status = status,
-                            statusLabel = StatusMetaCache.labelOrNull(status, "en") ?: status.ifBlank { "Unknown" },
+                            statusLabel = StatusMetaCache.labelOrNull(status, statusLang) ?: status.ifBlank { "Unknown" },
                             updatedAt = snap.child("updatedAt").getValue(Long::class.java) ?: 0L,
                         )
                     }
@@ -103,6 +109,11 @@ object IncomingCallerLookup {
             val id = IdUtils.normalizeConsignmentId(consignmentId)
             if (!IdUtils.isConsignmentId(id)) return@withContext null
             runCatching { StatusMetaCache.refresh() }
+            val statusLang = runCatching {
+                val v = db.reference.child("config/language/ccLang").get().await()
+                    .getValue(String::class.java).orEmpty()
+                parseLangPair(v.ifBlank { ConfigState.ccLang.ifBlank { "bn_en" } }).second
+            }.getOrDefault("en")
             val snap = db.reference.child("courier/consignments/$id").get().await()
             if (!snap.exists()) return@withContext null
             val status = snap.child("status").getValue(String::class.java).orEmpty()
@@ -114,7 +125,7 @@ object IncomingCallerLookup {
                 cod = snap.child("collectableAmount").getValue(String::class.java)?.toDoubleOrNull()?.toInt()
                     ?: snap.child("collectableAmount").getValue(Long::class.java)?.toInt() ?: 0,
                 status = status,
-                statusLabel = StatusMetaCache.labelOrNull(status, "en") ?: status.ifBlank { "Unknown" },
+                statusLabel = StatusMetaCache.labelOrNull(status, statusLang) ?: status.ifBlank { "Unknown" },
                 updatedAt = snap.child("updatedAt").getValue(Long::class.java) ?: 0L,
             )
         } catch (_: Exception) {

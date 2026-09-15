@@ -572,7 +572,10 @@ object IncomingCallOverlay {
         // All rows (scrollable now) + cap the scroller height so the window
         // never grows past the screen.
         rows.forEachIndexed { index, row ->
-            val status = row.optStr("remarks_status").trim().ifBlank { "NOTE" }.uppercase()
+            // Config-defined label — never the raw UPPER_SNAKE key. Missing config
+            // falls back to the stored status itself (synthetics like NOTE).
+            val rawStatus = row.optStr("remarks_status").trim().ifBlank { "NOTE" }
+            val status = WorkerParcelAdapter.getStatusConfig(context, rawStatus).label
             val line = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, 10, 0, 10)

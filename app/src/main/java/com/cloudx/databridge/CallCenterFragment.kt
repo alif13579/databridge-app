@@ -752,9 +752,11 @@ class CallCenterFragment : Fragment() {
                     return@filter p.remarks == AUTO_NO_ANSWER_REMARK_TEXT
                 }
                 val matchesMode = when (autoCallMode) {
-                    "status" -> p.effectiveStatus in autoCallStatuses
+                    // Case-insensitive — autoCallStatuses keys may differ in case
+                    // from stored effectiveStatus (VERIFY_REQUEST vs verify_request).
+                    "status" -> autoCallStatuses.any { s -> p.effectiveStatus.equals(s, ignoreCase = true) }
                     "aging"  -> true // aging mode ignores status entirely
-                    else     -> p.status == "pending"
+                    else     -> p.status.equals("pending", ignoreCase = true)
                 }
                 val matchesAge = if (autoCallAgeEnabled) {
                     val days = if (p.createdAt > 0) (System.currentTimeMillis() - p.createdAt) / (24 * 60 * 60 * 1000) else 0L
@@ -1309,8 +1311,9 @@ class CallCenterFragment : Fragment() {
         tvTitle.text = "Journey Log"
         tvSub.text = "${item.id} · ${item.customer}"
 
-        // Overview
-        val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.effectiveStatus, "bn")
+        // Overview — same lang + effectiveStatus the chips use (ccStatusLang),
+        // so the header never disagrees with its own card.
+        val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.effectiveStatus, ccStatusLang)
         tvOvStatus.text = cfg.label
         tvOvStatus.setTextColor(cfg.color)
         val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
@@ -1370,7 +1373,7 @@ class CallCenterFragment : Fragment() {
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
                 val statusCfg = WorkerParcelAdapter.getStatusConfig(
                     requireContext(),
-                    entry.action.lowercase().replace(" ", "_"),
+                    entry.action,
                     ccStatusLang
                 )
 
@@ -1398,7 +1401,9 @@ class CallCenterFragment : Fragment() {
 
                 tvAuthor.text = entry.author
 
-                tvStatus.text = entry.action
+                // Config-defined label — never the raw UPPER_SNAKE key. Missing
+                // config falls back to the action itself (synthetics like CREATED).
+                tvStatus.text = statusCfg.label
                 tvStatus.setTextColor(statusCfg.color)
                 tvStatus.backgroundTintList = android.content.res.ColorStateList.valueOf(statusCfg.bg)
 
@@ -1647,10 +1652,12 @@ class CallCenterFragment : Fragment() {
         layoutFilterTabs.removeAllViews()
         val scoped       = scopedParcels()
         val total        = scoped.size
-        val statusCounts = scoped.groupingBy { it.effectiveStatus }.eachCount()
+        // Case-insensitive bucketing via canonical key — same status in different
+        // cases stays in ONE chip instead of two duplicate chips.
+        val statusCounts = scoped.groupingBy { StatusMetaCache.canonicalStatusKey(it.effectiveStatus) }.eachCount()
 
-        // Reset active filter if it no longer exists in data
-        if (statusFilter != "all" && !statusCounts.containsKey(statusFilter)) {
+        // Reset active filter if it no longer exists in data (case-insensitive).
+        if (statusFilter != "all" && statusCounts.keys.none { it.equals(statusFilter, ignoreCase = true) }) {
             statusFilter = "all"
         }
 
@@ -4808,9 +4815,9 @@ class CallCenterFragment : Fragment() {
             tvSearchCount.visibility = View.GONE
         }
 
-        // Status filter — dynamic exact match, remark status takes priority over parcel status
+        // Status filter — case-insensitive match, remark status takes priority over parcel status
         filtered = if (statusFilter == "all") filtered
-                   else filtered.filter { it.effectiveStatus == statusFilter }
+                   else filtered.filter { it.effectiveStatus.equals(statusFilter, ignoreCase = true) }
 
         // When both Priority Queue and All Agents are selected, surface priority
         // (validation-requested) parcels first — stable sort keeps each group's
@@ -4823,19 +4830,20 @@ class CallCenterFragment : Fragment() {
         // unfiltered allParcels), so these numbers stay consistent with what's
         // actually visible below rather than always showing the global totals.
         //
-        // "confirmed"/"pending"/"rejected" here used to be literal string comparisons
+        // "confirmed"/"pending" here used to be literal string comparisons
         // against effectiveStatus, always 0 in practice: statuses in this app are
         // admin-configured (config/statusMeta), not a fixed set, so a hardcoded literal
         // essentially never matches real data -- the exact bug StatusMetaCache.kt
         // documents already having been fixed once for validationRequest itself
-        // ("VERIFY_REQUEST" vs a hardcoded "verify_req"). These two now read
+        // ("VERIFY_REQUEST" vs a hardcoded "verify_req"). Those two now read
         // validationRequest directly (Total Request) and whether a remark exists at all
         // (Total Served) instead of guessing at another literal status key.
+        // "rejected" below is case-insensitive so REJECTED/Rejected still count.
         val scoped = scopedParcels()
         val total = scoped.size
         val confirmed = scoped.count { it.validationRequest }
         val pending = scoped.count { it.remarks.isNotBlank() }
-        val rejected = scoped.count { it.effectiveStatus == "rejected" }
+        val rejected = scoped.count { it.effectiveStatus.equals("rejected", ignoreCase = true) }
         val validationCount = scoped.count { it.validationRequest }
 
         tvStatTotal.text = total.toString()

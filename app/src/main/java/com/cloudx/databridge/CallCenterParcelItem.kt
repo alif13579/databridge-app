@@ -53,8 +53,8 @@ data class CallCenterParcelItem(
     val sheetDateKey: String = "",
 ) {
     /** Effective status for chips/filters/card badge — see
-     *  StatusMetaCache.isRemarkIgnoredInActual: ignored (config list or terminal
-     *  default) → actual status shows; otherwise remarkStatus (if set) wins. */
+     *  StatusMetaCache.isRemarkIgnoredInActual: ignored (config ignoredWhenActual
+     *  list) → actual status shows; otherwise remarkStatus (if set) wins. */
     val effectiveStatus: String get() =
         if (StatusMetaCache.isRemarkIgnoredInActual(remarkStatus, status)) status
         else remarkStatus.ifBlank { status }

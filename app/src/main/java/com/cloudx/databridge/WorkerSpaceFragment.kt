@@ -350,10 +350,13 @@ class WorkerSpaceFragment : Fragment() {
     private fun setupFilterTabs() {
         layoutFilterTabs.removeAllViews()
         val total       = allParcels.size
-        val statusCounts = allParcels.groupingBy { it.effectiveStatus }.eachCount()
+        // Case-insensitive bucketing via canonical key — VERIFY_REQUEST vs
+        // verify_request stay in ONE chip instead of two duplicate chips.
+        val statusCounts = allParcels.groupingBy { StatusMetaCache.canonicalStatusKey(it.effectiveStatus) }.eachCount()
 
-        // Reset active filter if it no longer exists in data
-        if (activeFilter != "all" && !statusCounts.containsKey(activeFilter)) {
+        // Reset active filter if it no longer exists in data (case-insensitive —
+        // the stored key may differ in case from the canonical bucket key).
+        if (activeFilter != "all" && statusCounts.keys.none { it.equals(activeFilter, ignoreCase = true) }) {
             activeFilter = "all"
         }
 
@@ -1323,8 +1326,9 @@ class WorkerSpaceFragment : Fragment() {
         tvTitle.text = "Action History"
         tvSub.text = "${item.id} · ${item.customer}"
 
-        // Overview
-        val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.status, "bn")
+        // Overview — same lang + effectiveStatus the chips/cards use, so the
+        // header never disagrees with its own card.
+        val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.effectiveStatus, workerStatusLang)
         tvOvStatus.text = cfg.label
         tvOvStatus.setTextColor(cfg.color)
         val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
@@ -1408,7 +1412,7 @@ class WorkerSpaceFragment : Fragment() {
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
                 val statusCfg = WorkerParcelAdapter.getStatusConfig(
                     requireContext(),
-                    entry.action.lowercase().replace(" ", "_"),
+                    entry.action,
                     workerStatusLang
                 )
 
@@ -1435,7 +1439,8 @@ class WorkerSpaceFragment : Fragment() {
 
                 tvAuthor.text = entry.author
 
-                tvStatus.text = entry.action
+                // Config-defined label — never the raw UPPER_SNAKE key.
+                tvStatus.text = statusCfg.label
                 tvStatus.setTextColor(statusCfg.color)
                 tvStatus.backgroundTintList = android.content.res.ColorStateList.valueOf(statusCfg.bg)
 
@@ -2261,11 +2266,11 @@ class WorkerSpaceFragment : Fragment() {
             tvSearchCount.visibility = View.GONE
         }
 
-        // Status filter — dynamic exact match against effectiveStatus (remarkStatus takes
+        // Status filter — case-insensitive match against effectiveStatus (remarkStatus takes
         // priority over raw status), same rule setupFilterTabs() uses to build the chips —
         // otherwise a parcel's chip-count bucket and its actual filtered bucket disagree.
         filtered = if (activeFilter == "all") filtered
-                   else filtered.filter { it.effectiveStatus == activeFilter }
+                   else filtered.filter { it.effectiveStatus.equals(activeFilter, ignoreCase = true) }
 
         // No re-sort needed here: allParcels is already ordered by sortByGroupAge()
         // (same-phone parcels adjacent, oldest group/parcel first), and filtering

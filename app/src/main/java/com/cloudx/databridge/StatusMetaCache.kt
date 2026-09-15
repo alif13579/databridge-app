@@ -103,8 +103,22 @@ object StatusMetaCache {
      * explicitly configured with updatesParcelStatus=false in config/statusMeta (e.g.
      * "verify_request" — a remark/attempt outcome, not a real delivery-status change).
      */
-    fun updatesParcelStatus(statusKey: String): Boolean =
-        entries[statusKey]?.updatesParcelStatus ?: true
+    fun updatesParcelStatus(statusKey: String): Boolean {
+        val e = entries[statusKey]
+            ?: entries.entries.firstOrNull { it.key.equals(statusKey, ignoreCase = true) }?.value
+        return e?.updatesParcelStatus ?: true
+    }
+
+    /** Canonical grouping key for chips/filters: the config key's own casing when
+     *  known (exact, else case-insensitive), otherwise the raw key lowercased.
+     *  This keeps VERIFY_REQUEST vs verify_request in ONE bucket instead of two
+     *  duplicate chips. Display label/color still come from getStatusConfig(). */
+    fun canonicalStatusKey(raw: String): String {
+        if (raw.isBlank()) return raw
+        entries[raw]?.let { return raw }
+        entries.keys.firstOrNull { it.equals(raw, ignoreCase = true) }?.let { return it }
+        return raw.lowercase()
+    }
 
     /** config/statusMeta/{key}/priority is intentionally UNREAD — its only consumer
      *  (sheet-sync authority comparison into the retired courier/remarks_by_userId

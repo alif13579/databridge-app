@@ -541,7 +541,7 @@ class ViewOrdersFragment : Fragment() {
                 val tv = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
                 val statusCfg = WorkerParcelAdapter.getStatusConfig(
                     requireContext(),
-                    entry.action.lowercase().replace(" ", "_"), "en"
+                    entry.action, "en"
                 )
                 val ivAvatar = tv.findViewById<android.widget.ImageView>(R.id.ivTimelineAvatar)
                 val tvLine = tv.findViewById<View>(R.id.viewTimelineLine)
@@ -558,7 +558,8 @@ class ViewOrdersFragment : Fragment() {
                 tvLine.visibility = if (index < withGaps.size - 1) View.VISIBLE else View.GONE
                 tv.findViewById<TextView>(R.id.twTimelineAuthor).text = entry.author
                 val tvStatus = tv.findViewById<TextView>(R.id.twTimelineStatus)
-                tvStatus.text = entry.action
+                // Config-defined label — never the raw UPPER_SNAKE key.
+                tvStatus.text = statusCfg.label
                 tvStatus.setTextColor(statusCfg.color)
                 tvStatus.backgroundTintList = android.content.res.ColorStateList.valueOf(statusCfg.bg)
                 val tvRemark = tv.findViewById<TextView>(R.id.twTimelineRemark)
