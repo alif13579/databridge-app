@@ -367,6 +367,16 @@ class CallCenterFragment : Fragment() {
         loadCcRemarkOptions()
         updateDataSourceToggle()
         loadForSource()
+
+        // Status chips can't depend on loadCcRemarkOptions() alone to refresh
+        // StatusMetaCache: that path rebuilds them only after its (fragile) Supabase +
+        // template fetch succeeds. Refresh the shared config cache independently and
+        // rebuild chips as soon as it lands, so configured statuses never linger as raw
+        // keys.
+        viewLifecycleOwner.lifecycleScope.launch {
+            withContext(Dispatchers.IO) { StatusMetaCache.refresh() }
+            if (isAdded) setupFilterTabs()
+        }
     }
 
     // ── Filter preference persistence ──────────────────────────────────────
@@ -3165,10 +3175,14 @@ class CallCenterFragment : Fragment() {
                         adapter.statusLang = ccStatusLang
                         adapter.notifyDataSetChanged()
                     }
-                    setupFilterTabs()
                 }
             } catch (e: Exception) {
                 android.util.Log.e("CallCenter", "Failed to load remark options from config, using defaults", e)
+            } finally {
+                // Chips must be relabeled from the (possibly just-refreshed) status cache
+                // even when remark options / WhatsApp templates failed above — otherwise
+                // configured statuses stay as raw keys until some later reload.
+                if (isAdded) setupFilterTabs()
             }
         }
     }

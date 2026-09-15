@@ -165,6 +165,15 @@ class WorkerSpaceFragment : Fragment() {
         loadRemarkOptions()
         loadData()
         loadTodayRemarksStats()
+        // Status chips can't depend on loadRemarkOptions() alone to refresh
+        // StatusMetaCache: that path rebuilds them only after its (fragile) Supabase +
+        // template fetch succeeds. Refresh the shared config cache independently and
+        // rebuild chips as soon as it lands, so configured statuses never linger as raw
+        // keys.
+        viewLifecycleOwner.lifecycleScope.launch {
+            withContext(Dispatchers.IO) { StatusMetaCache.refresh() }
+            if (isAdded) setupFilterTabs()
+        }
         // Popup finder handoff (see MainActivity.navigateToWorkerSpaceWithSearch).
         (activity as? MainActivity)?.pendingWorkerSearchPhone?.takeIf { it.isNotBlank() }?.let {
             (activity as? MainActivity)?.pendingWorkerSearchPhone = null
@@ -780,11 +789,15 @@ class WorkerSpaceFragment : Fragment() {
                         adapter.statusLang = workerStatusLang
                         adapter.notifyDataSetChanged()
                     }
-                    setupFilterTabs()
                 }
             } catch (e: Exception) {
                 remarkOptionsLoadFailed = true
                 Log.e("WorkerSpace", "Failed to load remark options from config, using defaults", e)
+            } finally {
+                // Chips must be relabeled from the (possibly just-refreshed) status cache
+                // even when remark options / WhatsApp templates failed above — otherwise
+                // configured statuses stay as raw keys until some later reload.
+                if (isAdded) setupFilterTabs()
             }
         }
     }
