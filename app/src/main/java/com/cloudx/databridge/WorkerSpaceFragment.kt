@@ -540,6 +540,7 @@ class WorkerSpaceFragment : Fragment() {
                 super.onSelectedChanged(vh, actionState)
                 if (actionState == ItemTouchHelper.ACTION_STATE_DRAG && vh != null) {
                     dragActive = true
+                    adapter.beginDragOrder()
                     dragIds = adapter.currentList.map { it.id }.toMutableList()
                     dragScratch = customOrderIds.toMutableList()
                     vh.itemView.performHapticFeedback(
@@ -559,17 +560,21 @@ class WorkerSpaceFragment : Fragment() {
                 if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
                 val ids = dragIds ?: return false
                 if (from >= ids.size || to >= ids.size) return false
+                // Mirror into the adapter's drag snapshot FIRST so every rebind from
+                // here on (scroll, range refresh) shows the dragged order, not stale data.
+                if (!adapter.moveDragItem(from, to)) return false
                 val movingId = ids[from]
                 val targetId = ids[to]
                 applyScratchMove(movingId, targetId)
                 java.util.Collections.swap(ids, from, to)
-                adapter.notifyItemMoved(from, to)
+                refreshDropHint(targetId)
                 return true
             }
             override fun onSwiped(vh: RecyclerView.ViewHolder, direction: Int) {}
             override fun clearView(rv: RecyclerView, vh: RecyclerView.ViewHolder) {
                 super.clearView(rv, vh)
                 vh.itemView.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                adapter.endDragOrder()
                 if (dragActive) {
                     dragActive = false
                     dragScratch?.let {
@@ -658,6 +663,21 @@ class WorkerSpaceFragment : Fragment() {
         if (!::adapter.isInitialized) return
         adapter.dragEnabled = sortMode == "custom"
         adapter.notifyDataSetChanged()
+    }
+
+    /**
+     * Moves the cyan landing strip to [newTargetId] (the row the dragged card
+     * currently overlaps). Old + new rows rebind so exactly one strip shows.
+     * Positions come from the drag mirror (same order the views show mid-drag).
+     */
+    private fun refreshDropHint(newTargetId: String?) {
+        if (!::adapter.isInitialized) return
+        val ids = dragIds ?: return
+        val old = adapter.dropTargetId
+        if (old == newTargetId) return
+        adapter.dropTargetId = newTargetId
+        old?.let { o -> ids.indexOf(o).takeIf { it >= 0 }?.let { adapter.notifyItemChanged(it) } }
+        newTargetId?.let { n -> ids.indexOf(n).takeIf { it >= 0 }?.let { adapter.notifyItemChanged(it) } }
     }
 
     /**

@@ -114,6 +114,40 @@ class WorkerParcelAdapter(
     var onStartDrag: (RecyclerView.ViewHolder) -> Unit = {}
     private var previousExpandedPosition: Int? = null
 
+    // ── Drag ordering (custom mode) ──────────────────────────────────────────
+    // ListAdapter's differ list is NEVER mutated mid-drag; instead this snapshot
+    // mirrors the user's moves so every rebind (scroll, notifyItemMoved range
+    // refresh) shows the dragged order. Without it, getItem() reads the stale
+    // pre-drag order and rebound rows display the WRONG parcel — the drop then
+    // lands somewhere the user never aimed at.
+    private var dragList: MutableList<WorkerParcelItem>? = null
+    /** Id of the row the dragged card currently overlaps = landing spot (null = none). */
+    var dropTargetId: String? = null
+
+    /** Drag-aware item read — every bind-time lookup in this adapter must go through
+     *  here instead of getItem()/currentList directly. */
+    private fun itemAt(position: Int): WorkerParcelItem =
+        dragList?.getOrNull(position) ?: getItem(position)
+
+    fun beginDragOrder() {
+        dragList = currentList.toMutableList()
+        dropTargetId = null
+    }
+
+    /** Swaps two rows in the drag snapshot + animates. False = invalid indices. */
+    fun moveDragItem(from: Int, to: Int): Boolean {
+        val list = dragList ?: return false
+        if (from !in list.indices || to !in list.indices) return false
+        java.util.Collections.swap(list, from, to)
+        notifyItemMoved(from, to)
+        return true
+    }
+
+    fun endDragOrder() {
+        dragList = null
+        dropTargetId = null
+    }
+
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val tvCustomer: TextView = view.findViewById(R.id.tvParcelCustomer)
         val dragHandle: TextView = view.findViewById(R.id.tvDragHandle)
@@ -126,6 +160,7 @@ class WorkerParcelAdapter(
         val remarksBox: View = view.findViewById(R.id.layoutParcelRemarksBox)
         val tvRemarks: TextView = view.findViewById(R.id.tvParcelRemarks)
         val tvRemarksTime: TextView = view.findViewById(R.id.tvParcelRemarksTime)
+        val viewDropHint: View = view.findViewById(R.id.viewDropHint)
         val engagedRing: EngagedRingView = view.findViewById(R.id.viewEngagedRing)
         val layoutEngagedAvatars: LinearLayout = view.findViewById(R.id.layoutEngagedAvatars)
         val ivEngagedAvatar1: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar1)
@@ -153,14 +188,19 @@ class WorkerParcelAdapter(
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
-        val item = getItem(position)
+        val item = itemAt(position)
         val isExpanded = item.id == expandedItemId
         val ctx = holder.itemView.context
 
+        // Drop-position cue (custom-mode drag): the row the dragged card currently
+        // overlaps gets a cyan top strip = "release here lands on this spot".
+        holder.viewDropHint.visibility =
+            if (dropTargetId != null && item.id == dropTargetId) View.VISIBLE else View.GONE
+
         // ── Group stripe: detect same-phone neighbours ──────────────
         val normalizedPhone = item.phone.filter { it.isDigit() }.takeLast(10)
-        val prevPhone = if (position > 0) getItem(position - 1).phone.filter { it.isDigit() }.takeLast(10) else ""
-        val nextPhone = if (position < currentList.size - 1) getItem(position + 1).phone.filter { it.isDigit() }.takeLast(10) else ""
+        val prevPhone = if (position > 0) itemAt(position - 1).phone.filter { it.isDigit() }.takeLast(10) else ""
+        val nextPhone = if (position < itemCount - 1) itemAt(position + 1).phone.filter { it.isDigit() }.takeLast(10) else ""
         val hasPrev = normalizedPhone.isNotBlank() && normalizedPhone == prevPhone
         val hasNext = normalizedPhone.isNotBlank() && normalizedPhone == nextPhone
         val inGroup = hasPrev || hasNext
@@ -169,9 +209,9 @@ class WorkerParcelAdapter(
         val attemptSuffix = "  ·  A${item.attemptCount}"
         if (inGroup) {
             var groupStart = position
-            while (groupStart > 0 && getItem(groupStart - 1).phone.filter { it.isDigit() }.takeLast(10) == normalizedPhone) groupStart--
+            while (groupStart > 0 && itemAt(groupStart - 1).phone.filter { it.isDigit() }.takeLast(10) == normalizedPhone) groupStart--
             var groupEnd = position
-            while (groupEnd < currentList.size - 1 && getItem(groupEnd + 1).phone.filter { it.isDigit() }.takeLast(10) == normalizedPhone) groupEnd++
+            while (groupEnd < itemCount - 1 && itemAt(groupEnd + 1).phone.filter { it.isDigit() }.takeLast(10) == normalizedPhone) groupEnd++
             val groupSize = groupEnd - groupStart + 1
             val groupPos  = position - groupStart + 1
             holder.tvAge.text = "${formatAgeCompact(item.createdAt)}  $groupPos/$groupSize$attemptSuffix"
@@ -351,7 +391,7 @@ class WorkerParcelAdapter(
                 // the stale position — a data refresh between the two taps can move
                 // rows, and collapsing the wrong row leaks the real one's entry.
                 if (previousId != null && previousId != item.id) {
-                    val prevPos = (0 until itemCount).firstOrNull { getItem(it).id == previousId }
+                    val prevPos = (0 until itemCount).firstOrNull { itemAt(it).id == previousId }
                     if (prevPos != null) notifyItemChanged(prevPos)
                     currentList.firstOrNull { it.id == previousId }?.let { onCollapse(it) }
                         ?: onCollapseById(previousId)
