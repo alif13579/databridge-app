@@ -154,9 +154,8 @@ class ConfigRemarksFragment : Fragment() {
                 val en = s.child("en").getValue(String::class.java) ?: ""
                 val color = s.child("color").getValue(String::class.java) ?: "#6B7280"
                 val bg = s.child("bg").getValue(String::class.java) ?: "#F3F4F6"
-                val pri = s.child("priority").getValue(Int::class.java) ?: 0
                 val sortOrder = s.child("sortOrder").getValue(Int::class.java) ?: 0
-                loaded[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, sortOrder, false)
+                loaded[key] = ConfigState.StatusMeta(bn, en, color, bg, sortOrder, false)
                 loadedStatuses.add(key)
             }
         }
@@ -890,9 +889,9 @@ class ConfigRemarksFragment : Fragment() {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    /** sortedStatuses: sort by priority desc (mirrors JSX sortedStatuses) */
+    /** sortedStatuses: sort by sortOrder desc (same order as the Statuses screen) */
     private fun sortedStatuses(): List<String> =
-        statuses.sortedByDescending { statusMeta[it]?.priority ?: 0 }
+        statuses.sortedByDescending { statusMeta[it]?.sortOrder ?: 0 }
 
     private fun parseColor(hex: String): Int = android.graphics.Color.parseColor(hex)
 

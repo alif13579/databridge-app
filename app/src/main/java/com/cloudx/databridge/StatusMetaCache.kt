@@ -23,16 +23,9 @@ object StatusMetaCache {
         // outcome) shouldn't overwrite the parcel's actual courier/consignments/{id}/status.
         // Defaults to true (old behavior) for any status that doesn't set this field.
         val updatesParcelStatus: Boolean = true,
-        // AUTHORITY level — RETIRED, unread (see the note below on priority).
-        // Mirrors config/statusMeta/{key}/priority, still parsed + preserved on save
-        // so existing Firebase values are never lost. Defaults to 0.
-        val priority: Int = 0,
-        // Chip / worklist DISPLAY order — higher sorts first. This is what priority used to
-        // mean before that field was repurposed for authority above; every call site that
-        // used to read .priority for sorting (CallCenterFragment's status chips, Worker's
-        // Priority Queue mode, WorkerParcelAdapter's card ordering, the dashboard breakdown
-        // order) now reads .sortOrder instead. Mirrors config/statusMeta/{key}/sortOrder,
-        // a separate admin-edited field from priority/authority. Defaults to 0.
+        // Chip / worklist DISPLAY order — higher sorts first. Mirrors
+        // config/statusMeta/{key}/sortOrder (admin-edited in ConfigStatusesFragment).
+        // Defaults to 0.
         val sortOrder: Int = 0,
         // Actual statuses this remark status is IGNORED in — i.e. when the parcel's
         // real status is one of these, the card chip / filter key shows the actual
@@ -74,7 +67,6 @@ object StatusMetaCache {
                 }
                 val updatesParcelStatus = s.child("updatesParcelStatus")
                     .getValue(Boolean::class.java) ?: true
-                val priority = s.child("priority").getValue(Int::class.java) ?: 0
                 val sortOrder = s.child("sortOrder").getValue(Int::class.java) ?: 0
                 val ignoredNode = s.child("ignoredWhenActual")
                 val hasIgnored = ignoredNode.exists()
@@ -87,7 +79,7 @@ object StatusMetaCache {
                     ?.split(',', '\n').orEmpty()
                     .map { it.trim() }.filter { it.isNotEmpty() }
                 val ignored = (ignoredFromChildren + ignoredFromString).toSet()
-                map[key] = Entry(bn, en, color, bg, updatesParcelStatus, priority, sortOrder, ignored, hasIgnored)
+                map[key] = Entry(bn, en, color, bg, updatesParcelStatus, sortOrder, ignored, hasIgnored)
             }
             if (map.isNotEmpty()) entries = map
         } catch (_: Exception) {
@@ -110,10 +102,11 @@ object StatusMetaCache {
     fun updatesParcelStatus(statusKey: String): Boolean =
         entries[statusKey]?.updatesParcelStatus ?: true
 
-    /** config/statusMeta/{key}/priority is intentionally UNREAD (legacy data kept
-     *  as-is in Firebase): its only consumer — sheet-sync propagation into the
-     *  retired courier/remarks_by_userId index — was removed, and the ignore-list
-     *  system replaced authority-based conflict rules. */
+    /** config/statusMeta/{key}/priority is intentionally UNREAD — its only consumer
+     *  (sheet-sync authority comparison into the retired courier/remarks_by_userId
+     *  index) was removed, and the ignore-list system replaced authority rules.
+     *  The field is no longer parsed, saved, or shown anywhere; stale `priority`
+     *  nodes left in Firebase are simply ignored (and dropped on the next save). */
 }
 
 /**

@@ -112,7 +112,6 @@ class ConfigStatusesFragment : Fragment() {
                     val en = s.child("en").getValue(String::class.java) ?: ""
                     val color = s.child("color").getValue(String::class.java) ?: "#6B7280"
                     val bg = s.child("bg").getValue(String::class.java) ?: "#F3F4F6"
-                    val pri = s.child("priority").getValue(Int::class.java) ?: 0
                     val sortOrder = s.child("sortOrder").getValue(Int::class.java) ?: 0
                     val ignoredNode = s.child("ignoredWhenActual")
                     val ignoredFromChildren = ignoredNode.children
@@ -123,7 +122,7 @@ class ConfigStatusesFragment : Fragment() {
                             ?.split(',', '\n').orEmpty()
                             .map { it.trim() }.filter { it.isNotEmpty() }
                     }
-                    loadedMeta[key] = ConfigState.StatusMeta(bn, en, color, bg, pri, sortOrder, false, ignored)
+                    loadedMeta[key] = ConfigState.StatusMeta(bn, en, color, bg, sortOrder, false, ignored)
                     loadedStatuses.add(key)
                 }
             }
@@ -801,10 +800,11 @@ class ConfigStatusesFragment : Fragment() {
                     "en"        to m.en,
                     "color"     to m.color,
                     "bg"        to m.bg,
-                    "priority"  to m.priority,
                     "sortOrder" to m.sortOrder,
                     // Empty list is dropped by RTDB on write → reads back as
                     // "never configured" → never ignored. Same outcome.
+                    // NOTE: legacy `priority` (authority) is deliberately NOT
+                    // written — next save drops those stale nodes from Firebase.
                     "ignoredWhenActual" to m.ignoredWhenActual,
                 )
             }

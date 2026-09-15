@@ -26,7 +26,6 @@ object ConfigState {
         val en:       String = "",
         val color:    String = "#6B7280",
         val bg:       String = "#F3F4F6",
-        val priority: Int    = 0,  // authority — see StatusMetaCache.Entry.priority's doc
         val sortOrder: Int   = 0,  // display/worklist order — see StatusMetaCache.Entry.sortOrder's doc
         val builtIn:  Boolean = false,
         // Actual statuses this remark status is ignored in (effective chip/filter
