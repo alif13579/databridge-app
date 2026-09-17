@@ -77,6 +77,12 @@ object IncomingCallOverlay {
 
     fun show(context: Context, rawPhone: String, match: CallerMatch?, otherCount: Int) {
         val appContext = context.applicationContext
+        // Live presence first — independent of overlay permission, so other agents
+        // + workers see this call even when the popup itself can't draw.
+        try {
+            ActiveCallEngagement.startIncoming(appContext, rawPhone, match?.consignmentId.orEmpty())
+        } catch (_: Exception) {
+        }
         if (!android.provider.Settings.canDrawOverlays(appContext)) return
         mainHandler.post { showInternal(appContext, rawPhone, match, otherCount) }
     }
@@ -1039,6 +1045,11 @@ object IncomingCallOverlay {
                 view.findViewById<View>(R.id.llOverlayFanout).isVisible = false
                 tvConfirmation.isVisible = true
                 resetOverlayBody(view)
+                // Remark done — call presence over for these parcels.
+                try {
+                    ActiveCallEngagement.stopIds(consignmentIds)
+                } catch (_: Exception) {
+                }
                 mainHandler.postDelayed({ dismissInternal() }, 2000)
             } else {
                 restoreSaveButton()
@@ -1121,7 +1132,8 @@ object IncomingCallOverlay {
             overlayEngagedIds.clear()
             return
         }
-        overlayEngagedIds.forEach { EngagedStateManager.clearEngaged(it, uid) }
+        // Source-aware: an ActiveCallEngagement CALL ring for the same parcels survives.
+        overlayEngagedIds.forEach { EngagedStateManager.clearEngaged(it, uid, EngagedStateManager.SOURCE_OVERLAY) }
         overlayEngagedIds.clear()
     }
 

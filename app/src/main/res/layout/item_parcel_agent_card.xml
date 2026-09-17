@@ -160,6 +160,18 @@
                     android:textSize="13sp"
                     android:textStyle="bold" />
 
+                <!-- Copy parcel details — tap = copy to clipboard, long-press = share sheet -->
+                <TextView
+                    android:id="@+id/tvAgtCopy"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:gravity="center"
+                    android:text="📋"
+                    android:textSize="15sp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Copy parcel details"
+                    android:includeFontPadding="false" />
+
                 <TextView
                     android:id="@+id/tvAgtCallCount"
                     android:layout_width="wrap_content"
@@ -224,6 +236,40 @@
                     android:paddingTop="3dp"
                     android:paddingBottom="3dp"
                     android:layout_marginStart="8dp" />
+
+                <TextView
+                    android:id="@+id/tvAgtScheduledLock"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔒 20 Sep"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_accent"
+                    android:background="@drawable/bg_age_badge"
+                    android:paddingStart="7dp"
+                    android:paddingEnd="7dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:layout_marginStart="6dp"
+                    android:includeFontPadding="false"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/tvAgtCalling"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📞 Calling"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:textColor="#16A34A"
+                    android:background="@drawable/bg_age_badge"
+                    android:paddingStart="7dp"
+                    android:paddingEnd="7dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:layout_marginStart="6dp"
+                    android:includeFontPadding="false"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <LinearLayout
@@ -341,18 +387,6 @@
             android:background="@drawable/btn_call_green"
             android:layout_marginStart="4dp"
             android:contentDescription="Send parcel info to agent on WhatsApp"
-            android:includeFontPadding="false" />
-
-        <TextView
-            android:id="@+id/btnAgtSendToDesktop"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:text="🖥️"
-            android:textSize="16sp"
-            android:gravity="center"
-            android:background="@drawable/btn_action_cyan"
-            android:layout_marginStart="4dp"
-            android:contentDescription="Send parcel info to desktop"
             android:includeFontPadding="false" />
 
     </LinearLayout>

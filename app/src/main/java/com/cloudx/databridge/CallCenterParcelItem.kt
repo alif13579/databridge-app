@@ -51,7 +51,12 @@ data class CallCenterParcelItem(
      *  from. Drives date-wise run matching + silent-refresh change detection.
      *  Blank on Request cards (their branch comes from the run index itself). */
     val sheetDateKey: String = "",
+    /** Customer-promised date (courier/consignments/{id}/scheduled_date,
+     *  yyyy-MM-dd) — set from the remarks popup's 📅 picker. Blank = none. */
+    val scheduledDate: String = "",
 ) {
+    /** True while today's Dhaka date hasn't reached [scheduledDate] yet. */
+    val isScheduledLocked: Boolean get() = ScheduledLock.isLocked(scheduledDate)
     /** Effective status for chips/filters/card badge — see
      *  StatusMetaCache.isRemarkIgnoredInActual: ignored (config ignoredWhenActual
      *  list) → actual status shows; otherwise remarkStatus (if set) wins. */

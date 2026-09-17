@@ -104,6 +104,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         // graceful-degradation approach as READ_PHONE_STATE above.
         nextPermissionStep()
     }
+    private val micLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+        // Not fatal to decline — manual call recording just won't be available.
+        nextPermissionStep()
+    }
     private val notificationLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         // Not fatal to decline — new-remark alerts just won't show in the system tray;
         // the in-app bell still works either way. Only advance the first-launch chain
@@ -698,6 +702,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                         loadFragment(CheckInFragment.newInstance(branchId, RbacManager.current.branchName))
                     }
                 }
+                R.id.nav_reconciliation -> loadFragment(ReconciliationFragment())
+                R.id.nav_follow_up -> loadFragment(FollowUpFragment())
+                R.id.nav_recording_cleanup -> loadFragment(RecordingCleanupFragment())
                 R.id.nav_login     -> launchGoogleSignIn()
                 R.id.nav_logout    -> confirmLogout()
             }
@@ -1111,6 +1118,15 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         menu.findItem(R.id.nav_checkin)?.apply {
             isVisible = RbacManager.hasPermission("nav_checkin")
         }
+        menu.findItem(R.id.nav_reconciliation)?.apply {
+            isVisible = RbacManager.hasPermission("nav_reconciliation")
+        }
+        menu.findItem(R.id.nav_follow_up)?.apply {
+            isVisible = RbacManager.hasPermission("nav_follow_up")
+        }
+        menu.findItem(R.id.nav_recording_cleanup)?.apply {
+            isVisible = RbacManager.hasPermission("nav_recording_cleanup")
+        }
 
         // Primary nav items – no role gating; only permission-based
         menu.findItem(R.id.nav_space)?.isVisible = RbacManager.hasPermission("nav_space")
@@ -1248,7 +1264,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             3 -> requestOverlayPermission()
             4 -> if (isGranted(android.Manifest.permission.READ_CALL_LOG)) nextPermissionStep()
                  else callLogLauncher.launch(android.Manifest.permission.READ_CALL_LOG)
-            5 -> requestNotificationPermission()
+            5 -> if (isGranted(android.Manifest.permission.RECORD_AUDIO)) nextPermissionStep()
+                 else micLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            6 -> requestNotificationPermission()
             else -> {
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)

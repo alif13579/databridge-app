@@ -77,6 +77,28 @@ class WorkerSpaceFragment : Fragment() {
     private var systemId = ""
     private var userId = ""
     private var agentPhone = ""
+    /** Retried when the RECORD_AUDIO request from the journey 🎙 button is granted. */
+    private var pendingRecordRetry: (() -> Unit)? = null
+    private val workerMicPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) pendingRecordRetry?.invoke()
+            pendingRecordRetry = null
+        }
+    /** Picker evidence target (＋Audio): button + consignment + branch + reload. */
+    private var pendingAudioButton: TextView? = null
+    private var pendingAudioConsignment: String = ""
+    private var pendingAudioBranch: String = ""
+    private var pendingAudioReload: (() -> Unit)? = null
+    private val workerAudioPickerLauncher =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            val btn = pendingAudioButton
+            if (uri != null && btn != null && pendingAudioConsignment.isNotBlank() && isAdded) {
+                JourneyRecordingUi.uploadPickedAudio(
+                    this@WorkerSpaceFragment, viewLifecycleOwner.lifecycleScope, btn, uri,
+                    pendingAudioConsignment, pendingAudioBranch, systemId, "WORKER"
+                ) { pendingAudioReload?.invoke() }
+            }
+        }
     private var sortMode: String = "priority" // "priority" | "attempt" | "aging" | "custom"
     // Custom road-plan order: consignment IDs in the agent's own sequence,
     // persisted per agent (see loadCustomOrder/saveCustomOrder). Other modes
@@ -468,6 +490,7 @@ class WorkerSpaceFragment : Fragment() {
         )
         applyLocalEngagement(group.map { it.id }.toSet(), agent)
         group.forEach { p ->
+            if (ActiveCallEngagement.isCalling(p.id)) return@forEach
             EngagedStateManager.markEngaged(
                 consignmentId = p.id,
                 agentUid = uid,
@@ -488,7 +511,7 @@ class WorkerSpaceFragment : Fragment() {
         val item = allParcels.firstOrNull { it.id == id }
         val group = if (item != null) samePhoneGroup(item) else allParcels.filter { it.id == id }
         removeLocalEngagement(group.map { it.id }.toSet(), uid)
-        group.forEach { EngagedStateManager.clearEngaged(it.id, uid) }
+        group.forEach { EngagedStateManager.clearEngaged(it.id, uid, EngagedStateManager.SOURCE_CARD) }
     }
 
     /** Re-marks the still-expanded card — heals the background sweep and any socket
@@ -504,6 +527,13 @@ class WorkerSpaceFragment : Fragment() {
             onCall = { item ->
                 AutoDialHelper.dial(this, item.phone) // ✅ auto-dial / dialpad / SIM chooser
                 CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_WORKER)
+                try {
+                    ActiveCallEngagement.startOutgoing(
+                        requireContext().applicationContext, item.phone,
+                        samePhoneGroup(item).map { it.id }
+                    )
+                } catch (_: Exception) {
+                }
             },            onSetRemarks = { item ->
                 showWorkerRemarksDialog(item)
             },
@@ -515,17 +545,22 @@ class WorkerSpaceFragment : Fragment() {
                 val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
                 val group = samePhoneGroup(item)
                 removeLocalEngagement(group.map { it.id }.toSet(), uid)
-                group.forEach { p -> EngagedStateManager.clearEngaged(p.id, uid) }
+                group.forEach { p -> EngagedStateManager.clearEngaged(p.id, uid, EngagedStateManager.SOURCE_CARD) }
             },
             // Previous card fell out of the list (data refresh moved it) — clear by id
             // so its engaged_at entry doesn't leak with no item to collapse.
+            // Source-aware: an active call's ring survives.
             onCollapseById = { cid ->
-                EngagedStateManager.clearEngaged(cid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty())
+                EngagedStateManager.clearEngaged(cid, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid.orEmpty(), EngagedStateManager.SOURCE_CARD)
             }
         )
 
         rvParcelList.layoutManager = LinearLayoutManager(requireContext())
         rvParcelList.adapter = adapter
+        // RecyclerView itself is match_parent (fixed size) — only the cards vary.
+        // Skips a full remeasure on every submit so first paint lands sooner.
+        rvParcelList.setHasFixedSize(true)
+        rvParcelList.setItemViewCacheSize(12)
 
         // Swipe shortcuts: right = call, left = remarks. Card always snaps back after firing.
         ItemTouchHelper(
@@ -535,6 +570,13 @@ class WorkerSpaceFragment : Fragment() {
                     adapter.currentList.getOrNull(position)?.let { item ->
                         AutoDialHelper.dial(this, item.phone)
                         CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_WORKER)
+                        try {
+                            ActiveCallEngagement.startOutgoing(
+                                requireContext().applicationContext, item.phone,
+                                samePhoneGroup(item).map { it.id }
+                            )
+                        } catch (_: Exception) {
+                        }
                         // Expand this card's remarks drawer immediately so it's visible to
                         // anyone else on the same screen that this parcel is being worked on.
                         adapter.expandedItemId = item.id
@@ -1091,7 +1133,10 @@ class WorkerSpaceFragment : Fragment() {
                     // Today's dial evidence for this number (supervisor talk tracking).
                     callPhone = p.phone
                 )
-                if (ok) EngagedStateManager.clearEngaged(p.id, userId) else failed++
+                if (ok) {
+                    EngagedStateManager.clearEngaged(p.id, userId)
+                    ActiveCallEngagement.stopIds(listOf(p.id))
+                } else failed++
             }
             if (!isAdded) return@launch
             if (failed > 0) {
@@ -1285,7 +1330,7 @@ class WorkerSpaceFragment : Fragment() {
                 // instead of an unbounded spinner, which is what the user was hitting on a
                 // slow/flaky connection.
                 val result = kotlin.runCatching {
-                    kotlinx.coroutines.withTimeoutOrNull(20_000) {
+                    kotlinx.coroutines.withTimeoutOrNull(30_000) {
                         withContext(Dispatchers.IO) {
                             val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
                             SupabaseRemarkValidationWriter.fetchHistory(item.id, "WorkerSpaceFragment") { fetched ->
@@ -1297,7 +1342,8 @@ class WorkerSpaceFragment : Fragment() {
                             // CallCenterFragment.buildHistoryEntries() does, instead of showing the raw id.
                             val authorIds = fetched.mapNotNull { it.optStr("author_system_id")?.trim()?.takeIf { id -> id.isNotBlank() } }.distinct()
                             val (names, photos) = resolveSystemIdNamesAndPhotos(authorIds)
-                            Triple(fetched, names, photos)
+                            val recRows = SupabaseCallRecordings.fetchForConsignment(item.id, "WorkerSpaceFragment")
+                            Triple(fetched, names, photos) to recRows
                         }
                     }
                 }.getOrNull()
@@ -1310,11 +1356,20 @@ class WorkerSpaceFragment : Fragment() {
                     )
                     return@launch
                 }
-                val (rows, nameMap, photoMap) = result
+                val (triple, recRows) = result
+                val (rows, nameMap, photoMap) = triple
+                val recHistory = JourneyLogUi.recordingsToHistory(
+                    SupabaseCallRecordings.toRecordings(
+                        recRows,
+                        { sysId -> nameMap[sysId].orEmpty() },
+                        { sysId -> photoMap[sysId].orEmpty() }
+                    )
+                )
                 renderActionHistoryDialog(
-                    item.copy(history = buildHistoryEntries(item.id, rows, nameMap, photoMap)),
+                    item.copy(history = buildHistoryEntries(item.id, rows, nameMap, photoMap) + recHistory),
                     isLoading = false,
-                    existing = dialog to dialogView
+                    existing = dialog to dialogView,
+                    onRecordSaved = { load() }
                 )
             }
         }
@@ -1326,12 +1381,14 @@ class WorkerSpaceFragment : Fragment() {
         isLoading: Boolean = false,
         hasFailed: Boolean = false,
         existing: Pair<BottomSheetDialog, View>? = null,
-        onRetry: (() -> Unit)? = null
+        onRetry: (() -> Unit)? = null,
+        onRecordSaved: (() -> Unit)? = null
     ): Pair<BottomSheetDialog, View> {
         val dialog = existing?.first ?: BottomSheetDialog(requireContext())
         val view = existing?.second ?: layoutInflater.inflate(R.layout.bottom_sheet_action_history, null)
         val tvTitle = view.findViewById<TextView>(R.id.twHistoryTitle)
         val tvSub = view.findViewById<TextView>(R.id.twHistorySub)
+        val btnRecord = view.findViewById<TextView>(R.id.btnHistoryRecord)
         val layoutTimeline = view.findViewById<LinearLayout>(R.id.layoutTimeline)
         val layoutLoading = view.findViewById<View>(R.id.layoutHistoryLoading)
         val scrollTimeline = view.findViewById<View>(R.id.scrollHistoryTimeline)
@@ -1339,21 +1396,33 @@ class WorkerSpaceFragment : Fragment() {
         val tvLoadingLabel = view.findViewById<TextView>(R.id.twHistoryLoadingLabel)
         val btnRetry = view.findViewById<TextView>(R.id.btnHistoryRetry)
         val tvOvStatus = view.findViewById<TextView>(R.id.twOverviewStatus)
+        val tvOvConsignment = view.findViewById<TextView>(R.id.twOverviewConsignmentStatus)
         val tvOvCreatedAt = view.findViewById<TextView>(R.id.twOverviewCreatedAt)
         val tvOvUpdatedAt = view.findViewById<TextView>(R.id.twOverviewUpdatedAt)
         val tvOvAge = view.findViewById<TextView>(R.id.twOverviewAge)
+        val tvOvAvg = view.findViewById<TextView>(R.id.twOverviewAvgResponse)
 
         tvTitle.text = "Action History"
         tvSub.text = "${item.id} · ${item.customer}"
 
-        // Overview — same lang + effectiveStatus the chips/cards use, so the
-        // header never disagrees with its own card.
+        // Overview — effective badge (as the card shows) + actual consignment status.
         val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.effectiveStatus, workerStatusLang)
         tvOvStatus.text = cfg.label
         tvOvStatus.setTextColor(cfg.color)
-        val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
-        tvOvCreatedAt.text = if (item.createdAt > 0) fullFmt.format(java.util.Date(item.createdAt)) else "—"
-        tvOvUpdatedAt.text = if (item.updatedAt > 0) fullFmt.format(java.util.Date(item.updatedAt)) else "—"
+        val consCfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.status, workerStatusLang)
+        tvOvConsignment.text = consCfg.label
+        tvOvConsignment.setTextColor(consCfg.color)
+        // 📅 Scheduled date (set by CC) — lock state included.
+        val schedFull = ScheduledLock.fullLabel(item.scheduledDate)
+        if (schedFull.isNotBlank()) {
+            view.findViewById<View>(R.id.layoutOverviewScheduled)?.visibility = View.VISIBLE
+            view.findViewById<TextView>(R.id.twOverviewScheduled)?.text =
+                if (item.isScheduledLocked) "🔒 $schedFull (locked)" else "📅 $schedFull"
+        } else {
+            view.findViewById<View>(R.id.layoutOverviewScheduled)?.visibility = View.GONE
+        }
+        tvOvCreatedAt.text = JourneyLogUi.formatEpochFull(item.createdAt)
+        tvOvUpdatedAt.text = JourneyLogUi.formatEpochFull(item.updatedAt)
         tvOvAge.text = formatAge(item.createdAt, item.updatedAt)
         val (ovAgeColor, _) = WorkerParcelAdapter.ageColorFor(item.createdAt)
         tvOvAge.setTextColor(ovAgeColor)
@@ -1376,10 +1445,41 @@ class WorkerSpaceFragment : Fragment() {
         if (isLoading || hasFailed) {
             if (existing == null) {
                 view.findViewById<TextView>(R.id.btnHistoryClose).setOnClickListener { dialog.dismiss() }
+                dialog.setOnDismissListener { CallRecordingPlayer.stop() }
                 dialog.setContentView(view)
                 dialog.show()
             }
             return dialog to view
+        }
+
+        // Manual call recording (worker side).
+        btnRecord.text = JourneyRecordingUi.recordLabel(item.id)
+        btnRecord.setOnClickListener {
+            if (isAdded) JourneyRecordingUi.onRecordClick(
+                fragment = this@WorkerSpaceFragment,
+                scope = viewLifecycleOwner.lifecycleScope,
+                button = btnRecord,
+                consignmentId = item.id,
+                branchId = item.branchIds.firstOrNull().orEmpty(),
+                authorSystemId = systemId,
+                source = "WORKER",
+                requestPermission = {
+                    pendingRecordRetry = { btnRecord.performClick() }
+                    workerMicPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                },
+                onReload = { onRecordSaved?.invoke() }
+            )
+        }
+
+        // ＋Audio evidence: pick any audio file from the device → upload (10 MB)
+        // → journey entry with the same play/share/download row.
+        val btnAudio = view.findViewById<TextView>(R.id.btnHistoryAddAudio)
+        btnAudio.setOnClickListener {
+            pendingAudioButton = btnAudio
+            pendingAudioConsignment = item.id
+            pendingAudioBranch = item.branchIds.firstOrNull().orEmpty()
+            pendingAudioReload = onRecordSaved
+            workerAudioPickerLauncher.launch(JourneyRecordingUi.PICKER_MIME_TYPE)
         }
 
         val historyEntries = mutableListOf<HistoryEntry>()
@@ -1390,9 +1490,10 @@ class WorkerSpaceFragment : Fragment() {
                 HistoryEntry(
                     action = "CREATED",
                     remark = "Parcel created",
-                    time = fullFmt.format(java.util.Date(item.createdAt)),
+                    time = JourneyLogUi.formatEpochFull(item.createdAt),
                     author = "System",
-                    authorRole = "system"
+                    authorRole = "system",
+                    createdAt = item.createdAt
                 )
             )
         }
@@ -1422,14 +1523,31 @@ class WorkerSpaceFragment : Fragment() {
 
         // Annotate consecutive entries with worker↔CC handoff response times.
         val entriesWithGaps = WorkerParcelAdapter.withResponseGaps(historyEntries)
+        view.findViewById<TextView>(R.id.twOverviewAvgResponse)?.let {
+            it.text = JourneyLogUi.avgResponseText(entriesWithGaps)
+        }
 
         if (entriesWithGaps.isEmpty()) {
             val emptyView = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_timeline_empty, layoutTimeline, false)
             layoutTimeline.addView(emptyView)
         } else {
+            var lastDayKey = ""
             for ((index, entry) in entriesWithGaps.withIndex()) {
+                // Date divider — one per Dhaka day, never on the created date.
+                if (entry.createdAt > 0L) {
+                    val dayKey = DhakaTime.dayKey(entry.createdAt)
+                    if (dayKey != lastDayKey) {
+                        lastDayKey = dayKey
+                        if (!JourneyLogUi.isCreatedEntry(entry.action, entry.remark, entry.authorRole)) {
+                            layoutTimeline.addView(
+                                JourneyLogUi.makeDateDivider(requireContext(), entry.createdAt)
+                            )
+                        }
+                    }
+                }
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
+                JourneyLogUi.applyChatStyle(timelineView, entry.authorRole)
                 val statusCfg = WorkerParcelAdapter.getStatusConfig(
                     requireContext(),
                     entry.action,
@@ -1445,17 +1563,17 @@ class WorkerSpaceFragment : Fragment() {
                 val tvGap = timelineView.findViewById<TextView>(R.id.twTimelineGap)
 
                 if (entry.authorPhotoUrl.isNotBlank()) {
-                    ivAvatar.load(entry.authorPhotoUrl) {
+                    ivAvatar?.load(entry.authorPhotoUrl) {
                         crossfade(true)
                         placeholder(R.drawable.bg_timeline_avatar_placeholder)
                         error(R.drawable.bg_timeline_avatar_placeholder)
                     }
                 } else {
-                    ivAvatar.setImageDrawable(null)
-                    ivAvatar.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
+                    ivAvatar?.setImageDrawable(null)
+                    ivAvatar?.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
                 }
 
-                tvLine.visibility = if (index < entriesWithGaps.size - 1) View.VISIBLE else View.GONE
+                tvLine?.visibility = if (index < entriesWithGaps.size - 1) View.VISIBLE else View.GONE
 
                 tvAuthor.text = entry.author
 
@@ -1473,7 +1591,7 @@ class WorkerSpaceFragment : Fragment() {
                 // worker↔CC handoff block (see WorkerParcelAdapter.withResponseGaps).
                 val gapMin = entry.responseGapMinutes
                 if (gapMin != null) {
-                    tvGap.text = "⏱ ${gapMin}m response"
+                    tvGap.text = "⏱ ${JourneyLogUi.formatMinutes(gapMin)} response"
                     tvGap.visibility = View.VISIBLE
                 } else {
                     tvGap.visibility = View.GONE
@@ -1489,6 +1607,13 @@ class WorkerSpaceFragment : Fragment() {
                     tvCallLogs.visibility = View.GONE
                 }
 
+                JourneyRecordingUi.bindRecordingActions(
+                    timelineView, entry, viewLifecycleOwner.lifecycleScope,
+                    canDelete = entry.authorSystemId.isNotBlank() &&
+                        entry.authorSystemId == systemId,
+                    onDeleted = { onRecordSaved?.invoke() }
+                )
+
                 layoutTimeline.addView(timelineView)
             }
         }
@@ -1497,6 +1622,7 @@ class WorkerSpaceFragment : Fragment() {
             view.findViewById<TextView>(R.id.btnHistoryClose).setOnClickListener {
                 dialog.dismiss()
             }
+            dialog.setOnDismissListener { CallRecordingPlayer.stop() }
             dialog.setContentView(view)
             dialog.show()
         }
@@ -1509,7 +1635,6 @@ class WorkerSpaceFragment : Fragment() {
         nameMap: Map<String, String> = emptyMap(),
         photoMap: Map<String, String> = emptyMap()
     ): List<HistoryEntry> {
-        val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
         return remarkRows.mapNotNull { r ->
             val rStatus = r.optStr("remarks_status")?.trim().orEmpty()
             val rNoteRaw = r.optStr("note").trim()
@@ -1519,8 +1644,9 @@ class WorkerSpaceFragment : Fragment() {
             ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
             if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
 
-            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optStr("created_at"))
-            val timeStr = if (createdAt > 0L) fullFmt.format(java.util.Date(createdAt)) else ""
+            val rawCreatedAt = r.optStr("created_at")
+            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(rawCreatedAt)
+            val timeStr = JourneyLogUi.formatValidationTime(rawCreatedAt, createdAt)
             val authorSystemId = r.optStr("author_system_id")?.trim().orEmpty()
             val isFromDeliveryAgent = authorSystemId.isNotBlank() && authorSystemId == systemId
             val authorRole = if (isFromDeliveryAgent) "agent" else "cc"
@@ -1670,7 +1796,23 @@ class WorkerSpaceFragment : Fragment() {
         allParcels = allParcels.map { item ->
             if (item.id == consignmentId) item.copy(engagedAgents = agents) else item
         }
-        applyFilters()
+        scheduleEngagedRefresh()
+    }
+
+    /**
+     * Presence-only refresh, debounced: right after load, every parcel's engaged_at
+     * listener fires its initial value within ms of each other, and each one used to
+     * run the full re-filter/re-sort/diff pass on its own — N expensive passes queued
+     * behind the first paint, delaying visible cards. Presence never changes
+     * filtering or order, so collapsing the burst into one pass is lossless.
+     */
+    private var engagedRefreshJob: kotlinx.coroutines.Job? = null
+    private fun scheduleEngagedRefresh() {
+        engagedRefreshJob?.cancel()
+        engagedRefreshJob = viewLifecycleOwner.lifecycleScope.launch {
+            kotlinx.coroutines.delay(300)
+            if (isAdded) applyFilters()
+        }
     }
 
     private fun applyLocalEngagement(consignmentIds: Set<String>, agent: EngagedAgent) {
@@ -1680,7 +1822,7 @@ class WorkerSpaceFragment : Fragment() {
                 engagedAgents = item.engagedAgents.filterNot { it.uid == agent.uid } + agent
             )
         }
-        applyFilters()
+        scheduleEngagedRefresh()
     }
 
     private fun removeLocalEngagement(consignmentIds: Set<String>, uid: String) {
@@ -1690,7 +1832,7 @@ class WorkerSpaceFragment : Fragment() {
                 engagedAgents = item.engagedAgents.filterNot { it.uid == uid }
             )
         }
-        applyFilters()
+        scheduleEngagedRefresh()
     }
 
     // Tracks last-seen remark timestamp per consignment to detect genuinely new CC remarks
@@ -1892,7 +2034,12 @@ class WorkerSpaceFragment : Fragment() {
                 if (!isAdded || generation != loadGeneration) return@launch
                 allParcels = sortParcels(parcels)
                 setupFilterTabs()
-                applyFilters()
+                // Hide progress only once cards are actually laid out — hiding it
+                // here directly used to show an empty list for a beat while the
+                // diff + first layout were still in flight.
+                applyFilters {
+                    if (isAdded && generation == loadGeneration) pbProgress.visibility = View.GONE
+                }
                 RemarkPushChainLog.log("RemarkPushChain", "loadData: allParcels loaded, size=${allParcels.size}")
                 syncRemarkListeners(parcels.map { it.id }.toSet())
                 syncEngagedAtListeners(parcels.map { it.id }.toSet())
@@ -1903,10 +2050,7 @@ class WorkerSpaceFragment : Fragment() {
                 if (!isAdded || generation != loadGeneration) return@launch
                 tvEmpty.visibility = View.VISIBLE
                 tvEmpty.text = "⚠ Load failed: ${e.message?.take(60)}"
-            } finally {
-                if (isAdded && generation == loadGeneration) {
-                    pbProgress.visibility = View.GONE
-                }
+                pbProgress.visibility = View.GONE
             }
         }
     }
@@ -2127,7 +2271,8 @@ class WorkerSpaceFragment : Fragment() {
                     // filtered out whenever a worker's default branch differs from the run.
                     branchIds = runRef.branchIds.ifEmpty {
                         listOf(hub).filter { it.isNotBlank() }
-                    }
+                    },
+                    scheduledDate = ScheduledLock.normalize(readString(detailSnap, ScheduledLock.FIELD_DATE))
                 )
             )
         }
@@ -2250,7 +2395,7 @@ class WorkerSpaceFragment : Fragment() {
             .show()
     }
 
-    private fun applyFilters() {
+    private fun applyFilters(onCommitted: (() -> Unit)? = null) {
         // A live update landing mid-drag would submitList under the drag and
         // desync the mirrored dragIds — defer until drop (clearView applies).
         if (dragActive) {
@@ -2307,7 +2452,11 @@ class WorkerSpaceFragment : Fragment() {
             // mark here, otherwise this card never shows a ring for colleagues.
             filtered.firstOrNull { it.id == targetId }?.let { markGroupEngaged(it) }
         }
-        adapter.submitList(filtered)
+        adapter.submitList(filtered) {
+            // Wait out one layout pass too, so a progress bar hidden here lifts
+            // onto visible cards instead of an empty list.
+            rvParcelList.post { onCommitted?.invoke() }
+        }
         tvEmpty.visibility = if (filtered.isEmpty()) View.VISIBLE else View.GONE
         tvEmpty.text = if (allParcels.isEmpty()) "📭\n\nNo parcels found"
             else if (searchQuery.isNotBlank()) "📭\n\nNo results for \"$searchQuery\""

@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/theme_bg_app"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/tvCleanupTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Recording Cleanup"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="@color/theme_text_primary"
+        android:includeFontPadding="false" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Admin only · manual delete, kono auto-delete nei"
+        android:textSize="11sp"
+        android:textColor="@color/theme_text_secondary"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="12dp"
+        android:includeFontPadding="false" />
+
+    <!-- Storage overview -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/theme_bg_card"
+        android:padding="12dp"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:id="@+id/tvCleanupStats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Loading storage…"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_text_primary"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/tvCleanupOldest"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="11sp"
+            android:textColor="@color/theme_text_secondary"
+            android:layout_marginTop="2dp"
+            android:includeFontPadding="false" />
+    </LinearLayout>
+
+    <!-- Date range -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:id="@+id/btnCleanupFrom"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="From: —"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_accent"
+            android:gravity="center"
+            android:background="@drawable/bg_close_button_red"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_marginEnd="4dp"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/btnCleanupTo"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="To: —"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="@color/theme_accent"
+            android:gravity="center"
+            android:background="@drawable/bg_close_button_red"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_marginStart="4dp"
+            android:includeFontPadding="false" />
+    </LinearLayout>
+
+    <!-- Range summary + bulk delete -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="@color/theme_bg_inner"
+        android:padding="12dp"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:id="@+id/tvCleanupRangeInfo"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Range select korun"
+            android:textSize="12sp"
+            android:textColor="@color/theme_text_primary"
+            android:includeFontPadding="false" />
+
+        <TextView
+            android:id="@+id/btnCleanupDeleteAll"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:text="Delete all"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="#EF4444"
+            android:gravity="center"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:background="@drawable/bg_close_button_red"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_marginStart="8dp"
+            android:includeFontPadding="false" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/pbCleanup"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_gravity="center"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/tvCleanupEmpty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Ei range-e kono recording nei."
+        android:textSize="12sp"
+        android:textColor="@color/theme_text_secondary"
+        android:gravity="center"
+        android:layout_marginTop="16dp"
+        android:visibility="gone"
+        android:includeFontPadding="false" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvCleanup"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+</LinearLayout>

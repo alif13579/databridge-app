@@ -144,6 +144,18 @@
                     android:ellipsize="end"
                     android:includeFontPadding="false" />
 
+                <!-- Copy parcel details — tap = copy to clipboard, long-press = share sheet -->
+                <TextView
+                    android:id="@+id/tvParcelCopy"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:gravity="center"
+                    android:text="📋"
+                    android:textSize="15sp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Copy parcel details"
+                    android:includeFontPadding="false" />
+
                 <!-- Drag handle — RIGHT side for thumb reach, visible only in Custom
                      sort mode (see WorkerParcelAdapter.dragEnabled). 48dp grab target,
                      vertically centered; touch-drag to reorder road-plan-wise; long-press
@@ -193,6 +205,40 @@
                     android:paddingBottom="3dp"
                     android:includeFontPadding="false"
                     android:layout_marginStart="8dp" />
+
+                <TextView
+                    android:id="@+id/tvParcelScheduledLock"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔒 20 Sep"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_accent"
+                    android:background="@drawable/bg_age_badge"
+                    android:paddingStart="7dp"
+                    android:paddingEnd="7dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:includeFontPadding="false"
+                    android:layout_marginStart="6dp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/tvParcelCalling"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📞 Calling"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:textColor="#16A34A"
+                    android:background="@drawable/bg_age_badge"
+                    android:paddingStart="7dp"
+                    android:paddingEnd="7dp"
+                    android:paddingTop="3dp"
+                    android:paddingBottom="3dp"
+                    android:includeFontPadding="false"
+                    android:layout_marginStart="6dp"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <LinearLayout

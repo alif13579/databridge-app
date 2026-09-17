@@ -109,6 +109,21 @@
             android:icon="@android:drawable/ic_menu_mylocation"
             android:title="Check In"
             android:visible="false" />
+        <item
+            android:id="@+id/nav_reconciliation"
+            android:icon="@android:drawable/ic_menu_agenda"
+            android:title="Reconciliation"
+            android:visible="false" />
+        <item
+            android:id="@+id/nav_follow_up"
+            android:icon="@android:drawable/ic_menu_call"
+            android:title="Follow-up"
+            android:visible="false" />
+        <item
+            android:id="@+id/nav_recording_cleanup"
+            android:icon="@android:drawable/ic_menu_delete"
+            android:title="Recording Cleanup"
+            android:visible="false" />
     </group>
 
     <group android:id="@+id/group_settings" android:checkableBehavior="single">

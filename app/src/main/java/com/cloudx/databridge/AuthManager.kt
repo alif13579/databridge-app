@@ -60,6 +60,7 @@ object AuthManager {
             // would otherwise sit under other agents' parcels forever (display-hidden
             // after 5 min, but stored + re-downloaded on every parcel fetch).
             try { EngagedStateManager.clearAllTrackedNow(uid) } catch (_: Exception) {}
+            try { ActiveCallEngagement.stopAll() } catch (_: Exception) {}
         }
         // Drop this installation's push mapping while still signed in (the Bearer
         // token stays server-valid past local sign-out, but doing it first keeps

@@ -162,6 +162,75 @@ object SupabaseRemarkValidationWriter {
         return true
     }
 
+    /** Result of a journey-log remark edit (see `edit` action in validations). */
+    sealed class EditResult {
+        data object Ok : EditResult()
+        data object Expired : EditResult()
+        data class Err(val message: String) : EditResult()
+    }
+
+    /**
+     * Suspend edit of one validations row the caller authored — remarks_status /
+     * remarks / note only. Server enforces own-row + CC-only + 5-minute window;
+     * [EditResult.Expired] maps the server's EDIT_EXPIRED so the UI can show the
+     * "window over" state (and drop the Edit chip on reload).
+     */
+    suspend fun editAwait(validationId: String, status: String, remarksText: String,
+                          noteText: String, remarksBnText: String = "",
+                          screen: String = "JourneyEdit"): EditResult =
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            if (validationId.isBlank()) {
+                if (cont.isActive) cont.resumeWith(Result.success(EditResult.Err("Missing remark id")))
+                return@suspendCancellableCoroutine
+            }
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user == null) {
+                if (cont.isActive) cont.resumeWith(Result.success(EditResult.Err("Not signed in")))
+                return@suspendCancellableCoroutine
+            }
+            user.getIdToken(false).addOnCompleteListener { tokenTask ->
+                val token = tokenTask.result?.token
+                if (!tokenTask.isSuccessful || token.isNullOrBlank()) {
+                    if (cont.isActive) cont.resumeWith(Result.success(
+                        EditResult.Err(tokenTask.exception?.message ?: "No Firebase ID token")))
+                    return@addOnCompleteListener
+                }
+                val payload = JSONObject().put("action", "edit").put("id", validationId)
+                    .put("remarks_status", status).put("remarks", remarksText).put("note", noteText)
+                if (remarksBnText.isNotBlank()) payload.put("remarks_bn", remarksBnText)
+                val request = Request.Builder().url("${SupabaseConfig.PROJECT_URL}/functions/v1/validations")
+                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY).addHeader("Authorization", "Bearer $token")
+                    .addHeader("Content-Type", "application/json").post(payload.toString().toRequestBody(jsonMediaType)).build()
+                client.newCall(request).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        log(screen, "supabase_validation_edit_network_error", e.message ?: "Network error", validationId)
+                        if (cont.isActive) cont.resumeWith(Result.success(EditResult.Err(e.message ?: "Network error")))
+                    }
+                    override fun onResponse(call: Call, response: okhttp3.Response) {
+                        response.use {
+                            val text = it.body?.string().orEmpty()
+                            val result = try {
+                                val body = if (text.isBlank()) JSONObject() else JSONObject(text)
+                                when {
+                                    it.isSuccessful && body.optBoolean("ok", false) -> EditResult.Ok
+                                    body.optString("code") == "EDIT_EXPIRED" ||
+                                        text.contains("EDIT_EXPIRED") -> EditResult.Expired
+                                    else -> EditResult.Err(
+                                        body.optString("error").ifBlank { "Couldn't save (HTTP ${it.code})" })
+                                }
+                            } catch (_: Exception) {
+                                EditResult.Err("Couldn't save (HTTP ${it.code})")
+                            }
+                            if (!it.isSuccessful && result is EditResult.Err) {
+                                log(screen, "supabase_validation_edit_http_error", "HTTP ${it.code}: ${text.take(300)}", validationId)
+                            }
+                            if (cont.isActive) cont.resumeWith(Result.success(result))
+                        }
+                    }
+                })
+            }
+        }
+
     // ── Admin remark-option config (ConfigRemarksFragment) ──────────────────────
     // Distinct from write() above: these manage validation_remarks rows as the
     // OPTIONS themselves (what shows in the CC/Worker remark picker), gated

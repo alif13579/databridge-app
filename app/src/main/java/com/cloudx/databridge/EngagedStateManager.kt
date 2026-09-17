@@ -8,13 +8,18 @@ import kotlinx.coroutines.tasks.await
 
 /** One agent's engagement entry — mirrors one child of engaged_at/{agentUid}. photoUrl is
  *  resolved separately (via UserNameResolver, cached) since it isn't stored in the entry
- *  itself. */
+ *  itself. [state] is "calling" while that agent has an active phone call with this
+ *  customer's number (outgoing tap or incoming), else "viewing" (card expanded). Old
+ *  entries without the field read as "viewing" — display treats both as engaged. */
 data class EngagedAgent(
     val uid: String,
     val name: String,
     val timestamp: Long,
-    val photoUrl: String = ""
-)
+    val photoUrl: String = "",
+    val state: String = EngagedStateManager.STATE_VIEWING
+) {
+    val isCalling: Boolean get() = state == EngagedStateManager.STATE_CALLING
+}
 
 /**
  * Tracks "someone has this parcel's card open right now" across both Worker Space and Call
@@ -76,6 +81,13 @@ object EngagedStateManager {
 
     const val SOURCE_CARD = "card"
     const val SOURCE_OVERLAY = "overlay"
+    /** Active phone call with this customer's number (outgoing tap or incoming).
+     *  Like "overlay", spared by the app-background sweep (which only clears "card"),
+     *  so dialer-out / call-screen time keeps the ring visible to other agents. */
+    const val SOURCE_CALL = "call"
+
+    const val STATE_VIEWING = "viewing"
+    const val STATE_CALLING = "calling"
 
     private const val ENGAGED_NODE = "engaged_at"
     private const val STALE_AFTER_MS = 5 * 60 * 1000L // 5 minutes
@@ -152,7 +164,7 @@ object EngagedStateManager {
 
     fun nodePath(consignmentId: String): String = "courier/consignments/$consignmentId/$ENGAGED_NODE"
 
-    fun markEngaged(consignmentId: String, agentUid: String, agentName: String, agentRole: String, source: String = SOURCE_CARD) {
+    fun markEngaged(consignmentId: String, agentUid: String, agentName: String, agentRole: String, source: String = SOURCE_CARD, state: String = STATE_VIEWING) {
         if (consignmentId.isBlank() || agentUid.isBlank()) return
         track(consignmentId, source)
         val ref = FirebaseDatabase.getInstance()
@@ -160,7 +172,8 @@ object EngagedStateManager {
         val payload = mapOf(
             "timestamp" to System.currentTimeMillis(),
             "agentName" to agentName,
-            "agentRole" to agentRole
+            "agentRole" to agentRole,
+            "state" to state
         )
         ref.setValue(payload)
         // Guard 1: server removes this entry when our socket drops (crash/kill/blip).
@@ -180,13 +193,31 @@ object EngagedStateManager {
      *  part of the same removeValue() call — Firebase Realtime Database prunes empty parent
      *  nodes on write, no separate cleanup step needed. Fire-and-forget; a failed clear here
      *  just means that agent's avatar keeps showing until the 5-minute staleness window
-     *  passes, not a broken feature. */
-    fun clearEngaged(consignmentId: String, agentUid: String) {
+     *  passes, not a broken feature.
+     *
+     *  [source] narrows the clear to one local source ("card"/"overlay"/"call"): the
+     *  Firebase entry is removed ONLY when no other source on this device still holds
+     *  this parcel. Card collapse passes SOURCE_CARD so an active call's ring survives;
+     *  remark-save / logout pass null to clear everything. */
+    fun clearEngaged(consignmentId: String, agentUid: String, source: String? = null) {
         if (consignmentId.isBlank() || agentUid.isBlank()) return
-        untrack(consignmentId)
+        untrack(consignmentId, source)
+        if (source != null && hasTracked(consignmentId)) {
+            // Another local source (e.g. an active call) still holds this parcel —
+            // keep the Firebase ring up instead of deleting it out from under the call.
+            return
+        }
         FirebaseDatabase.getInstance()
             .reference.child("${nodePath(consignmentId)}/$agentUid")
             .removeValue()
+    }
+
+    /** True if this device still tracks [consignmentId] under any (or the given) source. */
+    fun hasTracked(consignmentId: String, source: String? = null): Boolean {
+        synchronized(lock) {
+            val sources = tracked[consignmentId] ?: return false
+            return if (source == null) sources.isNotEmpty() else source in sources
+        }
     }
 
     /**
@@ -203,11 +234,14 @@ object EngagedStateManager {
         }.take(300)
         val db = FirebaseDatabase.getInstance()
         ids.forEach { cid ->
+            untrack(cid, onlySource)
+            // Don't delete the Firebase ring when another local source (e.g. an active
+            // call) still holds this parcel — the background sweep only clears "card".
+            if (onlySource != null && hasTracked(cid)) return@forEach
             try {
                 db.reference.child("${nodePath(cid)}/$agentUid").removeValue().await()
             } catch (_: Exception) {
             }
-            untrack(cid, onlySource)
         }
     }
 
@@ -248,6 +282,15 @@ object EngagedStateManager {
         return (System.currentTimeMillis() - timestamp) < STALE_AFTER_MS
     }
 
+    /**
+     * Agents with a live phone call on this parcel right now (ActiveCallEngagement's
+     * SOURCE_CALL + state="calling"), freshest first. Powers the 📞 calling badge on
+     * both card adapters — same freshness rule as the engaged ring, so the badge
+     * auto-hides on call end (explicit clear), remark save, timeout, or staleness.
+     */
+    fun callingAgents(agents: List<EngagedAgent>): List<EngagedAgent> =
+        agents.filter { it.isCalling && isFresh(it.timestamp) }.sortedByDescending { it.timestamp }
+
     /** Parses an engaged_at snapshot (the node containing one child per engaged agentUid)
      *  into a list of EngagedAgent, resolving each one's photo via UserNameResolver's cache.
      *  Shared by both fragments' batch-load and live-listener parsing paths so there's one
@@ -258,11 +301,14 @@ object EngagedStateManager {
             val uid = child.key ?: return@mapNotNull null
             val timestamp = child.child("timestamp").getValue(Long::class.java) ?: return@mapNotNull null
             val name = child.child("agentName").getValue(String::class.java).orEmpty()
+            val state = child.child("state").getValue(String::class.java)
+                ?.takeIf { it == STATE_CALLING || it == STATE_VIEWING } ?: STATE_VIEWING
             EngagedAgent(
                 uid = uid,
                 name = name,
                 timestamp = timestamp,
-                photoUrl = UserNameResolver.resolvePhotoUrl(uid)
+                photoUrl = UserNameResolver.resolvePhotoUrl(uid),
+                state = state
             )
         }
     }

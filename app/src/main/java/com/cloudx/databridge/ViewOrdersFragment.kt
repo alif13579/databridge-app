@@ -42,6 +42,8 @@ data class ViewOrderParcel(
     val remarksAt: Long = 0L,
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
+    /** Manual call recordings / audio evidence on this parcel's journey (proof lookup). */
+    val recordingCount: Int = 0,
 ) {
     /** Same rule as CallCenterParcelItem.effectiveStatus (see
      *  StatusMetaCache.isRemarkIgnoredInActual). */
@@ -251,6 +253,12 @@ class ViewOrdersFragment : Fragment() {
         // Call-track: resolved on resume (talk proves true dial for supervisor).
         val role = if (RbacManager.hasPermission("nav_call_center")) CallAttemptStore.ROLE_CC else CallAttemptStore.ROLE_WORKER
         CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, role)
+        try {
+            ActiveCallEngagement.startOutgoing(
+                requireContext().applicationContext, item.phone, listOf(item.id)
+            )
+        } catch (_: Exception) {
+        }
     }
 
     /**
@@ -386,6 +394,18 @@ class ViewOrdersFragment : Fragment() {
                     remarks = remarks, remarksAt = remarksAt,
                     createdAt = createdAt, updatedAt = updatedAt
                 )
+            }.let { parcels ->
+                // Recording badges: one batched count query for all cards.
+                val counts = try {
+                    SupabaseCallRecordings.fetchCounts(parcels.map { it.id }, "ViewOrdersFragment")
+                } catch (_: Exception) {
+                    emptyMap()
+                }
+                if (counts.isEmpty()) parcels
+                else parcels.map { p ->
+                    val n = counts[p.id] ?: 0
+                    if (n > 0) p.copy(recordingCount = n) else p
+                }
             }
         } catch (_: Exception) {
             emptyList()
@@ -399,28 +419,31 @@ class ViewOrdersFragment : Fragment() {
         fun load() {
             renderJourneyDialog(item, isLoading = true, existing = dialog to dialogView)
             viewLifecycleOwner.lifecycleScope.launch {
-                val rows = kotlin.runCatching {
-                    withTimeoutOrNull(20_000) {
+                val rowsAndRec = kotlin.runCatching {
+                    withTimeoutOrNull(30_000) {
                         withContext(Dispatchers.IO) {
                             val deferred = CompletableDeferred<List<org.json.JSONObject>>()
                             SupabaseRemarkValidationWriter.fetchHistory(item.id, "ViewOrdersFragment") { fetched ->
                                 deferred.complete(fetched)
                             }
-                            deferred.await()
+                            deferred.await() to
+                                SupabaseCallRecordings.fetchForConsignment(item.id, "ViewOrdersFragment")
                         }
                     }
                 }.getOrNull()
                 if (!isAdded || !dialog.isShowing) return@launch
-                if (rows == null) {
+                if (rowsAndRec == null) {
                     renderJourneyDialog(
                         item, isLoading = false, hasFailed = true,
                         existing = dialog to dialogView, onRetry = { load() }
                     )
                     return@launch
                 }
+                val (rows, recRows) = rowsAndRec
                 renderJourneyDialog(
                     item, isLoading = false,
-                    entries = buildJourneyEntries(rows),
+                    entries = buildJourneyEntries(rows) +
+                        JourneyLogUi.recordingsToHistory(SupabaseCallRecordings.toRecordings(recRows)),
                     existing = dialog to dialogView
                 )
             }
@@ -438,7 +461,8 @@ class ViewOrdersFragment : Fragment() {
                 noteRaw.takeIf { it.isNotBlank() }?.let { "Note: $it" }
             ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
             if (status.isBlank() && remarks.isBlank()) return@mapNotNull null
-            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at"))
+            val rawCreatedAt = r.optString("created_at")
+            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(rawCreatedAt)
             val authorSystemId = r.optString("author_system_id").trim()
             val fromWorker = r.optString("source").trim().equals("WORKER", ignoreCase = true)
             val authorUser = r.optJSONObject("author")
@@ -447,8 +471,7 @@ class ViewOrdersFragment : Fragment() {
             HistoryEntry(
                 action = status.ifBlank { "NOTE" }.uppercase(),
                 remark = remarks,
-                time = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
-                    .format(java.util.Date(createdAt)),
+                time = JourneyLogUi.formatValidationTime(rawCreatedAt, createdAt),
                 author = authorLabel(authorName, fromWorker),
                 authorRole = if (fromWorker) "agent" else "cc",
                 authorPhotoUrl = authorUser?.optString("photo_url")?.trim().orEmpty(),
@@ -480,9 +503,14 @@ class ViewOrdersFragment : Fragment() {
         val tvLoadingLabel = view.findViewById<TextView>(R.id.twHistoryLoadingLabel)
         val btnRetry = view.findViewById<TextView>(R.id.btnHistoryRetry)
         val tvOvStatus = view.findViewById<TextView>(R.id.twOverviewStatus)
+        val tvOvConsignment = view.findViewById<TextView>(R.id.twOverviewConsignmentStatus)
         val tvOvCreatedAt = view.findViewById<TextView>(R.id.twOverviewCreatedAt)
         val tvOvUpdatedAt = view.findViewById<TextView>(R.id.twOverviewUpdatedAt)
         val tvOvAge = view.findViewById<TextView>(R.id.twOverviewAge)
+        val tvOvAvg = view.findViewById<TextView>(R.id.twOverviewAvgResponse)
+        // Recording starts from CC/Worker journeys only — here both buttons stay hidden.
+        view.findViewById<View>(R.id.btnHistoryRecord)?.visibility = View.GONE
+        view.findViewById<View>(R.id.btnHistoryAddAudio)?.visibility = View.GONE
 
         tvTitle.text = "Journey Log"
         tvSub.text = "${item.id} · ${item.customer}"
@@ -490,9 +518,11 @@ class ViewOrdersFragment : Fragment() {
         val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.effectiveStatus, "en")
         tvOvStatus.text = cfg.label
         tvOvStatus.setTextColor(cfg.color)
-        val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
-        tvOvCreatedAt.text = if (item.createdAt > 0) fullFmt.format(java.util.Date(item.createdAt)) else "—"
-        tvOvUpdatedAt.text = if (item.updatedAt > 0) fullFmt.format(java.util.Date(item.updatedAt)) else "—"
+        val consCfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.status, "en")
+        tvOvConsignment.text = consCfg.label
+        tvOvConsignment.setTextColor(consCfg.color)
+        tvOvCreatedAt.text = JourneyLogUi.formatEpochFull(item.createdAt)
+        tvOvUpdatedAt.text = JourneyLogUi.formatEpochFull(item.updatedAt)
         tvOvAge.text = formatAge(item.createdAt, item.updatedAt)
         val (ovAgeColor, _) = WorkerParcelAdapter.ageColorFor(item.createdAt)
         tvOvAge.setTextColor(ovAgeColor)
@@ -523,13 +553,15 @@ class ViewOrdersFragment : Fragment() {
             all.add(
                 HistoryEntry(
                     action = "CREATED", remark = "Parcel created",
-                    time = fullFmt.format(java.util.Date(item.createdAt)),
-                    author = "System", authorRole = "system"
+                    time = JourneyLogUi.formatEpochFull(item.createdAt),
+                    author = "System", authorRole = "system",
+                    createdAt = item.createdAt
                 )
             )
         }
         all.addAll(entries)
         val withGaps = WorkerParcelAdapter.withResponseGaps(all)
+        tvOvAvg.text = JourneyLogUi.avgResponseText(withGaps)
 
         if (withGaps.isEmpty()) {
             layoutTimeline.addView(
@@ -537,8 +569,22 @@ class ViewOrdersFragment : Fragment() {
                     .inflate(R.layout.item_timeline_empty, layoutTimeline, false)
             )
         } else {
+            var lastDayKey = ""
             for ((index, entry) in withGaps.withIndex()) {
+                // Date divider — one per Dhaka day, never on the created date.
+                if (entry.createdAt > 0L) {
+                    val dayKey = DhakaTime.dayKey(entry.createdAt)
+                    if (dayKey != lastDayKey) {
+                        lastDayKey = dayKey
+                        if (!JourneyLogUi.isCreatedEntry(entry.action, entry.remark, entry.authorRole)) {
+                            layoutTimeline.addView(
+                                JourneyLogUi.makeDateDivider(requireContext(), entry.createdAt)
+                            )
+                        }
+                    }
+                }
                 val tv = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
+                JourneyLogUi.applyChatStyle(tv, entry.authorRole)
                 val statusCfg = WorkerParcelAdapter.getStatusConfig(
                     requireContext(),
                     entry.action, "en"
@@ -546,16 +592,16 @@ class ViewOrdersFragment : Fragment() {
                 val ivAvatar = tv.findViewById<android.widget.ImageView>(R.id.ivTimelineAvatar)
                 val tvLine = tv.findViewById<View>(R.id.viewTimelineLine)
                 if (entry.authorPhotoUrl.isNotBlank()) {
-                    ivAvatar.load(entry.authorPhotoUrl) {
+                    ivAvatar?.load(entry.authorPhotoUrl) {
                         crossfade(true)
                         placeholder(R.drawable.bg_timeline_avatar_placeholder)
                         error(R.drawable.bg_timeline_avatar_placeholder)
                     }
                 } else {
-                    ivAvatar.setImageDrawable(null)
-                    ivAvatar.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
+                    ivAvatar?.setImageDrawable(null)
+                    ivAvatar?.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
                 }
-                tvLine.visibility = if (index < withGaps.size - 1) View.VISIBLE else View.GONE
+                tvLine?.visibility = if (index < withGaps.size - 1) View.VISIBLE else View.GONE
                 tv.findViewById<TextView>(R.id.twTimelineAuthor).text = entry.author
                 val tvStatus = tv.findViewById<TextView>(R.id.twTimelineStatus)
                 // Config-defined label — never the raw UPPER_SNAKE key.
@@ -568,18 +614,22 @@ class ViewOrdersFragment : Fragment() {
                 tv.findViewById<TextView>(R.id.twTimelineMeta).text = entry.time
                 val tvGap = tv.findViewById<TextView>(R.id.twTimelineGap)
                 if (entry.responseGapMinutes != null) {
-                    tvGap.text = "⏱ ${entry.responseGapMinutes}m response"
+                    tvGap.text = "⏱ ${JourneyLogUi.formatMinutes(entry.responseGapMinutes)} response"
                     tvGap.visibility = View.VISIBLE
                 } else {
                     tvGap.visibility = View.GONE
                 }
                 tv.findViewById<TextView>(R.id.twTimelineCallLogs).visibility = View.GONE
+                JourneyRecordingUi.bindRecordingActions(
+                    tv, entry, viewLifecycleOwner.lifecycleScope
+                )
                 layoutTimeline.addView(tv)
             }
         }
 
         if (existing == null) {
             view.findViewById<TextView>(R.id.btnHistoryClose).setOnClickListener { dialog.dismiss() }
+            dialog.setOnDismissListener { CallRecordingPlayer.stop() }
             dialog.setContentView(view)
             dialog.show()
         }
@@ -619,6 +669,7 @@ class ViewOrdersFragment : Fragment() {
         class Holder(v: View) : RecyclerView.ViewHolder(v) {
             val tvCustomer: TextView = v.findViewById(R.id.tvVoCustomer)
             val tvStatus: TextView = v.findViewById(R.id.tvVoStatus)
+            val tvRecordings: TextView = v.findViewById(R.id.tvVoRecordings)
             val tvMeta: TextView = v.findViewById(R.id.tvVoMeta)
             val tvAddress: TextView = v.findViewById(R.id.tvVoAddress)
             val tvCod: TextView = v.findViewById(R.id.tvVoCod)
@@ -648,6 +699,17 @@ class ViewOrdersFragment : Fragment() {
             holder.tvStatus.text = cfg.label
             holder.tvStatus.setTextColor(cfg.color)
             holder.tvStatus.backgroundTintList = android.content.res.ColorStateList.valueOf(cfg.bg)
+
+            // Proof lookup: recording evidence lives on the journey — badge
+            // shows the count, tap jumps straight into the Journey Log.
+            if (item.recordingCount > 0) {
+                holder.tvRecordings.visibility = View.VISIBLE
+                holder.tvRecordings.text = "🎙 ${item.recordingCount}"
+                holder.tvRecordings.setOnClickListener { onLongPress(item) }
+            } else {
+                holder.tvRecordings.visibility = View.GONE
+                holder.tvRecordings.setOnClickListener(null)
+            }
 
             if (item.remarks.isNotBlank()) {
                 holder.remarksBox.visibility = View.VISIBLE

@@ -2,7 +2,7 @@
 // (the canonical slug). Kept deployed so old APKs/extension builds keep
 // working — edit BOTH files together until this slug is retired.
 // Call Center / Worker REMARK flows only.
-// Actions: write, sync_run_status, report, admin_list_remarks,
+// Actions: write, edit, sync_run_status, report, admin_list_remarks,
 // admin_upsert_remark, admin_delete_remark, admin_migrate_status_remarks.
 //
 // Every other domain moved to its own function (see supabase/functions/):
@@ -57,8 +57,10 @@ Deno.serve(async (request) => {
       }
       // Author fields come exclusively from the verified Firebase identity; Android
       // never supplies them, so a caller cannot impersonate another employee.
-      // users rows are admin-onboarded only (employee edit) — a remark NEVER
-      // creates one. Fail fast with a contact-admin message when missing.
+      // users rows are admin-onboarded only (employee edit) — a login/remark
+      // NEVER creates one. Fail fast with a contact-admin message when the
+      // row is missing instead of a cryptic FK error (validations FKs both
+      // author and assigned to users).
       const authorProfile = await firebaseProfile(identity)
       if (!await requireUsersRow(authorProfile.systemId)) {
         errLog('write', 'author_users_row_missing', { system_id: authorProfile.systemId })
@@ -84,9 +86,14 @@ Deno.serve(async (request) => {
       if (row.assigned_to_system_id === authorProfile.systemId) {
         // Author row already verified above; avoids a duplicate lookup.
       } else {
-        // No FK here (unlike validations), so a missing assigned row must NOT
-        // block the save — and must NOT auto-create one either. The name/badge
-        // resolves once admin onboards them via employee edit.
+        // FK to users: the assigned agent must be admin-onboarded too. Fail
+        // fast (contact admin) instead of auto-creating the row or hitting a
+        // cryptic FK error. A missing/stale index entry for a REAL employee
+        // means employee edit hasn't onboarded them yet.
+        if (!await requireUsersRow(row.assigned_to_system_id)) {
+          errLog('write', 'assigned_users_row_missing', { assigned: row.assigned_to_system_id })
+          return reply({ error: 'Assigned agent is not onboarded — ask admin to add them in employee edit' }, 403)
+        }
       }
       const parcelPromise = firebaseRead(
         identity, `courier/consignments/${encodeURIComponent(row.consignment)}`
@@ -147,6 +154,65 @@ Deno.serve(async (request) => {
         await upsertRemarkLabel(savedRow.source, savedRow.remarks, row.remarks_bn)
       }
       const push = await sendRemarkPush(savedRow, identity)
+      return reply({ ok: true, push })
+    }
+
+    if (action === 'edit') {
+      // CC agents can fix their OWN remark (remarks_status / remarks / note)
+      // within 5 minutes of saving it — after that the row is frozen as audit
+      // history. All checks are server-side (client clocks can't be trusted).
+      const id = typeof body.id === 'string' ? body.id.trim() : ''
+      if (!id) {
+        return reply({ error: 'Row id required' }, 400)
+      }
+      const authorProfile = await firebaseProfile(identity)
+      const { data: row, error: fetchError } = await admin.from('validations')
+        .select('id,consignment,branch_id,assigned_to_system_id,author_system_id,source,remarks_status,remarks,created_at')
+        .eq('id', id)
+        .single()
+      if (fetchError || !row) {
+        errLog('edit', 'row_not_found', { id })
+        return reply({ error: 'Remark not found' }, 404)
+      }
+      if (row.source !== 'CC') {
+        errLog('edit', 'not_cc_row', { id })
+        return reply({ error: 'Only Call Center remarks can be edited' }, 403)
+      }
+      if (row.author_system_id !== authorProfile.systemId) {
+        errLog('edit', 'not_own_row', { id })
+        return reply({ error: 'You can only edit your own remarks' }, 403)
+      }
+      const ageMs = Date.now() - new Date(row.created_at).getTime()
+      if (!Number.isFinite(ageMs) || ageMs > 5 * 60 * 1000) {
+        errLog('edit', 'window_expired', { id })
+        return reply({ error: 'Edit window over — remarks lock 5 minutes after saving', code: 'EDIT_EXPIRED' }, 403)
+      }
+      const patch: Record<string, unknown> = {}
+      if (typeof body.remarks_status === 'string') patch.remarks_status = body.remarks_status
+      if (typeof body.remarks === 'string') patch.remarks = body.remarks
+      if (typeof body.note === 'string') patch.note = body.note
+      if (Object.keys(patch).length === 0) {
+        return reply({ error: 'Nothing to update' }, 400)
+      }
+      const { error: updateError } = await admin.from('validations').update(patch).eq('id', id)
+      if (updateError) {
+        errLog('edit', 'db_update_failed', { id, pg_code: updateError.code, pg_message: updateError.message })
+        throw updateError
+      }
+      if (typeof body.remarks === 'string' && typeof body.remarks_bn === 'string') {
+        await upsertRemarkLabel('CC', body.remarks, body.remarks_bn)
+      }
+      // Same worker + same-branch CC fan-out as a fresh save, so nobody acts
+      // on the stale pre-edit remark.
+      const push = await sendRemarkPush({
+        consignment: row.consignment,
+        branch_id: row.branch_id,
+        assigned_to_system_id: row.assigned_to_system_id,
+        author_system_id: row.author_system_id,
+        remarks_status: typeof patch.remarks_status === 'string' ? patch.remarks_status : row.remarks_status,
+        remarks: typeof patch.remarks === 'string' ? patch.remarks : row.remarks,
+        source: row.source,
+      }, identity)
       return reply({ ok: true, push })
     }
 

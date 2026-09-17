@@ -38,6 +38,14 @@ class IncomingCallScreeningService : CallScreeningService() {
 
         serviceScope.launch {
             val result = IncomingCallerLookup.lookup(number)
+            // Live presence for ALL sibling parcels — independent of the overlay popup
+            // gates (permission/toggle), so CC + workers see who is on this call.
+            try {
+                ActiveCallEngagement.startIncoming(
+                    applicationContext, number, result?.primary?.consignmentId.orEmpty()
+                )
+            } catch (_: Exception) {
+            }
             IncomingCallOverlay.show(applicationContext, number, result?.primary, result?.otherCount ?: 0)
         }
 

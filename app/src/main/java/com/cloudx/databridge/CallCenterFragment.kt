@@ -174,6 +174,30 @@ class CallCenterFragment : Fragment() {
     // systemId -> users/{uid}/profile/phone, resolved alongside name/employee_id/photo_url
     // in ensureAgentNameMap()'s same parallel per-uid fetch. Cleared on pull-to-refresh.
     private var systemIdToPhone: Map<String, String> = emptyMap()
+    /** Own system_id (resolved lazily for call-recording authorship). */
+    private var myCcSystemId: String = ""
+    /** Retried when the RECORD_AUDIO request from the journey 🎙 button is granted. */
+    private var pendingRecordRetry: (() -> Unit)? = null
+    private val ccMicPermissionLauncher =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) pendingRecordRetry?.invoke()
+            pendingRecordRetry = null
+        }
+    /** Picker evidence target (＋Audio): button + consignment + branch + reload. */
+    private var pendingAudioButton: TextView? = null
+    private var pendingAudioConsignment: String = ""
+    private var pendingAudioBranch: String = ""
+    private var pendingAudioReload: (() -> Unit)? = null
+    private val ccAudioPickerLauncher =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { uri ->
+            val btn = pendingAudioButton
+            if (uri != null && btn != null && pendingAudioConsignment.isNotBlank() && isAdded) {
+                JourneyRecordingUi.uploadPickedAudio(
+                    this@CallCenterFragment, viewLifecycleOwner.lifecycleScope, btn, uri,
+                    pendingAudioConsignment, pendingAudioBranch, myCcSystemId, "CC"
+                ) { pendingAudioReload?.invoke() }
+            }
+        }
 
     private lateinit var adapter: CallCenterAdapter
 
@@ -817,6 +841,13 @@ class CallCenterFragment : Fragment() {
 
                 val dialStartMs = System.currentTimeMillis()
                 AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
+                // Live presence for auto-call too — same-phone group rings as calling.
+                try {
+                    val groupIds = allParcels.firstOrNull { it.id == id }
+                        ?.let { samePhoneGroup(it).map { p -> p.id } } ?: listOf(id)
+                    ActiveCallEngagement.startOutgoing(ctx.applicationContext, phone, groupIds)
+                } catch (_: Exception) {
+                }
                 // Auto-expand this parcel's remarks now, not after the call ends — the
                 // overlay below is non-modal, so the agent can start writing notes while the
                 // call is still going instead of waiting for it to finish.
@@ -889,6 +920,12 @@ class CallCenterFragment : Fragment() {
                         hideAutoCallStatus()
                         val redialStartMs = System.currentTimeMillis()
                         AutoDialHelper.dial(this@CallCenterFragment, phone, forceDirect = true)
+                        try {
+                            val groupIds = allParcels.firstOrNull { it.id == id }
+                                ?.let { samePhoneGroup(it).map { p -> p.id } } ?: listOf(id)
+                            ActiveCallEngagement.startOutgoing(ctx.applicationContext, phone, groupIds)
+                        } catch (_: Exception) {
+                        }
                         showAutoCallNextPreview(autoCallQueueItems.getOrNull(autoCallIndex))
                         val redialRealEnd = CallStateWatcher.awaitCallEnd(ctx, AUTO_CALL_RETURN_TIMEOUT_MS)
                         hideAutoCallStatus()
@@ -998,6 +1035,8 @@ class CallCenterFragment : Fragment() {
         )
         applyLocalCcEngagement(group.map { it.id }.toSet(), agent)
         group.forEach { p ->
+            // Don't downgrade an active call's state back to viewing.
+            if (ActiveCallEngagement.isCalling(p.id)) return@forEach
             EngagedStateManager.markEngaged(
                 consignmentId = p.id,
                 agentUid = uid,
@@ -1019,7 +1058,8 @@ class CallCenterFragment : Fragment() {
         val item = allParcels.firstOrNull { it.id == id }
         val group = if (item != null) samePhoneGroup(item) else allParcels.filter { it.id == id }
         removeLocalCcEngagement(group.map { it.id }.toSet(), uid)
-        group.forEach { EngagedStateManager.clearEngaged(it.id, uid) }
+        // Source-aware: an active call's ring survives card collapse.
+        group.forEach { EngagedStateManager.clearEngaged(it.id, uid, EngagedStateManager.SOURCE_CARD) }
     }
 
     /** Re-marks the still-expanded card — heals the background sweep and any socket
@@ -1065,6 +1105,15 @@ class CallCenterFragment : Fragment() {
                 // Call-track: pending dial resolved on resume (talk duration proves
                 // true dial vs instant-cut fake for the supervisor report).
                 CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_CC)
+                // Live presence: same-phone group shows engaged (calling) to other
+                // agents/workers while this call runs — survives dialer background.
+                try {
+                    ActiveCallEngagement.startOutgoing(
+                        requireContext().applicationContext, item.phone,
+                        samePhoneGroup(item).map { it.id }
+                    )
+                } catch (_: Exception) {
+                }
                 verifyAndIncrementDialCount(item.id, item.phone)
                 callCardStates[item.id] = colorCallDone
                 pushCallStates()
@@ -1128,33 +1177,27 @@ class CallCenterFragment : Fragment() {
                     WhatsAppHelper.send(requireContext(), item.workerPhone, message)
                 }
             },
-            onSendToDesktop = { item ->
-                viewLifecycleOwner.lifecycleScope.launch {
-                    SendToDesktopHelper.sendToConnectedExtensions(
-                        requireContext().applicationContext,
-                        SendToDesktopHelper.buildParcelInfoText(item)
-                    )
-                }
-            },
             onLongPress = { item -> showActionHistoryDialog(item) },
             onExpand = { item -> markGroupEngaged(item) },
             onCollapse = { item ->
                 val uid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
                 val group = samePhoneGroup(item)
                 removeLocalCcEngagement(group.map { it.id }.toSet(), uid)
-                group.forEach { p -> EngagedStateManager.clearEngaged(p.id, uid) }
+                group.forEach { p -> EngagedStateManager.clearEngaged(p.id, uid, EngagedStateManager.SOURCE_CARD) }
             },
             // Previous card fell out of the visible list (filter/data refresh) — clear
             // by id so its engaged_at entry doesn't leak with no item to collapse.
+            // Source-aware: an active call's ring survives.
             onCollapseById = { cid ->
-                EngagedStateManager.clearEngaged(cid, FirebaseAuth.getInstance().currentUser?.uid.orEmpty())
+                EngagedStateManager.clearEngaged(cid, FirebaseAuth.getInstance().currentUser?.uid.orEmpty(), EngagedStateManager.SOURCE_CARD)
             }
         )
         adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()
         rvParcelList.layoutManager = LinearLayoutManager(requireContext())
         rvParcelList.adapter = adapter
-        // Item views recycle instead of being fully re-inflated on every refresh/filter.
-        rvParcelList.setHasFixedSize(false)
+        // RecyclerView itself is match_parent (fixed size) — only the cards vary.
+        // Skips a full remeasure on every submit so first paint lands sooner.
+        rvParcelList.setHasFixedSize(true)
 
         // Swipe shortcuts: right = call, left = remarks. Header rows aren't swipeable.
         ItemTouchHelper(
@@ -1165,6 +1208,13 @@ class CallCenterFragment : Fragment() {
                     adapter.parcelAt(position)?.let { item ->
                         AutoDialHelper.dial(this@CallCenterFragment, item.phone)
                         CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_CC)
+                        try {
+                            ActiveCallEngagement.startOutgoing(
+                                requireContext().applicationContext, item.phone,
+                                samePhoneGroup(item).map { it.id }
+                            )
+                        } catch (_: Exception) {
+                        }
                         verifyAndIncrementDialCount(item.id, item.phone)
                         callCardStates[item.id] = colorCallDone
                         pushCallStates()
@@ -1179,7 +1229,7 @@ class CallCenterFragment : Fragment() {
                 }
             )
         ).attachToRecyclerView(rvParcelList)
-        rvParcelList.setItemViewCacheSize(8)
+        rvParcelList.setItemViewCacheSize(12)
     }
 
     /**
@@ -1221,8 +1271,8 @@ class CallCenterFragment : Fragment() {
                 // future change to the client's timeout config regresses. A timeout or any
                 // exception here surfaces as a normal "load failed, tap to retry" state
                 // instead of an unbounded spinner.
-                val rows = kotlin.runCatching {
-                    kotlinx.coroutines.withTimeoutOrNull(20_000) {
+                val rowsAndRec = kotlin.runCatching {
+                    kotlinx.coroutines.withTimeoutOrNull(30_000) {
                         withContext(Dispatchers.IO) {
                             val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
                             SupabaseRemarkValidationWriter.fetchHistory(item.id, "CallCenterFragment") { fetched ->
@@ -1233,23 +1283,43 @@ class CallCenterFragment : Fragment() {
                             // Firebase profile object used by the old history response. Ensure the
                             // existing system-id -> Firebase profile cache is ready before rendering.
                             ensureAgentNameMap()
-                            fetched
+                            // Manual call recordings live in their own table — merged
+                            // into the same timeline below (see JourneyRecordingUi).
+                            val recRows = SupabaseCallRecordings.fetchForConsignment(item.id, "CallCenterFragment")
+                            fetched to recRows
                         }
                     }
                 }.getOrNull()
 
                 if (!isAdded || !dialog.isShowing) return@launch
-                if (rows == null) {
+                // Own system id gates the ✎ Edit chip (own CC remarks, 5-min window) —
+                // resolve it here so the chip shows on first open, not just after a
+                // record/audio tap resolved it as a side effect.
+                if (myCcSystemId.isBlank()) {
+                    myCcSystemId = runCatching {
+                        withContext(Dispatchers.IO) { JourneyRecordingUi.resolveOwnSystemId() }
+                    }.getOrNull().orEmpty()
+                }
+                if (rowsAndRec == null) {
                     renderActionHistoryDialog(
                         item, isLoading = false, hasFailed = true,
                         existing = dialog to dialogView, onRetry = { load() }
                     )
                     return@launch
                 }
+                val (rows, recRows) = rowsAndRec
+                val recHistory = JourneyLogUi.recordingsToHistory(
+                    SupabaseCallRecordings.toRecordings(
+                        recRows,
+                        { sysId -> systemIdToName[sysId].orEmpty() },
+                        { sysId -> systemIdToPhotoUrl[sysId].orEmpty() }
+                    )
+                )
                 renderActionHistoryDialog(
-                    item.copy(history = buildHistoryEntries(item, rows)),
+                    item.copy(history = buildHistoryEntries(item, rows) + recHistory),
                     isLoading = false,
-                    existing = dialog to dialogView
+                    existing = dialog to dialogView,
+                    onRecordSaved = { load() }
                 )
             }
         }
@@ -1266,7 +1336,8 @@ class CallCenterFragment : Fragment() {
                 noteRaw.takeIf { it.isNotBlank() }?.let { "Note: $it" }
             ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
             if (status.isBlank() && remarks.isBlank()) return@mapNotNull null
-            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optStr("created_at"))
+            val rawCreatedAt = r.optStr("created_at")
+            val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(rawCreatedAt)
             val authorSystemId = r.optStr("author_system_id").trim()
             // The writer stores the authoritative actor type in `source`. The assigned
             // worker can also submit a CC-originated note, so comparing system IDs here
@@ -1283,15 +1354,19 @@ class CallCenterFragment : Fragment() {
             HistoryEntry(
                 action = status.ifBlank { "NOTE" }.uppercase(),
                 remark = remarks,
-                time = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
-                    .format(java.util.Date(createdAt)),
+                time = JourneyLogUi.formatValidationTime(rawCreatedAt, createdAt),
                 author = authorLabel + if (fromWorker) "" else " · CC",
                 authorRole = if (fromWorker) "agent" else "cc",
                 authorPhotoUrl = authorUser?.optStr("photo_url")?.trim().orEmpty()
                     .ifBlank { systemIdToPhotoUrl[authorSystemId].orEmpty() },
                 createdAt = createdAt,
                 callLogCount = callN,
-                callLogTotalDurationSec = callT
+                callLogTotalDurationSec = callT,
+                validationId = r.optStr("id").trim(),
+                authorSystemId = authorSystemId,
+                remarksEn = r.optStr("remarks").trim(),
+                noteRaw = noteRaw,
+                remarksStatus = status
             )
         }.sortedBy { it.createdAt }
     }
@@ -1301,12 +1376,14 @@ class CallCenterFragment : Fragment() {
         isLoading: Boolean = false,
         hasFailed: Boolean = false,
         existing: Pair<BottomSheetDialog, View>? = null,
-        onRetry: (() -> Unit)? = null
+        onRetry: (() -> Unit)? = null,
+        onRecordSaved: (() -> Unit)? = null
     ): Pair<BottomSheetDialog, View> {
         val dialog = existing?.first ?: BottomSheetDialog(requireContext())
         val view = existing?.second ?: layoutInflater.inflate(R.layout.bottom_sheet_action_history, null)
         val tvTitle = view.findViewById<TextView>(R.id.twHistoryTitle)
         val tvSub = view.findViewById<TextView>(R.id.twHistorySub)
+        val btnRecord = view.findViewById<TextView>(R.id.btnHistoryRecord)
         val layoutTimeline = view.findViewById<LinearLayout>(R.id.layoutTimeline)
         val layoutLoading = view.findViewById<View>(R.id.layoutHistoryLoading)
         val scrollTimeline = view.findViewById<View>(R.id.scrollHistoryTimeline)
@@ -1314,21 +1391,35 @@ class CallCenterFragment : Fragment() {
         val tvLoadingLabel = view.findViewById<TextView>(R.id.twHistoryLoadingLabel)
         val btnRetry = view.findViewById<TextView>(R.id.btnHistoryRetry)
         val tvOvStatus = view.findViewById<TextView>(R.id.twOverviewStatus)
+        val tvOvConsignment = view.findViewById<TextView>(R.id.twOverviewConsignmentStatus)
         val tvOvCreatedAt = view.findViewById<TextView>(R.id.twOverviewCreatedAt)
         val tvOvUpdatedAt = view.findViewById<TextView>(R.id.twOverviewUpdatedAt)
         val tvOvAge = view.findViewById<TextView>(R.id.twOverviewAge)
+        val tvOvAvg = view.findViewById<TextView>(R.id.twOverviewAvgResponse)
 
         tvTitle.text = "Journey Log"
         tvSub.text = "${item.id} · ${item.customer}"
 
-        // Overview — same lang + effectiveStatus the chips use (ccStatusLang),
-        // so the header never disagrees with its own card.
+        // Overview — effective badge (as the card shows) + actual consignment
+        // status, so the real delivery state is never hidden behind the
+        // derived effective status.
         val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.effectiveStatus, ccStatusLang)
         tvOvStatus.text = cfg.label
         tvOvStatus.setTextColor(cfg.color)
-        val fullFmt = java.text.SimpleDateFormat("dd-MM-yy hh:mm:ss a", java.util.Locale.getDefault())
-        tvOvCreatedAt.text = if (item.createdAt > 0) fullFmt.format(java.util.Date(item.createdAt)) else "—"
-        tvOvUpdatedAt.text = if (item.updatedAt > 0) fullFmt.format(java.util.Date(item.updatedAt)) else "—"
+        val consCfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.status, ccStatusLang)
+        tvOvConsignment.text = consCfg.label
+        tvOvConsignment.setTextColor(consCfg.color)
+        // 📅 Scheduled date (Firebase) — lock state included.
+        val schedFull = ScheduledLock.fullLabel(item.scheduledDate)
+        if (schedFull.isNotBlank()) {
+            view.findViewById<View>(R.id.layoutOverviewScheduled)?.visibility = View.VISIBLE
+            view.findViewById<TextView>(R.id.twOverviewScheduled)?.text =
+                if (item.isScheduledLocked) "🔒 $schedFull (locked)" else "📅 $schedFull"
+        } else {
+            view.findViewById<View>(R.id.layoutOverviewScheduled)?.visibility = View.GONE
+        }
+        tvOvCreatedAt.text = JourneyLogUi.formatEpochFull(item.createdAt)
+        tvOvUpdatedAt.text = JourneyLogUi.formatEpochFull(item.updatedAt)
         tvOvAge.text = formatAge(item.createdAt, item.updatedAt)
         val (ovAgeColor, _) = WorkerParcelAdapter.ageColorFor(item.createdAt)
         tvOvAge.setTextColor(ovAgeColor)
@@ -1351,10 +1442,55 @@ class CallCenterFragment : Fragment() {
         if (isLoading || hasFailed) {
             if (existing == null) {
                 view.findViewById<TextView>(R.id.btnHistoryClose).setOnClickListener { dialog.dismiss() }
+                dialog.setOnDismissListener { CallRecordingPlayer.stop() }
                 dialog.setContentView(view)
                 dialog.show()
             }
             return dialog to view
+        }
+
+        // Manual call recording (CC side). Label always reflects live state;
+        // the stop→upload→save flow reloads this dialog when done.
+        btnRecord.text = JourneyRecordingUi.recordLabel(item.id)
+        btnRecord.setOnClickListener {
+            val retry = {
+                if (isAdded) JourneyRecordingUi.onRecordClick(
+                    fragment = this@CallCenterFragment,
+                    scope = viewLifecycleOwner.lifecycleScope,
+                    button = btnRecord,
+                    consignmentId = item.id,
+                    branchId = item.branchIds.firstOrNull().orEmpty(),
+                    authorSystemId = myCcSystemId,
+                    source = "CC",
+                    requestPermission = {
+                        pendingRecordRetry = { btnRecord.performClick() }
+                        ccMicPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                    },
+                    onReload = { onRecordSaved?.invoke() }
+                )
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (myCcSystemId.isBlank()) {
+                    myCcSystemId = JourneyRecordingUi.resolveOwnSystemId().orEmpty()
+                }
+                retry()
+            }
+        }
+
+        // ＋Audio evidence: pick any audio file from the device → upload (10 MB)
+        // → journey entry with the same play/share/download row.
+        val btnAudio = view.findViewById<TextView>(R.id.btnHistoryAddAudio)
+        btnAudio.setOnClickListener {
+            pendingAudioButton = btnAudio
+            pendingAudioConsignment = item.id
+            pendingAudioBranch = item.branchIds.firstOrNull().orEmpty()
+            pendingAudioReload = onRecordSaved
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (myCcSystemId.isBlank()) {
+                    myCcSystemId = JourneyRecordingUi.resolveOwnSystemId().orEmpty()
+                }
+                ccAudioPickerLauncher.launch(JourneyRecordingUi.PICKER_MIME_TYPE)
+            }
         }
 
         val historyEntries = mutableListOf<HistoryEntry>()
@@ -1363,9 +1499,10 @@ class CallCenterFragment : Fragment() {
                 HistoryEntry(
                     action = "CREATED",
                     remark = "Parcel created",
-                    time = fullFmt.format(java.util.Date(item.createdAt)),
+                    time = JourneyLogUi.formatEpochFull(item.createdAt),
                     author = "System",
-                    authorRole = "system"
+                    authorRole = "system",
+                    createdAt = item.createdAt
                 )
             )
         }
@@ -1373,14 +1510,29 @@ class CallCenterFragment : Fragment() {
 
         // Annotate consecutive entries with worker↔CC handoff response times.
         val entriesWithGaps = WorkerParcelAdapter.withResponseGaps(historyEntries)
+        tvOvAvg.text = JourneyLogUi.avgResponseText(entriesWithGaps)
 
         if (entriesWithGaps.isEmpty()) {
             val emptyView = LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_timeline_empty, layoutTimeline, false)
             layoutTimeline.addView(emptyView)
         } else {
+            var lastDayKey = ""
             for ((index, entry) in entriesWithGaps.withIndex()) {
+                // Date divider — one per Dhaka day, never on the created date.
+                if (entry.createdAt > 0L) {
+                    val dayKey = DhakaTime.dayKey(entry.createdAt)
+                    if (dayKey != lastDayKey) {
+                        lastDayKey = dayKey
+                        if (!JourneyLogUi.isCreatedEntry(entry.action, entry.remark, entry.authorRole)) {
+                            layoutTimeline.addView(
+                                JourneyLogUi.makeDateDivider(requireContext(), entry.createdAt)
+                            )
+                        }
+                    }
+                }
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
+                JourneyLogUi.applyChatStyle(timelineView, entry.authorRole)
                 val statusCfg = WorkerParcelAdapter.getStatusConfig(
                     requireContext(),
                     entry.action,
@@ -1397,17 +1549,17 @@ class CallCenterFragment : Fragment() {
                 val tvCallLogs = timelineView.findViewById<TextView>(R.id.twTimelineCallLogs)
 
                 if (entry.authorPhotoUrl.isNotBlank()) {
-                    ivAvatar.load(entry.authorPhotoUrl) {
+                    ivAvatar?.load(entry.authorPhotoUrl) {
                         crossfade(true)
                         placeholder(R.drawable.bg_timeline_avatar_placeholder)
                         error(R.drawable.bg_timeline_avatar_placeholder)
                     }
                 } else {
-                    ivAvatar.setImageDrawable(null)
-                    ivAvatar.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
+                    ivAvatar?.setImageDrawable(null)
+                    ivAvatar?.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
                 }
 
-                tvLine.visibility = if (index < entriesWithGaps.size - 1) View.VISIBLE else View.GONE
+                tvLine?.visibility = if (index < entriesWithGaps.size - 1) View.VISIBLE else View.GONE
 
                 tvAuthor.text = entry.author
 
@@ -1424,7 +1576,7 @@ class CallCenterFragment : Fragment() {
 
                 val gapMin = entry.responseGapMinutes
                 if (gapMin != null) {
-                    tvGap.text = "⏱ ${gapMin}m response"
+                    tvGap.text = "⏱ ${JourneyLogUi.formatMinutes(gapMin)} response"
                     tvGap.visibility = View.VISIBLE
                 } else {
                     tvGap.visibility = View.GONE
@@ -1438,6 +1590,47 @@ class CallCenterFragment : Fragment() {
                     tvCallLogs.visibility = View.GONE
                 }
 
+                JourneyRecordingUi.bindRecordingActions(
+                    timelineView, entry, viewLifecycleOwner.lifecycleScope,
+                    canDelete = entry.authorSystemId.isNotBlank() &&
+                        entry.authorSystemId == myCcSystemId,
+                    onDeleted = { onRecordSaved?.invoke() }
+                )
+
+                // ✎ Edit — own CC remarks only, within 5 min of saving. The server
+                // re-checks all three (own row + CC-only + window), so a stale chip
+                // can never force a late edit through.
+                if (entry.authorRole == "cc" &&
+                    entry.validationId.isNotBlank() &&
+                    entry.authorSystemId.isNotBlank() &&
+                    entry.authorSystemId == myCcSystemId &&
+                    entry.createdAt > 0L &&
+                    (System.currentTimeMillis() - entry.createdAt) <= 5 * 60 * 1000L
+                ) {
+                    (tvMeta.parent as? android.view.ViewGroup)?.let { metaRow ->
+                        val editChip = TextView(requireContext()).apply {
+                            text = "✎ Edit"
+                            textSize = 10f
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            setTextColor(requireContext().getColor(R.color.theme_accent))
+                            setPadding(
+                                (8f * resources.displayMetrics.density).toInt(), 0,
+                                (4f * resources.displayMetrics.density).toInt(), 0
+                            )
+                            setOnClickListener {
+                                showEditCcRemarkDialog(
+                                    entry = entry,
+                                    parcelLabel = "${item.id} · ${item.customer}",
+                                    consignmentId = item.id,
+                                    branchId = item.branchIds.firstOrNull().orEmpty(),
+                                    onDone = { onRecordSaved?.invoke() }
+                                )
+                            }
+                        }
+                        metaRow.addView(editChip)
+                    }
+                }
+
                 layoutTimeline.addView(timelineView)
             }
         }
@@ -1446,10 +1639,202 @@ class CallCenterFragment : Fragment() {
             view.findViewById<TextView>(R.id.btnHistoryClose).setOnClickListener {
                 dialog.dismiss()
             }
+            dialog.setOnDismissListener { CallRecordingPlayer.stop() }
             dialog.setContentView(view)
             dialog.show()
         }
         return dialog to view
+    }
+
+    /**
+     * Edits one own CC remark from the journey log — same option picker as a fresh
+     * save (remarks change) + the note box (note update), pre-filled with what was
+     * saved. Single row only (no same-phone bulk). The server locks the row 5 min
+     * after saving; [onDone] reloads the journey so the timeline + chip update.
+     */
+    private fun showEditCcRemarkDialog(
+        entry: HistoryEntry,
+        parcelLabel: String,
+        consignmentId: String,
+        branchId: String,
+        onDone: () -> Unit
+    ) {
+        if (!isAdded) return
+        val options = ccRemarkOptions
+        val dialog = BottomSheetDialog(requireContext())
+        val view = layoutInflater.inflate(R.layout.bottom_sheet_remarks, null)
+
+        val tvTitle = view.findViewById<TextView>(R.id.tvRemarksTitle)
+        val etRemarks = view.findViewById<EditText>(R.id.etRemarksText)
+        val btnClearNote = view.findViewById<TextView>(R.id.btnRemarksClearNote)
+        val tvAutoStatus = view.findViewById<TextView>(R.id.tvRemarksAutoStatus)
+        val layoutOptions = view.findViewById<android.widget.LinearLayout>(R.id.layoutCcRemarkOptions)
+        val btnCancel = view.findViewById<TextView>(R.id.btnRemarksCancel)
+        val btnSave = view.findViewById<TextView>(R.id.btnRemarksSave)
+
+        tvTitle.text = "Edit remark · $parcelLabel"
+        btnSave.text = "Save edit"
+        etRemarks.setText(entry.noteRaw)
+        btnClearNote.visibility =
+            if (entry.noteRaw.isNotBlank()) android.view.View.VISIBLE else android.view.View.GONE
+
+        var selectedStatus = entry.remarksStatus
+        var selectedStoredRemarkText = entry.remarksEn
+        var selectedDisplayRemarkText = ""
+        var selectedBnText = ""
+        val optionViews = mutableListOf<android.view.View>()
+
+        fun highlight(selected: android.view.View?) {
+            optionViews.forEach { v ->
+                v.setBackgroundResource(R.drawable.bg_remark_opt_inactive)
+                v.findViewById<TextView>(R.id.twRemarkOptText)
+                    .setTextColor(requireContext().getColor(R.color.theme_text_remark_opt))
+                v.findViewById<android.view.View>(R.id.viewRemarkOptSelected).visibility = android.view.View.GONE
+            }
+            if (selected != null) {
+                selected.setBackgroundResource(R.drawable.bg_remark_opt_active)
+                selected.findViewById<TextView>(R.id.twRemarkOptText)
+                    .setTextColor(requireContext().getColor(R.color.theme_text_remark_opt_selected))
+                selected.findViewById<android.view.View>(R.id.viewRemarkOptSelected).visibility = android.view.View.VISIBLE
+            }
+        }
+
+        fun refreshSaveEnabled() {
+            val hasNote = etRemarks.text?.toString()?.trim().orEmpty().isNotBlank()
+            val enabled = selectedStatus.isNotBlank() || hasNote
+            btnSave.isEnabled = enabled
+            btnSave.alpha = if (enabled) 1f else 0.5f
+        }
+
+        etRemarks.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                refreshSaveEnabled()
+                btnClearNote.visibility =
+                    if (s?.toString()?.isNotBlank() == true) android.view.View.VISIBLE else android.view.View.GONE
+            }
+        })
+        btnClearNote.setOnClickListener { etRemarks.setText("") }
+
+        if (options.isEmpty()) {
+            val tv = TextView(requireContext())
+            tv.text = "⚠ No remark configured in Config.\nNote-only edit still works below."
+            tv.textSize = 13f
+            tv.setTextColor(android.graphics.Color.parseColor("#F59E0B"))
+            tv.setPadding(0, 24, 0, 24)
+            layoutOptions.addView(tv)
+        }
+        for (opt in options) {
+            val optView = layoutInflater.inflate(R.layout.item_worker_remark_option, layoutOptions, false)
+            val tvIcon = optView.findViewById<TextView>(R.id.twRemarkOptIcon)
+            val tvText = optView.findViewById<TextView>(R.id.twRemarkOptText)
+            val tvTag = optView.findViewById<TextView>(R.id.twRemarkOptAutoTag)
+            val dot = optView.findViewById<android.view.View>(R.id.viewRemarkOptSelected)
+
+            tvIcon.text = opt.icon
+            tvText.text = opt.label
+            tvTag.text = "→${opt.statusPreview.uppercase()}"
+            tvTag.visibility = android.view.View.VISIBLE
+
+            // Pre-select whatever was saved (match canonical English text first,
+            // fall back to the saved status key).
+            val isCurrent = (entry.remarksEn.isNotBlank() && opt.englishLabel == entry.remarksEn) ||
+                (entry.remarksEn.isBlank() && opt.statusKey == entry.remarksStatus)
+            if (isCurrent) {
+                selectedStatus = opt.statusKey
+                selectedStoredRemarkText = opt.englishLabel
+                selectedDisplayRemarkText = opt.label
+                // Catalog pairing only when display differs from English (same
+                // guard as the fresh-save flow) — never map English→English.
+                selectedBnText = opt.label.takeIf { it != opt.englishLabel }.orEmpty()
+                tvAutoStatus.text = opt.statusPreview
+                tvAutoStatus.setTextColor(opt.statusColor)
+                optView.setBackgroundResource(R.drawable.bg_remark_opt_active)
+                tvText.setTextColor(requireContext().getColor(R.color.theme_text_remark_opt_selected))
+                dot.visibility = android.view.View.VISIBLE
+            }
+
+            optView.setOnClickListener {
+                highlight(optView)
+                selectedStatus = opt.statusKey
+                selectedStoredRemarkText = opt.englishLabel
+                selectedDisplayRemarkText = opt.label
+                selectedBnText = opt.label.takeIf { it != opt.englishLabel }.orEmpty()
+                tvAutoStatus.text = opt.statusPreview
+                tvAutoStatus.setTextColor(opt.statusColor)
+                refreshSaveEnabled()
+            }
+
+            optionViews.add(optView)
+            layoutOptions.addView(optView)
+        }
+        refreshSaveEnabled()
+
+        btnCancel.setOnClickListener { dialog.dismiss() }
+        btnSave.setOnClickListener {
+            val noteText = etRemarks.text?.toString()?.trim().orEmpty()
+            if (selectedStatus.isBlank() && noteText.isBlank()) return@setOnClickListener
+            btnSave.isEnabled = false
+            btnSave.alpha = 0.5f
+            btnSave.text = "Saving…"
+            viewLifecycleOwner.lifecycleScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    SupabaseRemarkValidationWriter.editAwait(
+                        validationId = entry.validationId,
+                        status = selectedStatus,
+                        remarksText = selectedStoredRemarkText,
+                        noteText = noteText,
+                        remarksBnText = selectedBnText,
+                        screen = "CallCenterFragment"
+                    )
+                }
+                if (!isAdded) return@launch
+                when (result) {
+                    is SupabaseRemarkValidationWriter.EditResult.Ok -> {
+                        android.widget.Toast.makeText(requireContext(), "Remark updated", android.widget.Toast.LENGTH_SHORT).show()
+                        dialog.dismiss()
+                        // Fix 1 — re-mirror Feedback/Validation to the sheet (same as a
+                        // fresh save, best-effort) so the sheet never keeps the pre-edit text.
+                        val feedback = options.firstOrNull {
+                            it.statusKey == selectedStatus && it.englishLabel == selectedStoredRemarkText
+                        }?.category.orEmpty()
+                        val appCtx = requireContext().applicationContext
+                        val validatorName = runCatching { UserNameResolver.resolveOwnValidatorName() }.getOrNull().orEmpty()
+                        RemarkSheetMirror.mirror(appCtx, branchId, consignmentId, feedback, validatorName,
+                            onAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() })
+                        // Fix 3 — parent card badge refresh (same shape as the save flow).
+                        allParcels = allParcels.map {
+                            if (it.id == consignmentId) it.copy(
+                                remarkStatus = selectedStatus,
+                                remarks = selectedDisplayRemarkText.ifBlank { noteText }
+                            ) else it
+                        }
+                        setupFilterTabs()
+                        applyFilters()
+                        onDone()
+                    }
+                    is SupabaseRemarkValidationWriter.EditResult.Expired -> {
+                        android.widget.Toast.makeText(
+                            requireContext(),
+                            "5 min over — can't edit this remark anymore",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                        dialog.dismiss()
+                        onDone()
+                    }
+                    is SupabaseRemarkValidationWriter.EditResult.Err -> {
+                        android.widget.Toast.makeText(requireContext(), result.message, android.widget.Toast.LENGTH_LONG).show()
+                        btnSave.isEnabled = true
+                        btnSave.alpha = 1f
+                        btnSave.text = "Save edit"
+                    }
+                }
+            }
+        }
+
+        dialog.setContentView(view)
+        dialog.show()
     }
 
     private fun updateModeDropdownLabel() {
@@ -2480,7 +2865,23 @@ class CallCenterFragment : Fragment() {
         allParcels = allParcels.map { item ->
             if (item.id == consignmentId) item.copy(engagedAgents = agents) else item
         }
-        applyFilters()
+        scheduleCcEngagedRefresh()
+    }
+
+    /**
+     * Presence-only refresh, debounced: right after load, every parcel's engaged_at
+     * listener fires its initial value within ms of each other, and each one used to
+     * run the full re-filter/re-sort/rebuild/diff pass on its own — N expensive passes
+     * queued behind the first paint, delaying visible cards. Presence never changes
+     * filtering or order, so collapsing the burst into one pass is lossless.
+     */
+    private var ccEngagedRefreshJob: kotlinx.coroutines.Job? = null
+    private fun scheduleCcEngagedRefresh() {
+        ccEngagedRefreshJob?.cancel()
+        ccEngagedRefreshJob = viewLifecycleOwner.lifecycleScope.launch {
+            kotlinx.coroutines.delay(300)
+            if (isAdded) applyFilters()
+        }
     }
 
     private fun applyLocalCcEngagement(consignmentIds: Set<String>, agent: EngagedAgent) {
@@ -2490,7 +2891,7 @@ class CallCenterFragment : Fragment() {
                 engagedAgents = item.engagedAgents.filterNot { it.uid == agent.uid } + agent
             )
         }
-        applyFilters()
+        scheduleCcEngagedRefresh()
     }
 
     private fun removeLocalCcEngagement(consignmentIds: Set<String>, uid: String) {
@@ -2500,7 +2901,7 @@ class CallCenterFragment : Fragment() {
                 engagedAgents = item.engagedAgents.filterNot { it.uid == uid }
             )
         }
-        applyFilters()
+        scheduleCcEngagedRefresh()
     }
 
     /**
@@ -2763,6 +3164,8 @@ class CallCenterFragment : Fragment() {
                         val createdAtVal = snap.child("createdAt").getValue(Long::class.java) ?: 0L
                         val updatedAtVal = snap.child("updatedAt").getValue(Long::class.java) ?: 0L
                         val attemptVal = readCcAttempt(snap)
+                        val scheduledVal = ScheduledLock.normalize(
+                            snap.child(ScheduledLock.FIELD_DATE).getValue(String::class.java))
 
                         // Only today's rows are needed for the initial card. Full history is
                         // fetched lazily by showActionHistoryDialog().
@@ -2827,6 +3230,7 @@ class CallCenterFragment : Fragment() {
                                 attemptCount      = attemptVal,
                                 holdClass         = HoldClassCache.classOf(
                                     holdMap, latestTodayEntry?.optStr("remarks").orEmpty()),
+                                scheduledDate     = scheduledVal,
                             ),
                             remarkRows,
                             agentSystemId
@@ -2865,8 +3269,10 @@ class CallCenterFragment : Fragment() {
         // All detail fetches came back null (e.g. consignments deleted after
         // the run index listed them) — same meaning as the consignment gate.
         if (parcels.isEmpty()) tvEmpty.text = "📭\n\nNo consignments today"
-        applyFilters()
-        hideCcLoading()
+        // Lift the veil only once cards are actually laid out — hiding it here
+        // directly used to show an empty list for a beat while DiffUtil + first
+        // layout were still in flight ("loading done but nothing visible").
+        applyFilters { if (isAdded) hideCcLoading() }
         syncCcRemarkListeners(allParcels.map { it.id }.toSet())
         syncCcEngagedAtListeners(allParcels.map { it.id }.toSet())
         drainPendingRealtime()
@@ -3214,6 +3620,55 @@ class CallCenterFragment : Fragment() {
         else resolveRemarkBn(raw)
     }
 
+    /**
+     * 📅 Calendar picker for the promised delivery date. Today-or-later only
+     * (past dates can never lock). Returns yyyy-MM-dd in Dhaka.
+     */
+    private fun showScheduleDatePicker(current: String, onPicked: (String) -> Unit) {
+        if (!isAdded) return
+        val constraints = com.google.android.material.datepicker.CalendarConstraints.Builder()
+            .setValidator(com.google.android.material.datepicker.DateValidatorPointForward.now())
+            .build()
+        val sel = ScheduledLock.toMillis(current).takeIf { it > 0L }
+            ?: com.google.android.material.datepicker.MaterialDatePicker.todayInUtcMilliseconds()
+        val picker = com.google.android.material.datepicker.MaterialDatePicker.Builder.datePicker()
+            .setTitleText("Delivery date — customer will take it")
+            .setSelection(sel)
+            .setCalendarConstraints(constraints)
+            .build()
+        picker.addOnPositiveButtonClickListener { ms ->
+            onPicked(ScheduledLock.fromMillis(ms))
+        }
+        picker.show(parentFragmentManager, "schedule_date_picker")
+    }
+
+    /**
+     * Writes/clears the 📅 schedule on the Firebase consignment node.
+     * Blank [scheduledDate] clears all three keys. Fire-and-forget —
+     * the remark save it rides along with already succeeded.
+     */
+    private fun writeParcelSchedule(consignmentId: String, scheduledDate: String) {
+        try {
+            val ref = com.google.firebase.database.FirebaseDatabase.getInstance().reference
+                .child("courier/consignments/$consignmentId")
+            val clean = ScheduledLock.normalize(scheduledDate)
+            if (clean.isEmpty()) {
+                ref.child(ScheduledLock.FIELD_DATE).removeValue()
+                ref.child(ScheduledLock.FIELD_BY).removeValue()
+                ref.child(ScheduledLock.FIELD_AT).removeValue()
+            } else {
+                ref.child(ScheduledLock.FIELD_DATE).setValue(clean)
+                ref.child(ScheduledLock.FIELD_BY).setValue(myCcSystemId)
+                ref.child(ScheduledLock.FIELD_AT)
+                    .setValue(com.google.firebase.database.ServerValue.TIMESTAMP)
+            }
+        } catch (e: Exception) {
+            FirebaseErrorLogger.log("CallCenterFragment", "schedule_write_failed",
+                e.message ?: "Firebase schedule write threw",
+                mapOf("consignment" to consignmentId))
+        }
+    }
+
     private fun showRemarksDialog(item: CallCenterParcelItem) {
         val dialog = BottomSheetDialog(requireContext())
         val view   = layoutInflater.inflate(R.layout.bottom_sheet_remarks, null)
@@ -3316,6 +3771,75 @@ class CallCenterFragment : Fragment() {
             layoutOptions.addView(optView)
         }
 
+        // ── 📅 Scheduled delivery date ("20 tarikh e nibo") ──────────────
+        // Lives on the Firebase consignment node (scheduled_date/by/at), NOT in
+        // the remark rows — so no remark text is needed for the date itself.
+        // Saving from THIS popup always writes a CC remark too, which is what
+        // makes the lock meaningful (a lock without a same-day CC remark
+        // explaining the promise is just a stray date).
+        var pendingScheduled = ScheduledLock.normalize(item.scheduledDate)
+        var scheduleTouched = false
+        val density = resources.displayMetrics.density
+        val schedRow = android.widget.LinearLayout(requireContext()).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (14f * density).toInt() }
+        }
+        val btnPickDate = TextView(requireContext()).apply {
+            text = "📅 Scheduled"
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(requireContext().getColor(R.color.theme_text_primary))
+            setBackgroundResource(R.drawable.bg_dashed_button)
+            val p = (10f * density).toInt()
+            setPadding((14f * density).toInt(), p, (14f * density).toInt(), p)
+        }
+        val tvSchedDate = TextView(requireContext()).apply {
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(requireContext().getColor(R.color.theme_accent))
+            val p = (10f * density).toInt()
+            setPadding(p, p, (4f * density).toInt(), p)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val btnClearSched = TextView(requireContext()).apply {
+            text = "✕"
+            textSize = 14f
+            setTextColor(android.graphics.Color.parseColor("#64748b"))
+            val p = (10f * density).toInt()
+            setPadding(p, p, p, p)
+        }
+        fun refreshSchedRow() {
+            val label = ScheduledLock.fullLabel(pendingScheduled)
+            tvSchedDate.text = if (label.isBlank()) "No date" else "→ $label"
+            tvSchedDate.alpha = if (label.isBlank()) 0.5f else 1f
+            btnClearSched.visibility =
+                if (pendingScheduled.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
+        }
+        btnPickDate.setOnClickListener {
+            showScheduleDatePicker(pendingScheduled) { picked ->
+                pendingScheduled = picked
+                scheduleTouched = true
+                refreshSchedRow()
+            }
+        }
+        btnClearSched.setOnClickListener {
+            pendingScheduled = ""
+            scheduleTouched = true
+            refreshSchedRow()
+        }
+        schedRow.addView(btnPickDate)
+        schedRow.addView(tvSchedDate)
+        schedRow.addView(btnClearSched)
+        (layoutOptions.parent as? android.view.ViewGroup)?.let { parent ->
+            parent.addView(schedRow, parent.indexOfChild(layoutOptions) + 1)
+        }
+        refreshSchedRow()
+
         btnSave.setOnClickListener {
             val noteText = etRemarks.text?.toString()?.trim() ?: ""
             if (selectedStatus.isBlank() && noteText.isBlank()) return@setOnClickListener
@@ -3355,7 +3879,9 @@ class CallCenterFragment : Fragment() {
                             noteText = noteText,
                             selectedTemplateId = selectedTemplateId,
                             triggerItem = item,
-                            feedback = feedback
+                            feedback = feedback,
+                            scheduledTouched = scheduleTouched,
+                            scheduledDate = pendingScheduled
                         )
                     }
                     .setNegativeButton("No, only this one") { _, _ ->
@@ -3367,7 +3893,9 @@ class CallCenterFragment : Fragment() {
                             noteText = noteText,
                             selectedTemplateId = selectedTemplateId,
                             triggerItem = item,
-                            feedback = feedback
+                            feedback = feedback,
+                            scheduledTouched = scheduleTouched,
+                            scheduledDate = pendingScheduled
                         )
                     }
                     .show()
@@ -3383,7 +3911,9 @@ class CallCenterFragment : Fragment() {
                 noteText = noteText,
                 selectedTemplateId = selectedTemplateId,
                 triggerItem = item,
-                feedback = feedback
+                feedback = feedback,
+                scheduledTouched = scheduleTouched,
+                scheduledDate = pendingScheduled
             )
             dialog.dismiss()
         }
@@ -3447,7 +3977,9 @@ class CallCenterFragment : Fragment() {
         noteText: String,
         selectedTemplateId: String,
         triggerItem: CallCenterParcelItem,
-        feedback: String = ""
+        feedback: String = "",
+        scheduledTouched: Boolean = false,
+        scheduledDate: String = ""
     ) {
         if (selectedTemplateId.isNotBlank() && WhatsAppSender.isEnabled(requireContext())) {
             val template = whatsappTemplatesCache[selectedTemplateId]
@@ -3539,7 +4071,13 @@ class CallCenterFragment : Fragment() {
                 onSheetAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() }
             )
 
-            if (ok) EngagedStateManager.clearEngaged(target.id, userId) else failed++
+            if (ok) {
+                EngagedStateManager.clearEngaged(target.id, userId)
+                ActiveCallEngagement.stopIds(listOf(target.id))
+                // 📅 Schedule rides along with a successful remark save (same
+                // targets incl. same-phone bulk) — never without the remark.
+                if (scheduledTouched) writeParcelSchedule(target.id, scheduledDate)
+            } else failed++
         }
             if (!isAdded) return@launch
             val totalFailed = failed + notReady.size
@@ -3559,11 +4097,13 @@ class CallCenterFragment : Fragment() {
         // remark status and is NEVER written/changed from here — only the remark's own
         // "status" field above (already saved per-item as part of remarkData) represents this.
         val targetIds = items.map { it.id }.toSet()
+        val cleanScheduled = ScheduledLock.normalize(scheduledDate)
         allParcels = allParcels.map {
             if (it.id in targetIds) it.copy(
                 validationRequest = false,
                 remarkStatus = selectedStatus,
-                remarks = selectedRemarkText.ifBlank { noteText }
+                remarks = selectedRemarkText.ifBlank { noteText },
+                scheduledDate = if (scheduledTouched) cleanScheduled else it.scheduledDate
             ) else it
         }
         // Remark saved -> collapse the card it was set from. Deliberately separate from
@@ -4729,6 +5269,8 @@ class CallCenterFragment : Fragment() {
                             holdMap, latestToday?.optString("remarks").orEmpty()),
                         dataSource = "live",
                         sheetDateKey = cidDates[cId]?.firstOrNull().orEmpty(),
+                        scheduledDate = ScheduledLock.normalize(
+                            snap.child(ScheduledLock.FIELD_DATE).getValue(String::class.java)),
                     )
                 } catch (_: Exception) {
                     synchronized(missing) { if (cId !in missing) missing.add(cId) }
@@ -4799,7 +5341,7 @@ class CallCenterFragment : Fragment() {
         }
     }
 
-    private fun applyFilters() {
+    private fun applyFilters(onCommitted: (() -> Unit)? = null) {
         // Access mode / branch / agent — same scope the chips and stat summary use,
         // factored into scopedParcels() so the two can never drift apart.
         var filtered = scopedParcels()
@@ -4911,7 +5453,10 @@ class CallCenterFragment : Fragment() {
             .filterValues { group -> group.mapNotNull { it.workerSystemId.ifBlank { null } }.distinct().size > 1 }
             .keys
 
-        adapter.submitParcels(filtered)
+        // [onCommitted] fires after the diff lands + one layout pass, so a loading
+        // veil hidden there lifts onto visible cards instead of an empty list.
+        if (onCommitted == null) adapter.submitParcels(filtered)
+        else adapter.submitParcels(filtered) { rvParcelList.post { onCommitted() } }
 
         // Scroll to the expanded parcel (post so RecyclerView has measured the new items)
         if (targetId != null) {

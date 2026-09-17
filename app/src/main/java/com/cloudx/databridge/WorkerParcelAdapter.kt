@@ -1,6 +1,11 @@
 package com.cloudx.databridge
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.content.res.ColorStateList
+import android.widget.Toast
 import coil.load
 import android.graphics.drawable.GradientDrawable
 import android.view.LayoutInflater
@@ -48,9 +53,14 @@ data class WorkerParcelItem(
      *  validations.branch_id must match the CONSIGNMENT's branch for RLS (branch_id = any
      *  (my_branch_ids())) to let every agent who can see this branch read the remark back —
      *  using the signed-in agent's own branch instead breaks that for any multi-branch agent
-     *  whose current branch differs from this specific consignment's. */
-    val branchIds: List<String> = emptyList()
+     *  whose current branch differs from this specific consignment. */
+    val branchIds: List<String> = emptyList(),
+    /** Customer-promised date (courier/consignments/{id}/scheduled_date,
+     *  yyyy-MM-dd) — set by CC from the remarks popup. Blank = none. */
+    val scheduledDate: String = "",
 ) {
+    /** True while today's Dhaka date hasn't reached [scheduledDate] yet. */
+    val isScheduledLocked: Boolean get() = ScheduledLock.isLocked(scheduledDate)
     /** Same rule as CallCenterParcelItem.effectiveStatus (see
      *  StatusMetaCache.isRemarkIgnoredInActual). This is what the card's status
      *  chip shows and what filters/tabs match against. */
@@ -88,7 +98,22 @@ data class HistoryEntry(
      *  call_log) — today's total talk seconds for this number at save time.
      *  0/0 = no talk recorded (pre-feature row or unknown). */
     val callLogCount: Int = 0,
-    val callLogTotalDurationSec: Int = 0
+    val callLogTotalDurationSec: Int = 0,
+    /** Manual call recording (call_recordings.r2_key) merged into the timeline —
+     *  blank on plain remark entries. Played via presigned GET (see
+     *  CallRecordingPlayer); duration shown on the play chip. */
+    val recordingR2Key: String = "",
+    val recordingDurationSec: Int = 0,
+    /** call_recordings row id for timeline entries (blank on plain remarks) —
+     *  powers the journey 🗑 delete. */
+    val recordingId: String = "",
+    /** Journey-log edit support (CC only): the validations row id + raw saved
+     *  values. Blank validationId = not editable (system rows, recordings). */
+    val validationId: String = "",
+    val authorSystemId: String = "",
+    val remarksEn: String = "",
+    val noteRaw: String = "",
+    val remarksStatus: String = ""
 )
 
 class WorkerParcelAdapter(
@@ -152,6 +177,7 @@ class WorkerParcelAdapter(
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val tvCustomer: TextView = view.findViewById(R.id.tvParcelCustomer)
+        val tvCopy: TextView = view.findViewById(R.id.tvParcelCopy)
         val dragHandle: TextView = view.findViewById(R.id.tvDragHandle)
 
         val tvMeta: TextView = view.findViewById(R.id.tvParcelMeta)
@@ -159,6 +185,8 @@ class WorkerParcelAdapter(
         val tvCod: TextView = view.findViewById(R.id.tvParcelCod)
         val tvAge: TextView = view.findViewById(R.id.tvParcelAge)
         val tvStatusBadge: TextView = view.findViewById(R.id.tvParcelStatusBadge)
+        val tvScheduledLock: TextView = view.findViewById(R.id.tvParcelScheduledLock)
+        val tvCalling: TextView = view.findViewById(R.id.tvParcelCalling)
         val remarksBox: View = view.findViewById(R.id.layoutParcelRemarksBox)
         val tvRemarks: TextView = view.findViewById(R.id.tvParcelRemarks)
         val tvRemarksTime: TextView = view.findViewById(R.id.tvParcelRemarksTime)
@@ -187,6 +215,11 @@ class WorkerParcelAdapter(
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_parcel_card, parent, false)
         return Holder(view)
+    }
+
+    override fun onViewRecycled(holder: Holder) {
+        super.onViewRecycled(holder)
+        CallingDots.stop(holder.tvCalling)
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
@@ -246,7 +279,31 @@ class WorkerParcelAdapter(
         holder.tvStatusBadge.setTextColor(cfg.color)
         holder.tvStatusBadge.setBackgroundColor(cfg.bg)
 
+        // 📅 Scheduled lock (set by CC) — delivery waits until that date.
+        // Tap opens the journey log, where the overview shows the exact date.
+        if (item.isScheduledLocked) {
+            holder.tvScheduledLock.text = ScheduledLock.shortLabel(item.scheduledDate)
+            holder.tvScheduledLock.visibility = View.VISIBLE
+            holder.tvScheduledLock.setOnClickListener { onLongPress(item) }
+        } else {
+            holder.tvScheduledLock.visibility = View.GONE
+            holder.tvScheduledLock.setOnClickListener(null)
+        }
 
+
+
+        // 📞 Calling — animated dots so it's visibly LIVE (recycle-safe loop,
+        // also stopped in onViewRecycled). Auto-hides on call end / remark
+        // save / timeout / staleness.
+        val callers = EngagedStateManager.callingAgents(item.engagedAgents)
+        if (callers.isNotEmpty()) {
+            val base = if (callers.size > 1) "📞 Calling ×${callers.size}" else "📞 Calling"
+            holder.tvCalling.visibility = View.VISIBLE
+            CallingDots.start(holder.tvCalling, base)
+        } else {
+            CallingDots.stop(holder.tvCalling)
+            holder.tvCalling.visibility = View.GONE
+        }
 
         // Agent remarks — badge above shows the effective status; this line shows the
         // actual remark text/note written by whoever left it, so the agent can read exactly
@@ -414,6 +471,20 @@ class WorkerParcelAdapter(
 
         holder.btnCall.setOnClickListener { onCall(item) }
         holder.btnSetRemarks.setOnClickListener { onSetRemarks(item) }
+
+        // 📋 Copy parcel details — tap copies (paste to anyone), long-press shares.
+        val shareText = buildParcelShareText(
+            customer = item.customer,
+            id = item.id,
+            phone = item.phone,
+            address = item.address,
+            cod = item.cod,
+            statusLabel = cfg.label,
+            remarks = item.remarks,
+            extraLine = item.time.takeIf { it.isNotBlank() }?.let { "Hub: $it" }.orEmpty(),
+        )
+        holder.tvCopy.setOnClickListener { copyParcelText(ctx, shareText) }
+        holder.tvCopy.setOnLongClickListener { shareParcelText(ctx, shareText); true }
     }
 
     companion object {
@@ -559,31 +630,37 @@ class WorkerParcelAdapter(
         /**
          * Annotates each entry in [entries] (already sorted oldest→newest) with
          * [HistoryEntry.responseGapMinutes] — the minutes elapsed since the LAST entry of
-         * the previous different-author block.
+         * the previous different-author block **on the same Dhaka day**.
          *
-         * Example: Worker writes at 10:10 and 10:11 (same author, no gap shown), then CC
-         * writes at 10:15 → gap = 10:15 − 10:11 = 4 minutes (last-of-previous-block, not
-         * first-of-previous-block). CC's own follow-up at 10:20 carries no gap since it's
-         * the same author as the entry right before it.
+         * Rules:
+         *  - Only agent↔CC handoffs count (same-role follow-ups carry no gap).
+         *  - Only same-day pairs count — yesterday's last remark vs today's first
+         *    remark never produces a gap (no overnight 14h noise).
+         *  - "system" entries (CREATED / ASSIGNED synthetics) never start or end a
+         *    block — they're skipped so a worker's first remark isn't measured
+         *    against parcel creation. They also never receive a gap themselves.
          *
-         * "system" entries (CREATED / ASSIGNED synthetic rows) never start or end a
-         * response-time block — they're skipped when tracking the "last real block" so a
-         * worker's very first remark isn't measured against parcel creation, which isn't a
-         * real handoff. They also never receive a gap themselves.
+         * Example: Worker 10:10 + 10:11, CC 10:15 (same day) → gap = 4 min on the
+         * CC entry. CC 09:00 next day vs worker 18:00 previous day → no gap.
          */
         fun withResponseGaps(entries: List<HistoryEntry>): List<HistoryEntry> {
             var lastBlockRole: String? = null
             var lastBlockEntryAt: Long = 0L
+            var lastBlockDay: String? = null
             return entries.map { entry ->
                 if (entry.authorRole == "system" || entry.createdAt <= 0L) {
                     return@map entry
                 }
-                val gap = if (lastBlockRole != null && entry.authorRole != lastBlockRole && lastBlockEntryAt > 0L) {
+                val dayKey = DhakaTime.dayKey(entry.createdAt)
+                val gap = if (lastBlockRole != null && entry.authorRole != lastBlockRole &&
+                    lastBlockEntryAt > 0L && lastBlockDay == dayKey
+                ) {
                     val diffMs = (entry.createdAt - lastBlockEntryAt).coerceAtLeast(0L)
                     diffMs / (60 * 1000)
                 } else null
                 lastBlockRole = entry.authorRole
                 lastBlockEntryAt = entry.createdAt
+                lastBlockDay = dayKey
                 if (gap != null) entry.copy(responseGapMinutes = gap) else entry
             }
         }
@@ -636,6 +713,51 @@ class WorkerParcelAdapter(
             val neutral   = android.graphics.Color.parseColor("#6B7280")
             val neutralBg = android.graphics.Color.parseColor("#F3F4F6")
             return StatusConfig(neutral, neutralBg, status.trim())
+        }
+
+        /**
+         * Parcel-card share helpers (used by the worker card here and the CC card in
+         * CallCenterAdapter). Tap 📋 = copy to clipboard (paste to anyone);
+         * long-press 📋 = system share sheet.
+         */
+        fun buildParcelShareText(
+            customer: String,
+            id: String,
+            phone: String,
+            address: String,
+            cod: Int,
+            statusLabel: String,
+            remarks: String,
+            extraLine: String = "",
+        ): String = buildString {
+            append(customer.ifBlank { "(no name)" })
+            append("\n$id · $phone")
+            if (address.isNotBlank()) append("\n📍 $address")
+            append("\nCOD: ৳$cod · Status: ${statusLabel.ifBlank { "(—)" }}")
+            if (remarks.isNotBlank()) append("\n💬 $remarks")
+            if (extraLine.isNotBlank()) append("\n$extraLine")
+        }
+
+        fun copyParcelText(context: Context, text: String) {
+            runCatching {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("Parcel details", text))
+                Toast.makeText(context, "📋 Copied — paste anywhere", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        fun shareParcelText(context: Context, text: String) {
+            runCatching {
+                context.startActivity(
+                    Intent.createChooser(
+                        Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, text)
+                        },
+                        "Share parcel details"
+                    )
+                )
+            }
         }
     }
 

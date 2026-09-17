@@ -317,6 +317,10 @@ class HistoryFragment : Fragment() {
 
     private fun dialNumber(number: String, record: CallRecord) {
         AutoDialHelper.dial(this, number) // ✅ auto-dial / dialpad / SIM chooser
+        try {
+            ActiveCallEngagement.startForPhone(requireContext().applicationContext, number, false)
+        } catch (_: Exception) {
+        }
         saveAction(record, "dial", "")
         // So the agent lands back in CC with this number already searched once the
         // phone call ends and they return to DataBridge -- same flow as the incoming-call

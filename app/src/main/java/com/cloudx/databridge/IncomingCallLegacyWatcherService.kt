@@ -46,6 +46,12 @@ class IncomingCallLegacyWatcherService : Service() {
                     if (!number.isNullOrBlank()) {
                         serviceScope.launch {
                             val result = IncomingCallerLookup.lookup(number)
+                            try {
+                                ActiveCallEngagement.startIncoming(
+                                    applicationContext, number, result?.primary?.consignmentId.orEmpty()
+                                )
+                            } catch (_: Exception) {
+                            }
                             IncomingCallOverlay.show(applicationContext, number, result?.primary, result?.otherCount ?: 0)
                         }
                     }

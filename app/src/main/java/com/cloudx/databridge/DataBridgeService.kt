@@ -588,6 +588,10 @@ class DataBridgeService : Service() {
 
     // ─── 🔹 Hybrid Dialer Logic (Preserved) ───
     private fun triggerAutoDial(number: String) {
+        try {
+            ActiveCallEngagement.startForPhone(applicationContext, number, false)
+        } catch (_: Exception) {
+        }
         openCallCenterSearch(number)
         val hasCallPerm = ContextCompat.checkSelfPermission(
             applicationContext,

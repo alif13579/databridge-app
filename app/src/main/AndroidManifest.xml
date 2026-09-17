@@ -29,6 +29,15 @@
     <!-- Auto Call no-answer detection: reads CallLog.Calls.DURATION after a call ends to
          tell an unanswered call (duration 0) apart from one that connected. -->
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <!-- Manual call recording (parcel journey): MIC source + foreground service
+         so recording survives the dialer taking foreground. NOTE: Android 10+
+         blocks true two-sided capture for non-system apps — the other side is
+         only audible on speakerphone. Requested in the onboarding chain
+         (MainActivity) but optional: declining only disables recording. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"
+        android:minSdkVersion="30" />
     <uses-feature
         android:name="android.hardware.telephony"
         android:required="false" />
@@ -112,6 +121,16 @@
             android:exported="false"
             android:foregroundServiceType="dataSync"
             tools:targetApi="29" />
+
+        <!-- Call recorder: keeps MIC recording alive while the dialer is
+              foreground (manual save only). foregroundServiceType="microphone"
+              is API 30+; older devices ignore it at parse time. -->
+        <service
+            android:name=".CallRecordService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone"
+            tools:targetApi="30" />
 
         <!-- Receives high-priority FCM data messages even while no screen is open. -->
         <service

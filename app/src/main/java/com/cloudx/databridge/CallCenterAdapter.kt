@@ -22,7 +22,6 @@ class CallCenterAdapter(
     private val onCall: (CallCenterParcelItem) -> Unit,
     private val onSetRemarks: (CallCenterParcelItem) -> Unit,
     private val onWhatsappToAgent: (CallCenterParcelItem) -> Unit,
-    private val onSendToDesktop: (CallCenterParcelItem) -> Unit,
     private val onLongPress: (CallCenterParcelItem) -> Unit,
     private val onGroupClick: ((WorkerGroup) -> Unit)? = null,
     /** Fired when a card transitions collapsed -> expanded — see WorkerParcelAdapter's
@@ -60,6 +59,11 @@ class CallCenterAdapter(
         expandedItemId = null
     }
 
+    override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
+        super.onViewRecycled(holder)
+        if (holder is CardHolder) holder.stopCallingLoop()
+    }
+
     // Worker group headers
     data class WorkerGroup(
         val workerName: String,
@@ -91,7 +95,6 @@ class CallCenterAdapter(
         }
     }
 
-    /** Call this with the flat parcel list; builds header+card rows and diffs against the current list. */
     /** Lightweight, targeted refresh for a single card — rebinds just that one row via
      *  notifyItemChanged, without going through the fragment's full re-filter/re-sort/
      *  re-scope pass (applyFilters()). Use for updates that don't change which items are
@@ -103,7 +106,13 @@ class CallCenterAdapter(
         if (position >= 0) notifyItemChanged(position)
     }
 
-    fun submitParcels(items: List<CallCenterParcelItem>) {
+    /** Call this with the flat parcel list; builds header+card rows and diffs against the current list.
+     *  [onCommitted] runs on the main thread after the diff is applied — chain
+     *  `rv.post { ... }` inside it to also wait out the first layout pass before
+     *  hiding a loading veil, so cards are actually visible when it lifts. */
+    fun submitParcels(items: List<CallCenterParcelItem>, onCommitted: (() -> Unit)? = null) {
+        // NOTE: submitParcels() rebuilds rows from [items] — callers must pass the
+        // fragment's full parcel list, not currentList rows (see toggleExpanded).
         val map = linkedMapOf<String, MutableList<CallCenterParcelItem>>()
         items.forEach { parcel ->
             map.getOrPut(parcel.worker) { mutableListOf() }.add(parcel)
@@ -147,7 +156,7 @@ class CallCenterAdapter(
                 }
             }
         }
-        submitList(numbered)
+        if (onCommitted == null) submitList(numbered) else submitList(numbered) { onCommitted() }
     }
 
     /** Returns the parcel at [position] if that row is a card row, else null (e.g. a header row). */
@@ -208,7 +217,6 @@ class CallCenterAdapter(
                 onCall = onCall,
                 onSetRemarks = onSetRemarks,
                 onWhatsappToAgent = onWhatsappToAgent,
-                onSendToDesktop = onSendToDesktop,
                 onLongPress = onLongPress
             )
         }
@@ -280,6 +288,7 @@ class CallCenterAdapter(
     class CardHolder(view: View) : RecyclerView.ViewHolder(view) {
         private val viewSourceDot: View = view.findViewById(R.id.viewSourceDot)
         private val tvCustomer: TextView = view.findViewById(R.id.tvAgtCustomer)
+        private val tvCopy: TextView = view.findViewById(R.id.tvAgtCopy)
 
         private val tvMeta: TextView = view.findViewById(R.id.tvAgtMeta)
         private val tvPhoneCount: TextView = view.findViewById(R.id.tvAgtPhoneCount)
@@ -288,6 +297,11 @@ class CallCenterAdapter(
         private val tvAge: TextView = view.findViewById(R.id.tvAgtAge)
         private val tvSplitWarning: TextView = view.findViewById(R.id.tvAgtSplitWarning)
         private val tvStatusBadge: TextView = view.findViewById(R.id.tvAgtStatusBadge)
+        private val tvScheduledLock: TextView = view.findViewById(R.id.tvAgtScheduledLock)
+        private val tvCalling: TextView = view.findViewById(R.id.tvAgtCalling)
+
+        /** Stops the 📞 dots loop when this card is recycled (bind restarts it). */
+        fun stopCallingLoop() = CallingDots.stop(tvCalling)
         private val remarksBox: View = view.findViewById(R.id.layoutAgtRemarksBox)
         private val tvRemarks: TextView = view.findViewById(R.id.tvAgtRemarks)
         private val tvRemarksTime: TextView = view.findViewById(R.id.tvAgtRemarksTime)
@@ -302,7 +316,6 @@ class CallCenterAdapter(
         private val btnCall: TextView = view.findViewById(R.id.btnAgtCall)
         private val btnSetRemarks: TextView = view.findViewById(R.id.btnAgtSetRemarks)
         private val btnWhatsapp: TextView = view.findViewById(R.id.btnAgtWhatsapp)
-        private val btnSendToDesktop: TextView = view.findViewById(R.id.btnAgtSendToDesktop)
         private val tvCallCount: TextView = view.findViewById(R.id.tvAgtCallCount)
 
         fun bind(
@@ -318,7 +331,6 @@ class CallCenterAdapter(
             onCall: (CallCenterParcelItem) -> Unit,
             onSetRemarks: (CallCenterParcelItem) -> Unit,
             onWhatsappToAgent: (CallCenterParcelItem) -> Unit,
-            onSendToDesktop: (CallCenterParcelItem) -> Unit,
             onLongPress: (CallCenterParcelItem) -> Unit
         ) {
             // Data-source dot: green = Live CC sheet, red = Request (runs).
@@ -373,6 +385,18 @@ class CallCenterAdapter(
             tvStatusBadge.setTextColor(cfg.color)
             tvStatusBadge.setBackgroundColor(cfg.bg)
 
+            // 📅 Scheduled lock — promised date not yet reached (locked through
+            // the day before). Auto-hides on/after the date; no cleanup needed.
+            // Tap opens the journey log, where the overview shows the exact date.
+            if (item.isScheduledLocked) {
+                tvScheduledLock.text = ScheduledLock.shortLabel(item.scheduledDate)
+                tvScheduledLock.visibility = View.VISIBLE
+                tvScheduledLock.setOnClickListener { onLongPress(item) }
+            } else {
+                tvScheduledLock.visibility = View.GONE
+                tvScheduledLock.setOnClickListener(null)
+            }
+
             // Remark's own status color (if the remark has a specific status recorded).
             // Computed here — before the card border/glow block below and the remark
             // tint further down — since both of those need it.
@@ -420,6 +444,20 @@ class CallCenterAdapter(
                 remarksBox.visibility = View.GONE
             }
 
+            // 📞 Calling — animated dots (typing-style) so it's visibly LIVE, not
+            // a stale label. Auto-hides on call end / remark save / timeout /
+            // staleness — no manual clear needed. Loop is recycle-safe (see
+            // CallingDots) + stopped in onViewRecycled below.
+            val callers = EngagedStateManager.callingAgents(item.engagedAgents)
+            if (callers.isNotEmpty()) {
+                val base = if (callers.size > 1) "📞 Calling ×${callers.size}" else "📞 Calling"
+                tvCalling.visibility = View.VISIBLE
+                CallingDots.start(tvCalling, base)
+            } else {
+                CallingDots.stop(tvCalling)
+                tvCalling.visibility = View.GONE
+            }
+
             // Engaged ring (ambient "someone's on this" glow) + avatars (exactly who) — both
             // shown together, not one replacing the other. Same freshness check drives both.
             val freshAgents = item.engagedAgents.filter { EngagedStateManager.isFresh(it.timestamp) }
@@ -460,7 +498,21 @@ class CallCenterAdapter(
             btnCall.setOnClickListener { onCall(item) }
             btnSetRemarks.setOnClickListener { onSetRemarks(item) }
             btnWhatsapp.setOnClickListener { onWhatsappToAgent(item) }
-            btnSendToDesktop.setOnClickListener { onSendToDesktop(item) }
+
+            // 📋 Copy parcel details — tap copies (paste to anyone), long-press shares.
+            val ctx = itemView.context
+            val shareText = WorkerParcelAdapter.buildParcelShareText(
+                customer = item.customer,
+                id = item.id,
+                phone = item.phone,
+                address = item.address,
+                cod = item.cod,
+                statusLabel = cfg.label,
+                remarks = item.remarks,
+                extraLine = "Agent: ${item.worker} · ${item.branch}",
+            )
+            tvCopy.setOnClickListener { WorkerParcelAdapter.copyParcelText(ctx, shareText) }
+            tvCopy.setOnLongClickListener { WorkerParcelAdapter.shareParcelText(ctx, shareText); true }
         }
 
         private fun showPhoneMatesDialog(

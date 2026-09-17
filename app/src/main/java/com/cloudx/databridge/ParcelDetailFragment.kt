@@ -120,6 +120,8 @@ class ParcelDetailFragment : Fragment() {
     // courier/remarks_by_consignment ValueEventListener.
     private var timelineRealtimeJob: kotlinx.coroutines.Job? = null
     private var timelineRows: MutableList<org.json.JSONObject> = mutableListOf()
+    /** Manual call recordings for this parcel (own table — merged into the timeline). */
+    private var recordingRows: List<org.json.JSONObject> = emptyList()
 
     // Cache: uid → display name (resolved lazily from Firebase via UserNameResolver)
     private val uidNameCache = mutableMapOf<String, String>()
@@ -167,6 +169,13 @@ class ParcelDetailFragment : Fragment() {
                     CallAttemptStore.KIND_MANUAL,
                     if (scope == "worker") CallAttemptStore.ROLE_WORKER else CallAttemptStore.ROLE_CC
                 )
+                // Live presence so others see this parcel as on-call.
+                try {
+                    ActiveCallEngagement.startOutgoing(
+                        requireContext().applicationContext, currentPhone, listOf(parcelId)
+                    )
+                } catch (_: Exception) {
+                }
             }
         }
         view.findViewById<View>(R.id.btnPdSetRemarks).setOnClickListener {
@@ -228,6 +237,7 @@ class ParcelDetailFragment : Fragment() {
 
     override fun onDestroyView() {
         timelineRealtimeJob?.cancel()
+        CallRecordingPlayer.stop()
         super.onDestroyView()
     }
 
@@ -419,6 +429,7 @@ class ParcelDetailFragment : Fragment() {
                     // (courier/remarks_by_userId + users_by_consignment) is
                     // retired — no Firebase remark writes from any save path.
                     EngagedStateManager.clearEngaged(parcelId, userId)
+                    ActiveCallEngagement.stopIds(listOf(parcelId))
 
                     Toast.makeText(requireContext(), "✅ Remark saved", Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
@@ -489,9 +500,8 @@ class ParcelDetailFragment : Fragment() {
                         // Overview card — same fields shown in the long-press Journey Log dialog.
                         tvOverviewStatus.text = cfg.label
                         tvOverviewStatus.setTextColor(cfg.color)
-                        val fullFmt = SimpleDateFormat("dd-MM-yy hh:mm:ss a", Locale.getDefault())
-                        tvOverviewCreatedAt.text = if (createdAt > 0) fullFmt.format(Date(createdAt)) else "—"
-                        tvOverviewUpdatedAt.text = if (updatedAt > 0) fullFmt.format(Date(updatedAt)) else "—"
+                        tvOverviewCreatedAt.text = JourneyLogUi.formatEpochFull(createdAt)
+                        tvOverviewUpdatedAt.text = JourneyLogUi.formatEpochFull(updatedAt)
                         tvOverviewAge.text = formatAge(createdAt, updatedAt)
                         tvOverviewAge.setTextColor(ageColor)
 
@@ -546,6 +556,9 @@ class ParcelDetailFragment : Fragment() {
             }
             if (!isAdded || view == null) return@launch
             timelineRows = rows.toMutableList()
+            recordingRows = withContext(Dispatchers.IO) {
+                SupabaseCallRecordings.fetchForConsignment(parcelId, "ParcelDetailFragment")
+            }
             try {
                 renderTimeline()
             } catch (e: Exception) {
@@ -654,10 +667,11 @@ class ParcelDetailFragment : Fragment() {
             val photoUrl: String,
             val createdAt:Long,
             val callLogCount: Int = 0,
-            val callLogTotalDurationSec: Int = 0
+            val callLogTotalDurationSec: Int = 0,
+            val recordingR2Key: String = "",
+            val recordingDurationSec: Int = 0
         )
 
-        val sdf = SimpleDateFormat("dd-MM-yy  hh:mm a", Locale.getDefault())
         val lang = detailStatusLang
 
         // Resolve display names + photos for any author system IDs we see — same shared
@@ -690,15 +704,16 @@ class ParcelDetailFragment : Fragment() {
             }
         }
 
-        val entries = timelineRows
+        val remarkEntries = timelineRows
             .mapNotNull { r ->
                 val rStatus = r.optStr("remarks_status").trim()
                 val rRemarksRaw = r.optStr("remarks").trim()
                 val rRemarks = if (r.has("remarks_bn")) r.optStr("remarks_bn").trim().ifBlank { rRemarksRaw } else rRemarksRaw
                 val rNoteOnly = r.optStr("note").trim()
                 if (rStatus.isBlank() && rRemarks.isBlank()) return@mapNotNull null
-                val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optStr("created_at"))
-                val timeStr = if (createdAt > 0) sdf.format(Date(createdAt)) else "—"
+                val rawCreatedAt = r.optStr("created_at")
+                val createdAt = SupabaseRemarkValidationWriter.parseCreatedAtMillis(rawCreatedAt)
+                val timeStr = JourneyLogUi.formatValidationTime(rawCreatedAt, createdAt)
                 val fromWorker = r.optStr("source").trim().equals("WORKER", ignoreCase = true)
                 val authorSystemId = r.optStr("author_system_id").trim()
                 val photoUrl = uidPhotoCache[authorSystemId].orEmpty()
@@ -731,6 +746,34 @@ class ParcelDetailFragment : Fragment() {
             }
             .sortedBy { it.createdAt }   // oldest first → timeline reads top-to-bottom
 
+        // Manual call recordings merged in as their own playable entries.
+        val recEntries = SupabaseCallRecordings.toRecordings(
+            recordingRows,
+            { sysId -> uidNameCache[sysId].orEmpty() },
+            { sysId -> uidPhotoCache[sysId].orEmpty() }
+        ).map { rec ->
+            val fromWorker = rec.source.equals("WORKER", ignoreCase = true)
+            val role = if (fromWorker) "agent" else "cc"
+            val isCurrentUser = scope == "worker" && rec.authorSystemId.isNotBlank() &&
+                rec.authorSystemId == ownWorkerSystemId
+            val author = when {
+                isCurrentUser -> "You"
+                rec.authorName.isNotBlank() && rec.authorName != rec.authorSystemId -> rec.authorName
+                fromWorker -> "Delivery Agent"
+                else -> "CC Agent"
+            }
+            Entry(
+                status = "CALL RECORDING",
+                remark = if (rec.note.isNotBlank()) "🎙 Call recording\nNote: ${rec.note}" else "🎙 Call recording",
+                timeStr = JourneyLogUi.formatEpochFull(rec.createdAt),
+                author = author, role = role, photoUrl = rec.authorPhotoUrl,
+                createdAt = rec.createdAt,
+                recordingR2Key = rec.r2Key, recordingDurationSec = rec.durationSec
+            )
+        }
+        // Oldest first → timeline reads top-to-bottom; recordings merged in below.
+        val entries = (remarkEntries + recEntries).sortedBy { it.createdAt }
+
         // Always lead with the parcel's actual creation — matches the long-press
         // Journey Log dialog, which never shows an empty timeline for a parcel
         // that has no remarks yet (it still has a "CREATED" starting point).
@@ -739,7 +782,7 @@ class ParcelDetailFragment : Fragment() {
                 Entry(
                     status = "",
                     remark = "Parcel created",
-                    timeStr = sdf.format(Date(currentCreatedAt)),
+                    timeStr = JourneyLogUi.formatEpochFull(currentCreatedAt),
                     author = "System",
                     role = "system",
                     photoUrl = "",
@@ -783,24 +826,38 @@ class ParcelDetailFragment : Fragment() {
             tvRemarksCount.text = "${entries.size} ${if (entries.size == 1) "entry" else "entries"}"
 
             val inflater = LayoutInflater.from(ctx)
+            var lastDayKey = ""
             allEntries.forEachIndexed { index, entry ->
+                // Date divider — one per Dhaka day, never on the created date.
+                if (entry.createdAt > 0L) {
+                    val dayKey = DhakaTime.dayKey(entry.createdAt)
+                    if (dayKey != lastDayKey) {
+                        lastDayKey = dayKey
+                        if (!JourneyLogUi.isCreatedEntry(entry.status, entry.remark, entry.role)) {
+                            layoutTimeline.addView(
+                                JourneyLogUi.makeDateDivider(ctx, entry.createdAt)
+                            )
+                        }
+                    }
+                }
                 val row = inflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
+                JourneyLogUi.applyChatStyle(row, entry.role)
 
                 // Avatar
                 val ivAvatar = row.findViewById<ShapeableImageView>(R.id.ivTimelineAvatar)
                 if (entry.photoUrl.isNotBlank()) {
-                    ivAvatar.load(entry.photoUrl) {
+                    ivAvatar?.load(entry.photoUrl) {
                         crossfade(true)
                         placeholder(R.drawable.bg_timeline_avatar_placeholder)
                         error(R.drawable.bg_timeline_avatar_placeholder)
                     }
                 } else {
-                    ivAvatar.setImageDrawable(null)
-                    ivAvatar.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
+                    ivAvatar?.setImageDrawable(null)
+                    ivAvatar?.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
                 }
 
                 // Connector line (hide on last entry)
-                row.findViewById<View>(R.id.viewTimelineLine).visibility =
+                row.findViewById<View>(R.id.viewTimelineLine)?.visibility =
                     if (index < allEntries.size - 1) View.VISIBLE else View.GONE
 
                 // Author name
@@ -838,7 +895,7 @@ class ParcelDetailFragment : Fragment() {
                 val tvGap = row.findViewById<TextView>(R.id.twTimelineGap)
                 val gapMin = gapByIndex[index]
                 if (gapMin != null) {
-                    tvGap.text = "⏱ ${gapMin}m response"
+                    tvGap.text = "⏱ ${JourneyLogUi.formatMinutes(gapMin)} response"
                     tvGap.visibility = View.VISIBLE
                 } else {
                     tvGap.visibility = View.GONE
@@ -853,6 +910,19 @@ class ParcelDetailFragment : Fragment() {
                 } else {
                     tvCallLogs.visibility = View.GONE
                 }
+
+                // Manual call recording actions (play / save / share).
+                JourneyRecordingUi.bindRecordingActions(
+                    row,
+                    HistoryEntry(
+                        action = entry.status, remark = entry.remark, time = entry.timeStr,
+                        author = entry.author, authorRole = entry.role,
+                        createdAt = entry.createdAt,
+                        recordingR2Key = entry.recordingR2Key,
+                        recordingDurationSec = entry.recordingDurationSec
+                    ),
+                    viewLifecycleOwner.lifecycleScope
+                )
 
                 layoutTimeline.addView(row)
             }

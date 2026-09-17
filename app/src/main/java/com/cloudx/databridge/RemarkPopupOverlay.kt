@@ -61,6 +61,10 @@ object RemarkPopupOverlay {
      *  call state (see startCallBadgeTracking), not this flag. */
     fun show(context: Context, match: CallerMatch, isAutoDialing: Boolean) {
         val appContext = context.applicationContext
+        try {
+            ActiveCallEngagement.startIncoming(appContext, match.phone, match.consignmentId)
+        } catch (_: Exception) {
+        }
         if (!android.provider.Settings.canDrawOverlays(appContext)) return
         mainHandler.post { showInternal(appContext, match, isAutoDialing) }
     }
@@ -172,6 +176,10 @@ object RemarkPopupOverlay {
         // dial format instead of dialing the raw string as-is.
         val normalized = AutoDialHelper.normalizeBdPhone(phone)
         if (normalized.isBlank()) return
+        try {
+            ActiveCallEngagement.startForPhone(context.applicationContext, normalized, false)
+        } catch (_: Exception) {
+        }
         val hasCallPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) ==
             PackageManager.PERMISSION_GRANTED
         try {
@@ -376,6 +384,10 @@ object RemarkPopupOverlay {
                 if (ok) {
                     llRemarkSection.isVisible = false
                     tvConfirmation.isVisible = true
+                    try {
+                        ActiveCallEngagement.stopIds(listOf(match.consignmentId))
+                    } catch (_: Exception) {
+                    }
                     mainHandler.postDelayed({ dismissInternal() }, 2000)
                 } else {
                     btnSave.isEnabled = true

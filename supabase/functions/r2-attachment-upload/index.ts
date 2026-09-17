@@ -1,18 +1,13 @@
 import { createRemoteJWKSet, jwtVerify } from 'npm:jose@5'
 
 /**
- * Presigned-URL issuer for Petty Cash request attachments (Cloudflare R2).
- *
- * Why this exists as its own function, separate from validations:
- * this only ever hands out short-lived R2 URLs — it never touches
- * Postgres/validations data, so it doesn't need the Supabase service role
- * key or the validations table at all. Keeping it isolated means a
- * bug here can't touch remark data, and vice versa.
- *
- * Three actions, all requiring a valid Firebase ID token:
+ * Presigned-URL issuer for private R2 objects: Petty Cash claim attachments
+ * (images) AND parcel-journey call recordings (audio). Three actions, all
+ * requiring a valid Firebase ID token:
  *   - upload (default, body has no "action" or action: "upload"): Android
  *     sends { file_name, content_type, size_bytes } → this rejects anything
- *     that isn't an image or is over 2 MB, then returns a
+ *     that isn't an allowed image (claims) or audio (recordings) type, or is
+ *     over that family's size cap (2 MB image / 15 MB audio), then returns a
  *     presigned PUT URL for a fresh object key under the caller's uid.
  *     (Past claims may still hold PDFs — those stay downloadable, only new
  *     uploads are image-only.)
@@ -64,17 +59,26 @@ const firebaseJwks = createRemoteJWKSet(
 // Requester-facing limits — kept in one place so the Android side and this
 // function can be checked against each other instead of drifting apart.
 // Max 2 images per claim (count enforced client-side + claims function),
-// 2 MB per image here.
-const MAX_FILE_BYTES = 2 * 1024 * 1024 // 2 MB
-const ALLOWED_CONTENT_TYPES = new Set([
-  // Images only for new uploads — old PDF attachments on past claims stay
+// 2 MB per image here. Call recordings / audio evidence (parcel journey)
+// are audio-only, capped at 10 MB each.
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024 // 2 MB
+const MAX_AUDIO_BYTES = 10 * 1024 * 1024 // 10 MB
+const ALLOWED_IMAGE_TYPES = new Set([
+  // Images only for new claim uploads — old PDF attachments on past claims stay
   // downloadable (download/delete don't check content type).
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif', 'image/bmp',
 ])
-// Every attachment object key lives under this prefix — used both to build
-// new keys on upload and to scope-check a key handed back for download (see
-// handleDownload's own comment on what that check does and doesn't cover).
+const ALLOWED_AUDIO_TYPES = new Set([
+  // Manual call recordings for parcel journeys (see SupabaseCallRecordings.kt).
+  'audio/mp4', 'audio/aac', 'audio/mpeg', 'audio/ogg', 'audio/opus',
+  'audio/3gpp', 'audio/amr', 'audio/wav', 'audio/webm', 'audio/x-m4a',
+])
+// Every claim-attachment object key lives under this prefix; every call
+// recording under the second one — used both to build new keys on upload
+// and to scope-check a key handed back for download (see handleDownload's
+// own comment on what that check does and doesn't cover).
 const ATTACHMENT_KEY_PREFIX = 'petty_cash_attachments/'
+const RECORDING_KEY_PREFIX = 'call_recordings/'
 
 function reply(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: corsHeaders })
@@ -101,8 +105,25 @@ function extensionFor(contentType: string): string {
     case 'image/heic': return 'heic'
     case 'image/heif': return 'heif'
     case 'image/bmp': return 'bmp'
+    case 'audio/mp4': return 'm4a'
+    case 'audio/aac': return 'aac'
+    case 'audio/mpeg': return 'mp3'
+    case 'audio/ogg': return 'ogg'
+    case 'audio/opus': return 'opus'
+    case 'audio/3gpp': return '3gp'
+    case 'audio/amr': return 'amr'
+    case 'audio/wav': return 'wav'
+    case 'audio/webm': return 'webm'
+    case 'audio/x-m4a': return 'm4a'
     default: return 'bin'
   }
+}
+
+/** True for either key family this function issues (claims or recordings). */
+function isKnownKey(objectKey: string): boolean {
+  if (objectKey.includes('..')) return false
+  return objectKey.startsWith(ATTACHMENT_KEY_PREFIX) ||
+    objectKey.startsWith(RECORDING_KEY_PREFIX)
 }
 
 /** HMAC-SHA256 via Web Crypto (Deno-native — avoids node:crypto's npm-compat cold start). */
@@ -196,21 +217,26 @@ async function handleUpload(identity: { uid: string }, body: Record<string, unkn
   const sizeBytes = Number(body.size_bytes)
   const originalFileName = typeof body.file_name === 'string' ? body.file_name.trim() : ''
 
-  if (!ALLOWED_CONTENT_TYPES.has(contentType)) {
-    return reply({ error: 'Only images are allowed (max 2 per claim)' }, 400)
+  const isAudio = ALLOWED_AUDIO_TYPES.has(contentType)
+  const isImage = ALLOWED_IMAGE_TYPES.has(contentType)
+  if (!isImage && !isAudio) {
+    return reply({ error: 'Only images (claims) or audio recordings (journey) are allowed' }, 400)
   }
+  const limit = isAudio ? MAX_AUDIO_BYTES : MAX_IMAGE_BYTES
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
     return reply({ error: 'size_bytes is required' }, 400)
   }
-  if (sizeBytes > MAX_FILE_BYTES) {
-    return reply({ error: `File exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit` }, 400)
+  if (sizeBytes > limit) {
+    return reply({ error: `File exceeds the ${limit / (1024 * 1024)}MB limit` }, 400)
   }
 
   // Object key: per-user folder + random component, so one requester can
-  // never guess or overwrite another's attachment key even though the
-  // bucket itself isn't publicly listable.
+  // never guess or overwrite another's key even though the
+  // bucket itself isn't publicly listable. Audio goes under its own prefix
+  // so download/delete guards and lifecycle rules can treat the families apart.
   const randomComponent = hex(crypto.getRandomValues(new Uint8Array(8)))
-  const objectKey = `${ATTACHMENT_KEY_PREFIX}${identity.uid}/${Date.now()}_${randomComponent}.${extensionFor(contentType)}`
+  const prefix = isAudio ? RECORDING_KEY_PREFIX : ATTACHMENT_KEY_PREFIX
+  const objectKey = `${prefix}${identity.uid}/${Date.now()}_${randomComponent}.${extensionFor(contentType)}`
 
   const uploadUrl = await presignR2Url('PUT', objectKey, 300) // 5-minute window
 
@@ -228,15 +254,16 @@ async function handleDownload(identity: { uid: string }, body: Record<string, un
   const objectKey = typeof body.object_key === 'string' ? body.object_key : ''
 
   // Scope guard, not a per-request role check: this only confirms the key
-  // is actually one of *this feature's* attachment keys (right prefix, no
+  // is actually one this feature issued (right prefix family, no
   // path-traversal component) — it does not check whether `identity.uid`
-  // is allowed to see the specific Petty Cash request this key belongs to.
+  // is allowed to see the specific Petty Cash request or parcel this key
+  // belongs to.
   // That authorization already happened at the point the app read this key
-  // out of Firebase in the first place: Firebase's own read rules are what
-  // decide which requests (and thus which attachment keys) a given user
+  // out of Firebase/Supabase in the first place: those read rules are what
+  // decide which requests (and thus which keys) a given user
   // can see. If a key clears this guard, the caller already had legitimate
-  // read access to the request it's attached to.
-  if (!objectKey.startsWith(ATTACHMENT_KEY_PREFIX) || objectKey.includes('..')) {
+  // read access to whatever it's attached to.
+  if (!isKnownKey(objectKey)) {
     return reply({ error: 'Invalid object_key' }, 400)
   }
 
@@ -252,7 +279,7 @@ async function handleDownload(identity: { uid: string }, body: Record<string, un
  *  fill with orphaned uploads. */
 async function handleDelete(identity: { uid: string }, body: Record<string, unknown>): Promise<Response> {
   const objectKey = typeof body.object_key === 'string' ? body.object_key : ''
-  if (!objectKey.startsWith(ATTACHMENT_KEY_PREFIX) || objectKey.includes('..')) {
+  if (!isKnownKey(objectKey)) {
     return reply({ error: 'Invalid object_key' }, 400)
   }
   const deleteUrl = await presignR2Url('DELETE', objectKey, 300) // 5-minute window

@@ -32,6 +32,9 @@ object PermissionCatalog {
         Perm("nav_leave_management","Leave Management","Leave requests & Incharge/Shift Lead approval chain"),
         Perm("leave_requester", "Requester", "Can submit new leave requests (e.g. Pickup Agent, Delivery Agent)"),
         Perm("nav_checkin",  "Check In",  "Hub check-in/out log (vans today; employees and more later)"),
+        Perm("nav_reconciliation", "Reconciliation", "Reconciliation screen"),
+        Perm("nav_follow_up", "Follow-up", "Follow-up screen"),
+        Perm("nav_recording_cleanup", "Recording Cleanup", "Admin panel: free R2 space by deleting old call recordings"),
     )
 
     /**
