@@ -827,12 +827,16 @@ class ParcelDetailFragment : Fragment() {
 
             val inflater = LayoutInflater.from(ctx)
             var lastDayKey = ""
+            var prevRole: String? = null
+            var prevAuthorKey: String? = null
             allEntries.forEachIndexed { index, entry ->
                 // Date divider — one per Dhaka day, never on the created date.
+                var divided = false
                 if (entry.createdAt > 0L) {
                     val dayKey = DhakaTime.dayKey(entry.createdAt)
                     if (dayKey != lastDayKey) {
                         lastDayKey = dayKey
+                        divided = true
                         if (!JourneyLogUi.isCreatedEntry(entry.status, entry.remark, entry.role)) {
                             layoutTimeline.addView(
                                 JourneyLogUi.makeDateDivider(ctx, entry.createdAt)
@@ -840,8 +844,15 @@ class ParcelDetailFragment : Fragment() {
                         }
                     }
                 }
+                // WhatsApp-style: same person's back-to-back bubbles show the
+                // name once (first bubble), followers sit tighter. Entry has
+                // no system id — display name is the key.
+                val continuation = !divided &&
+                    JourneyLogUi.isContinuation(prevRole, prevAuthorKey, entry.role, entry.author)
+                prevRole = entry.role
+                prevAuthorKey = entry.author
                 val row = inflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
-                JourneyLogUi.applyChatStyle(row, entry.role)
+                JourneyLogUi.applyChatStyle(row, entry.role, continuation)
 
                 // Avatar
                 val ivAvatar = row.findViewById<ShapeableImageView>(R.id.ivTimelineAvatar)
@@ -860,9 +871,15 @@ class ParcelDetailFragment : Fragment() {
                 row.findViewById<View>(R.id.viewTimelineLine)?.visibility =
                     if (index < allEntries.size - 1) View.VISIBLE else View.GONE
 
-                // Author name
-                row.findViewById<TextView>(R.id.twTimelineAuthor).text =
-                    "${entry.author}${if (entry.role == "cc") " · CC" else ""}"
+                // Author name — hidden on continuations (same person as above).
+                val tvAuthor = row.findViewById<TextView>(R.id.twTimelineAuthor)
+                if (continuation) {
+                    tvAuthor.visibility = View.GONE
+                } else {
+                    tvAuthor.visibility = View.VISIBLE
+                    tvAuthor.text =
+                        "${entry.author}${if (entry.role == "cc") " · CC" else ""}"
+                }
 
                 // Status badge
                 val tvStatusBadge = row.findViewById<TextView>(R.id.twTimelineStatus)

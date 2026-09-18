@@ -1518,12 +1518,16 @@ class CallCenterFragment : Fragment() {
             layoutTimeline.addView(emptyView)
         } else {
             var lastDayKey = ""
+            var prevRole: String? = null
+            var prevAuthorKey: String? = null
             for ((index, entry) in entriesWithGaps.withIndex()) {
                 // Date divider — one per Dhaka day, never on the created date.
+                var divided = false
                 if (entry.createdAt > 0L) {
                     val dayKey = DhakaTime.dayKey(entry.createdAt)
                     if (dayKey != lastDayKey) {
                         lastDayKey = dayKey
+                        divided = true
                         if (!JourneyLogUi.isCreatedEntry(entry.action, entry.remark, entry.authorRole)) {
                             layoutTimeline.addView(
                                 JourneyLogUi.makeDateDivider(requireContext(), entry.createdAt)
@@ -1531,8 +1535,15 @@ class CallCenterFragment : Fragment() {
                         }
                     }
                 }
+                // WhatsApp-style: same person's back-to-back bubbles show the
+                // name once (first bubble), followers sit tighter.
+                val authorKey = entry.authorSystemId.ifBlank { entry.author }
+                val continuation = !divided &&
+                    JourneyLogUi.isContinuation(prevRole, prevAuthorKey, entry.authorRole, authorKey)
+                prevRole = entry.authorRole
+                prevAuthorKey = authorKey
                 val timelineView = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
-                JourneyLogUi.applyChatStyle(timelineView, entry.authorRole)
+                JourneyLogUi.applyChatStyle(timelineView, entry.authorRole, continuation)
                 val statusCfg = WorkerParcelAdapter.getStatusConfig(
                     requireContext(),
                     entry.action,
@@ -1561,7 +1572,12 @@ class CallCenterFragment : Fragment() {
 
                 tvLine?.visibility = if (index < entriesWithGaps.size - 1) View.VISIBLE else View.GONE
 
-                tvAuthor.text = entry.author
+                if (continuation) {
+                    tvAuthor.visibility = View.GONE
+                } else {
+                    tvAuthor.visibility = View.VISIBLE
+                    tvAuthor.text = entry.author
+                }
 
                 // Config-defined label — never the raw UPPER_SNAKE key. Missing
                 // config falls back to the action itself (synthetics like CREATED).

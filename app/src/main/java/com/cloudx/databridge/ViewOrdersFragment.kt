@@ -570,12 +570,16 @@ class ViewOrdersFragment : Fragment() {
             )
         } else {
             var lastDayKey = ""
+            var prevRole: String? = null
+            var prevAuthorKey: String? = null
             for ((index, entry) in withGaps.withIndex()) {
                 // Date divider — one per Dhaka day, never on the created date.
+                var divided = false
                 if (entry.createdAt > 0L) {
                     val dayKey = DhakaTime.dayKey(entry.createdAt)
                     if (dayKey != lastDayKey) {
                         lastDayKey = dayKey
+                        divided = true
                         if (!JourneyLogUi.isCreatedEntry(entry.action, entry.remark, entry.authorRole)) {
                             layoutTimeline.addView(
                                 JourneyLogUi.makeDateDivider(requireContext(), entry.createdAt)
@@ -583,8 +587,15 @@ class ViewOrdersFragment : Fragment() {
                         }
                     }
                 }
+                // WhatsApp-style: same person's back-to-back bubbles show the
+                // name once (first bubble), followers sit tighter.
+                val authorKey = entry.authorSystemId.ifBlank { entry.author }
+                val continuation = !divided &&
+                    JourneyLogUi.isContinuation(prevRole, prevAuthorKey, entry.authorRole, authorKey)
+                prevRole = entry.authorRole
+                prevAuthorKey = authorKey
                 val tv = layoutInflater.inflate(R.layout.item_timeline_entry, layoutTimeline, false)
-                JourneyLogUi.applyChatStyle(tv, entry.authorRole)
+                JourneyLogUi.applyChatStyle(tv, entry.authorRole, continuation)
                 val statusCfg = WorkerParcelAdapter.getStatusConfig(
                     requireContext(),
                     entry.action, "en"
@@ -602,7 +613,13 @@ class ViewOrdersFragment : Fragment() {
                     ivAvatar?.setBackgroundResource(R.drawable.bg_timeline_avatar_placeholder)
                 }
                 tvLine?.visibility = if (index < withGaps.size - 1) View.VISIBLE else View.GONE
-                tv.findViewById<TextView>(R.id.twTimelineAuthor).text = entry.author
+                val tvAuthor = tv.findViewById<TextView>(R.id.twTimelineAuthor)
+                if (continuation) {
+                    tvAuthor.visibility = View.GONE
+                } else {
+                    tvAuthor.visibility = View.VISIBLE
+                    tvAuthor.text = entry.author
+                }
                 val tvStatus = tv.findViewById<TextView>(R.id.twTimelineStatus)
                 // Config-defined label — never the raw UPPER_SNAKE key.
                 tvStatus.text = statusCfg.label

@@ -189,13 +189,31 @@ object JourneyLogUi {
         makeDateDivider(context, dayMillis)
 
     /**
+     * WhatsApp-style grouping: true when [role]/[id] continues the previous
+     * bubble from the SAME person (e.g. 1pm + 1:20pm remarks by one agent).
+     * [id] is the most stable key the caller has — authorSystemId, else the
+     * display name. System rows always return false (always labelled). A date
+     * divider between two same-person rows breaks the group — callers pass
+     * divided=true for that iteration.
+     */
+    fun isContinuation(prevRole: String?, prevId: String?, role: String?, id: String?): Boolean {
+        if (role == null || id == null || prevRole == null || prevId == null) return false
+        if (role.trim().equals("system", ignoreCase = true)) return false
+        if (id.trim().isEmpty() || prevId.trim().isEmpty()) return false
+        return role.trim().equals(prevRole.trim(), ignoreCase = true) &&
+            id.trim().equals(prevId.trim(), ignoreCase = true)
+    }
+
+    /**
      * Chat-style alignment for an inflated R.layout.item_timeline_entry root.
      * Root children: [0] avatar column (LinearLayout), [1] content column.
      *  - agent/worker → avatar left, grey bubble, START.
      *  - cc → avatar moved right, blue bubble, END.
      *  - system → avatar hidden, centered neutral bubble.
+     * [isContinuation] (same person as the previous bubble, no divider
+     * between) tightens the gap so the group reads as one block.
      */
-    fun applyChatStyle(root: View, authorRole: String) {
+    fun applyChatStyle(root: View, authorRole: String, isContinuation: Boolean = false) {
         val container = root as? LinearLayout ?: return
         if (container.childCount < 2) return
         val avatarCol = container.getChildAt(0)
@@ -259,15 +277,17 @@ object JourneyLogUi {
         }
         // Gap between chat cards — without this consecutive bubbles touch
         // each other (bubble bg sits on content, so inner padding is not enough).
+        // Continuations of one person's group sit tighter, WhatsApp-style.
         val density = root.resources.displayMetrics.density
+        val gapDp = if (isContinuation) 3f else 10f
         (root.layoutParams as? LinearLayout.LayoutParams)?.let {
-            it.bottomMargin = (10f * density).toInt()
+            it.bottomMargin = (gapDp * density).toInt()
             root.layoutParams = it
         } ?: run {
             root.layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { bottomMargin = (10f * density).toInt() }
+            ).apply { bottomMargin = (gapDp * density).toInt() }
         }
     }
 }
