@@ -203,7 +203,12 @@ export async function sendRemarkPush(row: { consignment: string; branch_id: stri
     // CC source: TWO pushes (worker path unchanged + new CC branch fan-out).
     // Before: only the assigned worker got scope=worker, other CC agents got
     // nothing (silent card/status). Now: worker keeps scope=worker, same-branch
-    // CC devices (excluding the author's own devices) get scope=cc.
+    // CC devices get scope=cc — INCLUDING the author's own devices. The old
+    // `.neq(firebase_uid)` self-exclusion assumed sender device == author's
+    // only device, but an agent saving from the browser extension still needs
+    // their own phone app to update (extension holds no card state). CC->CC
+    // is silent (no popup/sound, card-only refresh), so including self is
+    // harmless for app-to-app saves — just an idempotent re-fetch.
     // ┌──────────────────── COMPATIBILITY INVARIANT ────────────────────┐
     // │ CC -> Worker block below is known working production behavior.   │
     // │ Keep its exact system_id-only recipient query unchanged.         │
@@ -211,10 +216,9 @@ export async function sendRemarkPush(row: { consignment: string; branch_id: stri
     const { data: workerDevices, error: workerError } = await admin.from('fcm_device_tokens').select('token')
       .eq('system_id', row.assigned_to_system_id)
     if (workerError) throw workerError
-    // Same-branch CC devices, excluding the author's own devices (no self-push).
+    // Same-branch CC devices, author included (see above).
     const { data: ccDevices, error: ccError } = await admin.from('fcm_device_tokens').select('token')
       .eq('can_access_call_center', true).overlaps('branch_ids', [row.branch_id])
-      .neq('firebase_uid', identity.uid)
     if (ccError) throw ccError
     const workerTokens = (workerDevices ?? []).map((d) => (d as { token: string }).token).filter(Boolean)
     const ccTokens = (ccDevices ?? []).map((d) => (d as { token: string }).token).filter(Boolean)
