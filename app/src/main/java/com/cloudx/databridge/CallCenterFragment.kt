@@ -4551,7 +4551,7 @@ class CallCenterFragment : Fragment() {
             setPadding(pad, pad / 2, pad, pad / 2)
         }
         box.addView(label("MODE"))
-        val modes = listOf("live" to "📡 Live", "mix" to "🔀 Mix", "request" to "📋 Req")
+        val modes = listOf("live" to "📄 Sheet", "mix" to "🔀 Mix", "request" to "📋 Req")
         val spMode = Spinner(ctx).apply {
             adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item,
                 modes.map { it.second }).apply {
@@ -4747,7 +4747,7 @@ class CallCenterFragment : Fragment() {
                     val gone = currentIds - freshIds
                     if (added > 0 || gone.isNotEmpty()) {
                         Toast.makeText(requireContext(),
-                            "📡 Live update: ${if (added > 0) "+$added new" else ""}" +
+                            "📄 Sheet update: ${if (added > 0) "+$added new" else ""}" +
                             "${if (added > 0 && gone.isNotEmpty()) ", " else ""}" +
                             "${if (gone.isNotEmpty()) "-${gone.size} removed" else ""}",
                             Toast.LENGTH_SHORT).show()
@@ -4782,7 +4782,7 @@ class CallCenterFragment : Fragment() {
                     val gone = (oldExtraIds - newExtraIds).size
                     if (added > 0 || gone > 0) {
                         Toast.makeText(requireContext(),
-                            "🔀 Mix update: ${if (added > 0) "+$added Live" else ""}" +
+                            "🔀 Mix update: ${if (added > 0) "+$added Sheet" else ""}" +
                             "${if (added > 0 && gone > 0) ", " else ""}" +
                             "${if (gone > 0) "-$gone removed" else ""}",
                             Toast.LENGTH_SHORT).show()
@@ -4880,7 +4880,7 @@ class CallCenterFragment : Fragment() {
                 syncCcRemarkListeners(allParcels.map { it.id }.toSet())
                 syncCcEngagedAtListeners(allParcels.map { it.id }.toSet())
                 if (items.isNotEmpty()) Toast.makeText(requireContext(),
-                    "🔀 Mix: ${items.size} parcels added from Live", Toast.LENGTH_SHORT).show()
+                    "🔀 Mix: ${items.size} parcels added from Sheet", Toast.LENGTH_SHORT).show()
             } catch (_: Exception) {
                 // Request list unaffected — Live extras just don't arrive.
             }

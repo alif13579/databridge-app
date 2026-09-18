@@ -398,8 +398,8 @@ object CcSheetBindingDialog {
                 "${entry.first} ${CcFilterOp.label(op)}$v"
             }
             fetchSummaryView.text = when {
-                rules.isEmpty() -> "📡 Live: IDs from $colTxt • no filter (all rows)"
-                else -> "📡 Live: IDs from $colTxt • ${rules.joinToString(if (logic == "OR") " OR " else " + ")}" +
+                rules.isEmpty() -> "📄 Sheet: IDs from $colTxt • no filter (all rows)"
+                else -> "📄 Sheet: IDs from $colTxt • ${rules.joinToString(if (logic == "OR") " OR " else " + ")}" +
                     if (rules.size > 1) " [${CcFilterLogic.label(logic)}]" else ""
             }
             refreshTabBadges()
