@@ -312,6 +312,7 @@ class CallCenterAdapter(
         private val ivEngagedAvatar3: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar3)
         private val ivEngagedAvatar4: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar4)
         private val tvEngagedOverflow: TextView = view.findViewById(R.id.tvEngagedOverflow)
+        private val tvEngagedTime: TextView = view.findViewById(R.id.tvAgtEngagedTime)
         private val layoutActions: LinearLayout = view.findViewById(R.id.layoutAgtActions)
         private val btnCall: TextView = view.findViewById(R.id.btnAgtCall)
         private val btnSetRemarks: TextView = view.findViewById(R.id.btnAgtSetRemarks)
@@ -485,6 +486,14 @@ class CallCenterAdapter(
                     tvEngagedOverflow.visibility = View.VISIBLE
                 } else {
                     tvEngagedOverflow.visibility = View.GONE
+                }
+                // ⏱ Duration bubble — longest fresh engagement, only after 2 min.
+                val durationLabel = EngagedStateManager.engagedDurationLabel(freshAgents)
+                if (durationLabel != null) {
+                    tvEngagedTime.text = durationLabel
+                    tvEngagedTime.visibility = View.VISIBLE
+                } else {
+                    tvEngagedTime.visibility = View.GONE
                 }
             } else {
                 engagedRing.stop()

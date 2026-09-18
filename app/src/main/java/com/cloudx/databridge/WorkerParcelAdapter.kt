@@ -198,6 +198,7 @@ class WorkerParcelAdapter(
         val ivEngagedAvatar3: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar3)
         val ivEngagedAvatar4: com.google.android.material.imageview.ShapeableImageView = view.findViewById(R.id.ivEngagedAvatar4)
         val tvEngagedOverflow: TextView = view.findViewById(R.id.tvEngagedOverflow)
+        val tvEngagedTime: TextView = view.findViewById(R.id.tvEngagedTime)
 
         val tvCcRemarkBlock: View = view.findViewById(R.id.layoutCcRemarkBlock)
         val tvCcRemarkLabel: TextView = view.findViewById(R.id.tvCcRemarkLabel)
@@ -386,6 +387,14 @@ class WorkerParcelAdapter(
                 holder.tvEngagedOverflow.visibility = View.VISIBLE
             } else {
                 holder.tvEngagedOverflow.visibility = View.GONE
+            }
+            // ⏱ Duration bubble — longest fresh engagement, only after 2 min.
+            val durationLabel = EngagedStateManager.engagedDurationLabel(freshAgents)
+            if (durationLabel != null) {
+                holder.tvEngagedTime.text = durationLabel
+                holder.tvEngagedTime.visibility = View.VISIBLE
+            } else {
+                holder.tvEngagedTime.visibility = View.GONE
             }
         } else {
             holder.engagedRing.stop()

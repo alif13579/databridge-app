@@ -334,10 +334,13 @@ object JourneyRecordingUi {
         // Mid-call starts often fail: the voice call holds the mic and the
         // manager's fallback sources can't always win it back. Say so upfront.
         val inCall = CallRecordingManager.isCallActive(ctx)
+        val bothSideNote = if (android.os.Build.VERSION.SDK_INT <= 28)
+            "Android 9-এ অনেক device-e both-side auto-try হবে; না হলে loudspeaker fallback."
+        else "Android 10+ এ other-side শুধু loudspeaker দিয়ে আসবে (OS limit) — speaker auto-ON হবে।"
         val msg = if (inCall)
-            "Call চলছে — এই অবস্থায় record সব phone-এ হয় না (mic call-এর দখলে থাকে)। Try করছি; শুরু না হলে call-এর আগেই 🎙 চাপুন।\n\nSpeakerphone (loudspeaker) ON রাখুন — না হলে অপর পাশের কথা উঠবে না।"
+            "Call চলছে — এই অবস্থায় record সব phone-এ হয় না (mic call-এর দখলে থাকে)। Try করছি; শুরু না হলে call-এর আগেই 🎙 চাপুন।\n\n$bothSideNote"
         else
-            "Call-এ কথা বলার সময় SPEAKERPHONE (loudspeaker) ON রাখুন — না হলে অপর পাশের কথা record হবে না (Android limitation, শুধু আপনার কথা উঠবে).\n\nRecord শুরু করে তারপর dial করুন।"
+            "Record শুরু করে তারপর dial করুন। $bothSideNote"
         android.app.AlertDialog.Builder(ctx)
             .setTitle("🎙 Record this call?")
             .setMessage(msg)
@@ -347,7 +350,10 @@ object JourneyRecordingUi {
                     delay(600)
                     button.text = recordLabel(consignmentId)
                     if (CallRecordingStore.recording) {
-                        Toast.makeText(ctx, "⏺ Recording… speakerphone ON রাখুন", Toast.LENGTH_LONG).show()
+                        val startedMsg = if (CallRecordingManager.isBothSide)
+                            "⏺ Recording… both-side capture"
+                        else "⏺ Recording… speaker auto-ON থাকবে"
+                        Toast.makeText(ctx, startedMsg, Toast.LENGTH_LONG).show()
                         // Started mid-call but possibly capturing silence (mic still
                         // held by telephony). Sample amplitude; all-zero over ~3s
                         // while a call is active almost certainly means blocked.
@@ -407,7 +413,8 @@ object JourneyRecordingUi {
             .setTitle(controlTitle(consignmentId))
             .setMessage(
                 if (paused) "Paused — timer stopped. Resume to keep recording, or stop to review."
-                else "Recording… speakerphone ON রাখুন। Pause করে বিরতি নিতে পারেন।"
+                else if (CallRecordingManager.isBothSide) "Recording… both-side capture. Pause করে বিরতি নিতে পারেন।"
+                else "Recording… speaker auto-ON আছে (mic-only mode)। Pause করে বিরতি নিতে পারেন।"
             )
             .setPositiveButton("⏹ Stop") { _, _ ->
                 stopAndReview(fragment, scope, button, consignmentId, branchId, authorSystemId, source, onReload)

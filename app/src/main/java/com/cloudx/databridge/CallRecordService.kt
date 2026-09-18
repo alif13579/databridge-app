@@ -108,7 +108,10 @@ class CallRecordService : Service() {
                 if (CallRecordingStore.paused) "⏸ Recording paused — $cid"
                 else "🎙 Recording call — $cid"
             )
-            .setContentText("Speakerphone on rakhun, jeno opor pasher kotha record hoy · ${elapsedSec}s")
+            .setContentText(
+                if (CallRecordingManager.isBothSide) "Both-side capture · ${elapsedSec}s"
+                else "Speaker auto-ON · অপর পাশ loudspeaker দিয়ে আসবে · ${elapsedSec}s"
+            )
             .setSmallIcon(android.R.drawable.presence_audio_online)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

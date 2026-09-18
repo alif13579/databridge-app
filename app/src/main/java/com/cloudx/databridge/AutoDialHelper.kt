@@ -28,6 +28,10 @@ object AutoDialHelper {
     fun dial(fragment: Fragment, phone: String, forceDirect: Boolean = false) {
         val normalizedPhone = normalizeBdPhone(phone)
         val ctx = fragment.requireContext()
+        // Mic-only recording hears the other side only via loudspeaker — some
+        // OEMs reset the speaker flag when the call actually starts, so
+        // re-assert here (no-op when nothing records or both-side source).
+        try { CallRecordingManager.ensureSpeakerDuringCall(ctx.applicationContext) } catch (_: Exception) {}
         val autoDial = forceDirect || ctx
             .getSharedPreferences("databridge_toggles", Context.MODE_PRIVATE)
             .getBoolean("auto_dial", true)

@@ -88,6 +88,8 @@ object EngagedStateManager {
 
     const val STATE_VIEWING = "viewing"
     const val STATE_CALLING = "calling"
+    /** Duration bubble appears only after this long (avoids noise for quick peeks). */
+    const val DURATION_SHOW_AFTER_MS = 2 * 60 * 1000L
 
     private const val ENGAGED_NODE = "engaged_at"
     private const val STALE_AFTER_MS = 5 * 60 * 1000L // 5 minutes
@@ -290,6 +292,23 @@ object EngagedStateManager {
      */
     fun callingAgents(agents: List<EngagedAgent>): List<EngagedAgent> =
         agents.filter { it.isCalling && isFresh(it.timestamp) }.sortedByDescending { it.timestamp }
+
+    /**
+     * Elapsed-engaged label for the avatar bubble row — longest-held fresh agent.
+     * Returns null when nobody is fresh yet or the longest is under
+     * [DURATION_SHOW_AFTER_MS] (quick peeks stay clean). Format: "2m", "4m", "1h 5m".
+     */
+    fun engagedDurationLabel(agents: List<EngagedAgent>, nowMs: Long = System.currentTimeMillis()): String? {
+        val oldest = agents.filter { isFresh(it.timestamp) && it.timestamp <= nowMs }
+            .minByOrNull { it.timestamp } ?: return null
+        val elapsed = nowMs - oldest.timestamp
+        if (elapsed < DURATION_SHOW_AFTER_MS) return null
+        val mins = (elapsed / 60_000L).toInt()
+        if (mins < 60) return "⏱ ${mins}m"
+        val h = mins / 60
+        val m = mins % 60
+        return if (m == 0) "⏱ ${h}h" else "⏱ ${h}h ${m}m"
+    }
 
     /** Parses an engaged_at snapshot (the node containing one child per engaged agentUid)
      *  into a list of EngagedAgent, resolving each one's photo via UserNameResolver's cache.

@@ -123,6 +123,23 @@
                     android:textStyle="bold"
                     android:textColor="@color/theme_text_primary"
                     android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/tvEngagedTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_gravity="center_vertical"
+                    android:gravity="center"
+                    android:background="@drawable/bg_age_badge"
+                    android:paddingStart="7dp"
+                    android:paddingEnd="7dp"
+                    android:text="⏱ 3m"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_text_muted"
+                    android:includeFontPadding="false"
+                    android:visibility="gone" />
             </LinearLayout>
 
 <LinearLayout

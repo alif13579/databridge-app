@@ -35,6 +35,10 @@
          only audible on speakerphone. Requested in the onboarding chain
          (MainActivity) but optional: declining only disables recording. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Speaker assist for call recording: mic-only sources hear the other side
+         only via loudspeaker, so the manager turns speakerphone on while a
+         recording runs (restored on stop). Normal install permission, no prompt. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"
         android:minSdkVersion="30" />

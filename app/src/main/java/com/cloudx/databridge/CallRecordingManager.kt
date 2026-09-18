@@ -8,20 +8,21 @@ import java.io.File
 /**
  * Manual call recording to app-private storage (AAC in .m4a).
  *
- * Honest limitation, stated once here so every caller inherits it: Android 10+
- * blocks true two-sided call capture for non-system apps (VOICE_CALL needs
- * CAPTURE_AUDIO_OUTPUT, system-only). We record from the mic side; the other
- * side is only audible when the call is on SPEAKERPHONE.
+ * Two-tier strategy (user asked: jekhane both-side hoy sekhane both-side,
+ * jekhane hoyna sekhane loudspeaker diye holeo):
+ *  - Android 9 and below (API <= 28): try VOICE_CALL first — on many OEMs
+ *    (esp. Samsung) this captures BOTH sides without speaker. Needs no extra
+ *    permission to *try*; where the HAL refuses it throws and we fall through
+ *    to mic-side sources. Android 10+ blocks it for non-system apps
+ *    (CAPTURE_AUDIO_OUTPUT, system-only), so it is skipped there to save time.
+ *  - Everywhere else: mic-side sources (MIC → VOICE_COMMUNICATION →
+ *    VOICE_RECOGNITION → CAMCORDER) + AUTO-SPEAKER assist — the manager turns
+ *    speakerphone on while recording so the other side bleeds into the mic.
+ *    Restored on stop. Without speaker only your side is audible (OS limit).
  *
- * Mid-call wrinkle: while a voice call is active the telephony stack often
- * holds the mic exclusively, so plain MIC can fail (or capture silence) on
- * many devices. [start] therefore retries with alternate mic-side sources
- * (VOICE_COMMUNICATION → VOICE_RECOGNITION → CAMCORDER) — on some HALs one of
- * these succeeds where MIC does not. Nothing can force it when the hardware
- * says no; callers must surface that honestly (see JourneyRecordingUi).
- *
- * Files stay in app-private storage until the agent explicitly saves (upload
- * to R2 + call_recordings row); discards never leave the device.
+ * Recommended flow stays: 🎙 Record FIRST, then dial — mid-call starts often
+ * find the mic held by telephony. Files stay app-private until the agent
+ * explicitly saves (upload to R2 + call_recordings row).
  *
  * One recording at a time (guarded by [isRecording]). Max ~10 min / 10 MB —
  * matches the R2 audio cap (see r2-attachment-upload MAX_AUDIO_BYTES), so
@@ -44,6 +45,17 @@ object CallRecordingManager {
     /** Which mic-side source the running recording actually uses ("" = none). */
     @Volatile var activeSourceName: String = ""
         private set
+    /** True when the active source captures both sides (VOICE_CALL on Android 9-). */
+    val isBothSide: Boolean get() = activeSourceName == "VOICE_CALL"
+    /** True when speakerphone was auto-enabled for the running recording. */
+    @Volatile var didAutoSpeaker: Boolean = false
+        private set
+
+    // Speaker-assist state (restored on stop).
+    @Volatile private var speakerAssistOn = false
+    @Volatile private var prevSpeakerOn = false
+    @Volatile private var prevAudioMode = android.media.AudioManager.MODE_NORMAL
+    @Volatile private var assistCtx: Context? = null
 
     val isRecording: Boolean get() = recorder != null
     val isPaused: Boolean get() = recorder != null && pauseBeganMs > 0L
@@ -76,16 +88,26 @@ object CallRecordingManager {
     /**
      * Starts recording for [consignmentId]. Returns false when already
      * recording (caller should stop first) or when setup fails on every
-     * mic-side source (typical cause: an active call holding the mic).
+     * source (typical cause: an active call holding the mic).
+     *
+     * Source order: Android 9- tries VOICE_CALL (both sides) first, then
+     * mic-side fallbacks; Android 10+ goes straight to mic-side + auto-speaker.
      */
     @Synchronized
     fun start(context: Context, consignmentId: String): Boolean {
         if (recorder != null) return false
-        val inCall = isCallActive(context)
-        val file = File(dir(context), "${safe(consignmentId)}_${System.currentTimeMillis()}.$FILE_EXT")
-        // MIC first (best quality); fallbacks for when a live call holds it.
-        // VOICE_CALL is deliberately absent — system-only, always throws here.
-        val sources = listOf(
+        val appCtx = context.applicationContext
+        val inCall = isCallActive(appCtx)
+        val file = File(dir(appCtx), "${safe(consignmentId)}_${System.currentTimeMillis()}.$FILE_EXT")
+        val sources = mutableListOf<Pair<Int, String>>()
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            // Android 9 and below: many OEMs still allow both-side capture here.
+            sources += MediaRecorder.AudioSource.VOICE_CALL to "VOICE_CALL"
+        }
+        // Mic-side fallbacks (mid-call the telephony stack often holds MIC
+        // exclusively — on some HALs one of the alternates still wins).
+        // VOICE_CALL deliberately absent on 10+: system-only, always throws.
+        sources += listOf(
             MediaRecorder.AudioSource.MIC to "MIC",
             MediaRecorder.AudioSource.VOICE_COMMUNICATION to "VOICE_COMMUNICATION",
             MediaRecorder.AudioSource.VOICE_RECOGNITION to "VOICE_RECOGNITION",
@@ -122,9 +144,18 @@ object CallRecordingManager {
                 pausedAccumMs = 0L
                 pauseBeganMs = 0L
                 activeSourceName = name
+                didAutoSpeaker = false
+                if (name != "VOICE_CALL") {
+                    // Mic-only: other side needs loudspeaker — turn it on now
+                    // (record-first-then-dial flow means the call starts after
+                    // us, so assert early; re-asserted on dial via
+                    // ensureSpeakerDuringCall). Both-side needs no speaker.
+                    didAutoSpeaker = enableSpeakerAssist(appCtx)
+                }
                 CallRecordingStore.onStarted(consignmentId, file.absolutePath, startMs)
                 FirebaseErrorLogger.log("CallRecording", "start_ok",
-                    "source=$name inCall=$inCall", mapOf("source" to name))
+                    "source=$name bothSide=${name == "VOICE_CALL"} speaker=$didAutoSpeaker inCall=$inCall",
+                    mapOf("source" to name))
                 return true
             } catch (e: Exception) {
                 lastError = e.message ?: e.javaClass.simpleName
@@ -180,6 +211,8 @@ object CallRecordingManager {
         val rec = recorder ?: return null
         recorder = null
         activeSourceName = ""
+        didAutoSpeaker = false
+        restoreSpeakerLocked()
         if (pauseBeganMs > 0L) {
             pausedAccumMs += System.currentTimeMillis() - pauseBeganMs
             pauseBeganMs = 0L
@@ -211,6 +244,69 @@ object CallRecordingManager {
         val now = System.currentTimeMillis()
         val paused = pausedAccumMs + (if (pauseBeganMs > 0L) now - pauseBeganMs else 0L)
         return (now - startMs - paused).coerceAtLeast(0L)
+    }
+
+    /**
+     * Re-assert speakerphone while a mic-only recording runs — call start
+     * resets the speaker flag on some OEMs, so dial paths call this right
+     * after launching the dialer when [isRecording] is true. No-op for
+     * both-side captures (no speaker needed) or when nothing records.
+     */
+    fun ensureSpeakerDuringCall(context: Context) {
+        if (recorder == null || isBothSide) return
+        try {
+            val am = context.applicationContext.getSystemService(Context.AUDIO_SERVICE)
+                as? android.media.AudioManager ?: return
+            if (!am.isSpeakerphoneOn) {
+                try { am.isSpeakerphoneOn = true } catch (_: Exception) {}
+                didAutoSpeaker = true
+                speakerAssistOn = true
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun audioManager(appCtx: Context): android.media.AudioManager? {
+        return try {
+            appCtx.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+        } catch (_: Exception) { null }
+    }
+
+    /** Turns speakerphone on for a mic-only recording; returns true if on. */
+    private fun enableSpeakerAssist(appCtx: Context): Boolean {
+        return try {
+            val am = audioManager(appCtx) ?: return false
+            if (!speakerAssistOn) {
+                prevSpeakerOn = try { am.isSpeakerphoneOn } catch (_: Exception) { false }
+                prevAudioMode = try { am.mode } catch (_: Exception) {
+                    android.media.AudioManager.MODE_NORMAL
+                }
+                assistCtx = appCtx
+            }
+            // Outside a call the mode is NORMAL — IN_COMMUNICATION lets the
+            // speaker flag stick so it is already on when the call begins.
+            // During a real cellular call the stack moves to IN_CALL itself
+            // and the speaker flag carries over on most HALs.
+            try {
+                if (am.mode == android.media.AudioManager.MODE_NORMAL) {
+                    am.mode = android.media.AudioManager.MODE_IN_COMMUNICATION
+                }
+            } catch (_: Exception) {}
+            try { am.isSpeakerphoneOn = true } catch (_: Exception) { return false }
+            speakerAssistOn = true
+            try { am.isSpeakerphoneOn } catch (_: Exception) { true }
+        } catch (_: Exception) { false }
+    }
+
+    private fun restoreSpeakerLocked() {
+        if (!speakerAssistOn) return
+        speakerAssistOn = false
+        try {
+            val ctx = assistCtx
+            assistCtx = null
+            val am = ctx?.let { audioManager(it) } ?: return
+            try { am.isSpeakerphoneOn = prevSpeakerOn } catch (_: Exception) {}
+            try { am.mode = prevAudioMode } catch (_: Exception) {}
+        } catch (_: Exception) {}
     }
 
     private fun safe(id: String): String {
