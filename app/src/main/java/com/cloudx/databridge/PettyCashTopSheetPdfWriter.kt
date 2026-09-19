@@ -21,8 +21,12 @@ import java.util.Locale
  *             (category is Pickup or Bulk Delivery — see the category column's
  *             comment on migration 202608260001)
  *
+ * Long tables (acknowledgement agents, voucher claim rows, long category
+ * breakdowns) flow onto continuation pages with the table header repeated —
+ * nothing is ever drawn past the page edge.
+ *
  * A4 at 72pt/inch — same size CashExportWriter.kt already uses for its exports.
- * Every "page type" above is forced onto its own page (startNewPage() at each
+ * Every "page type" above is forced onto its own page (nextPage() at each
  * boundary) rather than flowing continuously, per the "Top Sheet alada single
  * page, Expense Summary single page, ... individual single A4 page" request —
  * this differs from CashExportWriter's single continuously-flowing table.
@@ -42,6 +46,35 @@ object PettyCashTopSheetPdfWriter {
     private val moneyFormat = NumberFormat.getNumberInstance(Locale.US)
     private val dateDisplayFormat = SimpleDateFormat("dd-MM-yy", Locale.US)
     private val dateIsoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+
+    /**
+     * Per-generate() page cursor. Tables (acknowledgement, vouchers, long
+     * category breakdowns) can outgrow one A4 page — instead of drawing past
+     * the edge (content silently lost), draw loops call [nextPage] mid-table
+     * and repeat the table header there. One instance per generate() call so
+     * overlapping generations can't share page state.
+     */
+    private class PageCtx(val pdf: PdfDocument) {
+        private var pageNum = 0
+        private lateinit var page: PdfDocument.Page
+        lateinit var canvas: Canvas
+            private set
+
+        init {
+            nextPage()
+        }
+
+        fun nextPage() {
+            if (pageNum > 0) pdf.finishPage(page)
+            pageNum += 1
+            page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create())
+            canvas = page.canvas
+        }
+
+        fun finish() {
+            pdf.finishPage(page)
+        }
+    }
 
     // Legacy conveyance categories (pre-catalog data, e.g. the reference
     // PDF's InterChange rows): any settled claim whose category isn't in the
@@ -94,16 +127,7 @@ object PettyCashTopSheetPdfWriter {
             groupOf(row.category) == "conveyance" || row.category in legacyConveyanceTypes
         fun categoryTotal(category: String) = settled.filter { it.category == category }.sumOf { it.settledAmount }
         val pdf = PdfDocument()
-        var pageNum = 1
-        var page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create())
-        var canvas = page.canvas
-
-        fun startNewPage() {
-            pdf.finishPage(page)
-            pageNum += 1
-            page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create())
-            canvas = page.canvas
-        }
+        val ctx = PageCtx(pdf)
 
         // ── Page 1: Top Sheet ──────────────────────────────────────────────
         // Conveyance claims count only via their category rows; every other
@@ -114,13 +138,13 @@ object PettyCashTopSheetPdfWriter {
         val officeTotal = settled.filter { !isConveyanceClaim(it) && groupOf(it.category) == "office" }.sumOf { it.settledAmount }
         val utilitiesTotal = settled.filter { !isConveyanceClaim(it) && groupOf(it.category) == "utilities" }.sumOf { it.settledAmount }
         drawTopSheetPage(
-            canvas, operationTotal, officeTotal, utilitiesTotal,
+            ctx.canvas, operationTotal, officeTotal, utilitiesTotal,
             branchName, branchRegion, pettyCashLimit,
             pocName, pocEmployeeId, pocDesignation, pocContact, fromDateIso, toDateIso,
         )
 
         // ── Page 2: Petty Cash Expense Summary ──────────────────────────────
-        startNewPage()
+        ctx.nextPage()
         // Dynamic rows straight from the data: distinct categories per group
         // (conveyance rows show the saved category verbatim — Pickup, Bulk
         // Delivery, InterChange, whatever the table holds).
@@ -136,14 +160,14 @@ object PettyCashTopSheetPdfWriter {
             .filter { groupOf(it) == "utilities" }.sorted()
             .map { it to categoryTotal(it) }
         drawExpenseSummaryPage(
-            canvas, opCategoryRows, convTypeRows, officeRows, utilitiesRows,
+            ctx, opCategoryRows, convTypeRows, officeRows, utilitiesRows,
             branchName, branchRegion,
             pocName, pocEmployeeId, pocDesignation, pocContact, fromDateIso, toDateIso,
         )
 
         // ── Page 3: Agent Acknowledgement ────────────────────────────────────
-        startNewPage()
-        drawAgentAcknowledgementPage(canvas, settled, fromDateIso, pocName, pocEmployeeId, pocDesignation)
+        ctx.nextPage()
+        drawAgentAcknowledgementPage(ctx, settled, fromDateIso, pocName, pocEmployeeId, pocDesignation)
 
         // ── Page 4+: Conveyance Voucher, one page per agent with conveyance
         // claims. Agents ordered by their first appearance in the settled
@@ -158,12 +182,12 @@ object PettyCashTopSheetPdfWriter {
             val agentClaims = conveyanceClaims.filter { it.agentSystemId == agentSystemId }
                 .sortedBy { it.placedDate }
             if (agentClaims.isEmpty()) return@forEach
-            startNewPage()
-            drawConveyanceVoucherPage(canvas, agentClaims, voucherSl)
+            ctx.nextPage()
+            drawConveyanceVoucherPage(ctx, agentClaims, voucherSl)
             voucherSl += 1
         }
 
-        pdf.finishPage(page)
+        ctx.finish()
         outFile.outputStream().use { pdf.writeTo(it) }
         pdf.close()
     }
@@ -241,7 +265,7 @@ object PettyCashTopSheetPdfWriter {
     // ── Page 2: Petty Cash Expense Summary ──────────────────────────────────
 
     private fun drawExpenseSummaryPage(
-        canvas: Canvas,
+        ctx: PageCtx,
         opCategoryRows: List<Pair<String, Double>>,
         convTypeRows: List<Pair<String, Double>>,
         officeRows: List<Pair<String, Double>>,
@@ -250,6 +274,7 @@ object PettyCashTopSheetPdfWriter {
         pocName: String, pocEmployeeId: String, pocDesignation: String, pocContact: String,
         fromDateIso: String, toDateIso: String,
     ) {
+        var canvas = ctx.canvas
         var y = margin
         val titlePaint = textPaint(darkColor, 12f, bold = true)
         val labelPaint = textPaint(darkColor, 8.5f, bold = true)
@@ -273,10 +298,15 @@ object PettyCashTopSheetPdfWriter {
         val rowHeightSmall = 12f
 
         // A. Operation Expense — operation-group category rows first, then one
-        // row per saved conveyance type (verbatim from the data).
+        // row per saved conveyance type (verbatim from the data). Long lists
+        // continue on the next page with the group header repeated.
         y = drawSummaryGroupHeader(canvas, y, "A. Operation Expense", "Amount", strokeBorder, headerFillColor)
         val operationRows = opCategoryRows + convTypeRows
         operationRows.forEachIndexed { i, (label, amount) ->
+            if (y + rowHeightSmall > pageHeight - margin) {
+                ctx.nextPage(); canvas = ctx.canvas; y = margin
+                y = drawSummaryGroupHeader(canvas, y, "A. Operation Expense (contd.)", "Amount", strokeBorder, headerFillColor)
+            }
             y = drawSummaryLineRow(canvas, y, i + 1, label, amount, rowHeightSmall, strokeBorder)
         }
         val operationSectionTotal = operationRows.sumOf { it.second }
@@ -285,6 +315,10 @@ object PettyCashTopSheetPdfWriter {
         // B. Office Maintenance Cost.
         y = drawSummaryGroupHeader(canvas, y, "B. Office Maintaince Cost", "Amount", strokeBorder, headerFillColor)
         officeRows.forEachIndexed { i, (label, amount) ->
+            if (y + rowHeightSmall > pageHeight - margin) {
+                ctx.nextPage(); canvas = ctx.canvas; y = margin
+                y = drawSummaryGroupHeader(canvas, y, "B. Office Maintaince Cost (contd.)", "Amount", strokeBorder, headerFillColor)
+            }
             y = drawSummaryLineRow(canvas, y, i + 1, label, amount, rowHeightSmall, strokeBorder)
         }
         val officeTotal = officeRows.sumOf { it.second }
@@ -293,6 +327,10 @@ object PettyCashTopSheetPdfWriter {
         // C. Utilities Expense.
         y = drawSummaryGroupHeader(canvas, y, "C. Utilities Expense", "Amount", strokeBorder, headerFillColor)
         utilitiesRows.forEachIndexed { i, (label, amount) ->
+            if (y + rowHeightSmall > pageHeight - margin) {
+                ctx.nextPage(); canvas = ctx.canvas; y = margin
+                y = drawSummaryGroupHeader(canvas, y, "C. Utilities Expense (contd.)", "Amount", strokeBorder, headerFillColor)
+            }
             y = drawSummaryLineRow(canvas, y, i + 1, label, amount, rowHeightSmall, strokeBorder)
         }
         val utilitiesTotal = utilitiesRows.sumOf { it.second }
@@ -300,10 +338,17 @@ object PettyCashTopSheetPdfWriter {
 
         y += 8f
         val grandTotal = operationSectionTotal + officeTotal + utilitiesTotal
+        // Keep grand total + sign-off together: break before them if tight.
+        if (y + 14f + 20f + 34f > pageHeight - margin) {
+            ctx.nextPage(); canvas = ctx.canvas; y = margin
+        }
         y = drawSummaryTotalRow(canvas, y, "Total Cost (A+B+C)", grandTotal, strokeBorder, emphasize = true)
         y += 20f
 
-        // Sign-off row.
+        // Sign-off row — keep it whole on one page.
+        if (y + 34f > pageHeight - margin) {
+            ctx.nextPage(); canvas = ctx.canvas; y = margin
+        }
         val signOffLabels = listOf("Prepared By", "Incharge", "Checked By FFM", "Acknowledged by Admin", "Acknowledged by Lead (Ops)")
         val colWidth = contentWidth / signOffLabels.size
         signOffLabels.forEachIndexed { i, label ->
@@ -317,13 +362,14 @@ object PettyCashTopSheetPdfWriter {
     // ── Page 3: Agent Acknowledgement ────────────────────────────────────────
 
     private fun drawAgentAcknowledgementPage(
-        canvas: Canvas,
+        ctx: PageCtx,
         settled: List<SupabaseClaimsReader.ClaimRow>,
         fromDateIso: String,
         pocName: String,
         pocEmployeeId: String,
         pocDesignation: String,
     ) {
+        var canvas = ctx.canvas
         var y = margin
         val titlePaint = textPaint(darkColor, 12f, bold = true).apply { textAlign = Paint.Align.CENTER }
         val labelPaint = textPaint(darkColor, 8.5f, bold = true)
@@ -360,12 +406,25 @@ object PettyCashTopSheetPdfWriter {
         // "Delivered" alone read as delivery-only.
         val headers = listOf("SL" to 0.06f, "Name" to 0.22f, "ID" to 0.12f, "Amount" to 0.12f, "Total Succeeded" to 0.13f, "Active Contact Number" to 0.17f, "Received by Signature" to 0.18f)
         y = drawTableHeaderRow(canvas, y, headers, strokeBorder, headerFillColor)
-        summaries.forEachIndexed { i, s ->
+        // Agent rows continue on fresh pages with the header repeated; SL
+        // numbers keep counting across the break.
+        var sl = 1
+        summaries.forEach { s ->
+            if (y + 14f > pageHeight - margin - 42f) {
+                ctx.nextPage(); canvas = ctx.canvas; y = margin
+                y = drawTableHeaderRow(canvas, y, headers, strokeBorder, headerFillColor)
+            }
             y = drawDataRow(
                 canvas, y,
-                listOf((i + 1).toString(), s.name, s.systemId, moneyFormat.format(s.amount), s.delivered.toString(), s.phone, ""),
+                listOf(sl.toString(), s.name, s.systemId, moneyFormat.format(s.amount), s.delivered.toString(), s.phone, ""),
                 headers.map { it.second }, strokeBorder, alignRight = setOf(3, 4),
             )
+            sl += 1
+        }
+        // Keep the total row + in-words line together on one page.
+        if (y + 14f + 24f > pageHeight - margin) {
+            ctx.nextPage(); canvas = ctx.canvas; y = margin
+            y = drawTableHeaderRow(canvas, y, headers, strokeBorder, headerFillColor)
         }
         val totalAmount = summaries.sumOf { it.amount }
         val totalDelivered = summaries.sumOf { it.delivered }
@@ -381,10 +440,11 @@ object PettyCashTopSheetPdfWriter {
     // ── Page 4+: Conveyance Voucher (one page per agent) ────────────────────
 
     private fun drawConveyanceVoucherPage(
-        canvas: Canvas,
+        ctx: PageCtx,
         agentClaims: List<SupabaseClaimsReader.ClaimRow>,
         sl: Int,
     ) {
+        var canvas = ctx.canvas
         var y = margin
         val titlePaint = textPaint(darkColor, 12f, bold = true)
         val labelPaint = textPaint(darkColor, 8.5f, bold = true)
@@ -402,7 +462,13 @@ object PettyCashTopSheetPdfWriter {
 
         val headers = listOf("Date" to 0.11f, "From" to 0.13f, "Destination" to 0.13f, "Description" to 0.14f, "Vehicle" to 0.09f, "Amount" to 0.09f, "Attempted" to 0.10f, "Succeeded" to 0.09f, "CID / Merchant" to 0.12f)
         y = drawTableHeaderRow(canvas, y, headers, strokeBorder, headerFillColor)
+        // Long claim lists continue on fresh pages with the table header
+        // repeated (agent block stays on the first page only).
         agentClaims.forEach { claim ->
+            if (y + 14f > pageHeight - margin - 46f) {
+                ctx.nextPage(); canvas = ctx.canvas; y = margin
+                y = drawTableHeaderRow(canvas, y, headers, strokeBorder, headerFillColor)
+            }
             val dateLabel = runCatching { dateDisplayFormat.format(dateIsoFormat.parse(claim.placedDate) ?: java.util.Date()) }.getOrDefault(claim.placedDate)
             y = drawDataRow(
                 canvas, y,
@@ -416,6 +482,10 @@ object PettyCashTopSheetPdfWriter {
         }
         val gTotal = agentClaims.sumOf { it.settledAmount }
         val totalDelivered = agentClaims.sumOf { it.deliveredQuantity }
+        // Keep G/Total + In-word together on one page.
+        if (y + 13f + 16f > pageHeight - margin) {
+            ctx.nextPage(); canvas = ctx.canvas; y = margin
+        }
         y += 4f
         canvas.drawText("G/Total = ${moneyFormat.format(gTotal)}   Total Succeeded = $totalDelivered", margin, y + 9f, textPaint(darkColor, 8.5f, bold = true))
         y += 16f
