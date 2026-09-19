@@ -294,16 +294,19 @@ fun deriveValidation(feedback: String): String {
     return if (f.equals("Willing to receive today", ignoreCase = true)) "Invalid" else "Valid"
 }
 
-/** Derives final family status for sheet: Delivered / Return / Hold.
+/** Derives final family status for sheet: Delivered / Returned / Hold / blank.
  *  Source: validations.consignment_status (live run status, sync_run_status).
- *  Mapping covers the 12 distinct live values (case-insensitive):
+ *  Mapping (case-insensitive):
  *  - Delivered family: Delivered, Partial Delivery, Paid Return
  *  - Return family: Return, Return Requested
- *  - Hold family: everything else (Assigned*, On hold, On the Way*, Reattempt Requested, unknown/blank)
- *  Keeps sheet column to 3 buckets as requested (not raw courier statuses). */
+ *  - Blank family: Assigned* (Assigned, Assigned for Delivery), On the Way*
+ *    (On the way, On the way to last mile hub) — sheet stays blank, never Hold
+ *  - Hold family: everything else (On hold, Reattempt Requested, unknown/blank)
+ *  Blank final also yields blank action (never-clear rule keeps the sheet cell blank). */
 fun deriveFinalStatus(consignmentStatus: String): String {
     val s = consignmentStatus.trim().lowercase()
     if (s.isEmpty()) return "Hold"
+    if (s == "assigned" || s.startsWith("assigned ") || s.contains("on the way")) return ""
     return when (s) {
         "delivered", "partial delivery", "paid return" -> "Delivered"
         "return", "return requested" -> "Returned"
