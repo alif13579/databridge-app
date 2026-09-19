@@ -249,17 +249,17 @@
                 android:paddingHorizontal="14dp"
                 android:layout_marginEnd="8dp" />
 
-            <TextView
-                android:id="@+id/btnPcAllReqBulkUpdate"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:gravity="center"
-                android:text="Update"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:textColor="#FFFFFF"
-                android:backgroundTint="#059669"
-                android:paddingHorizontal="18dp" />
+                <TextView
+                    android:id="@+id/btnPcAllReqBulkUpdate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="40dp"
+                    android:gravity="center"
+                    android:text="Update"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/bg_action_button_green"
+                    android:paddingHorizontal="18dp" />
         </LinearLayout>
     </LinearLayout>
 </FrameLayout>

@@ -241,7 +241,7 @@
                     android:textSize="13sp"
                     android:textStyle="bold"
                     android:textColor="#FFFFFF"
-                    android:backgroundTint="#059669"
+                    android:background="@drawable/bg_action_button_green"
                     android:paddingHorizontal="18dp" />
             </LinearLayout>
 
