@@ -213,7 +213,8 @@
             </LinearLayout>
         </ScrollView>
 
-        <!-- Bulk-update bar: visible only in select mode with 1+ picked. -->
+        <!-- Bulk-update bar: visible through all of select mode (Update
+             disabled until 1+ picked, so the action can't be missed). -->
         <LinearLayout
             android:id="@+id/layoutPcAllReqBulkBar"
             android:layout_width="match_parent"

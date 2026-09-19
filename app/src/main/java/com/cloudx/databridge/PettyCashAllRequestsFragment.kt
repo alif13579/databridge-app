@@ -132,7 +132,10 @@ class PettyCashAllRequestsFragment : Fragment() {
         view.findViewById<View>(R.id.btnPcAllReqSelect).setOnClickListener {
             selectMode = !selectMode
             if (!selectMode) selectedIds.clear()
-            view.findViewById<TextView>(R.id.btnPcAllReqSelect).text = if (selectMode) "Done" else "Select"
+            // "Cancel" — not "Done": this button only exits select mode
+            // (dropping picks), it never applies anything. The bottom
+            // Update bar is the applier.
+            view.findViewById<TextView>(R.id.btnPcAllReqSelect).text = if (selectMode) "Cancel" else "Select"
             if (selectMode) guideIfNothingEligible()
             renderList(view)
         }
@@ -544,20 +547,29 @@ class PettyCashAllRequestsFragment : Fragment() {
         }
     }
 
-    /** Bottom bulk bar: "N selected · Total ৳X", shown only in select mode
-     *  with at least one pick. */
+    /** Bottom bulk bar: always visible in select mode (so the Update action
+     *  can't be missed) — Update stays disabled until at least one pick. */
     private fun updateBulkBar() {
         val root = view ?: return
         val bar = root.findViewById<View>(R.id.layoutPcAllReqBulkBar)
-        if (!selectMode || selectedIds.isEmpty()) {
+        if (!selectMode) {
             bar.isVisible = false
             return
         }
-        val picked = latestState?.requests.orEmpty().filter { it.id in selectedIds }
-        val total = picked.sumOf { bulkDefaultAmount(it) }
-        root.findViewById<TextView>(R.id.tvPcAllReqBulkSummary).text =
-            "${picked.size} selected · Total ${pettyCashTaka(total)}"
         bar.isVisible = true
+        val updateBtn = root.findViewById<TextView>(R.id.btnPcAllReqBulkUpdate)
+        val picked = latestState?.requests.orEmpty().filter { it.id in selectedIds }
+        if (picked.isEmpty()) {
+            root.findViewById<TextView>(R.id.tvPcAllReqBulkSummary).text = "Tick claims above, then Update"
+            updateBtn.isEnabled = false
+            updateBtn.alpha = 0.4f
+        } else {
+            val total = picked.sumOf { bulkDefaultAmount(it) }
+            root.findViewById<TextView>(R.id.tvPcAllReqBulkSummary).text =
+                "${picked.size} selected · Total ${pettyCashTaka(total)}"
+            updateBtn.isEnabled = true
+            updateBtn.alpha = 1f
+        }
     }
 
     /** Next-status options for the picked claims, in pipeline order — only
