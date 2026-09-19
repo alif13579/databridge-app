@@ -123,28 +123,21 @@ class PettyCashAllRequestsFragment : Fragment() {
         view.findViewById<View>(R.id.btnPcAllReqBack).setOnClickListener {
             parentFragmentManager.popBackStack()
         }
-        view.findViewById<View>(R.id.btnPcAllReqFilter).setOnClickListener {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
-        view.findViewById<View>(R.id.btnPcAllReqSelect).setOnClickListener {
+        view.findViewById<View>(R.id.tvPcAllReqAgent).setOnClickListener { showAgentPicker() }
+        view.findViewById<View>(R.id.tvPcAllReqSelectMode).setOnClickListener {
             selectMode = !selectMode
             if (!selectMode) selectedIds.clear()
-            // "Cancel" — not "Done": this button only exits select mode
-            // (dropping picks), it never applies anything. The bottom
-            // Update bar is the applier.
-            view.findViewById<TextView>(R.id.btnPcAllReqSelect).text = if (selectMode) "Cancel" else "Select"
+            // "Cancel": only exits select mode (dropping picks), never
+            // applies anything. The bottom Update bar is the applier.
+            view.findViewById<TextView>(R.id.tvPcAllReqSelectMode).text = if (selectMode) "Cancel" else "☑ Select"
             if (selectMode) guideIfNothingEligible()
             renderList(view)
         }
-        view.findViewById<View>(R.id.tvPcAllReqAgent).setOnClickListener { showAgentPicker() }
         view.findViewById<View>(R.id.tvPcAllReqSelectAll).setOnClickListener { toggleSelectAllFiltered() }
         view.findViewById<View>(R.id.btnPcAllReqBulkCancel).setOnClickListener {
             selectMode = false
             selectedIds.clear()
-            view.findViewById<TextView>(R.id.btnPcAllReqSelect).text = "Select"
+            view.findViewById<TextView>(R.id.tvPcAllReqSelectMode).text = "☑ Select"
             renderList(view)
         }
         view.findViewById<View>(R.id.btnPcAllReqBulkUpdate).setOnClickListener { showBulkUpdateDialog() }
@@ -215,7 +208,7 @@ class PettyCashAllRequestsFragment : Fragment() {
                 // as the Requests list screen.
                 val canBulk = state.roles.isAnyApprover
                 canBulkSelect = canBulk
-                root.findViewById<View>(R.id.btnPcAllReqSelect)?.isVisible = canBulk
+                root.findViewById<View>(R.id.tvPcAllReqSelectMode)?.isVisible = canBulk
                 if (!canBulk) {
                     selectMode = false
                     selectedIds.clear()
@@ -788,7 +781,7 @@ class PettyCashAllRequestsFragment : Fragment() {
                     d.dismiss()
                     selectMode = false
                     selectedIds.clear()
-                    view?.findViewById<TextView>(R.id.btnPcAllReqSelect)?.text = "Select"
+                    view?.findViewById<TextView>(R.id.tvPcAllReqSelectMode)?.text = "☑ Select"
                     if (branchId.isNotBlank()) viewModel.load(branchId) else view?.let { renderList(it) }
                 } else {
                     val friendly = "⚠ $failed failed — list reloaded, retry the rest"

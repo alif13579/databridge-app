@@ -54,28 +54,6 @@
                     android:src="@android:drawable/ic_menu_recent_history"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="Settlement History" />
-
-                <TextView
-                    android:id="@+id/btnPcPendingSelect"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:gravity="center"
-                    android:text="Select"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    android:textColor="#059669"
-                    android:paddingHorizontal="10dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Bulk select"
-                    android:visibility="gone" />
-
-                <ImageButton
-                    android:id="@+id/btnPcPendingFilter"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:src="@android:drawable/ic_menu_sort_by_size"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Filter" />
             </LinearLayout>
 
             <!-- Filter tabs: All + one per status actually present (up to 7
@@ -119,6 +97,18 @@
                     android:textColor="#6D28D9"
                     android:background="@drawable/bg_pc_tab_inactive"
                     android:paddingHorizontal="12dp" />
+
+                <TextView
+                    android:id="@+id/tvPcPendingSelectMode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:gravity="center_vertical"
+                    android:text="☑ Select"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#059669"
+                    android:paddingHorizontal="10dp"
+                    android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/tvPcPendingSelectAll"

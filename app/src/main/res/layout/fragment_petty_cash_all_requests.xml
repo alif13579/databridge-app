@@ -38,32 +38,7 @@
                     android:textStyle="bold"
                     android:textColor="#0F172A"
                     android:layout_marginStart="8dp" />
-
-                <TextView
-                    android:id="@+id/btnPcAllReqSelect"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:gravity="center"
-                    android:text="Select"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    android:textColor="#059669"
-                    android:paddingHorizontal="10dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Bulk select"
-                    android:visibility="gone" />
-
-                <!-- Filter (date / status / category / requester). The old
-                     duplicate Search icon opened this same screen, so it was
-                     removed — one entry point, no dead buttons. -->
-                <ImageButton
-                    android:id="@+id/btnPcAllReqFilter"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:src="@android:drawable/ic_menu_sort_by_size"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Filter" />
-        </LinearLayout>
+            </LinearLayout>
 
         <!-- Filter tabs: All / My Requests / Pending / Approved / Settled -->
         <HorizontalScrollView
@@ -102,6 +77,18 @@
                 android:textColor="#6D28D9"
                 android:background="@drawable/bg_pc_tab_inactive"
                 android:paddingHorizontal="12dp" />
+
+            <TextView
+                android:id="@+id/tvPcAllReqSelectMode"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:gravity="center_vertical"
+                android:text="☑ Select"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#059669"
+                android:paddingHorizontal="10dp"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/tvPcAllReqSelectAll"

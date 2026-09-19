@@ -145,28 +145,21 @@ class PettyCashPendingSettlementFragment : Fragment() {
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
-        view.findViewById<View>(R.id.btnPcPendingFilter).setOnClickListener {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
-        view.findViewById<View>(R.id.btnPcPendingSelect).setOnClickListener {
+        view.findViewById<View>(R.id.tvPcPendingAgent).setOnClickListener { showAgentPicker() }
+        view.findViewById<View>(R.id.tvPcPendingSelectMode).setOnClickListener {
             selectMode = !selectMode
             if (!selectMode) selectedIds.clear()
-            // "Cancel" — not "Done": this button only exits select mode
-            // (dropping picks), it never applies anything. The bottom
-            // Update bar is the applier.
-            view.findViewById<TextView>(R.id.btnPcPendingSelect).text = if (selectMode) "Cancel" else "Select"
+            // "Cancel": only exits select mode (dropping picks), never
+            // applies anything. The bottom Update bar is the applier.
+            view.findViewById<TextView>(R.id.tvPcPendingSelectMode).text = if (selectMode) "Cancel" else "☑ Select"
             if (selectMode) guideIfNothingEligible()
             renderList()
         }
-        view.findViewById<View>(R.id.tvPcPendingAgent).setOnClickListener { showAgentPicker() }
         view.findViewById<View>(R.id.tvPcPendingSelectAll).setOnClickListener { toggleSelectAllFiltered() }
         view.findViewById<View>(R.id.btnPcBulkCancel).setOnClickListener {
             selectMode = false
             selectedIds.clear()
-            view.findViewById<TextView>(R.id.btnPcPendingSelect).text = "Select"
+            view.findViewById<TextView>(R.id.tvPcPendingSelectMode).text = "☑ Select"
             renderList()
         }
         view.findViewById<View>(R.id.btnPcBulkUpdate).setOnClickListener { showBulkUpdateDialog() }
@@ -231,7 +224,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
                 // action buttons below (canSettle is Accounts-only there).
                 val canBulk = !myRequestsOnly && state.roles.isAnyApprover
                 canBulkSelect = canBulk
-                view?.findViewById<View>(R.id.btnPcPendingSelect)?.isVisible = canBulk
+                view?.findViewById<View>(R.id.tvPcPendingSelectMode)?.isVisible = canBulk
                 if (!canBulk) {
                     selectMode = false
                     selectedIds.clear()
@@ -837,7 +830,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
                     d.dismiss()
                     selectMode = false
                     selectedIds.clear()
-                    view?.findViewById<TextView>(R.id.btnPcPendingSelect)?.text = "Select"
+                    view?.findViewById<TextView>(R.id.tvPcPendingSelectMode)?.text = "☑ Select"
                     if (branchId.isNotBlank()) viewModel.load(branchId) else renderList()
                 } else {
                     val friendly = "⚠ $failed failed — list reloaded, retry the rest"
