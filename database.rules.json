@@ -233,6 +233,7 @@
       "consignments": {
         ".read": "auth != null",
         ".write": "auth != null",
+        ".indexOn": ["status", "recipientPhone", "deliveryHub", "scheduled_date"],
         "$consignmentId": {
           ".indexOn": ["status", "recipientPhone", "deliveryHub"]
         }
