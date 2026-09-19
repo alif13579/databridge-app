@@ -92,11 +92,13 @@ class ConfigStatusesFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Loading...")
             val loaded = reloadConfig()
-            if (!loaded) Toast.makeText(requireContext(), "Status load failed", Toast.LENGTH_LONG).show()
-            if (isAdded) {
-                bindStatusList()
-                setBusy(false)
-            }
+            // reloadConfig() suspends on Firebase/Supabase — user may have left
+            // this tab meanwhile (tasks.await() ignores cancellation), so never
+            // touch requireContext()/views when detached.
+            if (!isAdded) return@launch
+            if (!loaded) context?.let { Toast.makeText(it, "Status load failed", Toast.LENGTH_LONG).show() }
+            bindStatusList()
+            setBusy(false)
         }
     }
 
@@ -170,6 +172,7 @@ class ConfigStatusesFragment : Fragment() {
 
     // ── Bind status list ──────────────────────────────────────────────────────
     private fun bindStatusList() {
+        if (!isAdded || !::statusListContainer.isInitialized) return
         statusListContainer.removeAllViews()
         val sorted = sortedStatuses()
         tvEmpty.visibility = if (sorted.isEmpty()) View.VISIBLE else View.GONE
@@ -179,7 +182,7 @@ class ConfigStatusesFragment : Fragment() {
             val countCC    = remarksCallCenter[key]?.size ?: 0
             val count      = countW + countCC
 
-            val row = LayoutInflater.from(requireContext())
+            val row = LayoutInflater.from(statusListContainer.context)
                 .inflate(R.layout.item_status_row, statusListContainer, false)
 
             val dot = row.findViewById<View>(R.id.viewStatusDot)
@@ -273,10 +276,12 @@ class ConfigStatusesFragment : Fragment() {
                     setBusy(true, "Saving...")
                     if (saveStatusMeta()) {
                         reloadConfig()
+                        if (!isAdded) return@launch
                         bindStatusList()
                         setBusy(false)
                         Toast.makeText(ctx, "Changed", Toast.LENGTH_SHORT).show()
                     } else {
+                        if (!isAdded) return@launch
                         setBusy(false)
                         Toast.makeText(ctx, "Status save failed", Toast.LENGTH_LONG).show()
                     }
@@ -365,14 +370,16 @@ class ConfigStatusesFragment : Fragment() {
             val ccOk = (remarksCallCenter[key]?.size ?: 0) == 0 ||
                 (SupabaseRemarkValidationWriter.adminMigrateStatusRemarks("CC", key, migrateCcTarget ?: "") is SupabaseRemarkValidationWriter.AdminResult.Ok)
             val ok = workerOk && ccOk && saveStatusMeta()
+            if (!isAdded) return@launch
             if (ok) {
                 reloadConfig()
+                if (!isAdded) return@launch
                 bindStatusList()
                 setBusy(false)
-                Toast.makeText(requireContext(), "Deleted", Toast.LENGTH_SHORT).show()
+                context?.let { Toast.makeText(it, "Deleted", Toast.LENGTH_SHORT).show() }
             } else {
                 setBusy(false)
-                Toast.makeText(requireContext(), "Status delete save failed", Toast.LENGTH_LONG).show()
+                context?.let { Toast.makeText(it, "Status delete save failed", Toast.LENGTH_LONG).show() }
             }
         }
     }
@@ -406,12 +413,14 @@ class ConfigStatusesFragment : Fragment() {
             setBusy(true, "Creating...")
             if (saveStatusMeta()) {
                 reloadConfig()
+                if (!isAdded) return@launch
                 bindStatusList()
                 setBusy(false)
-                Toast.makeText(requireContext(), "Created", Toast.LENGTH_SHORT).show()
+                context?.let { Toast.makeText(it, "Created", Toast.LENGTH_SHORT).show() }
             } else {
+                if (!isAdded) return@launch
                 setBusy(false)
-                Toast.makeText(requireContext(), "Status create failed", Toast.LENGTH_LONG).show()
+                context?.let { Toast.makeText(it, "Status create failed", Toast.LENGTH_LONG).show() }
             }
         }
         etNewKey.setText(""); etNewBn.setText(""); etNewEn.setText(""); etNewSortOrder.setText("0")
@@ -632,18 +641,20 @@ class ConfigStatusesFragment : Fragment() {
             setBusy(true, "Creating...")
             if (saveStatusMeta()) {
                 reloadConfig()
+                if (!isAdded) return@launch
                 bindStatusList()
                 setBusy(false)
-                Toast.makeText(requireContext(), "Created", Toast.LENGTH_SHORT).show()
-                onSuccess()
+                context?.let { Toast.makeText(it, "Created", Toast.LENGTH_SHORT).show() }
+                if (isAdded) onSuccess()
             } else {
                 ConfigState.statuses = ConfigState.statuses.filter { it != key }
                 val rolledBack = ConfigState.statusMeta.toMutableMap()
                 rolledBack.remove(key)
                 ConfigState.statusMeta = rolledBack
+                if (!isAdded) return@launch
                 bindStatusList()
                 setBusy(false)
-                Toast.makeText(requireContext(), "Status create failed", Toast.LENGTH_LONG).show()
+                context?.let { Toast.makeText(it, "Status create failed", Toast.LENGTH_LONG).show() }
             }
         }
     }
@@ -750,10 +761,10 @@ class ConfigStatusesFragment : Fragment() {
     private fun buildColorPicker(container: LinearLayout, selectedIdx: Int, onPick: (Int) -> Unit) {
         container.removeAllViews()
         // dp (not raw px): 60px is ~20dp on xxxhdpi — nearly untappable.
-        val dotDp = (40 * resources.displayMetrics.density).toInt()
-        val marginDp = (6 * resources.displayMetrics.density).toInt()
+        val dotDp = (40 * container.context.resources.displayMetrics.density).toInt()
+        val marginDp = (6 * container.context.resources.displayMetrics.density).toInt()
         statusColors.forEachIndexed { i, (color, _) ->
-            val dot = View(requireContext()).apply {
+            val dot = View(container.context).apply {
                 layoutParams = LinearLayout.LayoutParams(dotDp, dotDp).apply { setMargins(marginDp, 0, marginDp, 0) }
                 setBackgroundColor(android.graphics.Color.parseColor(color))
                 // Selected ring vs unselected: alpha alone is invisible to
@@ -816,7 +827,7 @@ class ConfigStatusesFragment : Fragment() {
         }
 
     private fun setBusy(show: Boolean, text: String = "Loading...") {
-        if (!::busyOverlay.isInitialized) return
+        if (!isAdded || view == null || !::busyOverlay.isInitialized) return
         tvBusy.text = text
         busyOverlay.visibility = if (show) View.VISIBLE else View.GONE
     }

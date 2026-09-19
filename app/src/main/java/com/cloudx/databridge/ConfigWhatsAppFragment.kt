@@ -58,11 +58,10 @@ class ConfigWhatsAppFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Loading...")
             val loaded = reloadConfig()
-            if (!loaded) Toast.makeText(requireContext(), "Template load failed", Toast.LENGTH_LONG).show()
-            if (isAdded) {
-                bindList()
-                setBusy(false)
-            }
+            if (!isAdded) return@launch
+            if (!loaded) context?.let { Toast.makeText(it, "Template load failed", Toast.LENGTH_LONG).show() }
+            bindList()
+            setBusy(false)
         }
     }
 

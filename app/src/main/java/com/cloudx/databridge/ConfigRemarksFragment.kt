@@ -110,11 +110,10 @@ class ConfigRemarksFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             setBusy(true, "Loading...")
             val loaded = reloadConfig()
-            if (!loaded) Toast.makeText(requireContext(), "Remarks load failed", Toast.LENGTH_LONG).show()
-            if (isAdded) {
-                bindAll()
-                setBusy(false)
-            }
+            if (!isAdded) return@launch
+            if (!loaded) context?.let { Toast.makeText(it, "Remarks load failed", Toast.LENGTH_LONG).show() }
+            bindAll()
+            setBusy(false)
         }
     }
 

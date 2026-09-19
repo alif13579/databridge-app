@@ -233,12 +233,12 @@ class ConfigAreasFragment : Fragment() {
                     branchIds = listOf(requestedBranch),
                     usages = listOf(requestedUsage),
                 )
-                if (selectedBranchId != requestedBranch || activeType.usage != requestedUsage) return@launch
+                if (!isAdded || selectedBranchId != requestedBranch || activeType.usage != requestedUsage) return@launch
                 areas = result.sortedBy { it.name.lowercase() }
                 renderList()
             } catch (e: Exception) {
-                if (selectedBranchId == requestedBranch && activeType.usage == requestedUsage) {
-                    Toast.makeText(requireContext(), "Failed to load areas: ${e.message}", Toast.LENGTH_LONG).show()
+                if (isAdded && selectedBranchId == requestedBranch && activeType.usage == requestedUsage) {
+                    context?.let { Toast.makeText(it, "Failed to load areas: ${e.message}", Toast.LENGTH_LONG).show() }
                 }
             } finally {
                 if (selectedBranchId == requestedBranch && activeType.usage == requestedUsage) setBusy(false)

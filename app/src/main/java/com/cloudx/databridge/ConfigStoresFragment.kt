@@ -83,7 +83,7 @@ class ConfigStoresFragment : Fragment() {
                     usages = listOf("pickup"),
                 ).sortedBy { it.name.lowercase() }
             } catch (e: Exception) {
-                Toast.makeText(requireContext(), "Failed to load pickup areas: ${e.message}", Toast.LENGTH_LONG).show()
+                if (isAdded) context?.let { Toast.makeText(it, "Failed to load pickup areas: ${e.message}", Toast.LENGTH_LONG).show() }
             }
         }
     }
@@ -95,11 +95,12 @@ class ConfigStoresFragment : Fragment() {
                 // Store directory lives in Supabase now (public.stores) —
                 // same screen the request form's picker reads from.
                 stores = SupabaseClaimsReader.fetchStores()
+                if (!isAdded) return@launch
                 renderList()
             } catch (e: Exception) {
-                Toast.makeText(requireContext(), "Failed to load stores: ${e.message}", Toast.LENGTH_LONG).show()
+                if (isAdded) context?.let { Toast.makeText(it, "Failed to load stores: ${e.message}", Toast.LENGTH_LONG).show() }
             } finally {
-                setBusy(false)
+                if (isAdded) setBusy(false)
             }
         }
     }
