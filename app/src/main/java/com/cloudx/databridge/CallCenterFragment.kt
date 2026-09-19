@@ -1698,6 +1698,12 @@ class CallCenterFragment : Fragment() {
         var selectedStoredRemarkText = entry.remarksEn
         var selectedDisplayRemarkText = ""
         var selectedBnText = ""
+        // 📅 Schedule state (Firebase consignment node, same as the fresh
+        // dialog) — declared up here so refreshSaveEnabled() can see it.
+        var pendingScheduled = ScheduledLock.normalize(
+            allParcels.firstOrNull { it.id == consignmentId }?.scheduledDate.orEmpty()
+        )
+        var scheduleTouched = false
         val optionViews = mutableListOf<android.view.View>()
 
         fun highlight(selected: android.view.View?) {
@@ -1717,7 +1723,7 @@ class CallCenterFragment : Fragment() {
 
         fun refreshSaveEnabled() {
             val hasNote = etRemarks.text?.toString()?.trim().orEmpty().isNotBlank()
-            val enabled = selectedStatus.isNotBlank() || hasNote
+            val enabled = selectedStatus.isNotBlank() || hasNote || scheduleTouched
             btnSave.isEnabled = enabled
             btnSave.alpha = if (enabled) 1f else 0.5f
         }
@@ -1732,6 +1738,70 @@ class CallCenterFragment : Fragment() {
             }
         })
         btnClearNote.setOnClickListener { etRemarks.setText("") }
+
+        // ── 📅 Scheduled delivery calendar (same picker as the fresh dialog) ──
+        val density = resources.displayMetrics.density
+        val schedRow = android.widget.LinearLayout(requireContext()).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (14f * density).toInt() }
+        }
+        val btnPickDate = TextView(requireContext()).apply {
+            text = "📅 Scheduled"
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(requireContext().getColor(R.color.theme_text_primary))
+            setBackgroundResource(R.drawable.bg_dashed_button)
+            val p = (10f * density).toInt()
+            setPadding((14f * density).toInt(), p, (14f * density).toInt(), p)
+        }
+        val tvSchedDate = TextView(requireContext()).apply {
+            textSize = 12f
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            setTextColor(requireContext().getColor(R.color.theme_accent))
+            val p = (10f * density).toInt()
+            setPadding(p, p, (4f * density).toInt(), p)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val btnClearSched = TextView(requireContext()).apply {
+            text = "✕"
+            textSize = 14f
+            setTextColor(android.graphics.Color.parseColor("#64748b"))
+            val p = (10f * density).toInt()
+            setPadding(p, p, p, p)
+        }
+        fun refreshSchedRow() {
+            val label = ScheduledLock.fullLabel(pendingScheduled)
+            tvSchedDate.text = if (label.isBlank()) "No date" else "→ $label"
+            tvSchedDate.alpha = if (label.isBlank()) 0.5f else 1f
+            btnClearSched.visibility =
+                if (pendingScheduled.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
+        }
+        btnPickDate.setOnClickListener {
+            showScheduleDatePicker(pendingScheduled) { picked ->
+                pendingScheduled = picked
+                scheduleTouched = true
+                refreshSchedRow()
+                refreshSaveEnabled()
+            }
+        }
+        btnClearSched.setOnClickListener {
+            pendingScheduled = ""
+            scheduleTouched = true
+            refreshSchedRow()
+            refreshSaveEnabled()
+        }
+        schedRow.addView(btnPickDate)
+        schedRow.addView(tvSchedDate)
+        schedRow.addView(btnClearSched)
+        (layoutOptions.parent as? android.view.ViewGroup)?.let { parent ->
+            parent.addView(schedRow, parent.indexOfChild(layoutOptions) + 1)
+        }
+        refreshSchedRow()
 
         if (options.isEmpty()) {
             val tv = TextView(requireContext())
@@ -1790,10 +1860,32 @@ class CallCenterFragment : Fragment() {
         btnCancel.setOnClickListener { dialog.dismiss() }
         btnSave.setOnClickListener {
             val noteText = etRemarks.text?.toString()?.trim().orEmpty()
-            if (selectedStatus.isBlank() && noteText.isBlank()) return@setOnClickListener
+            if (selectedStatus.isBlank() && noteText.isBlank() && !scheduleTouched) return@setOnClickListener
+            // 📅 Schedule-only change (no remark edit): just write/clear the
+            // date on the consignment — no validations-row touch at all.
+            if (selectedStatus.isBlank() && noteText.isBlank()) {
+                writeParcelSchedule(consignmentId, pendingScheduled)
+                val clean = ScheduledLock.normalize(pendingScheduled)
+                allParcels = allParcels.map {
+                    if (it.id == consignmentId) it.copy(scheduledDate = clean) else it
+                }
+                setupFilterTabs()
+                applyFilters()
+                android.widget.Toast.makeText(
+                    requireContext(),
+                    if (clean.isBlank()) "Scheduled date cleared" else "Scheduled — $clean",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                dialog.dismiss()
+                onDone()
+                return@setOnClickListener
+            }
             btnSave.isEnabled = false
             btnSave.alpha = 0.5f
             btnSave.text = "Saving…"
+            // 📅 Remark + schedule together: the date rides along even if the
+            // remark edit later fails/expires (separate Firebase node).
+            if (scheduleTouched) writeParcelSchedule(consignmentId, pendingScheduled)
             viewLifecycleOwner.lifecycleScope.launch {
                 val result = withContext(Dispatchers.IO) {
                     SupabaseRemarkValidationWriter.editAwait(
@@ -1820,10 +1912,12 @@ class CallCenterFragment : Fragment() {
                         RemarkSheetMirror.mirror(appCtx, branchId, consignmentId, feedback, validatorName,
                             onAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() })
                         // Fix 3 — parent card badge refresh (same shape as the save flow).
+                        val cleanScheduled = ScheduledLock.normalize(pendingScheduled)
                         allParcels = allParcels.map {
                             if (it.id == consignmentId) it.copy(
                                 remarkStatus = selectedStatus,
-                                remarks = selectedDisplayRemarkText.ifBlank { noteText }
+                                remarks = selectedDisplayRemarkText.ifBlank { noteText },
+                                scheduledDate = if (scheduleTouched) cleanScheduled else it.scheduledDate
                             ) else it
                         }
                         setupFilterTabs()
@@ -3717,16 +3811,20 @@ class CallCenterFragment : Fragment() {
         var selectedRemarkText  = "" // Display text in the configured CC language.
         var selectedStoredRemarkText = "" // Canonical English text for reporting.
         var selectedTemplateId  = ""
+        // 📅 Scheduled date state lives up here so refreshSaveEnabled() can see
+        // a schedule-only change (no remark needed to enable Save).
+        var pendingScheduled = ScheduledLock.normalize(item.scheduledDate)
+        var scheduleTouched = false
         val optionViews         = mutableListOf<android.view.View>()
 
-        // Enabled once EITHER a remark option is picked OR the note has text —
-        // a note alone (no predefined remark) must still be saveable.
+        // Enabled once a remark option is picked OR the note has text OR the
+        // schedule was picked/cleared — a schedule alone must still be saveable.
         btnSave.isEnabled = false
         btnSave.alpha     = 0.5f
 
         fun refreshSaveEnabled() {
             val hasNote = etRemarks.text?.toString()?.trim().orEmpty().isNotBlank()
-            val enabled = selectedStatus.isNotBlank() || hasNote
+            val enabled = selectedStatus.isNotBlank() || hasNote || scheduleTouched
             btnSave.isEnabled = enabled
             btnSave.alpha     = if (enabled) 1f else 0.5f
         }
@@ -3789,12 +3887,7 @@ class CallCenterFragment : Fragment() {
 
         // ── 📅 Scheduled delivery date ("20 tarikh e nibo") ──────────────
         // Lives on the Firebase consignment node (scheduled_date/by/at), NOT in
-        // the remark rows — so no remark text is needed for the date itself.
-        // Saving from THIS popup always writes a CC remark too, which is what
-        // makes the lock meaningful (a lock without a same-day CC remark
-        // explaining the promise is just a stray date).
-        var pendingScheduled = ScheduledLock.normalize(item.scheduledDate)
-        var scheduleTouched = false
+        // the remark rows — so it can also be saved on its own with no remark.
         val density = resources.displayMetrics.density
         val schedRow = android.widget.LinearLayout(requireContext()).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
@@ -3841,12 +3934,14 @@ class CallCenterFragment : Fragment() {
                 pendingScheduled = picked
                 scheduleTouched = true
                 refreshSchedRow()
+                refreshSaveEnabled()
             }
         }
         btnClearSched.setOnClickListener {
             pendingScheduled = ""
             scheduleTouched = true
             refreshSchedRow()
+            refreshSaveEnabled()
         }
         schedRow.addView(btnPickDate)
         schedRow.addView(tvSchedDate)
@@ -3858,7 +3953,25 @@ class CallCenterFragment : Fragment() {
 
         btnSave.setOnClickListener {
             val noteText = etRemarks.text?.toString()?.trim() ?: ""
-            if (selectedStatus.isBlank() && noteText.isBlank()) return@setOnClickListener
+            if (selectedStatus.isBlank() && noteText.isBlank() && !scheduleTouched) return@setOnClickListener
+            // 📅 Schedule-only (no remark, no note): just write/clear the date
+            // on this parcel — no Supabase remark row, no same-phone fan-out.
+            if (selectedStatus.isBlank() && noteText.isBlank()) {
+                writeParcelSchedule(item.id, pendingScheduled)
+                val clean = ScheduledLock.normalize(pendingScheduled)
+                allParcels = allParcels.map {
+                    if (it.id == item.id) it.copy(scheduledDate = clean) else it
+                }
+                setupFilterTabs()
+                applyFilters()
+                android.widget.Toast.makeText(
+                    requireContext(),
+                    if (clean.isBlank()) "Scheduled date cleared" else "Scheduled — $clean",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+                dialog.dismiss()
+                return@setOnClickListener
+            }
             // Sheet feedback = category of the picked option (blank stays blank).
             val feedback = options.firstOrNull {
                 it.statusKey == selectedStatus && it.englishLabel == selectedStoredRemarkText
