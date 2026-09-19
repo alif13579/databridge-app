@@ -123,7 +123,10 @@ class PettyCashWalletSummaryFragment : Fragment() {
         hero.setTextColor(if (state.walletBalance < 0) 0xFFFCA5A5.toInt() else 0xFFFFFFFF.toInt())
 
         bindWalletRow(root, R.id.rowWalletApprovedWaiting, "\u23F3", "Approved (Waiting Settlement)", taka(state.approvedWaitingSettlementTotal), "#EDE9FE")
-        bindWalletRow(root, R.id.rowWalletUsableFund, "💵", "Usable Fund (balance minus earmarked)", taka(state.usableFund), "#FEF3C7")
+        // Negative usable fund is allowed (settle against expected money) —
+        // flag it red like the hero balance above.
+        bindWalletRow(root, R.id.rowWalletUsableFund, "💵", "Usable Fund (balance minus earmarked)", taka(state.usableFund),
+            if (state.usableFund < 0) "#FEE2E2" else "#FEF3C7")
         bindWalletRow(root, R.id.rowWalletPendingApproval, "\uD83D\uDD34", "Pending Approval", taka(state.pendingApprovalTotal), "#FFEDD5")
         bindWalletRow(root, R.id.rowWalletSettledMonth, "\u2705", "Settled This Month", taka(state.settledThisMonthTotal), "#D1FAE5")
         bindWalletRow(root, R.id.rowWalletTotalFund, "\uD83D\uDCE6", "Total Fund (all deposits)", taka(state.totalFund), "#DBEAFE")

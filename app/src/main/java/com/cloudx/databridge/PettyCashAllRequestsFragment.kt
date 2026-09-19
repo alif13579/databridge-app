@@ -1,16 +1,23 @@
 package com.cloudx.databridge
 
+import android.app.AlertDialog
 import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
+import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -23,9 +30,12 @@ import kotlin.math.min
  * Petty Cash Management — All Requests (mockup screen 8).
  *
  * Wired to PettyCashViewModel: real requests for the branch, working
- * All/My Requests/Pending/Approved/Settled tab filter, and real client-side
- * pagination (5 per page — the ViewModel loads the whole branch's request
- * list in one read, there's no server-side cursor to page against yet).
+ * All/My Requests/Pending/Approved/Settled tab filter, agent filter with
+ * status-wise counts, bulk select (individual cards or select-all across the
+ * whole filter, all pages) + role-gated bulk next-status update, and real
+ * client-side pagination (5 per page — the ViewModel loads the whole
+ * branch's request list in one read, there's no server-side cursor to page
+ * against yet).
  */
 class PettyCashAllRequestsFragment : Fragment() {
 
@@ -38,9 +48,48 @@ class PettyCashAllRequestsFragment : Fragment() {
 
     private var branchId: String = ""
     private var selectedFilter: String = FILTER_ALL
+    private var selectedAgentUids: MutableSet<String> = mutableSetOf() // empty = all agents
     private var currentPage: Int = 1
     private var latestState: PettyCashState.Success? = null
     private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
+
+    // Bulk-update selection (approvers only): claim ids picked for one shared
+    // status move (see showBulkUpdateDialog). Same gates as the Requests list
+    // screen — send-back stays single-claim only.
+    private var canBulkSelect: Boolean = false
+    private var selectMode: Boolean = false
+    private val selectedIds = mutableSetOf<String>()
+
+    /** Forward transitions the signed-in user may bulk-apply from [status].
+     *  Mirrors the single-claim gates in PettyCashSettlementDetailsFragment. */
+    private fun bulkTargetsForStatus(status: String, roles: PettyCashUserRoles): List<String> = when (status) {
+        PC_STATUS_PENDING -> listOfNotNull(
+            PC_STATUS_ACKNOWLEDGED.takeIf { roles.isStaff },
+            PC_STATUS_REJECTED.takeIf { roles.isStaff })
+        PC_STATUS_ACKNOWLEDGED -> listOfNotNull(
+            PC_STATUS_APPROVED.takeIf { roles.isCashPoc },
+            PC_STATUS_REJECTED.takeIf { roles.isCashPoc })
+        PC_STATUS_APPROVED -> listOfNotNull(
+            PC_STATUS_SETTLE_IN_PROCESS.takeIf { roles.isAccounts })
+        PC_STATUS_SETTLE_IN_PROCESS -> listOfNotNull(
+            PC_STATUS_SETTLED.takeIf { roles.isAccounts })
+        else -> emptyList() // settled / rejected / cancelled are terminal
+    }
+
+    private fun isBulkEligible(item: PettyCashRequest): Boolean {
+        val roles = latestState?.roles ?: return false
+        return bulkTargetsForStatus(item.status, roles).isNotEmpty()
+    }
+
+    /** Status-appropriate amount for totals: the stage figure, not requested. */
+    private fun stageAmount(item: PettyCashRequest): Double = when (item.status) {
+        PC_STATUS_SETTLED -> item.settledAmount.takeIf { it > 0 } ?: item.amount
+        PC_STATUS_APPROVED, PC_STATUS_SETTLE_IN_PROCESS -> item.approvedAmount.takeIf { it > 0 } ?: item.amount
+        else -> item.amount
+    }
+
+    private fun bulkDefaultAmount(item: PettyCashRequest): Double =
+        item.approvedAmount.takeIf { it > 0 } ?: item.amount
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -74,23 +123,35 @@ class PettyCashAllRequestsFragment : Fragment() {
         view.findViewById<View>(R.id.btnPcAllReqBack).setOnClickListener {
             parentFragmentManager.popBackStack()
         }
-        view.findViewById<View>(R.id.btnPcAllReqSearch).setOnClickListener {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
         view.findViewById<View>(R.id.btnPcAllReqFilter).setOnClickListener {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
+        view.findViewById<View>(R.id.btnPcAllReqSelect).setOnClickListener {
+            selectMode = !selectMode
+            if (!selectMode) selectedIds.clear()
+            view.findViewById<TextView>(R.id.btnPcAllReqSelect).text = if (selectMode) "Done" else "Select"
+            if (selectMode) guideIfNothingEligible()
+            renderList(view)
+        }
+        view.findViewById<View>(R.id.tvPcAllReqAgent).setOnClickListener { showAgentPicker() }
+        view.findViewById<View>(R.id.tvPcAllReqSelectAll).setOnClickListener { toggleSelectAllFiltered() }
+        view.findViewById<View>(R.id.btnPcAllReqBulkCancel).setOnClickListener {
+            selectMode = false
+            selectedIds.clear()
+            view.findViewById<TextView>(R.id.btnPcAllReqSelect).text = "Select"
+            renderList(view)
+        }
+        view.findViewById<View>(R.id.btnPcAllReqBulkUpdate).setOnClickListener { showBulkUpdateDialog() }
 
         parentFragmentManager.setFragmentResultListener(PettyCashFilterState.FRAGMENT_RESULT_KEY, viewLifecycleOwner) { _, bundle ->
             val stateBundle = bundle.getBundle(PettyCashFilterState.BUNDLE_KEY_STATE)
             advancedFilter = stateBundle?.let { PettyCashFilterState.fromBundle(it) } ?: PettyCashFilterState()
             currentPage = 1
+            // Drop picks outside the new filter.
+            selectedIds.retainAll(filteredRequests().filter { isBulkEligible(it) }.map { it.id }.toSet())
             view?.let { renderList(it) }
         }
 
@@ -147,6 +208,19 @@ class PettyCashAllRequestsFragment : Fragment() {
                 scroll.isVisible = true
                 latestState = state
                 currentPage = 1
+                // Bulk update is available to every approver role — same gate
+                // as the Requests list screen.
+                val canBulk = state.roles.isAnyApprover
+                canBulkSelect = canBulk
+                root.findViewById<View>(R.id.btnPcAllReqSelect)?.isVisible = canBulk
+                if (!canBulk) {
+                    selectMode = false
+                    selectedIds.clear()
+                } else {
+                    // Drop picks that are no longer present/eligible after reload.
+                    selectedIds.retainAll(
+                        state.requests.filter { isBulkEligible(it) }.map { it.id }.toSet())
+                }
                 buildTabs()
                 renderList(root)
             }
@@ -168,6 +242,12 @@ class PettyCashAllRequestsFragment : Fragment() {
             tab.setOnClickListener {
                 selectedFilter = key
                 currentPage = 1
+                // Agent counts are tab-wise: drop picks with zero claims
+                // under the newly selected tab.
+                val uidsInTab = tabFiltered()
+                    .map { it.requesterUid.ifBlank { "unknown" } }.toSet()
+                selectedAgentUids.retainAll(uidsInTab)
+                selectedIds.retainAll(filteredRequests().filter { isBulkEligible(it) }.map { it.id }.toSet())
                 buildTabs()
                 view?.let { renderList(it) }
             }
@@ -199,7 +279,17 @@ class PettyCashAllRequestsFragment : Fragment() {
 
     private data class StatusDisplay(val label: String, val bucket: String, val badgeBg: Int, val badgeColor: String)
 
-    private fun filteredRequests(): List<PettyCashRequest> {
+    private fun tabLabel(): String = when (selectedFilter) {
+        FILTER_MINE -> "My Requests"
+        FILTER_PENDING -> "Pending"
+        FILTER_APPROVED -> "Approved"
+        FILTER_SETTLED -> "Settled"
+        else -> "All"
+    }
+
+    /** Tab (+ advanced search) applied, agent filter NOT applied — the working
+     *  set agent counts and the agent picker are built from. */
+    private fun tabFiltered(): List<PettyCashRequest> {
         val all = latestState?.requests.orEmpty()
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
         val tabFiltered = when (selectedFilter) {
@@ -210,8 +300,174 @@ class PettyCashAllRequestsFragment : Fragment() {
         return if (advancedFilter.isActive) tabFiltered.filter { advancedFilter.matches(it) } else tabFiltered
     }
 
+    /** Agent options under the current tab: (uid, display name, tab-wise
+     *  count), sorted by name. */
+    private fun agentOptions(): List<Triple<String, String, Int>> =
+        tabFiltered().groupBy { it.requesterUid.ifBlank { "unknown" } }
+            .map { (uid, items) ->
+                val name = items.firstOrNull()?.requesterName?.takeIf { it.isNotBlank() } ?: uid
+                Triple(uid, name, items.size)
+            }.sortedBy { it.second.lowercase() }
+
+    /** Tab ∩ agents ∩ advanced — the working set for list, summary and select-all. */
+    private fun filteredRequests(): List<PettyCashRequest> {
+        val byTab = tabFiltered()
+        if (selectedAgentUids.isEmpty()) return byTab
+        return byTab.filter { it.requesterUid.ifBlank { "unknown" } in selectedAgentUids }
+    }
+
+    private fun updateAgentRow() {
+        val root = view ?: return
+        val chip = root.findViewById<TextView>(R.id.tvPcAllReqAgent)
+        // Prune stale picks (e.g. after reload moved claims to another status).
+        val options = agentOptions()
+        selectedAgentUids.retainAll(options.map { it.first }.toSet())
+        chip.text = when {
+            selectedAgentUids.isEmpty() -> "👥 All Agents"
+            selectedAgentUids.size == 1 -> {
+                val opt = options.find { it.first in selectedAgentUids }
+                if (opt == null) "👥 All Agents" else "👥 ${opt.second} (${opt.third})"
+            }
+            else -> {
+                val total = options.filter { it.first in selectedAgentUids }.sumOf { it.third }
+                "👥 ${selectedAgentUids.size} agents ($total)"
+            }
+        }
+    }
+
+    private fun updateSummary(filtered: List<PettyCashRequest>) {
+        val root = view ?: return
+        val total = filtered.sumOf { stageAmount(it) }
+        root.findViewById<TextView>(R.id.tvPcAllReqSummary).text =
+            if (filtered.isEmpty()) "No requests" else "${filtered.size} requests · Total ${pettyCashTaka(total)}"
+    }
+
+    /** Multi-select agent picker scoped to the current tab (counts are
+     *  tab-wise). Empty pick = All Agents. */
+    private fun showAgentPicker() {
+        val options = agentOptions()
+        if (options.isEmpty()) {
+            Toast.makeText(requireContext(), "No requests to filter", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val ctx = requireContext()
+        val checked = options.map { it.first in selectedAgentUids }.toMutableList()
+        val checkBoxes = mutableListOf<android.widget.CheckBox>()
+
+        val root = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(4), dp(24), dp(4))
+        }
+        root.addView(TextView(ctx).apply {
+            text = "Agents · ${tabLabel()} (${tabFiltered().size}) — empty = all"
+            textSize = 12f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, 0, 0, dp(8))
+        })
+        val topRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val tvSelectAll = TextView(ctx).apply {
+            text = "Select all"
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(Color.parseColor("#059669"))
+            setPadding(0, dp(4), dp(20), dp(4))
+        }
+        val tvClear = TextView(ctx).apply {
+            text = "Clear"
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(Color.parseColor("#B91C1C"))
+            setPadding(0, dp(4), 0, dp(4))
+        }
+        topRow.addView(tvSelectAll)
+        topRow.addView(tvClear)
+        root.addView(topRow)
+
+        val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        options.forEachIndexed { index, opt ->
+            val cb = android.widget.CheckBox(ctx).apply {
+                text = "${opt.second} (${opt.third})"
+                textSize = 14f
+                setTextColor(Color.parseColor("#0F172A"))
+                isChecked = checked[index]
+                setOnCheckedChangeListener { _, isChecked -> checked[index] = isChecked }
+            }
+            checkBoxes.add(cb)
+            list.addView(cb)
+        }
+        val scroll = android.widget.ScrollView(ctx).apply { addView(list) }
+        root.addView(scroll)
+
+        tvSelectAll.setOnClickListener {
+            for (i in checked.indices) {
+                checked[i] = true
+                checkBoxes[i].isChecked = true
+            }
+        }
+        tvClear.setOnClickListener {
+            for (i in checked.indices) {
+                checked[i] = false
+                checkBoxes[i].isChecked = false
+            }
+        }
+
+        AlertDialog.Builder(ctx)
+            .setTitle("Filter by agent")
+            .setView(root)
+            .setPositiveButton("Apply") { _, _ ->
+                selectedAgentUids = options.filterIndexed { i, _ -> checked[i] }
+                    .map { it.first }.toMutableSet()
+                currentPage = 1
+                // Drop claim picks outside the new filter.
+                val eligibleIds = filteredRequests().filter { isBulkEligible(it) }.map { it.id }.toSet()
+                selectedIds.retainAll(eligibleIds)
+                updateAgentRow()
+                view?.let { renderList(it) }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Toggles between picking every bulk-eligible request in the current
+     *  tab+agents filter (all pages) and clearing the pick. */
+    private fun toggleSelectAllFiltered() {
+        val eligible = filteredRequests().filter { isBulkEligible(it) }
+        if (eligible.isEmpty()) {
+            Toast.makeText(requireContext(), "No bulk-eligible requests in this filter", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (eligible.all { it.id in selectedIds }) {
+            selectedIds.removeAll(eligible.map { it.id }.toSet())
+        } else {
+            selectedIds.addAll(eligible.map { it.id })
+        }
+        view?.let { renderList(it) }
+    }
+
+    /** Explains the silent dead-end: select mode is on but nothing in this
+     *  filter can move forward under the signed-in user's role. */
+    private fun guideIfNothingEligible() {
+        val filtered = filteredRequests()
+        if (filtered.isEmpty()) {
+            Toast.makeText(requireContext(), "No requests in this filter", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (filtered.any { isBulkEligible(it) }) return
+        val hint = when (selectedFilter) {
+            FILTER_PENDING -> "Pending → only Staff can Verify"
+            FILTER_APPROVED -> "Approved → only Accounts can move to Settle"
+            FILTER_SETTLED -> "Settled is terminal — nothing to move"
+            else -> "Your role can't move these forward — try another tab"
+        }
+        Toast.makeText(requireContext(), hint, Toast.LENGTH_LONG).show()
+    }
+
     private fun renderList(root: View) {
         val filtered = filteredRequests()
+        updateAgentRow()
+        updateSummary(filtered)
+        updateSelectAllLabel()
+
         val totalPages = max(1, ceil(filtered.size / PAGE_SIZE.toDouble()).toInt())
         currentPage = currentPage.coerceIn(1, totalPages)
 
@@ -246,18 +502,291 @@ class PettyCashAllRequestsFragment : Fragment() {
                     background = androidx.core.content.ContextCompat.getDrawable(requireContext(), status.badgeBg)
                 }
 
-                row.setOnClickListener {
+                // Bulk-select checkbox (select mode + eligible only). Tapping
+                // the row toggles the pick instead of opening details here.
+                val checkBox = row.findViewById<android.widget.CheckBox>(R.id.cbAllReqRowSelect)
+                val selectable = selectMode && isBulkEligible(item)
+                checkBox.isVisible = selectable
+                checkBox.setOnCheckedChangeListener(null)
+                checkBox.isChecked = item.id in selectedIds
+                checkBox.setOnCheckedChangeListener { _, checked ->
+                    if (checked) selectedIds.add(item.id) else selectedIds.remove(item.id)
+                    updateSelectAllLabel()
+                    updateBulkBar()
+                }
+
+                val openDetails = View.OnClickListener {
                     parentFragmentManager.beginTransaction()
                         .replace(R.id.container, PettyCashSettlementDetailsFragment.newInstance(branchId, item.requestCode))
                         .addToBackStack(null)
                         .commitAllowingStateLoss()
                 }
+                row.setOnClickListener(
+                    if (selectable) View.OnClickListener { checkBox.toggle() }
+                    else openDetails
+                )
 
                 layoutList.addView(row)
             }
         }
 
         buildPagination(root, filtered.size, fromIndex, toIndex, totalPages)
+        updateBulkBar()
+    }
+
+    private fun updateSelectAllLabel() {
+        val root = view ?: return
+        val eligibleInFilter = filteredRequests().filter { isBulkEligible(it) }
+        root.findViewById<TextView>(R.id.tvPcAllReqSelectAll)?.apply {
+            isVisible = selectMode && canBulkSelect
+            text = if (eligibleInFilter.isNotEmpty() && eligibleInFilter.all { it.id in selectedIds })
+                "Clear all" else "Select all"
+        }
+    }
+
+    /** Bottom bulk bar: "N selected · Total ৳X", shown only in select mode
+     *  with at least one pick. */
+    private fun updateBulkBar() {
+        val root = view ?: return
+        val bar = root.findViewById<View>(R.id.layoutPcAllReqBulkBar)
+        if (!selectMode || selectedIds.isEmpty()) {
+            bar.isVisible = false
+            return
+        }
+        val picked = latestState?.requests.orEmpty().filter { it.id in selectedIds }
+        val total = picked.sumOf { bulkDefaultAmount(it) }
+        root.findViewById<TextView>(R.id.tvPcAllReqBulkSummary).text =
+            "${picked.size} selected · Total ${pettyCashTaka(total)}"
+        bar.isVisible = true
+    }
+
+    /** Next-status options for the picked claims, in pipeline order — only
+     *  transitions the signed-in user may actually perform. A target appears
+     *  when at least one picked claim can move to it; claims that can't take
+     *  the chosen target are skipped (counted, not failed) at apply time. */
+    private fun bulkTargetOptions(picked: List<PettyCashRequest>): List<String> {
+        val roles = latestState?.roles ?: return emptyList()
+        val order = listOf(
+            PC_STATUS_ACKNOWLEDGED, PC_STATUS_APPROVED, PC_STATUS_SETTLE_IN_PROCESS,
+            PC_STATUS_SETTLED, PC_STATUS_REJECTED)
+        return order.filter { target ->
+            picked.any { it.status != target && target in bulkTargetsForStatus(it.status, roles) }
+        }
+    }
+
+    private fun bulkTargetLabel(target: String): String = when (target) {
+        PC_STATUS_ACKNOWLEDGED -> "Verified"
+        PC_STATUS_APPROVED -> "Approved"
+        PC_STATUS_SETTLE_IN_PROCESS -> "Settle in Process"
+        PC_STATUS_SETTLED -> "Settled"
+        PC_STATUS_REJECTED -> "Rejected"
+        else -> target
+    }
+
+    /** Generic bulk update: one next-status for every picked claim, with the
+     *  fields that status needs (shared comment / reject reason / one payment
+     *  method + one transaction id for settle). Amounts stay per-claim
+     *  (each claim's own stage default). */
+    private fun showBulkUpdateDialog() {
+        val picked = latestState?.requests.orEmpty()
+            .filter { it.id in selectedIds && isBulkEligible(it) }
+        if (picked.isEmpty()) {
+            Toast.makeText(requireContext(), "Select at least one request first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val options = bulkTargetOptions(picked)
+        if (options.isEmpty()) {
+            Toast.makeText(requireContext(), "No bulk action available for your role on these", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val dialogView = layoutInflater.inflate(R.layout.dialog_pc_bulk_update, null)
+        val spinnerTarget = dialogView.findViewById<Spinner>(R.id.spinnerBulkUpdateTarget)
+        spinnerTarget.adapter = ArrayAdapter(
+            requireContext(), android.R.layout.simple_spinner_dropdown_item,
+            options.map { bulkTargetLabel(it) })
+        val commentGroup = dialogView.findViewById<View>(R.id.layoutBulkUpdateCommentGroup)
+        val tvCommentLabel = dialogView.findViewById<TextView>(R.id.tvBulkUpdateCommentLabel)
+        val etComment = dialogView.findViewById<EditText>(R.id.etBulkUpdateComment)
+        val settleGroup = dialogView.findViewById<View>(R.id.layoutBulkUpdateSettleGroup)
+        val spinnerMethod = dialogView.findViewById<Spinner>(R.id.spinnerBulkUpdateMethod)
+        spinnerMethod.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Cash", "Bank", "bKash", "Nagad"))
+        val etTrxId = dialogView.findViewById<EditText>(R.id.etBulkUpdateTrxId)
+
+        fun refreshFieldGroups(target: String) {
+            settleGroup.isVisible = target == PC_STATUS_SETTLED
+            commentGroup.isVisible = target != PC_STATUS_SETTLED && target != PC_STATUS_SETTLE_IN_PROCESS
+            tvCommentLabel.text = if (target == PC_STATUS_REJECTED)
+                "REJECT REASON (REQUIRED, ONE FOR ALL)" else "COMMENT (OPTIONAL, ONE FOR ALL)"
+            etComment.hint = if (target == PC_STATUS_REJECTED)
+                "Why are these being rejected?" else "Shared note for every claim"
+        }
+        refreshFieldGroups(options.first())
+        val listContainer = dialogView.findViewById<LinearLayout>(R.id.layoutBulkUpdateClaimList)
+        fun claimRow(text: String, bold: Boolean = false, color: String = "#0F172A") =
+            TextView(requireContext()).apply {
+                this.text = text
+                textSize = if (bold) 13f else 12.5f
+                if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(Color.parseColor(color))
+                setPadding(0, 6, 0, 6)
+            }
+        // Claim list re-renders with the target: a Settle run groups rows by
+        // agent with per-agent subtotals (one trxId usually pays ONE agent's
+        // total), every other target keeps the flat list.
+        fun renderClaimList(target: String) {
+            listContainer.removeAllViews()
+            if (target == PC_STATUS_SETTLED) {
+                val byAgent = picked.groupBy {
+                    it.requesterName.takeIf { n -> n.isNotBlank() } ?: it.requesterUid.ifBlank { "—" }
+                }.toList().sortedBy { it.first.lowercase() }
+                if (byAgent.size > 1) {
+                    listContainer.addView(claimRow(
+                        "⚠ One trxId will cover ${byAgent.size} agents — split by agent if these are separate transfers.",
+                        bold = true, color = "#B91C1C"))
+                }
+                byAgent.forEach { (agent, items) ->
+                    val sub = items.sumOf { stageAmount(it) }
+                    listContainer.addView(claimRow("$agent — ${items.size} claims — ${pettyCashTaka(sub)}", bold = true))
+                    items.forEach { item ->
+                        listContainer.addView(claimRow(
+                            "  ${item.requestCode} · ${pettyCashStatusLabel(item.status)} — ${pettyCashTaka(stageAmount(item))}"))
+                    }
+                }
+            } else {
+                picked.forEach { item ->
+                    listContainer.addView(claimRow(
+                        "${item.requestCode} · ${item.requesterName} · ${pettyCashStatusLabel(item.status)} — ${pettyCashTaka(stageAmount(item))}"))
+                }
+            }
+        }
+        renderClaimList(options.first())
+        spinnerTarget.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                refreshFieldGroups(options[pos])
+                renderClaimList(options[pos])
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) = Unit
+        }
+
+        val total = picked.sumOf { stageAmount(it) }
+        dialogView.findViewById<TextView>(R.id.tvBulkUpdateTotal).text = "Total: ${pettyCashTaka(total)}"
+        val tvProgress = dialogView.findViewById<TextView>(R.id.tvBulkUpdateProgress)
+
+        var dialog: AlertDialog? = null
+        // Last trxId the reuse warning was accepted for — re-asks if edited.
+        var confirmedSettleTrx = ""
+        dialog = AlertDialog.Builder(requireContext())
+            .setTitle("Bulk Update (${picked.size})")
+            .setView(dialogView)
+            .setPositiveButton("Update", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog?.show()
+        // Override the positive button: validate first, then run without
+        // auto-dismissing (progress shows on the dialog itself).
+        dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+            val d = dialog ?: return@setOnClickListener
+            val target = options[spinnerTarget.selectedItemPosition]
+            val comment = etComment.text?.toString()?.trim().orEmpty()
+            if (target == PC_STATUS_REJECTED && comment.isBlank()) {
+                Toast.makeText(requireContext(), "Enter the reject reason", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val trxId = etTrxId.text?.toString()?.trim().orEmpty()
+            if (target == PC_STATUS_SETTLED && trxId.isBlank()) {
+                Toast.makeText(requireContext(), "Enter the transaction ID", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            // Same trxId on two payouts usually means a typo or a double
+            // booking — confirm once per typed value (re-asks if edited,
+            // skips the already-picked claims themselves).
+            if (target == PC_STATUS_SETTLED && confirmedSettleTrx != trxId) {
+                val reuse = findTrxIdReuse(latestState?.requests.orEmpty(), trxId, picked.map { it.id }.toSet())
+                if (reuse.isNotEmpty()) {
+                    val shown = reuse.take(5).joinToString(", ") { it.requestCode }
+                    val more = if (reuse.size > 5) " +${reuse.size - 5} more" else ""
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("⚠ Transaction ID already used")
+                        .setMessage("This trxId already settled: $shown$more\n\nSettle ${picked.size} more under the same trxId?")
+                        .setPositiveButton("Use anyway") { _, _ ->
+                            confirmedSettleTrx = trxId
+                            d.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+                        }
+                        .setNegativeButton("Back", null)
+                        .show()
+                    return@setOnClickListener
+                }
+                confirmedSettleTrx = trxId
+            }
+            val method = spinnerMethod.selectedItem?.toString() ?: "Cash"
+            val roles = latestState?.roles
+            if (roles == null) {
+                Toast.makeText(requireContext(), "Still loading — try again", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val positive = d.getButton(AlertDialog.BUTTON_POSITIVE)
+            val negative = d.getButton(AlertDialog.BUTTON_NEGATIVE)
+            positive.isEnabled = false
+            negative.isEnabled = false
+            tvProgress.isVisible = true
+            lifecycleScope.launch {
+                var ok = 0
+                var skipped = 0
+                var neg = 0
+                val failures = mutableListOf<String>()
+                picked.forEachIndexed { index, item ->
+                    tvProgress.text = "⏳ Updating ${index + 1}/${picked.size}…"
+                    if (target !in bulkTargetsForStatus(item.status, roles)) {
+                        skipped++
+                        return@forEachIndexed
+                    }
+                    val result: Result<*> = when (target) {
+                        PC_STATUS_ACKNOWLEDGED ->
+                            viewModel.acknowledgeRequest(branchId, item.id, comment)
+                        PC_STATUS_APPROVED ->
+                            // Preserve Staff's pre-set verified figure when there
+                            // is one (null falls back to the requested amount
+                            // inside approveRequest).
+                            viewModel.approveRequest(branchId, item.id, comment, item.approvedAmount.takeIf { it > 0 })
+                        PC_STATUS_SETTLE_IN_PROCESS ->
+                            viewModel.markReadyToSettle(branchId, item.id)
+                        PC_STATUS_SETTLED ->
+                            viewModel.settleRequest(branchId, item.id, method, trxId, null)
+                        PC_STATUS_REJECTED ->
+                            viewModel.rejectRequest(branchId, item.id, comment)
+                        else -> Result.failure<Any>(IllegalStateException("Unsupported target"))
+                    }
+                    if (result.isSuccess) {
+                        ok++
+                        if ((result.getOrNull() as? PettyCashViewModel.SettleOutcome)?.negativeWarning == true) neg++
+                    } else failures.add("${item.requestCode}: ${result.exceptionOrNull()?.message ?: "failed"}")
+                }
+                val failed = failures.size
+                val label = bulkTargetLabel(target)
+                tvProgress.text = if (failed == 0 && skipped == 0) "✓ $ok → $label"
+                    else "✓ $ok → $label · ⚠ $failed failed · $skipped skipped"
+                if (failed == 0) {
+                    val skipNote = if (skipped > 0) " · $skipped skipped (wrong stage)" else ""
+                    val negNote = if (neg > 0) " · ⚠ $neg went negative" else ""
+                    val trxNote = if (target == PC_STATUS_SETTLED) " ($trxId)" else ""
+                    Toast.makeText(requireContext(), "✓ $ok claims → $label$trxNote$skipNote$negNote", Toast.LENGTH_LONG).show()
+                    d.dismiss()
+                    selectMode = false
+                    selectedIds.clear()
+                    view?.findViewById<TextView>(R.id.btnPcAllReqSelect)?.text = "Select"
+                    if (branchId.isNotBlank()) viewModel.load(branchId) else view?.let { renderList(it) }
+                } else {
+                    val friendly = "⚠ $failed failed — list reloaded, retry the rest"
+                    Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                    if (isAdded) {
+                        SupabaseErrorDialog.show(requireContext(), friendly, failures.joinToString("\n"))
+                    }
+                    positive.isEnabled = true
+                    negative.isEnabled = true
+                    if (branchId.isNotBlank()) viewModel.load(branchId)
+                }
+            }
+        }
     }
 
     private fun buildPagination(root: View, totalCount: Int, fromIndex: Int, toIndex: Int, totalPages: Int) {

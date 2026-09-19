@@ -29,26 +29,35 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="Back" />
 
-            <TextView
-                android:layout_width="0dp"
-                android:layout_weight="1"
-                android:layout_height="wrap_content"
-                android:text="All Requests"
-                android:textSize="17sp"
-                android:textStyle="bold"
-                android:textColor="#0F172A"
-                android:layout_marginStart="8dp" />
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:text="All Requests"
+                    android:textSize="17sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F172A"
+                    android:layout_marginStart="8dp" />
 
-            <ImageButton
-                android:id="@+id/btnPcAllReqSearch"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:src="@android:drawable/ic_menu_search"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Search" />
+                <TextView
+                    android:id="@+id/btnPcAllReqSelect"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:gravity="center"
+                    android:text="Select"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#059669"
+                    android:paddingHorizontal="10dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Bulk select"
+                    android:visibility="gone" />
 
-            <ImageButton
-                android:id="@+id/btnPcAllReqFilter"
+                <!-- Filter (date / status / category / requester). The old
+                     duplicate Search icon opened this same screen, so it was
+                     removed — one entry point, no dead buttons. -->
+                <ImageButton
+                    android:id="@+id/btnPcAllReqFilter"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:src="@android:drawable/ic_menu_sort_by_size"
@@ -71,6 +80,50 @@
                 android:paddingHorizontal="12dp"
                 android:paddingBottom="10dp" />
         </HorizontalScrollView>
+
+        <!-- Agent filter + select-all + filtered total -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#FFFFFF"
+            android:paddingHorizontal="16dp"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:id="@+id/tvPcAllReqAgent"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:gravity="center_vertical"
+                android:text="👥 All Agents"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#6D28D9"
+                android:background="@drawable/bg_pc_tab_inactive"
+                android:paddingHorizontal="12dp" />
+
+            <TextView
+                android:id="@+id/tvPcAllReqSelectAll"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:gravity="center_vertical"
+                android:text="Select all"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#059669"
+                android:paddingHorizontal="10dp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvPcAllReqSummary"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:textSize="12sp"
+                android:textColor="#64748B" />
+        </LinearLayout>
 
         <ProgressBar
             android:id="@+id/pbPcAllReqLoading"
@@ -159,5 +212,53 @@
 
             </LinearLayout>
         </ScrollView>
+
+        <!-- Bulk-update bar: visible only in select mode with 1+ picked. -->
+        <LinearLayout
+            android:id="@+id/layoutPcAllReqBulkBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#FFFFFF"
+            android:elevation="8dp"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="10dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvPcAllReqBulkSummary"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A" />
+
+            <TextView
+                android:id="@+id/btnPcAllReqBulkCancel"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:gravity="center"
+                android:text="Cancel"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#374151"
+                android:backgroundTint="#F3F4F6"
+                android:paddingHorizontal="14dp"
+                android:layout_marginEnd="8dp" />
+
+            <TextView
+                android:id="@+id/btnPcAllReqBulkUpdate"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:gravity="center"
+                android:text="Update"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#059669"
+                android:paddingHorizontal="18dp" />
+        </LinearLayout>
     </LinearLayout>
 </FrameLayout>

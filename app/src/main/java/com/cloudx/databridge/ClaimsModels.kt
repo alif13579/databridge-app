@@ -77,16 +77,6 @@ data class ClaimInfo(
     val rejectedByUid: String = "", val rejectedBySystemId: String = "", val rejectedByName: String = "", val rejectedAt: Long = 0L, val rejectReason: String = ""
 )
 
-/** Result of the one-time claims_by_employeeId -> claims_by_systemId backfill.
- *  unresolved holds (employeeId, claimId) pairs where no current user profile's
- *  company_info/system_id matched that employeeId (e.g. employee no longer exists) —
- *  surfaced rather than silently dropped, so nothing gets lost quietly. */
-data class EmployeeIndexMigrationResult(
-    val dryRun: Boolean,
-    val matched: Int,
-    val unresolved: List<Pair<String, String>>
-)
-
 /** Attachment list accessor (kept as extension so call sites read uniformly). */
 val ClaimInfo.allAttachments: List<AttachmentRef>
     get() = attachments

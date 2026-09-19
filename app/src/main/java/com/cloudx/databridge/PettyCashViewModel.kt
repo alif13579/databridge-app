@@ -99,9 +99,7 @@ class PettyCashViewModel : ViewModel() {
     )
 
     private val auth = FirebaseAuth.getInstance()
-    // Live claim save/read is Supabase-only (ClaimsRepository). The one-time
-    // Firebase index migration tool lives in FirebaseClaimsIndexMigration and
-    // is unrelated to this ViewModel.
+    // Live claim save/read is Supabase-only (ClaimsRepository).
     private val claims = ClaimsRepository()
 
     private val _state = MutableLiveData<PettyCashState>(PettyCashState.Loading)

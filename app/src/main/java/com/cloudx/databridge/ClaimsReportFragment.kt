@@ -21,15 +21,8 @@ import java.util.*
  * Business-facing Petty Cash / Claims report. SEARCH & GENERATE REPORT queries
  * public.claims (via SupabaseClaimsReader) and, on success, immediately builds
  * the full "Top Sheet For Petty Cash Expense" multi-page PDF (via
- * PettyCashTopSheetPdfWriter) — one action, no separate export step (per the
- * discussion that settled on this over a two-step search-then-export flow).
- *
- * FirebaseClaimsIndexMigration (Firebase-only, one-time) is kept ONLY for the
- * one-time employee-index migration tools below
- * (btnClaimsMigrateIndex/btnClaimsDeleteOldIndex) — those migrate Firebase's
- * own claims_by_employeeId->claims_by_systemId index and have nothing to do
- * with the Supabase-backed report itself; they stay Firebase-based on
- * purpose (see their doc comments) and get removed once no longer needed.
+ * PettyCashTopSheetPdfWriter) plus an .xlsx Excel export of the same rows (via
+ * CashExportWriter) — one search, both files downloadable.
  */
 class ClaimsReportFragment : Fragment() {
     private val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
@@ -57,6 +50,12 @@ class ClaimsReportFragment : Fragment() {
     private var from = startOfMonth()
     private var to = endOfToday()
 
+    // Last successful search — powers the Excel export so it downloads exactly
+    // the rows the PDF was generated from (no re-query, no filter drift).
+    private var lastClaims: List<SupabaseClaimsReader.ClaimRow> = emptyList()
+    private var lastFromIso: String = ""
+    private var lastToIso: String = ""
+
     /** systemId is the actual filter/index key (claims.agent_system_id); employeeId is
      *  kept purely for display ("Mehedi (EMP001)") — mirrors CallCenterFragment.AgentOption. */
     private data class ClaimsEmployeeOption(val systemId: String, val employeeId: String, val name: String)
@@ -68,9 +67,6 @@ class ClaimsReportFragment : Fragment() {
         super.onViewCreated(v, savedInstanceState)
 
         v.findViewById<View>(R.id.btnClaimsReportBack).setOnClickListener { parentFragmentManager.popBackStack() }
-
-        v.findViewById<Button>(R.id.btnClaimsMigrateIndex).setOnClickListener { showMigrationDialog() }
-        v.findViewById<Button>(R.id.btnClaimsDeleteOldIndex).setOnClickListener { showDeleteOldIndexDialog() }
 
         updateDateLabels(v)
         v.findViewById<TextView>(R.id.btnClaimsFrom).setOnClickListener {
@@ -92,6 +88,7 @@ class ClaimsReportFragment : Fragment() {
         ) }
 
         v.findViewById<Button>(R.id.btnClaimsSearch).setOnClickListener { searchAndGenerate(v) }
+        v.findViewById<Button>(R.id.btnClaimsExcel).setOnClickListener { exportExcelChooser() }
 
         lifecycleScope.launch { loadBranches(v) }
     }
@@ -305,16 +302,106 @@ class ClaimsReportFragment : Fragment() {
                     toDateIso = toIso,
                     categoryGroups = categoryGroups,
                 )
-                outFile
-            }.onSuccess { file ->
+                Triple(outFile, claims, fromIso to toIso)
+            }.onSuccess { (file, claims, range) ->
+                lastClaims = claims
+                lastFromIso = range.first
+                lastToIso = range.second
                 v.findViewById<TextView>(R.id.tvClaimsSummary).apply {
                     isVisible = true
-                    text = "Report generated: ${file.name}"
+                    text = "Report generated: ${file.name} (${claims.size} claims)"
+                }
+                v.findViewById<Button>(R.id.btnClaimsExcel).apply {
+                    isVisible = true
+                    text = "⬇ EXCEL (${claims.size} ROWS)"
                 }
                 sharePdf(file)
             }.onFailure { toast(it.message ?: "Report generation failed") }
             progress.isVisible = false
         }
+    }
+
+    // ── Excel export (.xlsx, same rows as the generated PDF) ──────────────────
+    // Reuses CashExportWriter (dependency-free OOXML writer shared with the cash
+    // ledger exports) and the same FileProvider/MediaStore share+download flow.
+
+    private fun exportExcelChooser() {
+        if (lastClaims.isEmpty()) return toast("Generate the report first")
+        AlertDialog.Builder(requireContext())
+            .setTitle("Excel Export (${lastClaims.size} rows)")
+            .setItems(arrayOf("📤 Share", "⬇️ Download to Downloads")) { _, which ->
+                if (which == 0) exportExcel(share = true) else exportExcel(share = false)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun exportExcel(share: Boolean) {
+        if (!isAdded || lastClaims.isEmpty()) return
+        val ctx = requireContext()
+        val mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        val exportsDir = File(ctx.cacheDir, "exports").apply { mkdirs() }
+        val file = File(exportsDir, "claims_report_${lastFromIso}_${lastToIso}_${System.currentTimeMillis()}.xlsx")
+        runCatching {
+            val headers = listOf("Date", "Claim Code", "Employee", "Emp ID", "Category", "Purpose", "From", "To", "Vehicle", "Requested", "Settled", "Status")
+            val rows = lastClaims.map { c ->
+                listOf<Any>(
+                    c.placedDate, c.claimCode,
+                    c.agentName.ifBlank { c.agentSystemId }, c.agentEmployeeId,
+                    c.category, c.purpose, c.fromArea, c.toArea, c.vehicle,
+                    c.requestedAmount, c.settledAmount, c.status,
+                )
+            }
+            val widths = listOf(12, 14, 20, 12, 18, 30, 14, 14, 12, 12, 12, 12)
+            CashExportWriter.writeXlsx(file, "Claims $lastFromIso", headers, rows, widths)
+            file
+        }.onSuccess {
+            if (share) {
+                val uri = runCatching {
+                    androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", it)
+                }.getOrNull() ?: return toast("Could not create file")
+                val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = mime
+                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                runCatching { startActivity(android.content.Intent.createChooser(intent, "Share Excel")) }
+                    .onFailure { toast("Share failed: ${it.message}") }
+            } else {
+                saveToDownloads(it, it.name, mime)
+            }
+        }.onFailure { toast("Excel export failed: ${it.message}") }
+    }
+
+    /** Copies a cache-dir export into the public Downloads folder (same MediaStore
+     *  flow CashLedgerListFragment uses — no storage permission needed on Q+). */
+    private fun saveToDownloads(file: File, displayName: String, mimeType: String) {
+        val ctx = requireContext()
+        runCatching {
+            val resolver = ctx.contentResolver
+            val uri: android.net.Uri? =
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, displayName)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE, mimeType)
+                        put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                    }
+                    resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                } else {
+                    @Suppress("DEPRECATION")
+                    val outFile = File(
+                        android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                        displayName,
+                    )
+                    android.net.Uri.fromFile(outFile)
+                }
+            if (uri == null) throw IllegalStateException("Could not create file")
+            resolver.openOutputStream(uri)?.use { out -> file.inputStream().use { input -> input.copyTo(out) } }
+                ?: throw IllegalStateException("Could not write file")
+            uri
+        }.onSuccess {
+            toast("✅ Excel saved to Downloads (${lastClaims.size} rows)")
+        }.onFailure { toast("Download failed: ${it.message}") }
     }
 
     private fun sharePdf(file: File) {
@@ -326,62 +413,6 @@ class ClaimsReportFragment : Fragment() {
         runCatching { startActivity(intent) }
     }
 
-    // ── One-time Firebase employee-index migration tools (unrelated to the report above) ──
-
-    /** One-time trigger for FirebaseClaimsIndexMigration.migrateEmployeeIndexToSystemId. Always dry-runs
-     *  first — real writes only happen from a second, explicit tap on that result dialog.
-     *  Remove btnClaimsMigrateIndex (and this) once the migration has been run and spot-checked. */
-    private fun showMigrationDialog() {
-        AlertDialog.Builder(requireContext())
-            .setTitle("Migrate employee index")
-            .setMessage("Backfills old claims onto the system_id-based index. Starts with a dry run — writes nothing, just reports what would happen.")
-            .setPositiveButton("Run Dry Run") { _, _ -> runMigration(dryRun = true) }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun runMigration(dryRun: Boolean) {
-        toast(if (dryRun) "Running dry run…" else "Migrating…")
-        lifecycleScope.launch {
-            runCatching { FirebaseClaimsIndexMigration.migrateEmployeeIndexToSystemId(dryRun) }
-                .onSuccess { showMigrationResult(it) }
-                .onFailure { toast(it.message ?: "Migration failed") }
-        }
-    }
-
-    private fun showMigrationResult(result: EmployeeIndexMigrationResult) {
-        val preview = result.unresolved.take(10).joinToString("\n") { (empId, claimId) -> "• $empId → $claimId" }
-        val more = (result.unresolved.size - 10).let { if (it > 0) "\n…and $it more" else "" }
-        val body = buildString {
-            append(if (result.dryRun) "DRY RUN — nothing written yet.\n\n" else "Done — written.\n\n")
-            append("Matched: ${result.matched}\nUnresolved: ${result.unresolved.size}")
-            if (result.unresolved.isNotEmpty()) append("\n\n$preview$more")
-        }
-        val builder = AlertDialog.Builder(requireContext()).setTitle("Migration result").setMessage(body)
-        if (result.dryRun && result.matched > 0) {
-            builder.setPositiveButton("Run For Real") { _, _ -> runMigration(dryRun = false) }
-            builder.setNegativeButton("Close", null)
-        } else {
-            builder.setPositiveButton("OK", null)
-        }
-        builder.show()
-    }
-
-    private fun showDeleteOldIndexDialog() {
-        AlertDialog.Builder(requireContext())
-            .setTitle("Delete old employee_id index?")
-            .setMessage("Permanently deletes claims/indexes/claims_by_employeeId. Only do this after you've run the migration and spot-checked a few claims in the new system_id index — this cannot be undone.")
-            .setPositiveButton("Delete") { _, _ ->
-                lifecycleScope.launch {
-                    runCatching { FirebaseClaimsIndexMigration.deleteOldEmployeeIndex() }
-                        .onSuccess { toast("Old index deleted") }
-                        .onFailure { toast(it.message ?: "Delete failed") }
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
     // ── Date helpers ──────────────────────────────────────────────────────────
 
     private fun updateDateLabels(v: View) {
@@ -389,11 +420,15 @@ class ClaimsReportFragment : Fragment() {
         v.findViewById<TextView>(R.id.btnClaimsTo).text = dateFormat.format(Date(to))
     }
 
-    private fun pickDate(initial: Long, done: (Long) -> Unit) { MaterialDatePicker.Builder.datePicker().setSelection(initial).build().also { it.addOnPositiveButtonClickListener { utc -> done(localDay(utc)) }; it.show(childFragmentManager, "claims_date") } }
-    private fun localDay(utc: Long): Long = Calendar.getInstance(TimeZone.getTimeZone("UTC")).run {
-        timeInMillis = utc
-        Calendar.getInstance().apply {
-            set(get(Calendar.YEAR), get(Calendar.MONTH), get(Calendar.DAY_OF_MONTH), 0, 0, 0)
+    private fun pickDate(initial: Long, done: (Long) -> Unit) { MaterialDatePicker.Builder.datePicker().setSelection(initial).build().also { it.addOnPositiveButtonClickListener { utc -> done(localDay(utc)) }; it.show(parentFragmentManager, "claims_date") } }
+    /** Converts the picker's UTC-midnight millis to local-midnight millis for the
+     *  same calendar day. NOTE: the UTC fields must be read off the UTC calendar
+     *  explicitly — an unqualified get() inside apply{} would resolve to the
+     *  local calendar (which is "now") and every pick would silently become today. */
+    private fun localDay(utc: Long): Long {
+        val utcCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = utc }
+        return Calendar.getInstance().apply {
+            set(utcCal.get(Calendar.YEAR), utcCal.get(Calendar.MONTH), utcCal.get(Calendar.DAY_OF_MONTH), 0, 0, 0)
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
     }

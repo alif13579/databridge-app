@@ -530,7 +530,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         bindRow(root, R.id.rowPcSettleDate, "Settlement Date", formatDate(System.currentTimeMillis()))
     }
 
-    private fun submitSettle(root: View, request: PettyCashRequest) {
+    private fun submitSettle(root: View, request: PettyCashRequest, force: Boolean = false) {
         val spinner = root.findViewById<android.widget.Spinner>(R.id.spinnerPcSettlePaymentMethod)
         val paymentMethod = spinner.selectedItem?.toString() ?: "Cash"
         val typedTrxId = root.findViewById<android.widget.EditText>(R.id.etPcSettleTrxId).text?.toString()?.trim().orEmpty()
@@ -540,6 +540,15 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         if (typedAmount == null || typedAmount <= 0) {
             Toast.makeText(requireContext(), "Enter a valid settle amount", Toast.LENGTH_SHORT).show()
             return
+        }
+        // Same trxId on two payouts usually means a typo or a double
+        // booking — ask before proceeding (excludes this claim itself).
+        if (!force) {
+            val reuse = findTrxIdReuse(latestState?.requests.orEmpty(), trxId, setOf(requestIdFor(requestCode)))
+            if (reuse.isNotEmpty()) {
+                confirmTrxReuse(reuse.map { it.requestCode }) { submitSettle(root, request, force = true) }
+                return
+            }
         }
 
         showActionLoading("Settling…")
@@ -578,6 +587,19 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         }
     }
 
+    /** "Settle anyway?" gate for a trxId that already settled other claims. */
+    private fun confirmTrxReuse(codes: List<String>, onProceed: () -> Unit) {
+        if (!isAdded) return
+        val shown = codes.take(5).joinToString(", ")
+        val more = if (codes.size > 5) " +${codes.size - 5} more" else ""
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("⚠ Transaction ID already used")
+            .setMessage("This trxId already settled: $shown$more\n\nSame trxId on two payouts usually means a typo or a double booking. Settle anyway?")
+            .setPositiveButton("Settle anyway") { _, _ -> onProceed() }
+            .setNegativeButton("Back", null)
+            .show()
+    }
+
     private fun openSettlementSuccess() {
         parentFragmentManager.beginTransaction()
             .replace(R.id.container, PettyCashSettlementSuccessFragment.newInstance(branchId, requestCode))
@@ -614,14 +636,25 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             hint = "Reason (required)"
             setPadding(dp(20), dp(12), dp(20), dp(12))
         }
-        android.app.AlertDialog.Builder(requireContext())
+        val dialog = android.app.AlertDialog.Builder(requireContext())
             .setTitle("Reject $requestCode?")
             .setMessage("This request will be marked as rejected and removed from the queue.")
             .setView(input)
-            .setPositiveButton("Reject") { _, _ ->
-                val reason = input.text?.toString()?.trim().orEmpty()
-                showActionLoading("Rejecting…")
-                lifecycleScope.launch {
+            .setPositiveButton("Reject", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.show()
+        // Non-auto-dismissing positive: blank reasons are refused with the
+        // dialog kept open (the hint already promises "required").
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val reason = input.text?.toString()?.trim().orEmpty()
+            if (reason.isBlank()) {
+                Toast.makeText(requireContext(), "Enter the reject reason", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            dialog.dismiss()
+            showActionLoading("Rejecting…")
+            lifecycleScope.launch {
                     try {
                         val result = viewModel.rejectRequest(branchId, requestIdFor(requestCode), reason,
                         onSupabaseResult = { ok ->
@@ -643,10 +676,8 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                         // Popped above on success — dismiss is still safe (no-op if gone).
                         hideActionLoading()
                     }
-                }
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
     }
 
     private fun confirmResubmit() {

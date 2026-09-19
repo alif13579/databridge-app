@@ -4,10 +4,6 @@ package com.cloudx.databridge
  * Claims v2 — Supabase's public.claims is the sole persistence layer for
  * both save and read. See SupabaseClaimsWriter.save() for writes and
  * SupabaseClaimsReader's getById()/search()/searchMyClaims() for reads.
- *
- * The one-time Firebase employee-index migration tool lives separately in
- * FirebaseClaimsIndexMigration (an admin utility, not part of the live
- * claim flow).
  */
 class ClaimsRepository {
 

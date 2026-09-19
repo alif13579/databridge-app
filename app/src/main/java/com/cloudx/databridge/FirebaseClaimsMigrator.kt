@@ -97,17 +97,6 @@ object FirebaseClaimsMigrator {
         val db = FirebaseDatabase.getInstance().reference
         val root = db.child("claims").get().await()
 
-        // Legacy employee index → claimId to employee-key map, so the old
-        // index entries can be cleaned too. Best-effort: a missing index
-        // just means nothing to clean there.
-        val legacyIndex = mutableMapOf<String, String>()
-        root.child("indexes/claims_by_employeeId").children.forEach { group ->
-            val empKey = group.key.orEmpty()
-            group.children.forEach { entry ->
-                entry.key?.let { legacyIndex[it] = empKey }
-            }
-        }
-
         val infos = root.children
             .filter { it.key != "indexes" }
             .mapNotNull { snap ->
@@ -144,7 +133,7 @@ object FirebaseClaimsMigrator {
                 val diff = diffClaims(info, back)
                 if (diff.isEmpty()) {
                     verified++
-                    runCatching { deleteFirebaseClaim(db, key, info, legacyIndex[info.claimId]) }
+                    runCatching { deleteFirebaseClaim(db, key, info) }
                         .onSuccess { deleted++ }
                         .onFailure { errors += "$key: delete failed — ${it.message}" }
                 } else {
@@ -163,7 +152,6 @@ object FirebaseClaimsMigrator {
         db: com.google.firebase.database.DatabaseReference,
         nodeKey: String,
         info: ClaimInfo,
-        legacyEmployeeKey: String?,
     ) {
         val deletes = mutableMapOf<String, Any?>(
             "claims/$nodeKey" to null,
@@ -171,9 +159,6 @@ object FirebaseClaimsMigrator {
         )
         if (info.agentSystemId.isNotBlank()) {
             deletes["${FirebasePaths.claimsBySystemId(info.agentSystemId)}/$nodeKey"] = null
-        }
-        if (!legacyEmployeeKey.isNullOrBlank()) {
-            deletes["${FirebasePaths.claimsByEmployee(legacyEmployeeKey)}/$nodeKey"] = null
         }
         db.updateChildren(deletes).await()
     }

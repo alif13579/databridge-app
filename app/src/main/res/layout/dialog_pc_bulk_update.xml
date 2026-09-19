@@ -61,7 +61,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="PAYMENT METHOD"
+            android:text="PAYMENT METHOD (ONE FOR ALL)"
             android:textSize="10sp"
             android:textStyle="bold"
             android:textColor="#64748B"

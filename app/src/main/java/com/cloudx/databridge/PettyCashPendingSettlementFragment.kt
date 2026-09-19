@@ -155,6 +155,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
             selectMode = !selectMode
             if (!selectMode) selectedIds.clear()
             view.findViewById<TextView>(R.id.btnPcPendingSelect).text = if (selectMode) "Done" else "Select"
+            if (selectMode) guideIfNothingEligible()
             renderList()
         }
         view.findViewById<View>(R.id.tvPcPendingAgent).setOnClickListener { showAgentPicker() }
@@ -452,10 +453,30 @@ class PettyCashPendingSettlementFragment : Fragment() {
             .show()
     }
 
+    /** Explains the silent dead-end: select mode is on but nothing in this
+     *  filter can move forward under the signed-in user's role. */
+    private fun guideIfNothingEligible() {
+        if (!isAdded) return
+        val filtered = currentFiltered()
+        if (filtered.isEmpty()) {
+            Toast.makeText(requireContext(), "No requests in this filter", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (filtered.any { isBulkEligible(it) }) return
+        val hint = when (selectedStatus) {
+            PC_STATUS_PENDING -> "Pending → only Staff can Verify"
+            PC_STATUS_ACKNOWLEDGED -> "Verified → only Cash POC can Approve"
+            PC_STATUS_APPROVED -> "Approved → only Accounts can move to Settle"
+            PC_STATUS_SETTLE_IN_PROCESS -> "Settle in Process → only Accounts can Settle"
+            FILTER_ALL -> "Your role can't move these forward — try a tab matching your stage"
+            else -> "Terminal status — nothing to move"
+        }
+        Toast.makeText(requireContext(), hint, Toast.LENGTH_LONG).show()
+    }
+
     /** Toggles between picking every bulk-eligible request in the current
      *  status+agents filter and clearing the pick (label flips accordingly). */
-    private fun toggleSelectAllFiltered() {
-        val eligible = currentFiltered().filter { isBulkEligible(it) }
+    private fun toggleSelectAllFiltered() {        val eligible = currentFiltered().filter { isBulkEligible(it) }
         if (eligible.isEmpty()) {
             Toast.makeText(requireContext(), "No bulk-eligible requests in this filter", Toast.LENGTH_SHORT).show()
             return
@@ -647,28 +668,61 @@ class PettyCashPendingSettlementFragment : Fragment() {
                 "Why are these being rejected?" else "Shared note for every claim"
         }
         refreshFieldGroups(options.first())
+        val listContainer = dialogView.findViewById<LinearLayout>(R.id.layoutBulkUpdateClaimList)
+        fun claimRow(text: String, bold: Boolean = false, color: String = "#0F172A") =
+            TextView(requireContext()).apply {
+                this.text = text
+                textSize = if (bold) 13f else 12.5f
+                if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(Color.parseColor(color))
+                setPadding(0, 6, 0, 6)
+            }
+        // Claim list re-renders with the target: a Settle run groups rows by
+        // agent with per-agent subtotals (one trxId usually pays ONE agent's
+        // total — the warning below says so when the pick spans several),
+        // every other target keeps the flat list.
+        fun renderClaimList(target: String) {
+            listContainer.removeAllViews()
+            if (target == PC_STATUS_SETTLED) {
+                val byAgent = picked.groupBy {
+                    it.requesterName.takeIf { n -> n.isNotBlank() } ?: it.requesterUid.ifBlank { "—" }
+                }.toList().sortedBy { it.first.lowercase() }
+                if (byAgent.size > 1) {
+                    listContainer.addView(claimRow(
+                        "⚠ One trxId will cover ${byAgent.size} agents — split by agent if these are separate transfers.",
+                        bold = true, color = "#B91C1C"))
+                }
+                byAgent.forEach { (agent, items) ->
+                    val sub = items.sumOf { stageAmount(it) }
+                    listContainer.addView(claimRow("$agent — ${items.size} claims — ${pettyCashTaka(sub)}", bold = true))
+                    items.forEach { item ->
+                        listContainer.addView(claimRow(
+                            "  ${item.requestCode} · ${pettyCashStatusLabel(item.status)} — ${pettyCashTaka(stageAmount(item))}"))
+                    }
+                }
+            } else {
+                picked.forEach { item ->
+                    listContainer.addView(claimRow(
+                        "${item.requestCode} · ${item.requesterName} · ${pettyCashStatusLabel(item.status)} — ${pettyCashTaka(stageAmount(item))}"))
+                }
+            }
+        }
+        renderClaimList(options.first())
         spinnerTarget.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
                 refreshFieldGroups(options[pos])
+                renderClaimList(options[pos])
             }
             override fun onNothingSelected(p: android.widget.AdapterView<*>?) = Unit
         }
 
-        val listContainer = dialogView.findViewById<LinearLayout>(R.id.layoutBulkUpdateClaimList)
-        picked.forEach { item ->
-            val row = TextView(requireContext()).apply {
-                text = "${item.requestCode} · ${item.requesterName} · ${pettyCashStatusLabel(item.status)} — ${pettyCashTaka(stageAmount(item))}"
-                textSize = 12.5f
-                setTextColor(Color.parseColor("#0F172A"))
-                setPadding(0, 6, 0, 6)
-            }
-            listContainer.addView(row)
-        }
         val total = picked.sumOf { stageAmount(it) }
         dialogView.findViewById<TextView>(R.id.tvBulkUpdateTotal).text = "Total: ${pettyCashTaka(total)}"
         val tvProgress = dialogView.findViewById<TextView>(R.id.tvBulkUpdateProgress)
 
         var dialog: AlertDialog? = null
+        // Last trxId the reuse warning was accepted for — re-asks if edited.
+        var confirmedSettleTrx = ""
         dialog = AlertDialog.Builder(requireContext())
             .setTitle("Bulk Update (${picked.size})")
             .setView(dialogView)
@@ -690,6 +744,27 @@ class PettyCashPendingSettlementFragment : Fragment() {
             if (target == PC_STATUS_SETTLED && trxId.isBlank()) {
                 Toast.makeText(requireContext(), "Enter the transaction ID", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
+            }
+            // Same trxId on two payouts usually means a typo or a double
+            // booking — confirm once per typed value (re-asks if edited,
+            // skips the already-picked claims themselves).
+            if (target == PC_STATUS_SETTLED && confirmedSettleTrx != trxId) {
+                val reuse = findTrxIdReuse(latestState?.requests.orEmpty(), trxId, picked.map { it.id }.toSet())
+                if (reuse.isNotEmpty()) {
+                    val shown = reuse.take(5).joinToString(", ") { it.requestCode }
+                    val more = if (reuse.size > 5) " +${reuse.size - 5} more" else ""
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("⚠ Transaction ID already used")
+                        .setMessage("This trxId already settled: $shown$more\n\nSettle ${picked.size} more under the same trxId?")
+                        .setPositiveButton("Use anyway") { _, _ ->
+                            confirmedSettleTrx = trxId
+                            d.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+                        }
+                        .setNegativeButton("Back", null)
+                        .show()
+                    return@setOnClickListener
+                }
+                confirmedSettleTrx = trxId
             }
             val method = spinnerMethod.selectedItem?.toString() ?: "Cash"
             val roles = latestState?.roles
@@ -717,7 +792,11 @@ class PettyCashPendingSettlementFragment : Fragment() {
                         PC_STATUS_ACKNOWLEDGED ->
                             viewModel.acknowledgeRequest(branchId, item.id, comment)
                         PC_STATUS_APPROVED ->
-                            viewModel.approveRequest(branchId, item.id, comment, null)
+                            // Preserve Staff's pre-set verified figure when there
+                            // is one (null falls back to the requested amount
+                            // inside approveRequest) — passing null outright
+                            // used to silently discard it.
+                            viewModel.approveRequest(branchId, item.id, comment, item.approvedAmount.takeIf { it > 0 })
                         PC_STATUS_SETTLE_IN_PROCESS ->
                             viewModel.markReadyToSettle(branchId, item.id)
                         PC_STATUS_SETTLED ->
@@ -775,41 +854,65 @@ class PettyCashPendingSettlementFragment : Fragment() {
             defaultAmount.toLong().toString() else defaultAmount.toString())
         val etTrxId = dialogView.findViewById<EditText>(R.id.etQsTrxId)
 
-        AlertDialog.Builder(requireContext())
+        val dialog = AlertDialog.Builder(requireContext())
             .setTitle("Settle Confirm")
             .setMessage("Settle ${item.requestCode}?")
             .setView(dialogView)
-            .setPositiveButton("Yes") { _, _ ->
-                val amount = etAmount.text?.toString()?.trim()?.toDoubleOrNull()
-                if (amount == null || amount <= 0) {
-                    Toast.makeText(requireContext(), "Enter a valid settle amount", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                val paymentMethod = spinner.selectedItem?.toString() ?: "Cash"
-                val typedTrxId = etTrxId.text?.toString()?.trim().orEmpty()
-                val trxId = typedTrxId.ifBlank { "TXN-${System.currentTimeMillis().toString().takeLast(5)}" }
-                lifecycleScope.launch {
-                    val result = viewModel.settleRequest(branchId, item.id, paymentMethod, trxId, amount,
-                        onSupabaseResult = { ok ->
-                            activity?.runOnUiThread {
-                                if (isAdded) Toast.makeText(requireContext(),
-                                    if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
-                            }
-                        })
-                    if (isAdded) {
-                        if (result.isSuccess) {
-                            Toast.makeText(requireContext(), "✓ Settled", Toast.LENGTH_SHORT).show()
-                        } else {
-                            val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
-                            Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
-                            SupabaseErrorDialog.show(requireContext(), friendly,
-                                result.exceptionOrNull()?.message ?: "Settle failed")
-                        }
+            .setPositiveButton("Yes", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.show()
+        // Non-auto-dismissing positive: blank-amount refusal and the trxId
+        // reuse confirm both need the dialog kept open.
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val amount = etAmount.text?.toString()?.trim()?.toDoubleOrNull()
+            if (amount == null || amount <= 0) {
+                Toast.makeText(requireContext(), "Enter a valid settle amount", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val paymentMethod = spinner.selectedItem?.toString() ?: "Cash"
+            val typedTrxId = etTrxId.text?.toString()?.trim().orEmpty()
+            val trxId = typedTrxId.ifBlank { "TXN-${System.currentTimeMillis().toString().takeLast(5)}" }
+            val reuse = findTrxIdReuse(latestState?.requests.orEmpty(), trxId, setOf(item.id))
+            if (reuse.isNotEmpty()) {
+                val shown = reuse.take(5).joinToString(", ") { it.requestCode }
+                val more = if (reuse.size > 5) " +${reuse.size - 5} more" else ""
+                AlertDialog.Builder(requireContext())
+                    .setTitle("⚠ Transaction ID already used")
+                    .setMessage("This trxId already settled: $shown$more\n\nSettle ${item.requestCode} under the same trxId?")
+                    .setPositiveButton("Settle anyway") { _, _ ->
+                        dialog.dismiss()
+                        runQuickSettle(item, paymentMethod, trxId, amount)
                     }
+                    .setNegativeButton("Back", null)
+                    .show()
+                return@setOnClickListener
+            }
+            dialog.dismiss()
+            runQuickSettle(item, paymentMethod, trxId, amount)
+        }
+    }
+
+    private fun runQuickSettle(item: PettyCashRequest, paymentMethod: String, trxId: String, amount: Double) {
+        lifecycleScope.launch {
+            val result = viewModel.settleRequest(branchId, item.id, paymentMethod, trxId, amount,
+                onSupabaseResult = { ok ->
+                    activity?.runOnUiThread {
+                        if (isAdded) Toast.makeText(requireContext(),
+                            if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
+                    }
+                })
+            if (isAdded) {
+                if (result.isSuccess) {
+                    Toast.makeText(requireContext(), "✓ Settled", Toast.LENGTH_SHORT).show()
+                } else {
+                    val friendly = UserErrorText.forSaveFailure(result.exceptionOrNull())
+                    Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                    SupabaseErrorDialog.show(requireContext(), friendly,
+                        result.exceptionOrNull()?.message ?: "Settle failed")
                 }
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

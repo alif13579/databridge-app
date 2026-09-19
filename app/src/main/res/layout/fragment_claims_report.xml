@@ -25,8 +25,7 @@
             <Button android:id="@+id/btnClaimsSearch" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="SEARCH &amp; GENERATE REPORT"/>
             <ProgressBar android:id="@+id/pbClaimsReport" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center" android:layout_margin="16dp" android:visibility="gone"/>
             <TextView android:id="@+id/tvClaimsSummary" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:padding="16dp" android:textColor="#FFFFFF" android:background="@drawable/bg_action_button_purple"/>
-            <Button android:id="@+id/btnClaimsMigrateIndex" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:text="⚠️ One-time: migrate employee index to system_id" android:textAllCaps="false" android:textSize="12sp" android:backgroundTint="#FEF3C7" android:textColor="#92400E"/>
-            <Button android:id="@+id/btnClaimsDeleteOldIndex" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="🗑 Delete old employee_id index (after verifying)" android:textAllCaps="false" android:textSize="12sp" android:backgroundTint="#FEE2E2" android:textColor="#991B1B"/>
+            <Button android:id="@+id/btnClaimsExcel" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:visibility="gone" android:text="⬇ EXCEL" android:textAllCaps="false"/>
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

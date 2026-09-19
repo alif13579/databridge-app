@@ -125,6 +125,27 @@ fun pettyCashTaka(amount: Double): String {
     val whole = Math.round(amount)
     return "\u09F3${java.text.NumberFormat.getNumberInstance(java.util.Locale.US).format(whole)}"
 }
+
+/**
+ * Already-SETTLED claims sharing [trxId] (case-insensitive, non-blank),
+ * excluding [excludeIds] — the double-payment guard for settle flows.
+ * Reusing one bkash/bank trxId across batches usually means a typo or a
+ * transfer booked twice, so every settle entry point must ask before
+ * proceeding when this is non-empty. Runs fully client-side: callers pass
+ * their already-loaded branch request list, no extra query.
+ */
+fun findTrxIdReuse(
+    requests: List<PettyCashRequest>,
+    trxId: String,
+    excludeIds: Set<String> = emptySet(),
+): List<PettyCashRequest> {
+    val clean = trxId.trim()
+    if (clean.isEmpty()) return emptyList()
+    return requests.filter {
+        it.status == PC_STATUS_SETTLED && it.id !in excludeIds &&
+            it.settledTrxId.trim().equals(clean, ignoreCase = true)
+    }
+}
 val PettyCashRequest.settlementAmount: Double
     get() = approvedAmount
 

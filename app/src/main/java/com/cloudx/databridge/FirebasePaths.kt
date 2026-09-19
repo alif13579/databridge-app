@@ -107,10 +107,9 @@ object FirebasePaths {
     fun claim(claimId: String) = "claims/$claimId"
     fun claimInfo(claimId: String) = "claims/$claimId/info"
     fun claimsByBranch(branchId: String) = "claims/indexes/claims_by_branchId/$branchId"
-    fun claimsByEmployee(employeeId: String) = "claims/indexes/claims_by_employeeId/$employeeId"
-    // Successor to claimsByEmployee — keyed by the digits-only system_id instead of the
-    // HR employee_id (which can contain spaces, unsafe as a key). New claims are indexed
-    // here only; claims_by_employeeId is left in place, unwritten, as a migration safety net.
+    // Keyed by the digits-only system_id instead of the HR employee_id (which
+    // can contain spaces, unsafe as a key). The old claims_by_employeeId index
+    // is gone — nothing reads or writes it anymore.
     fun claimsBySystemId(systemId: String) = "claims/indexes/claims_by_systemId/$systemId"
 
     /* ── Leave Management ─────────────────────────────────────────────
