@@ -593,7 +593,9 @@ class PettyCashPendingSettlementFragment : Fragment() {
     }
 
     /** Bottom bulk bar: always visible in select mode (so the Update action
-     *  can't be missed) — Update stays disabled until at least one pick. */
+     *  can't be missed) and always tappable — with no picks it explains
+     *  itself via the dialog's own "select first" guard instead of looking
+     *  like a dead dimmed label next to Cancel. */
     private fun updateBulkBar() {
         val root = view ?: return
         val bar = root.findViewById<View>(R.id.layoutPcBulkBar)
@@ -602,18 +604,13 @@ class PettyCashPendingSettlementFragment : Fragment() {
             return
         }
         bar.isVisible = true
-        val updateBtn = root.findViewById<TextView>(R.id.btnPcBulkUpdate)
         val picked = latestState?.requests.orEmpty().filter { it.id in selectedIds }
         if (picked.isEmpty()) {
             root.findViewById<TextView>(R.id.tvPcBulkSummary).text = "Tick claims above, then Update"
-            updateBtn.isEnabled = false
-            updateBtn.alpha = 0.4f
         } else {
             val total = picked.sumOf { bulkDefaultAmount(it) }
             root.findViewById<TextView>(R.id.tvPcBulkSummary).text =
                 "${picked.size} selected · Total ${pettyCashTaka(total)}"
-            updateBtn.isEnabled = true
-            updateBtn.alpha = 1f
         }
     }
 
@@ -742,6 +739,12 @@ class PettyCashPendingSettlementFragment : Fragment() {
             .setNegativeButton("Cancel", null)
             .create()
         dialog?.show()
+        // Slide in from the left.
+        dialog?.window?.let { w ->
+            val attrs = w.attributes
+            attrs.windowAnimations = R.style.PcBulkDialogAnimation
+            w.attributes = attrs
+        }
         // Override the positive button: validate first, then run without
         // auto-dismissing (progress shows on the dialog itself).
         dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {

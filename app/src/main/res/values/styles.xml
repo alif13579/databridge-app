@@ -13,4 +13,10 @@
         <item name="android:layout_marginTop">4dp</item>
     </style>
 
+    <!-- Bulk update popup: slides in from the left, out to the right. -->
+    <style name="PcBulkDialogAnimation">
+        <item name="android:windowEnterAnimation">@anim/pc_slide_in_left</item>
+        <item name="android:windowExitAnimation">@anim/pc_slide_out_right</item>
+    </style>
+
 </resources>
