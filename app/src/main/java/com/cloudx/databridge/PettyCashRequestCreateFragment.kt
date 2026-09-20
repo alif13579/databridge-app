@@ -80,8 +80,19 @@ class PettyCashRequestCreateFragment : Fragment() {
         "Transgender Bill"
     )
     private val categoryOptionsFallback =
-        listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP, PC_CATEGORY_LOT_DELIVERY) + utilitiesOptions
+        listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP, PC_CATEGORY_LOT_DELIVERY, PC_CATEGORY_INTER_CHANGE) + utilitiesOptions
     private var categoryOptions: List<String> = categoryOptionsFallback
+    /** Field (requester) categories — requesters see only these four, staff
+     *  see every other category (see visibleCategories). */
+    private val requesterCategories = setOf(
+        PC_CATEGORY_PICKUP, PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_LOT_DELIVERY, PC_CATEGORY_INTER_CHANGE
+    )
+    /** Branch roles for the signed-in user (loaded in create mode for the
+     *  staff gate below) — null until viewModel.load() returns. */
+    private var userRoles: PettyCashUserRoles? = null
+    /** Staff submit gate: null = still checking (roles loading), false =
+     *  neither requester nor staff (form will close once roles confirm). */
+    private var accessGranted: Boolean? = null
     // Admin-managed category → group map (conveyance / operation / office /
     // utilities). Empty until loaded — every branch below falls back to the
     // two known names so the form works offline exactly as before.
@@ -132,7 +143,25 @@ class PettyCashRequestCreateFragment : Fragment() {
      *  same fields without an app release. */
     private fun isConveyanceCategory(category: String): Boolean =
         categoryGroups[category]?.let { it == "conveyance" }
-            ?: (category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY || category == PC_CATEGORY_LOT_DELIVERY)
+            ?: (category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY || category == PC_CATEGORY_LOT_DELIVERY || category == PC_CATEGORY_INTER_CHANGE)
+
+    /** Requester-like (requester permission or Incharge) → the four field
+     *  categories only. Anyone else reaching the form is approver-side staff
+     *  (see the create-mode gate) → everything except those four. */
+    private fun isRequesterLike(): Boolean {
+        if (RbacManager.hasPermission("petty_cash_requester")) return true
+        val id = RbacManager.current.roleId.trim().lowercase()
+        val name = RbacManager.current.roleName.trim().lowercase()
+        if ("incharge" in id || "incharge" in name) return true
+        return userRoles?.let { !it.isStaff } ?: false
+    }
+
+    private fun visibleCategories(): List<String> {
+        val all = categoryOptions.ifEmpty { categoryOptionsFallback }
+        val filtered = if (isRequesterLike()) all.filter { it in requesterCategories }
+        else all.filter { it !in requesterCategories }
+        return filtered.ifEmpty { all }
+    }
 
     private fun isLotCategory(category: String): Boolean = category == PC_CATEGORY_LOT_DELIVERY
 
@@ -328,9 +357,22 @@ class PettyCashRequestCreateFragment : Fragment() {
         pbSaving = view.findViewById(R.id.pbPcRequestSaving)
 
         if (!isEditMode && !RbacManager.canSubmitPettyCash()) {
-            Toast.makeText(requireContext(), "Your role isn't set up to submit petty cash requests", Toast.LENGTH_LONG).show()
-            parentFragmentManager.popBackStack()
-            return
+            // Approver-side staff (no requester permission) may still submit
+            // expense requests — branch roles arrive via load() below.
+            accessGranted = null
+            viewModel.state.observe(viewLifecycleOwner) { state ->
+                if (state is PettyCashState.Success && accessGranted == null) {
+                    userRoles = state.roles
+                    accessGranted = state.roles.isStaff
+                    if (accessGranted == false) {
+                        Toast.makeText(requireContext(), "Your role isn't set up to submit petty cash requests", Toast.LENGTH_LONG).show()
+                        parentFragmentManager.popBackStack()
+                    }
+                }
+            }
+            if (branchId.isNotBlank()) viewModel.load(branchId)
+        } else {
+            accessGranted = true
         }
 
         tvTitle.text = if (isEditMode) "Edit Request" else "New Petty Cash Request"
@@ -423,7 +465,7 @@ class PettyCashRequestCreateFragment : Fragment() {
     }
 
     private fun showCategoryPicker() {
-        val options = categoryOptions.ifEmpty { categoryOptionsFallback }
+        val options = visibleCategories()
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Select Category")
             .setItems(options.toTypedArray()) { _, index -> applyCategory(options[index]) }
@@ -488,14 +530,14 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvCategorySelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
 
         // Store picker stays Pickup-only; consignment is the generic reference
-        // id for every other conveyance category (Bulk Delivery today,
-        // InterChange tomorrow). Non-conveyance categories get neither.
-        // LOT Delivery reuses the same consignment row as a multi-add list
-        // (scan/type + Add) instead of a single ID field. Create-only: a LOT
-        // row being edited is single-consignment, so edit stays bulk-like.
+        // id for Bulk/LOT Delivery. Inter Change trips have no consignment ID
+        // (route comes from From/To instead). Non-conveyance categories get
+        // neither. LOT Delivery reuses the same consignment row as a multi-add
+        // list (scan/type + Add) instead of a single ID field. Create-only: a
+        // LOT row being edited is single-consignment, so edit stays bulk-like.
         val isConveyance = isConveyanceCategory(category)
         val isLot = isLotCategory(category) && !isEditMode
-        groupConsignment.isVisible = isConveyance && category != PC_CATEGORY_PICKUP
+        groupConsignment.isVisible = isConveyance && category != PC_CATEGORY_PICKUP && category != PC_CATEGORY_INTER_CHANGE
         tvConsignmentLabel.text = if (isLot) "Consignments" else "Consignment ID"
         btnAddConsignment.isVisible = isLot
         tvLotCount.isVisible = isLot
@@ -534,7 +576,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             if (::tvAmountLabel.isInitialized) tvAmountLabel.text = "Amount"
             etAmount.hint = "0"
             if (::tvLotTotal.isInitialized) tvLotTotal.isVisible = false
-            if (!isConveyance || category == PC_CATEGORY_PICKUP) etConsignmentId.setText("")
+            if (!isConveyance || category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_INTER_CHANGE) etConsignmentId.setText("")
         }
         if (category != PC_CATEGORY_PICKUP) {
             selectedStoreId = ""
@@ -1059,6 +1101,10 @@ class PettyCashRequestCreateFragment : Fragment() {
     }
 
     private fun onSubmit() {
+        if (!isEditMode && !RbacManager.canSubmitPettyCash() && accessGranted != true) {
+            if (accessGranted == null) Toast.makeText(requireContext(), "Checking access, please wait…", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (uploadingCount > 0) {
             Toast.makeText(requireContext(), "Attachments are still uploading — please wait", Toast.LENGTH_SHORT).show()
             return
@@ -1099,7 +1145,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "Add at least one consignment (scan/type + Add)", Toast.LENGTH_SHORT).show()
             return
         }
-        if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP && !isLotSubmit && consignmentId.isBlank()) {
+        if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP && selectedCategory != PC_CATEGORY_INTER_CHANGE && !isLotSubmit && consignmentId.isBlank()) {
             Toast.makeText(requireContext(), "Enter the consignment ID", Toast.LENGTH_SHORT).show()
             return
         }
@@ -1116,6 +1162,7 @@ class PettyCashRequestCreateFragment : Fragment() {
 
         val finalConsignmentId = when {
             isLotSubmit -> "" // per-row below: one claim per consignment
+            selectedCategory == PC_CATEGORY_INTER_CHANGE -> "" // trips have no consignment ID (route instead)
             isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP -> consignmentId
             else -> ""
         }
@@ -1149,9 +1196,11 @@ class PettyCashRequestCreateFragment : Fragment() {
         val finalDeliveredQuantity = finalAttemptQuantity
         // Always derived, never typed directly -- no etCidOrMerchant field exists
         // in the layout anymore. Mirrors Consignment ID for Bulk-like
-        // conveyance, the picked store's name for Pickup.
+        // conveyance, the picked store's name for Pickup, the From<>To route
+        // for Inter Change.
         val finalCidOrMerchant = when {
             selectedCategory == PC_CATEGORY_PICKUP -> finalStoreName
+            selectedCategory == PC_CATEGORY_INTER_CHANGE -> "$finalFromArea<>$finalToArea"
             isConveyanceSubmit -> finalConsignmentId
             else -> ""
         }

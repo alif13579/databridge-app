@@ -33,7 +33,7 @@ class PettyCashFilterFragment : Fragment() {
         "Rejected" to setOf(PC_STATUS_REJECTED)
     )
     private val categoryOptions = listOf("All Categories",
-        PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP, PC_CATEGORY_LOT_DELIVERY,
+        PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP, PC_CATEGORY_LOT_DELIVERY, PC_CATEGORY_INTER_CHANGE,
         "Travel Expense", "Fuel Expense", "Stationery", "Office Supplies",
         "Internet Bill", "Regarding Mobile Bill For QC Team Member", "Gas Bill",
         "Local Security Guard Bill", "Garbage Bill", "Water/Wasa Bill",

@@ -65,6 +65,7 @@ class PettyCashDashboardFragment : Fragment() {
     private lateinit var tvViewAllQueue: TextView
     private lateinit var layoutQueueList: LinearLayout
     private lateinit var layoutNoRoleState: View
+    private lateinit var btnNewRequest: View
 
     private var branchId: String = ""
     private var branchNames: Map<String, String> = emptyMap()
@@ -145,9 +146,10 @@ class PettyCashDashboardFragment : Fragment() {
         view.findViewById<View>(R.id.btnPcDashboardBack).setOnClickListener {
             parentFragmentManager.popBackStack()
         }
-        val btnNewRequest = view.findViewById<View>(R.id.btnPcDashboardNewRequest)
+        btnNewRequest = view.findViewById(R.id.btnPcDashboardNewRequest)
         // Requester permission OR Incharge role (see RbacManager.canSubmitPettyCash)
         // can submit new requests — e.g. Pickup/Delivery Agent + Incharge team.
+        // Branch staff get the button too (expense requests) once roles load.
         btnNewRequest.isVisible = RbacManager.canSubmitPettyCash()
         btnNewRequest.setOnClickListener {
             parentFragmentManager.beginTransaction()
@@ -282,6 +284,10 @@ class PettyCashDashboardFragment : Fragment() {
             is PettyCashState.Success -> {
                 pbLoading.isVisible = false
                 layoutError.isVisible = false
+                // Staff (branch approver role, no requester permission) also get
+                // New Request — for expense categories (see the create form).
+                if (::btnNewRequest.isInitialized) btnNewRequest.isVisible =
+                    RbacManager.canSubmitPettyCash() || state.roles.isStaff
                 val views = availableViews(state.roles)
                 if (views.isEmpty()) {
                     // The Requester (petty_cash_requester) permission that gates
