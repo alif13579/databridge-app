@@ -146,11 +146,9 @@ class PettyCashDashboardFragment : Fragment() {
             parentFragmentManager.popBackStack()
         }
         val btnNewRequest = view.findViewById<View>(R.id.btnPcDashboardNewRequest)
-        // Only roles explicitly granted "petty_cash_requester" (Access Manager)
-        // can submit new requests — e.g. Pickup Agent, Delivery Agent. Whether
-        // someone can also see this whole Dashboard (nav_petty_cash) is a
-        // separate permission; this button doesn't assume the two overlap.
-        btnNewRequest.isVisible = RbacManager.hasPermission("petty_cash_requester")
+        // Requester permission OR Incharge role (see RbacManager.canSubmitPettyCash)
+        // can submit new requests — e.g. Pickup/Delivery Agent + Incharge team.
+        btnNewRequest.isVisible = RbacManager.canSubmitPettyCash()
         btnNewRequest.setOnClickListener {
             parentFragmentManager.beginTransaction()
                 .replace(R.id.container, PettyCashRequestCreateFragment.newInstance(branchId))
@@ -297,13 +295,14 @@ class PettyCashDashboardFragment : Fragment() {
                     // action hidden -- looked like a broken Accounts dashboard
                     // rather than what it actually was: wrong branch for this role.
                     //
-                    // But if they DO hold petty_cash_requester, this Dashboard was
-                    // simply the wrong screen for them from the start (same case the
-                    // drawer's routing already avoids for a pure Requester -- see
-                    // MainActivity's nav_petty_cash handler) -- hand off to the
-                    // screen that's actually meaningful to them instead of leaving
-                    // them stuck on a dead end.
-                    if (RbacManager.hasPermission("petty_cash_requester")) {
+                    // But if they CAN submit (requester permission or Incharge),
+                    // this Dashboard was simply the wrong screen for them from
+                    // the start (same case the drawer's routing already avoids
+                    // for a pure Requester -- see MainActivity's nav_petty_cash
+                    // handler) -- hand off to the screen that's actually
+                    // meaningful to them instead of leaving them stuck on a
+                    // dead end.
+                    if (RbacManager.canSubmitPettyCash()) {
                         parentFragmentManager.popBackStack()
                         parentFragmentManager.beginTransaction()
                             .replace(R.id.container, PettyCashMyRequestsFragment.newInstance(branchId))

@@ -67,7 +67,18 @@ class PettyCashRequestCreateFragment : Fragment() {
     private var editRequestId: String = ""
     private val isEditMode: Boolean get() = editRequestId.isNotBlank()
 
-    private val categoryOptionsFallback = listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP)
+    private val utilitiesOptions = listOf(
+        "Internet Bill",
+        "Regarding Mobile Bill For QC Team Member",
+        "Gas Bill",
+        "Local Security Guard Bill",
+        "Garbage Bill",
+        "Water/Wasa Bill",
+        "Cleaner Bill",
+        "Transgender Bill"
+    )
+    private val categoryOptionsFallback =
+        listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP) + utilitiesOptions
     private var categoryOptions: List<String> = categoryOptionsFallback
     // Admin-managed category → group map (conveyance / operation / office /
     // utilities). Empty until loaded — every branch below falls back to the
@@ -285,7 +296,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         btnSubmit = view.findViewById(R.id.btnPcRequestSubmit)
         pbSaving = view.findViewById(R.id.pbPcRequestSaving)
 
-        if (!isEditMode && !RbacManager.hasPermission("petty_cash_requester")) {
+        if (!isEditMode && !RbacManager.canSubmitPettyCash()) {
             Toast.makeText(requireContext(), "Your role isn't set up to submit petty cash requests", Toast.LENGTH_LONG).show()
             parentFragmentManager.popBackStack()
             return

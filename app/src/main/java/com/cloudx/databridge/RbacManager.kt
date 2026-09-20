@@ -344,6 +344,17 @@ object RbacManager {
         return false
     }
 
+    /** Petty cash submit gate: explicit "petty_cash_requester" permission OR
+     *  any Incharge-role holder (role id/name containing "incharge",
+     *  case-insensitive — covers Hub/Shift Incharge variants). Incharge
+     *  submits exactly like a requester: same form, same pending chain. */
+    fun canSubmitPettyCash(): Boolean {
+        if (hasPermission("petty_cash_requester")) return true
+        val id = current.roleId.trim().lowercase()
+        val name = current.roleName.trim().lowercase()
+        return "incharge" in id || "incharge" in name
+    }
+
     /** Call on logout to reset state. */
     fun clear() {
         current = UserRbacInfo()
