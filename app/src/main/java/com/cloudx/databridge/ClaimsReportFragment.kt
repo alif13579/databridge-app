@@ -52,9 +52,10 @@ class ClaimsReportFragment : Fragment() {
 
     // Last successful search — powers the Excel export so it downloads exactly
     // the rows the PDF was generated from (no re-query, no filter drift).
-    private var lastClaims: List<SupabaseClaimsReader.ClaimRow> = emptyList()
-    private var lastFromIso: String = ""
-    private var lastToIso: String = ""
+private var lastClaims: List<SupabaseClaimsReader.ClaimRow> = emptyList()
+private var lastFromIso: String = ""
+private var lastToIso: String = ""
+private var lastPdf: File? = null
 
     /** systemId is the actual filter/index key (claims.agent_system_id); employeeId is
      *  kept purely for display ("Mehedi (EMP001)") — mirrors CallCenterFragment.AgentOption. */
@@ -307,15 +308,15 @@ class ClaimsReportFragment : Fragment() {
                 lastClaims = claims
                 lastFromIso = range.first
                 lastToIso = range.second
+                lastPdf = file
                 v.findViewById<TextView>(R.id.tvClaimsSummary).apply {
                     isVisible = true
-                    text = "Report generated: ${file.name} (${claims.size} claims)"
+                    text = "Report ready: ${claims.size} claims — tap EXPORT for PDF / Excel / CSV"
                 }
                 v.findViewById<Button>(R.id.btnClaimsExcel).apply {
                     isVisible = true
-                    text = "⬇ EXCEL (${claims.size} ROWS)"
+                    text = "⬇ EXPORT (${claims.size} ROWS)"
                 }
-                sharePdf(file)
             }.onFailure { toast(it.message ?: "Report generation failed") }
             progress.isVisible = false
         }
@@ -325,15 +326,48 @@ class ClaimsReportFragment : Fragment() {
     // Reuses CashExportWriter (dependency-free OOXML writer shared with the cash
     // ledger exports) and the same FileProvider/MediaStore share+download flow.
 
+    /** Export format option: PDF / Excel / CSV — then Share vs Download. */
     private fun exportExcelChooser() {
         if (lastClaims.isEmpty()) return toast("Generate the report first")
         AlertDialog.Builder(requireContext())
-            .setTitle("Excel Export (${lastClaims.size} rows)")
-            .setItems(arrayOf("📤 Share", "⬇️ Download to Downloads")) { _, which ->
-                if (which == 0) exportExcel(share = true) else exportExcel(share = false)
+            .setTitle("Export Format (${lastClaims.size} rows)")
+            .setItems(arrayOf("📄 PDF", "📊 Excel (.xlsx)", "📝 CSV")) { _, which ->
+                when (which) {
+                    0 -> exportTargetChooser("PDF") { share -> exportPdf(share) }
+                    1 -> exportTargetChooser("Excel") { share -> exportExcel(share) }
+                    else -> exportTargetChooser("CSV") { share -> exportCsv(share) }
+                }
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun exportTargetChooser(format: String, run: (Boolean) -> Unit) {
+        AlertDialog.Builder(requireContext())
+            .setTitle("$format — Share or Download?")
+            .setItems(arrayOf("📤 Share", "⬇️ Download to Downloads")) { _, which ->
+                run(which == 0)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun exportPdf(share: Boolean) {
+        val file = lastPdf
+        if (!isAdded || lastClaims.isEmpty() || file == null || !file.exists()) {
+            toast("Generate the report first")
+            return
+        }
+        if (share) {
+            sharePdf(file)
+        } else {
+            saveToDownloads(
+                file,
+                "claims_report_${lastFromIso}_${lastToIso}_${System.currentTimeMillis()}.pdf",
+                "application/pdf",
+                "✅ PDF saved to Downloads (${lastClaims.size} rows)"
+            )
+        }
     }
 
     private fun exportExcel(share: Boolean) {
@@ -373,9 +407,55 @@ class ClaimsReportFragment : Fragment() {
         }.onFailure { toast("Excel export failed: ${it.message}") }
     }
 
+    /** CSV export (.csv, same rows as PDF/Excel) — plain text, opens in
+     *  Excel/Sheets, same FileProvider/MediaStore share+download flow. */
+    private fun exportCsv(share: Boolean) {
+        if (!isAdded || lastClaims.isEmpty()) return
+        val ctx = requireContext()
+        val mime = "text/csv"
+        val exportsDir = File(ctx.cacheDir, "exports").apply { mkdirs() }
+        val file = File(exportsDir, "claims_report_${lastFromIso}_${lastToIso}_${System.currentTimeMillis()}.csv")
+        runCatching {
+            val headers = listOf("Date", "Claim Code", "Employee", "Emp ID", "Category", "Purpose", "From", "To", "Vehicle", "Requested", "Settled", "Status")
+            val sb = StringBuilder()
+            sb.appendLine(headers.joinToString(",") { csvCell(it) })
+            lastClaims.forEach { c ->
+                val cells = listOf(
+                    c.placedDate, c.claimCode,
+                    c.agentName.ifBlank { c.agentSystemId }, c.agentEmployeeId,
+                    c.category, c.purpose, c.fromArea, c.toArea, c.vehicle,
+                    c.requestedAmount.toString(), c.settledAmount.toString(), c.status,
+                )
+                sb.appendLine(cells.joinToString(",") { csvCell(it) })
+            }
+            file.writeText(sb.toString(), Charsets.UTF_8)
+            file
+        }.onSuccess {
+            if (share) {
+                val uri = runCatching {
+                    androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", it)
+                }.getOrNull() ?: return toast("Could not create file")
+                val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = mime
+                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                runCatching { startActivity(android.content.Intent.createChooser(intent, "Share CSV")) }
+                    .onFailure { toast("Share failed: ${it.message}") }
+            } else {
+                saveToDownloads(it, it.name, mime, "✅ CSV saved to Downloads (${lastClaims.size} rows)")
+            }
+        }.onFailure { toast("CSV export failed: ${it.message}") }
+    }
+
+    private fun csvCell(value: String): String {
+        val needsQuotes = value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
+        return if (needsQuotes) "\"${value.replace("\"", "\"\"")}\"" else value
+    }
+
     /** Copies a cache-dir export into the public Downloads folder (same MediaStore
      *  flow CashLedgerListFragment uses — no storage permission needed on Q+). */
-    private fun saveToDownloads(file: File, displayName: String, mimeType: String) {
+    private fun saveToDownloads(file: File, displayName: String, mimeType: String, doneNote: String? = null) {
         val ctx = requireContext()
         runCatching {
             val resolver = ctx.contentResolver
@@ -400,7 +480,7 @@ class ClaimsReportFragment : Fragment() {
                 ?: throw IllegalStateException("Could not write file")
             uri
         }.onSuccess {
-            toast("✅ Excel saved to Downloads (${lastClaims.size} rows)")
+            toast(doneNote ?: "✅ Excel saved to Downloads (${lastClaims.size} rows)")
         }.onFailure { toast("Download failed: ${it.message}") }
     }
 

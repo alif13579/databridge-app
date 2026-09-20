@@ -542,24 +542,48 @@ Deno.serve(async (request) => {
       }
 
     if (action === 'claim_delete') {
-      // Hard delete of a PENDING request by its own requester: the row goes
-      // away entirely (no cancelled tombstone). Gated on worker_uid (the
-      // Firebase uid stored at submit) + pending status — anything else is
-      // someone else's or already in the approval chain. R2 objects are purged
-      // app-side (AttachmentUploader.deleteObject per key); the row delete is
-      // the atomic point of no return.
+      // Hard delete: the row goes away entirely (no cancelled tombstone).
+      // Owner deletes own PENDING request; branch staff/POC/accounts (or
+      // admin/manager) delete any NON-SETTLED claim (app shows its warning
+      // dialog first). Settled rows are financial history — never deletable.
+      // R2 objects are purged app-side (AttachmentUploader.deleteObject per
+      // key); the row delete is the atomic point of no return.
       const claimId = typeof body.claim_id === 'string' ? body.claim_id.trim() : ''
       if (!claimId) return reply({ error: 'claim_id is required' }, 400)
       const { data: row, error: readError } = await admin.from('claims')
-        .select('id,requester_uid,status').eq('id', claimId).maybeSingle()
+        .select('id,requester_uid,status,branch_id').eq('id', claimId).maybeSingle()
       if (readError) throw readError
       if (!row) return reply({ error: 'Claim not found' }, 404)
-      if (row.requester_uid !== identity.uid) {
-        errLog('claim_delete', 'forbidden', { claim_id: claimId })
-        return reply({ error: 'You can only delete your own requests' }, 403)
+      if (row.status === 'settled') {
+        return reply({ error: 'Settled requests cannot be deleted' }, 409)
       }
-      if (row.status !== 'pending') {
-        return reply({ error: 'Only pending requests can be deleted' }, 409)
+      const isOwnerPending = row.requester_uid === identity.uid && row.status === 'pending'
+      if (!isOwnerPending) {
+        const profile = await firebaseProfile(identity)
+        const staffRole = (profile.roleId || '').trim()
+        const staffAdmin = staffRole === 'admin' || staffRole === 'manager'
+        const { data: branch } = await admin.from('branches')
+          .select('branch_id,staff_uid,staff_uids,staff_role,staff_roles,petty_cash_poc_uid,petty_cash_poc_uids,petty_cash_poc_roles,accountant_uid,accountant_uids,accountant_role,accountant_roles')
+          .eq('branch_id', String(row.branch_id || '')).maybeSingle()
+        const toList = (v: unknown): string[] => {
+          if (Array.isArray(v)) return v.map((x) => String(x ?? '').trim()).filter((s) => s !== '')
+          return typeof v === 'string' && v.trim() !== '' ? [v.trim()] : []
+        }
+        const matches = (uids: string[], roles: string[]) => {
+          if (uids.includes(identity.uid)) return true
+          if (staffRole !== '' && roles.includes(staffRole)) return true
+          return false
+        }
+        const okStaff = matches([...toList(branch?.staff_uids), ...toList(branch?.staff_uid)],
+          [...toList(branch?.staff_roles), ...toList(branch?.staff_role)])
+        const okPoc = matches([...toList(branch?.petty_cash_poc_uids), ...toList(branch?.petty_cash_poc_uid)],
+          toList(branch?.petty_cash_poc_roles))
+        const okAcc = matches([...toList(branch?.accountant_uids), ...toList(branch?.accountant_uid)],
+          [...toList(branch?.accountant_roles), ...toList(branch?.accountant_role)])
+        if (!(staffAdmin || okStaff || okPoc || okAcc)) {
+          errLog('claim_delete', 'forbidden', { claim_id: claimId })
+          return reply({ error: 'You can only delete your own requests' }, 403)
+        }
       }
       const { error } = await admin.from('claims').delete().eq('id', claimId)
       if (error) {

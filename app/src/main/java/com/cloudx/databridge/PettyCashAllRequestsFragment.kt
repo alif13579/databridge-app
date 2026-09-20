@@ -629,7 +629,12 @@ class PettyCashAllRequestsFragment : Fragment() {
             return
         }
         val options = bulkTargetOptions(picked)
-        if (options.isEmpty()) {
+        // Delete pool is wider than status-update eligibility: any selected
+        // non-settled claim (rejected included) — staff/POC/accounts only.
+        val deletePool = latestState?.requests.orEmpty()
+            .filter { it.id in selectedIds && it.status != PC_STATUS_SETTLED }
+        val canDelete = latestState?.roles?.isAnyApprover == true && deletePool.isNotEmpty()
+        if (options.isEmpty() && !canDelete) {
             Toast.makeText(requireContext(), "No bulk action available for your role on these", Toast.LENGTH_SHORT).show()
             return
         }
@@ -654,7 +659,7 @@ class PettyCashAllRequestsFragment : Fragment() {
             etComment.hint = if (target == PC_STATUS_REJECTED)
                 "Why are these being rejected?" else "Shared note for every claim"
         }
-        refreshFieldGroups(options.first())
+        if (options.isNotEmpty()) refreshFieldGroups(options.first())
         val listContainer = dialogView.findViewById<LinearLayout>(R.id.layoutBulkUpdateClaimList)
         fun claimRow(text: String, bold: Boolean = false, color: String = "#0F172A") =
             TextView(requireContext()).apply {
@@ -693,16 +698,24 @@ class PettyCashAllRequestsFragment : Fragment() {
                 }
             }
         }
-        renderClaimList(options.first())
-        spinnerTarget.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                refreshFieldGroups(options[pos])
-                renderClaimList(options[pos])
+        if (options.isNotEmpty()) {
+            renderClaimList(options.first())
+            spinnerTarget.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                    refreshFieldGroups(options[pos])
+                    renderClaimList(options[pos])
+                }
+                override fun onNothingSelected(p: android.widget.AdapterView<*>?) = Unit
             }
-            override fun onNothingSelected(p: android.widget.AdapterView<*>?) = Unit
+        } else {
+            // Delete-only mode: flat list of what Delete would remove.
+            deletePool.forEach { item ->
+                listContainer.addView(claimRow(
+                    "${item.requestCode} · ${item.requesterName} · ${pettyCashStatusLabel(item.status)} — ${pettyCashTaka(stageAmount(item))}"))
+            }
         }
 
-        val total = picked.sumOf { stageAmount(it) }
+        val total = (if (options.isNotEmpty()) picked else deletePool).sumOf { stageAmount(it) }
         dialogView.findViewById<TextView>(R.id.tvBulkUpdateTotal).text = "Total: ${pettyCashTaka(total)}"
         val tvProgress = dialogView.findViewById<TextView>(R.id.tvBulkUpdateProgress)
 
@@ -710,10 +723,11 @@ class PettyCashAllRequestsFragment : Fragment() {
         // Last trxId the reuse warning was accepted for — re-asks if edited.
         var confirmedSettleTrx = ""
         dialog = AlertDialog.Builder(requireContext())
-            .setTitle("Bulk Update (${picked.size})")
+            .setTitle(if (options.isNotEmpty()) "Bulk Update (${picked.size})" else "Bulk Delete (${deletePool.size})")
             .setView(dialogView)
             .setPositiveButton("Update", null)
             .setNegativeButton("Cancel", null)
+            .apply { if (canDelete) setNeutralButton("🗑 Delete", null) }
             .create()
         dialog?.show()
         // Slide in from the left.
@@ -721,6 +735,18 @@ class PettyCashAllRequestsFragment : Fragment() {
             val attrs = w.attributes
             attrs.windowAnimations = R.style.PcBulkDialogAnimation
             w.attributes = attrs
+        }
+        if (options.isEmpty()) {
+            // Delete-only mode: no status target to pick or apply.
+            spinnerTarget.isVisible = false
+            commentGroup.isVisible = false
+            settleGroup.isVisible = false
+            dialog?.getButton(AlertDialog.BUTTON_POSITIVE)?.isVisible = false
+        }
+        dialog?.getButton(AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
+            dialog?.dismiss()
+            val selectedCount = latestState?.requests.orEmpty().count { it.id in selectedIds }
+            confirmBulkDelete(deletePool, selectedCount - deletePool.size)
         }
         // Override the positive button: validate first, then run without
         // auto-dismissing (progress shows on the dialog itself).
@@ -827,6 +853,52 @@ class PettyCashAllRequestsFragment : Fragment() {
                 }
             }
         }
+    }
+
+    /** Bulk delete with warning: staff/POC/accounts permanently remove every
+     *  picked non-settled claim (receipts too). Settled rows are never
+     *  deletable — skipped and counted, not failed. */
+    private fun confirmBulkDelete(
+        deletePool: List<PettyCashRequest>,
+        skippedSettled: Int
+    ) {
+        if (latestState?.roles?.isAnyApprover != true) {
+            Toast.makeText(requireContext(), "Only staff can bulk delete", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (deletePool.isEmpty()) {
+            Toast.makeText(requireContext(), "Nothing deletable (settled requests can't be deleted)", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val settledNote = if (skippedSettled > 0) "\n\n$skippedSettled settled skipped (can't be deleted)." else ""
+        AlertDialog.Builder(requireContext())
+            .setTitle("⚠ Delete ${deletePool.size} requests?")
+            .setMessage("Permanently removes them AND their receipts. Can't be undone.$settledNote")
+            .setPositiveButton("Delete") { _, _ ->
+                lifecycleScope.launch {
+                    Toast.makeText(requireContext(), "⏳ Deleting ${deletePool.size}…", Toast.LENGTH_SHORT).show()
+                    var ok = 0
+                    val failures = mutableListOf<String>()
+                    deletePool.forEach { item ->
+                        val result = viewModel.deleteRequest(branchId, item.id, {}, allowStaff = true)
+                        if (result.isSuccess) ok++
+                        else failures.add("${item.requestCode}: ${result.exceptionOrNull()?.message ?: "failed"}")
+                    }
+                    if (failures.isEmpty()) {
+                        Toast.makeText(requireContext(), "✓ $ok requests deleted", Toast.LENGTH_LONG).show()
+                    } else {
+                        val friendly = "⚠ ${failures.size} failed — $ok deleted"
+                        Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                        if (isAdded) SupabaseErrorDialog.show(requireContext(), friendly, failures.joinToString("\n"))
+                    }
+                    selectMode = false
+                    selectedIds.clear()
+                    view?.findViewById<TextView>(R.id.tvPcAllReqSelectMode)?.text = "☑ Select"
+                    if (branchId.isNotBlank()) viewModel.load(branchId) else view?.let { renderList(it) }
+                }
+            }
+            .setNegativeButton("Back", null)
+            .show()
     }
 
     private fun buildPagination(root: View, totalCount: Int, fromIndex: Int, toIndex: Int, totalPages: Int) {

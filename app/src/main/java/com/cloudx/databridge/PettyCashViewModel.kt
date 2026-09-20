@@ -301,12 +301,17 @@ class PettyCashViewModel : ViewModel() {
 
     // ── Requester: delete a request (only while status == pending) ──────────
 
-    suspend fun deleteRequest(branchId: String, requestId: String, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
+    suspend fun deleteRequest(branchId: String, requestId: String, onSupabaseResult: (Boolean) -> Unit = {}, allowStaff: Boolean = false): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
 
-        if (existing.requesterUid != uid) throw IllegalStateException("You can only delete your own requests")
-        if (existing.status != PC_STATUS_PENDING) throw IllegalStateException("This request can no longer be deleted")
+        // Settled rows are financial history — never deletable (server also 409s).
+        if (existing.status == PC_STATUS_SETTLED) throw IllegalStateException("Settled requests cannot be deleted")
+        // Owner deletes own pending; branch staff/POC/accounts (allowStaff,
+        // UI-gated by role) delete anything non-settled. The Edge Function
+        // re-enforces both rules server-side.
+        val isOwnerPending = existing.requesterUid == uid && existing.status == PC_STATUS_PENDING
+        if (!isOwnerPending && !allowStaff) throw IllegalStateException("You can only delete your own pending requests")
 
         // Hard delete — the row AND every R2 attachment object go away, no
         // cancelled tombstone left behind. (An earlier version only flipped

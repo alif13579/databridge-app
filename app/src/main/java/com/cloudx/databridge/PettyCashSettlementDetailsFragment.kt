@@ -431,6 +431,9 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         val canReject = (request.status == PC_STATUS_PENDING && roles.isStaff) ||
             (request.status == PC_STATUS_ACKNOWLEDGED && roles.isCashPoc)
         val canEditOrDelete = isOwner && request.status == PC_STATUS_PENDING
+        // Staff/POC/accounts delete (with warning) anything non-settled,
+        // right next to Reject — see bindEditDeleteRow.
+        val canStaffDelete = request.status != PC_STATUS_SETTLED && roles.isAnyApprover
         // Resubmit a rejected request back to the queue (audit #8 — rejected
         // is no longer a dead-end; server wipes the reject slate).
         val canResubmit = request.status == PC_STATUS_REJECTED && isOwner
@@ -508,7 +511,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             }
         }
 
-        bindEditDeleteRow(root, request, canEditOrDelete)
+            bindEditDeleteRow(root, request, canEditOrDelete, canStaffDelete)
     }
 
     /** Payment Method spinner, editable Settle Amount (pre-filled from approved amount,
@@ -608,18 +611,22 @@ class PettyCashSettlementDetailsFragment : Fragment() {
     }
 
     /** Owner-only Edit/Delete row, only while the request is still PENDING. */
-    private fun bindEditDeleteRow(root: View, request: PettyCashRequest, canEditOrDelete: Boolean) {
+    private fun bindEditDeleteRow(root: View, request: PettyCashRequest, canEditOrDelete: Boolean, canStaffDelete: Boolean = false) {
         val layoutEditDelete = root.findViewById<View?>(R.id.layoutPcDetailEditDelete)
-        layoutEditDelete?.isVisible = canEditOrDelete
-        if (!canEditOrDelete) return
+        layoutEditDelete?.isVisible = canEditOrDelete || canStaffDelete
+        if (!canEditOrDelete && !canStaffDelete) return
 
-        root.findViewById<View>(R.id.btnPcDetailEdit).setOnClickListener {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashRequestCreateFragment.newInstance(branchId, editRequestId = request.id))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
+        root.findViewById<View>(R.id.btnPcDetailEdit).isVisible = canEditOrDelete
+        root.findViewById<View>(R.id.btnPcDetailDelete).isVisible = canEditOrDelete || canStaffDelete
+        if (canEditOrDelete) {
+            root.findViewById<View>(R.id.btnPcDetailEdit).setOnClickListener {
+                parentFragmentManager.beginTransaction()
+                    .replace(R.id.container, PettyCashRequestCreateFragment.newInstance(branchId, editRequestId = request.id))
+                    .addToBackStack(null)
+                    .commitAllowingStateLoss()
+            }
         }
-        root.findViewById<View>(R.id.btnPcDetailDelete).setOnClickListener { confirmDelete() }
+        root.findViewById<View>(R.id.btnPcDetailDelete).setOnClickListener { confirmDelete(canStaffDelete) }
     }
 
     private fun confirmMarkReady() {
@@ -705,15 +712,16 @@ class PettyCashSettlementDetailsFragment : Fragment() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    private fun confirmDelete() {
+    private fun confirmDelete(allowStaff: Boolean = false) {
         android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Delete $requestCode?")
-            .setMessage("This permanently removes the request. This can't be undone.")
+            .setTitle("⚠ Delete $requestCode?")
+            .setMessage("This permanently removes the request AND its receipts. This can't be undone.")
             .setPositiveButton("Delete") { _, _ ->
                 showActionLoading("Deleting…")
                 lifecycleScope.launch {
                     try {
                         val result = viewModel.deleteRequest(branchId, requestIdFor(requestCode),
+                        allowStaff = allowStaff,
                         onSupabaseResult = { ok ->
                             activity?.runOnUiThread {
                                 if (isAdded) Toast.makeText(requireContext(),

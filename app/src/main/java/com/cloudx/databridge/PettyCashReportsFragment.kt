@@ -43,7 +43,7 @@ class PettyCashReportsFragment : Fragment() {
         }
 
         val menu = view.findViewById<LinearLayout>(R.id.layoutPcReportsMenu)
-        addMenuRow(menu, "📊", "Claims Report", "Date-range summary with Excel and PDF export") {
+        addMenuRow(menu, "📊", "Claims Report", "Date-range summary with PDF, Excel and CSV export") {
             open(ClaimsReportFragment.newInstance())
         }
         addMenuRow(menu, "\uD83D\uDCCB", "All Requests", "Browse and filter every request") {
