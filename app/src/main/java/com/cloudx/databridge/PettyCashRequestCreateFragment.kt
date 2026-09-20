@@ -195,7 +195,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                 code.length != ScannerFragment.TRACKING_ID_LENGTH ->
                     Toast.makeText(requireContext(), "⚠ Invalid scan. Please scan again.", Toast.LENGTH_LONG).show()
                 else -> {
-                    if (isLotCategory(selectedCategory)) {
+                    if (isLotCategory(selectedCategory) && !isEditMode) {
                         addLotConsignment(code)
                     } else {
                         etConsignmentId.setText(code)
@@ -225,6 +225,8 @@ class PettyCashRequestCreateFragment : Fragment() {
     private lateinit var groupConveyance: View
     private lateinit var groupAmount: View
     private lateinit var etAmount: EditText
+    private lateinit var tvAmountLabel: TextView
+    private lateinit var tvLotTotal: TextView
     private lateinit var etPurpose: EditText
     private lateinit var tvPurposeCount: TextView
     private lateinit var btnSubmit: android.widget.Button
@@ -307,6 +309,13 @@ class PettyCashRequestCreateFragment : Fragment() {
 
         groupAmount = view.findViewById(R.id.groupPcAmount)
         etAmount = view.findViewById(R.id.etPcRequestAmount)
+        tvAmountLabel = view.findViewById(R.id.tvPcRequestAmountLabel)
+        tvLotTotal = view.findViewById(R.id.tvPcRequestLotTotal)
+        etAmount.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) { updateLotTotal() }
+        })
         tvExpenseDateSelected = view.findViewById(R.id.tvPcRequestExpenseDateSelected)
         tvDateLabel = view.findViewById(R.id.tvPcRequestDateLabel)
         updateDateLabel()
@@ -374,11 +383,9 @@ class PettyCashRequestCreateFragment : Fragment() {
         applyCategory(request.category)
         etAmount.setText(if (request.amount > 0) request.amount.toInt().toString() else "")
         etPurpose.setText(request.purpose)
-        if (isLotCategory(request.category)) {
-            lotConsignments.clear()
-            lotConsignments.addAll(request.consignmentId.split(Regex("[,\\s]+")).map { it.trim() }.filter { it.isNotBlank() })
-            renderLotList()
-        } else if (request.consignmentId.isNotBlank()) etConsignmentId.setText(request.consignmentId)
+        // LOT rows are single-consignment (one row per parcel since the
+        // separate-rows cutover) — edit stays bulk-like single-ID.
+        if (request.consignmentId.isNotBlank()) etConsignmentId.setText(request.consignmentId)
         if (request.storeName.isNotBlank()) {
             selectedStoreId = request.storeId
             selectedStoreName = request.storeName
@@ -484,9 +491,10 @@ class PettyCashRequestCreateFragment : Fragment() {
         // id for every other conveyance category (Bulk Delivery today,
         // InterChange tomorrow). Non-conveyance categories get neither.
         // LOT Delivery reuses the same consignment row as a multi-add list
-        // (scan/type + Add) instead of a single ID field.
+        // (scan/type + Add) instead of a single ID field. Create-only: a LOT
+        // row being edited is single-consignment, so edit stays bulk-like.
         val isConveyance = isConveyanceCategory(category)
-        val isLot = isLotCategory(category)
+        val isLot = isLotCategory(category) && !isEditMode
         groupConsignment.isVisible = isConveyance && category != PC_CATEGORY_PICKUP
         tvConsignmentLabel.text = if (isLot) "Consignments" else "Consignment ID"
         btnAddConsignment.isVisible = isLot
@@ -514,6 +522,8 @@ class PettyCashRequestCreateFragment : Fragment() {
             }
             etConsignmentId.setText("")
             etConsignmentId.hint = "Type or scan, then tap + Add"
+            tvAmountLabel.text = "Rate per consignment"
+            etAmount.hint = "e.g. 20"
             renderLotList()
         } else {
             if (lotConsignments.isNotEmpty()) {
@@ -521,6 +531,9 @@ class PettyCashRequestCreateFragment : Fragment() {
                 try { renderLotList() } catch (_: Exception) { /* views not bound yet */ }
             }
             etConsignmentId.hint = "Type or scan consignment ID"
+            if (::tvAmountLabel.isInitialized) tvAmountLabel.text = "Amount"
+            etAmount.hint = "0"
+            if (::tvLotTotal.isInitialized) tvLotTotal.isVisible = false
             if (!isConveyance || category == PC_CATEGORY_PICKUP) etConsignmentId.setText("")
         }
         if (category != PC_CATEGORY_PICKUP) {
@@ -823,6 +836,19 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
     }
 
+    /** LOT live total: rate × consignments. Visible in LOT create mode only. */
+    private fun updateLotTotal() {
+        if (!::tvLotTotal.isInitialized) return
+        val isLot = isLotCategory(selectedCategory) && !isEditMode
+        tvLotTotal.isVisible = isLot
+        if (!isLot) return
+        val rate = etAmount.text?.toString()?.toDoubleOrNull() ?: 0.0
+        val n = lotConsignments.size
+        tvLotTotal.text = if (rate > 0 && n > 0)
+            "Total: ${pettyCashTaka(rate * n)} (${pettyCashTaka(rate)} × $n)"
+        else "Total: — (rate × consignments)"
+    }
+
     private fun renderLotList() {
         val ctx = context ?: return
         tvLotCount.text = if (lotConsignments.isEmpty()) "No consignments added yet"
@@ -856,6 +882,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             line.addView(tvDel)
             layoutLotList.addView(line)
         }
+        updateLotTotal()
     }
 
     /** Firebase read-only preview so the agent can confirm they've got the right
@@ -1058,7 +1085,9 @@ class PettyCashRequestCreateFragment : Fragment() {
             return
         }
         val isConveyanceSubmit = isConveyanceCategory(selectedCategory)
-        val isLotSubmit = isLotCategory(selectedCategory)
+        // LOT multi-row submit is create-only: a LOT row being edited is
+        // single-consignment, so edit follows the bulk single-ID path.
+        val isLotSubmit = isLotCategory(selectedCategory) && !isEditMode
         if (isLotSubmit) {
             // Forgiving submit: a typed-but-not-yet-added ID counts too.
             val pending = etConsignmentId.text?.toString().orEmpty().trim()
@@ -1075,7 +1104,9 @@ class PettyCashRequestCreateFragment : Fragment() {
             return
         }
         if (selectedCategory != PC_CATEGORY_PICKUP && amount <= 0.0) {
-            Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(),
+                if (isLotSubmit) "Enter the rate per consignment" else "Enter a valid amount",
+                Toast.LENGTH_SHORT).show()
             return
         }
         if (purpose.isBlank()) {
@@ -1084,7 +1115,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
 
         val finalConsignmentId = when {
-            isLotSubmit -> lotConsignments.joinToString(", ")
+            isLotSubmit -> "" // per-row below: one claim per consignment
             isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP -> consignmentId
             else -> ""
         }
@@ -1109,10 +1140,9 @@ class PettyCashRequestCreateFragment : Fragment() {
         val finalToArea = if (isConveyanceSubmit) selectedToAreaLabel else ""
         // Fully derived, never typed (no qty fields on the form): Pickup
         // mirrors the pickup count, Bulk Delivery is exactly 1 consignment,
-        // LOT Delivery is its consignment-list size.
+        // LOT rows are 1 consignment each (one claim per parcel).
         val finalAttemptQuantity = when {
             selectedCategory == PC_CATEGORY_PICKUP -> pickupCount
-            isLotSubmit -> lotConsignments.size
             isConveyanceSubmit -> 1
             else -> 0
         }
@@ -1167,6 +1197,62 @@ class PettyCashRequestCreateFragment : Fragment() {
             }
         } else {
             lifecycleScope.launch {
+                val sharedAttachments = formAttachments
+                    .filter { it.objectKey.isNotBlank() && !it.failed }
+                    .map { AttachmentRef(it.objectKey, it.displayName, it.sizeBytes) }
+                // One receipt set for the whole submission — LOT rows share the
+                // same R2 keys (see ClaimsRepository.delete: purge skips keys
+                // still referenced by another row).
+                val requesterRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId }
+                if (isLotSubmit) {
+                    // Separate-rows LOT: one claim per consignment at the same
+                    // rate, so every parcel is its own table row downstream
+                    // (lists, voucher, Excel). Per-row idempotency keys, so a
+                    // retry after partial failure returns ok-duplicate for the
+                    // rows that already landed instead of doubling them.
+                    val ids = lotConsignments.toList()
+                    val rate = amount
+                    val failures = mutableListOf<String>()
+                    var ok = 0
+                    ids.forEachIndexed { index, cid ->
+                        if (!isAdded) return@forEachIndexed
+                        activity?.runOnUiThread {
+                            if (isAdded) btnSubmit.text = "⏳ ${index + 1}/${ids.size}..."
+                        }
+                        val r = viewModel.submitRequest(
+                            branchId = branchId,
+                            category = selectedCategory,
+                            purpose = purpose,
+                            amount = rate,
+                            attachments = sharedAttachments,
+                            requesterRole = requesterRole,
+                            consignmentId = cid,
+                            storeId = "", storeName = "",
+                            pickupCount = 0,
+                            vehicle = finalVehicle, fromArea = finalFromArea, toArea = finalToArea,
+                            attemptQuantity = 1, deliveredQuantity = 1,
+                            cidOrMerchant = cid,
+                            requestedDate = selectedExpenseDate,
+                            clientSubmitId = "$formSubmitId-lot-$index",
+                            onSupabaseResult = {}
+                        )
+                        if (r.isSuccess) ok++
+                        else failures.add("$cid: ${r.exceptionOrNull()?.message ?: "failed"}")
+                    }
+                    if (!isAdded) return@launch
+                    if (failures.isEmpty()) {
+                        Toast.makeText(requireContext(),
+                            "✓ $ok requests submitted · Total ${pettyCashTaka(rate * ok)}",
+                            Toast.LENGTH_LONG).show()
+                        parentFragmentManager.popBackStack()
+                    } else {
+                        setSaving(false)
+                        val friendly = "⚠ ${failures.size} failed — $ok submitted, retry the rest"
+                        Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                        SupabaseErrorDialog.show(requireContext(), friendly, failures.joinToString("\n"))
+                    }
+                    return@launch
+                }
                 val result = viewModel.submitRequest(
                     branchId = branchId,
                     category = selectedCategory,

@@ -406,6 +406,7 @@
                     android:orientation="vertical">
 
                     <TextView
+                        android:id="@+id/tvPcRequestAmountLabel"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Amount"
@@ -444,6 +445,17 @@
                             android:paddingStart="8dp"
                             android:maxLines="1" />
                     </LinearLayout>
+
+                    <!-- LOT Delivery only: live lot total (rate × consignments). -->
+                    <TextView
+                        android:id="@+id/tvPcRequestLotTotal"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:textColor="#059669"
+                        android:layout_marginTop="6dp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <!-- Expense Date — defaults to today (the created date); a past

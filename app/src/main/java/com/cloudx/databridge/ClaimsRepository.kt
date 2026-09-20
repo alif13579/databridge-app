@@ -82,18 +82,21 @@ class ClaimsRepository {
 
     /** Hard delete: the Supabase row goes away entirely (claim_delete, owner +
      *  pending gated server-side), then every R2 attachment object is purged
-     *  best-effort. R2 first so a row-delete failure never strands files with
+     *  best-effort — EXCEPT keys still referenced by another row (LOT siblings
+     *  share one receipt set). R2 first so a row-delete failure never strands files with
      *  no row pointing at them unnoticed — a row failure still throws (caller
      *  retries; R2 deletes are idempotent). Returns the purged attachment keys. */
     suspend fun delete(claimId: String, onSupabaseResult: (Boolean) -> Unit = {}): List<String> {
         val existing = get(claimId) ?: error("Request not found")
         val keys = existing.attachments.map { it.key }.filter { it.isNotBlank() }
+        val purged = mutableListOf<String>()
         keys.forEach { key ->
-            runCatching { AttachmentUploader.deleteObject(key) }
+            if (SupabaseClaimsReader.isAttachmentKeyShared(key, claimId)) return@forEach
+            if (runCatching { AttachmentUploader.deleteObject(key) }.getOrDefault(false)) purged.add(key)
         }
         SupabaseClaimsWriter.delete(claimId)
         onSupabaseResult(true)
-        return keys
+        return purged
     }
 
     suspend fun search(filter: ClaimsReportFilter): ClaimsReport {

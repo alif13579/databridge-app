@@ -117,6 +117,44 @@ object SupabaseClaimsReader {
         }
     }
 
+    /** True when another claim row (≠ [excludeClaimId]) still references R2
+     *  [key] in its attachments jsonb. LOT Delivery rows share one receipt set
+     *  across N sibling rows — deleting one pending row must not purge the R2
+     *  object its siblings still point at (see ClaimsRepository.delete).
+     *  Fail-closed (true) so a read failure never orphans live references. */
+    suspend fun isAttachmentKeyShared(key: String, excludeClaimId: String): Boolean = withContext(Dispatchers.IO) {
+        if (key.isBlank()) return@withContext false
+        val token = SupabaseClientManager.getAccessToken() ?: return@withContext true
+        // attachments is jsonb ARRAY [{key,name,size}] — containment needs an
+        // array on the right: [{"key":"..."}] matches any element containing
+        // that key (object subset match inside array elements).
+        val contains = org.json.JSONArray()
+            .put(org.json.JSONObject().put("key", key)).toString()
+        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/claims" +
+            "?select=id&attachments=cs.${contains.encodeParam()}" +
+            "&id=neq.${excludeClaimId.encodeParam()}&limit=1"
+        try {
+            val response = SupabaseClientManager.httpClient.newCall(
+                Request.Builder().url(url)
+                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                    .addHeader("Authorization", "Bearer $token")
+                    .addHeader("Accept", "application/json")
+                    .get().build()
+            ).execute()
+            response.use {
+                val text = it.body?.string().orEmpty()
+                if (!it.isSuccessful) {
+                    Log.e(TAG, "isAttachmentKeyShared HTTP ${it.code}: ${text.take(500)}")
+                    return@withContext true
+                }
+                return@withContext JSONArray(text).length() > 0
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "isAttachmentKeyShared failed", e)
+            true
+        }
+    }
+
     /**
      * Lists every branch, for the report's single-select branch dropdown — the
      * full list, so any branch can be chosen (see the discussion that settled on
