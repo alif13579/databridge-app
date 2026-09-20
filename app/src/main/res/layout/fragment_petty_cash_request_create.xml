@@ -93,7 +93,7 @@
                         android:textColor="#94A3B8" />
                 </LinearLayout>
 
-                <!-- Consignment ID — shown only when category == Bulk Delivery -->
+                <!-- Consignment ID — Bulk Delivery (single) / LOT Delivery (multi-add list) -->
                 <LinearLayout
                     android:id="@+id/groupPcRequestConsignment"
                     android:layout_width="match_parent"
@@ -102,6 +102,7 @@
                     android:visibility="gone">
 
                     <TextView
+                        android:id="@+id/tvPcRequestConsignmentLabel"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Consignment ID"
@@ -138,7 +139,42 @@
                             android:gravity="center"
                             android:text="📷"
                             android:textSize="18sp" />
+
+                        <!-- LOT Delivery only: appends the typed/scanned ID above
+                             to the consignment list below. -->
+                        <TextView
+                            android:id="@+id/btnPcRequestAddConsignment"
+                            android:layout_width="wrap_content"
+                            android:layout_height="52dp"
+                            android:layout_marginStart="8dp"
+                            android:gravity="center"
+                            android:text="+ Add"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="#FFFFFF"
+                            android:background="@drawable/bg_action_button_green"
+                            android:paddingHorizontal="16dp"
+                            android:visibility="gone" />
                     </LinearLayout>
+
+                    <!-- LOT Delivery only: running count + added IDs (tap ✕ to remove). -->
+                    <TextView
+                        android:id="@+id/tvPcRequestLotCount"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="No consignments added yet"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#0F766E"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone" />
+
+                    <LinearLayout
+                        android:id="@+id/layoutPcRequestLotList"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone" />
 
                     <!-- Firebase preview of the entered/scanned id, so the agent can
                          confirm they've got the right parcel before submitting. -->

@@ -81,7 +81,7 @@ object PettyCashTopSheetPdfWriter {
     // admin catalog falls back here — conveyance iff its category is in this
     // set, otherwise the operation group, so page-1 totals always stay
     // balanced (operation + office + utilities == grand total).
-    private val legacyConveyanceTypes = setOf("Pickup", "Bulk Delivery", "InterChange", "Inter Change")
+    private val legacyConveyanceTypes = setOf("Pickup", "Bulk Delivery", "LOT Delivery", "InterChange", "Inter Change")
 
     /** Old rows store the "OFFICE" sentinel or a raw area id; new rows store
      *  the human-readable label. Normalize for display. */

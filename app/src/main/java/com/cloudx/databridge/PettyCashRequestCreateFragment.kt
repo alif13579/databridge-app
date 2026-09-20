@@ -41,7 +41,9 @@ import kotlinx.coroutines.launch
  * server-side (well, ViewModel-side) regardless.
  *
  * Category-specific fields: Bulk Delivery shows a Consignment ID text
- * field; Pickup shows a Store picker (fetched from Supabase's public.stores,
+ * field; LOT Delivery shows the same row as a multi-add list (scan/type +
+ * Add, one request covering N consignments, stored comma-joined);
+ * Pickup shows a Store picker (fetched from Supabase's public.stores,
  * see SupabaseClaimsReader.fetchStores() — a courier-wide directory shared
  * with the rest of the courier flow, not Petty-Cash-specific; managed from
  * Config's Stores tab, see ConfigStoresFragment). Formerly a bare "Merchant Name"
@@ -78,7 +80,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         "Transgender Bill"
     )
     private val categoryOptionsFallback =
-        listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP) + utilitiesOptions
+        listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP, PC_CATEGORY_LOT_DELIVERY) + utilitiesOptions
     private var categoryOptions: List<String> = categoryOptionsFallback
     // Admin-managed category → group map (conveyance / operation / office /
     // utilities). Empty until loaded — every branch below falls back to the
@@ -130,7 +132,18 @@ class PettyCashRequestCreateFragment : Fragment() {
      *  same fields without an app release. */
     private fun isConveyanceCategory(category: String): Boolean =
         categoryGroups[category]?.let { it == "conveyance" }
-            ?: (category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY)
+            ?: (category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY || category == PC_CATEGORY_LOT_DELIVERY)
+
+    private fun isLotCategory(category: String): Boolean = category == PC_CATEGORY_LOT_DELIVERY
+
+    // LOT Delivery: multiple consignment IDs on one request (scan/type + Add).
+    // Stored comma-joined in consignment_id/cid_or_merchant (display-only
+    // downstream), quantities = list size. No schema change needed.
+    private val lotConsignments = mutableListOf<String>()
+    private lateinit var tvLotCount: TextView
+    private lateinit var layoutLotList: LinearLayout
+    private lateinit var btnAddConsignment: View
+    private lateinit var tvConsignmentLabel: TextView
 
     // Multi-attachment state (max 5). Each picked file uploads IMMEDIATELY
     // on select (gallery → row with live progress %), not on submit. A row
@@ -182,8 +195,12 @@ class PettyCashRequestCreateFragment : Fragment() {
                 code.length != ScannerFragment.TRACKING_ID_LENGTH ->
                     Toast.makeText(requireContext(), "⚠ Invalid scan. Please scan again.", Toast.LENGTH_LONG).show()
                 else -> {
-                    etConsignmentId.setText(code)
-                    etConsignmentId.setSelection(code.length)
+                    if (isLotCategory(selectedCategory)) {
+                        addLotConsignment(code)
+                    } else {
+                        etConsignmentId.setText(code)
+                        etConsignmentId.setSelection(code.length)
+                    }
                 }
             }
         }
@@ -253,6 +270,11 @@ class PettyCashRequestCreateFragment : Fragment() {
                 Toast.makeText(requireContext(), "Camera error: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
+        tvConsignmentLabel = view.findViewById(R.id.tvPcRequestConsignmentLabel)
+        tvLotCount = view.findViewById(R.id.tvPcRequestLotCount)
+        layoutLotList = view.findViewById(R.id.layoutPcRequestLotList)
+        btnAddConsignment = view.findViewById(R.id.btnPcRequestAddConsignment)
+        btnAddConsignment.setOnClickListener { addLotFromInput() }
 
         // Debounced preview: waits for a pause in typing so a Firebase read doesn't
         // fire on every keystroke. A scan sets the whole id in one go, so it also
@@ -352,7 +374,11 @@ class PettyCashRequestCreateFragment : Fragment() {
         applyCategory(request.category)
         etAmount.setText(if (request.amount > 0) request.amount.toInt().toString() else "")
         etPurpose.setText(request.purpose)
-        if (request.consignmentId.isNotBlank()) etConsignmentId.setText(request.consignmentId)
+        if (isLotCategory(request.category)) {
+            lotConsignments.clear()
+            lotConsignments.addAll(request.consignmentId.split(Regex("[,\\s]+")).map { it.trim() }.filter { it.isNotBlank() })
+            renderLotList()
+        } else if (request.consignmentId.isNotBlank()) etConsignmentId.setText(request.consignmentId)
         if (request.storeName.isNotBlank()) {
             selectedStoreId = request.storeId
             selectedStoreName = request.storeName
@@ -457,8 +483,15 @@ class PettyCashRequestCreateFragment : Fragment() {
         // Store picker stays Pickup-only; consignment is the generic reference
         // id for every other conveyance category (Bulk Delivery today,
         // InterChange tomorrow). Non-conveyance categories get neither.
+        // LOT Delivery reuses the same consignment row as a multi-add list
+        // (scan/type + Add) instead of a single ID field.
         val isConveyance = isConveyanceCategory(category)
+        val isLot = isLotCategory(category)
         groupConsignment.isVisible = isConveyance && category != PC_CATEGORY_PICKUP
+        tvConsignmentLabel.text = if (isLot) "Consignments" else "Consignment ID"
+        btnAddConsignment.isVisible = isLot
+        tvLotCount.isVisible = isLot
+        layoutLotList.isVisible = isLot
         groupStore.isVisible = category == PC_CATEGORY_PICKUP
         groupConveyance.isVisible = isConveyance
         // Pickup: the Requester submits quantities only, no money amount yet
@@ -472,8 +505,24 @@ class PettyCashRequestCreateFragment : Fragment() {
 
         // Switching category clears the other category's field so a
         // half-filled Consignment ID doesn't silently survive a switch to
-        // Pickup (or vice versa) and get submitted anyway.
-        if (!isConveyance || category == PC_CATEGORY_PICKUP) etConsignmentId.setText("")
+        // Pickup (or vice versa) and get submitted anyway. Switching INTO
+        // LOT carries a typed single ID over as the first list entry.
+        if (isLot) {
+            val typed = etConsignmentId.text?.toString().orEmpty().trim()
+            if (typed.isNotBlank() && lotConsignments.none { it.equals(typed, ignoreCase = true) }) {
+                lotConsignments.add(typed)
+            }
+            etConsignmentId.setText("")
+            etConsignmentId.hint = "Type or scan, then tap + Add"
+            renderLotList()
+        } else {
+            if (lotConsignments.isNotEmpty()) {
+                lotConsignments.clear()
+                try { renderLotList() } catch (_: Exception) { /* views not bound yet */ }
+            }
+            etConsignmentId.hint = "Type or scan consignment ID"
+            if (!isConveyance || category == PC_CATEGORY_PICKUP) etConsignmentId.setText("")
+        }
         if (category != PC_CATEGORY_PICKUP) {
             selectedStoreId = ""
             selectedStoreName = ""
@@ -750,6 +799,65 @@ class PettyCashRequestCreateFragment : Fragment() {
         layoutToArea.alpha = if (lockTo) 0.6f else 1f
     }
 
+    /** LOT list: typed input → normalized → deduped append. Returns false
+     *  with a toast when there is nothing to add or it is already listed. */
+    private fun addLotConsignment(raw: String): Boolean {
+        val code = raw.trim()
+        if (code.isBlank()) {
+            Toast.makeText(requireContext(), "Type or scan a consignment ID first", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        if (lotConsignments.any { it.equals(code, ignoreCase = true) }) {
+            Toast.makeText(requireContext(), "Already added", Toast.LENGTH_SHORT).show()
+            return false
+        }
+        lotConsignments.add(code)
+        renderLotList()
+        return true
+    }
+
+    private fun addLotFromInput() {
+        if (addLotConsignment(etConsignmentId.text?.toString().orEmpty())) {
+            etConsignmentId.setText("")
+            layoutConsignmentPreview.isVisible = false
+        }
+    }
+
+    private fun renderLotList() {
+        val ctx = context ?: return
+        tvLotCount.text = if (lotConsignments.isEmpty()) "No consignments added yet"
+            else "${lotConsignments.size} consignment${if (lotConsignments.size == 1) "" else "s"} added"
+        layoutLotList.removeAllViews()
+        lotConsignments.toList().forEach { code ->
+            val line = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, 8, 0, 8)
+            }
+            val tvCode = TextView(ctx).apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                text = code
+                textSize = 14f
+                setTextColor(android.graphics.Color.parseColor("#0F172A"))
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+            }
+            val tvDel = TextView(ctx).apply {
+                text = "✕"
+                textSize = 16f
+                setTextColor(android.graphics.Color.parseColor("#DC2626"))
+                setPadding(16, 8, 16, 8)
+                setOnClickListener {
+                    lotConsignments.remove(code)
+                    renderLotList()
+                }
+            }
+            line.addView(tvCode)
+            line.addView(tvDel)
+            layoutLotList.addView(line)
+        }
+    }
+
     /** Firebase read-only preview so the agent can confirm they've got the right
      *  parcel — shows recipient name/phone/address/status, or a not-found message.
      *  Guards on isAdded since this can complete after the view is gone (fragment
@@ -950,7 +1058,19 @@ class PettyCashRequestCreateFragment : Fragment() {
             return
         }
         val isConveyanceSubmit = isConveyanceCategory(selectedCategory)
-        if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP && consignmentId.isBlank()) {
+        val isLotSubmit = isLotCategory(selectedCategory)
+        if (isLotSubmit) {
+            // Forgiving submit: a typed-but-not-yet-added ID counts too.
+            val pending = etConsignmentId.text?.toString().orEmpty().trim()
+            if (pending.isNotBlank() && lotConsignments.none { it.equals(pending, ignoreCase = true) }) {
+                lotConsignments.add(pending)
+            }
+        }
+        if (isLotSubmit && lotConsignments.isEmpty()) {
+            Toast.makeText(requireContext(), "Add at least one consignment (scan/type + Add)", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP && !isLotSubmit && consignmentId.isBlank()) {
             Toast.makeText(requireContext(), "Enter the consignment ID", Toast.LENGTH_SHORT).show()
             return
         }
@@ -963,7 +1083,11 @@ class PettyCashRequestCreateFragment : Fragment() {
             return
         }
 
-        val finalConsignmentId = if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP) consignmentId else ""
+        val finalConsignmentId = when {
+            isLotSubmit -> lotConsignments.joinToString(", ")
+            isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP -> consignmentId
+            else -> ""
+        }
         val finalStoreId = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreId else ""
         val finalStoreName = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreName else ""
         val finalPickupCount = if (selectedCategory == PC_CATEGORY_PICKUP) pickupCount else 0
@@ -984,9 +1108,11 @@ class PettyCashRequestCreateFragment : Fragment() {
         val finalFromArea = if (isConveyanceSubmit) selectedFromAreaLabel else ""
         val finalToArea = if (isConveyanceSubmit) selectedToAreaLabel else ""
         // Fully derived, never typed (no qty fields on the form): Pickup
-        // mirrors the pickup count, Bulk Delivery is exactly 1 consignment.
+        // mirrors the pickup count, Bulk Delivery is exactly 1 consignment,
+        // LOT Delivery is its consignment-list size.
         val finalAttemptQuantity = when {
             selectedCategory == PC_CATEGORY_PICKUP -> pickupCount
+            isLotSubmit -> lotConsignments.size
             isConveyanceSubmit -> 1
             else -> 0
         }
