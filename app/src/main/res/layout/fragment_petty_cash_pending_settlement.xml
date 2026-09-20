@@ -99,6 +99,19 @@
                     android:paddingHorizontal="12dp" />
 
                 <TextView
+                    android:id="@+id/tvPcPendingDate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:gravity="center_vertical"
+                    android:text="📅 Dates"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F766E"
+                    android:background="@drawable/bg_pc_tab_inactive"
+                    android:paddingHorizontal="12dp"
+                    android:layout_marginStart="8dp" />
+
+                <TextView
                     android:id="@+id/tvPcPendingSelectMode"
                     android:layout_width="wrap_content"
                     android:layout_height="36dp"

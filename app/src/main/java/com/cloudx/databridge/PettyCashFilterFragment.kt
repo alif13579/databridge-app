@@ -110,18 +110,30 @@ class PettyCashFilterFragment : Fragment() {
         DatePickerDialog(
             requireContext(),
             { _, year, month, day ->
-                val picked = Calendar.getInstance().apply { set(year, month, day) }.timeInMillis
+                val pickedDay = Calendar.getInstance().apply {
+                    set(year, month, day)
+                }.timeInMillis
                 if (isFrom) {
-                    dateFromMillis = picked
-                    tvDateFrom.text = formatDate(picked)
+                    dateFromMillis = startOfDay(pickedDay)
+                    tvDateFrom.text = formatDate(dateFromMillis)
                 } else {
-                    dateToMillis = picked
-                    tvDateTo.text = formatDate(picked)
+                    dateToMillis = endOfDay(pickedDay)
+                    tvDateTo.text = formatDate(dateToMillis)
                 }
             },
             cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
         ).show()
     }
+
+    private fun startOfDay(t: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = t; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    private fun endOfDay(t: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = t; set(Calendar.HOUR_OF_DAY, 23); set(Calendar.MINUTE, 59)
+        set(Calendar.SECOND, 59); set(Calendar.MILLISECOND, 999)
+    }.timeInMillis
 
     private fun buildStatusCheckboxes(root: View) {
         val container = root.findViewById<android.widget.LinearLayout>(R.id.layoutPcFilterStatusOptions)

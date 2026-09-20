@@ -124,6 +124,7 @@ class PettyCashAllRequestsFragment : Fragment() {
             parentFragmentManager.popBackStack()
         }
         view.findViewById<View>(R.id.tvPcAllReqAgent).setOnClickListener { showAgentPicker() }
+        view.findViewById<View>(R.id.tvPcAllReqDate).setOnClickListener { openDateFilter() }
         view.findViewById<View>(R.id.tvPcAllReqSelectMode).setOnClickListener {
             selectMode = !selectMode
             if (!selectMode) selectedIds.clear()
@@ -312,6 +313,36 @@ class PettyCashAllRequestsFragment : Fragment() {
         return byTab.filter { it.requesterUid.ifBlank { "unknown" } in selectedAgentUids }
     }
 
+    /** Date filter entry — opens the shared advanced filter (date range
+     *  is what this chip is for; status/category there also apply). */
+    private fun openDateFilter() {
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
+            .addToBackStack(null)
+            .commitAllowingStateLoss()
+    }
+
+    private fun shortDate(millis: Long): String =
+        java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault()).format(java.util.Date(millis))
+
+    private fun updateDateChip() {
+        val root = view ?: return
+        val chip = root.findViewById<TextView>(R.id.tvPcAllReqDate) ?: return
+        val hasDate = advancedFilter.dateFromMillis != 0L || advancedFilter.dateToMillis != 0L
+        chip.text = when {
+            advancedFilter.dateFromMillis != 0L && advancedFilter.dateToMillis != 0L ->
+                "📅 ${shortDate(advancedFilter.dateFromMillis)}–${shortDate(advancedFilter.dateToMillis)}"
+            advancedFilter.dateFromMillis != 0L -> "📅 ≥${shortDate(advancedFilter.dateFromMillis)}"
+            advancedFilter.dateToMillis != 0L -> "📅 ≤${shortDate(advancedFilter.dateToMillis)}"
+            advancedFilter.isActive -> "📅 Filter•"
+            else -> "📅 Dates"
+        }
+        chip.setTextColor(
+            if (hasDate || advancedFilter.isActive) android.graphics.Color.parseColor("#0F766E")
+            else android.graphics.Color.parseColor("#0F766E")
+        )
+    }
+
     private fun updateAgentRow() {
         val root = view ?: return
         val chip = root.findViewById<TextView>(R.id.tvPcAllReqAgent)
@@ -461,6 +492,7 @@ class PettyCashAllRequestsFragment : Fragment() {
     private fun renderList(root: View) {
         val filtered = filteredRequests()
         updateAgentRow()
+        updateDateChip()
         updateSummary(filtered)
         updateSelectAllLabel()
 

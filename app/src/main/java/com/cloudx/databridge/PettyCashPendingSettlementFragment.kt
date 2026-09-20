@@ -146,6 +146,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
                 .commitAllowingStateLoss()
         }
         view.findViewById<View>(R.id.tvPcPendingAgent).setOnClickListener { showAgentPicker() }
+        view.findViewById<View>(R.id.tvPcPendingDate).setOnClickListener { openDateFilter() }
         view.findViewById<View>(R.id.tvPcPendingSelectMode).setOnClickListener {
             selectMode = !selectMode
             if (!selectMode) selectedIds.clear()
@@ -333,6 +334,31 @@ class PettyCashPendingSettlementFragment : Fragment() {
         return byStatus.filter { it.requesterUid.ifBlank { "unknown" } in selectedAgentUids }
     }
 
+    /** Date filter entry — opens the shared advanced filter (date range
+     *  is what this chip is for; status/category there also apply). */
+    private fun openDateFilter() {
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
+            .addToBackStack(null)
+            .commitAllowingStateLoss()
+    }
+
+    private fun shortDate(millis: Long): String =
+        java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault()).format(java.util.Date(millis))
+
+    private fun updateDateChip() {
+        val root = view ?: return
+        val chip = root.findViewById<TextView>(R.id.tvPcPendingDate) ?: return
+        chip.text = when {
+            advancedFilter.dateFromMillis != 0L && advancedFilter.dateToMillis != 0L ->
+                "📅 ${shortDate(advancedFilter.dateFromMillis)}–${shortDate(advancedFilter.dateToMillis)}"
+            advancedFilter.dateFromMillis != 0L -> "📅 ≥${shortDate(advancedFilter.dateFromMillis)}"
+            advancedFilter.dateToMillis != 0L -> "📅 ≤${shortDate(advancedFilter.dateToMillis)}"
+            advancedFilter.isActive -> "📅 Filter•"
+            else -> "📅 Dates"
+        }
+    }
+
     private fun updateAgentRow() {
         val root = view ?: return
         val chip = root.findViewById<TextView>(R.id.tvPcPendingAgent)
@@ -499,6 +525,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
         val filtered = currentFiltered()
         val canSettle = state.roles.isAccounts
         updateAgentRow()
+        updateDateChip()
         updateSummary(filtered)
         val eligibleInFilter = filtered.filter { isBulkEligible(it) }
         view?.findViewById<TextView>(R.id.tvPcPendingSelectAll)?.apply {
