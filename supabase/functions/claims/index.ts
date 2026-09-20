@@ -177,9 +177,25 @@ Deno.serve(async (request) => {
           errLog('claim_upsert', 'create_non_pending', { claim_id: c.id, status: newStatus })
           return reply({ error: 'New claims must start as pending' }, 403)
         }
+        // Staff on-behalf: branch staff/POC/accounts (or admin/manager via
+        // canStaff/canPoc/canAccounts) may file for an agent of the SAME
+        // branch — the row is attributed to the agent so it shows on their
+        // phone. Anyone else filing for another system_id is still rejected.
+        let resolvedRequesterUid = pick(c.requester_uid, c.worker_uid) || callerUid
         if (str(c.requester_system_id).trim() !== callerSystemId) {
-          errLog('claim_upsert', 'create_for_other', { claim_id: c.id })
-          return reply({ error: 'You can only place requests for yourself' }, 403)
+          const reqSys = str(c.requester_system_id).trim()
+          const { data: reqUser } = await admin.from('users')
+            .select('system_id,firebase_id,branch_ids').eq('system_id', reqSys).maybeSingle()
+          const reqBranches: string[] = Array.isArray(reqUser?.branch_ids)
+            ? (reqUser.branch_ids as unknown[]).map((x) => String(x ?? '').trim()).filter((s) => s !== '')
+            : []
+          const sameBranch = reqBranches.includes(str(c.branch_id).trim())
+          if (!reqUser || !sameBranch || !(canStaff || canPoc || canAccounts)) {
+            errLog('claim_upsert', 'create_for_other', { claim_id: c.id })
+            return reply({ error: 'You can only place requests for yourself' }, 403)
+          }
+          // Never trust the client's uid for someone else — the users row wins.
+          resolvedRequesterUid = String(reqUser.firebase_id || '').trim() || resolvedRequesterUid
         }
         if (approved !== 0 || settled !== 0) {
           return reply({ error: 'A new request cannot carry approved/settled amounts' }, 422)
@@ -233,7 +249,7 @@ Deno.serve(async (request) => {
           payment_method: str(c.payment_method), transaction_id: str(c.transaction_id),
           status: 'pending',
           attachments: attachmentsVal,
-          requester_uid: pick(c.requester_uid, c.worker_uid) || callerUid,
+          requester_uid: resolvedRequesterUid,
           requester_role: pick(c.requester_role, c.worker_role),
           requested_at: iso(c.requested_at), approved_at: null, settled_at: null,
           created_at: iso(c.created_at), updated_at: iso(c.updated_at),

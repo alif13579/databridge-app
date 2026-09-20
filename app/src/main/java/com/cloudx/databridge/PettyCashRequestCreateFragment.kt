@@ -162,9 +162,54 @@ class PettyCashRequestCreateFragment : Fragment() {
 
     private fun visibleCategories(): List<String> {
         val all = categoryOptions.ifEmpty { categoryOptionsFallback }
-        val filtered = if (isRequesterLike()) all.filter { it in requesterCategories }
+        // Staff filing for an agent get the agent (conveyance) set; staff for
+        // self get everything else.
+        val filtered = if (isRequesterLike() || onBehalfAgent != null) all.filter { it in requesterCategories }
         else all.filter { it !in requesterCategories }
         return filtered.ifEmpty { all }
+    }
+
+    /** Staff "Request for" picker: Self (expenses) or a branch agent
+     *  (conveyance on their behalf). Switching resets a category that is no
+     *  longer visible so a stale pick can't be submitted. */
+    private fun showOnBehalfPicker() {
+        if (!agentsLoaded) {
+            Toast.makeText(requireContext(), "Still loading agent list, try again in a moment", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (branchAgents.isEmpty()) {
+            Toast.makeText(requireContext(), "No agents in this branch", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = listOf("Self") + branchAgents.map {
+            if (it.employeeId.isNotBlank()) "${it.name} (${it.employeeId})" else it.name
+        }
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Request for")
+            .setItems(labels.toTypedArray()) { _, index ->
+                onBehalfAgent = if (index == 0) null else branchAgents[index - 1]
+                tvOnBehalfSelected.text = labels[index]
+                tvOnBehalfSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+                if (selectedCategory.isNotBlank() && selectedCategory !in visibleCategories()) {
+                    applyCategory("")
+                }
+            }
+            .show()
+    }
+
+    private fun loadAgents() {
+        lifecycleScope.launch {
+            val result = runCatching { SupabaseClaimsReader.fetchBranchAgents(branchId) }
+                .getOrElse { emptyList() }
+            branchAgents = result
+            agentsLoaded = true
+        }
+    }
+
+    /** Shows the on-behalf row once staff access is confirmed. */
+    private fun refreshOnBehalfRow() {
+        if (!::groupOnBehalf.isInitialized) return
+        groupOnBehalf.isVisible = !isEditMode && accessGranted == true && !isRequesterLike()
     }
 
     private fun isLotCategory(category: String): Boolean = category == PC_CATEGORY_LOT_DELIVERY
@@ -241,6 +286,12 @@ class PettyCashRequestCreateFragment : Fragment() {
 
     private lateinit var tvTitle: TextView
     private lateinit var tvCategorySelected: TextView
+    // Staff on-behalf: file a conveyance request for a branch agent.
+    private lateinit var groupOnBehalf: View
+    private lateinit var tvOnBehalfSelected: TextView
+    private var branchAgents: List<SupabaseClaimsReader.BranchAgent> = emptyList()
+    private var agentsLoaded = false
+    private var onBehalfAgent: SupabaseClaimsReader.BranchAgent? = null
     private lateinit var groupConsignment: View
     private lateinit var etConsignmentId: EditText
     private lateinit var btnScanConsignment: View
@@ -371,6 +422,9 @@ class PettyCashRequestCreateFragment : Fragment() {
                     if (accessGranted == false) {
                         Toast.makeText(requireContext(), "Your role isn't set up to submit petty cash requests", Toast.LENGTH_LONG).show()
                         parentFragmentManager.popBackStack()
+                    } else {
+                        refreshOnBehalfRow()
+                        loadAgents()
                     }
                 }
             }
@@ -387,6 +441,10 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
 
         view.findViewById<View>(R.id.layoutPcRequestCategory).setOnClickListener { showCategoryPicker() }
+        groupOnBehalf = view.findViewById(R.id.groupPcRequestOnBehalf)
+        tvOnBehalfSelected = view.findViewById(R.id.tvPcRequestOnBehalfSelected)
+        view.findViewById<View>(R.id.layoutPcRequestOnBehalf).setOnClickListener { showOnBehalfPicker() }
+        refreshOnBehalfRow()
         view.findViewById<View>(R.id.layoutPcRequestStore).setOnClickListener { showStorePicker() }
         layoutVehicle.setOnClickListener { showVehiclePicker() }
         layoutFromArea.setOnClickListener { showAreaPicker(forFrom = true) }
@@ -901,12 +959,17 @@ class PettyCashRequestCreateFragment : Fragment() {
         updateAreaLocks()
     }
 
+    /** User-visible office label — the "OFFICE" sentinel (any casing) must
+     *  never reach the UI or Supabase, only "Office". */
+    private fun officeLabel(value: String): String =
+        if (value.trim().equals("office", ignoreCase = true)) "Office" else value
+
     /** Resolves a stored areaId (or the "OFFICE" sentinel) back to a display label,
      *  for prefillIfEditing() — falls back to the raw id if the area lists haven't
      *  loaded yet or the id isn't found in either list (still functionally correct,
      *  just shows the raw id instead of a friendly name in that edge case). */
     private fun areaLabelFor(areaId: String): String {
-        if (areaId == "OFFICE") return "Office"
+        if (areaId.trim().equals("office", ignoreCase = true)) return "Office"
         return pickupAreas.find { it.areaId == areaId }?.name
             ?: deliveryAreas.find { it.areaId == areaId }?.name
             ?: areaId
@@ -1243,6 +1306,12 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "Describe the purpose", Toast.LENGTH_SHORT).show()
             return
         }
+        // Staff file conveyance only on behalf of an agent (never for self).
+        val behalf = if (isRequesterLike()) null else onBehalfAgent
+        if (!isRequesterLike() && behalf == null && selectedCategory in requesterCategories) {
+            Toast.makeText(requireContext(), "Pick an agent in 'Request for' for conveyance requests", Toast.LENGTH_SHORT).show()
+            return
+        }
 
         val finalConsignmentId = when {
             isLotSubmit -> "" // per-row below: one claim per consignment
@@ -1267,8 +1336,8 @@ class PettyCashRequestCreateFragment : Fragment() {
         // Human-readable area LABELS ("Office", store area name) — from/to
         // are display-only (Top Sheet/PDF), nothing joins on them, so raw
         // area ids must never reach the table.
-        val finalFromArea = if (isConveyanceSubmit) selectedFromAreaLabel else ""
-        val finalToArea = if (isConveyanceSubmit) selectedToAreaLabel else ""
+        val finalFromArea = if (isConveyanceSubmit) officeLabel(selectedFromAreaLabel) else ""
+        val finalToArea = if (isConveyanceSubmit) officeLabel(selectedToAreaLabel) else ""
         // Fully derived, never typed (no qty fields on the form): Pickup
         // mirrors the pickup count, Bulk Delivery is exactly 1 consignment,
         // LOT rows are 1 consignment each (one claim per parcel).
@@ -1367,7 +1436,11 @@ class PettyCashRequestCreateFragment : Fragment() {
                             cidOrMerchant = cid,
                             requestedDate = selectedExpenseDate,
                             clientSubmitId = "$formSubmitId-lot-$index",
-                            onSupabaseResult = {}
+                            onSupabaseResult = {},
+                            onBehalfSystemId = behalf?.systemId.orEmpty(),
+                            onBehalfUid = behalf?.firebaseId.orEmpty(),
+                            onBehalfName = behalf?.name.orEmpty(),
+                            onBehalfRole = behalf?.role.orEmpty()
                         )
                         if (r.isSuccess) ok++
                         else failures.add("$cid: ${r.exceptionOrNull()?.message ?: "failed"}")
@@ -1404,6 +1477,10 @@ class PettyCashRequestCreateFragment : Fragment() {
                     cidOrMerchant = finalCidOrMerchant,
                     requestedDate = selectedExpenseDate,
                     clientSubmitId = formSubmitId,
+                    onBehalfSystemId = behalf?.systemId.orEmpty(),
+                    onBehalfUid = behalf?.firebaseId.orEmpty(),
+                    onBehalfName = behalf?.name.orEmpty(),
+                    onBehalfRole = behalf?.role.orEmpty(),
                     onSupabaseResult = { ok ->
                         activity?.runOnUiThread {
                             if (isAdded) Toast.makeText(requireContext(),

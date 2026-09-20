@@ -194,6 +194,63 @@ object SupabaseClaimsReader {
         }
     }
 
+    /** Field agent in a branch directory row — for the staff "on behalf of"
+     *  picker on the request form. */
+    data class BranchAgent(
+        val systemId: String,
+        val employeeId: String,
+        val name: String,
+        val firebaseId: String,
+        val role: String
+    )
+
+    /**
+     * Field agents (delivery/pickup) assigned to [branchId] — the staff
+     * on-behalf picker. Ordered by name. Free PostgREST read, no Edge Function.
+     */
+    suspend fun fetchBranchAgents(branchId: String): List<BranchAgent> = withContext(Dispatchers.IO) {
+        if (branchId.isBlank()) return@withContext emptyList()
+        val token = SupabaseClientManager.getAccessToken()
+        if (token == null) {
+            Log.e(TAG, "fetchBranchAgents skipped: no Firebase bearer token")
+            return@withContext emptyList()
+        }
+        val url = "${SupabaseConfig.PROJECT_URL}/rest/v1/users" +
+            "?select=system_id,employee_id,name,firebase_id,role" +
+            "&branch_ids=cs.{${branchId.encodeParam()}}" +
+            "&role=in.(delivery_agent,pickup_agent)&order=name.asc"
+        try {
+            val response = SupabaseClientManager.httpClient.newCall(
+                Request.Builder().url(url)
+                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY)
+                    .addHeader("Authorization", "Bearer $token")
+                    .addHeader("Accept", "application/json")
+                    .get().build()
+            ).execute()
+            response.use {
+                val text = it.body?.string().orEmpty()
+                if (!it.isSuccessful) {
+                    Log.e(TAG, "fetchBranchAgents HTTP ${it.code}: ${text.take(1_000)}")
+                    return@withContext emptyList()
+                }
+                val arr = JSONArray(text)
+                List(arr.length()) { i ->
+                    val row = arr.getJSONObject(i)
+                    BranchAgent(
+                        systemId = row.optStr("system_id"),
+                        employeeId = row.optStr("employee_id"),
+                        name = row.optStr("name"),
+                        firebaseId = row.optStr("firebase_id"),
+                        role = row.optStr("role")
+                    )
+                }.filter { it.systemId.isNotBlank() && it.firebaseId.isNotBlank() }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchBranchAgents failed", e)
+            emptyList()
+        }
+    }
+
     /**
      * The branch's real Petty Cash POC for the report header — resolved via
      * the branch row's petty_cash_poc_uids (first entry; legacy singular as

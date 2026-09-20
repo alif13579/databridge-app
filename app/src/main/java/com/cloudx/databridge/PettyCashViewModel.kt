@@ -218,18 +218,26 @@ class PettyCashViewModel : ViewModel() {
         cidOrMerchant: String = "",
         requestedDate: Long = 0L,
         clientSubmitId: String = "",
-        onSupabaseResult: (Boolean) -> Unit = {}
+        onSupabaseResult: (Boolean) -> Unit = {},
+        // Staff on-behalf: file for a branch agent instead of self (the Edge
+        // allows it for branch staff — see claims claim_upsert). Blank = self.
+        onBehalfSystemId: String = "",
+        onBehalfUid: String = "",
+        onBehalfName: String = "",
+        onBehalfRole: String = ""
     ): Result<String> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val name = currentUserName().ifBlank { "Requester" }
         val now = System.currentTimeMillis()
         val systemId = currentSystemId()
         require(systemId.isNotBlank()) { "Your system ID is missing. Please contact an administrator." }
+        val filingForOther = onBehalfSystemId.isNotBlank() && onBehalfUid.isNotBlank()
         val claim = claims.create(ClaimInfo(
             branchId = branchId,
-            employeeName = name,
-            agentSystemId = systemId,
-            requesterUid = uid, requesterRole = requesterRole,
+            employeeName = if (filingForOther) onBehalfName.ifBlank { name } else name,
+            agentSystemId = if (filingForOther) onBehalfSystemId else systemId,
+            requesterUid = if (filingForOther) onBehalfUid else uid,
+            requesterRole = if (filingForOther && onBehalfRole.isNotBlank()) onBehalfRole else requesterRole,
             category = category,
             consignmentId = consignmentId,
             storeId = storeId,
