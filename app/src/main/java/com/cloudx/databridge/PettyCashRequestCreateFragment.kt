@@ -111,7 +111,10 @@ class PettyCashRequestCreateFragment : Fragment() {
     // these apply to both Pickup and Bulk Delivery, and applyConveyanceDefaults()
     // below for the Office-default/store-area-prefill logic.
     private val vehicleOptions = listOf("CNG", "Paddle Van", "Auto")
-    private var selectedVehicle: String = ""
+    // Default Auto so a request can never go out with a blank vehicle (all
+    // paper vouchers are Auto); the picker can still change it, and editing
+    // an old row with a stored vehicle keeps that value (see prefill).
+    private var selectedVehicle: String = "Auto"
     // "OFFICE" is a sentinel, not a real areas-table entry — see
     // applyConveyanceDefaults(). pickupAreas/deliveryAreas load once from
     // Supabase (branch-scoped) and are reused for both From and To pickers
@@ -383,6 +386,10 @@ class PettyCashRequestCreateFragment : Fragment() {
         groupConveyance = view.findViewById(R.id.groupPcRequestConveyance)
         layoutVehicle = view.findViewById(R.id.layoutPcRequestVehicle)
         tvVehicleSelected = view.findViewById(R.id.tvPcRequestVehicleSelected)
+        // Default Auto visible from the start (see selectedVehicle) — edit
+        // prefill below overwrites it when the row has a stored vehicle.
+        tvVehicleSelected.text = selectedVehicle
+        tvVehicleSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
         layoutFromArea = view.findViewById(R.id.layoutPcRequestFromArea)
         tvFromAreaSelected = view.findViewById(R.id.tvPcRequestFromAreaSelected)
         layoutToArea = view.findViewById(R.id.layoutPcRequestToArea)
@@ -1286,6 +1293,10 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
         if (isLotSubmit && lotConsignments.isEmpty()) {
             Toast.makeText(requireContext(), "Add at least one consignment (scan/type + Add)", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (isConveyanceSubmit && selectedVehicle.isBlank()) {
+            Toast.makeText(requireContext(), "Select vehicle", Toast.LENGTH_SHORT).show()
             return
         }
         if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP && selectedCategory != PC_CATEGORY_INTER_CHANGE && !isLotSubmit && consignmentId.isBlank()) {
