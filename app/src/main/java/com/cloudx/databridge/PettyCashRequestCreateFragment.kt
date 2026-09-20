@@ -120,6 +120,10 @@ class PettyCashRequestCreateFragment : Fragment() {
     private var pickupAreas: List<Area> = emptyList()
     private var deliveryAreas: List<Area> = emptyList()
     private var areasLoaded = false
+    // Hub directory for the Inter Change From/To hub pickers (branch-scoped
+    // trip: From = other hubs, To = self hub, locked).
+    private var hubBranches: List<SupabaseClaimsReader.BranchOption> = emptyList()
+    private var hubsLoaded = false
     private var selectedFromArea: String = "OFFICE"
     private var selectedFromAreaLabel: String = "Office"
     private var selectedToArea: String = "OFFICE"
@@ -404,6 +408,7 @@ class PettyCashRequestCreateFragment : Fragment() {
 
         loadStores()
         loadAreas()
+        loadHubs()
         loadClaimCategories()
 
         if (isEditMode) {
@@ -748,6 +753,66 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
     }
 
+    /** Hub directory for the Inter Change pickers (see showHubPicker). */
+    private fun loadHubs() {
+        lifecycleScope.launch {
+            val result = runCatching { SupabaseClaimsReader.fetchBranches() }
+                .getOrElse {
+                    Toast.makeText(requireContext(), "Couldn't load hub list: ${it.message}", Toast.LENGTH_SHORT).show()
+                    emptyList()
+                }
+            hubBranches = result.filter { it.branchId.isNotBlank() && it.name.isNotBlank() }
+            hubsLoaded = true
+            // Late arrival: an Inter Change form opened before the hubs
+            // loaded still gets its locked self-hub To.
+            if (selectedCategory == PC_CATEGORY_INTER_CHANGE) applyInterChangeHubDefaults()
+        }
+    }
+
+    /** Hubs other than this form's branch — the Inter Change From picker. */
+    private fun otherHubs(): List<SupabaseClaimsReader.BranchOption> {
+        val self = hubBranches.find { it.branchId == branchId }
+        return if (self != null) hubBranches.filter { it.branchId != branchId } else hubBranches
+    }
+
+    /** Inter Change To is always the self hub (locked) — see isAreaLocked. */
+    private fun applyInterChangeHubDefaults() {
+        val self = hubBranches.find { it.branchId == branchId } ?: return
+        selectedToArea = self.branchId
+        selectedToAreaLabel = self.name
+        if (::tvToAreaSelected.isInitialized) tvToAreaSelected.text = self.name
+        updateAreaLocks()
+    }
+
+    /** Inter Change hub pickers: From = other hubs, To = self hub (fixed,
+     *  nothing to pick — see applyInterChangeHubDefaults). */
+    private fun showHubPicker(forFrom: Boolean) {
+        if (isAreaLocked(forFrom)) return
+        if (!hubsLoaded) {
+            Toast.makeText(requireContext(), "Still loading hub list, try again in a moment", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!forFrom) {
+            applyInterChangeHubDefaults()
+            return
+        }
+        val hubs = otherHubs()
+        if (hubs.isEmpty()) {
+            Toast.makeText(requireContext(), "No other hubs found", Toast.LENGTH_SHORT).show()
+            return
+        }
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Select From Hub")
+            .setItems(hubs.map { it.name }.toTypedArray()) { _, index ->
+                val hub = hubs[index]
+                selectedFromArea = hub.branchId
+                selectedFromAreaLabel = hub.name
+                tvFromAreaSelected.text = hub.name
+                tvFromAreaSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+            }
+            .show()
+    }
+
     private fun showVehiclePicker() {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Select Vehicle")
@@ -765,6 +830,12 @@ class PettyCashRequestCreateFragment : Fragment() {
      *  their rows are disabled AND this guard returns early, so no path can
      *  change a locked value. */
     private fun showAreaPicker(forFrom: Boolean) {
+        // Inter Change uses hub pickers, not area pickers (From = other hubs,
+        // To = self hub locked).
+        if (selectedCategory == PC_CATEGORY_INTER_CHANGE) {
+            showHubPicker(forFrom)
+            return
+        }
         if (isAreaLocked(forFrom)) return
         if (!areasLoaded) {
             Toast.makeText(requireContext(), "Still loading area list, try again in a moment", Toast.LENGTH_SHORT).show()
@@ -818,6 +889,14 @@ class PettyCashRequestCreateFragment : Fragment() {
         } else if (category == PC_CATEGORY_BULK_DELIVERY) {
             selectedFromArea = "OFFICE"; selectedFromAreaLabel = "Office"
             tvFromAreaSelected.text = "Office"
+        } else if (category == PC_CATEGORY_INTER_CHANGE) {
+            // From = other-hub picker (reset any area default so a stale
+            // "Office" can't ride along); To = self hub, locked.
+            selectedFromArea = ""
+            selectedFromAreaLabel = ""
+            tvFromAreaSelected.text = "Select hub"
+            tvFromAreaSelected.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+            applyInterChangeHubDefaults()
         }
         updateAreaLocks()
     }
@@ -836,10 +915,11 @@ class PettyCashRequestCreateFragment : Fragment() {
     /** Single source of truth for locked From/Destination rows:
      *  Pickup → From (store area) + Destination (Office) both locked;
      *  Bulk Delivery → From (Office) locked, Destination free;
+     *  Inter Change → From (other hubs) free, Destination (self hub) locked;
      *  anything else → both free. */
     private fun isAreaLocked(forFrom: Boolean): Boolean {
         return if (forFrom) selectedCategory == PC_CATEGORY_PICKUP || selectedCategory == PC_CATEGORY_BULK_DELIVERY
-        else selectedCategory == PC_CATEGORY_PICKUP
+        else selectedCategory == PC_CATEGORY_PICKUP || selectedCategory == PC_CATEGORY_INTER_CHANGE
     }
 
     /** Disables locked rows (tap does nothing, dimmed) so the agent can see at a
@@ -1147,6 +1227,10 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
         if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP && selectedCategory != PC_CATEGORY_INTER_CHANGE && !isLotSubmit && consignmentId.isBlank()) {
             Toast.makeText(requireContext(), "Enter the consignment ID", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (selectedCategory == PC_CATEGORY_INTER_CHANGE && selectedFromArea.isBlank()) {
+            Toast.makeText(requireContext(), "Select From hub", Toast.LENGTH_SHORT).show()
             return
         }
         if (selectedCategory != PC_CATEGORY_PICKUP && amount <= 0.0) {
