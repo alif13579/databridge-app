@@ -343,8 +343,10 @@ class SettingsFragment : Fragment() {
             return
         }
         val current = BtDialHelper.configuredMac(ctx)
-        val labels = devices.map { (name, mac) ->
-            (if (mac.equals(current, ignoreCase = true)) "✓ " else "") + "$name ($mac)"
+        // Phone age, baki sob pore — icon dekhe earbud ar phone alada kora jay.
+        val labels = devices.map { d ->
+            (if (d.mac.equals(current, ignoreCase = true)) "✓ " else "") +
+                "${BtDialHelper.typeIcon(d.major)} ${d.name} (${d.mac})"
         }.toMutableList()
         labels.add("❌ Clear (no Bluetooth phone)")
         AlertDialog.Builder(ctx)
@@ -353,12 +355,28 @@ class SettingsFragment : Fragment() {
                 if (which >= devices.size) {
                     BtDialHelper.clearDevice(ctx)
                     Toast.makeText(ctx, "Bluetooth dial phone cleared", Toast.LENGTH_SHORT).show()
-                } else {
-                    val (name, mac) = devices[which]
-                    BtDialHelper.saveDevice(ctx, mac, name)
-                    Toast.makeText(ctx, "Will dial via $name", Toast.LENGTH_SHORT).show()
+                    refreshBtDialLabel()
+                    return@setItems
                 }
-                refreshBtDialLabel()
+                val picked = devices[which]
+                if (!picked.isPhone) {
+                    // Earbud/watch-e ATD dial hobe na — tobu jor kore save
+                    // korte chaile confirm niye rakhi.
+                    AlertDialog.Builder(ctx)
+                        .setTitle("Not a phone?")
+                        .setMessage("${picked.name} ke phone mone hocche na (${BtDialHelper.typeIcon(picked.major)}). Earbud/watch diye dial hobe na.\n\nTao save korbo?")
+                        .setPositiveButton("Save anyway") { _, _ ->
+                            BtDialHelper.saveDevice(ctx, picked.mac, picked.name)
+                            Toast.makeText(ctx, "Will dial via ${picked.name}", Toast.LENGTH_SHORT).show()
+                            refreshBtDialLabel()
+                        }
+                        .setNegativeButton("Back", null)
+                        .show()
+                } else {
+                    BtDialHelper.saveDevice(ctx, picked.mac, picked.name)
+                    Toast.makeText(ctx, "Will dial via ${picked.name}", Toast.LENGTH_SHORT).show()
+                    refreshBtDialLabel()
+                }
             }
             .show()
     }

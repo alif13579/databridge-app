@@ -76,22 +76,62 @@ object BtDialHelper {
             .remove(KEY_MAC).remove(KEY_NAME).apply()
     }
 
-    /** Bonded classic devices (name + MAC) for the Settings picker. Empty when
-     *  permission is missing or Bluetooth is off — never throws. */
-    fun bondedDevices(ctx: Context): List<Pair<String, String>> {
+    /** Bonded classic device with its Bluetooth Class (phone vs earbud…). */
+    data class BtDevice(
+        val name: String,
+        val mac: String,
+        /** [android.bluetooth.BluetoothClass.Device] major class, e.g. PHONE. */
+        val major: Int,
+    ) {
+        val isPhone: Boolean
+            get() = major == android.bluetooth.BluetoothClass.Device.Major.PHONE
+    }
+
+    /** Picker icon per major class — earphone ar phone ek line-e chinajay. */
+    fun typeIcon(major: Int): String = when (major) {
+        android.bluetooth.BluetoothClass.Device.Major.PHONE -> "📱"
+        android.bluetooth.BluetoothClass.Device.Major.AUDIO_VIDEO -> "🎧"
+        android.bluetooth.BluetoothClass.Device.Major.COMPUTER -> "💻"
+        android.bluetooth.BluetoothClass.Device.Major.WEARABLE -> "⌚"
+        android.bluetooth.BluetoothClass.Device.Major.HEALTH -> "🏥"
+        android.bluetooth.BluetoothClass.Device.Major.TOY -> "🧸"
+        else -> "❓"
+    }
+
+    /** Bonded classic devices (name + MAC + class) for the Settings picker.
+     *  Phones first, then the rest by name — never throws. LE-only accessories
+     *  (no classic radio, dial impossible) are skipped. */
+    fun bondedDevices(ctx: Context): List<BtDevice> {
         if (!hasPermission(ctx)) return emptyList()
         return try {
             val adapter = BluetoothAdapter.getDefaultAdapter() ?: return emptyList()
             if (!adapter.isEnabled) return emptyList()
             adapter.bondedDevices
                 .filter { it.type != BluetoothDevice.DEVICE_TYPE_LE }
-                .map { d ->
-                    val name = try { d.name.orEmpty().trim() } catch (_: SecurityException) { "" }
-                    val mac = try { d.address.orEmpty().trim() } catch (_: SecurityException) { "" }
-                    (if (name.isBlank()) "Unknown device" else name) to mac
+                .mapNotNull { d ->
+                    try {
+                        val name = d.name?.trim().orEmpty()
+                        val mac = d.address?.trim().orEmpty()
+                        if (mac.isBlank()) return@mapNotNull null
+                        val major = try {
+                            d.bluetoothClass?.majorDeviceClass
+                                ?: android.bluetooth.BluetoothClass.Device.Major.MISC
+                        } catch (_: SecurityException) {
+                            android.bluetooth.BluetoothClass.Device.Major.MISC
+                        }
+                        BtDevice(
+                            name = if (name.isBlank()) "Unknown device" else name,
+                            mac = mac,
+                            major = major,
+                        )
+                    } catch (_: SecurityException) {
+                        null
+                    }
                 }
-                .filter { it.second.isNotBlank() }
-                .sortedBy { it.first.lowercase() }
+                .sortedWith(
+                    compareByDescending<BtDevice> { it.isPhone }
+                        .thenBy { it.name.lowercase() }
+                )
         } catch (_: SecurityException) {
             emptyList()
         } catch (_: Exception) {
