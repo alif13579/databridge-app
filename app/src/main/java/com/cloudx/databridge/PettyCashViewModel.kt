@@ -254,7 +254,9 @@ class PettyCashViewModel : ViewModel() {
         claim.claimCode
     }
 
-    // ── Requester: edit a request (only while status == pending) ────────────
+    // ── Requester: edit a request (owner while pending; branch staff/POC/
+    // accounts with allowStaff may overwrite anything non-settled — the Edge
+    // Function re-enforces both rules server-side).
 
     suspend fun updateRequest(
         branchId: String,
@@ -273,13 +275,20 @@ class PettyCashViewModel : ViewModel() {
         deliveredQuantity: Int = 0,
         cidOrMerchant: String = "",
         requestedDate: Long = 0L,
-        onSupabaseResult: (Boolean) -> Unit = {}
+        onSupabaseResult: (Boolean) -> Unit = {},
+        allowStaff: Boolean = false
     ): Result<Unit> = runCatching {
         val uid = auth.currentUser?.uid.orEmpty()
         val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
 
-        if (existing.requesterUid != uid) throw IllegalStateException("You can only edit your own requests")
-        if (existing.status != PC_STATUS_PENDING) throw IllegalStateException("This request can no longer be edited")
+        // Settled rows are financial history — never editable (server also 409s).
+        if (existing.status == PC_STATUS_SETTLED) throw IllegalStateException("Settled requests cannot be edited")
+        // Owner edits own pending; branch staff/POC/accounts (allowStaff,
+        // UI-gated by role) overwrite anything non-settled to fix a
+        // requester's submit mistake. The Edge Function re-enforces both
+        // rules server-side.
+        val isOwnerPending = existing.requesterUid == uid && existing.status == PC_STATUS_PENDING
+        if (!isOwnerPending && !(allowStaff && existing.status != PC_STATUS_SETTLED)) throw IllegalStateException("You can only edit your own pending requests")
 
         claims.update(requestId, mapOf(
                 "category" to category,

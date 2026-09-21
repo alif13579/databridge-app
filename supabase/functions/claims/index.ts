@@ -306,28 +306,38 @@ Deno.serve(async (request) => {
         } else {
           // Past pending, core money/date/identity fields are locked (audit
           // #9) — only stage comments may change, by their stage actors.
-          const locked: Array<[string, unknown, unknown]> = [
-            ['requested_amount', requestedFinal, Number(existing.requested_amount ?? 0)],
-            ['approved_amount', approved, Number(existing.approved_amount ?? 0)],
-            ['settled_amount', settled, Number(existing.settled_amount ?? 0)],
-            ['category', str(c.category), String(existing.category ?? '')],
-            ['purpose', pick(c.purpose, c.remarks), String(existing.purpose ?? '')],
-            ['requested_at', tsMillis(iso(c.requested_at)) ?? tsMillis(existing.requested_at), tsMillis(existing.requested_at)],
-            ['consignment_id', str(c.consignment_id), String(existing.consignment_id ?? '')],
-            ['store_id', str(c.store_id), String(existing.store_id ?? '')],
-          ]
-          for (const [name, want, have] of locked) {
-            if (JSON.stringify(want) !== JSON.stringify(have)) {
-              errLog('claim_upsert', 'locked_field_edit', { claim_id: c.id, field: name })
-              return reply({ error: `This request is ${oldStatus} — ${name} can no longer be changed` }, 409)
+          // Exception: branch staff/POC/accounts (or admin) fixing a
+          // requester's submit mistake may overwrite anything on a
+          // non-terminal claim (the settled/cancelled freeze above and the
+          // requester-immutable rule still apply).
+          const canOverwrite = canStaff || canPoc || canAccounts
+          if (!canOverwrite) {
+            const locked: Array<[string, unknown, unknown]> = [
+              ['requested_amount', requestedFinal, Number(existing.requested_amount ?? 0)],
+              ['approved_amount', approved, Number(existing.approved_amount ?? 0)],
+              ['settled_amount', settled, Number(existing.settled_amount ?? 0)],
+              ['category', str(c.category), String(existing.category ?? '')],
+              ['purpose', pick(c.purpose, c.remarks), String(existing.purpose ?? '')],
+              ['requested_at', tsMillis(iso(c.requested_at)) ?? tsMillis(existing.requested_at), tsMillis(existing.requested_at)],
+              ['consignment_id', str(c.consignment_id), String(existing.consignment_id ?? '')],
+              ['store_id', str(c.store_id), String(existing.store_id ?? '')],
+            ]
+            for (const [name, want, have] of locked) {
+              if (JSON.stringify(want) !== JSON.stringify(have)) {
+                errLog('claim_upsert', 'locked_field_edit', { claim_id: c.id, field: name })
+                return reply({ error: `This request is ${oldStatus} — ${name} can no longer be changed` }, 409)
+              }
             }
-          }
-          const commentOk =
-            (str(c.verified_comment) === String(existing.verified_comment ?? '') || canStaff) &&
-            (str(c.approved_comment) === String(existing.approved_comment ?? '') || canPoc) &&
-            (str(c.reject_reason) === String(existing.reject_reason ?? '') || canStaff || canPoc)
-          if (!commentOk) {
-            return reply({ error: 'Only the responsible approver can edit stage comments' }, 403)
+            const commentOk =
+              (str(c.verified_comment) === String(existing.verified_comment ?? '') || canStaff) &&
+              (str(c.approved_comment) === String(existing.approved_comment ?? '') || canPoc) &&
+              (str(c.reject_reason) === String(existing.reject_reason ?? '') || canStaff || canPoc)
+            if (!commentOk) {
+              return reply({ error: 'Only the responsible approver can edit stage comments' }, 403)
+            }
+          } else {
+            const over = checkLimit(requestedFinal, 'Requested amount')
+            if (over) return over
           }
         }
       } else {

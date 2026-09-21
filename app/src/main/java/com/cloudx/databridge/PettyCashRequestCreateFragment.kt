@@ -32,11 +32,12 @@ import kotlinx.coroutines.launch
  * Accounts/approver view only. This is the "Requester" side of the
  * approval chain: category, amount, purpose, optional attachment. Submits
  * via PettyCashViewModel.submitRequest(), or — when opened with an
- * editRequestId — edits an existing PENDING request via updateRequest().
+ * editRequestId — edits an existing request via updateRequest() (owner
+ * while PENDING, or branch staff/POC/accounts on anything non-settled).
  * Edit is only reachable from Settlement Details' Edit button, which
  * itself only shows for the request's own submitter while status is still
- * PENDING (before Staff has acknowledged it) — this fragment
- * doesn't re-check that beyond trusting the caller, since
+ * PENDING, or for staff/POC/accounts on anything non-settled — this
+ * fragment doesn't re-check that beyond trusting the caller, since
  * updateRequest()/deleteRequest() re-validate ownership and status
  * server-side (well, ViewModel-side) regardless.
  *
@@ -487,7 +488,11 @@ class PettyCashRequestCreateFragment : Fragment() {
     private fun prefillIfEditing(state: PettyCashState) {
         if (prefilled || state !is PettyCashState.Success) return
         val request = state.requests.find { it.id == editRequestId } ?: return
-        if (request.status != PC_STATUS_PENDING) {
+        userRoles = state.roles
+        // Owner edits own pending; branch staff/POC/accounts may overwrite
+        // anything non-settled to fix a submit mistake (server re-enforces).
+        val canStaffEdit = state.roles.isAnyApprover && request.status != PC_STATUS_SETTLED
+        if (request.status != PC_STATUS_PENDING && !canStaffEdit) {
             Toast.makeText(requireContext(), "This request can no longer be edited", Toast.LENGTH_LONG).show()
             parentFragmentManager.popBackStack()
             return
@@ -1372,7 +1377,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         setSaving(true)
         if (isEditMode) {
             // NOTE: updateRequest() has no attachment param — editing an existing
-            // PENDING request cannot currently change its attachments, only create
+            // request cannot currently change its attachments, only create
             // (submitRequest, below) can. Pre-existing limitation, out of scope
             // for wiring the upload itself; if editing the attachment is wanted
             // later, updateRequest() needs an attachmentUrl/attachmentName param
@@ -1391,7 +1396,8 @@ class PettyCashRequestCreateFragment : Fragment() {
                             if (isAdded) Toast.makeText(requireContext(),
                                 if (ok) "✓ Supabase saved" else "⚠ Supabase save failed", Toast.LENGTH_SHORT).show()
                         }
-                    }
+                    },
+                    allowStaff = userRoles?.isAnyApprover == true
                 )
                 if (result.isSuccess) {
                     Toast.makeText(requireContext(), "✓ Request updated", Toast.LENGTH_SHORT).show()

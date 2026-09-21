@@ -431,6 +431,10 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         val canReject = (request.status == PC_STATUS_PENDING && roles.isStaff) ||
             (request.status == PC_STATUS_ACKNOWLEDGED && roles.isCashPoc)
         val canEditOrDelete = isOwner && request.status == PC_STATUS_PENDING
+        // Staff/POC/accounts (with warning, via the Edit form) overwrite
+        // anything non-settled to fix a requester's submit mistake — right
+        // next to Reject, see bindEditDeleteRow.
+        val canStaffEdit = request.status != PC_STATUS_SETTLED && roles.isAnyApprover
         // Staff/POC/accounts delete (with warning) anything non-settled,
         // right next to Reject — see bindEditDeleteRow.
         val canStaffDelete = request.status != PC_STATUS_SETTLED && roles.isAnyApprover
@@ -511,7 +515,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             }
         }
 
-            bindEditDeleteRow(root, request, canEditOrDelete, canStaffDelete)
+            bindEditDeleteRow(root, request, canEditOrDelete, canStaffDelete, canStaffEdit)
     }
 
     /** Payment Method spinner, editable Settle Amount (pre-filled from approved amount,
@@ -610,15 +614,17 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             .commitAllowingStateLoss()
     }
 
-    /** Owner-only Edit/Delete row, only while the request is still PENDING. */
-    private fun bindEditDeleteRow(root: View, request: PettyCashRequest, canEditOrDelete: Boolean, canStaffDelete: Boolean = false) {
+    /** Owner-only Edit/Delete row while PENDING, plus staff/POC/accounts Edit
+     *  + Delete (with warning) on anything non-settled. */
+    private fun bindEditDeleteRow(root: View, request: PettyCashRequest, canEditOrDelete: Boolean, canStaffDelete: Boolean = false, canStaffEdit: Boolean = false) {
         val layoutEditDelete = root.findViewById<View?>(R.id.layoutPcDetailEditDelete)
-        layoutEditDelete?.isVisible = canEditOrDelete || canStaffDelete
-        if (!canEditOrDelete && !canStaffDelete) return
+        layoutEditDelete?.isVisible = canEditOrDelete || canStaffDelete || canStaffEdit
+        if (!canEditOrDelete && !canStaffDelete && !canStaffEdit) return
 
-        root.findViewById<View>(R.id.btnPcDetailEdit).isVisible = canEditOrDelete
+        val canEdit = canEditOrDelete || canStaffEdit
+        root.findViewById<View>(R.id.btnPcDetailEdit).isVisible = canEdit
         root.findViewById<View>(R.id.btnPcDetailDelete).isVisible = canEditOrDelete || canStaffDelete
-        if (canEditOrDelete) {
+        if (canEdit) {
             root.findViewById<View>(R.id.btnPcDetailEdit).setOnClickListener {
                 parentFragmentManager.beginTransaction()
                     .replace(R.id.container, PettyCashRequestCreateFragment.newInstance(branchId, editRequestId = request.id))
