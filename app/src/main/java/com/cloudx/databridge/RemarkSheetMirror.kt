@@ -1102,6 +1102,10 @@ object RemarkSheetMirror {
         val branchId: String,
         val ids: List<LiveId>,
         val note: String?,
+        /** True when this branch's read FAILED (quota/network/tab/config) as
+         *  opposed to genuinely empty. Callers must NOT treat failed reads as
+         *  "sheet emptied" — rebuilding from one wipes the whole list blank. */
+        val failed: Boolean = false,
     )
 
     suspend fun fetchLiveConsignments(
@@ -1152,10 +1156,20 @@ object RemarkSheetMirror {
                     else -> notes.firstOrNull()
                         ?: "No consignments today ($scanned rows scanned)"
                 }
-                LiveBranchIds(branchId, ids, why)
+                // Empty + error-ish note = failed read, NOT an emptied sheet.
+                // Genuine-empty signals stay failed=false ("No CC binding…",
+                // "No bound sheet…", "No consignments today…").
+                val failedRead = ids.isEmpty() && notes.any { n ->
+                    val t = n.substringAfter(": ").trim()
+                    t.isNotBlank() &&
+                        !t.startsWith("No CC binding") &&
+                        !t.startsWith("No bound sheet") &&
+                        !t.startsWith("No consignments today")
+                }
+                LiveBranchIds(branchId, ids, why, failed = failedRead)
             } catch (e: Exception) {
                 LiveBranchIds(branchId, emptyList(),
-                    e.message?.take(80) ?: "could not read sheet")
+                    e.message?.take(80) ?: "could not read sheet", failed = true)
             }
         }
     }

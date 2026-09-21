@@ -2259,6 +2259,9 @@ class CallCenterFragment : Fragment() {
     // UI churn, no heavy Firebase/Supabase fetch on quiet ticks.
     private var liveAutoRefreshJob: Job? = null
     private var liveSilentRunning = false
+    // Last silent tick's sheet read failed (transient quota/network/tab) —
+    // toast once per outage, not every 45s tick, while old cards are kept.
+    private var liveFetchFailed = false
     private var lastLiveRefreshMs = 0L
     private val LIVE_AUTO_REFRESH_MS = 45_000L
     private val LIVE_RESUME_REFRESH_MS = 30_000L
@@ -4846,6 +4849,20 @@ class CallCenterFragment : Fragment() {
                 val cidDates = mutableMapOf<String, List<String>>()
                 sheetRes.forEach { r -> r.ids.forEach { e -> cidDates.putIfAbsent(e.cid, e.dateKeys) } }
                 lastLiveRefreshMs = System.currentTimeMillis()
+                // Failed sheet read (quota/network/tab) is NOT an emptied
+                // sheet — rebuilding from one wipes the whole list blank with
+                // a bogus "-N removed" toast. Keep current cards; next tick
+                // retries (a real change then rebuilds normally).
+                if (sheetRes.any { it.failed }) {
+                    if (!liveFetchFailed) {
+                        liveFetchFailed = true
+                        Toast.makeText(requireContext(),
+                            "⚠ Sheet read failed — keeping current list, retrying…",
+                            Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+                liveFetchFailed = false
                 if (ccDataSource == "live") {
                     // Access revoked mid-session: the sheet now 403s — show the
                     // access page instead of silently wiping into an empty list.
@@ -4987,7 +5004,9 @@ class CallCenterFragment : Fragment() {
                         r.note?.takeIf { it.isNotBlank() }
                             ?.let { "${branchIdToName[r.branchId] ?: r.branchId}: $it" }
                     }.firstOrNull()
-                    if (why != null) Toast.makeText(requireContext(),
+                    if (sheetRes.any { it.failed }) Toast.makeText(requireContext(),
+                        "Mix Live: sheet read failed — showing Request only", Toast.LENGTH_LONG).show()
+                    else if (why != null) Toast.makeText(requireContext(),
                         "Mix Live: $why", Toast.LENGTH_LONG).show()
                     return@launch
                 }
@@ -5071,6 +5090,8 @@ class CallCenterFragment : Fragment() {
                 if (ids.isEmpty()) {
                     if (notes.any { isSheetAccessDenied(it) }) {
                         showLiveAccessError()
+                    } else if (sheetRes.any { it.failed }) {
+                        showLiveError("Couldn't read the Live sheet — ${notes.firstOrNull() ?: "network/quota error"} — retry in a bit")
                     } else {
                         val why = notes.firstOrNull() ?: "No consignments in the Live sheet today"
                         showLiveError("Live sheet is empty — $why")
