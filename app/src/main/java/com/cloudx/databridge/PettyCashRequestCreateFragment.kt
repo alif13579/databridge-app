@@ -166,11 +166,15 @@ class PettyCashRequestCreateFragment : Fragment() {
 
     private fun visibleCategories(): List<String> {
         val all = categoryOptions.ifEmpty { categoryOptionsFallback }
-        // Staff filing for an agent get the agent (conveyance) set; staff for
-        // self get everything else.
-        val filtered = if (isRequesterLike() || onBehalfAgent != null) all.filter { it in requesterCategories }
-        else all.filter { it !in requesterCategories }
-        return filtered.ifEmpty { all }
+        // Requester (or staff filing on behalf of an agent) → conveyance 4
+        // only. Never fall back to the full list here — that once leaked all
+        // expense types to agents when the catalog lacked the 4.
+        if (isRequesterLike() || onBehalfAgent != null) {
+            return all.filter { it in requesterCategories }
+                .ifEmpty { requesterCategories.filter { it in categoryOptionsFallback } }
+        }
+        // Staff for self → everything except those four.
+        return all.filter { it !in requesterCategories }.ifEmpty { all }
     }
 
     /** Staff "Request for" picker: Self (expenses) or a branch agent
