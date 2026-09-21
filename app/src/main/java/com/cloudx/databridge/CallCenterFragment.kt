@@ -1098,6 +1098,38 @@ class CallCenterFragment : Fragment() {
         }
     }
 
+    /** Bluetooth dial: the paired button phone (Settings → Bluetooth dial
+     *  phone) dials this number via SPP ATD. No call-log verification is
+     *  possible (the call runs on the other phone), so the dial badge
+     *  increments directly on an OK verdict from the button phone. */
+    private fun dialViaBluetooth(item: CallCenterParcelItem) {
+        if (!isAdded) return
+        val ctx = requireContext()
+        if (item.phone.isBlank()) {
+            Toast.makeText(ctx, "No phone number on this parcel", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val btName = BtDialHelper.configuredName(ctx).ifBlank { "button phone" }
+        Toast.makeText(ctx, "Dialing via $btName…", Toast.LENGTH_SHORT).show()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                BtDialHelper.dial(ctx.applicationContext, item.phone)
+            }
+            if (!isAdded) return@launch
+            when (result) {
+                is BtDialHelper.DialResult.Dialed -> {
+                    Toast.makeText(ctx, "✓ Dialing via $btName", Toast.LENGTH_SHORT).show()
+                    DialCountStore.increment(ctx, item.id)
+                    adapter.refreshItem(item.id)
+                    callCardStates[item.id] = colorCallDone
+                    pushCallStates()
+                }
+                is BtDialHelper.DialResult.Failed ->
+                    Toast.makeText(ctx, result.reason, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private fun setupAdapter() {
         adapter = CallCenterAdapter(
             onCall = { item ->
@@ -1118,6 +1150,7 @@ class CallCenterFragment : Fragment() {
                 callCardStates[item.id] = colorCallDone
                 pushCallStates()
             },
+            onBtCall = { item -> dialViaBluetooth(item) },
             onSetRemarks = { item -> showRemarksDialog(item) },
             onWhatsappToAgent = { item ->
                 // Today's remarks need a fresh fetch (not the list's cached data, which can be

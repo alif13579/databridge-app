@@ -20,6 +20,7 @@ import coil.transform.CircleCropTransformation
  */
 class CallCenterAdapter(
     private val onCall: (CallCenterParcelItem) -> Unit,
+    private val onBtCall: (CallCenterParcelItem) -> Unit = {},
     private val onSetRemarks: (CallCenterParcelItem) -> Unit,
     private val onWhatsappToAgent: (CallCenterParcelItem) -> Unit,
     private val onLongPress: (CallCenterParcelItem) -> Unit,
@@ -215,6 +216,7 @@ class CallCenterAdapter(
                 glowColor = callStates[row.parcel.id],
                 onToggleExpand = { toggleExpanded(row.parcel.id) },
                 onCall = onCall,
+                onBtCall = onBtCall,
                 onSetRemarks = onSetRemarks,
                 onWhatsappToAgent = onWhatsappToAgent,
                 onLongPress = onLongPress
@@ -315,6 +317,7 @@ class CallCenterAdapter(
         private val tvEngagedTime: TextView = view.findViewById(R.id.tvAgtEngagedTime)
         private val layoutActions: LinearLayout = view.findViewById(R.id.layoutAgtActions)
         private val btnCall: TextView = view.findViewById(R.id.btnAgtCall)
+        private val btnBtCall: TextView = view.findViewById(R.id.btnAgtBtCall)
         private val btnSetRemarks: TextView = view.findViewById(R.id.btnAgtSetRemarks)
         private val btnWhatsapp: TextView = view.findViewById(R.id.btnAgtWhatsapp)
         private val tvCallCount: TextView = view.findViewById(R.id.tvAgtCallCount)
@@ -330,6 +333,7 @@ class CallCenterAdapter(
             glowColor: Int?,
             onToggleExpand: () -> Unit,
             onCall: (CallCenterParcelItem) -> Unit,
+            onBtCall: (CallCenterParcelItem) -> Unit,
             onSetRemarks: (CallCenterParcelItem) -> Unit,
             onWhatsappToAgent: (CallCenterParcelItem) -> Unit,
             onLongPress: (CallCenterParcelItem) -> Unit
@@ -505,6 +509,15 @@ class CallCenterAdapter(
             itemView.setOnClickListener { onToggleExpand() }
             itemView.setOnLongClickListener { onLongPress(item); true }
             btnCall.setOnClickListener { onCall(item) }
+            // Bluetooth dial via paired button phone — only when one is set in
+            // Settings (gone otherwise, so the row is unchanged for others).
+            if (BtDialHelper.isConfigured(itemView.context)) {
+                btnBtCall.visibility = View.VISIBLE
+                btnBtCall.setOnClickListener { onBtCall(item) }
+            } else {
+                btnBtCall.visibility = View.GONE
+                btnBtCall.setOnClickListener(null)
+            }
             btnSetRemarks.setOnClickListener { onSetRemarks(item) }
             btnWhatsapp.setOnClickListener { onWhatsappToAgent(item) }
 

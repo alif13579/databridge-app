@@ -406,6 +406,22 @@
             android:contentDescription="Send parcel info to agent on WhatsApp"
             android:includeFontPadding="false" />
 
+        <!-- Bluetooth dial: paired button phone dials this number (visible only
+             when a BT dial phone is set in Settings). -->
+        <TextView
+            android:id="@+id/btnAgtBtCall"
+            android:layout_width="48dp"
+            android:layout_height="36dp"
+            android:text="BT"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:background="@drawable/btn_action_cyan"
+            android:layout_marginStart="4dp"
+            android:visibility="gone"
+            android:contentDescription="Dial via Bluetooth button phone"
+            android:includeFontPadding="false" />
+
     </LinearLayout>
 
     </LinearLayout>

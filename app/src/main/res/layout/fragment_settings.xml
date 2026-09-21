@@ -99,6 +99,40 @@
                 android:trackTint="#555555" />
         </LinearLayout>
 
+        <!-- Bluetooth dial phone: paired button phone for parcel-card BT calls -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Bluetooth dial phone"
+                    android:textColor="@color/theme_text_primary"
+                    android:textSize="16sp" />
+                <TextView
+                    android:id="@+id/tvBtDialPhone"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Not set"
+                    android:textColor="@color/theme_text_secondary"
+                    android:textSize="12sp"
+                    android:layout_marginTop="2dp" />
+            </LinearLayout>
+            <Button
+                android:id="@+id/btnBtDialPick"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pick" />
+        </LinearLayout>
+
         <!-- Switch: Automatic WhatsApp Sender -->
         <LinearLayout
             android:layout_width="match_parent"

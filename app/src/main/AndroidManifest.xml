@@ -22,6 +22,16 @@
     <!-- 📞 Alerts & Dialer -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- 🔵 Bluetooth dial (button phone via SPP ATD — BtDialHelper): classic
+         connect needs BLUETOOTH_CONNECT on API 31+ (runtime), legacy pair on
+         older APIs needs nothing beyond these install-time grants. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- ✅ Auto Call (CallCenterFragment) uses this to detect real call-end via
          TelephonyManager (CallStateWatcher.kt), instead of relying on the app merely
          regaining foreground focus, which can happen while a call is still active. -->

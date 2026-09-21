@@ -58,6 +58,8 @@ class SettingsFragment : Fragment() {
     private lateinit var tvAppVersion: TextView
     private lateinit var btnCheckUpdate: Button
     private lateinit var tvUpdateStatus: TextView
+    private lateinit var tvBtDialPhone: TextView
+    private lateinit var btnBtDialPick: Button
 
     private val auth = FirebaseAuth.getInstance()
     private lateinit var appPrefs: AppPreferences
@@ -82,6 +84,14 @@ class SettingsFragment : Fragment() {
             Toast.makeText(requireContext(), "Caller ID role not granted", Toast.LENGTH_SHORT).show()
             if (_binding != null) syncCallerIdSwitch()
         }
+    }
+
+    // BLUETOOTH_CONNECT (API 31+) for the button-phone picker + dial.
+    private val btPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) showBtDevicePicker()
+        else Toast.makeText(requireContext(), "Bluetooth permission needed to pick the dial phone", Toast.LENGTH_LONG).show()
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -137,6 +147,8 @@ class SettingsFragment : Fragment() {
         tvAppVersion         = binding.findViewById(R.id.tvAppVersion)
         btnCheckUpdate       = binding.findViewById(R.id.btnCheckUpdate)
         tvUpdateStatus       = binding.findViewById(R.id.tvUpdateStatus)        // ✅ Read the real version from build config so it always matches the APK
+        tvBtDialPhone        = binding.findViewById(R.id.tvBtDialPhone)
+        btnBtDialPick        = binding.findViewById(R.id.btnBtDialPick)
         tvAppVersion.text    = try {
             val pInfo = requireContext().packageManager.getPackageInfo(requireContext().packageName, 0)
             "v${pInfo.versionName} • DataBridge"
@@ -168,6 +180,18 @@ class SettingsFragment : Fragment() {
         switchAutoDialer.isChecked = togglePrefs.getBoolean("auto_open_dialer", true)
         switchAutoDialer.setOnCheckedChangeListener { _, isChecked ->
             togglePrefs.edit().putBoolean("auto_open_dialer", isChecked).apply()
+        }
+
+        // Bluetooth dial phone (button phone for parcel-card BT calls).
+        refreshBtDialLabel()
+        btnBtDialPick.setOnClickListener {
+            if (Build.VERSION.SDK_INT >= 31 &&
+                ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+            ) {
+                btPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+            } else {
+                showBtDevicePicker()
+            }
         }
 
         // WhatsApp Sender
@@ -288,6 +312,57 @@ class SettingsFragment : Fragment() {
     }
 
     /** Manual "⬇ Check for update" — always hits GitHub, never throttled. */
+    private fun refreshBtDialLabel() {
+        if (!isAdded) return
+        val name = BtDialHelper.configuredName(requireContext())
+        tvBtDialPhone.text = if (name.isNotBlank()) "📲 $name" else "Not set"
+    }
+
+    /** Bonded-device picker for the Bluetooth dial phone (pairing itself is
+     *  done in Android Settings — this only lists already-bonded devices). */
+    private fun showBtDevicePicker() {
+        if (!isAdded) return
+        val ctx = requireContext()
+        if (!BtDialHelper.hasPermission(ctx)) {
+            Toast.makeText(ctx, "Bluetooth permission needed", Toast.LENGTH_LONG).show()
+            return
+        }
+        val devices = BtDialHelper.bondedDevices(ctx)
+        if (devices.isEmpty()) {
+            AlertDialog.Builder(ctx)
+                .setTitle("Bluetooth dial phone")
+                .setMessage("No paired Bluetooth devices found.\n\nPair the button phone first: Android Settings → Bluetooth → Pair new device, then come back and Pick again.")
+                .setPositiveButton("Open Bluetooth settings") { _, _ ->
+                    try {
+                        startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS))
+                    } catch (_: Exception) {
+                    }
+                }
+                .setNegativeButton("Close", null)
+                .show()
+            return
+        }
+        val current = BtDialHelper.configuredMac(ctx)
+        val labels = devices.map { (name, mac) ->
+            (if (mac.equals(current, ignoreCase = true)) "✓ " else "") + "$name ($mac)"
+        }.toMutableList()
+        labels.add("❌ Clear (no Bluetooth phone)")
+        AlertDialog.Builder(ctx)
+            .setTitle("Bluetooth dial phone")
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which >= devices.size) {
+                    BtDialHelper.clearDevice(ctx)
+                    Toast.makeText(ctx, "Bluetooth dial phone cleared", Toast.LENGTH_SHORT).show()
+                } else {
+                    val (name, mac) = devices[which]
+                    BtDialHelper.saveDevice(ctx, mac, name)
+                    Toast.makeText(ctx, "Will dial via $name", Toast.LENGTH_SHORT).show()
+                }
+                refreshBtDialLabel()
+            }
+            .show()
+    }
+
     private fun manualUpdateCheck() {
         if (!isAdded) return
         btnCheckUpdate.isEnabled = false
