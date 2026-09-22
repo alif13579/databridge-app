@@ -317,6 +317,8 @@ class PettyCashRequestCreateFragment : Fragment() {
     private var onBehalfAgent: SupabaseClaimsReader.BranchAgent? = null
     private lateinit var groupConsignment: View
     private lateinit var etConsignmentId: EditText
+    private lateinit var groupLotId: View
+    private lateinit var etLotId: EditText
     private lateinit var btnScanConsignment: View
     private lateinit var layoutConsignmentPreview: View
     private lateinit var tvConsignmentPreview: TextView
@@ -368,6 +370,8 @@ class PettyCashRequestCreateFragment : Fragment() {
         tvCategorySelected = view.findViewById(R.id.tvPcRequestCategorySelected)
         groupConsignment = view.findViewById(R.id.groupPcRequestConsignment)
         etConsignmentId = view.findViewById(R.id.etPcRequestConsignmentId)
+        groupLotId = view.findViewById(R.id.groupPcRequestLotId)
+        etLotId = view.findViewById(R.id.etPcRequestLotId)
         btnScanConsignment = view.findViewById(R.id.btnPcRequestScanConsignment)
         layoutConsignmentPreview = view.findViewById(R.id.layoutPcRequestConsignmentPreview)
         tvConsignmentPreview = view.findViewById(R.id.tvPcRequestConsignmentPreview)
@@ -532,6 +536,8 @@ class PettyCashRequestCreateFragment : Fragment() {
             selectedStoreAmount = stores.find { it.storeId == request.storeId }?.conveyanceAmount ?: 0.0
             refreshPickupAmount()
         }
+        // LOT edit: LOT ID lives in store_id (store picker is Pickup-only).
+        if (isLotCategory(request.category) && request.storeId.isNotBlank()) etLotId.setText(request.storeId)
         if (request.pickupCount > 0) etPickupCount.setText(request.pickupCount.toString())
         if (request.vehicle.isNotBlank()) {
             selectedVehicle = request.vehicle
@@ -632,6 +638,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         val isConveyance = isConveyanceCategory(category)
         val isLot = isLotCategory(category) && !isEditMode
         groupConsignment.isVisible = isConveyance && category != PC_CATEGORY_PICKUP && !isRouteBasedCategory(category)
+        groupLotId.isVisible = isLotCategory(category)
         tvConsignmentLabel.text = if (isLot) "Consignments" else "Consignment ID"
         btnAddConsignment.isVisible = isLot
         tvLotCount.isVisible = isLot
@@ -666,6 +673,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                 lotConsignments.clear()
                 try { renderLotList() } catch (_: Exception) { /* views not bound yet */ }
             }
+            if (::etLotId.isInitialized) etLotId.setText("")
             etConsignmentId.hint = "Type or scan consignment ID"
             if (::tvAmountLabel.isInitialized) tvAmountLabel.text = "Amount"
             etAmount.hint = "0"
@@ -1311,6 +1319,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         val amount = etAmount.text?.toString()?.toDoubleOrNull() ?: 0.0
         val purpose = etPurpose.text?.toString().orEmpty().trim()
         val consignmentId = etConsignmentId.text?.toString().orEmpty().trim()
+        val lotId = etLotId.text?.toString().orEmpty().trim()
         val pickupCount = etPickupCount.text?.toString()?.trim()?.toIntOrNull() ?: 0
 
         if (branchId.isBlank()) {
@@ -1342,6 +1351,11 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
         if (isLotSubmit && lotConsignments.isEmpty()) {
             Toast.makeText(requireContext(), "Add at least one consignment (scan/type + Add)", Toast.LENGTH_SHORT).show()
+            return
+        }
+        // LOT ID is must (saved into store_id on every LOT row).
+        if (isLotCategory(selectedCategory) && lotId.isBlank()) {
+            Toast.makeText(requireContext(), "Enter the LOT ID", Toast.LENGTH_SHORT).show()
             return
         }
         if (isConveyanceSubmit && selectedVehicle.isBlank()) {
@@ -1401,8 +1415,17 @@ class PettyCashRequestCreateFragment : Fragment() {
             isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP -> consignmentId
             else -> ""
         }
-        val finalStoreId = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreId else ""
-        val finalStoreName = if (selectedCategory == PC_CATEGORY_PICKUP) selectedStoreName else ""
+        val isLotRow = isLotCategory(selectedCategory)
+        val finalStoreId = when {
+            selectedCategory == PC_CATEGORY_PICKUP -> selectedStoreId
+            isLotRow -> lotId
+            else -> ""
+        }
+        val finalStoreName = when {
+            selectedCategory == PC_CATEGORY_PICKUP -> selectedStoreName
+            isLotRow -> lotId
+            else -> ""
+        }
         val finalPickupCount = if (selectedCategory == PC_CATEGORY_PICKUP) pickupCount else 0
         // Pickup carries quantities only, never a money amount at request time
         // (0 goes in; the settled amount is filled at approve/settle time).

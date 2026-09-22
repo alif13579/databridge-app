@@ -245,6 +245,36 @@
                     </LinearLayout>
                 </LinearLayout>
 
+                <!-- LOT Delivery only: LOT ID (required, saved into store_id). -->
+                <LinearLayout
+                    android:id="@+id/groupPcRequestLotId"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="LOT ID *"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="#334155"
+                        android:layout_marginTop="14dp" />
+
+                    <EditText
+                        android:id="@+id/etPcRequestLotId"
+                        android:layout_width="match_parent"
+                        android:layout_height="52dp"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/bg_pc_input"
+                        android:hint="Enter LOT ID"
+                        android:textSize="14sp"
+                        android:textColor="#0F172A"
+                        android:paddingHorizontal="14dp"
+                        android:singleLine="true" />
+                </LinearLayout>
+
                 <!-- Store — shown only when category == Pickup -->
                 <LinearLayout
                     android:id="@+id/groupPcRequestStore"
