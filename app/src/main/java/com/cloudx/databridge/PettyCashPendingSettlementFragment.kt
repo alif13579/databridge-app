@@ -295,9 +295,11 @@ class PettyCashPendingSettlementFragment : Fragment() {
         }
     }
 
+    // Date-only: clock time removed by request — expense/approval dates
+    // matter here, not the hour submitted.
     private fun formatDateTime(millis: Long): String {
         if (millis == 0L) return "—"
-        return SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
+        return SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(millis))
     }
 
     /** Status-appropriate amount for totals: the stage figure, not requested. */
