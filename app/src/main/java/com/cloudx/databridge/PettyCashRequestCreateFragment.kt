@@ -81,12 +81,18 @@ class PettyCashRequestCreateFragment : Fragment() {
         "Transgender Bill"
     )
     private val categoryOptionsFallback =
-        listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP, PC_CATEGORY_LOT_DELIVERY, PC_CATEGORY_INTER_CHANGE) + utilitiesOptions
+        listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP, PC_CATEGORY_LOT_DELIVERY, PC_CATEGORY_INTER_CHANGE,
+            PC_CATEGORY_PARCEL_RECEIVING, PC_CATEGORY_INTER_CHANGE_COMMISSION) + utilitiesOptions
     private var categoryOptions: List<String> = categoryOptionsFallback
     /** Field (requester) categories — requesters see only these four, staff
      *  see every other category (see visibleCategories). */
     private val requesterCategories = setOf(
         PC_CATEGORY_PICKUP, PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_LOT_DELIVERY, PC_CATEGORY_INTER_CHANGE
+    )
+    /** Incharge extras on top of the four field categories: Parcel Receiving
+     *  + Inter Change Commission. Plain agents never see these. */
+    private val inchargeExtraCategories = setOf(
+        PC_CATEGORY_PARCEL_RECEIVING, PC_CATEGORY_INTER_CHANGE_COMMISSION
     )
     /** Branch roles for the signed-in user (loaded in create mode for the
      *  staff gate below) — null until viewModel.load() returns. */
@@ -151,27 +157,35 @@ class PettyCashRequestCreateFragment : Fragment() {
      *  same fields without an app release. */
     private fun isConveyanceCategory(category: String): Boolean =
         categoryGroups[category]?.let { it == "conveyance" }
-            ?: (category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY || category == PC_CATEGORY_LOT_DELIVERY || category == PC_CATEGORY_INTER_CHANGE)
+            ?: (category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY || category == PC_CATEGORY_LOT_DELIVERY || category == PC_CATEGORY_INTER_CHANGE || category == PC_CATEGORY_PARCEL_RECEIVING || category == PC_CATEGORY_INTER_CHANGE_COMMISSION)
 
     /** Requester-like (requester permission or Incharge) → the four field
      *  categories only. Anyone else reaching the form is approver-side staff
      *  (see the create-mode gate) → everything except those four. */
-    private fun isRequesterLike(): Boolean {
-        if (RbacManager.hasPermission("petty_cash_requester")) return true
+    private fun isRequesterLike(): Boolean {        if (RbacManager.hasPermission("petty_cash_requester")) return true
+        if (isIncharge()) return true
+        return userRoles?.let { !it.isStaff } ?: false
+    }
+
+    /** Incharge role (by role id or name) — gets the four field categories
+     *  plus Parcel Receiving + Inter Change Commission. */
+    private fun isIncharge(): Boolean {
         val id = RbacManager.current.roleId.trim().lowercase()
         val name = RbacManager.current.roleName.trim().lowercase()
-        if ("incharge" in id || "incharge" in name) return true
-        return userRoles?.let { !it.isStaff } ?: false
+        return "incharge" in id || "incharge" in name
     }
 
     private fun visibleCategories(): List<String> {
         val all = categoryOptions.ifEmpty { categoryOptionsFallback }
         // Requester (or staff filing on behalf of an agent) → conveyance 4
-        // only. Never fall back to the full list here — that once leaked all
-        // expense types to agents when the catalog lacked the 4.
+        // only (Incharge additionally gets Parcel Receiving + Inter Change
+        // Commission). Never fall back to the full list here — that once
+        // leaked all expense types to agents when the catalog lacked the 4.
         if (isRequesterLike() || onBehalfAgent != null) {
-            return all.filter { it in requesterCategories }
-                .ifEmpty { requesterCategories.filter { it in categoryOptionsFallback } }
+            val allowed = if (isIncharge() && onBehalfAgent == null)
+                requesterCategories + inchargeExtraCategories else requesterCategories
+            return all.filter { it in allowed }
+                .ifEmpty { allowed.filter { it in categoryOptionsFallback } }
         }
         // Staff for self → everything except those four.
         return all.filter { it !in requesterCategories }.ifEmpty { all }
@@ -221,6 +235,12 @@ class PettyCashRequestCreateFragment : Fragment() {
     }
 
     private fun isLotCategory(category: String): Boolean = category == PC_CATEGORY_LOT_DELIVERY
+
+    /** Route-based conveyance (no consignment ID — the From<>To route
+     *  identifies the trip instead): Inter Change + the two incharge-only
+     *  trip types, Parcel Receiving and Inter Change Commission. */
+    private fun isRouteBasedCategory(category: String): Boolean =
+        category == PC_CATEGORY_INTER_CHANGE || category == PC_CATEGORY_PARCEL_RECEIVING || category == PC_CATEGORY_INTER_CHANGE_COMMISSION
 
     // LOT Delivery: multiple consignment IDs on one request (scan/type + Add).
     // Stored comma-joined in consignment_id/cid_or_merchant (display-only
@@ -616,7 +636,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         // LOT row being edited is single-consignment, so edit stays bulk-like.
         val isConveyance = isConveyanceCategory(category)
         val isLot = isLotCategory(category) && !isEditMode
-        groupConsignment.isVisible = isConveyance && category != PC_CATEGORY_PICKUP && category != PC_CATEGORY_INTER_CHANGE
+        groupConsignment.isVisible = isConveyance && category != PC_CATEGORY_PICKUP && !isRouteBasedCategory(category)
         tvConsignmentLabel.text = if (isLot) "Consignments" else "Consignment ID"
         btnAddConsignment.isVisible = isLot
         tvLotCount.isVisible = isLot
@@ -655,7 +675,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             if (::tvAmountLabel.isInitialized) tvAmountLabel.text = "Amount"
             etAmount.hint = "0"
             if (::tvLotTotal.isInitialized) tvLotTotal.isVisible = false
-            if (!isConveyance || category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_INTER_CHANGE) etConsignmentId.setText("")
+            if (!isConveyance || category == PC_CATEGORY_PICKUP || isRouteBasedCategory(category)) etConsignmentId.setText("")
         }
         if (category != PC_CATEGORY_PICKUP) {
             selectedStoreId = ""
@@ -1308,12 +1328,16 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "Select vehicle", Toast.LENGTH_SHORT).show()
             return
         }
-        if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP && selectedCategory != PC_CATEGORY_INTER_CHANGE && !isLotSubmit && consignmentId.isBlank()) {
+        if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP && !isRouteBasedCategory(selectedCategory) && !isLotSubmit && consignmentId.isBlank()) {
             Toast.makeText(requireContext(), "Enter the consignment ID", Toast.LENGTH_SHORT).show()
             return
         }
         if (selectedCategory == PC_CATEGORY_INTER_CHANGE && selectedFromArea.isBlank()) {
             Toast.makeText(requireContext(), "Select From hub", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if ((selectedCategory == PC_CATEGORY_PARCEL_RECEIVING || selectedCategory == PC_CATEGORY_INTER_CHANGE_COMMISSION) && selectedFromArea.isBlank()) {
+            Toast.makeText(requireContext(), "Select From area", Toast.LENGTH_SHORT).show()
             return
         }
         if (selectedCategory != PC_CATEGORY_PICKUP && amount <= 0.0) {
@@ -1335,7 +1359,7 @@ class PettyCashRequestCreateFragment : Fragment() {
 
         val finalConsignmentId = when {
             isLotSubmit -> "" // per-row below: one claim per consignment
-            selectedCategory == PC_CATEGORY_INTER_CHANGE -> "" // trips have no consignment ID (route instead)
+            isRouteBasedCategory(selectedCategory) -> "" // trips have no consignment ID (route instead)
             isConveyanceSubmit && selectedCategory != PC_CATEGORY_PICKUP -> consignmentId
             else -> ""
         }
@@ -1373,7 +1397,7 @@ class PettyCashRequestCreateFragment : Fragment() {
         // for Inter Change.
         val finalCidOrMerchant = when {
             selectedCategory == PC_CATEGORY_PICKUP -> finalStoreName
-            selectedCategory == PC_CATEGORY_INTER_CHANGE -> "$finalFromArea<>$finalToArea"
+            isRouteBasedCategory(selectedCategory) -> "$finalFromArea<>$finalToArea"
             isConveyanceSubmit -> finalConsignmentId
             else -> ""
         }

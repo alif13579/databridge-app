@@ -45,6 +45,8 @@ const val PC_CATEGORY_BULK_DELIVERY = "Bulk Delivery"
 const val PC_CATEGORY_PICKUP = "Pickup"
 const val PC_CATEGORY_LOT_DELIVERY = "LOT Delivery"
 const val PC_CATEGORY_INTER_CHANGE = "Inter Change"
+const val PC_CATEGORY_PARCEL_RECEIVING = "Parcel Receiving"
+const val PC_CATEGORY_INTER_CHANGE_COMMISSION = "Inter Change Commission"
 
 @IgnoreExtraProperties
 data class PettyCashRequest(
