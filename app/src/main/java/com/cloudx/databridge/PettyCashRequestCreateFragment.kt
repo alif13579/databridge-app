@@ -82,17 +82,18 @@ class PettyCashRequestCreateFragment : Fragment() {
     )
     private val categoryOptionsFallback =
         listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP, PC_CATEGORY_LOT_DELIVERY, PC_CATEGORY_INTER_CHANGE,
-            PC_CATEGORY_PARCEL_RECEIVING, PC_CATEGORY_INTER_CHANGE_COMMISSION) + utilitiesOptions
+            PC_CATEGORY_PARCEL_RECEIVING) + utilitiesOptions
     private var categoryOptions: List<String> = categoryOptionsFallback
     /** Field (requester) categories — requesters see only these four, staff
      *  see every other category (see visibleCategories). */
     private val requesterCategories = setOf(
         PC_CATEGORY_PICKUP, PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_LOT_DELIVERY, PC_CATEGORY_INTER_CHANGE
     )
-    /** Incharge extras on top of the four field categories: Parcel Receiving
-     *  + Inter Change Commission. Plain agents never see these. */
+    /** Incharge extra on top of the four field categories: Parcel Receiving.
+     *  (Inter Change Commission is already one of the four.) Plain agents
+     *  never see it. */
     private val inchargeExtraCategories = setOf(
-        PC_CATEGORY_PARCEL_RECEIVING, PC_CATEGORY_INTER_CHANGE_COMMISSION
+        PC_CATEGORY_PARCEL_RECEIVING
     )
     /** Branch roles for the signed-in user (loaded in create mode for the
      *  staff gate below) — null until viewModel.load() returns. */
@@ -157,7 +158,7 @@ class PettyCashRequestCreateFragment : Fragment() {
      *  same fields without an app release. */
     private fun isConveyanceCategory(category: String): Boolean =
         categoryGroups[category]?.let { it == "conveyance" }
-            ?: (category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY || category == PC_CATEGORY_LOT_DELIVERY || category == PC_CATEGORY_INTER_CHANGE || category == PC_CATEGORY_PARCEL_RECEIVING || category == PC_CATEGORY_INTER_CHANGE_COMMISSION)
+            ?: (category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY || category == PC_CATEGORY_LOT_DELIVERY || category == PC_CATEGORY_INTER_CHANGE || category == PC_CATEGORY_PARCEL_RECEIVING)
 
     /** Requester-like (requester permission or Incharge) → the four field
      *  categories only. Anyone else reaching the form is approver-side staff
@@ -177,9 +178,9 @@ class PettyCashRequestCreateFragment : Fragment() {
 
     private fun visibleCategories(): List<String> {
         val all = categoryOptions.ifEmpty { categoryOptionsFallback }
-        // Requester (or staff filing on behalf of an agent) → conveyance 4
-        // only (Incharge additionally gets Parcel Receiving + Inter Change
-        // Commission). Never fall back to the full list here — that once
+        // Requester (or staff filing on behalf of an agent) → the four
+        // field categories only (Incharge additionally gets Parcel
+        // Receiving). Never fall back to the full list here — that once
         // leaked all expense types to agents when the catalog lacked the 4.
         if (isRequesterLike() || onBehalfAgent != null) {
             val allowed = if (isIncharge() && onBehalfAgent == null)
@@ -237,10 +238,10 @@ class PettyCashRequestCreateFragment : Fragment() {
     private fun isLotCategory(category: String): Boolean = category == PC_CATEGORY_LOT_DELIVERY
 
     /** Route-based conveyance (no consignment ID — the From<>To route
-     *  identifies the trip instead): Inter Change + the two incharge-only
-     *  trip types, Parcel Receiving and Inter Change Commission. */
+     *  identifies the trip instead): Inter Change Commission + Parcel
+     *  Receiving (incharge-only trip type). */
     private fun isRouteBasedCategory(category: String): Boolean =
-        category == PC_CATEGORY_INTER_CHANGE || category == PC_CATEGORY_PARCEL_RECEIVING || category == PC_CATEGORY_INTER_CHANGE_COMMISSION
+        category == PC_CATEGORY_INTER_CHANGE || category == PC_CATEGORY_PARCEL_RECEIVING
 
     // LOT Delivery: multiple consignment IDs on one request (scan/type + Add).
     // Stored comma-joined in consignment_id/cid_or_merchant (display-only
@@ -1336,7 +1337,7 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "Select From hub", Toast.LENGTH_SHORT).show()
             return
         }
-        if ((selectedCategory == PC_CATEGORY_PARCEL_RECEIVING || selectedCategory == PC_CATEGORY_INTER_CHANGE_COMMISSION) && selectedFromArea.isBlank()) {
+        if ((selectedCategory == PC_CATEGORY_PARCEL_RECEIVING) && selectedFromArea.isBlank()) {
             Toast.makeText(requireContext(), "Select From area", Toast.LENGTH_SHORT).show()
             return
         }

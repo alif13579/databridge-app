@@ -11,3 +11,8 @@ insert into public.claim_categories (name, category_group, is_active, sort_order
   ('Parcel Receiving', 'conveyance', true, 22),
   ('Inter Change Commission', 'conveyance', true, 24)
 on conflict (name) do nothing;
+
+-- Retire the plain "Inter Change" name: field trips are "Inter Change
+-- Commission" now. No claim row still uses it (all renamed), so hiding it
+-- from every picker/filter is safe.
+update public.claim_categories set is_active = false where name = 'Inter Change';

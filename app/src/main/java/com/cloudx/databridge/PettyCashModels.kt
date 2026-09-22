@@ -44,7 +44,9 @@ fun pettyCashStatusLabel(status: String): String = when (status) {
 const val PC_CATEGORY_BULK_DELIVERY = "Bulk Delivery"
 const val PC_CATEGORY_PICKUP = "Pickup"
 const val PC_CATEGORY_LOT_DELIVERY = "LOT Delivery"
-const val PC_CATEGORY_INTER_CHANGE = "Inter Change"
+// NOTE: the field trip type is "Inter Change Commission" — there is no
+// plain "Inter Change" anymore (identifier kept for the hub-trip flow code).
+const val PC_CATEGORY_INTER_CHANGE = "Inter Change Commission"
 const val PC_CATEGORY_PARCEL_RECEIVING = "Parcel Receiving"
 const val PC_CATEGORY_INTER_CHANGE_COMMISSION = "Inter Change Commission"
 
