@@ -13,6 +13,6 @@ insert into public.claim_categories (name, category_group, is_active, sort_order
 on conflict (name) do nothing;
 
 -- Retire the plain "Inter Change" name: field trips are "Inter Change
--- Commission" now. No claim row still uses it (all renamed), so hiding it
--- from every picker/filter is safe.
-update public.claim_categories set is_active = false where name = 'Inter Change';
+-- Commission" now. No claim row still uses it (all renamed), so the
+-- catalog row is deleted outright — it appears in no picker/filter.
+delete from public.claim_categories where name = 'Inter Change';
