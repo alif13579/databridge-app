@@ -39,13 +39,35 @@
                 android:textColor="#0F172A"
                 android:layout_marginStart="8dp" />
 
+            <TextView
+                android:id="@+id/tvPcSetHistRange"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="All Time"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#0F766E"
+                android:paddingHorizontal="6dp" />
+
+            <TextView
+                android:id="@+id/tvPcSetHistRangeClear"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:gravity="center"
+                android:text="✕"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#B91C1C"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:visibility="gone" />
+
             <ImageButton
-                android:id="@+id/btnPcSetHistFilter"
+                android:id="@+id/btnPcSetHistCalendar"
                 android:layout_width="36dp"
                 android:layout_height="36dp"
-                android:src="@android:drawable/ic_menu_sort_by_size"
+                android:src="@drawable/ic_calendar"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Filter" />
+                android:contentDescription="Filter by date" />
         </LinearLayout>
 
         <!-- Filter tabs: All / Today / This Month — scrollable left-to-right
