@@ -328,6 +328,43 @@ class PettyCashSettlementHistoryFragment : Fragment() {
         val fromValue = fromRow.findViewWithTag<TextView>("From")
         val toValue = toRow.findViewWithTag<TextView>("To")
 
+        // Quick presets: normal month + business-month bill cycles (26th–25th).
+        val presetRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(4), 0, 0)
+        }
+        fun presetButton(label: String): TextView {
+            return TextView(ctx).apply {
+                text = label
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(Color.parseColor("#0F766E"))
+                setBackgroundResource(R.drawable.bg_pc_tab_inactive)
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (label != "This Month") leftMargin = dp(6)
+                }
+            }
+        }
+        val btnMonth = presetButton("This Month")
+        val btnBill = presetButton("Bill Cycle")
+        val btnLastBill = presetButton("Last Bill")
+        presetRow.addView(btnMonth)
+        presetRow.addView(btnBill)
+        presetRow.addView(btnLastBill)
+        root.addView(presetRow, 0)
+
+        fun applyPreset(range: Pair<Calendar, Calendar>) {
+            fromDay = range.first
+            toDay = range.second
+            fromValue.text = shortDate(fromDay.timeInMillis)
+            toValue.text = shortDate(toDay.timeInMillis)
+        }
+        btnMonth.setOnClickListener { applyPreset(monthRange()) }
+        btnBill.setOnClickListener { applyPreset(billCycleRange(0)) }
+        btnLastBill.setOnClickListener { applyPreset(billCycleRange(-1)) }
+
         val dialog = android.app.AlertDialog.Builder(ctx)
             .setTitle("Select date range")
             .setView(root)
@@ -375,6 +412,36 @@ class PettyCashSettlementHistoryFragment : Fragment() {
             dialog.dismiss()
             clearDateRange()
         }
+    }
+
+    /** Normal calendar month: 1st → today. */
+    private fun monthRange(): Pair<Calendar, Calendar> {
+        val from = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            startOfDayLocal(this)
+        }
+        val to = Calendar.getInstance().apply { endOfDayLocal(this) }
+        return from to to
+    }
+
+    /** Business-month bill cycle (26th–25th). offset 0 = running cycle
+     *  containing today, -1 = previous cycle. */
+    private fun billCycleRange(offset: Int): Pair<Calendar, Calendar> {
+        val today = Calendar.getInstance()
+        val thisCycleStartThisMonth = today.get(Calendar.DAY_OF_MONTH) >= 26
+        val from = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 26)
+            if (!thisCycleStartThisMonth) add(Calendar.MONTH, -1)
+            add(Calendar.MONTH, offset)
+            startOfDayLocal(this)
+        }
+        val to = Calendar.getInstance().apply {
+            timeInMillis = from.timeInMillis
+            add(Calendar.MONTH, 1)
+            set(Calendar.DAY_OF_MONTH, 25)
+            endOfDayLocal(this)
+        }
+        return from to to
     }
 
     private fun startOfDayLocal(cal: Calendar) {

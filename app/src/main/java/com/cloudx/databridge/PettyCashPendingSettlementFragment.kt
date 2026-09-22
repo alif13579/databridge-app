@@ -422,6 +422,43 @@ class PettyCashPendingSettlementFragment : Fragment() {
         val fromValue = fromRow.findViewWithTag<TextView>("From")
         val toValue = toRow.findViewWithTag<TextView>("To")
 
+        // Quick presets: normal month + business-month bill cycles (26th–25th).
+        val presetRow = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            setPadding(0, dp(4), 0, 0)
+        }
+        fun presetButton(label: String): TextView {
+            return TextView(ctx).apply {
+                text = label
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(android.graphics.Color.parseColor("#0F766E"))
+                setBackgroundResource(R.drawable.bg_pc_tab_inactive)
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    if (label != "This Month") leftMargin = dp(6)
+                }
+            }
+        }
+        val btnMonth = presetButton("This Month")
+        val btnBill = presetButton("Bill Cycle")
+        val btnLastBill = presetButton("Last Bill")
+        presetRow.addView(btnMonth)
+        presetRow.addView(btnBill)
+        presetRow.addView(btnLastBill)
+        root.addView(presetRow, 0)
+
+        fun applyPreset(range: Pair<java.util.Calendar, java.util.Calendar>) {
+            fromDay = range.first
+            toDay = range.second
+            fromValue.text = shortDate(fromDay.timeInMillis)
+            toValue.text = shortDate(toDay.timeInMillis)
+        }
+        btnMonth.setOnClickListener { applyPreset(monthRange(0)) }
+        btnBill.setOnClickListener { applyPreset(billCycleRange(0)) }
+        btnLastBill.setOnClickListener { applyPreset(billCycleRange(-1)) }
+
         val dialog = AlertDialog.Builder(ctx)
             .setTitle("Select date range")
             .setView(root)
@@ -475,8 +512,37 @@ class PettyCashPendingSettlementFragment : Fragment() {
         }
     }
 
-    private fun startOfDayLocal(cal: java.util.Calendar) {
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+    /** Normal calendar month: 1st → today. */
+    private fun monthRange(unused: Int): Pair<java.util.Calendar, java.util.Calendar> {
+        val from = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.DAY_OF_MONTH, 1)
+            startOfDayLocal(this)
+        }
+        val to = java.util.Calendar.getInstance().apply { endOfDayLocal(this) }
+        return from to to
+    }
+
+    /** Business-month bill cycle (26th–25th). offset 0 = running cycle
+     *  containing today, -1 = previous cycle. */
+    private fun billCycleRange(offset: Int): Pair<java.util.Calendar, java.util.Calendar> {
+        val today = java.util.Calendar.getInstance()
+        val thisCycleStartThisMonth = today.get(java.util.Calendar.DAY_OF_MONTH) >= 26
+        val from = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.DAY_OF_MONTH, 26)
+            if (!thisCycleStartThisMonth) add(java.util.Calendar.MONTH, -1)
+            add(java.util.Calendar.MONTH, offset)
+            startOfDayLocal(this)
+        }
+        val to = java.util.Calendar.getInstance().apply {
+            timeInMillis = from.timeInMillis
+            add(java.util.Calendar.MONTH, 1)
+            set(java.util.Calendar.DAY_OF_MONTH, 25)
+            endOfDayLocal(this)
+        }
+        return from to to
+    }
+
+    private fun startOfDayLocal(cal: java.util.Calendar) {        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
         cal.set(java.util.Calendar.MINUTE, 0)
         cal.set(java.util.Calendar.SECOND, 0)
         cal.set(java.util.Calendar.MILLISECOND, 0)
