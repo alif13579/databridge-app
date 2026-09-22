@@ -47,6 +47,28 @@
                     android:textColor="#0F172A"
                     android:layout_marginStart="8dp" />
 
+                <TextView
+                    android:id="@+id/tvPcPendingRange"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="All Time"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F766E"
+                    android:paddingHorizontal="6dp" />
+
+                <TextView
+                    android:id="@+id/tvPcPendingRangeClear"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:gravity="center"
+                    android:text="✕"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#B91C1C"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:visibility="gone" />
+
                 <ImageButton
                     android:id="@+id/btnPcPendingCalendar"
                     android:layout_width="36dp"
@@ -97,6 +119,19 @@
                     android:textColor="#6D28D9"
                     android:background="@drawable/bg_pc_tab_inactive"
                     android:paddingHorizontal="12dp" />
+
+                <TextView
+                    android:id="@+id/tvPcPendingCategory"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:gravity="center_vertical"
+                    android:text="🏷 Category"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F766E"
+                    android:background="@drawable/bg_pc_tab_inactive"
+                    android:paddingHorizontal="12dp"
+                    android:layout_marginStart="8dp" />
 
                 <TextView
                     android:id="@+id/tvPcPendingSelectMode"

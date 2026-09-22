@@ -55,6 +55,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
     private var branchId: String = ""
     private var selectedStatus: String = FILTER_ALL // FILTER_ALL or one of the PC_STATUS_* constants
     private var selectedAgentUids: MutableSet<String> = mutableSetOf() // empty = all agents
+    private var selectedCategories: MutableSet<String> = mutableSetOf() // empty = all categories
     private var myRequestsOnly: Boolean = false
     private var latestState: PettyCashState.Success? = null
     private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
@@ -139,6 +140,9 @@ class PettyCashPendingSettlementFragment : Fragment() {
             showDateRangeOptions()
         }
         view.findViewById<View>(R.id.tvPcPendingAgent).setOnClickListener { showAgentPicker() }
+        view.findViewById<View>(R.id.tvPcPendingCategory).setOnClickListener { showCategoryPicker() }
+        view.findViewById<View>(R.id.tvPcPendingRange).setOnClickListener { showDateRangeOptions() }
+        view.findViewById<View>(R.id.tvPcPendingRangeClear).setOnClickListener { clearDateRange() }
         view.findViewById<View>(R.id.tvPcPendingSelectMode).setOnClickListener {
             selectMode = !selectMode
             if (!selectMode) selectedIds.clear()
@@ -265,11 +269,14 @@ class PettyCashPendingSettlementFragment : Fragment() {
             tab.text = label
             tab.setOnClickListener {
                 selectedStatus = key
-                // Agent counts are status-wise: drop picks that have zero
-                // claims under the newly selected status tab.
+                // Agent + category counts are status-wise: drop picks that have
+                // zero claims under the newly selected status tab.
                 val uidsInStatus = statusFiltered()
                     .map { it.requesterUid.ifBlank { "unknown" } }.toSet()
                 selectedAgentUids.retainAll(uidsInStatus)
+                val catsInStatus = statusFiltered()
+                    .map { it.category.ifBlank { "Uncategorized" } }.toSet()
+                selectedCategories.retainAll(catsInStatus)
                 buildTabs()
                 selectedIds.retainAll(currentFiltered().filter { isBulkEligible(it) }.map { it.id }.toSet())
                 renderList()
@@ -329,17 +336,22 @@ class PettyCashPendingSettlementFragment : Fragment() {
                 Triple(uid, name, items.size)
             }.sortedBy { it.second.lowercase() }
 
-    /** Status ∩ agents ∩ advanced — the working set for list, summary and select-all. */
+    /** Status ∩ agents ∩ categories — the working set for list, summary and select-all. */
     private fun currentFiltered(): List<PettyCashRequest> {
-        val byStatus = statusFiltered()
-        if (selectedAgentUids.isEmpty()) return byStatus
-        return byStatus.filter { it.requesterUid.ifBlank { "unknown" } in selectedAgentUids }
+        var list = statusFiltered()
+        if (selectedAgentUids.isNotEmpty()) {
+            list = list.filter { it.requesterUid.ifBlank { "unknown" } in selectedAgentUids }
+        }
+        if (selectedCategories.isNotEmpty()) {
+            list = list.filter { it.category in selectedCategories }
+        }
+        return list
     }
 
     /** Date filter entry — the toolbar calendar picks a date RANGE only
-     *  (no statuses/categories here — those live on the tabs/agent chip
-     *  below, computed from the ranged set). Apply scopes the list to that
-     *  range's claims; Clear returns to all time. */
+     *  (no statuses/categories here — those live on the tabs/agent/category
+     *  chips below, computed from the ranged set). Apply scopes the list to
+     *  that range's claims; Clear returns to all time. */
     private fun showDateRangeOptions() {
         val hasRange = advancedFilter.dateFromMillis != 0L || advancedFilter.dateToMillis != 0L
         val options = if (hasRange) arrayOf("Select Date Range", "✕ Clear Range (All Time)")
@@ -347,15 +359,20 @@ class PettyCashPendingSettlementFragment : Fragment() {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Filter by date")
             .setItems(options) { _, which ->
-                if (which == 1) {
-                    advancedFilter = PettyCashFilterState()
-                    selectedStatus = FILTER_ALL
-                    selectedAgentUids.clear()
-                    buildTabs()
-                    renderList()
-                } else showDateRangePicker()
+                if (which == 1) clearDateRange()
+                else showDateRangePicker()
             }
             .show()
+    }
+
+    /** One-tap undo for the date range (the ✕ next to the calendar). */
+    private fun clearDateRange() {
+        advancedFilter = PettyCashFilterState()
+        selectedStatus = FILTER_ALL
+        selectedAgentUids.clear()
+        selectedCategories.clear()
+        buildTabs()
+        renderList()
     }
 
     private fun showDateRangePicker() {
@@ -383,6 +400,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
             advancedFilter = PettyCashFilterState(dateFromMillis = from, dateToMillis = to)
             selectedStatus = FILTER_ALL
             selectedAgentUids.clear()
+            selectedCategories.clear()
             buildTabs()
             renderList()
             Toast.makeText(requireContext(),
@@ -393,6 +411,19 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     private fun shortDate(millis: Long): String =
         java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault()).format(java.util.Date(millis))
+
+    /** Toolbar range readout next to the calendar + the one-tap ✕ undo.
+     *  Always visible so the active scope is never a mystery. */
+    private fun updateRangeLabel() {
+        val root = view ?: return
+        val hasRange = advancedFilter.dateFromMillis != 0L || advancedFilter.dateToMillis != 0L
+        root.findViewById<TextView>(R.id.tvPcPendingRange).text = if (hasRange) {
+            val from = if (advancedFilter.dateFromMillis != 0L) shortDate(advancedFilter.dateFromMillis) else "…"
+            val to = if (advancedFilter.dateToMillis != 0L) shortDate(advancedFilter.dateToMillis) else "…"
+            "$from–$to"
+        } else "All Time"
+        root.findViewById<View>(R.id.tvPcPendingRangeClear).isVisible = hasRange
+    }
 
     private fun updateAgentRow() {
         val root = view ?: return
@@ -421,6 +452,119 @@ class PettyCashPendingSettlementFragment : Fragment() {
         val total = filtered.sumOf { stageAmount(it) }
         root.findViewById<TextView>(R.id.tvPcPendingSummary).text =
             if (filtered.isEmpty()) "No requests" else "${filtered.size} requests · Total ${pettyCashTaka(total)}"
+    }
+
+    /** Category options under the current status tab: (category, count),
+     *  sorted by name. Dynamic over the date-ranged set like agents. */
+    private fun categoryOptions(): List<Pair<String, Int>> =
+        statusFiltered().groupBy { it.category.ifBlank { "Uncategorized" } }
+            .map { (category, items) -> category to items.size }
+            .sortedBy { it.first.lowercase() }
+
+    private fun updateCategoryRow() {
+        val root = view ?: return
+        val chip = root.findViewById<TextView>(R.id.tvPcPendingCategory)
+        // Prune stale picks (e.g. after reload moved claims to another status).
+        val options = categoryOptions()
+        selectedCategories.retainAll(options.map { it.first }.toSet())
+        chip.text = when {
+            selectedCategories.isEmpty() -> "🏷 Category"
+            selectedCategories.size == 1 -> {
+                val opt = options.find { it.first in selectedCategories }
+                if (opt == null) "🏷 Category" else "🏷 ${opt.first} (${opt.second})"
+            }
+            else -> {
+                val total = options.filter { it.first in selectedCategories }.sumOf { it.second }
+                "🏷 ${selectedCategories.size} categories ($total)"
+            }
+        }
+    }
+
+    /** Multi-select category picker scoped to the current status tab.
+     *  Empty pick = all categories. */
+    private fun showCategoryPicker() {
+        val options = categoryOptions()
+        if (options.isEmpty()) {
+            Toast.makeText(requireContext(), "No requests to filter", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val ctx = requireContext()
+        val checked = options.map { it.first in selectedCategories }.toMutableList()
+        val checkBoxes = mutableListOf<android.widget.CheckBox>()
+
+        val root = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(4), dp(24), dp(4))
+        }
+        val scopeLabel = if (selectedStatus == FILTER_ALL) "All statuses"
+        else statusLabel(selectedStatus)
+        root.addView(TextView(ctx).apply {
+            text = "Categories · $scopeLabel (${statusFiltered().size}) — empty = all"
+            textSize = 12f
+            setTextColor(Color.parseColor("#64748B"))
+            setPadding(0, 0, 0, dp(8))
+        })
+        val topRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val tvSelectAll = TextView(ctx).apply {
+            text = "Select all"
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(Color.parseColor("#059669"))
+            setPadding(0, dp(4), dp(20), dp(4))
+        }
+        val tvClear = TextView(ctx).apply {
+            text = "Clear"
+            textSize = 13f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(Color.parseColor("#B91C1C"))
+            setPadding(0, dp(4), 0, dp(4))
+        }
+        topRow.addView(tvSelectAll)
+        topRow.addView(tvClear)
+        root.addView(topRow)
+
+        val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        options.forEachIndexed { index, opt ->
+            val cb = android.widget.CheckBox(ctx).apply {
+                text = "${opt.first} (${opt.second})"
+                textSize = 14f
+                setTextColor(Color.parseColor("#0F172A"))
+                isChecked = checked[index]
+                setOnCheckedChangeListener { _, isChecked -> checked[index] = isChecked }
+            }
+            checkBoxes.add(cb)
+            list.addView(cb)
+        }
+        val scroll = android.widget.ScrollView(ctx).apply { addView(list) }
+        root.addView(scroll)
+
+        tvSelectAll.setOnClickListener {
+            for (i in checked.indices) {
+                checked[i] = true
+                checkBoxes[i].isChecked = true
+            }
+        }
+        tvClear.setOnClickListener {
+            for (i in checked.indices) {
+                checked[i] = false
+                checkBoxes[i].isChecked = false
+            }
+        }
+
+        AlertDialog.Builder(ctx)
+            .setTitle("Filter by category")
+            .setView(root)
+            .setPositiveButton("Apply") { _, _ ->
+                selectedCategories = options.filterIndexed { i, _ -> checked[i] }
+                    .map { it.first }.toMutableSet()
+                // Drop claim picks outside the new filter.
+                val eligibleIds = currentFiltered().filter { isBulkEligible(it) }.map { it.id }.toSet()
+                selectedIds.retainAll(eligibleIds)
+                updateCategoryRow()
+                renderList()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     /** Multi-select agent picker scoped to the current status tab (counts are
@@ -560,6 +704,8 @@ class PettyCashPendingSettlementFragment : Fragment() {
         val filtered = currentFiltered()
         val canSettle = state.roles.isAccounts
         updateAgentRow()
+        updateCategoryRow()
+        updateRangeLabel()
         updateSummary(filtered)
         val eligibleInFilter = filtered.filter { isBulkEligible(it) }
         view?.findViewById<TextView>(R.id.tvPcPendingSelectAll)?.apply {
