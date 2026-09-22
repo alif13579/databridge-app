@@ -343,7 +343,8 @@ class PettyCashMyRequestsFragment : Fragment() {
 
     private fun renderMyRequests(root: View, state: PettyCashState.Success) {
         val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
-        val mine = state.requests.filter { it.requesterUid == myUid }.sortedByDescending { it.createdAt }
+        // Newest expense first — requested date is the important one, not submit time.
+        val mine = state.requests.filter { it.requesterUid == myUid }.sortedByDescending { effectiveDate(it) }
 
         // My Claims Summary card -- same shape as PettyCashDashboardFragment's
         // Claims Summary, scoped to this requester's own claims (mine) and filtered by
