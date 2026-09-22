@@ -717,6 +717,99 @@ class PettyCashRequestCreateFragment : Fragment() {
     private fun formatAmount(v: Double): String =
         if (v % 1.0 == 0.0) v.toLong().toString() else v.toString()
 
+    /** Searchable single-select dialog: search box on top, two-line rows
+     *  (title + sub) with comfortable gaps. Tap selects + dismisses. */
+    private fun <T> showSearchDialog(
+        title: String,
+        searchHint: String,
+        items: List<T>,
+        titleOf: (T) -> String,
+        subOf: (T) -> String,
+        match: (T, String) -> Boolean,
+        onPick: (T) -> Unit,
+    ) {
+        val ctx = requireContext()
+        val dp = resources.displayMetrics.density.toInt()
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp * 16, dp * 12, dp * 16, dp * 4)
+        }
+        val etSearch = EditText(ctx).apply {
+            hint = searchHint
+            setTextColor(android.graphics.Color.parseColor("#0F172A"))
+            setHintTextColor(android.graphics.Color.parseColor("#94A3B8"))
+            setBackgroundResource(R.drawable.bg_pc_input)
+            setPadding(dp * 14, dp * 12, dp * 14, dp * 12)
+            textSize = 14f
+            isSingleLine = true
+        }
+        container.addView(etSearch)
+        val listView = ListView(ctx).apply {
+            divider = android.graphics.drawable.ColorDrawable(
+                android.graphics.Color.parseColor("#F1F5F9"))
+            dividerHeight = dp
+            setPadding(0, dp * 4, 0, 0)
+        }
+        container.addView(listView, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, dp * 320))
+        var filtered = items.toMutableList()
+        fun makeAdapter(list: List<T>) = object : android.widget.BaseAdapter() {
+            override fun getCount() = list.size
+            override fun getItem(pos: Int) = list[pos]
+            override fun getItemId(pos: Int) = pos.toLong()
+            override fun getView(pos: Int, cv: View?, parent: ViewGroup): View {
+                val item = list[pos]
+                val row = (cv as? LinearLayout) ?: LinearLayout(ctx).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp * 4, dp * 12, dp * 4, dp * 12)
+                    addView(TextView(ctx).apply {
+                        id = R.id.tvSearchRowTitle
+                        textSize = 14f
+                        setTypeface(typeface, android.graphics.Typeface.BOLD)
+                        setTextColor(android.graphics.Color.parseColor("#0F172A"))
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                    })
+                    addView(TextView(ctx).apply {
+                        id = R.id.tvSearchRowSub
+                        textSize = 12f
+                        setTextColor(android.graphics.Color.parseColor("#64748B"))
+                        maxLines = 2
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                    })
+                }
+                row.findViewById<TextView>(R.id.tvSearchRowTitle).text = titleOf(item)
+                val sub = subOf(item)
+                row.findViewById<TextView>(R.id.tvSearchRowSub).apply {
+                    text = sub
+                    visibility = if (sub.isBlank()) View.GONE else View.VISIBLE
+                }
+                return row
+            }
+        }
+        listView.adapter = makeAdapter(filtered)
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle(title)
+            .setView(container)
+            .setNegativeButton("Cancel", null)
+            .create()
+        listView.setOnItemClickListener { _, _, pos, _ ->
+            onPick(filtered[pos])
+            dialog.dismiss()
+        }
+        etSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {
+                val q = s?.toString()?.trim() ?: ""
+                filtered = if (q.isEmpty()) items.toMutableList()
+                else items.filter { match(it, q) }.toMutableList()
+                listView.adapter = makeAdapter(filtered)
+            }
+        })
+        dialog.show()
+    }
+
     private fun showStorePicker() {
         if (!storesLoaded) {
             Toast.makeText(requireContext(), "Still loading store list, try again in a moment", Toast.LENGTH_SHORT).show()
@@ -726,80 +819,35 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "No stores available — contact your admin to add some", Toast.LENGTH_LONG).show()
             return
         }
-        // Searchable single-select (same pattern as the branch picker):
-        // merchant list is long, scrolling without search is unusable.
-        val ctx = requireContext()
-        val dp = resources.displayMetrics.density.toInt()
-        val container = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp * 16, dp * 8, dp * 16, 0)
-        }
-        val etSearch = EditText(ctx).apply {
-            hint = "Search merchant, address, area, phone..."
-            setTextColor(android.graphics.Color.parseColor("#0F172A"))
-            setHintTextColor(android.graphics.Color.parseColor("#94A3B8"))
-        }
-        container.addView(etSearch)
-        val listView = ListView(ctx)
-        container.addView(listView, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, dp * 300))
-        var filtered = stores.toMutableList()
-        // Plain rows (no radio): a tap selects immediately + dismisses, so a
-        // single-choice radio indicator serves no purpose — it only confuses.
-        fun makeAdapter(list: List<Store>) = object : ArrayAdapter<Store>(
-            ctx, android.R.layout.simple_list_item_1, android.R.id.text1, list) {
-            override fun getView(pos: Int, cv: View?, parent: ViewGroup): View {
-                val v = super.getView(pos, cv, parent)
-                val s = list[pos]
-                val sub = listOfNotNull(
-                    s.areaName.takeIf { it.isNotBlank() },
-                    s.address.takeIf { it.isNotBlank() },
-                ).joinToString(" • ")
-                val label = (if (s.conveyanceAmount > 0) "${s.name}  (৳${formatAmount(s.conveyanceAmount)})" else s.name) +
-                    (if (sub.isNotBlank()) "\n$sub" else "")
-                (v.findViewById<View>(android.R.id.text1) as? TextView)?.let {
-                    it.text = label
-                    it.textSize = 13f
-                }
-                return v
-            }
-        }
-        listView.adapter = makeAdapter(filtered)
-        val dialog = AlertDialog.Builder(ctx)
-            .setTitle("Select Store")
-            .setView(container)
-            .setNegativeButton("Cancel", null)
-            .create()
-        listView.setOnItemClickListener { _, _, pos, _ ->
-            val picked = filtered[pos]
-            selectedStoreId = picked.storeId
-            selectedStoreName = picked.name
-            selectedStoreAmount = picked.conveyanceAmount
-            tvStoreSelected.text = selectedStoreName
-            tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
-            applyConveyanceDefaults(PC_CATEGORY_PICKUP)
-            refreshPickupAmount()
-            dialog.dismiss()
-        }
-        etSearch.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
-            override fun afterTextChanged(s: Editable?) {}
-            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {
-                val q = s?.toString()?.trim() ?: ""
-                // Name/address/area match as typed; phone matches on digits
-                // only ("01516" finds "01516-123456" too).
+        // Merchant name + store address, two-line rows with search.
+        showSearchDialog(
+            title = "Select Store",
+            searchHint = "Search merchant, address, area, phone...",
+            items = stores,
+            titleOf = { s ->
+                if (s.conveyanceAmount > 0) "${s.name}  (৳${formatAmount(s.conveyanceAmount)})" else s.name
+            },
+            subOf = { s ->
+                s.address.takeIf { it.isNotBlank() }
+                    ?: s.areaName.takeIf { it.isNotBlank() }.orEmpty()
+            },
+            match = { s, q ->
                 val qDigits = q.replace(Regex("[^0-9]"), "")
-                filtered = if (q.isEmpty()) stores.toMutableList()
-                else stores.filter {
-                    it.name.contains(q, ignoreCase = true) ||
-                        it.address.contains(q, ignoreCase = true) ||
-                        it.areaName.contains(q, ignoreCase = true) ||
-                        (qDigits.isNotBlank() && it.phone.replace(Regex("[^0-9]"), "").contains(qDigits))
-                }.toMutableList()
-                listView.adapter = makeAdapter(filtered)
-            }
-        })
-        dialog.show()
+                s.name.contains(q, ignoreCase = true) ||
+                    s.address.contains(q, ignoreCase = true) ||
+                    s.areaName.contains(q, ignoreCase = true) ||
+                    (qDigits.isNotBlank() && s.phone.replace(Regex("[^0-9]"), "").contains(qDigits))
+            },
+            onPick = { picked ->
+                selectedStoreId = picked.storeId
+                selectedStoreName = picked.name
+                selectedStoreAmount = picked.conveyanceAmount
+                tvStoreSelected.text = selectedStoreName
+                tvStoreSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
+                applyConveyanceDefaults(PC_CATEGORY_PICKUP)
+                refreshPickupAmount()
+            },
+        )
     }
 
     private fun loadStores() {
@@ -898,16 +946,20 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "No other hubs found", Toast.LENGTH_SHORT).show()
             return
         }
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle("Select From Hub")
-            .setItems(hubs.map { it.name }.toTypedArray()) { _, index ->
-                val hub = hubs[index]
+        showSearchDialog(
+            title = "Select From Hub",
+            searchHint = "Search hub...",
+            items = hubs,
+            titleOf = { it.name },
+            subOf = { "" },
+            match = { h, q -> h.name.contains(q, ignoreCase = true) },
+            onPick = { hub ->
                 selectedFromArea = hub.branchId
                 selectedFromAreaLabel = hub.name
                 tvFromAreaSelected.text = hub.name
                 tvFromAreaSelected.setTextColor(android.graphics.Color.parseColor("#0F172A"))
-            }
-            .show()
+            },
+        )
     }
 
     private fun showVehiclePicker() {
@@ -942,23 +994,28 @@ class PettyCashRequestCreateFragment : Fragment() {
         val rawAreas = if (selectedCategory == PC_CATEGORY_PICKUP) pickupAreas else deliveryAreas
         // usage collapse: one name never shows twice in a single-usage list.
         val areas = dedupeAreasForPicker(rawAreas, usage)
-        val labels = listOf("Office") + areas.map { it.name }
-        android.app.AlertDialog.Builder(requireContext())
-            .setTitle(if (forFrom) "Select From" else "Select Destination")
-            .setItems(labels.toTypedArray()) { _, index ->
-                val id = if (index == 0) "OFFICE" else areas[index - 1].areaId
-                val label = labels[index]
+        data class AreaOpt(val id: String, val label: String, val zone: String)
+        val options = listOf(AreaOpt("OFFICE", "Office", "")) +
+            areas.map { AreaOpt(it.areaId, it.name, it.zone) }
+        showSearchDialog(
+            title = if (forFrom) "Select From" else "Select Destination",
+            searchHint = "Search area...",
+            items = options,
+            titleOf = { it.label },
+            subOf = { it.zone },
+            match = { o, q -> o.label.contains(q, ignoreCase = true) },
+            onPick = { picked ->
                 if (forFrom) {
-                    selectedFromArea = id
-                    selectedFromAreaLabel = label
-                    tvFromAreaSelected.text = label
+                    selectedFromArea = picked.id
+                    selectedFromAreaLabel = picked.label
+                    tvFromAreaSelected.text = picked.label
                 } else {
-                    selectedToArea = id
-                    selectedToAreaLabel = label
-                    tvToAreaSelected.text = label
+                    selectedToArea = picked.id
+                    selectedToAreaLabel = picked.label
+                    tvToAreaSelected.text = picked.label
                 }
-            }
-            .show()
+            },
+        )
     }
 
     /** Pickup: To defaults 'Office' (a pickup always ends at the office); From is

@@ -2,4 +2,6 @@
 <resources>
     <item name="nav_test_list" type="id" />
     <item name="nav_test_add"  type="id" />
+    <item name="tvSearchRowTitle" type="id" />
+    <item name="tvSearchRowSub" type="id" />
 </resources>
