@@ -151,11 +151,14 @@ object PettyCashTopSheetPdfWriter {
             groupOf(row.category) == "office" ||
                 row.category.equals("Office Expense", ignoreCase = true) ||
                 row.cidOrMerchant.trim().equals("Utilities Expenses", ignoreCase = true)
-        // Legacy Parcel Receiving trips filed under the Inter Change store
-        // (route ends at Office, unlike real Inter Change → Madanpur).
+        // Legacy Parcel Receiving trips filed under the Inter Change store:
+        // they are the flat-rate 200/trip Hub→Office runs (5×200 in the Aug
+        // bill), unlike commission rows whose amount varies with the voucher
+        // quantity. A misbucket here only ever moves money between A.2 and
+        // A.8 — the A total always stays balanced.
         fun isLegacyParcelReceiving(row: SupabaseClaimsReader.ClaimRow): Boolean =
             row.category in setOf("Inter Change", "Inter Change Commission") &&
-                row.toArea.trim().equals("Office", ignoreCase = true)
+                row.settledAmount == 200.0
         // 1..9 = A.1..A.9 row. Everything lands somewhere (leftovers go to
         // A.9 Others) so the page always balances to the settled total.
         fun bucketOf(row: SupabaseClaimsReader.ClaimRow): Int = when {
