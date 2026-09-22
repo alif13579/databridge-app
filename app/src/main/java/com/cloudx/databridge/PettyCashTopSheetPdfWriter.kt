@@ -48,6 +48,23 @@ object PettyCashTopSheetPdfWriter {
     private val dateIsoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     /**
+     * Business month: the 26th–25th cycle (26 Aug–25 Sep == September).
+     * The label month is always the range END date's month — a full-cycle
+     * report 26 Aug–25 Sep renders "September 2026", and the Aug bill
+     * (1–25 Aug) renders "August 2026". Pass [pattern] "MMMM yyyy" for the
+     * Top Sheet / Summary pages, "MMMM-yy" for the Acknowledgement header.
+     */
+    private fun businessMonthLabel(toDateIso: String, pattern: String): String {
+        val date = runCatching { dateIsoFormat.parse(toDateIso) }.getOrNull() ?: java.util.Date()
+        return SimpleDateFormat(pattern, Locale.US).format(date)
+    }
+
+    /** Display ID everywhere in the report: employee ID (FDA 1958), never the
+     *  internal system id — matches the reference PDF's Agent ID column. */
+    private fun displayAgentId(row: SupabaseClaimsReader.ClaimRow): String =
+        row.agentEmployeeId.ifBlank { row.agentSystemId }
+
+    /**
      * Per-generate() page cursor. Tables (acknowledgement, vouchers, long
      * category breakdowns) can outgrow one A4 page — instead of drawing past
      * the edge (content silently lost), draw loops call [nextPage] mid-table
@@ -167,7 +184,7 @@ object PettyCashTopSheetPdfWriter {
 
         // ── Page 3: Agent Acknowledgement ────────────────────────────────────
         ctx.nextPage()
-        drawAgentAcknowledgementPage(ctx, settled, fromDateIso, pocName, pocEmployeeId, pocDesignation)
+        drawAgentAcknowledgementPage(ctx, settled, toDateIso, pocName, pocEmployeeId, pocDesignation)
 
         // ── Page 4+: Conveyance Voucher, one page per agent with conveyance
         // claims. Agents ordered by their first appearance in the settled
@@ -217,8 +234,8 @@ object PettyCashTopSheetPdfWriter {
 
         // Hub name row.
         y = drawTwoColLabelRow(canvas, y, "Hub Name:", branchName, labelPaint, valuePaint, strokeBorder)
-        // Month/date row.
-        val monthLabel = SimpleDateFormat("MMMM yyyy", Locale.US).format(dateIsoFormat.parse(fromDateIso) ?: java.util.Date())
+        // Month/date row — business month from the range end (26 Aug–25 Sep == September).
+        val monthLabel = businessMonthLabel(toDateIso, "MMMM yyyy")
         y = drawTwoColLabelRow(
             canvas, y, "Month Name: $monthLabel",
             "Date: ${dateDisplayFormat.format(dateIsoFormat.parse(toDateIso) ?: java.util.Date())}",
@@ -283,7 +300,7 @@ object PettyCashTopSheetPdfWriter {
 
         canvas.drawText("Petty Cash Expense Summery", margin, y + 10f, titlePaint)
         y += 16f
-        val monthLabel = SimpleDateFormat("MMMM yyyy", Locale.US).format(dateIsoFormat.parse(fromDateIso) ?: java.util.Date())
+        val monthLabel = businessMonthLabel(toDateIso, "MMMM yyyy")
         y = drawTwoColLabelRow(canvas, y, "Hub Name: $branchName", "", labelPaint, valuePaint, strokeBorder)
         y = drawTwoColLabelRow(
             canvas, y, "Month Name: $monthLabel",
@@ -364,7 +381,7 @@ object PettyCashTopSheetPdfWriter {
     private fun drawAgentAcknowledgementPage(
         ctx: PageCtx,
         settled: List<SupabaseClaimsReader.ClaimRow>,
-        fromDateIso: String,
+        toDateIso: String,
         pocName: String,
         pocEmployeeId: String,
         pocDesignation: String,
@@ -375,7 +392,7 @@ object PettyCashTopSheetPdfWriter {
         val labelPaint = textPaint(darkColor, 8.5f, bold = true)
         val valuePaint = textPaint(darkColor, 8.5f)
         val strokeBorder = strokePaint(borderColor, 0.6f)
-        val monthYearLabel = SimpleDateFormat("MMMM-yy", Locale.US).format(dateIsoFormat.parse(fromDateIso) ?: java.util.Date())
+        val monthYearLabel = businessMonthLabel(toDateIso, "MMMM-yy")
 
         canvas.drawText("Pathao Limited", margin + contentWidth / 2, y + 12f, titlePaint)
         y += 16f
@@ -384,12 +401,14 @@ object PettyCashTopSheetPdfWriter {
 
         // Group settled claims per agent — Amount and Total Succeeded summed
         // across every settled claim (not only conveyance ones), per the
-        // reference PDF's "Amount"/quantity columns.
-        data class AgentSummary(val systemId: String, val name: String, val phone: String, val amount: Double, val delivered: Int)
+        // reference PDF's "Amount"/quantity columns. Grouped by system id
+        // (stable key), displayed by employee ID (FDA 1958).
+        data class AgentSummary(val systemId: String, val empId: String, val name: String, val phone: String, val amount: Double, val delivered: Int)
         val bySystemId = settled.groupBy { it.agentSystemId }
         val summaries = bySystemId.map { (systemId, rows) ->
             AgentSummary(
                 systemId = systemId,
+                empId = rows.first().agentEmployeeId.ifBlank { systemId },
                 name = rows.first().agentName.ifBlank { systemId },
                 phone = rows.first().agentPhone,
                 amount = rows.sumOf { it.settledAmount },
@@ -416,7 +435,7 @@ object PettyCashTopSheetPdfWriter {
             }
             y = drawDataRow(
                 canvas, y,
-                listOf(sl.toString(), s.name, s.systemId, moneyFormat.format(s.amount), s.delivered.toString(), s.phone, ""),
+                listOf(sl.toString(), s.name, s.empId, moneyFormat.format(s.amount), s.delivered.toString(), s.phone, ""),
                 headers.map { it.second }, strokeBorder, alignRight = setOf(3, 4),
             )
             sl += 1
@@ -456,7 +475,7 @@ object PettyCashTopSheetPdfWriter {
         y += 16f
         canvas.drawText("SL : $sl", margin, y + 9f, valuePaint)
         y += 14f
-        y = drawTwoColLabelRow(canvas, y, "Agent ID ${first.agentSystemId}", "Agent Name ${first.agentName}", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
+        y = drawTwoColLabelRow(canvas, y, "Agent ID ${displayAgentId(first)}", "Agent Name ${first.agentName}", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
         y = drawTwoColLabelRow(canvas, y, "Designation: ${first.agentDesignation.ifBlank { "Delivery Agent" }}", "Department: Fulfillment", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
         y += 8f
 
@@ -494,14 +513,16 @@ object PettyCashTopSheetPdfWriter {
 
     // ── Shared drawing helpers ───────────────────────────────────────────────
 
+    // Corporate report look (matches the reference Pathao PDF): serif family
+    // throughout — the default sans looked "robotic" next to it.
     private fun textPaint(colorInt: Int, size: Float, bold: Boolean = false, italic: Boolean = false): Paint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = colorInt
             textSize = size
             typeface = when {
-                bold -> Typeface.DEFAULT_BOLD
-                italic -> Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
-                else -> Typeface.DEFAULT
+                bold -> Typeface.create(Typeface.SERIF, Typeface.BOLD)
+                italic -> Typeface.create(Typeface.SERIF, Typeface.ITALIC)
+                else -> Typeface.SERIF
             }
         }
 
