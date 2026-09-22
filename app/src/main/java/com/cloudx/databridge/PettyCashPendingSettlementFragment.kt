@@ -130,20 +130,13 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
         if (myRequestsOnly) {
             view.findViewById<TextView>(R.id.tvPcPendingTitle).text = "My Requests"
-            // Settlement History is branch-wide, not scoped to this user's
-            // own requests -- hide it here for the same reason it stays a
-            // "coming soon" toast on the Requester's Reports item.
-            view.findViewById<View>(R.id.btnPcPendingHistory).isVisible = false
         }
 
         view.findViewById<View>(R.id.btnPcPendingBack).setOnClickListener {
             parentFragmentManager.popBackStack()
         }
-        view.findViewById<View>(R.id.btnPcPendingHistory).setOnClickListener {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashSettlementHistoryFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
+        view.findViewById<View>(R.id.btnPcPendingCalendar).setOnClickListener {
+            openDateFilter()
         }
         view.findViewById<View>(R.id.tvPcPendingAgent).setOnClickListener { showAgentPicker() }
         view.findViewById<View>(R.id.tvPcPendingDate).setOnClickListener { openDateFilter() }
@@ -295,11 +288,9 @@ class PettyCashPendingSettlementFragment : Fragment() {
         }
     }
 
-    // Date-only: clock time removed by request — expense/approval dates
-    // matter here, not the hour submitted.
     private fun formatDateTime(millis: Long): String {
         if (millis == 0L) return "—"
-        return SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(millis))
+        return SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
     }
 
     /** Status-appropriate amount for totals: the stage figure, not requested. */
