@@ -985,6 +985,17 @@ class PettyCashRequestCreateFragment : Fragment() {
             tvFromAreaSelected.text = "Select hub"
             tvFromAreaSelected.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
             applyInterChangeHubDefaults()
+        } else if (category == PC_CATEGORY_PARCEL_RECEIVING || category == PC_CATEGORY_INTER_CHANGE_COMMISSION) {
+            // Free area pickers (not hub-locked) — reset stale values so a
+            // previous category's areas can't ride along; both required.
+            selectedFromArea = ""
+            selectedFromAreaLabel = ""
+            tvFromAreaSelected.text = "Select area"
+            tvFromAreaSelected.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
+            selectedToArea = ""
+            selectedToAreaLabel = ""
+            tvToAreaSelected.text = "Select area"
+            tvToAreaSelected.setTextColor(android.graphics.Color.parseColor("#94A3B8"))
         }
         updateAreaLocks()
     }
@@ -1330,8 +1341,15 @@ class PettyCashRequestCreateFragment : Fragment() {
             Toast.makeText(requireContext(), "Select From hub", Toast.LENGTH_SHORT).show()
             return
         }
-        if ((selectedCategory == PC_CATEGORY_PARCEL_RECEIVING) && selectedFromArea.isBlank()) {
+        // From/To are must for every conveyance kind (locked Office/store
+        // defaults always satisfy this for Pickup/Bulk — the check bites
+        // for the free-picker trip types).
+        if (isConveyanceSubmit && selectedCategory != PC_CATEGORY_INTER_CHANGE && selectedFromArea.isBlank()) {
             Toast.makeText(requireContext(), "Select From area", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (isConveyanceSubmit && selectedToArea.isBlank()) {
+            Toast.makeText(requireContext(), "Select Destination", Toast.LENGTH_SHORT).show()
             return
         }
         if (selectedCategory != PC_CATEGORY_PICKUP && amount <= 0.0) {
