@@ -84,16 +84,12 @@ class PettyCashRequestCreateFragment : Fragment() {
         listOf(PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_PICKUP, PC_CATEGORY_LOT_DELIVERY, PC_CATEGORY_INTER_CHANGE,
             PC_CATEGORY_PARCEL_RECEIVING) + utilitiesOptions
     private var categoryOptions: List<String> = categoryOptionsFallback
-    /** Field (requester) categories — requesters see only these four, staff
-     *  see every other category (see visibleCategories). */
+    /** Field (worker) categories — workers see only these four, everyone
+     *  else filing for self sees every other category (see
+     *  visibleCategories). Filing on behalf of an agent is always these
+     *  four (field conveyance). */
     private val requesterCategories = setOf(
         PC_CATEGORY_PICKUP, PC_CATEGORY_BULK_DELIVERY, PC_CATEGORY_LOT_DELIVERY, PC_CATEGORY_INTER_CHANGE
-    )
-    /** Incharge extra on top of the four field categories: Parcel Receiving.
-     *  (Inter Change Commission is already one of the four.) Plain agents
-     *  never see it. */
-    private val inchargeExtraCategories = setOf(
-        PC_CATEGORY_PARCEL_RECEIVING
     )
     /** Branch roles for the signed-in user (loaded in create mode for the
      *  staff gate below) — null until viewModel.load() returns. */
@@ -159,34 +155,31 @@ class PettyCashRequestCreateFragment : Fragment() {
     private fun isConveyanceCategory(category: String): Boolean =
         categoryGroups[category]?.let { it == "conveyance" }
             ?: (category == PC_CATEGORY_PICKUP || category == PC_CATEGORY_BULK_DELIVERY || category == PC_CATEGORY_LOT_DELIVERY || category == PC_CATEGORY_INTER_CHANGE || category == PC_CATEGORY_PARCEL_RECEIVING)
-
-    /** Requester-like (requester permission or Incharge) → the four field
-     *  categories only. Anyone else reaching the form is approver-side staff
-     *  (see the create-mode gate) → everything except those four. */
-    private fun isRequesterLike(): Boolean {        if (RbacManager.hasPermission("petty_cash_requester")) return true
-        if (isIncharge()) return true
+    /** Worker-like filer (requester permission or worker role) → the four
+     *  field categories only. Anyone else reaching the form is staff filing
+     *  (see the create-mode gate): on behalf of an agent → the same four,
+     *  for self → everything except those four. */
+    private fun isRequesterLike(): Boolean {
+        if (RbacManager.hasPermission("petty_cash_requester")) return true
+        if (isWorker()) return true
         return userRoles?.let { !it.isStaff } ?: false
     }
 
-    /** Incharge role (by role id or name) — gets the four field categories
-     *  plus Parcel Receiving + Inter Change Commission. */
-    private fun isIncharge(): Boolean {
+    /** Worker role (by role id or name) — the field filer. */
+    private fun isWorker(): Boolean {
         val id = RbacManager.current.roleId.trim().lowercase()
         val name = RbacManager.current.roleName.trim().lowercase()
-        return "incharge" in id || "incharge" in name
+        return id == "worker" || "worker" in name
     }
 
     private fun visibleCategories(): List<String> {
         val all = categoryOptions.ifEmpty { categoryOptionsFallback }
-        // Requester (or staff filing on behalf of an agent) → the four
-        // field categories only (Incharge additionally gets Parcel
-        // Receiving). Never fall back to the full list here — that once
-        // leaked all expense types to agents when the catalog lacked the 4.
+        // Worker (or staff filing on behalf of an agent) → field 4 only.
+        // Never fall back to the full list here — that once leaked all
+        // expense types to agents when the catalog lacked the 4.
         if (isRequesterLike() || onBehalfAgent != null) {
-            val allowed = if (isIncharge() && onBehalfAgent == null)
-                requesterCategories + inchargeExtraCategories else requesterCategories
-            return all.filter { it in allowed }
-                .ifEmpty { allowed.filter { it in categoryOptionsFallback } }
+            return all.filter { it in requesterCategories }
+                .ifEmpty { requesterCategories.filter { it in categoryOptionsFallback } }
         }
         // Staff for self → everything except those four.
         return all.filter { it !in requesterCategories }.ifEmpty { all }
