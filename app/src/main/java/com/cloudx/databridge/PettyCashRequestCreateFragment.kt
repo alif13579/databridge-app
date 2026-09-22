@@ -30,7 +30,8 @@ import kotlinx.coroutines.launch
  *
  * Not part of the original 10-screen mockup — that batch covered the
  * Accounts/approver view only. This is the "Requester" side of the
- * approval chain: category, amount, purpose, optional attachment. Submits
+ * approval chain: category, amount, at least one photo attachment, purpose
+ * (Remarks — the one optional field). Submits
  * via PettyCashViewModel.submitRequest(), or — when opened with an
  * editRequestId — edits an existing request via updateRequest() (owner
  * while PENDING, or branch staff/POC/accounts on anything non-settled).
@@ -1358,8 +1359,11 @@ class PettyCashRequestCreateFragment : Fragment() {
                 Toast.LENGTH_SHORT).show()
             return
         }
-        if (purpose.isBlank()) {
-            Toast.makeText(requireContext(), "Describe the purpose", Toast.LENGTH_SHORT).show()
+        // Purpose is the one optional field — everything else on the form
+        // is must. (Empty purpose passes through to the server as "".)
+        // Photo attachment is must on create (edit can't change attachments).
+        if (!isEditMode && formAttachments.none { it.objectKey.isNotBlank() }) {
+            Toast.makeText(requireContext(), "Attach at least one photo/receipt", Toast.LENGTH_SHORT).show()
             return
         }
         // Staff file conveyance only on behalf of an agent (never for self).

@@ -549,7 +549,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Remarks"
+                    android:text="Remarks (optional)"
                     android:textSize="12sp"
                     android:textStyle="bold"
                     android:textColor="#334155"
