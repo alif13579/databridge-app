@@ -728,6 +728,13 @@ class PettyCashPendingSettlementFragment : Fragment() {
         filtered.sortedByDescending { it.updatedAt }.forEach { item ->
             val card = layoutInflater.inflate(R.layout.item_petty_cash_settlement_card, layoutList, false)
             card.findViewById<TextView>(R.id.tvPsCardCode).text = item.requestCode
+            // Merchant / consignment right under the code — identifies the
+            // card at a glance (bulk cid, pickup store, IC route).
+            val merchantLabel = item.cidOrMerchant.ifBlank { item.consignmentId.ifBlank { item.storeName } }
+            card.findViewById<TextView>(R.id.tvPsCardMerchant).apply {
+                text = merchantLabel
+                isVisible = merchantLabel.isNotBlank()
+            }
             card.findViewById<TextView>(R.id.tvPsCardWorker).text = item.requesterName
             card.findViewById<TextView>(R.id.tvPsCardCategory).text = item.category
             val (psPrimary, psSecondary) = claimCardAmounts(item)

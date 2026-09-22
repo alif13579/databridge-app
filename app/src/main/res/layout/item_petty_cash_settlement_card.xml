@@ -38,20 +38,18 @@
                 android:textSize="14sp"
                 android:textStyle="bold"
                 android:textColor="#0F172A" />
-
-            <!-- Priority badge removed with the priority column (202609040006). -->
-            <TextView
-                android:id="@+id/tvPsCardPriority"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:visibility="gone"
-                android:textSize="10sp"
-                android:textStyle="bold"
-                android:textColor="#C2410C"
-                android:paddingHorizontal="10dp"
-                android:paddingVertical="4dp"
-                android:background="@drawable/bg_pc_badge_high" />
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvPsCardMerchant"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#0F766E"
+            android:singleLine="true"
+            android:ellipsize="end" />
 
         <LinearLayout
             android:layout_width="match_parent"
