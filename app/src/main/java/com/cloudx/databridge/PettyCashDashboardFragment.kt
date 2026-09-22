@@ -478,7 +478,8 @@ class PettyCashDashboardFragment : Fragment() {
         claimsRangeLabel = "This Month"
     }
 
-    /** Filters state.requests by createdAt within [claimsRangeStart, claimsRangeEnd) and
+    /** Filters state.requests by expense date (requestedDate, falling back to
+     *  createdAt for old rows) within [claimsRangeStart, claimsRangeEnd) and
      *  updates the three amount TextViews. Requested counts every claim in range
      *  regardless of status; Approved is only claims still awaiting settlement
      *  (APPROVED / SETTLE_IN_PROCESS) -- this is the pending-settlement balance, which is
@@ -487,7 +488,9 @@ class PettyCashDashboardFragment : Fragment() {
      *  but paid this month counts here, not last month. */
     private fun renderClaimsSummary(state: PettyCashState.Success) {
         tvClaimsDateRange.text = claimsRangeLabel
-        val inRange = state.requests.filter { it.createdAt in claimsRangeStart until claimsRangeEnd }
+        val inRange = state.requests.filter {
+            (if (it.requestedDate != 0L) it.requestedDate else it.createdAt) in claimsRangeStart until claimsRangeEnd
+        }
         val requestedTotal = inRange.sumOf { it.amount }
         val approvedTotal = inRange
             .filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }

@@ -124,8 +124,13 @@ class PettyCashMyRequestsFragment : Fragment() {
     // ── My Claims Summary card (mirrors PettyCashDashboardFragment's Claims Summary,
     //    scoped to this requester's own claims) ─────────────────────────────────────
 
-    private fun startOfDay(cal: java.util.Calendar) {
-        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+    /** Expense date when set, else submission time — the date every row
+     *  displays (requestedDate ?: createdAt) and PettyCashFilterState.matches
+     *  filters on. The range picker must use this too, not createdAt. */
+    private fun effectiveDate(item: PettyCashRequest): Long =
+        if (item.requestedDate != 0L) item.requestedDate else item.createdAt
+
+    private fun startOfDay(cal: java.util.Calendar) {        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
         cal.set(java.util.Calendar.MINUTE, 0)
         cal.set(java.util.Calendar.SECOND, 0)
         cal.set(java.util.Calendar.MILLISECOND, 0)
@@ -144,7 +149,9 @@ class PettyCashMyRequestsFragment : Fragment() {
     private fun renderMyClaimsSummary(mine: List<PettyCashRequest>) {
         val root = view ?: return
         root.findViewById<TextView>(R.id.tvPcMyClaimsDateRange).text = claimsRangeLabel
-        val inRange = mine.filter { it.createdAt in claimsRangeStart until claimsRangeEnd }
+        // Same effective date as the list below and PettyCashFilterState.matches:
+        // expense date (requestedDate), falling back to submission time.
+        val inRange = mine.filter { effectiveDate(it) in claimsRangeStart until claimsRangeEnd }
         val requestedTotal = inRange.sumOf { it.amount }
         val approvedTotal = inRange
             .filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
@@ -340,7 +347,7 @@ class PettyCashMyRequestsFragment : Fragment() {
 
         // My Claims Summary card -- same shape as PettyCashDashboardFragment's
         // Claims Summary, scoped to this requester's own claims (mine) and filtered by
-        // createdAt within [claimsRangeStart, claimsRangeEnd).
+        // expense date within [claimsRangeStart, claimsRangeEnd).
         renderMyClaimsSummary(mine)
 
         val pendingCount = mine.count { it.status == PC_STATUS_PENDING || it.status == PC_STATUS_ACKNOWLEDGED }
@@ -373,9 +380,15 @@ class PettyCashMyRequestsFragment : Fragment() {
         val container = root.findViewById<android.widget.LinearLayout>(R.id.layoutPcMyRequestsList)
         container.removeAllViews()
 
-        if (mine.isEmpty()) {
+        // The range picker above promises "only this range's claims" — so the
+        // inline list obeys it too (it used to render everything unfiltered).
+        // Stat tiles stay global: they navigate to the full tabbed list.
+        val visible = mine.filter { effectiveDate(it) in claimsRangeStart until claimsRangeEnd }
+
+        if (visible.isEmpty()) {
             container.addView(TextView(requireContext()).apply {
-                text = "You haven't submitted any requests yet."
+                text = if (mine.isEmpty()) "You haven't submitted any requests yet."
+                    else "No requests in $claimsRangeLabel."
                 textSize = 13f
                 setTextColor(0xFF94A3B8.toInt())
                 gravity = android.view.Gravity.CENTER
@@ -384,7 +397,7 @@ class PettyCashMyRequestsFragment : Fragment() {
             return
         }
 
-        mine.forEach { item ->
+        visible.forEach { item ->
             val (label, badgeBg, badgeColor) = statusDisplay(item)
             val row = layoutInflater.inflate(R.layout.item_petty_cash_all_request_row, container, false)
             row.findViewById<TextView>(R.id.tvAllReqRowIcon).text = item.category.take(1).uppercase()
