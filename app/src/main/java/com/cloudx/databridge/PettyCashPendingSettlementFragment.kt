@@ -376,37 +376,117 @@ class PettyCashPendingSettlementFragment : Fragment() {
     }
 
     private fun showDateRangePicker() {
-        val picker = com.google.android.material.datepicker.MaterialDatePicker.Builder.dateRangePicker()
-            .setTitleText("Select date range")
-            .apply {
-                if (advancedFilter.dateFromMillis != 0L && advancedFilter.dateToMillis != 0L) {
-                    setSelection(androidx.core.util.Pair(advancedFilter.dateFromMillis, advancedFilter.dateToMillis))
-                }
+        val ctx = requireContext()
+        var fromDay = java.util.Calendar.getInstance().apply {
+            if (advancedFilter.dateFromMillis != 0L) timeInMillis = advancedFilter.dateFromMillis
+        }
+        var toDay = java.util.Calendar.getInstance().apply {
+            if (advancedFilter.dateToMillis != 0L) timeInMillis = advancedFilter.dateToMillis
+        }
+        // Default From = today, To = today (fresh open with no active range).
+        if (advancedFilter.dateFromMillis == 0L) startOfDayLocal(fromDay)
+        if (advancedFilter.dateToMillis == 0L) endOfDayLocal(toDay)
+
+        val root = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(dp(24), dp(8), dp(24), dp(4))
+        }
+        fun dayRow(label: String, initial: String): android.widget.LinearLayout {
+            val row = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, dp(8), 0, dp(8))
             }
-            .build()
-        picker.addOnPositiveButtonClickListener { selection ->
-            val from = java.util.Calendar.getInstance().apply {
-                timeInMillis = selection.first
-                set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
-                set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
-            }.timeInMillis
-            val to = java.util.Calendar.getInstance().apply {
-                timeInMillis = selection.second
-                set(java.util.Calendar.HOUR_OF_DAY, 23); set(java.util.Calendar.MINUTE, 59)
-                set(java.util.Calendar.SECOND, 59); set(java.util.Calendar.MILLISECOND, 999)
-            }.timeInMillis
-            // Date-only filter: any stale status/category/name restriction is
-            // dropped, otherwise it ANDs with the range into "No requests".
-            advancedFilter = PettyCashFilterState(dateFromMillis = from, dateToMillis = to)
+            row.addView(TextView(ctx).apply {
+                text = label
+                textSize = 14f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(android.graphics.Color.parseColor("#334155"))
+                layoutParams = android.widget.LinearLayout.LayoutParams(dp(52), android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+            })
+            row.addView(TextView(ctx).apply {
+                tag = label
+                text = initial
+                textSize = 14f
+                setTextColor(android.graphics.Color.parseColor("#0F172A"))
+                setBackgroundResource(R.drawable.bg_pc_tab_inactive)
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            return row
+        }
+        val fromRow = dayRow("From", shortDate(fromDay.timeInMillis))
+        val toRow = dayRow("To", shortDate(toDay.timeInMillis))
+        root.addView(fromRow)
+        root.addView(toRow)
+        val fromValue = fromRow.findViewWithTag<TextView>("From")
+        val toValue = toRow.findViewWithTag<TextView>("To")
+
+        val dialog = AlertDialog.Builder(ctx)
+            .setTitle("Select date range")
+            .setView(root)
+            .setPositiveButton("Apply", null)
+            .setNegativeButton("Cancel", null)
+            .setNeutralButton("Clear", null)
+            .create()
+
+        fun pickDay(isFrom: Boolean) {
+            val base = if (isFrom) fromDay else toDay
+            android.app.DatePickerDialog(ctx, { _, y, m, d ->
+                val picked = java.util.Calendar.getInstance().apply { set(y, m, d) }
+                if (isFrom) {
+                    fromDay = picked
+                    startOfDayLocal(fromDay)
+                    fromValue.text = shortDate(fromDay.timeInMillis)
+                } else {
+                    toDay = picked
+                    endOfDayLocal(toDay)
+                    toValue.text = shortDate(toDay.timeInMillis)
+                }
+            }, base.get(java.util.Calendar.YEAR), base.get(java.util.Calendar.MONTH),
+                base.get(java.util.Calendar.DAY_OF_MONTH)).show()
+        }
+        fromValue.setOnClickListener { pickDay(true) }
+        toValue.setOnClickListener { pickDay(false) }
+
+        dialog.show()
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            if (toDay.timeInMillis < fromDay.timeInMillis) {
+                Toast.makeText(ctx, "End date cannot be before start date", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            // Date-only filter: stale status/category/agent picks are dropped,
+            // otherwise they AND with the range into "No requests".
+            advancedFilter = PettyCashFilterState(
+                dateFromMillis = fromDay.timeInMillis, dateToMillis = toDay.timeInMillis)
             selectedStatus = FILTER_ALL
             selectedAgentUids.clear()
             selectedCategories.clear()
             buildTabs()
             renderList()
-            Toast.makeText(requireContext(),
-                "📅 ${shortDate(from)}–${shortDate(to)}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx,
+                "📅 ${shortDate(fromDay.timeInMillis)}–${shortDate(toDay.timeInMillis)}",
+                Toast.LENGTH_SHORT).show()
+            dialog.dismiss()
         }
-        picker.show(parentFragmentManager, "pending_date_range_picker")
+        dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            dialog.dismiss()
+            clearDateRange()
+        }
+    }
+
+    private fun startOfDayLocal(cal: java.util.Calendar) {
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+    }
+
+    private fun endOfDayLocal(cal: java.util.Calendar) {
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 23)
+        cal.set(java.util.Calendar.MINUTE, 59)
+        cal.set(java.util.Calendar.SECOND, 59)
+        cal.set(java.util.Calendar.MILLISECOND, 999)
     }
 
     private fun shortDate(millis: Long): String =
