@@ -94,12 +94,15 @@ object PettyCashTopSheetPdfWriter {
         }
     }
 
-    // Legacy conveyance categories (pre-catalog data, e.g. the reference
-    // PDF's InterChange rows): any settled claim whose category isn't in the
-    // admin catalog falls back here — conveyance iff its category is in this
-    // set, otherwise the operation group, so page-1 totals always stay
-    // balanced (operation + office + utilities == grand total).
-    private val legacyConveyanceTypes = setOf("Pickup", "Bulk Delivery", "LOT Delivery", "InterChange", "Inter Change")
+// Legacy conveyance categories (pre-catalog data, e.g. the reference
+// PDF's InterChange rows): any settled claim whose category isn't in the
+// admin catalog falls back here — conveyance iff its category is in this
+// set, otherwise the operation group, so page-1 totals always stay
+// balanced (operation + office + utilities == grand total).
+private val legacyConveyanceTypes = setOf(
+    "Pickup", "Bulk Delivery", "LOT Delivery", "InterChange", "Inter Change",
+    "Parcel Receiving", "Parcel Sending", "Inter Change Commission",
+)
 
     /** Old rows store the "OFFICE" sentinel or a raw area id; new rows store
      *  the human-readable label. Normalize for display. */
