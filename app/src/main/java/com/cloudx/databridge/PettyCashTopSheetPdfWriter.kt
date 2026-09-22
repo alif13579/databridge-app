@@ -514,6 +514,115 @@ private val legacyConveyanceTypes = setOf(
 
     private val voucherHeaders = listOf("Date" to 0.11f, "From" to 0.13f, "Destination" to 0.13f, "Description" to 0.14f, "Vehicle" to 0.09f, "Amount" to 0.09f, "Attempted" to 0.10f, "Succeeded" to 0.09f, "CID / Merchant" to 0.12f)
 
+    /** One renderable voucher line: a lone claim, or a LOT-ID group whose
+     *  shared cells merge (one row per consignment). Consecutive same-LOT
+     *  rows group together, preserving expense-date order. */
+    private sealed interface VoucherItem {
+        data class Single(val claim: SupabaseClaimsReader.ClaimRow) : VoucherItem
+        data class LotGroup(val claims: List<SupabaseClaimsReader.ClaimRow>) : VoucherItem
+    }
+
+    private fun partitionVoucherItems(agentClaims: List<SupabaseClaimsReader.ClaimRow>): List<VoucherItem> {
+        val items = mutableListOf<VoucherItem>()
+        var pending = mutableListOf<SupabaseClaimsReader.ClaimRow>()
+        fun flush() {
+            if (pending.isEmpty()) return
+            items.add(if (pending.size == 1) VoucherItem.Single(pending[0])
+            else VoucherItem.LotGroup(pending.toList()))
+            pending = mutableListOf()
+        }
+        agentClaims.forEach { c ->
+            val lotId = if (c.category == "LOT Delivery") c.storeId.trim() else ""
+            if (lotId.isNotEmpty() && pending.isNotEmpty() && pending[0].storeId.trim() == lotId) {
+                pending.add(c)
+            } else {
+                flush()
+                if (lotId.isNotEmpty()) pending.add(c)
+                else items.add(VoucherItem.Single(c))
+            }
+        }
+        flush()
+        return items
+    }
+
+    private fun voucherDateLabel(claim: SupabaseClaimsReader.ClaimRow): String =
+        runCatching { dateDisplayFormat.format(dateIsoFormat.parse(claim.placedDate) ?: java.util.Date()) }
+            .getOrDefault(claim.placedDate)
+
+    private fun drawVoucherRow(
+        canvas: Canvas, y: Float,
+        claim: SupabaseClaimsReader.ClaimRow, strokeBorder: Paint,
+    ): Float = drawDataRow(
+        canvas, y,
+        listOf(
+            voucherDateLabel(claim), areaLabel(claim.fromArea), areaLabel(claim.toArea), claim.category, claim.vehicle,
+            moneyFormat.format(claim.settledAmount), claim.attemptQuantity.toString(),
+            claim.deliveredQuantity.toString(), claim.cidOrMerchant,
+        ),
+        voucherHeaders.map { it.second }, strokeBorder, alignRight = setOf(5, 6, 7),
+    )
+
+    /** Merged LOT block: Date/From/Destination/Description/Vehicle/Amount
+     *  (SUM)/Attempted (SUM)/Succeeded (SUM) drawn ONCE across the block
+     *  height — never repeated per row — while every consignment keeps its
+     *  own CID row. Shared values come from the first row (a LOT batch is
+     *  one trip: same date/route/vehicle by construction). */
+    private fun drawLotBlock(
+        canvas: Canvas, y: Float,
+        group: List<SupabaseClaimsReader.ClaimRow>, strokeBorder: Paint,
+    ): Float {
+        val rowH = 14f
+        val blockH = rowH * group.size
+        val weights = voucherHeaders.map { it.second }
+        val widths = weights.map { it * contentWidth }
+        val first = group.first()
+
+        // Grid: outer border, full-height vertical dividers, per-row horizontals.
+        var x = margin
+        val xs = mutableListOf(margin)
+        widths.forEach { w -> x += w; xs.add(x) }
+        canvas.drawRect(margin, y, margin + contentWidth, y + blockH, strokeBorder)
+        xs.drop(1).dropLast(1).forEach { vx ->
+            canvas.drawLine(vx, y, vx, y + blockH, strokeBorder)
+        }
+        for (i in 1 until group.size) {
+            val hy = y + rowH * i
+            canvas.drawLine(margin, hy, margin + contentWidth, hy, strokeBorder)
+        }
+
+        // Merged cells (cols 0..7), vertically centered.
+        val midY = y + blockH / 2f + 2.5f
+        val leftPaint = textPaint(darkColor, 7.5f)
+        val rightPaint = textPaint(darkColor, 7.5f).apply { textAlign = Paint.Align.RIGHT }
+        val merged = listOf(
+            voucherDateLabel(first) to false,
+            areaLabel(first.fromArea) to false,
+            areaLabel(first.toArea) to false,
+            first.category to false,
+            first.vehicle to false,
+            moneyFormat.format(group.sumOf { it.settledAmount }) to true,
+            group.sumOf { it.attemptQuantity }.toString() to true,
+            group.sumOf { it.deliveredQuantity }.toString() to true,
+        )
+        merged.forEachIndexed { i, (text, right) ->
+            val w = widths[i]
+            if (right) {
+                fitTextSize(rightPaint, 7.5f, text, w - 6f)
+                canvas.drawText(text, xs[i] + w - 3f, midY, rightPaint)
+            } else {
+                fitTextSize(leftPaint, 7.5f, text, w - 6f)
+                canvas.drawText(text, xs[i] + 3f, midY, leftPaint)
+            }
+        }
+        // Per-row CID cells.
+        val cidPaint = textPaint(darkColor, 7.5f)
+        group.forEachIndexed { i, claim ->
+            fitTextSize(cidPaint, 7.5f, claim.cidOrMerchant, widths[8] - 6f)
+            canvas.drawText(claim.cidOrMerchant, xs[8] + 3f, y + rowH * i + rowH - 4f, cidPaint)
+        }
+        return y + blockH
+    }
+
     private fun drawConveyanceVoucherAgent(
         ctx: PageCtx,
         startCanvas: Canvas,
@@ -543,26 +652,47 @@ private val legacyConveyanceTypes = setOf(
         y += 8f
 
         y = drawTableHeaderRow(canvas, y, voucherHeaders, strokeBorder, headerFillColor)
-        // Long claim lists continue on fresh pages with the table header
-        // repeated plus an agent context line (agent block stays on the
-        // first page only).
-        agentClaims.forEach { claim ->
-            if (y + 14f > pageHeight - margin - 46f) {
-                ctx.nextPage(); canvas = ctx.canvas; y = margin
-                canvas.drawText("$agentName (contd.)", margin, y + 9f, valuePaint)
-                y += 13f
-                y = drawTableHeaderRow(canvas, y, voucherHeaders, strokeBorder, headerFillColor)
+        // Rows: LOT claims sharing a LOT ID (store_id) render as one merged
+        // block (shared cells spanned once, one row per consignment); the
+        // rest render as normal single rows — all in expense-date order.
+        val items = partitionVoucherItems(agentClaims)
+        items.forEach { item ->
+            when (item) {
+                is VoucherItem.Single -> {
+                    if (y + 14f > pageHeight - margin - 46f) {
+                        ctx.nextPage(); canvas = ctx.canvas; y = margin
+                        canvas.drawText("$agentName (contd.)", margin, y + 9f, valuePaint)
+                        y += 13f
+                        y = drawTableHeaderRow(canvas, y, voucherHeaders, strokeBorder, headerFillColor)
+                    }
+                    y = drawVoucherRow(canvas, y, item.claim, strokeBorder)
+                }
+                is VoucherItem.LotGroup -> {
+                    val blockH = 14f * item.claims.size
+                    val freshPageH = pageHeight - margin - 46f - margin
+                    if (y + blockH > pageHeight - margin - 46f && blockH <= freshPageH) {
+                        ctx.nextPage(); canvas = ctx.canvas; y = margin
+                        canvas.drawText("$agentName (contd.)", margin, y + 9f, valuePaint)
+                        y += 13f
+                        y = drawTableHeaderRow(canvas, y, voucherHeaders, strokeBorder, headerFillColor)
+                    }
+                    if (blockH <= freshPageH) {
+                        y = drawLotBlock(canvas, y, item.claims, strokeBorder)
+                    } else {
+                        // Oversized group (taller than a page): fall back to
+                        // plain rows so no data is ever lost.
+                        item.claims.forEach { claim ->
+                            if (y + 14f > pageHeight - margin - 46f) {
+                                ctx.nextPage(); canvas = ctx.canvas; y = margin
+                                canvas.drawText("$agentName (contd.)", margin, y + 9f, valuePaint)
+                                y += 13f
+                                y = drawTableHeaderRow(canvas, y, voucherHeaders, strokeBorder, headerFillColor)
+                            }
+                            y = drawVoucherRow(canvas, y, claim, strokeBorder)
+                        }
+                    }
+                }
             }
-            val dateLabel = runCatching { dateDisplayFormat.format(dateIsoFormat.parse(claim.placedDate) ?: java.util.Date()) }.getOrDefault(claim.placedDate)
-            y = drawDataRow(
-                canvas, y,
-                listOf(
-                    dateLabel, areaLabel(claim.fromArea), areaLabel(claim.toArea), claim.category, claim.vehicle,
-                    moneyFormat.format(claim.settledAmount), claim.attemptQuantity.toString(),
-                    claim.deliveredQuantity.toString(), claim.cidOrMerchant,
-                ),
-                voucherHeaders.map { it.second }, strokeBorder, alignRight = setOf(5, 6, 7),
-            )
         }
         val gTotal = agentClaims.sumOf { it.settledAmount }
         val totalDelivered = agentClaims.sumOf { it.deliveredQuantity }

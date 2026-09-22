@@ -38,6 +38,8 @@ object SupabaseClaimsReader {
         val attemptQuantity: Int get() = raw.optInt("attempted_qty", 0)
         val deliveredQuantity: Int get() = raw.optInt("succeeded_qty", 0)
         val cidOrMerchant: String get() = raw.optStr("cid_or_merchant")
+        val storeId: String get() = raw.optStr("store_id")
+        val storeName: String get() = raw.optStr("store_name")
         // The date the claim/expense request was placed — mandatory on every claim
         // (any category, not just conveyance), user-editable. Renamed from
         // expense_date; see SCHEMA_HISTORY.md's "public.claims — now live" entry
