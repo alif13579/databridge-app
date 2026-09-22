@@ -217,18 +217,21 @@ data class PettyCashFilterState(
         requesterName.isNotBlank()
 
     fun matches(request: PettyCashRequest): Boolean {
-        // requestedDate is when the expense actually happened; createdAt is
-        // just submission time. Filter (and the list showing it) by
-        // requestedDate so backdated requests filter/display consistently —
-        // falls back to createdAt for older requests submitted before this
-        // field existed (requestedDate == 0).
-        val reqDate = if (request.requestedDate != 0L) request.requestedDate else request.createdAt
-        if (dateFromMillis != 0L && reqDate < dateFromMillis) return false
-        if (dateToMillis != 0L && reqDate > dateToMillis) return false
+        if (!matchesDate(request)) return false
         if (statuses.isNotEmpty() && request.status !in statuses) return false
         if (category.isNotBlank() && category != "All Categories" && request.category != category) return false
         if (workerCategory.isNotBlank() && workerCategory != "All Categories" && request.requesterRole != workerCategory) return false
         if (requesterName.isNotBlank() && !request.requesterName.contains(requesterName.trim(), ignoreCase = true)) return false
+        return true
+    }
+
+    /** Date-only check: requestedDate is when the expense actually happened;
+     *  createdAt is just submission time. Falls back to createdAt for older
+     *  requests submitted before requestedDate existed (== 0). */
+    fun matchesDate(request: PettyCashRequest): Boolean {
+        val reqDate = if (request.requestedDate != 0L) request.requestedDate else request.createdAt
+        if (dateFromMillis != 0L && reqDate < dateFromMillis) return false
+        if (dateToMillis != 0L && reqDate > dateToMillis) return false
         return true
     }
 

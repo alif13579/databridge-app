@@ -136,10 +136,9 @@ class PettyCashPendingSettlementFragment : Fragment() {
             parentFragmentManager.popBackStack()
         }
         view.findViewById<View>(R.id.btnPcPendingCalendar).setOnClickListener {
-            openDateFilter()
+            showDateRangeOptions()
         }
         view.findViewById<View>(R.id.tvPcPendingAgent).setOnClickListener { showAgentPicker() }
-        view.findViewById<View>(R.id.tvPcPendingDate).setOnClickListener { openDateFilter() }
         view.findViewById<View>(R.id.tvPcPendingSelectMode).setOnClickListener {
             selectMode = !selectMode
             if (!selectMode) selectedIds.clear()
@@ -157,12 +156,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
             renderList()
         }
         view.findViewById<View>(R.id.btnPcBulkUpdate).setOnClickListener { showBulkUpdateDialog() }
-
-        parentFragmentManager.setFragmentResultListener(PettyCashFilterState.FRAGMENT_RESULT_KEY, viewLifecycleOwner) { _, bundle ->
-            val stateBundle = bundle.getBundle(PettyCashFilterState.BUNDLE_KEY_STATE)
-            advancedFilter = stateBundle?.let { PettyCashFilterState.fromBundle(it) } ?: PettyCashFilterState()
-            renderList()
-        }
 
         viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
         if (branchId.isBlank()) {
@@ -244,7 +237,15 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     private fun buildTabs() {
         layoutTabs.removeAllViews()
-        val all = scopedRequests()
+        // Dynamic over the DATE-RANGED set: tabs/counts show only statuses
+        // present in the selected range (all time when no range).
+        val all = dateScoped()
+
+        // If the selected tab has no claims in this range, fall back to All
+        // instead of stranding the list on "No requests found".
+        if (selectedStatus != FILTER_ALL && all.none { it.status == selectedStatus }) {
+            selectedStatus = FILTER_ALL
+        }
 
         // Dynamic tabs: one per unique status actually present, in a fixed
         // canonical order (rather than whatever order they happen to appear
@@ -300,10 +301,18 @@ class PettyCashPendingSettlementFragment : Fragment() {
         else -> item.amount
     }
 
+    /** Date-ranged working set: the calendar range applied, everything
+     *  else (tabs/agents) filters down from here. No range = all time. */
+    private fun dateScoped(): List<PettyCashRequest> {
+        val all = scopedRequests()
+        if (advancedFilter.dateFromMillis == 0L && advancedFilter.dateToMillis == 0L) return all
+        return all.filter { advancedFilter.matchesDate(it) }
+    }
+
     /** Status tab (+ advanced search) applied, agent filter NOT applied —
      *  the working set agent counts and the agent picker are built from. */
     private fun statusFiltered(): List<PettyCashRequest> {
-        val all = scopedRequests()
+        val all = dateScoped()
         val byStatus = if (selectedStatus == FILTER_ALL) all
             else all.filter { it.status == selectedStatus }
         return if (advancedFilter.isActive) byStatus.filter { advancedFilter.matches(it) } else byStatus
@@ -327,30 +336,63 @@ class PettyCashPendingSettlementFragment : Fragment() {
         return byStatus.filter { it.requesterUid.ifBlank { "unknown" } in selectedAgentUids }
     }
 
-    /** Date filter entry — opens the shared advanced filter (date range
-     *  is what this chip is for; status/category there also apply). */
-    private fun openDateFilter() {
-        parentFragmentManager.beginTransaction()
-            .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
-            .addToBackStack(null)
-            .commitAllowingStateLoss()
+    /** Date filter entry — the toolbar calendar picks a date RANGE only
+     *  (no statuses/categories here — those live on the tabs/agent chip
+     *  below, computed from the ranged set). Apply scopes the list to that
+     *  range's claims; Clear returns to all time. */
+    private fun showDateRangeOptions() {
+        val hasRange = advancedFilter.dateFromMillis != 0L || advancedFilter.dateToMillis != 0L
+        val options = if (hasRange) arrayOf("Select Date Range", "✕ Clear Range (All Time)")
+        else arrayOf("Select Date Range")
+        android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Filter by date")
+            .setItems(options) { _, which ->
+                if (which == 1) {
+                    advancedFilter = PettyCashFilterState()
+                    selectedStatus = FILTER_ALL
+                    selectedAgentUids.clear()
+                    buildTabs()
+                    renderList()
+                } else showDateRangePicker()
+            }
+            .show()
+    }
+
+    private fun showDateRangePicker() {
+        val picker = com.google.android.material.datepicker.MaterialDatePicker.Builder.dateRangePicker()
+            .setTitleText("Select date range")
+            .apply {
+                if (advancedFilter.dateFromMillis != 0L && advancedFilter.dateToMillis != 0L) {
+                    setSelection(androidx.core.util.Pair(advancedFilter.dateFromMillis, advancedFilter.dateToMillis))
+                }
+            }
+            .build()
+        picker.addOnPositiveButtonClickListener { selection ->
+            val from = java.util.Calendar.getInstance().apply {
+                timeInMillis = selection.first
+                set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+                set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+            }.timeInMillis
+            val to = java.util.Calendar.getInstance().apply {
+                timeInMillis = selection.second
+                set(java.util.Calendar.HOUR_OF_DAY, 23); set(java.util.Calendar.MINUTE, 59)
+                set(java.util.Calendar.SECOND, 59); set(java.util.Calendar.MILLISECOND, 999)
+            }.timeInMillis
+            // Date-only filter: any stale status/category/name restriction is
+            // dropped, otherwise it ANDs with the range into "No requests".
+            advancedFilter = PettyCashFilterState(dateFromMillis = from, dateToMillis = to)
+            selectedStatus = FILTER_ALL
+            selectedAgentUids.clear()
+            buildTabs()
+            renderList()
+            Toast.makeText(requireContext(),
+                "📅 ${shortDate(from)}–${shortDate(to)}", Toast.LENGTH_SHORT).show()
+        }
+        picker.show(parentFragmentManager, "pending_date_range_picker")
     }
 
     private fun shortDate(millis: Long): String =
         java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault()).format(java.util.Date(millis))
-
-    private fun updateDateChip() {
-        val root = view ?: return
-        val chip = root.findViewById<TextView>(R.id.tvPcPendingDate) ?: return
-        chip.text = when {
-            advancedFilter.dateFromMillis != 0L && advancedFilter.dateToMillis != 0L ->
-                "📅 ${shortDate(advancedFilter.dateFromMillis)}–${shortDate(advancedFilter.dateToMillis)}"
-            advancedFilter.dateFromMillis != 0L -> "📅 ≥${shortDate(advancedFilter.dateFromMillis)}"
-            advancedFilter.dateToMillis != 0L -> "📅 ≤${shortDate(advancedFilter.dateToMillis)}"
-            advancedFilter.isActive -> "📅 Filter•"
-            else -> "📅 Dates"
-        }
-    }
 
     private fun updateAgentRow() {
         val root = view ?: return
@@ -518,7 +560,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
         val filtered = currentFiltered()
         val canSettle = state.roles.isAccounts
         updateAgentRow()
-        updateDateChip()
         updateSummary(filtered)
         val eligibleInFilter = filtered.filter { isBulkEligible(it) }
         view?.findViewById<TextView>(R.id.tvPcPendingSelectAll)?.apply {
