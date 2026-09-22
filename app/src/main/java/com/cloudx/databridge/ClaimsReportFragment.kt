@@ -61,6 +61,19 @@ private var lastPdf: File? = null
      *  kept purely for display ("Mehedi (EMP001)") — mirrors CallCenterFragment.AgentOption. */
     private data class ClaimsEmployeeOption(val systemId: String, val employeeId: String, val name: String)
 
+    // Pre-Q (Android ≤ 9) Downloads writes need WRITE_EXTERNAL_STORAGE at
+    // runtime — without it the copy fails with "Permission denied". Q+
+    // goes through MediaStore (no permission needed). A deferred download
+    // waits here while the permission dialog is up.
+    private var pendingDownload: (() -> Unit)? = null
+    private val storagePermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) pendingDownload?.invoke()
+        else toast("Storage permission denied — cannot save to Downloads (Share still works)")
+        pendingDownload = null
+    }
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_claims_report, container, false)
 
@@ -457,6 +470,16 @@ private var lastPdf: File? = null
      *  flow CashLedgerListFragment uses — no storage permission needed on Q+). */
     private fun saveToDownloads(file: File, displayName: String, mimeType: String, doneNote: String? = null) {
         val ctx = requireContext()
+        // Pre-Q needs a runtime storage grant first — otherwise EACCES.
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                ctx, android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingDownload = { saveToDownloads(file, displayName, mimeType, doneNote) }
+            storagePermissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            return
+        }
         runCatching {
             val resolver = ctx.contentResolver
             val uri: android.net.Uri? =
@@ -491,6 +514,7 @@ private var lastPdf: File? = null
             addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         runCatching { startActivity(intent) }
+            .onFailure { toast("No PDF viewer installed — use Download instead") }
     }
 
     // ── Date helpers ──────────────────────────────────────────────────────────
