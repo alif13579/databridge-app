@@ -658,8 +658,8 @@ class PettyCashRequestCreateFragment : Fragment() {
             }
             etConsignmentId.setText("")
             etConsignmentId.hint = "Type or scan, then tap + Add"
-            tvAmountLabel.text = "Rate per consignment"
-            etAmount.hint = "e.g. 20"
+            tvAmountLabel.text = "Total amount"
+            etAmount.hint = "e.g. 30 (split across consignments)"
             renderLotList()
         } else {
             if (lotConsignments.isNotEmpty()) {
@@ -1063,17 +1063,31 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
     }
 
-    /** LOT live total: rate × consignments. Visible in LOT create mode only. */
+    /** Total-split: [total] shared across n rows — every row gets the
+     *  paisa-truncated share, the last row absorbs the remainder, so parts
+     *  always sum back to exactly [total]. Deterministic per index, hence
+     *  retry-safe (a retried row recomputes the same amount). */
+    private fun splitLotTotal(total: Double, n: Int): List<Double> {
+        if (n <= 1) return listOf(total)
+        val base = kotlin.math.floor(total * 100 / n) / 100
+        val parts = MutableList(n - 1) { base }
+        parts.add(kotlin.math.round((total - base * (n - 1)) * 100) / 100)
+        return parts
+    }
+
+    /** LOT live split preview: total ÷ consignments. Visible in LOT create mode only. */
     private fun updateLotTotal() {
         if (!::tvLotTotal.isInitialized) return
         val isLot = isLotCategory(selectedCategory) && !isEditMode
         tvLotTotal.isVisible = isLot
         if (!isLot) return
-        val rate = etAmount.text?.toString()?.toDoubleOrNull() ?: 0.0
+        val total = etAmount.text?.toString()?.toDoubleOrNull() ?: 0.0
         val n = lotConsignments.size
-        tvLotTotal.text = if (rate > 0 && n > 0)
-            "Total: ${pettyCashTaka(rate * n)} (${pettyCashTaka(rate)} × $n)"
-        else "Total: — (rate × consignments)"
+        tvLotTotal.text = if (total > 0 && n > 0) {
+            val parts = splitLotTotal(total, n)
+            if (parts.toSet().size == 1) "Total: ${pettyCashTaka(total)} (${pettyCashTaka(parts[0])} × $n)"
+            else "Total: ${pettyCashTaka(total)} (${parts.joinToString(" + ") { pettyCashTaka(it) }})"
+        } else "Total: — (total ÷ consignments)"
     }
 
     private fun renderLotList() {
@@ -1355,7 +1369,15 @@ class PettyCashRequestCreateFragment : Fragment() {
         }
         if (selectedCategory != PC_CATEGORY_PICKUP && amount <= 0.0) {
             Toast.makeText(requireContext(),
-                if (isLotSubmit) "Enter the rate per consignment" else "Enter a valid amount",
+                if (isLotSubmit) "Enter the total amount" else "Enter a valid amount",
+                Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Split floor: every row needs at least 1 paisa (total×100 paisa
+        // across N rows) — otherwise some row would read 0.
+        if (isLotSubmit && amount * 100 < lotConsignments.size) {
+            Toast.makeText(requireContext(),
+                "Total too small to split across ${lotConsignments.size} consignments",
                 Toast.LENGTH_SHORT).show()
             return
         }
@@ -1468,15 +1490,18 @@ class PettyCashRequestCreateFragment : Fragment() {
                 // still referenced by another row).
                 val requesterRole = RbacManager.current.roleName.ifBlank { RbacManager.current.roleId }
                 if (isLotSubmit) {
-                    // Separate-rows LOT: one claim per consignment at the same
-                    // rate, so every parcel is its own table row downstream
-                    // (lists, voucher, Excel). Per-row idempotency keys, so a
-                    // retry after partial failure returns ok-duplicate for the
-                    // rows that already landed instead of doubling them.
+                    // Separate-rows LOT with total-split: the entered total is
+                    // shared across consignments (last row absorbs the paisa
+                    // remainder), so every parcel is its own table row
+                    // downstream (lists, voucher, Excel). Per-row idempotency
+                    // keys, so a retry after partial failure returns
+                    // ok-duplicate for the rows that already landed instead
+                    // of doubling them.
                     val ids = lotConsignments.toList()
-                    val rate = amount
+                    val parts = splitLotTotal(amount, ids.size)
                     val failures = mutableListOf<String>()
                     var ok = 0
+                    var submittedSum = 0.0
                     ids.forEachIndexed { index, cid ->
                         if (!isAdded) return@forEachIndexed
                         activity?.runOnUiThread {
@@ -1486,7 +1511,7 @@ class PettyCashRequestCreateFragment : Fragment() {
                             branchId = branchId,
                             category = selectedCategory,
                             purpose = purpose,
-                            amount = rate,
+                            amount = parts[index],
                             attachments = sharedAttachments,
                             requesterRole = requesterRole,
                             consignmentId = cid,
@@ -1503,13 +1528,13 @@ class PettyCashRequestCreateFragment : Fragment() {
                             onBehalfName = behalf?.name.orEmpty(),
                             onBehalfRole = behalf?.role.orEmpty()
                         )
-                        if (r.isSuccess) ok++
+                        if (r.isSuccess) { ok++; submittedSum += parts[index] }
                         else failures.add("$cid: ${r.exceptionOrNull()?.message ?: "failed"}")
                     }
                     if (!isAdded) return@launch
                     if (failures.isEmpty()) {
                         Toast.makeText(requireContext(),
-                            "✓ $ok requests submitted · Total ${pettyCashTaka(rate * ok)}",
+                            "✓ $ok requests submitted · Total ${pettyCashTaka(submittedSum)}",
                             Toast.LENGTH_LONG).show()
                         parentFragmentManager.popBackStack()
                     } else {
