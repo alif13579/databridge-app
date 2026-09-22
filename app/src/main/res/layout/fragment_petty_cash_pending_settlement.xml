@@ -97,8 +97,9 @@
                     android:paddingBottom="10dp" />
             </HorizontalScrollView>
 
-            <!-- Agent filter + filtered total: specific requester + status
-                 diye list, total amount, ar select-all bulk update. -->
+            <!-- Agent/category filter + filtered total. The chips scroll
+                 horizontally (like the tabs above) so long picks like
+                 "3 agents (15)" never squeeze the row or grow the page. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -108,63 +109,84 @@
                 android:paddingHorizontal="16dp"
                 android:paddingBottom="8dp">
 
-                <TextView
-                    android:id="@+id/tvPcPendingAgent"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:gravity="center_vertical"
-                    android:text="👥 All Agents"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    android:textColor="#6D28D9"
-                    android:background="@drawable/bg_pc_tab_inactive"
-                    android:paddingHorizontal="12dp" />
-
-                <TextView
-                    android:id="@+id/tvPcPendingCategory"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:gravity="center_vertical"
-                    android:text="🏷 Category"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    android:textColor="#0F766E"
-                    android:background="@drawable/bg_pc_tab_inactive"
-                    android:paddingHorizontal="12dp"
-                    android:layout_marginStart="8dp" />
-
-                <TextView
-                    android:id="@+id/tvPcPendingSelectMode"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:gravity="center_vertical"
-                    android:text="☑ Select"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    android:textColor="#059669"
-                    android:paddingHorizontal="10dp"
-                    android:visibility="gone" />
-
-                <TextView
-                    android:id="@+id/tvPcPendingSelectAll"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:gravity="center_vertical"
-                    android:text="Select all"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    android:textColor="#059669"
-                    android:paddingHorizontal="10dp"
-                    android:visibility="gone" />
-
-                <TextView
-                    android:id="@+id/tvPcPendingSummary"
+                <HorizontalScrollView
                     android:layout_width="0dp"
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
+                    android:scrollbars="none"
+                    android:overScrollMode="ifContentScrolls">
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/tvPcPendingAgent"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:gravity="center_vertical"
+                            android:text="👥 All Agents"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="#6D28D9"
+                            android:background="@drawable/bg_pc_tab_inactive"
+                            android:paddingHorizontal="12dp"
+                            android:singleLine="true" />
+
+                        <TextView
+                            android:id="@+id/tvPcPendingCategory"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:gravity="center_vertical"
+                            android:text="🏷 Category"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="#0F766E"
+                            android:background="@drawable/bg_pc_tab_inactive"
+                            android:paddingHorizontal="12dp"
+                            android:layout_marginStart="8dp"
+                            android:singleLine="true" />
+
+                        <TextView
+                            android:id="@+id/tvPcPendingSelectMode"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:gravity="center_vertical"
+                            android:text="☑ Select"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="#059669"
+                            android:paddingHorizontal="10dp"
+                            android:visibility="gone"
+                            android:singleLine="true" />
+
+                        <TextView
+                            android:id="@+id/tvPcPendingSelectAll"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:gravity="center_vertical"
+                            android:text="Select all"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="#059669"
+                            android:paddingHorizontal="10dp"
+                            android:visibility="gone"
+                            android:singleLine="true" />
+                    </LinearLayout>
+                </HorizontalScrollView>
+
+                <TextView
+                    android:id="@+id/tvPcPendingSummary"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:gravity="end"
                     android:textSize="12sp"
-                    android:textColor="#64748B" />
+                    android:textColor="#64748B"
+                    android:paddingStart="8dp"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
             </LinearLayout>
 
             <ProgressBar
