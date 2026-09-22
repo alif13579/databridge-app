@@ -288,6 +288,281 @@
                 android:textColor="@color/theme_text_secondary" />
         </LinearLayout>
 
+        <!-- ══ CC Dashboard mirror (extension Dashboard tab): Hold Validation
+             + Team Performance. Visible for every role except worker/guest. ══ -->
+        <LinearLayout
+            android:id="@+id/layoutCcDashboard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <!-- ── Hold Validation ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_card_rounded"
+                android:padding="12dp"
+                android:layout_marginTop="4dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔒 Hold Validation"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_text_primary" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp">
+
+                    <TextView
+                        android:id="@+id/tvCcHvModeSummary"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:padding="8dp"
+                        android:text="Summary"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvCcHvModeDetails"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:padding="8dp"
+                        android:text="Details"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvCcHvBranches"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="10dp"
+                    android:layout_marginTop="8dp"
+                    android:text="Branch: …"
+                    android:textSize="12.5sp"
+                    android:textColor="@color/theme_text_primary"
+                    android:gravity="center_vertical" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp">
+
+                    <TextView
+                        android:id="@+id/tvCcHvFrom"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:background="@drawable/bg_card_rounded"
+                        android:padding="10dp"
+                        android:textSize="12.5sp"
+                        android:textColor="@color/theme_text_primary"
+                        android:gravity="center_vertical" />
+
+                    <TextView
+                        android:id="@+id/tvCcHvTo"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_card_rounded"
+                        android:padding="10dp"
+                        android:textSize="12.5sp"
+                        android:textColor="@color/theme_text_primary"
+                        android:gravity="center_vertical" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp">
+
+                    <TextView
+                        android:id="@+id/btnCcHvView"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:text="🔍 View report"
+                        android:textSize="12.5sp"
+                        android:textStyle="bold"
+                        android:textColor="#FFFFFF"
+                        android:background="@drawable/btn_call_green" />
+
+                    <TextView
+                        android:id="@+id/btnCcHvSync"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:text="⇪ Sheet Sync"
+                        android:textSize="12.5sp"
+                        android:textStyle="bold"
+                        android:textColor="#FFFFFF"
+                        android:background="@drawable/btn_validate_purple" />
+
+                    <TextView
+                        android:id="@+id/btnCcHvDownload"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:text="⬇ Download"
+                        android:textSize="12.5sp"
+                        android:textStyle="bold"
+                        android:textColor="#FFFFFF"
+                        android:background="@drawable/btn_call_green" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvCcHvStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textSize="12sp"
+                    android:textColor="@color/theme_text_secondary" />
+
+                <EditText
+                    android:id="@+id/etCcHvSearch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_pc_input"
+                    android:hint="Consignment / phone / name…"
+                    android:textSize="13sp"
+                    android:padding="10dp"
+                    android:singleLine="true"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/layoutCcHvResults"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="6dp" />
+            </LinearLayout>
+
+            <!-- ── Team Performance ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:background="@drawable/bg_card_rounded"
+                android:padding="12dp"
+                android:layout_marginTop="10dp"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="👥 Team Performance"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_text_primary" />
+
+                <TextView
+                    android:id="@+id/tvCcPerfBranch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="10dp"
+                    android:layout_marginTop="8dp"
+                    android:text="Branch: …"
+                    android:textSize="12.5sp"
+                    android:textColor="@color/theme_text_primary"
+                    android:gravity="center_vertical" />
+
+                <TextView
+                    android:id="@+id/tvCcPerfMode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_card_rounded"
+                    android:padding="10dp"
+                    android:layout_marginTop="8dp"
+                    android:text="Team (CC agent-wise)"
+                    android:textSize="12.5sp"
+                    android:textColor="@color/theme_text_primary"
+                    android:gravity="center_vertical" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp">
+
+                    <TextView
+                        android:id="@+id/tvCcPerfFrom"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="6dp"
+                        android:background="@drawable/bg_card_rounded"
+                        android:padding="10dp"
+                        android:textSize="12.5sp"
+                        android:textColor="@color/theme_text_primary"
+                        android:gravity="center_vertical" />
+
+                    <TextView
+                        android:id="@+id/tvCcPerfTo"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_card_rounded"
+                        android:padding="10dp"
+                        android:textSize="12.5sp"
+                        android:textColor="@color/theme_text_primary"
+                        android:gravity="center_vertical" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/btnCcPerfView"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:padding="10dp"
+                    android:text="🔍 View report"
+                    android:textSize="12.5sp"
+                    android:textStyle="bold"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/btn_call_green" />
+
+                <TextView
+                    android:id="@+id/tvCcPerfStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textSize="12sp"
+                    android:textColor="@color/theme_text_secondary" />
+
+                <LinearLayout
+                    android:id="@+id/layoutCcPerfResults"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="6dp" />
+            </LinearLayout>
+        </LinearLayout>
+
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
 </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
