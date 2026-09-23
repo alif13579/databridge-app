@@ -87,25 +87,42 @@ object PettyCashTopSheetPdfWriter {
      * and repeat the table header there. One instance per generate() call so
      * overlapping generations can't share page state.
      */
-    private class PageCtx(val pdf: PdfDocument) {
+    private class PageCtx(val pdf: PdfDocument, val totalPages: Int) {
         private var pageNum = 0
         private lateinit var page: PdfDocument.Page
         lateinit var canvas: Canvas
             private set
+
+        /** Set while conveyance voucher pages are drawn — only those pages
+         *  get the "Page X of Y" footer in the right-bottom corner. */
+        var footerEnabled = false
+
+        val pages: Int get() = pageNum
 
         init {
             nextPage()
         }
 
         fun nextPage() {
-            if (pageNum > 0) pdf.finishPage(page)
+            if (pageNum > 0) {
+                drawFooterIfNeeded()
+                pdf.finishPage(page)
+            }
             pageNum += 1
             page = pdf.startPage(PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNum).create())
             canvas = page.canvas
         }
 
         fun finish() {
+            drawFooterIfNeeded()
             pdf.finishPage(page)
+        }
+
+        private fun drawFooterIfNeeded() {
+            if (!footerEnabled) return
+            val paint = textPaint(mutedColor, 7.5f).apply { textAlign = Paint.Align.RIGHT }
+            val text = if (totalPages > 0) "Page $pageNum of $totalPages" else "Page $pageNum"
+            canvas.drawText(text, margin + contentWidth, pageHeight - 14f, paint)
         }
     }
 
@@ -123,6 +140,23 @@ private val legacyConveyanceTypes = setOf(
      *  the human-readable label. Normalize for display. */
     private fun areaLabel(value: String): String =
         if (value.trim().equals("OFFICE", ignoreCase = true)) "Office" else value
+
+    /** Everything renderReport needs — threaded through both passes so the
+     *  counting pass and the real pass draw byte-identical pages. */
+    private data class ReportInput(
+        val claims: List<SupabaseClaimsReader.ClaimRow>,
+        val branchName: String,
+        val branchRegion: String,
+        val pettyCashLimit: Double,
+        val pocName: String,
+        val pocEmployeeId: String,
+        val pocDesignation: String,
+        val pocContact: String,
+        val fromDateIso: String,
+        val toDateIso: String,
+        val categoryGroups: Map<String, String>,
+        val voucherGrouping: VoucherGrouping,
+    )
 
     /**
      * Builds the full report PDF for one branch over [fromDateIso, toDateIso]
@@ -154,6 +188,37 @@ private val legacyConveyanceTypes = setOf(
         appContext: Context? = null,
     ) {
         appContext?.let(PdfFonts::init)
+        val input = ReportInput(
+            claims, branchName, branchRegion, pettyCashLimit,
+            pocName, pocEmployeeId, pocDesignation, pocContact,
+            fromDateIso, toDateIso, categoryGroups, voucherGrouping,
+        )
+        // Two passes so conveyance footers can read "Page X of Y": pass 1
+        // counts pages (throwaway document), pass 2 draws the real file.
+        // Both passes draw identical pages — only the footer total differs.
+        val counting = PdfDocument()
+        val totalPages = renderReport(counting, -1, input)
+        counting.close()
+        val pdf = PdfDocument()
+        renderReport(pdf, totalPages, input)
+        outFile.outputStream().use { pdf.writeTo(it) }
+        pdf.close()
+    }
+
+    /** Draws the whole report into [pdf]; returns the page count. */
+    private fun renderReport(pdf: PdfDocument, totalPages: Int, input: ReportInput): Int {
+        val claims = input.claims
+        val branchName = input.branchName
+        val branchRegion = input.branchRegion
+        val pettyCashLimit = input.pettyCashLimit
+        val pocName = input.pocName
+        val pocEmployeeId = input.pocEmployeeId
+        val pocDesignation = input.pocDesignation
+        val pocContact = input.pocContact
+        val fromDateIso = input.fromDateIso
+        val toDateIso = input.toDateIso
+        val categoryGroups = input.categoryGroups
+        val voucherGrouping = input.voucherGrouping
         val settled = claims.filter { it.status.equals("settled", ignoreCase = true) }
         fun groupOf(category: String): String =
             categoryGroups[category]
@@ -214,8 +279,7 @@ private val legacyConveyanceTypes = setOf(
         val aAmounts = (1..9).map { i -> aRows.filter { bucketOf(it) == i }.sumOf { it.settledAmount } }
         val bAmounts = (1..bLabels.size).map { i -> bRows.filter { bBucketOf(it) == i }.sumOf { it.settledAmount } }
         val cAmounts = (1..cLabels.size).map { i -> cRows.filter { cBucketOf(it) == i }.sumOf { it.settledAmount } }
-        val pdf = PdfDocument()
-        val ctx = PageCtx(pdf)
+        val ctx = PageCtx(pdf, totalPages)
 
         // ── Page 1: Top Sheet ──────────────────────────────────────────────
         // Same buckets as page 2, so both pages always agree:
@@ -249,46 +313,49 @@ private val legacyConveyanceTypes = setOf(
         // Category-wise: one block per conveyance category holding every
         // agent's rows, categories in first-appearance order. ──
         val conveyanceClaims = settled.filter { isConveyanceClaim(it) }
-        ctx.nextPage()
-        var voucherSl = 1
-        var voucherCanvas = ctx.canvas
-        var voucherY = margin
-        // One measured grid for the whole report (same columns line up
-        // across blocks); category-wise measures the Agent column.
-        val (vWidths, vXs) = voucherGrid(
-            conveyanceClaims, agentColumn = voucherGrouping == VoucherGrouping.CATEGORY_WISE,
-        )
-        // Breathing room between consecutive voucher blocks (skipped when a
-        // block ends flush at the page bottom — the page break itself is the
-        // separator there).
-        fun gapAfter(y: Float): Float =
-            if (y + voucherGap <= pageHeight - margin) y + voucherGap else y
-        when (voucherGrouping) {
-            VoucherGrouping.AGENT_WISE -> {
-                val agentOrder = LinkedHashSet<String>()
-                settled.forEach { agentOrder.add(it.agentSystemId) }
-                agentOrder.forEach { agentSystemId ->
-                    val agentClaims = conveyanceClaims.filter { it.agentSystemId == agentSystemId }
-                        .sortedBy { it.placedDate }
-                    if (agentClaims.isEmpty()) return@forEach
-                    val drawn = drawConveyanceVoucherAgent(ctx, voucherCanvas, voucherY, vWidths, vXs, agentClaims, voucherSl)
-                    voucherCanvas = drawn.first
-                    voucherY = gapAfter(drawn.second)
-                    voucherSl += 1
+        if (conveyanceClaims.isNotEmpty()) {
+            ctx.nextPage()
+            ctx.footerEnabled = true
+            var voucherSl = 1
+            var voucherCanvas = ctx.canvas
+            var voucherY = margin
+            // One measured grid for the whole report (same columns line up
+            // across blocks); category-wise measures the Agent column.
+            val (vWidths, vXs) = voucherGrid(
+                conveyanceClaims, agentColumn = voucherGrouping == VoucherGrouping.CATEGORY_WISE,
+            )
+            // Breathing room between consecutive voucher blocks (skipped when a
+            // block ends flush at the page bottom — the page break itself is the
+            // separator there).
+            fun gapAfter(y: Float): Float =
+                if (y + voucherGap <= pageHeight - margin) y + voucherGap else y
+            when (voucherGrouping) {
+                VoucherGrouping.AGENT_WISE -> {
+                    val agentOrder = LinkedHashSet<String>()
+                    settled.forEach { agentOrder.add(it.agentSystemId) }
+                    agentOrder.forEach { agentSystemId ->
+                        val agentClaims = conveyanceClaims.filter { it.agentSystemId == agentSystemId }
+                            .sortedBy { it.placedDate }
+                        if (agentClaims.isEmpty()) return@forEach
+                        val drawn = drawConveyanceVoucherAgent(ctx, voucherCanvas, voucherY, vWidths, vXs, agentClaims, voucherSl)
+                        voucherCanvas = drawn.first
+                        voucherY = gapAfter(drawn.second)
+                        voucherSl += 1
+                    }
                 }
-            }
-            VoucherGrouping.CATEGORY_WISE -> {
-                val categoryOrder = LinkedHashSet<String>()
-                conveyanceClaims.forEach { categoryOrder.add(it.category.ifBlank { "Other" }) }
-                categoryOrder.forEach { category ->
-                    val catClaims = conveyanceClaims
-                        .filter { it.category.ifBlank { "Other" } == category }
-                        .sortedBy { it.placedDate }
-                    if (catClaims.isEmpty()) return@forEach
-                    val drawn = drawConveyanceVoucherCategory(ctx, voucherCanvas, voucherY, vWidths, vXs, category, catClaims, voucherSl)
-                    voucherCanvas = drawn.first
-                    voucherY = gapAfter(drawn.second)
-                    voucherSl += 1
+                VoucherGrouping.CATEGORY_WISE -> {
+                    val categoryOrder = LinkedHashSet<String>()
+                    conveyanceClaims.forEach { categoryOrder.add(it.category.ifBlank { "Other" }) }
+                    categoryOrder.forEach { category ->
+                        val catClaims = conveyanceClaims
+                            .filter { it.category.ifBlank { "Other" } == category }
+                            .sortedBy { it.placedDate }
+                        if (catClaims.isEmpty()) return@forEach
+                        val drawn = drawConveyanceVoucherCategory(ctx, voucherCanvas, voucherY, vWidths, vXs, category, catClaims, voucherSl)
+                        voucherCanvas = drawn.first
+                        voucherY = gapAfter(drawn.second)
+                        voucherSl += 1
+                    }
                 }
             }
         }
@@ -296,6 +363,7 @@ private val legacyConveyanceTypes = setOf(
         // ── Unsettled Bills — every in-range claim still awaiting money
         // (pending/approved/…; rejected/cancelled are dead, never listed),
         // one row each, stamped UNSETTLED. Skipped when there are none. ──
+        ctx.footerEnabled = false
         val unsettled = claims.filter {
             val s = it.status.trim().lowercase()
             s != "settled" && s != "rejected" && s != "cancelled" && s != "cancel"
@@ -306,8 +374,7 @@ private val legacyConveyanceTypes = setOf(
         }
 
         ctx.finish()
-        outFile.outputStream().use { pdf.writeTo(it) }
-        pdf.close()
+        return ctx.pages
     }
 
     // ── Page 1: Top Sheet ────────────────────────────────────────────────────
