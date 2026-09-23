@@ -761,7 +761,12 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         DatePickerDialog(
             requireContext(),
             { _, year, month, day ->
-                val picked = Calendar.getInstance().apply { set(year, month, day) }.timeInMillis
+                // Dhaka noon, not midnight/current time: requested_at must stay
+                // 06:00Z (same calendar date in UTC and Dhaka) so the report's
+                // take(10) and dhakaDate() bases never disagree by a day.
+                val picked = Calendar.getInstance().apply {
+                    set(year, month, day, 12, 0, 0); set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
                 runAction { onSupa -> viewModel.updateRequestedDate(request.id, picked, onSupabaseResult = onSupa) }
             },
             cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)

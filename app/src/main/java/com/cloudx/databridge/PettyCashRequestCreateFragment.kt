@@ -145,7 +145,11 @@ class PettyCashRequestCreateFragment : Fragment() {
 
     private fun startOfDay(millis: Long): Long = java.util.Calendar.getInstance().apply {
         timeInMillis = millis
-        set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+        // Dhaka NOON, not midnight: midnight stored as 18:00Z the previous UTC
+        // day, so requested_at.take(10) and the Dhaka calendar day disagreed
+        // by one day (78-row audit finding). Noon is 06:00Z — same date in
+        // both zones, matching the bulk import's calAtNoon convention.
+        set(java.util.Calendar.HOUR_OF_DAY, 12); set(java.util.Calendar.MINUTE, 0)
         set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
     }.timeInMillis
 
@@ -597,7 +601,8 @@ class PettyCashRequestCreateFragment : Fragment() {
             { _, y, m, d ->
                 selectedExpenseDate = java.util.Calendar.getInstance().apply {
                     set(y, m, d)
-                    set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+                    // Noon, not midnight — see startOfDay() above.
+                    set(java.util.Calendar.HOUR_OF_DAY, 12); set(java.util.Calendar.MINUTE, 0)
                     set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
                 }.timeInMillis
                 updateExpenseDateLabel()

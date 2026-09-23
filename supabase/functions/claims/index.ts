@@ -64,6 +64,21 @@ Deno.serve(async (request) => {
       const fk = (v: unknown) => { const s = str(v).trim(); return s ? s : null }
       const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : 0
       const iso = (v: unknown) => typeof v === 'string' && v.trim() ? v : null
+      // Expense-date canonical form: 06:00Z of the instant's DHAKA calendar
+      // day. Old app builds stored picked dates at Dhaka midnight (18:00Z the
+      // previous UTC day), so requested_at.take(10) and the Dhaka day
+      // disagreed by one (78-row audit finding, Sep 2026). Snapping on write
+      // keeps both bases identical no matter what the client sends; already
+      // canonical values (bulk import / new builds) pass through unchanged.
+      const snapExpenseDate = (v: unknown): string | null => {
+        const s = iso(v)
+        if (!s) return null
+        const t = Date.parse(s)
+        if (!Number.isFinite(t)) return s
+        const dhakaDay = new Date(t).toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka' })
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dhakaDay)) return s
+        return `${dhakaDay}T06:00:00Z`
+      }
       if (!c || !str(c.id).trim() || !str(c.branch_id).trim() || !str(c.requester_system_id).trim()) {
         errLog('claim_upsert', 'missing_required_fields', { id: c?.id, branch_id: c?.branch_id, has_system_id: !!c?.requester_system_id })
         return reply({ error: 'claim id, branch_id and requester_system_id are required' }, 400)
@@ -251,7 +266,7 @@ Deno.serve(async (request) => {
           attachments: attachmentsVal,
           requester_uid: resolvedRequesterUid,
           requester_role: pick(c.requester_role, c.worker_role),
-          requested_at: iso(c.requested_at), approved_at: null, settled_at: null,
+          requested_at: snapExpenseDate(c.requested_at), approved_at: null, settled_at: null,
           created_at: iso(c.created_at), updated_at: iso(c.updated_at),
           verified_by_uid: '', verified_by_system_id: null, verified_at: null, verified_comment: '',
           approved_by_uid: '', approved_by_system_id: null, approved_comment: '',
@@ -356,8 +371,10 @@ Deno.serve(async (request) => {
         }
         // Only enforced when the client actually sent a date (old builds
         // always do — full-row upsert); a missing value means "no change".
-        const wantReqAt = tsMillis(iso(c.requested_at))
-        if (wantReqAt !== null && wantReqAt !== tsMillis(existing.requested_at)) {
+        // Both sides snapped: a midnight-stored row vs a noon re-send of the
+        // same picked day must compare equal, not 409.
+        const wantReqAt = tsMillis(snapExpenseDate(c.requested_at))
+        if (wantReqAt !== null && wantReqAt !== tsMillis(snapExpenseDate(existing.requested_at))) {
           return reply({ error: 'Expense date cannot be changed after submission' }, 409)
         }
         const now = new Date().toISOString()
@@ -518,7 +535,7 @@ Deno.serve(async (request) => {
         attachments: oldStatus === 'pending' ? attachmentsVal : ((existing as Record<string, unknown>).attachments ?? []),
         requester_uid: String(existing.requester_uid ?? ''),
         requester_role: String(existing.requester_role ?? ''),
-        requested_at: oldStatus === 'pending' ? iso(c.requested_at) : existing.requested_at,
+        requested_at: oldStatus === 'pending' ? snapExpenseDate(c.requested_at) : existing.requested_at,
         approved_at: existing.approved_at, settled_at: existing.settled_at,
         created_at: existing.created_at, updated_at: now2,
         verified_by_uid: String(existing.verified_by_uid ?? ''),
