@@ -480,12 +480,14 @@ class PettyCashDashboardFragment : Fragment() {
 
     /** Filters state.requests by expense date (requestedDate, falling back to
      *  createdAt for old rows) within [claimsRangeStart, claimsRangeEnd) and
-     *  updates the three amount TextViews. Requested counts every claim in range
+     *  updates the three amount TextViews. All three figures share the SAME
+     *  in-range set so the dashboard always agrees with All Requests and the
+     *  report PDF for the same range: Requested counts every claim in range
      *  regardless of status; Approved is only claims still awaiting settlement
      *  (APPROVED / SETTLE_IN_PROCESS) -- this is the pending-settlement balance, which is
-     *  why it's the visually dominant figure; Settled is claims that reached SETTLED
-     *  within the range BY SETTLE DATE (settledAt), so a claim created last month
-     *  but paid this month counts here, not last month. */
+     *  why it's the visually dominant figure; Settled is SETTLED claims whose
+     *  EXPENSE date falls in range (not the settle date), so a bill always
+     *  belongs to the month its expense happened in. */
     private fun renderClaimsSummary(state: PettyCashState.Success) {
         tvClaimsDateRange.text = claimsRangeLabel
         val inRange = state.requests.filter {
@@ -495,8 +497,8 @@ class PettyCashDashboardFragment : Fragment() {
         val approvedTotal = inRange
             .filter { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
             .sumOf { it.approvedAmount }
-        val settledTotal = state.requests
-            .filter { it.status == PC_STATUS_SETTLED && it.settledAt in claimsRangeStart until claimsRangeEnd }
+        val settledTotal = inRange
+            .filter { it.status == PC_STATUS_SETTLED }
             .sumOf { it.settledAmount }
         tvClaimsApproved.text = taka(approvedTotal)
         tvClaimsRequested.text = taka(requestedTotal)

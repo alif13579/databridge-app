@@ -678,9 +678,12 @@ object SupabaseClaimsReader {
      *  above: a network hiccup here should surface as a real load error, not
      *  silently show "no requests".
      *
-     *  fromMillis/toMillis filter on created_at (the claim's creation instant)
-     *  — the same value the old Firebase claimId (`claim_<createdAtMillis>`)
-     *  range-query encoded, so this preserves identical range semantics.
+     *  fromMillis/toMillis filter on requested_at (the expense date) — the
+     *  same basis every claims screen (dashboard, All Requests, report PDF)
+     *  filters on, so one range means the same rows everywhere. (The old
+     *  Firebase claimId range-query encoded createdAt instead; that split is
+     *  exactly what made dashboard vs report totals disagree on backdated
+     *  claims, so it is intentionally not preserved.)
      *  branchIds (usually one, but a set) are pushed down as a single
      *  branch_id=in.(...) query instead of Firebase's old per-branch parallel
      *  fetches — one round trip instead of N. */
@@ -691,9 +694,9 @@ object SupabaseClaimsReader {
         val urlBuilder = StringBuilder("${SupabaseConfig.PROJECT_URL}/rest/v1/claims")
             .append("?select=").append(ACTOR_SELECT.encodeParam())
             .append("&branch_id=in.(").append(filter.branchIds.joinToString(",") { it.encodeParam() }).append(")")
-            .append("&created_at=gte.").append(filter.fromMillis.toIsoInstant().encodeParam())
-            .append("&created_at=lte.").append(filter.toMillis.toIsoInstant().encodeParam())
-            .append("&order=created_at.").append(if (filter.newestFirst) "desc" else "asc")
+            .append("&requested_at=gte.").append(filter.fromMillis.toIsoInstant().encodeParam())
+            .append("&requested_at=lte.").append(filter.toMillis.toIsoInstant().encodeParam())
+            .append("&order=requested_at.").append(if (filter.newestFirst) "desc" else "asc")
         if (filter.systemIds.isNotEmpty()) {
             urlBuilder.append("&requester_system_id=in.(").append(filter.systemIds.joinToString(",") { it.encodeParam() }).append(")")
         }
@@ -721,7 +724,8 @@ object SupabaseClaimsReader {
     /** Full-fidelity replacement for the old Firebase-based
      *  ClaimsRepository.searchMyClaims() — one system_id, no branch
      *  requirement (unlike [search]), matching what the old
-     *  claims_by_systemId-only index lookup did. Throws on failure, same
+     *  claims_by_systemId-only index lookup did. Range is on requested_at
+     *  (expense date), like [search] above. Throws on failure, same
      *  posture as [search] and [getById] above. */
     suspend fun searchMyClaims(systemId: String, fromMillis: Long, toMillis: Long, newestFirst: Boolean = true): ClaimsReport = withContext(Dispatchers.IO) {
         require(systemId.isNotBlank()) { "System ID is required" }
@@ -732,9 +736,9 @@ object SupabaseClaimsReader {
         val url = StringBuilder("${SupabaseConfig.PROJECT_URL}/rest/v1/claims")
             .append("?select=").append(ACTOR_SELECT.encodeParam())
             .append("&requester_system_id=eq.").append(systemId.encodeParam())
-            .append("&created_at=gte.").append(fromMillis.toIsoInstant().encodeParam())
-            .append("&created_at=lte.").append(toMillis.toIsoInstant().encodeParam())
-            .append("&order=created_at.").append(if (newestFirst) "desc" else "asc")
+            .append("&requested_at=gte.").append(fromMillis.toIsoInstant().encodeParam())
+            .append("&requested_at=lte.").append(toMillis.toIsoInstant().encodeParam())
+            .append("&order=requested_at.").append(if (newestFirst) "desc" else "asc")
             .toString()
         val response = SupabaseClientManager.httpClient.newCall(
             Request.Builder().url(url)

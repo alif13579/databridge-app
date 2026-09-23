@@ -20,8 +20,8 @@ import java.util.Locale
  * Petty Cash Management — Settlement History (mockup screen 7).
  *
  * Wired to PettyCashViewModel: real settled requests (PC_STATUS_SETTLED),
- * with a working All/Today/This Month tab filter based on the real
- * settledAt timestamp. Tapping a row opens Settlement Details (read-only,
+ * with a working All/Today/This Month tab filter based on the expense date
+ * (requestedDate) — same basis as every other claims screen. Tapping a row opens Settlement Details (read-only,
  * since the request is already settled — Settlement Details itself hides
  * all action buttons once status is SETTLED).
  */
@@ -37,9 +37,15 @@ class PettyCashSettlementHistoryFragment : Fragment() {
     private var branchId: String = ""
     private var selectedFilter: String = FILTER_ALL
     private var latestState: PettyCashState.Success? = null
-    // Date range in millis (settledAt basis, like the tabs below) — 0 = unset.
+    // Date range in millis (expense-date basis, like every other claims
+    // screen — a bill belongs to the month its expense happened in) — 0 = unset.
     private var dateFromMillis: Long = 0L
     private var dateToMillis: Long = 0L
+
+    /** Expense date for range/tab filtering — requestedDate, falling back to
+     *  createdAt for old rows submitted before requestedDate existed. */
+    private fun expenseDateOf(r: PettyCashRequest): Long =
+        if (r.requestedDate != 0L) r.requestedDate else r.createdAt
 
     companion object {
         private const val ARG_BRANCH_ID = "branch_id"
@@ -142,7 +148,7 @@ class PettyCashSettlementHistoryFragment : Fragment() {
     private fun settledRequests(): List<PettyCashRequest> =
         latestState?.requests
             ?.filter { it.status == PC_STATUS_SETTLED }
-            ?.sortedByDescending { it.settledAt }
+            ?.sortedByDescending { expenseDateOf(it) }
             ?: emptyList()
 
     private fun buildTabs() {
@@ -150,16 +156,16 @@ class PettyCashSettlementHistoryFragment : Fragment() {
         // Dynamic over the date-ranged set: counts reflect the range.
         // A tab with zero claims in range falls back to All.
         val all = dateScoped()
-        val hasToday = all.any { isToday(it.settledAt) }
-        val hasMonth = all.any { isThisMonth(it.settledAt) }
+        val hasToday = all.any { isToday(expenseDateOf(it)) }
+        val hasMonth = all.any { isThisMonth(expenseDateOf(it)) }
         if ((selectedFilter == FILTER_TODAY && !hasToday) ||
             (selectedFilter == FILTER_MONTH && !hasMonth)) {
             selectedFilter = FILTER_ALL
         }
         val tabs = listOf(
             Pair(FILTER_ALL, "All (${all.size})"),
-            Pair(FILTER_TODAY, "Today (${all.count { isToday(it.settledAt) }})"),
-            Pair(FILTER_MONTH, "This Month (${all.count { isThisMonth(it.settledAt) }})")
+            Pair(FILTER_TODAY, "Today (${all.count { isToday(expenseDateOf(it)) }})"),
+            Pair(FILTER_MONTH, "This Month (${all.count { isThisMonth(expenseDateOf(it)) }})")
         )
         tabs.forEach { (key, label) ->
             val tab = layoutInflater.inflate(R.layout.item_petty_cash_filter_tab, layoutTabs, false) as TextView
@@ -202,8 +208,8 @@ class PettyCashSettlementHistoryFragment : Fragment() {
 
     private fun renderList() {
         val tabFiltered = when (selectedFilter) {
-            FILTER_TODAY -> dateScoped().filter { isToday(it.settledAt) }
-            FILTER_MONTH -> dateScoped().filter { isThisMonth(it.settledAt) }
+            FILTER_TODAY -> dateScoped().filter { isToday(expenseDateOf(it)) }
+            FILTER_MONTH -> dateScoped().filter { isThisMonth(expenseDateOf(it)) }
             else -> dateScoped()
         }
         val filtered = tabFiltered
@@ -246,13 +252,14 @@ class PettyCashSettlementHistoryFragment : Fragment() {
         }
     }
 
-    /** Date-ranged working set (settledAt basis, like the tabs). No range = all time. */
+    /** Date-ranged working set (expense-date basis, like the tabs). No range = all time. */
     private fun dateScoped(): List<PettyCashRequest> {
         val all = settledRequests()
         if (dateFromMillis == 0L && dateToMillis == 0L) return all
         return all.filter { r ->
-            (dateFromMillis == 0L || r.settledAt >= dateFromMillis) &&
-                (dateToMillis == 0L || r.settledAt <= dateToMillis)
+            val d = expenseDateOf(r)
+            (dateFromMillis == 0L || d >= dateFromMillis) &&
+                (dateToMillis == 0L || d <= dateToMillis)
         }
     }
 
