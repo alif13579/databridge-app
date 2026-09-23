@@ -163,7 +163,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
             closeDrawer()
             exportChooser()
         }
-        view.findViewById<View>(R.id.tvPcPendingExport).setOnClickListener { exportChooser() }
         view.findViewById<View>(R.id.tvPcPendingRange).setOnClickListener { showDateRangeOptions() }
         view.findViewById<View>(R.id.tvPcPendingRangeClear).setOnClickListener { clearDateRange() }
         view.findViewById<View>(R.id.tvPcPendingSelectMode).setOnClickListener {

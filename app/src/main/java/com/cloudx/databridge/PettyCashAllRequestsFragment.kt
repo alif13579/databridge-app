@@ -150,7 +150,6 @@ class PettyCashAllRequestsFragment : Fragment() {
             advancedFilter = advancedFilter.copy(dateFromMillis = 0L, dateToMillis = 0L)
             applyDrawerChange()
         }
-        view.findViewById<View>(R.id.tvPcAllReqExport).setOnClickListener { exportChooser() }
         view.findViewById<View>(R.id.tvPcAllReqSelectMode).setOnClickListener {
             selectMode = !selectMode
             if (!selectMode) selectedIds.clear()
