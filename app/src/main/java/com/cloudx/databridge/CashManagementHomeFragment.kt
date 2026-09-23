@@ -358,6 +358,7 @@ class CashManagementHomeFragment : Fragment() {
                     headers = headers,
                     rows = tableRows,
                     colWeights = listOf(2.0f, 1.0f, 1.0f, 1.0f, 1.5f, 1.5f, 2.6f),
+                    appContext = requireContext(),
                 )
             }
         }

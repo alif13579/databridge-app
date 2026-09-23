@@ -1,5 +1,6 @@
 package com.cloudx.databridge
 
+import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -20,7 +21,11 @@ import java.util.Locale
  *   Page 3 — Agent Acknowledgement (one row per operation-expense agent,
  *            tall empty signature cells for signing on paper)
  *   Then — Conveyance Vouchers in one continuous flow (no per-agent page
- *          break, no huge gaps), each agent headed by its SL block.
+ *          break, no huge gaps): each agent is one bordered block exactly
+ *          like the sample PDF (title → SL → Agent ID → Designation →
+ *          9 column headers → one row per claim → 2 blank rows → G/Total →
+ *          In-word), same-LOT rows merged rowspan-style with one row per
+ *          consignment.
  *   Last — Unsettled Bills (only when the range has unsettled claims):
  *          one row per pending claim, stamped UNSETTLED.
  *
@@ -43,11 +48,15 @@ object PettyCashTopSheetPdfWriter {
     private val darkColor = Color.parseColor("#0F172A")
     private val mutedColor = Color.parseColor("#64748B")
     private val borderColor = Color.parseColor("#CBD5E1")
-    private val headerFillColor = Color.parseColor("#0F172A")
+    // Mid grey instead of near-black: readable headers at a fraction of the
+    // toner/ink (solid black fills are the most expensive thing on the page).
+    // Voucher column headers stay unfilled white, exactly like the sample PDF.
+    private val headerFillColor = Color.parseColor("#A3AEBB")
     private val lightFillColor = Color.parseColor("#F1F5F9")
 
     private val moneyFormat = NumberFormat.getNumberInstance(Locale.US)
     private val dateDisplayFormat = SimpleDateFormat("dd-MM-yy", Locale.US)
+    private val voucherDateFormat = SimpleDateFormat("dd-MMM-yyyy", Locale.US)
     private val dateIsoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     /**
@@ -137,7 +146,9 @@ private val legacyConveyanceTypes = setOf(
         fromDateIso: String,
         toDateIso: String,
         categoryGroups: Map<String, String> = emptyMap(),
+        appContext: Context? = null,
     ) {
+        appContext?.let(PdfFonts::init)
         val settled = claims.filter { it.status.equals("settled", ignoreCase = true) }
         fun groupOf(category: String): String =
             categoryGroups[category]
@@ -576,16 +587,28 @@ private val legacyConveyanceTypes = setOf(
     // returns the canvas + y to continue from (may be a fresh page after a
     // mid-table break). Callers keep flowing — no per-agent page breaks.
 
-    // Sample voucher columns (x-positions measured off the reference PDF):
+    // ── Conveyance Vouchers: one bordered block per agent, exactly like the
+    // sample "Conveyance Voucher.pdf" ─────────────────────────────────────
+    // Block layout (single 9-column grid, shared outer border):
+    //   title row (full span) → SL row (full span) → Agent ID row →
+    //   Designation row → 9 column headers → one row per claim →
+    //   2 blank spacer rows → G/Total row → In-word row.
+    // Sample column widths measured off the reference PDF:
     // Date | From | To | Description | Vehicle | Amount | Attempt quantity |
-    // Delivered | CID / Merchant — boxed grid, small bold headers.
+    // Delivered | CID / Merchant — all headers/data centered, dark hairlines.
     private val voucherHeaders = listOf(
-        "Date" to 0.10f, "From" to 0.11f, "To" to 0.08f, "Description" to 0.11f,
-        "Vehicle" to 0.10f, "Amount" to 0.10f, "Attempt quantity" to 0.12f,
-        "Delivered" to 0.11f, "CID / Merchant" to 0.17f,
+        "Date" to 0.100f, "From" to 0.101f, "To" to 0.100f, "Description" to 0.101f,
+        "Vehicle" to 0.101f, "Amount" to 0.100f, "Attempt quantity" to 0.136f,
+        "Delivered" to 0.100f, "CID / Merchant" to 0.161f,
     )
-    private val voucherRowH = 11f
-    private val voucherHeadH = 13f
+    private val voucherGridColor = Color.parseColor("#1F2937")
+    private val voucherTitleH = 20f
+    private val voucherSlH = 13f
+    private val voucherAgentH = 14f
+    private val voucherHeadH = 15f
+    private val voucherRowH = 12f
+    private val voucherGTotalH = 15f
+    private val voucherInWordH = 17f
 
     /** One renderable voucher line: a lone claim, or a LOT-ID group whose
      *  shared cells merge into one block (one row per consignment). All of
@@ -631,128 +654,199 @@ private val legacyConveyanceTypes = setOf(
     }
 
     private fun voucherDateLabel(claim: SupabaseClaimsReader.ClaimRow): String =
-        runCatching { dateDisplayFormat.format(dateIsoFormat.parse(claim.placedDate) ?: java.util.Date()) }
+        runCatching { voucherDateFormat.format(dateIsoFormat.parse(claim.placedDate) ?: java.util.Date()) }
             .getOrDefault(claim.placedDate)
 
-    /** Boxed column headers (small bold sans, grid lines like the other pages). */
-    private fun drawVoucherHeaderRow(canvas: Canvas, y: Float): Float {
+    /** Column pixel boundaries for the 9-column voucher grid. */
+    private fun voucherGrid(): Pair<List<Float>, List<Float>> {
+        val widths = voucherHeaders.map { it.second * contentWidth }
         var x = margin
-        val strokeBorder = strokePaint(borderColor, 0.6f)
-        val weights = voucherHeaders.map { it.second }
-        val widths = weights.map { it * contentWidth }
+        val xs = mutableListOf(x)
+        widths.forEach { w -> x += w; xs.add(x) }
+        return widths to xs
+    }
+
+    /** Vertically-centered baseline for [textSize] inside a row of height [h]. */
+    private fun centerBaseline(y: Float, h: Float, textSize: Float): Float =
+        y + h / 2f + textSize * 0.35f
+
+    private fun drawVoucherCellBox(canvas: Canvas, grid: Paint, x0: Float, y: Float, x1: Float, h: Float) {
+        canvas.drawRect(x0, y, x1, y + h, grid)
+    }
+
+    /** Title row: full-span "Conveyance Voucher", bold + centered. */
+    private fun drawVoucherTitleRow(canvas: Canvas, y: Float, xs: List<Float>, grid: Paint): Float {
+        drawVoucherCellBox(canvas, grid, xs[0], y, xs[9], voucherTitleH)
+        val paint = textPaint(darkColor, 11f, bold = true).apply { textAlign = Paint.Align.CENTER }
+        fitTextSize(paint, 11f, "Conveyance Voucher", contentWidth - 8f)
+        canvas.drawText("Conveyance Voucher", xs[0] + contentWidth / 2f, centerBaseline(y, voucherTitleH, 11f), paint)
+        return y + voucherTitleH
+    }
+
+    /** SL row: full-span "SL : N", bold, left. */
+    private fun drawVoucherSlRow(canvas: Canvas, y: Float, xs: List<Float>, grid: Paint, sl: Int): Float {
+        drawVoucherCellBox(canvas, grid, xs[0], y, xs[9], voucherSlH)
+        canvas.drawText("SL : $sl", xs[0] + 4f, centerBaseline(y, voucherSlH, 8f), textPaint(darkColor, 8f, bold = true))
+        return y + voucherSlH
+    }
+
+    /** Agent row: [Agent ID] [id + Agent Name] [name spanning the rest]. */
+    private fun drawVoucherAgentRow(
+        canvas: Canvas, y: Float, xs: List<Float>, grid: Paint,
+        claim: SupabaseClaimsReader.ClaimRow,
+    ): Float {
+        drawVoucherCellBox(canvas, grid, xs[0], y, xs[1], voucherAgentH)
+        drawVoucherCellBox(canvas, grid, xs[1], y, xs[3], voucherAgentH)
+        drawVoucherCellBox(canvas, grid, xs[3], y, xs[9], voucherAgentH)
+        val labelPaint = textPaint(darkColor, 7.5f, bold = true).apply { textAlign = Paint.Align.CENTER }
+        canvas.drawText("Agent ID", (xs[0] + xs[1]) / 2f, centerBaseline(y, voucherAgentH, 7.5f), labelPaint)
+        val idPaint = textPaint(darkColor, 7.5f)
+        val id = displayAgentId(claim)
+        fitTextSize(idPaint, 7.5f, id, (xs[3] - xs[1]) / 2f - 6f)
+        canvas.drawText(id, xs[1] + 3f, centerBaseline(y, voucherAgentH, 7.5f), idPaint)
+        canvas.drawText("Agent Name", (xs[1] + xs[3]) / 2f, centerBaseline(y, voucherAgentH, 7.5f), labelPaint)
+        val namePaint = textPaint(darkColor, 7.5f)
+        val name = claim.agentName.ifBlank { id }
+        fitTextSize(namePaint, 7.5f, name, (xs[9] - xs[3]) - 6f)
+        canvas.drawText(name, xs[3] + 3f, centerBaseline(y, voucherAgentH, 7.5f), namePaint)
+        return y + voucherAgentH
+    }
+
+    /** Designation row: [Designation:] [Delivery Agent ×2] [Department:
+     *  Fulfillment ×3] [empty] [empty] [empty]. */
+    private fun drawVoucherDesigRow(
+        canvas: Canvas, y: Float, xs: List<Float>, grid: Paint,
+        claim: SupabaseClaimsReader.ClaimRow,
+    ): Float {
+        drawVoucherCellBox(canvas, grid, xs[0], y, xs[1], voucherAgentH)
+        drawVoucherCellBox(canvas, grid, xs[1], y, xs[3], voucherAgentH)
+        drawVoucherCellBox(canvas, grid, xs[3], y, xs[6], voucherAgentH)
+        drawVoucherCellBox(canvas, grid, xs[6], y, xs[7], voucherAgentH)
+        drawVoucherCellBox(canvas, grid, xs[7], y, xs[8], voucherAgentH)
+        drawVoucherCellBox(canvas, grid, xs[8], y, xs[9], voucherAgentH)
+        val labelPaint = textPaint(darkColor, 7.5f, bold = true).apply { textAlign = Paint.Align.CENTER }
+        val leftLabel = textPaint(darkColor, 7.5f, bold = true)
+        canvas.drawText("Designation:", xs[0] + 3f, centerBaseline(y, voucherAgentH, 7.5f), leftLabel)
+        val desig = claim.agentDesignation.ifBlank { "Delivery Agent" }
+        fitTextSize(labelPaint, 7.5f, desig, (xs[3] - xs[1]) - 6f)
+        canvas.drawText(desig, (xs[1] + xs[3]) / 2f, centerBaseline(y, voucherAgentH, 7.5f), labelPaint)
+        canvas.drawText("Department: Fulfillment", (xs[3] + xs[6]) / 2f, centerBaseline(y, voucherAgentH, 7.5f), labelPaint)
+        return y + voucherAgentH
+    }
+
+    /** Column header row: 9 bold centered headers on white (sample-exact). */
+    private fun drawVoucherColHeader(canvas: Canvas, y: Float, widths: List<Float>, xs: List<Float>, grid: Paint): Float {
         voucherHeaders.forEachIndexed { i, (label, _) ->
-            val w = widths[i]
-            val right = i in 5..7
-            val paint = textPaint(darkColor, 6f, bold = true, sans = true).apply {
-                if (right) textAlign = Paint.Align.RIGHT
-            }
-            fitTextSize(paint, 6f, label, w - 4f)
-            if (right) canvas.drawText(label, x + w - 2f, y + voucherHeadH - 3f, paint)
-            else canvas.drawText(label, x + 2f, y + voucherHeadH - 3f, paint)
-            x += w
-        }
-        // Grid: outer box + column dividers.
-        var vx = margin
-        canvas.drawRect(margin, y, margin + contentWidth, y + voucherHeadH, strokeBorder)
-        widths.dropLast(1).forEach { w ->
-            vx += w
-            canvas.drawLine(vx, y, vx, y + voucherHeadH, strokeBorder)
+            drawVoucherCellBox(canvas, grid, xs[i], y, xs[i + 1], voucherHeadH)
+            val paint = textPaint(darkColor, 7f, bold = true).apply { textAlign = Paint.Align.CENTER }
+            fitTextSize(paint, 7f, label, widths[i] - 4f)
+            canvas.drawText(label, (xs[i] + xs[i + 1]) / 2f, centerBaseline(y, voucherHeadH, 7f), paint)
         }
         return y + voucherHeadH
     }
 
-    private fun drawVoucherRow(
-        canvas: Canvas, y: Float,
+    /** One claim = one 9-cell row, every value centered (sample-exact: even
+     *  consecutive duplicates repeat, nothing is hidden). */
+    private fun drawVoucherDataRow(
+        canvas: Canvas, y: Float, widths: List<Float>, xs: List<Float>, grid: Paint,
         claim: SupabaseClaimsReader.ClaimRow,
     ): Float {
-        var x = margin
-        val strokeBorder = strokePaint(borderColor, 0.6f)
-        val widths = voucherHeaders.map { it.second * contentWidth }
-        val left = textPaint(darkColor, 6.6f, sans = true)
-        val right = textPaint(darkColor, 6.6f, sans = true).apply { textAlign = Paint.Align.RIGHT }
         val values = listOf(
             voucherDateLabel(claim), areaLabel(claim.fromArea), areaLabel(claim.toArea), claim.category, claim.vehicle,
             moneyFormat.format(claim.settledAmount), claim.attemptQuantity.toString(),
             claim.deliveredQuantity.toString(), claim.cidOrMerchant,
         )
         values.forEachIndexed { i, text ->
-            val w = widths[i]
-            if (i in 5..7) {
-                fitTextSize(right, 6.6f, text, w - 4f)
-                canvas.drawText(text, x + w - 2f, y + voucherRowH - 2.5f, right)
-            } else {
-                fitTextSize(left, 6.6f, text, w - 4f)
-                canvas.drawText(text, x + 2f, y + voucherRowH - 2.5f, left)
-            }
-            x += w
-        }
-        // Grid: outer box + column dividers.
-        var vx = margin
-        canvas.drawRect(margin, y, margin + contentWidth, y + voucherRowH, strokeBorder)
-        widths.dropLast(1).forEach { w ->
-            vx += w
-            canvas.drawLine(vx, y, vx, y + voucherRowH, strokeBorder)
+            drawVoucherCellBox(canvas, grid, xs[i], y, xs[i + 1], voucherRowH)
+            val paint = textPaint(darkColor, 6.8f).apply { textAlign = Paint.Align.CENTER }
+            fitTextSize(paint, 6.8f, text.ifBlank { "-" }, widths[i] - 4f)
+            canvas.drawText(text.ifBlank { "-" }, (xs[i] + xs[i + 1]) / 2f, centerBaseline(y, voucherRowH, 6.8f), paint)
         }
         return y + voucherRowH
     }
 
-    /** Merged LOT block with grid lines — the shared values
-     *  (Date/From/To/Description/Vehicle/Amount-SUM/Attempted-SUM/Delivered-
-     *  SUM) appear ONCE, vertically centered, while every consignment keeps
-     *  its own CID row. Shared values come from the first row (a LOT batch
-     *  is one trip: same date/route/vehicle by construction). */
-    private fun drawLotBlock(
-        canvas: Canvas, y: Float,
+    /** Merged LOT block (rowspan): claims sharing one LOT ID are one trip, so
+     *  the shared cells (Date…Delivered, Amount/Attempt/Delivered summed)
+     *  merge into a single vertically-centered cell while every consignment
+     *  keeps its own CID row. Horizontal rules only split the CID column. */
+    private fun drawVoucherLotBlock(
+        canvas: Canvas, y: Float, widths: List<Float>, xs: List<Float>, grid: Paint,
         group: List<SupabaseClaimsReader.ClaimRow>,
     ): Float {
         val blockH = voucherRowH * group.size
-        val strokeBorder = strokePaint(borderColor, 0.6f)
-        val widths = voucherHeaders.map { it.second * contentWidth }
         val first = group.first()
-
-        // Grid: outer border, full-height vertical dividers, per-row horizontals.
-        var x = margin
-        val xs = mutableListOf(margin)
-        widths.forEach { w -> x += w; xs.add(x) }
-        canvas.drawRect(margin, y, margin + contentWidth, y + blockH, strokeBorder)
-        xs.drop(1).dropLast(1).forEach { vx ->
-            canvas.drawLine(vx, y, vx, y + blockH, strokeBorder)
+        // Outer box + full-height vertical dividers.
+        canvas.drawRect(xs[0], y, xs[9], y + blockH, grid)
+        for (i in 1 until 9) canvas.drawLine(xs[i], y, xs[i], y + blockH, grid)
+        // Row splits inside the CID column only (merged cells have no splits).
+        for (r in 1 until group.size) {
+            val hy = y + voucherRowH * r
+            canvas.drawLine(xs[8], hy, xs[9], hy, grid)
         }
-        for (i in 1 until group.size) {
-            val hy = y + voucherRowH * i
-            canvas.drawLine(margin, hy, margin + contentWidth, hy, strokeBorder)
-        }
-        // Merged cells (cols 0..7), vertically centered.
-        val midY = y + blockH / 2f + 2.5f
-        val leftPaint = textPaint(darkColor, 6.6f, sans = true)
-        val rightPaint = textPaint(darkColor, 6.6f, sans = true).apply { textAlign = Paint.Align.RIGHT }
+        // Merged shared cells (cols 0..7), vertically centered.
+        val midBase = centerBaseline(y, blockH, 6.8f)
         val merged = listOf(
-            voucherDateLabel(first) to false,
-            areaLabel(first.fromArea) to false,
-            areaLabel(first.toArea) to false,
-            first.category to false,
-            first.vehicle to false,
-            moneyFormat.format(group.sumOf { it.settledAmount }) to true,
-            group.sumOf { it.attemptQuantity }.toString() to true,
-            group.sumOf { it.deliveredQuantity }.toString() to true,
+            voucherDateLabel(first), areaLabel(first.fromArea), areaLabel(first.toArea),
+            first.category, first.vehicle,
+            moneyFormat.format(group.sumOf { it.settledAmount }),
+            group.sumOf { it.attemptQuantity }.toString(),
+            group.sumOf { it.deliveredQuantity }.toString(),
         )
-        merged.forEachIndexed { i, (text, right) ->
-            val w = widths[i]
-            if (right) {
-                fitTextSize(rightPaint, 6.6f, text, w - 4f)
-                canvas.drawText(text, xs[i] + w - 2f, midY, rightPaint)
-            } else {
-                fitTextSize(leftPaint, 6.6f, text, w - 4f)
-                canvas.drawText(text, xs[i] + 2f, midY, leftPaint)
-            }
+        merged.forEachIndexed { i, text ->
+            val paint = textPaint(darkColor, 6.8f).apply { textAlign = Paint.Align.CENTER }
+            fitTextSize(paint, 6.8f, text.ifBlank { "-" }, widths[i] - 4f)
+            canvas.drawText(text.ifBlank { "-" }, (xs[i] + xs[i + 1]) / 2f, midBase, paint)
         }
         // Per-row CID cells.
-        val cidPaint = textPaint(darkColor, 6.6f, sans = true)
-        group.forEachIndexed { i, claim ->
-            fitTextSize(cidPaint, 6.6f, claim.cidOrMerchant, widths[8] - 4f)
-            canvas.drawText(claim.cidOrMerchant, xs[8] + 2f, y + voucherRowH * i + voucherRowH - 2.5f, cidPaint)
+        group.forEachIndexed { r, claim ->
+            val paint = textPaint(darkColor, 6.8f).apply { textAlign = Paint.Align.CENTER }
+            val cid = claim.cidOrMerchant.ifBlank { "-" }
+            fitTextSize(paint, 6.8f, cid, widths[8] - 4f)
+            canvas.drawText(cid, (xs[8] + xs[9]) / 2f, centerBaseline(y + voucherRowH * r, voucherRowH, 6.8f), paint)
         }
         return y + blockH
+    }
+
+    private fun drawVoucherBlankRow(canvas: Canvas, xs: List<Float>, grid: Paint, y: Float): Float {
+        for (i in 0 until 9) drawVoucherCellBox(canvas, grid, xs[i], y, xs[i + 1], voucherRowH)
+        return y + voucherRowH
+    }
+
+    /** G/Total row: [empty ×2] [G/Total = ×3] [total] [Total Delivered =]
+     *  [delivered] [empty] — merges measured off the sample. */
+    private fun drawVoucherGTotalRow(
+        canvas: Canvas, y: Float, xs: List<Float>, grid: Paint,
+        gTotal: Double, totalDelivered: Int,
+    ): Float {
+        drawVoucherCellBox(canvas, grid, xs[0], y, xs[1], voucherGTotalH)
+        drawVoucherCellBox(canvas, grid, xs[1], y, xs[2], voucherGTotalH)
+        drawVoucherCellBox(canvas, grid, xs[2], y, xs[5], voucherGTotalH)
+        drawVoucherCellBox(canvas, grid, xs[5], y, xs[6], voucherGTotalH)
+        drawVoucherCellBox(canvas, grid, xs[6], y, xs[7], voucherGTotalH)
+        drawVoucherCellBox(canvas, grid, xs[7], y, xs[8], voucherGTotalH)
+        drawVoucherCellBox(canvas, grid, xs[8], y, xs[9], voucherGTotalH)
+        fun centered(x0: Float, x1: Float, text: String) {
+            val paint = textPaint(darkColor, 8f, bold = true).apply { textAlign = Paint.Align.CENTER }
+            fitTextSize(paint, 8f, text, (x1 - x0) - 4f)
+            canvas.drawText(text, (x0 + x1) / 2f, centerBaseline(y, voucherGTotalH, 8f), paint)
+        }
+        centered(xs[2], xs[5], "G/Total =")
+        centered(xs[5], xs[6], moneyFormat.format(gTotal))
+        centered(xs[6], xs[7], "Total Delivered =")
+        centered(xs[7], xs[8], totalDelivered.toString())
+        return y + voucherGTotalH
+    }
+
+    /** In-word row: [In word:] [words spanning the rest, centered]. */
+    private fun drawVoucherInWordRow(canvas: Canvas, y: Float, xs: List<Float>, grid: Paint, gTotal: Double): Float {
+        drawVoucherCellBox(canvas, grid, xs[0], y, xs[1], voucherInWordH)
+        drawVoucherCellBox(canvas, grid, xs[1], y, xs[9], voucherInWordH)
+        canvas.drawText("In word:", xs[0] + 3f, centerBaseline(y, voucherInWordH, 7.5f), textPaint(darkColor, 7.5f, bold = true))
+        val words = amountInWords(gTotal)
+        val paint = textPaint(darkColor, 8f, bold = true).apply { textAlign = Paint.Align.CENTER }
+        fitTextSize(paint, 8f, words, (xs[9] - xs[1]) - 6f)
+        canvas.drawText(words, (xs[1] + xs[9]) / 2f, centerBaseline(y, voucherInWordH, 8f), paint)
+        return y + voucherInWordH
     }
 
     private fun drawConveyanceVoucherAgent(
@@ -764,108 +858,72 @@ private val legacyConveyanceTypes = setOf(
     ): Pair<Canvas, Float> {
         var canvas = startCanvas
         var y = startY
-        val titlePaint = textPaint(darkColor, 11f, bold = true, sans = true)
-        val labelPaint = textPaint(darkColor, 7.5f, bold = true, sans = true)
-        val valuePaint = textPaint(darkColor, 7.5f, sans = true)
-        val smallBold = textPaint(darkColor, 7f, bold = true, sans = true)
+        val (widths, xs) = voucherGrid()
+        val grid = strokePaint(voucherGridColor, 0.7f)
         val first = agentClaims.first()
-        val agentName = first.agentName
-
-        // Keep at least the agent header + column header + first row together.
-        if (y + 14f + 12f + 26f + voucherHeadH + voucherRowH > pageHeight - margin) {
-            ctx.nextPage(); canvas = ctx.canvas; y = margin
-        }
-        // Sample-style agent header: title, SL, then two label/value rows
-        // (labels bold, values normal), no boxes.
-        canvas.drawText("Conveyance Voucher", margin, y + 10f, titlePaint)
-        y += 15f
-        canvas.drawText("SL : $sl", margin, y + 8f, smallBold)
-        y += 12f
-        y = drawVoucherAgentLine(canvas, y, "Agent ID", displayAgentId(first), "Agent Name", agentName, labelPaint, valuePaint)
-        y = drawVoucherAgentLine(
-            canvas, y, "Designation", first.agentDesignation.ifBlank { "Delivery Agent" },
-            "Department", "Fulfillment", labelPaint, valuePaint,
-        )
-        y += 5f
-
-        y = drawVoucherHeaderRow(canvas, y)
-        // Rows: LOT claims sharing a LOT ID (store_id) render as one merged
-        // block (shared values once, one row per consignment); the rest
-        // render as normal single rows — all in expense-date order.
         val items = partitionVoucherItems(agentClaims)
-        items.forEach { item ->
-            when (item) {
-                is VoucherItem.Single -> {
-                    if (y + voucherRowH > pageHeight - margin - 46f) {
-                        ctx.nextPage(); canvas = ctx.canvas; y = margin
-                        canvas.drawText("$agentName (contd.)", margin, y + 8f, valuePaint)
-                        y += 12f
-                        y = drawVoucherHeaderRow(canvas, y)
-                    }
-                    y = drawVoucherRow(canvas, y, item.claim)
-                }
-                is VoucherItem.LotGroup -> {
-                    val blockH = voucherRowH * item.claims.size
-                    val freshPageH = pageHeight - margin - 46f - margin
-                    if (y + blockH > pageHeight - margin - 46f && blockH <= freshPageH) {
-                        ctx.nextPage(); canvas = ctx.canvas; y = margin
-                        canvas.drawText("$agentName (contd.)", margin, y + 8f, valuePaint)
-                        y += 12f
-                        y = drawVoucherHeaderRow(canvas, y)
-                    }
-                    if (blockH <= freshPageH) {
-                        y = drawLotBlock(canvas, y, item.claims)
-                    } else {
-                        // Oversized group (taller than a page): fall back to
-                        // plain rows so no data is ever lost.
-                        item.claims.forEach { claim ->
-                            if (y + voucherRowH > pageHeight - margin - 46f) {
-                                ctx.nextPage(); canvas = ctx.canvas; y = margin
-                                canvas.drawText("$agentName (contd.)", margin, y + 8f, valuePaint)
-                                y += 12f
-                                y = drawVoucherHeaderRow(canvas, y)
-                            }
-                            y = drawVoucherRow(canvas, y, claim)
-                        }
-                    }
-                }
-            }
-        }
         val gTotal = agentClaims.sumOf { it.settledAmount }
         val totalDelivered = agentClaims.sumOf { it.deliveredQuantity }
-        // Keep G/Total + In-word together on one page, with breathing room
-        // above, between, and below.
-        if (y + 10f + 13f + 12f + 16f + 14f > pageHeight - margin) {
-            ctx.nextPage(); canvas = ctx.canvas; y = margin
-        }
-        y += 10f
-        canvas.drawText("G/Total = ${moneyFormat.format(gTotal)}   Total Delivered = $totalDelivered", margin, y + 9f, textPaint(darkColor, 8f, bold = true, sans = true))
-        y += 12f
-        if (y + 16f + 14f > pageHeight - margin) {
-            ctx.nextPage(); canvas = ctx.canvas; y = margin
-        }
-        y += 16f
-        canvas.drawText("In word: ${amountInWords(gTotal)}", margin, y, textPaint(darkColor, 8f, sans = true))
-        y += 14f
-        return canvas to y
-    }
 
-    /** One sample-style agent header line: two bold labels + normal values. */
-    private fun drawVoucherAgentLine(
-        canvas: Canvas, y: Float, label1: String, value1: String, label2: String, value2: String,
-        labelPaint: Paint, valuePaint: Paint,
-    ): Float {
-        val rowH = 11f
-        val half = contentWidth / 2f
-        canvas.drawText(label1, margin, y + 8f, labelPaint)
-        val w1 = labelPaint.measureText("$label1 ")
-        fitTextSize(valuePaint, 7.5f, value1, half - w1 - 8f)
-        canvas.drawText(value1, margin + w1 + 2f, y + 8f, valuePaint)
-        canvas.drawText(label2, margin + half, y + 8f, labelPaint)
-        val w2 = labelPaint.measureText("$label2 ")
-        fitTextSize(valuePaint, 7.5f, value2, half - w2 - 8f)
-        canvas.drawText(value2, margin + half + w2 + 2f, y + 8f, valuePaint)
-        return y + rowH
+        fun itemHeight(item: VoucherItem): Float = when (item) {
+            is VoucherItem.Single -> voucherRowH
+            is VoucherItem.LotGroup -> voucherRowH * item.claims.size
+        }
+
+        // Keep at least the block head + column headers + first row together.
+        val headH = voucherTitleH + voucherSlH + voucherAgentH * 2 + voucherHeadH
+        if (y + headH + voucherRowH > pageHeight - margin) {
+            ctx.nextPage(); canvas = ctx.canvas; y = margin
+        }
+        y = drawVoucherTitleRow(canvas, y, xs, grid)
+        y = drawVoucherSlRow(canvas, y, xs, grid, sl)
+        y = drawVoucherAgentRow(canvas, y, xs, grid, first)
+        y = drawVoucherDesigRow(canvas, y, xs, grid, first)
+        y = drawVoucherColHeader(canvas, y, widths, xs, grid)
+
+        // Rows: LOT claims sharing a LOT ID (store_id) render as one merged
+        // rowspan block; the rest render as normal single rows — all in
+        // expense-date order. A table that outgrows the page continues with
+        // its column headers repeated.
+        val freshPageH = pageHeight - margin - margin
+        items.forEach { item ->
+            val h = itemHeight(item)
+            val overSized = h > freshPageH - voucherHeadH
+            if (!overSized && y + h > pageHeight - margin) {
+                ctx.nextPage(); canvas = ctx.canvas; y = margin
+                y = drawVoucherColHeader(canvas, y, widths, xs, grid)
+            }
+            y = when (item) {
+                is VoucherItem.Single -> drawVoucherDataRow(canvas, y, widths, xs, grid, item.claim)
+                is VoucherItem.LotGroup ->
+                    if (!overSized) drawVoucherLotBlock(canvas, y, widths, xs, grid, item.claims)
+                    else {
+                        // Taller than a page: fall back to plain rows so no
+                        // data is ever lost.
+                        var yy = y
+                        item.claims.forEach { claim ->
+                            if (yy + voucherRowH > pageHeight - margin) {
+                                ctx.nextPage(); canvas = ctx.canvas; yy = margin
+                                yy = drawVoucherColHeader(canvas, yy, widths, xs, grid)
+                            }
+                            yy = drawVoucherDataRow(canvas, yy, widths, xs, grid, claim)
+                        }
+                        yy
+                    }
+            }
+        }
+        // Sample-style tail: 2 blank spacer rows, then G/Total + In-word —
+        // kept together on one page.
+        val tailH = voucherRowH * 2 + voucherGTotalH + voucherInWordH
+        if (y + tailH > pageHeight - margin) {
+            ctx.nextPage(); canvas = ctx.canvas; y = margin
+            y = drawVoucherColHeader(canvas, y, widths, xs, grid)
+        }
+        y = drawVoucherBlankRow(canvas, xs, grid, y)
+        y = drawVoucherBlankRow(canvas, xs, grid, y)
+        y = drawVoucherGTotalRow(canvas, y, xs, grid, gTotal, totalDelivered)
+        y = drawVoucherInWordRow(canvas, y, xs, grid, gTotal)
+        return canvas to y
     }
 
     // ── Unsettled Bills page ─────────────────────────────────────────────────
@@ -926,20 +984,18 @@ private val legacyConveyanceTypes = setOf(
 
     // ── Shared drawing helpers ───────────────────────────────────────────────
 
-    // Corporate report look (matches the reference Pathao PDF): serif family
-    // on the summary pages — the default sans looked "robotic" next to it.
-    // Voucher tables: plain sans (Arial-like), boxed grid rows,
-    // small bold headers (sans = true).
-    private fun textPaint(colorInt: Int, size: Float, bold: Boolean = false, italic: Boolean = false, sans: Boolean = false): Paint =
+    // Every word in the report is Liberation Sans (bundled, SIL OFL) — the
+    // Arial-metric look of the reference PDFs, identical on every device.
+    // Falls back to the system sans only when the bundled fonts haven't been
+    // initialised (generate() always inits when it receives a Context).
+    private fun textPaint(colorInt: Int, size: Float, bold: Boolean = false, italic: Boolean = false, sans: Boolean = true): Paint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = colorInt
             textSize = size
-            typeface = when {
-                sans && bold -> Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                sans -> Typeface.DEFAULT
-                bold -> Typeface.create(Typeface.SERIF, Typeface.BOLD)
-                italic -> Typeface.create(Typeface.SERIF, Typeface.ITALIC)
-                else -> Typeface.SERIF
+            typeface = PdfFonts.of(bold, italic) ?: when {
+                bold -> Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                italic -> Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+                else -> Typeface.DEFAULT
             }
         }
 
@@ -1007,7 +1063,7 @@ private val legacyConveyanceTypes = setOf(
         var x = margin
         cols.forEach { (label, weight) ->
             val width = weight * contentWidth
-            val headerPaint = textPaint(Color.WHITE, 7.5f, bold = true)
+            val headerPaint = textPaint(darkColor, 7.5f, bold = true)
             fitTextSize(headerPaint, 7.5f, label, width - 6f)
             canvas.drawText(label, x + 3f, y + rowHeight - 5f, headerPaint)
             x += width
@@ -1044,8 +1100,8 @@ private val legacyConveyanceTypes = setOf(
     private fun drawSummaryGroupHeader(canvas: Canvas, y: Float, groupLabel: String, amountLabel: String, strokeBorder: Paint, fillColor: Int): Float {
         val rowHeight = 14f
         canvas.drawRect(margin, y, margin + contentWidth, y + rowHeight, fillPaint(fillColor))
-        val headerPaint = textPaint(Color.WHITE, 7.5f, bold = true)
-        val rightPaint = textPaint(Color.WHITE, 7.5f, bold = true).apply { textAlign = Paint.Align.RIGHT }
+        val headerPaint = textPaint(darkColor, 7.5f, bold = true)
+        val rightPaint = textPaint(darkColor, 7.5f, bold = true).apply { textAlign = Paint.Align.RIGHT }
         canvas.drawText(groupLabel, margin + 3f, y + rowHeight - 4f, headerPaint)
         canvas.drawText(amountLabel, margin + contentWidth - 3f, y + rowHeight - 4f, rightPaint)
         canvas.drawRect(margin, y, margin + contentWidth, y + rowHeight, strokeBorder)

@@ -183,7 +183,9 @@ object CashExportWriter {
         headers: List<String>,
         rows: List<List<Any>>,
         colWeights: List<Float>,
+        appContext: android.content.Context? = null,
     ) {
+        appContext?.let(PdfFonts::init)
         outFile.parentFile?.mkdirs()
 
         val pageWidth = 595
@@ -309,7 +311,7 @@ object CashExportWriter {
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = colorInt
             textSize = size
-            typeface = when {
+            typeface = PdfFonts.of(bold, italic) ?: when {
                 bold -> Typeface.DEFAULT_BOLD
                 italic -> Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
                 else -> Typeface.DEFAULT

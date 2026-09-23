@@ -524,6 +524,7 @@ class CashLedgerListFragment : Fragment() {
                     headers = headers,
                     rows = tableRows,
                     colWeights = pdfColWeights(),
+                    appContext = requireContext(),
                 )
             }
         }

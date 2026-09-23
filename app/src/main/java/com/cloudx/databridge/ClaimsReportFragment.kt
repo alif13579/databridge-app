@@ -318,6 +318,7 @@ private var lastPdf: File? = null
                     fromDateIso = fromIso,
                     toDateIso = toIso,
                     categoryGroups = categoryGroups,
+                    appContext = requireContext(),
                 )
                 Triple(outFile, claims, fromIso to toIso)
             }.onSuccess { (file, claims, range) ->

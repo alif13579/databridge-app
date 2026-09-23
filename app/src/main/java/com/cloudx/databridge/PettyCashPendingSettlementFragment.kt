@@ -1337,6 +1337,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
                     fromDateIso = fromIso,
                     toDateIso = toIso,
                     categoryGroups = categoryGroups,
+                    appContext = ctx,
                 )
                 outFile to claims.size
             }.onSuccess { (file, count) ->
