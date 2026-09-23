@@ -253,6 +253,16 @@ private val legacyConveyanceTypes = setOf(
         var voucherSl = 1
         var voucherCanvas = ctx.canvas
         var voucherY = margin
+        // One measured grid for the whole report (same columns line up
+        // across blocks); category-wise measures the Agent column.
+        val (vWidths, vXs) = voucherGrid(
+            conveyanceClaims, agentColumn = voucherGrouping == VoucherGrouping.CATEGORY_WISE,
+        )
+        // Breathing room between consecutive voucher blocks (skipped when a
+        // block ends flush at the page bottom — the page break itself is the
+        // separator there).
+        fun gapAfter(y: Float): Float =
+            if (y + voucherGap <= pageHeight - margin) y + voucherGap else y
         when (voucherGrouping) {
             VoucherGrouping.AGENT_WISE -> {
                 val agentOrder = LinkedHashSet<String>()
@@ -261,9 +271,9 @@ private val legacyConveyanceTypes = setOf(
                     val agentClaims = conveyanceClaims.filter { it.agentSystemId == agentSystemId }
                         .sortedBy { it.placedDate }
                     if (agentClaims.isEmpty()) return@forEach
-                    val drawn = drawConveyanceVoucherAgent(ctx, voucherCanvas, voucherY, agentClaims, voucherSl)
+                    val drawn = drawConveyanceVoucherAgent(ctx, voucherCanvas, voucherY, vWidths, vXs, agentClaims, voucherSl)
                     voucherCanvas = drawn.first
-                    voucherY = drawn.second
+                    voucherY = gapAfter(drawn.second)
                     voucherSl += 1
                 }
             }
@@ -275,9 +285,9 @@ private val legacyConveyanceTypes = setOf(
                         .filter { it.category.ifBlank { "Other" } == category }
                         .sortedBy { it.placedDate }
                     if (catClaims.isEmpty()) return@forEach
-                    val drawn = drawConveyanceVoucherCategory(ctx, voucherCanvas, voucherY, category, catClaims, voucherSl)
+                    val drawn = drawConveyanceVoucherCategory(ctx, voucherCanvas, voucherY, vWidths, vXs, category, catClaims, voucherSl)
                     voucherCanvas = drawn.first
-                    voucherY = drawn.second
+                    voucherY = gapAfter(drawn.second)
                     voucherSl += 1
                 }
             }
@@ -634,6 +644,7 @@ private val legacyConveyanceTypes = setOf(
     private val voucherRowH = 12f
     private val voucherGTotalH = 15f
     private val voucherInWordH = 17f
+    private val voucherGap = 12f
 
     /** One renderable voucher line: a lone claim, or a LOT-ID group whose
      *  shared cells merge into one block (one row per consignment). All of
@@ -689,9 +700,40 @@ private val legacyConveyanceTypes = setOf(
         runCatching { voucherDateFormat.format(dateIsoFormat.parse(claim.placedDate) ?: java.util.Date()) }
             .getOrDefault(claim.placedDate)
 
-    /** Column pixel boundaries for the 9-column voucher grid. */
-    private fun voucherGrid(): Pair<List<Float>, List<Float>> {
-        val widths = voucherHeaders.map { it.second * contentWidth }
+    /** Column pixel boundaries for the 9-column voucher grid — widths are
+     *  measured from the actual content (headers + every row of [claims]),
+     *  so a short-CID report doesn't waste half the page on CID while
+     *  squeezing the rest. Each column gets padding, a minimum (headers must
+     *  fit) and a maximum cap (one long merchant can't eat the table);
+     *  the result is normalized to exactly fill the content width. */
+    private fun voucherGrid(
+        claims: List<SupabaseClaimsReader.ClaimRow>,
+        agentColumn: Boolean,
+    ): Pair<List<Float>, List<Float>> {
+        val headerPaint = textPaint(darkColor, 7f, bold = true)
+        val dataPaint = textPaint(darkColor, 6.8f)
+        val maxW = FloatArray(9)
+        voucherHeaders.forEachIndexed { i, (label, _) ->
+            val shown = if (i == 3 && agentColumn) "Agent" else label
+            maxW[i] = headerPaint.measureText(shown)
+        }
+        claims.forEach { c ->
+            val vals = listOf(
+                voucherDateLabel(c), areaLabel(c.fromArea), areaLabel(c.toArea),
+                if (agentColumn) c.agentName.ifBlank { displayAgentId(c) } else c.category,
+                c.vehicle, moneyFormat.format(c.settledAmount),
+                c.attemptQuantity.toString(), c.deliveredQuantity.toString(), c.cidOrMerchant,
+            )
+            vals.forEachIndexed { i, s ->
+                maxW[i] = maxOf(maxW[i], dataPaint.measureText(s.ifBlank { "-" }))
+            }
+        }
+        val pad = 8f
+        val minW = floatArrayOf(46f, 40f, 32f, 50f, 36f, 36f, 52f, 42f, 62f)
+        val capW = floatArrayOf(78f, 92f, 72f, 118f, 72f, 66f, 86f, 86f, 176f)
+        val natural = maxW.mapIndexed { i, m -> (m + pad).coerceIn(minW[i], capW[i]) }
+        val total = natural.sum().takeIf { it > 0f } ?: contentWidth
+        val widths = natural.map { it / total * contentWidth }
         var x = margin
         val xs = mutableListOf(x)
         widths.forEach { w -> x += w; xs.add(x) }
@@ -732,11 +774,17 @@ private val legacyConveyanceTypes = setOf(
         drawVoucherCellBox(canvas, grid, xs[3], y, xs[9], voucherAgentH)
         val labelPaint = textPaint(darkColor, 7.5f, bold = true).apply { textAlign = Paint.Align.CENTER }
         canvas.drawText("Agent ID", (xs[0] + xs[1]) / 2f, centerBaseline(y, voucherAgentH, 7.5f), labelPaint)
+        // Middle cell is split in two halves: id on the left, "Agent Name"
+        // label centered in the right half — a long id can never reach the
+        // label, so they can't overlap.
+        val midX = (xs[1] + xs[3]) / 2f
         val idPaint = textPaint(darkColor, 7.5f)
         val id = displayAgentId(claim)
-        fitTextSize(idPaint, 7.5f, id, (xs[3] - xs[1]) / 2f - 6f)
+        fitTextSize(idPaint, 7.5f, id, (midX - xs[1]) - 6f)
         canvas.drawText(id, xs[1] + 3f, centerBaseline(y, voucherAgentH, 7.5f), idPaint)
-        canvas.drawText("Agent Name", (xs[1] + xs[3]) / 2f, centerBaseline(y, voucherAgentH, 7.5f), labelPaint)
+        val nameLabelPaint = textPaint(darkColor, 7.5f, bold = true).apply { textAlign = Paint.Align.CENTER }
+        fitTextSize(nameLabelPaint, 7.5f, "Agent Name", (xs[3] - midX) - 6f)
+        canvas.drawText("Agent Name", (midX + xs[3]) / 2f, centerBaseline(y, voucherAgentH, 7.5f), nameLabelPaint)
         val namePaint = textPaint(darkColor, 7.5f)
         val name = claim.agentName.ifBlank { id }
         fitTextSize(namePaint, 7.5f, name, (xs[9] - xs[3]) - 6f)
@@ -896,12 +944,13 @@ private val legacyConveyanceTypes = setOf(
         ctx: PageCtx,
         startCanvas: Canvas,
         startY: Float,
+        widths: List<Float>,
+        xs: List<Float>,
         agentClaims: List<SupabaseClaimsReader.ClaimRow>,
         sl: Int,
     ): Pair<Canvas, Float> {
         var canvas = startCanvas
         var y = startY
-        val (widths, xs) = voucherGrid()
         val grid = strokePaint(voucherGridColor, 0.7f)
         val first = agentClaims.first()
         val items = partitionVoucherItems(agentClaims)
@@ -1015,13 +1064,14 @@ private val legacyConveyanceTypes = setOf(
         ctx: PageCtx,
         startCanvas: Canvas,
         startY: Float,
+        widths: List<Float>,
+        xs: List<Float>,
         category: String,
         catClaims: List<SupabaseClaimsReader.ClaimRow>,
         sl: Int,
     ): Pair<Canvas, Float> {
         var canvas = startCanvas
         var y = startY
-        val (widths, xs) = voucherGrid()
         val grid = strokePaint(voucherGridColor, 0.7f)
         val agentNames = catClaims.map { it.agentName.ifBlank { displayAgentId(it) } }
             .distinct().sorted()
@@ -1239,12 +1289,15 @@ private val legacyConveyanceTypes = setOf(
             val width = weights.getOrElse(i) { 0.1f } * contentWidth
             // blankCells (e.g. signature) stay empty for signing — never "-".
             val text = if (i in blankCells) "" else value.ifBlank { "-" }
+            // Vertically centered (tall acknowledgement rows used to sit on
+            // the bottom border).
+            val base = centerBaseline(y, rowHeight, 7.5f)
             if (i in alignRight) {
                 fitTextSize(rightPaint, 7.5f, text, width - 6f)
-                canvas.drawText(text, x + width - 3f, y + rowHeight - 4f, rightPaint)
+                canvas.drawText(text, x + width - 3f, base, rightPaint)
             } else {
                 fitTextSize(leftPaint, 7.5f, text, width - 6f)
-                canvas.drawText(text, x + 3f, y + rowHeight - 4f, leftPaint)
+                canvas.drawText(text, x + 3f, base, leftPaint)
             }
             x += width
         }
