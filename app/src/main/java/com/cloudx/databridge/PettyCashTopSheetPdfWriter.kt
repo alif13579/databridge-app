@@ -40,6 +40,10 @@ import java.util.Locale
  * this differs from CashExportWriter's single continuously-flowing table.
  */
 object PettyCashTopSheetPdfWriter {
+    /** Voucher page grouping: one bordered block per agent (classic), or one
+     *  bordered block per conveyance category holding every agent's rows. */
+    enum class VoucherGrouping { AGENT_WISE, CATEGORY_WISE }
+
     private const val pageWidth = 595   // A4 width in points (210mm @ 72pt/in)
     private const val pageHeight = 842  // A4 height in points (297mm @ 72pt/in)
     private const val margin = 36f
@@ -146,6 +150,7 @@ private val legacyConveyanceTypes = setOf(
         fromDateIso: String,
         toDateIso: String,
         categoryGroups: Map<String, String> = emptyMap(),
+        voucherGrouping: VoucherGrouping = VoucherGrouping.AGENT_WISE,
         appContext: Context? = null,
     ) {
         appContext?.let(PdfFonts::init)
@@ -236,26 +241,46 @@ private val legacyConveyanceTypes = setOf(
         ctx.nextPage()
         drawAgentAcknowledgementPage(ctx, aRows, toDateIso, pocName, pocEmployeeId, pocDesignation)
 
-        // ── Conveyance Vouchers — continuous flow like the sample PDF: agents
+        // ── Conveyance Vouchers — continuous flow like the sample PDF: blocks
         // follow one another with no forced page break (no huge gaps); a
         // table that outgrows the page continues with its header repeated.
-        // Agents ordered by their first appearance in the settled list,
-        // matching the Agent Acknowledgement page's SL order. ──
+        // Agent-wise: one block per agent, ordered by first appearance in the
+        // settled list (matches the Acknowledgement page's SL order).
+        // Category-wise: one block per conveyance category holding every
+        // agent's rows, categories in first-appearance order. ──
         val conveyanceClaims = settled.filter { isConveyanceClaim(it) }
-        val agentOrder = LinkedHashSet<String>()
-        settled.forEach { agentOrder.add(it.agentSystemId) }
         ctx.nextPage()
         var voucherSl = 1
         var voucherCanvas = ctx.canvas
         var voucherY = margin
-        agentOrder.forEach { agentSystemId ->
-            val agentClaims = conveyanceClaims.filter { it.agentSystemId == agentSystemId }
-                .sortedBy { it.placedDate }
-            if (agentClaims.isEmpty()) return@forEach
-            val drawn = drawConveyanceVoucherAgent(ctx, voucherCanvas, voucherY, agentClaims, voucherSl)
-            voucherCanvas = drawn.first
-            voucherY = drawn.second
-            voucherSl += 1
+        when (voucherGrouping) {
+            VoucherGrouping.AGENT_WISE -> {
+                val agentOrder = LinkedHashSet<String>()
+                settled.forEach { agentOrder.add(it.agentSystemId) }
+                agentOrder.forEach { agentSystemId ->
+                    val agentClaims = conveyanceClaims.filter { it.agentSystemId == agentSystemId }
+                        .sortedBy { it.placedDate }
+                    if (agentClaims.isEmpty()) return@forEach
+                    val drawn = drawConveyanceVoucherAgent(ctx, voucherCanvas, voucherY, agentClaims, voucherSl)
+                    voucherCanvas = drawn.first
+                    voucherY = drawn.second
+                    voucherSl += 1
+                }
+            }
+            VoucherGrouping.CATEGORY_WISE -> {
+                val categoryOrder = LinkedHashSet<String>()
+                conveyanceClaims.forEach { categoryOrder.add(it.category.ifBlank { "Other" }) }
+                categoryOrder.forEach { category ->
+                    val catClaims = conveyanceClaims
+                        .filter { it.category.ifBlank { "Other" } == category }
+                        .sortedBy { it.placedDate }
+                    if (catClaims.isEmpty()) return@forEach
+                    val drawn = drawConveyanceVoucherCategory(ctx, voucherCanvas, voucherY, category, catClaims, voucherSl)
+                    voucherCanvas = drawn.first
+                    voucherY = drawn.second
+                    voucherSl += 1
+                }
+            }
         }
 
         // ── Unsettled Bills — every in-range claim still awaiting money
@@ -622,15 +647,21 @@ private val legacyConveyanceTypes = setOf(
     private fun lotIdOf(c: SupabaseClaimsReader.ClaimRow): String =
         if (c.category == "LOT Delivery") c.storeId.trim() else ""
 
-    private fun partitionVoucherItems(agentClaims: List<SupabaseClaimsReader.ClaimRow>): List<VoucherItem> {
-        // Collect every LOT-ID group across the whole agent (date-ordered
+    private fun partitionVoucherItems(
+        agentClaims: List<SupabaseClaimsReader.ClaimRow>,
+        scopeLotByAgent: Boolean = false,
+    ): List<VoucherItem> {
+        // Collect every LOT-ID group across the whole block (date-ordered
         // inside), then interleave with singles by earliest date — so a LOT
         // batch always renders as ONE merged block even when other claims
-        // sit between its rows.
+        // sit between its rows. Category-wise blocks scope the LOT key by
+        // agent too, so two agents' same store-id trips never merge.
         val byLot = linkedMapOf<String, MutableList<SupabaseClaimsReader.ClaimRow>>()
         agentClaims.forEach { c ->
             val lotId = lotIdOf(c)
-            if (lotId.isNotEmpty()) byLot.getOrPut(lotId) { mutableListOf() }.add(c)
+            if (lotId.isEmpty()) return@forEach
+            val key = if (scopeLotByAgent) "$lotId|${c.agentSystemId}" else lotId
+            byLot.getOrPut(key) { mutableListOf() }.add(c)
         }
         data class Slot(val date: String, val item: VoucherItem)
         val slots = mutableListOf<Slot>()
@@ -639,7 +670,8 @@ private val legacyConveyanceTypes = setOf(
             if (lotId.isEmpty()) {
                 slots.add(Slot(c.placedDate, VoucherItem.Single(c)))
             } else {
-                val group = byLot.remove(lotId) ?: return@forEach
+                val key = if (scopeLotByAgent) "$lotId|${c.agentSystemId}" else lotId
+                val group = byLot.remove(key) ?: return@forEach
                 val ordered = group.sortedBy { it.placedDate }
                 slots.add(
                     Slot(
@@ -734,25 +766,34 @@ private val legacyConveyanceTypes = setOf(
         return y + voucherAgentH
     }
 
-    /** Column header row: 9 bold centered headers on white (sample-exact). */
-    private fun drawVoucherColHeader(canvas: Canvas, y: Float, widths: List<Float>, xs: List<Float>, grid: Paint): Float {
+    /** Column header row: 9 bold centered headers on white (sample-exact).
+     *  Category-wise blocks swap the Description header for Agent. */
+    private fun drawVoucherColHeader(
+        canvas: Canvas, y: Float, widths: List<Float>, xs: List<Float>, grid: Paint,
+        agentColumn: Boolean = false,
+    ): Float {
         voucherHeaders.forEachIndexed { i, (label, _) ->
             drawVoucherCellBox(canvas, grid, xs[i], y, xs[i + 1], voucherHeadH)
+            val shown = if (i == 3 && agentColumn) "Agent" else label
             val paint = textPaint(darkColor, 7f, bold = true).apply { textAlign = Paint.Align.CENTER }
-            fitTextSize(paint, 7f, label, widths[i] - 4f)
-            canvas.drawText(label, (xs[i] + xs[i + 1]) / 2f, centerBaseline(y, voucherHeadH, 7f), paint)
+            fitTextSize(paint, 7f, shown, widths[i] - 4f)
+            canvas.drawText(shown, (xs[i] + xs[i + 1]) / 2f, centerBaseline(y, voucherHeadH, 7f), paint)
         }
         return y + voucherHeadH
     }
 
     /** One claim = one 9-cell row, every value centered (sample-exact: even
-     *  consecutive duplicates repeat, nothing is hidden). */
+     *  consecutive duplicates repeat, nothing is hidden). Category-wise
+     *  blocks show the agent in column 3 (the category is the block's own). */
     private fun drawVoucherDataRow(
         canvas: Canvas, y: Float, widths: List<Float>, xs: List<Float>, grid: Paint,
         claim: SupabaseClaimsReader.ClaimRow,
+        agentColumn: Boolean = false,
     ): Float {
         val values = listOf(
-            voucherDateLabel(claim), areaLabel(claim.fromArea), areaLabel(claim.toArea), claim.category, claim.vehicle,
+            voucherDateLabel(claim), areaLabel(claim.fromArea), areaLabel(claim.toArea),
+            if (agentColumn) claim.agentName.ifBlank { displayAgentId(claim) } else claim.category,
+            claim.vehicle,
             moneyFormat.format(claim.settledAmount), claim.attemptQuantity.toString(),
             claim.deliveredQuantity.toString(), claim.cidOrMerchant,
         )
@@ -772,6 +813,7 @@ private val legacyConveyanceTypes = setOf(
     private fun drawVoucherLotBlock(
         canvas: Canvas, y: Float, widths: List<Float>, xs: List<Float>, grid: Paint,
         group: List<SupabaseClaimsReader.ClaimRow>,
+        agentColumn: Boolean = false,
     ): Float {
         val blockH = voucherRowH * group.size
         val first = group.first()
@@ -787,7 +829,8 @@ private val legacyConveyanceTypes = setOf(
         val midBase = centerBaseline(y, blockH, 6.8f)
         val merged = listOf(
             voucherDateLabel(first), areaLabel(first.fromArea), areaLabel(first.toArea),
-            first.category, first.vehicle,
+            if (agentColumn) first.agentName.ifBlank { displayAgentId(first) } else first.category,
+            first.vehicle,
             moneyFormat.format(group.sumOf { it.settledAmount }),
             group.sumOf { it.attemptQuantity }.toString(),
             group.sumOf { it.deliveredQuantity }.toString(),
@@ -918,6 +961,118 @@ private val legacyConveyanceTypes = setOf(
         if (y + tailH > pageHeight - margin) {
             ctx.nextPage(); canvas = ctx.canvas; y = margin
             y = drawVoucherColHeader(canvas, y, widths, xs, grid)
+        }
+        y = drawVoucherBlankRow(canvas, xs, grid, y)
+        y = drawVoucherBlankRow(canvas, xs, grid, y)
+        y = drawVoucherGTotalRow(canvas, y, xs, grid, gTotal, totalDelivered)
+        y = drawVoucherInWordRow(canvas, y, xs, grid, gTotal)
+        return canvas to y
+    }
+
+    /** Category row (category-wise blocks): [Category] [name ×2]
+     *  [Agents: N · Total: Tk X spanning the rest]. */
+    private fun drawVoucherCategoryRow(
+        canvas: Canvas, y: Float, xs: List<Float>, grid: Paint,
+        category: String, agentCount: Int, gTotal: Double,
+    ): Float {
+        drawVoucherCellBox(canvas, grid, xs[0], y, xs[1], voucherAgentH)
+        drawVoucherCellBox(canvas, grid, xs[1], y, xs[3], voucherAgentH)
+        drawVoucherCellBox(canvas, grid, xs[3], y, xs[9], voucherAgentH)
+        val labelPaint = textPaint(darkColor, 7.5f, bold = true).apply { textAlign = Paint.Align.CENTER }
+        canvas.drawText("Category", (xs[0] + xs[1]) / 2f, centerBaseline(y, voucherAgentH, 7.5f), labelPaint)
+        val namePaint = textPaint(darkColor, 7.5f)
+        fitTextSize(namePaint, 7.5f, category, (xs[3] - xs[1]) - 6f)
+        canvas.drawText(category, xs[1] + 3f, centerBaseline(y, voucherAgentH, 7.5f), namePaint)
+        canvas.drawText(
+            "Agents: $agentCount · Total: Tk ${moneyFormat.format(gTotal)}",
+            (xs[3] + xs[9]) / 2f, centerBaseline(y, voucherAgentH, 7.5f), labelPaint,
+        )
+        return y + voucherAgentH
+    }
+
+    /** Agents row (category-wise blocks): [Agents] [comma-joined agent
+     *  names spanning the rest]. */
+    private fun drawVoucherAgentsRow(
+        canvas: Canvas, y: Float, xs: List<Float>, grid: Paint,
+        agentNames: List<String>,
+    ): Float {
+        drawVoucherCellBox(canvas, grid, xs[0], y, xs[1], voucherAgentH)
+        drawVoucherCellBox(canvas, grid, xs[1], y, xs[9], voucherAgentH)
+        val labelPaint = textPaint(darkColor, 7.5f, bold = true).apply { textAlign = Paint.Align.CENTER }
+        canvas.drawText("Agents", (xs[0] + xs[1]) / 2f, centerBaseline(y, voucherAgentH, 7.5f), labelPaint)
+        val namePaint = textPaint(darkColor, 7.5f)
+        val shown = agentNames.joinToString(", ")
+        fitTextSize(namePaint, 7.5f, shown, (xs[9] - xs[1]) - 6f)
+        canvas.drawText(shown, xs[1] + 3f, centerBaseline(y, voucherAgentH, 7.5f), namePaint)
+        return y + voucherAgentH
+    }
+
+    /** One category's voucher block: every agent's rows together in a single
+     *  bordered block (same skeleton as the agent block; column 3 shows the
+     *  agent since the category is the block's own). LOT trips stay scoped
+     *  per agent so two agents' same store-id never merges. */
+    private fun drawConveyanceVoucherCategory(
+        ctx: PageCtx,
+        startCanvas: Canvas,
+        startY: Float,
+        category: String,
+        catClaims: List<SupabaseClaimsReader.ClaimRow>,
+        sl: Int,
+    ): Pair<Canvas, Float> {
+        var canvas = startCanvas
+        var y = startY
+        val (widths, xs) = voucherGrid()
+        val grid = strokePaint(voucherGridColor, 0.7f)
+        val agentNames = catClaims.map { it.agentName.ifBlank { displayAgentId(it) } }
+            .distinct().sorted()
+        val gTotal = catClaims.sumOf { it.settledAmount }
+        val totalDelivered = catClaims.sumOf { it.deliveredQuantity }
+        val items = partitionVoucherItems(catClaims, scopeLotByAgent = true)
+
+        fun itemHeight(item: VoucherItem): Float = when (item) {
+            is VoucherItem.Single -> voucherRowH
+            is VoucherItem.LotGroup -> voucherRowH * item.claims.size
+        }
+
+        val headH = voucherTitleH + voucherSlH + voucherAgentH * 2 + voucherHeadH
+        if (y + headH + voucherRowH > pageHeight - margin) {
+            ctx.nextPage(); canvas = ctx.canvas; y = margin
+        }
+        y = drawVoucherTitleRow(canvas, y, xs, grid)
+        y = drawVoucherSlRow(canvas, y, xs, grid, sl)
+        y = drawVoucherCategoryRow(canvas, y, xs, grid, category, agentNames.size, gTotal)
+        y = drawVoucherAgentsRow(canvas, y, xs, grid, agentNames)
+        y = drawVoucherColHeader(canvas, y, widths, xs, grid, agentColumn = true)
+
+        val freshPageH = pageHeight - margin - margin
+        items.forEach { item ->
+            val h = itemHeight(item)
+            val overSized = h > freshPageH - voucherHeadH
+            if (!overSized && y + h > pageHeight - margin) {
+                ctx.nextPage(); canvas = ctx.canvas; y = margin
+                y = drawVoucherColHeader(canvas, y, widths, xs, grid, agentColumn = true)
+            }
+            y = when (item) {
+                is VoucherItem.Single -> drawVoucherDataRow(canvas, y, widths, xs, grid, item.claim, agentColumn = true)
+                is VoucherItem.LotGroup ->
+                    if (!overSized) drawVoucherLotBlock(canvas, y, widths, xs, grid, item.claims, agentColumn = true)
+                    else {
+                        var yy = y
+                        item.claims.forEach { claim ->
+                            if (yy + voucherRowH > pageHeight - margin) {
+                                ctx.nextPage(); canvas = ctx.canvas; yy = margin
+                                yy = drawVoucherColHeader(canvas, yy, widths, xs, grid, agentColumn = true)
+                            }
+                            yy = drawVoucherDataRow(canvas, yy, widths, xs, grid, claim, agentColumn = true)
+                        }
+                        yy
+                    }
+            }
+        }
+        val tailH = voucherRowH * 2 + voucherGTotalH + voucherInWordH
+        if (y + tailH > pageHeight - margin) {
+            ctx.nextPage(); canvas = ctx.canvas; y = margin
+            y = drawVoucherColHeader(canvas, y, widths, xs, grid, agentColumn = true)
         }
         y = drawVoucherBlankRow(canvas, xs, grid, y)
         y = drawVoucherBlankRow(canvas, xs, grid, y)

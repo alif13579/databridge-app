@@ -47,6 +47,11 @@ class ClaimsReportFragment : Fragment() {
     private var statusOptions: List<String> = emptyList()
     private var selectedStatuses = linkedSetOf<String>()
 
+    // Voucher page grouping for the generated PDF: agent-wise (one bordered
+    // block per agent, classic) or category-wise (one block per conveyance
+    // category holding every agent's rows).
+    private var voucherGrouping = PettyCashTopSheetPdfWriter.VoucherGrouping.AGENT_WISE
+
     private var from = startOfMonth()
     private var to = endOfToday()
 
@@ -100,6 +105,7 @@ private var lastPdf: File? = null
             title = "Select Statuses", options = statusOptions, selected = selectedStatuses,
             allLabel = "All Statuses", labelView = v.findViewById(R.id.btnClaimsStatuses),
         ) }
+        v.findViewById<TextView>(R.id.btnClaimsGrouping).setOnClickListener { showGroupingDialog(v) }
 
         v.findViewById<Button>(R.id.btnClaimsSearch).setOnClickListener { searchAndGenerate(v) }
         v.findViewById<Button>(R.id.btnClaimsExcel).setOnClickListener { exportExcelChooser() }
@@ -191,8 +197,23 @@ private var lastPdf: File? = null
             .show()
     }
 
-    // ── Employee multiselect (needs search — can be a long list) ────────────
+    /** Voucher grouping dropdown: agent-wise (one block per agent, classic)
+     *  or category-wise (one block per category with every agent's rows). */
+    private fun showGroupingDialog(v: View) {
+        val options = arrayOf("👤 Agent-wise", "🏷️ Category-wise")
+        val values = PettyCashTopSheetPdfWriter.VoucherGrouping.values()
+        AlertDialog.Builder(requireContext())
+            .setTitle("Voucher Grouping")
+            .setSingleChoiceItems(options, values.indexOf(voucherGrouping)) { dialog, which ->
+                voucherGrouping = values[which]
+                v.findViewById<TextView>(R.id.btnClaimsGrouping).text = options[which]
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
+    // ── Employee multiselect (needs search — can be a long list) ────────────
     private fun showEmployeeDialog(v: View) {
         if (employeeOptions.isEmpty()) return toast("No employees available — select a branch first")
         val ctx = requireContext()
@@ -318,6 +339,7 @@ private var lastPdf: File? = null
                     fromDateIso = fromIso,
                     toDateIso = toIso,
                     categoryGroups = categoryGroups,
+                    voucherGrouping = voucherGrouping,
                     appContext = requireContext(),
                 )
                 Triple(outFile, claims, fromIso to toIso)

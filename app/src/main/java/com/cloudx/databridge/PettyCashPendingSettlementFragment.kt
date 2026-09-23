@@ -1262,13 +1262,22 @@ class PettyCashPendingSettlementFragment : Fragment() {
             .setItems(arrayOf("📄 PDF", "📊 Excel (.xlsx)", "📝 CSV")) { _, which ->
                 when (which) {
                     0 -> AlertDialog.Builder(requireContext())
-                        .setTitle("PDF — View, Share or Download?")
-                        .setItems(arrayOf("👁 View", "📤 Share", "⬇️ Download to Downloads")) { _, target ->
-                            when (target) {
-                                0 -> exportPdf(PdfTarget.VIEW)
-                                1 -> exportPdf(PdfTarget.SHARE)
-                                else -> exportPdf(PdfTarget.DOWNLOAD)
-                            }
+                        .setTitle("Voucher Grouping")
+                        .setItems(arrayOf("👤 Agent-wise", "🏷️ Category-wise")) { _, grouping ->
+                            val voucherGrouping = if (grouping == 0)
+                                PettyCashTopSheetPdfWriter.VoucherGrouping.AGENT_WISE
+                            else PettyCashTopSheetPdfWriter.VoucherGrouping.CATEGORY_WISE
+                            AlertDialog.Builder(requireContext())
+                                .setTitle("PDF — View, Share or Download?")
+                                .setItems(arrayOf("👁 View", "📤 Share", "⬇️ Download to Downloads")) { _, target ->
+                                    when (target) {
+                                        0 -> exportPdf(PdfTarget.VIEW, voucherGrouping)
+                                        1 -> exportPdf(PdfTarget.SHARE, voucherGrouping)
+                                        else -> exportPdf(PdfTarget.DOWNLOAD, voucherGrouping)
+                                    }
+                                }
+                                .setNegativeButton("Cancel", null)
+                                .show()
                         }
                         .setNegativeButton("Cancel", null)
                         .show()
@@ -1308,7 +1317,11 @@ class PettyCashPendingSettlementFragment : Fragment() {
         return Triple(matched, labelFrom, labelTo)
     }
 
-    private fun exportPdf(target: PdfTarget) {
+    private fun exportPdf(
+        target: PdfTarget,
+        voucherGrouping: PettyCashTopSheetPdfWriter.VoucherGrouping =
+            PettyCashTopSheetPdfWriter.VoucherGrouping.AGENT_WISE,
+    ) {
         toast("Generating PDF…")
         lifecycleScope.launch {
             runCatching {
@@ -1337,6 +1350,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
                     fromDateIso = fromIso,
                     toDateIso = toIso,
                     categoryGroups = categoryGroups,
+                    voucherGrouping = voucherGrouping,
                     appContext = ctx,
                 )
                 outFile to claims.size
