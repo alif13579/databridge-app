@@ -578,7 +578,7 @@ private val legacyConveyanceTypes = setOf(
 
     // Sample voucher columns (x-positions measured off the reference PDF):
     // Date | From | To | Description | Vehicle | Amount | Attempt quantity |
-    // Delivered | CID / Merchant — borderless, small bold headers.
+    // Delivered | CID / Merchant — boxed grid, small bold headers.
     private val voucherHeaders = listOf(
         "Date" to 0.10f, "From" to 0.11f, "To" to 0.08f, "Description" to 0.11f,
         "Vehicle" to 0.10f, "Amount" to 0.10f, "Attempt quantity" to 0.12f,
@@ -634,9 +634,10 @@ private val legacyConveyanceTypes = setOf(
         runCatching { dateDisplayFormat.format(dateIsoFormat.parse(claim.placedDate) ?: java.util.Date()) }
             .getOrDefault(claim.placedDate)
 
-    /** Borderless sample-style column headers (small bold sans). */
+    /** Boxed column headers (small bold sans, grid lines like the other pages). */
     private fun drawVoucherHeaderRow(canvas: Canvas, y: Float): Float {
         var x = margin
+        val strokeBorder = strokePaint(borderColor, 0.6f)
         val weights = voucherHeaders.map { it.second }
         val widths = weights.map { it * contentWidth }
         voucherHeaders.forEachIndexed { i, (label, _) ->
@@ -650,6 +651,13 @@ private val legacyConveyanceTypes = setOf(
             else canvas.drawText(label, x + 2f, y + voucherHeadH - 3f, paint)
             x += w
         }
+        // Grid: outer box + column dividers.
+        var vx = margin
+        canvas.drawRect(margin, y, margin + contentWidth, y + voucherHeadH, strokeBorder)
+        widths.dropLast(1).forEach { w ->
+            vx += w
+            canvas.drawLine(vx, y, vx, y + voucherHeadH, strokeBorder)
+        }
         return y + voucherHeadH
     }
 
@@ -658,6 +666,7 @@ private val legacyConveyanceTypes = setOf(
         claim: SupabaseClaimsReader.ClaimRow,
     ): Float {
         var x = margin
+        val strokeBorder = strokePaint(borderColor, 0.6f)
         val widths = voucherHeaders.map { it.second * contentWidth }
         val left = textPaint(darkColor, 6.6f, sans = true)
         val right = textPaint(darkColor, 6.6f, sans = true).apply { textAlign = Paint.Align.RIGHT }
@@ -677,10 +686,17 @@ private val legacyConveyanceTypes = setOf(
             }
             x += w
         }
+        // Grid: outer box + column dividers.
+        var vx = margin
+        canvas.drawRect(margin, y, margin + contentWidth, y + voucherRowH, strokeBorder)
+        widths.dropLast(1).forEach { w ->
+            vx += w
+            canvas.drawLine(vx, y, vx, y + voucherRowH, strokeBorder)
+        }
         return y + voucherRowH
     }
 
-    /** Merged LOT block, sample-style: NO lines at all — the shared values
+    /** Merged LOT block with grid lines — the shared values
      *  (Date/From/To/Description/Vehicle/Amount-SUM/Attempted-SUM/Delivered-
      *  SUM) appear ONCE, vertically centered, while every consignment keeps
      *  its own CID row. Shared values come from the first row (a LOT batch
@@ -690,13 +706,23 @@ private val legacyConveyanceTypes = setOf(
         group: List<SupabaseClaimsReader.ClaimRow>,
     ): Float {
         val blockH = voucherRowH * group.size
+        val strokeBorder = strokePaint(borderColor, 0.6f)
         val widths = voucherHeaders.map { it.second * contentWidth }
         val first = group.first()
 
-        // Merged cells (cols 0..7), vertically centered.
+        // Grid: outer border, full-height vertical dividers, per-row horizontals.
         var x = margin
         val xs = mutableListOf(margin)
         widths.forEach { w -> x += w; xs.add(x) }
+        canvas.drawRect(margin, y, margin + contentWidth, y + blockH, strokeBorder)
+        xs.drop(1).dropLast(1).forEach { vx ->
+            canvas.drawLine(vx, y, vx, y + blockH, strokeBorder)
+        }
+        for (i in 1 until group.size) {
+            val hy = y + voucherRowH * i
+            canvas.drawLine(margin, hy, margin + contentWidth, hy, strokeBorder)
+        }
+        // Merged cells (cols 0..7), vertically centered.
         val midY = y + blockH / 2f + 2.5f
         val leftPaint = textPaint(darkColor, 6.6f, sans = true)
         val rightPaint = textPaint(darkColor, 6.6f, sans = true).apply { textAlign = Paint.Align.RIGHT }
@@ -902,8 +928,8 @@ private val legacyConveyanceTypes = setOf(
 
     // Corporate report look (matches the reference Pathao PDF): serif family
     // on the summary pages — the default sans looked "robotic" next to it.
-    // Voucher tables follow the sample voucher exactly: plain sans
-    // (Arial-like), borderless rows, small bold headers (sans = true).
+    // Voucher tables: plain sans (Arial-like), boxed grid rows,
+    // small bold headers (sans = true).
     private fun textPaint(colorInt: Int, size: Float, bold: Boolean = false, italic: Boolean = false, sans: Boolean = false): Paint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = colorInt
