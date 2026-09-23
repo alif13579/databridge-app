@@ -41,6 +41,15 @@
                     android:layout_marginStart="8dp" />
 
                 <ImageButton
+                    android:id="@+id/btnPcAllReqExportToolbar"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:src="@drawable/ic_download"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Export"
+                    android:tint="#0F766E" />
+
+                <ImageButton
                     android:id="@+id/btnPcAllReqFilter"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
@@ -407,6 +416,7 @@
                     android:orientation="vertical" />
 
                 <TextView
+                    android:id="@+id/tvPcDrawerCategoryHeader"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Category"
@@ -423,6 +433,7 @@
                     android:orientation="vertical" />
 
                 <TextView
+                    android:id="@+id/tvPcDrawerAgentsHeader"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Agents"

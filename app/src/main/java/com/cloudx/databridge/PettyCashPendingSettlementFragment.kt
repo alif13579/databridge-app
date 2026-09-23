@@ -56,6 +56,8 @@ class PettyCashPendingSettlementFragment : Fragment() {
     private var selectedStatus: String = FILTER_ALL // FILTER_ALL or one of the PC_STATUS_* constants
     private var selectedAgentUids: MutableSet<String> = mutableSetOf() // empty = all agents
     private var selectedCategories: MutableSet<String> = mutableSetOf() // empty = all categories
+    private var drawerAgentsExpanded: Boolean = true
+    private var drawerCategoriesExpanded: Boolean = true
     private var myRequestsOnly: Boolean = false
     private var latestState: PettyCashState.Success? = null
     private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
@@ -137,6 +139,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
             parentFragmentManager.popBackStack()
         }
         view.findViewById<View>(R.id.btnPcPendingFilter).setOnClickListener { openDrawer() }
+        view.findViewById<View>(R.id.btnPcPendingExportToolbar).setOnClickListener { exportChooser() }
         view.findViewById<View>(R.id.btnPcPendingDrawerApply).setOnClickListener { closeDrawer() }
         view.findViewById<View>(R.id.tvPcPendingDrawerReset).setOnClickListener {
             advancedFilter = PettyCashFilterState()
@@ -161,7 +164,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
             exportChooser()
         }
         view.findViewById<View>(R.id.tvPcPendingExport).setOnClickListener { exportChooser() }
-        view.findViewById<View>(R.id.tvPcPendingCategory).setOnClickListener { showCategoryPicker() }
         view.findViewById<View>(R.id.tvPcPendingRange).setOnClickListener { showDateRangeOptions() }
         view.findViewById<View>(R.id.tvPcPendingRangeClear).setOnClickListener { clearDateRange() }
         view.findViewById<View>(R.id.tvPcPendingSelectMode).setOnClickListener {
@@ -664,7 +666,15 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
         val agentBox = root.findViewById<LinearLayout>(R.id.layoutPcPendingDrawerAgents) ?: return
         agentBox.removeAllViews()
+        agentBox.isVisible = drawerAgentsExpanded
         val options = agentOptions()
+        root.findViewById<TextView>(R.id.tvPcPendingDrawerAgentsHeader)?.apply {
+            text = if (drawerAgentsExpanded) "Agents ▾" else "Agents ▸"
+            setOnClickListener {
+                drawerAgentsExpanded = !drawerAgentsExpanded
+                refreshDrawer()
+            }
+        }
         if (options.isEmpty()) {
             agentBox.addView(TextView(ctx).apply {
                 text = "No agents in current filter"
@@ -685,7 +695,15 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
         val catBox = root.findViewById<LinearLayout>(R.id.layoutPcPendingDrawerCategories) ?: return
         catBox.removeAllViews()
+        catBox.isVisible = drawerCategoriesExpanded
         val cats = categoryOptions()
+        root.findViewById<TextView>(R.id.tvPcPendingDrawerCategoriesHeader)?.apply {
+            text = if (drawerCategoriesExpanded) "Categories ▾" else "Categories ▸"
+            setOnClickListener {
+                drawerCategoriesExpanded = !drawerCategoriesExpanded
+                refreshDrawer()
+            }
+        }
         if (cats.isEmpty()) {
             catBox.addView(TextView(ctx).apply {
                 text = "No categories in current filter"
@@ -724,112 +742,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
         statusFiltered().groupBy { it.category.ifBlank { "Uncategorized" } }
             .map { (category, items) -> category to items.size }
             .sortedBy { it.first.lowercase() }
-
-    private fun updateCategoryRow() {
-        val root = view ?: return
-        val chip = root.findViewById<TextView>(R.id.tvPcPendingCategory)
-        // Prune stale picks (e.g. after reload moved claims to another status).
-        val options = categoryOptions()
-        selectedCategories.retainAll(options.map { it.first }.toSet())
-        chip.text = when {
-            selectedCategories.isEmpty() -> "🏷 Category"
-            selectedCategories.size == 1 -> {
-                val opt = options.find { it.first in selectedCategories }
-                if (opt == null) "🏷 Category" else "🏷 ${opt.first} (${opt.second})"
-            }
-            else -> {
-                val total = options.filter { it.first in selectedCategories }.sumOf { it.second }
-                "🏷 ${selectedCategories.size} categories ($total)"
-            }
-        }
-    }
-
-    /** Multi-select category picker scoped to the current status tab.
-     *  Empty pick = all categories. */
-    private fun showCategoryPicker() {
-        val options = categoryOptions()
-        if (options.isEmpty()) {
-            Toast.makeText(requireContext(), "No requests to filter", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val ctx = requireContext()
-        val checked = options.map { it.first in selectedCategories }.toMutableList()
-        val checkBoxes = mutableListOf<android.widget.CheckBox>()
-
-        val root = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(4), dp(24), dp(4))
-        }
-        val scopeLabel = if (selectedStatus == FILTER_ALL) "All statuses"
-        else statusLabel(selectedStatus)
-        root.addView(TextView(ctx).apply {
-            text = "Categories · $scopeLabel (${statusFiltered().size}) — empty = all"
-            textSize = 12f
-            setTextColor(Color.parseColor("#64748B"))
-            setPadding(0, 0, 0, dp(8))
-        })
-        val topRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        val tvSelectAll = TextView(ctx).apply {
-            text = "Select all"
-            textSize = 13f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setTextColor(Color.parseColor("#059669"))
-            setPadding(0, dp(4), dp(20), dp(4))
-        }
-        val tvClear = TextView(ctx).apply {
-            text = "Clear"
-            textSize = 13f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setTextColor(Color.parseColor("#B91C1C"))
-            setPadding(0, dp(4), 0, dp(4))
-        }
-        topRow.addView(tvSelectAll)
-        topRow.addView(tvClear)
-        root.addView(topRow)
-
-        val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        options.forEachIndexed { index, opt ->
-            val cb = android.widget.CheckBox(ctx).apply {
-                text = "${opt.first} (${opt.second})"
-                textSize = 14f
-                setTextColor(Color.parseColor("#0F172A"))
-                isChecked = checked[index]
-                setOnCheckedChangeListener { _, isChecked -> checked[index] = isChecked }
-            }
-            checkBoxes.add(cb)
-            list.addView(cb)
-        }
-        val scroll = android.widget.ScrollView(ctx).apply { addView(list) }
-        root.addView(scroll)
-
-        tvSelectAll.setOnClickListener {
-            for (i in checked.indices) {
-                checked[i] = true
-                checkBoxes[i].isChecked = true
-            }
-        }
-        tvClear.setOnClickListener {
-            for (i in checked.indices) {
-                checked[i] = false
-                checkBoxes[i].isChecked = false
-            }
-        }
-
-        AlertDialog.Builder(ctx)
-            .setTitle("Filter by category")
-            .setView(root)
-            .setPositiveButton("Apply") { _, _ ->
-                selectedCategories = options.filterIndexed { i, _ -> checked[i] }
-                    .map { it.first }.toMutableSet()
-                // Drop claim picks outside the new filter.
-                val eligibleIds = currentFiltered().filter { isBulkEligible(it) }.map { it.id }.toSet()
-                selectedIds.retainAll(eligibleIds)
-                updateCategoryRow()
-                renderList()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
 
     /** Explains the silent dead-end: select mode is on but nothing in this
      *  filter can move forward under the signed-in user's role. */
@@ -890,7 +802,8 @@ class PettyCashPendingSettlementFragment : Fragment() {
         val state = latestState ?: return
         val filtered = currentFiltered()
         val canSettle = state.roles.isAccounts
-        updateCategoryRow()
+        // Prune stale category picks (e.g. after reload moved claims elsewhere).
+        selectedCategories.retainAll(categoryOptions().map { it.first }.toSet())
         updateRangeLabel()
         updateSummary(filtered)
         val eligibleInFilter = filtered.filter { isBulkEligible(it) }

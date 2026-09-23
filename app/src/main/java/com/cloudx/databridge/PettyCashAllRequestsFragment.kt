@@ -51,6 +51,8 @@ class PettyCashAllRequestsFragment : Fragment() {
     private var branchId: String = ""
     private var selectedFilter: String = FILTER_ALL
     private var selectedAgentUids: MutableSet<String> = mutableSetOf() // empty = all agents
+    private var drawerAgentsExpanded: Boolean = true
+    private var drawerCategoriesExpanded: Boolean = true
     private var currentPage: Int = 1
     private var latestState: PettyCashState.Success? = null
     private var advancedFilter: PettyCashFilterState = PettyCashFilterState()
@@ -126,6 +128,7 @@ class PettyCashAllRequestsFragment : Fragment() {
             parentFragmentManager.popBackStack()
         }
         view.findViewById<View>(R.id.btnPcAllReqFilter).setOnClickListener { openDrawer() }
+        view.findViewById<View>(R.id.btnPcAllReqExportToolbar).setOnClickListener { exportChooser() }
         view.findViewById<View>(R.id.tvPcAllReqFilters).setOnClickListener { openDrawer() }
         view.findViewById<View>(R.id.btnPcDrawerApply).setOnClickListener { closeDrawer() }
         view.findViewById<View>(R.id.btnPcDrawerExport).setOnClickListener {
@@ -546,13 +549,21 @@ class PettyCashAllRequestsFragment : Fragment() {
             })
         }
 
-        // Category (dynamic list + counts from every other filter).
+        // Category (dynamic list + counts from every other filter, collapsible).
         val catBox = root.findViewById<LinearLayout>(R.id.layoutPcDrawerCategory) ?: return
         catBox.removeAllViews()
+        catBox.isVisible = drawerCategoriesExpanded
         val catBase = drawerCategoryBase()
         val catCounts = catBase.groupingBy { it.category.ifBlank { "Other" } }.eachCount()
             .toList().sortedByDescending { it.second }
         val currentCat = advancedFilter.category.takeIf { it.isNotBlank() } ?: "All Categories"
+        root.findViewById<TextView>(R.id.tvPcDrawerCategoryHeader)?.apply {
+            text = if (drawerCategoriesExpanded) "Category ▾" else "Category ▸"
+            setOnClickListener {
+                drawerCategoriesExpanded = !drawerCategoriesExpanded
+                refreshDrawer()
+            }
+        }
         catBox.addView(drawerCheckRow("All Categories (${catBase.size})", currentCat == "All Categories") {
             advancedFilter = advancedFilter.copy(category = "All Categories")
             applyDrawerChange()
@@ -567,10 +578,18 @@ class PettyCashAllRequestsFragment : Fragment() {
             })
         }
 
-        // Agents (dynamic list + counts; same scope as the old picker).
+        // Agents (dynamic list + counts, collapsible).
         val agentBox = root.findViewById<LinearLayout>(R.id.layoutPcDrawerAgents) ?: return
         agentBox.removeAllViews()
+        agentBox.isVisible = drawerAgentsExpanded
         val options = agentOptions()
+        root.findViewById<TextView>(R.id.tvPcDrawerAgentsHeader)?.apply {
+            text = if (drawerAgentsExpanded) "Agents ▾" else "Agents ▸"
+            setOnClickListener {
+                drawerAgentsExpanded = !drawerAgentsExpanded
+                refreshDrawer()
+            }
+        }
         if (options.isEmpty()) {
             agentBox.addView(TextView(ctx).apply {
                 text = "No agents in current filter"

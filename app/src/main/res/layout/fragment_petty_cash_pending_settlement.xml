@@ -72,6 +72,15 @@
                     android:visibility="gone" />
 
                 <ImageButton
+                    android:id="@+id/btnPcPendingExportToolbar"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:src="@drawable/ic_download"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Export"
+                    android:tint="#0F766E" />
+
+                <ImageButton
                     android:id="@+id/btnPcPendingFilter"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
@@ -123,19 +132,6 @@
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical">
-
-                        <TextView
-                            android:id="@+id/tvPcPendingCategory"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:gravity="center_vertical"
-                            android:text="🏷 Category"
-                            android:textSize="13sp"
-                            android:textStyle="bold"
-                            android:textColor="#0F766E"
-                            android:background="@drawable/bg_pc_tab_inactive"
-                            android:paddingHorizontal="12dp"
-                            android:singleLine="true" />
 
                         <TextView
                             android:id="@+id/tvPcPendingExport"
@@ -406,6 +402,7 @@
                     android:textSize="12sp" />
 
                 <TextView
+                    android:id="@+id/tvPcPendingDrawerAgentsHeader"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Agents"
@@ -422,6 +419,7 @@
                     android:orientation="vertical" />
 
                 <TextView
+                    android:id="@+id/tvPcPendingDrawerCategoriesHeader"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Categories"
