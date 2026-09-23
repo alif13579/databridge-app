@@ -125,10 +125,13 @@ class PettyCashAllRequestsFragment : Fragment() {
         view.findViewById<View>(R.id.btnPcAllReqBack).setOnClickListener {
             parentFragmentManager.popBackStack()
         }
-        view.findViewById<View>(R.id.tvPcAllReqAgent).setOnClickListener { showAgentPicker() }
-        view.findViewById<View>(R.id.tvPcAllReqDate).setOnClickListener { openDateFilter() }
+        view.findViewById<View>(R.id.btnPcAllReqFilter).setOnClickListener { openDrawer() }
         view.findViewById<View>(R.id.tvPcAllReqFilters).setOnClickListener { openDrawer() }
         view.findViewById<View>(R.id.btnPcDrawerApply).setOnClickListener { closeDrawer() }
+        view.findViewById<View>(R.id.btnPcDrawerExport).setOnClickListener {
+            closeDrawer()
+            exportChooser()
+        }
         view.findViewById<View>(R.id.tvPcDrawerReset).setOnClickListener {
             advancedFilter = PettyCashFilterState()
             selectedAgentUids.clear()
@@ -307,14 +310,6 @@ class PettyCashAllRequestsFragment : Fragment() {
 
     private data class StatusDisplay(val label: String, val bucket: String, val badgeBg: Int, val badgeColor: String)
 
-    private fun tabLabel(): String = when (selectedFilter) {
-        FILTER_MINE -> "My Requests"
-        FILTER_PENDING -> "Pending"
-        FILTER_APPROVED -> "Approved"
-        FILTER_SETTLED -> "Settled"
-        else -> "All"
-    }
-
     /** Excel-slicer base for the status tabs: every OTHER filter (agents +
      *  advanced minus its status checkboxes) applied, so tab counts react to
      *  category/date/agent picks. The tab itself is applied on top by callers. */
@@ -421,43 +416,6 @@ class PettyCashAllRequestsFragment : Fragment() {
 
     private fun shortDate(millis: Long): String = BdTime.format("dd MMM", millis)
 
-    private fun updateDateChip() {
-        val root = view ?: return
-        val chip = root.findViewById<TextView>(R.id.tvPcAllReqDate) ?: return
-        val hasDate = advancedFilter.dateFromMillis != 0L || advancedFilter.dateToMillis != 0L
-        chip.text = when {
-            advancedFilter.dateFromMillis != 0L && advancedFilter.dateToMillis != 0L ->
-                "📅 ${shortDate(advancedFilter.dateFromMillis)}–${shortDate(advancedFilter.dateToMillis)}"
-            advancedFilter.dateFromMillis != 0L -> "📅 ≥${shortDate(advancedFilter.dateFromMillis)}"
-            advancedFilter.dateToMillis != 0L -> "📅 ≤${shortDate(advancedFilter.dateToMillis)}"
-            advancedFilter.isActive -> "📅 Filter•"
-            else -> "📅 Dates"
-        }
-        chip.setTextColor(
-            if (hasDate || advancedFilter.isActive) android.graphics.Color.parseColor("#0F766E")
-            else android.graphics.Color.parseColor("#0F766E")
-        )
-    }
-
-    private fun updateAgentRow() {
-        val root = view ?: return
-        val chip = root.findViewById<TextView>(R.id.tvPcAllReqAgent)
-        // Prune stale picks (e.g. after reload moved claims to another status).
-        val options = agentOptions()
-        selectedAgentUids.retainAll(options.map { it.first }.toSet())
-        chip.text = when {
-            selectedAgentUids.isEmpty() -> "👥 All Agents"
-            selectedAgentUids.size == 1 -> {
-                val opt = options.find { it.first in selectedAgentUids }
-                if (opt == null) "👥 All Agents" else "👥 ${opt.second} (${opt.third})"
-            }
-            else -> {
-                val total = options.filter { it.first in selectedAgentUids }.sumOf { it.third }
-                "👥 ${selectedAgentUids.size} agents ($total)"
-            }
-        }
-    }
-
     private fun updateSummary(filtered: List<PettyCashRequest>) {
         val root = view ?: return
         val total = filtered.sumOf { stageAmount(it) }
@@ -489,11 +447,11 @@ class PettyCashAllRequestsFragment : Fragment() {
 
     private fun openDrawer() {
         refreshDrawer()
-        drawer()?.openDrawer(androidx.core.view.GravityCompat.START)
+        drawer()?.openDrawer(androidx.core.view.GravityCompat.END)
     }
 
     private fun closeDrawer() {
-        drawer()?.closeDrawer(androidx.core.view.GravityCompat.START)
+        drawer()?.closeDrawer(androidx.core.view.GravityCompat.END)
     }
 
     /** Re-render list + drawer after any drawer pick (live apply). */
@@ -632,92 +590,6 @@ class PettyCashAllRequestsFragment : Fragment() {
             "Show ${filteredRequests().size} results"
     }
 
-    /** Multi-select agent picker scoped to the current tab (counts are
-     *  tab-wise). Empty pick = All Agents. */
-    private fun showAgentPicker() {
-        val options = agentOptions()
-        if (options.isEmpty()) {
-            Toast.makeText(requireContext(), "No requests to filter", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val ctx = requireContext()
-        val checked = options.map { it.first in selectedAgentUids }.toMutableList()
-        val checkBoxes = mutableListOf<android.widget.CheckBox>()
-
-        val root = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(4), dp(24), dp(4))
-        }
-        root.addView(TextView(ctx).apply {
-            text = "Agents · ${tabLabel()} (${tabFiltered().size}) — empty = all"
-            textSize = 12f
-            setTextColor(Color.parseColor("#64748B"))
-            setPadding(0, 0, 0, dp(8))
-        })
-        val topRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        val tvSelectAll = TextView(ctx).apply {
-            text = "Select all"
-            textSize = 13f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setTextColor(Color.parseColor("#059669"))
-            setPadding(0, dp(4), dp(20), dp(4))
-        }
-        val tvClear = TextView(ctx).apply {
-            text = "Clear"
-            textSize = 13f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setTextColor(Color.parseColor("#B91C1C"))
-            setPadding(0, dp(4), 0, dp(4))
-        }
-        topRow.addView(tvSelectAll)
-        topRow.addView(tvClear)
-        root.addView(topRow)
-
-        val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        options.forEachIndexed { index, opt ->
-            val cb = android.widget.CheckBox(ctx).apply {
-                text = "${opt.second} (${opt.third})"
-                textSize = 14f
-                setTextColor(Color.parseColor("#0F172A"))
-                isChecked = checked[index]
-                setOnCheckedChangeListener { _, isChecked -> checked[index] = isChecked }
-            }
-            checkBoxes.add(cb)
-            list.addView(cb)
-        }
-        val scroll = android.widget.ScrollView(ctx).apply { addView(list) }
-        root.addView(scroll)
-
-        tvSelectAll.setOnClickListener {
-            for (i in checked.indices) {
-                checked[i] = true
-                checkBoxes[i].isChecked = true
-            }
-        }
-        tvClear.setOnClickListener {
-            for (i in checked.indices) {
-                checked[i] = false
-                checkBoxes[i].isChecked = false
-            }
-        }
-
-        AlertDialog.Builder(ctx)
-            .setTitle("Filter by agent")
-            .setView(root)
-            .setPositiveButton("Apply") { _, _ ->
-                selectedAgentUids = options.filterIndexed { i, _ -> checked[i] }
-                    .map { it.first }.toMutableSet()
-                currentPage = 1
-                // Drop claim picks outside the new filter.
-                val eligibleIds = filteredRequests().filter { isBulkEligible(it) }.map { it.id }.toSet()
-                selectedIds.retainAll(eligibleIds)
-                updateAgentRow()
-                view?.let { renderList(it) }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
     /** Toggles between picking every bulk-eligible request in the current
      *  tab+agents filter (all pages) and clearing the pick. */
     private fun toggleSelectAllFiltered() {
@@ -755,8 +627,6 @@ class PettyCashAllRequestsFragment : Fragment() {
     private fun renderList(root: View) {
         val filtered = filteredRequests()
         buildTabs()
-        updateAgentRow()
-        updateDateChip()
         updateSummary(filtered)
         updateSelectAllLabel()
 
@@ -1229,7 +1099,17 @@ class PettyCashAllRequestsFragment : Fragment() {
             .setTitle("Export Current Filter (${rows.size} rows)")
             .setItems(arrayOf("📄 PDF", "📊 Excel (.xlsx)", "📝 CSV")) { _, which ->
                 when (which) {
-                    0 -> exportTargetChooser("PDF") { share -> exportPdf(share) }
+                    0 -> AlertDialog.Builder(requireContext())
+                        .setTitle("PDF — View, Share or Download?")
+                        .setItems(arrayOf("👁 View", "📤 Share", "⬇️ Download to Downloads")) { _, target ->
+                            when (target) {
+                                0 -> exportPdf(PdfTarget.VIEW)
+                                1 -> exportPdf(PdfTarget.SHARE)
+                                else -> exportPdf(PdfTarget.DOWNLOAD)
+                            }
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
                     1 -> exportTargetChooser("Excel") { share -> exportExcel(share) }
                     else -> exportTargetChooser("CSV") { share -> exportCsv(share) }
                 }
@@ -1268,7 +1148,7 @@ class PettyCashAllRequestsFragment : Fragment() {
         return Triple(matched, labelFrom, labelTo)
     }
 
-    private fun exportPdf(share: Boolean) {
+    private fun exportPdf(target: PdfTarget) {
         toast("Generating PDF…")
         lifecycleScope.launch {
             runCatching {
@@ -1300,8 +1180,11 @@ class PettyCashAllRequestsFragment : Fragment() {
                 )
                 outFile to claims.size
             }.onSuccess { (file, count) ->
-                if (share) sharePdf(file)
-                else saveToDownloads(file, "all_requests_${System.currentTimeMillis()}.pdf", "application/pdf", "✅ PDF saved to Downloads ($count rows)")
+                when (target) {
+                    PdfTarget.VIEW -> viewPdf(file)
+                    PdfTarget.SHARE -> shareFile(file, "application/pdf", "Share PDF")
+                    PdfTarget.DOWNLOAD -> saveToDownloads(file, "all_requests_${System.currentTimeMillis()}.pdf", "application/pdf", "✅ PDF saved to Downloads ($count rows)")
+                }
             }.onFailure { toast(it.message ?: "PDF export failed") }
         }
     }
@@ -1381,7 +1264,9 @@ class PettyCashAllRequestsFragment : Fragment() {
     private fun areaDisplay(value: String): String =
         if (value.trim().equals("OFFICE", ignoreCase = true)) "Office" else value
 
-    private fun sharePdf(file: java.io.File) {
+    private enum class PdfTarget { VIEW, SHARE, DOWNLOAD }
+
+    private fun viewPdf(file: java.io.File) {
         val uri = androidx.core.content.FileProvider.getUriForFile(requireContext(), "${requireContext().packageName}.fileprovider", file)
         val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/pdf")

@@ -39,6 +39,15 @@
                     android:textStyle="bold"
                     android:textColor="#0F172A"
                     android:layout_marginStart="8dp" />
+
+                <ImageButton
+                    android:id="@+id/btnPcAllReqFilter"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:src="@drawable/ic_filter_24"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Filters"
+                    android:tint="#0F766E" />
             </LinearLayout>
 
         <!-- Filter tabs: All / My Requests / Pending / Approved / Settled -->
@@ -57,7 +66,8 @@
                 android:paddingBottom="10dp" />
         </HorizontalScrollView>
 
-        <!-- Agent filter + select-all + filtered total (scrollable so Export is never cut off) -->
+        <!-- Filter + Export + summary (scrollable so Export is never cut off).
+             Agent/date picks live only in the right drawer now. -->
         <HorizontalScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -83,33 +93,6 @@
                 android:textColor="#0F172A"
                 android:background="@drawable/bg_pc_tab_inactive"
                 android:paddingHorizontal="12dp" />
-
-            <TextView
-                android:id="@+id/tvPcAllReqAgent"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:gravity="center_vertical"
-                android:text="👥 All Agents"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:textColor="#6D28D9"
-                android:background="@drawable/bg_pc_tab_inactive"
-                android:paddingHorizontal="12dp"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/tvPcAllReqDate"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:gravity="center_vertical"
-                android:text="📅 Dates"
-                android:textSize="13sp"
-                android:textStyle="bold"
-                android:textColor="#0F766E"
-                android:background="@drawable/bg_pc_tab_inactive"
-                android:paddingHorizontal="12dp"
-                android:layout_marginStart="8dp"
-                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/tvPcAllReqExport"
@@ -299,12 +282,12 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Left filter drawer (e-commerce style): Date, Status, Category, Agents -->
+    <!-- Right filter drawer (e-commerce style): Date, Status, Category, Agents -->
     <LinearLayout
         android:id="@+id/layoutPcAllReqDrawer"
         android:layout_width="300dp"
         android:layout_height="match_parent"
-        android:layout_gravity="start"
+        android:layout_gravity="end"
         android:orientation="vertical"
         android:background="#FFFFFF">
 
@@ -461,8 +444,22 @@
             android:id="@+id/btnPcDrawerApply"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_margin="16dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginTop="16dp"
             android:text="Show results"
             android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btnPcDrawerExport"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="16dp"
+            android:text="⬇ Export current filter"
+            android:textAllCaps="false"
+            android:textSize="13sp" />
     </LinearLayout>
 </androidx.drawerlayout.widget.DrawerLayout>

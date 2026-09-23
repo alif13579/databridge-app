@@ -2,11 +2,13 @@
 <!-- No pull-to-refresh here by request: the swipe gesture kept stealing
      upward scrolls, making the list impossible to scroll up. The list reloads
      on resume, tab/filter changes, and after every action instead. -->
-<FrameLayout
+<androidx.drawerlayout.widget.DrawerLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawerPcPending"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="#F1F5F9">
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -70,12 +72,13 @@
                     android:visibility="gone" />
 
                 <ImageButton
-                    android:id="@+id/btnPcPendingCalendar"
+                    android:id="@+id/btnPcPendingFilter"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:src="@drawable/ic_calendar"
+                    android:src="@drawable/ic_filter_24"
                     android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Filter by date" />
+                    android:contentDescription="Filters"
+                    android:tint="#0F766E" />
             </LinearLayout>
 
             <!-- Filter tabs: All + one per status actually present (up to 7
@@ -97,9 +100,8 @@
                     android:paddingBottom="10dp" />
             </HorizontalScrollView>
 
-            <!-- Agent/category filter + filtered total. The chips scroll
-                 horizontally (like the tabs above) so long picks like
-                 "3 agents (15)" never squeeze the row or grow the page. -->
+            <!-- Category filter + Export + filtered total. Agent picks live
+                 only in the right drawer now (no outer agent chip). -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -123,24 +125,24 @@
                         android:gravity="center_vertical">
 
                         <TextView
-                            android:id="@+id/tvPcPendingAgent"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:gravity="center_vertical"
-                            android:text="👥 All Agents"
-                            android:textSize="13sp"
-                            android:textStyle="bold"
-                            android:textColor="#6D28D9"
-                            android:background="@drawable/bg_pc_tab_inactive"
-                            android:paddingHorizontal="12dp"
-                            android:singleLine="true" />
-
-                        <TextView
                             android:id="@+id/tvPcPendingCategory"
                             android:layout_width="wrap_content"
                             android:layout_height="36dp"
                             android:gravity="center_vertical"
                             android:text="🏷 Category"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:textColor="#0F766E"
+                            android:background="@drawable/bg_pc_tab_inactive"
+                            android:paddingHorizontal="12dp"
+                            android:singleLine="true" />
+
+                        <TextView
+                            android:id="@+id/tvPcPendingExport"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:gravity="center_vertical"
+                            android:text="⬇ Export"
                             android:textSize="13sp"
                             android:textStyle="bold"
                             android:textColor="#0F766E"
@@ -294,4 +296,169 @@
 
         </LinearLayout>
     </FrameLayout>
-</FrameLayout>
+
+    <!-- Right filter drawer: Date, Agents, Categories + Export at the bottom -->
+    <LinearLayout
+        android:layout_width="300dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="end"
+        android:orientation="vertical"
+        android:background="#FFFFFF">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Filters"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A" />
+
+            <TextView
+                android:id="@+id/tvPcPendingDrawerReset"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Reset"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#B91C1C"
+                android:padding="8dp" />
+        </LinearLayout>
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingBottom="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Date"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F172A"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="4dp" />
+
+                <TextView
+                    android:id="@+id/tvPcPendingDrawerDateState"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Any date"
+                    android:textSize="13sp"
+                    android:textColor="#0F766E"
+                    android:paddingBottom="6dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btnPcPendingDrawerRange"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Range"
+                        android:textAllCaps="false"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/btnPcPendingDrawerBill"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Bill cycle"
+                        android:textAllCaps="false"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/btnPcPendingDrawerMonth"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Month"
+                        android:textAllCaps="false"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btnPcPendingDrawerClearDate"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Clear date"
+                    android:textAllCaps="false"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Agents"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F172A"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="4dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcPendingDrawerAgents"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Categories"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F172A"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="4dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcPendingDrawerCategories"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </LinearLayout>
+        </ScrollView>
+
+        <Button
+            android:id="@+id/btnPcPendingDrawerApply"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginTop="16dp"
+            android:text="Show results"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btnPcPendingDrawerExport"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="16dp"
+            android:text="⬇ Export current filter"
+            android:textAllCaps="false"
+            android:textSize="13sp" />
+    </LinearLayout>
+</androidx.drawerlayout.widget.DrawerLayout>

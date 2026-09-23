@@ -136,10 +136,31 @@ class PettyCashPendingSettlementFragment : Fragment() {
         view.findViewById<View>(R.id.btnPcPendingBack).setOnClickListener {
             parentFragmentManager.popBackStack()
         }
-        view.findViewById<View>(R.id.btnPcPendingCalendar).setOnClickListener {
-            showDateRangeOptions()
+        view.findViewById<View>(R.id.btnPcPendingFilter).setOnClickListener { openDrawer() }
+        view.findViewById<View>(R.id.btnPcPendingDrawerApply).setOnClickListener { closeDrawer() }
+        view.findViewById<View>(R.id.tvPcPendingDrawerReset).setOnClickListener {
+            advancedFilter = PettyCashFilterState()
+            selectedAgentUids.clear()
+            selectedCategories.clear()
+            selectedStatus = FILTER_ALL
+            applyDrawerChange()
         }
-        view.findViewById<View>(R.id.tvPcPendingAgent).setOnClickListener { showAgentPicker() }
+        view.findViewById<View>(R.id.btnPcPendingDrawerRange).setOnClickListener {
+            closeDrawer()
+            showDateRangePicker()
+        }
+        view.findViewById<View>(R.id.btnPcPendingDrawerBill).setOnClickListener { applyPresetRange(billCycleRange(0)) }
+        view.findViewById<View>(R.id.btnPcPendingDrawerMonth).setOnClickListener { applyPresetRange(monthRange(0)) }
+        view.findViewById<View>(R.id.btnPcPendingDrawerClearDate).setOnClickListener {
+            advancedFilter = advancedFilter.copy(dateFromMillis = 0L, dateToMillis = 0L)
+            selectedStatus = FILTER_ALL
+            applyDrawerChange()
+        }
+        view.findViewById<View>(R.id.btnPcPendingDrawerExport).setOnClickListener {
+            closeDrawer()
+            exportChooser()
+        }
+        view.findViewById<View>(R.id.tvPcPendingExport).setOnClickListener { exportChooser() }
         view.findViewById<View>(R.id.tvPcPendingCategory).setOnClickListener { showCategoryPicker() }
         view.findViewById<View>(R.id.tvPcPendingRange).setOnClickListener { showDateRangeOptions() }
         view.findViewById<View>(R.id.tvPcPendingRangeClear).setOnClickListener { clearDateRange() }
@@ -365,7 +386,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
             .show()
     }
 
-    /** One-tap undo for the date range (the ✕ next to the calendar). */
+    /** One-tap undo for the date range (the ✕ in the toolbar). */
     private fun clearDateRange() {
         advancedFilter = PettyCashFilterState()
         selectedStatus = FILTER_ALL
@@ -373,6 +394,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
         selectedCategories.clear()
         buildTabs()
         renderList()
+        refreshDrawer()
     }
 
     private fun showDateRangePicker() {
@@ -501,6 +523,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
             selectedCategories.clear()
             buildTabs()
             renderList()
+            refreshDrawer()
             Toast.makeText(ctx,
                 "📅 ${shortDate(fromDay.timeInMillis)}–${shortDate(toDay.timeInMillis)}",
                 Toast.LENGTH_SHORT).show()
@@ -558,7 +581,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
     private fun shortDate(millis: Long): String =
         BdTime.format("dd MMM", millis)
 
-    /** Toolbar range readout next to the calendar + the one-tap ✕ undo.
+    /** Toolbar range readout + the one-tap ✕ undo.
      *  Always visible so the active scope is never a mystery. */
     private fun updateRangeLabel() {
         val root = view ?: return
@@ -571,26 +594,121 @@ class PettyCashPendingSettlementFragment : Fragment() {
         root.findViewById<View>(R.id.tvPcPendingRangeClear).isVisible = hasRange
     }
 
-    private fun updateAgentRow() {
-        val root = view ?: return
-        val chip = root.findViewById<TextView>(R.id.tvPcPendingAgent)
-        // My-Requests view is already one agent — no picker needed.
-        chip.isVisible = !myRequestsOnly
-        if (myRequestsOnly) return
-        // Prune stale picks (e.g. after reload moved claims to another status).
-        val options = agentOptions()
-        selectedAgentUids.retainAll(options.map { it.first }.toSet())
-        chip.text = when {
-            selectedAgentUids.isEmpty() -> "👥 All Agents"
-            selectedAgentUids.size == 1 -> {
-                val opt = options.find { it.first in selectedAgentUids }
-                if (opt == null) "👥 All Agents" else "👥 ${opt.second} (${opt.third})"
-            }
-            else -> {
-                val total = options.filter { it.first in selectedAgentUids }.sumOf { it.third }
-                "👥 ${selectedAgentUids.size} agents ($total)"
-            }
+    // ── Right filter drawer: Date, Agents, Categories — all live. ──────────
+
+    private fun drawer(): androidx.drawerlayout.widget.DrawerLayout? =
+        view?.findViewById(R.id.drawerPcPending)
+
+    private fun openDrawer() {
+        refreshDrawer()
+        drawer()?.openDrawer(androidx.core.view.GravityCompat.END)
+    }
+
+    private fun closeDrawer() {
+        drawer()?.closeDrawer(androidx.core.view.GravityCompat.END)
+    }
+
+    private fun applyDrawerChange() {
+        buildTabs()
+        selectedIds.retainAll(currentFiltered().filter { isBulkEligible(it) }.map { it.id }.toSet())
+        renderList()
+        refreshDrawer()
+    }
+
+    private fun applyPresetRange(range: Pair<java.util.Calendar, java.util.Calendar>) {
+        startOfDayLocal(range.first)
+        endOfDayLocal(range.second)
+        advancedFilter = PettyCashFilterState(
+            dateFromMillis = range.first.timeInMillis, dateToMillis = range.second.timeInMillis)
+        selectedStatus = FILTER_ALL
+        applyDrawerChange()
+    }
+
+    private fun dateStateText(): String = when {
+        advancedFilter.dateFromMillis != 0L && advancedFilter.dateToMillis != 0L ->
+            "${shortDate(advancedFilter.dateFromMillis)} – ${shortDate(advancedFilter.dateToMillis)}"
+        advancedFilter.dateFromMillis != 0L -> "From ${shortDate(advancedFilter.dateFromMillis)}"
+        advancedFilter.dateToMillis != 0L -> "Until ${shortDate(advancedFilter.dateToMillis)}"
+        else -> "Any date"
+    }
+
+    private fun drawerCheckRow(label: String, checked: Boolean, onTap: () -> Unit): View {
+        val ctx = requireContext()
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dp(6), 0, dp(6))
         }
+        val cb = android.widget.CheckBox(ctx).apply { isChecked = checked }
+        val tv = TextView(ctx).apply {
+            text = label
+            textSize = 14f
+            setTextColor(Color.parseColor("#0F172A"))
+            setPadding(dp(8), 0, 0, 0)
+        }
+        row.addView(cb)
+        row.addView(tv)
+        val toggle = {
+            onTap()
+            Unit
+        }
+        row.setOnClickListener { toggle() }
+        cb.setOnClickListener { toggle() }
+        return row
+    }
+
+    private fun refreshDrawer() {
+        val root = view ?: return
+        val ctx = requireContext()
+        root.findViewById<TextView>(R.id.tvPcPendingDrawerDateState)?.text = dateStateText()
+
+        val agentBox = root.findViewById<LinearLayout>(R.id.layoutPcPendingDrawerAgents) ?: return
+        agentBox.removeAllViews()
+        val options = agentOptions()
+        if (options.isEmpty()) {
+            agentBox.addView(TextView(ctx).apply {
+                text = "No agents in current filter"
+                textSize = 13f
+                setTextColor(Color.parseColor("#94A3B8"))
+            })
+        }
+        options.forEach { opt ->
+            agentBox.addView(drawerCheckRow("${opt.second} (${opt.third})", opt.first in selectedAgentUids) {
+                if (myRequestsOnly) return@drawerCheckRow
+                if (opt.first in selectedAgentUids) selectedAgentUids.remove(opt.first)
+                else selectedAgentUids.add(opt.first)
+                currentPageReset()
+                renderList()
+                refreshDrawer()
+            })
+        }
+
+        val catBox = root.findViewById<LinearLayout>(R.id.layoutPcPendingDrawerCategories) ?: return
+        catBox.removeAllViews()
+        val cats = categoryOptions()
+        if (cats.isEmpty()) {
+            catBox.addView(TextView(ctx).apply {
+                text = "No categories in current filter"
+                textSize = 13f
+                setTextColor(Color.parseColor("#94A3B8"))
+            })
+        }
+        cats.forEach { (cat, count) ->
+            catBox.addView(drawerCheckRow("$cat ($count)", cat in selectedCategories) {
+                if (cat in selectedCategories) selectedCategories.remove(cat)
+                else selectedCategories.add(cat)
+                currentPageReset()
+                renderList()
+                refreshDrawer()
+            })
+        }
+
+        root.findViewById<android.widget.Button>(R.id.btnPcPendingDrawerApply)?.text =
+            "Show ${currentFiltered().size} results"
+    }
+
+    private fun currentPageReset() {
+        selectedIds.retainAll(currentFiltered().filter { isBulkEligible(it) }.map { it.id }.toSet())
     }
 
     private fun updateSummary(filtered: List<PettyCashRequest>) {
@@ -713,93 +831,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
             .show()
     }
 
-    /** Multi-select agent picker scoped to the current status tab (counts are
-     *  status-wise). Empty pick = All Agents. */
-    private fun showAgentPicker() {
-        val options = agentOptions()
-        if (options.isEmpty()) {
-            Toast.makeText(requireContext(), "No requests to filter", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val ctx = requireContext()
-        val checked = options.map { it.first in selectedAgentUids }.toMutableList()
-        val checkBoxes = mutableListOf<android.widget.CheckBox>()
-
-        val root = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(4), dp(24), dp(4))
-        }
-        val scopeLabel = if (selectedStatus == FILTER_ALL) "All statuses"
-            else statusLabel(selectedStatus)
-        root.addView(TextView(ctx).apply {
-            text = "Agents · $scopeLabel (${statusFiltered().size}) — empty = all"
-            textSize = 12f
-            setTextColor(Color.parseColor("#64748B"))
-            setPadding(0, 0, 0, dp(8))
-        })
-        val topRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        val tvSelectAll = TextView(ctx).apply {
-            text = "Select all"
-            textSize = 13f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setTextColor(Color.parseColor("#059669"))
-            setPadding(0, dp(4), dp(20), dp(4))
-        }
-        val tvClear = TextView(ctx).apply {
-            text = "Clear"
-            textSize = 13f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setTextColor(Color.parseColor("#B91C1C"))
-            setPadding(0, dp(4), 0, dp(4))
-        }
-        topRow.addView(tvSelectAll)
-        topRow.addView(tvClear)
-        root.addView(topRow)
-
-        val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
-        options.forEachIndexed { index, opt ->
-            val cb = android.widget.CheckBox(ctx).apply {
-                text = "${opt.second} (${opt.third})"
-                textSize = 14f
-                setTextColor(Color.parseColor("#0F172A"))
-                isChecked = checked[index]
-                setOnCheckedChangeListener { _, isChecked -> checked[index] = isChecked }
-            }
-            checkBoxes.add(cb)
-            list.addView(cb)
-        }
-        val scroll = android.widget.ScrollView(ctx).apply { addView(list) }
-        root.addView(scroll)
-
-        tvSelectAll.setOnClickListener {
-            for (i in checked.indices) {
-                checked[i] = true
-                checkBoxes[i].isChecked = true
-            }
-        }
-        tvClear.setOnClickListener {
-            for (i in checked.indices) {
-                checked[i] = false
-                checkBoxes[i].isChecked = false
-            }
-        }
-
-        AlertDialog.Builder(ctx)
-            .setTitle("Filter by agent")
-            .setView(root)
-            .setPositiveButton("Apply") { _, _ ->
-                selectedAgentUids = options.filterIndexed { i, _ -> checked[i] }
-                    .map { it.first }.toMutableSet()
-                // Drop claim picks outside the new filter.
-                val eligibleIds = currentFiltered().filter { isBulkEligible(it) }.map { it.id }.toSet()
-                selectedIds.retainAll(eligibleIds)
-                updateAgentRow()
-                renderList()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
     /** Explains the silent dead-end: select mode is on but nothing in this
      *  filter can move forward under the signed-in user's role. */
     private fun guideIfNothingEligible() {
@@ -859,7 +890,6 @@ class PettyCashPendingSettlementFragment : Fragment() {
         val state = latestState ?: return
         val filtered = currentFiltered()
         val canSettle = state.roles.isAccounts
-        updateAgentRow()
         updateCategoryRow()
         updateRangeLabel()
         updateSummary(filtered)
@@ -1292,6 +1322,256 @@ class PettyCashPendingSettlementFragment : Fragment() {
             }
         }
     }
+
+    // ── Export (PDF / Excel / CSV of the CURRENT filter) ────────────────────
+
+    private var pendingDownload: (() -> Unit)? = null
+    private val storagePermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) pendingDownload?.invoke()
+        else Toast.makeText(requireContext(), "Storage permission denied — cannot save to Downloads (Share still works)", Toast.LENGTH_LONG).show()
+        pendingDownload = null
+    }
+
+    private val exportIsoFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { timeZone = BdTime.ZONE }
+
+    private fun shiftIsoDays(iso: String, days: Int): String {
+        val millis = runCatching { exportIsoFormat.parse(iso)?.time }.getOrNull() ?: return iso
+        return exportIsoFormat.format(java.util.Date(millis + days * 86_400_000L))
+    }
+
+    private fun exportChooser() {
+        val rows = currentFiltered()
+        if (rows.isEmpty()) return toast("Nothing to export — the current filter is empty")
+        AlertDialog.Builder(requireContext())
+            .setTitle("Export Current Filter (${rows.size} rows)")
+            .setItems(arrayOf("📄 PDF", "📊 Excel (.xlsx)", "📝 CSV")) { _, which ->
+                when (which) {
+                    0 -> AlertDialog.Builder(requireContext())
+                        .setTitle("PDF — View, Share or Download?")
+                        .setItems(arrayOf("👁 View", "📤 Share", "⬇️ Download to Downloads")) { _, target ->
+                            when (target) {
+                                0 -> exportPdf(PdfTarget.VIEW)
+                                1 -> exportPdf(PdfTarget.SHARE)
+                                else -> exportPdf(PdfTarget.DOWNLOAD)
+                            }
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                    1 -> exportTargetChooser("Excel") { share -> exportExcel(share) }
+                    else -> exportTargetChooser("CSV") { share -> exportCsv(share) }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private enum class PdfTarget { VIEW, SHARE, DOWNLOAD }
+
+    private fun exportTargetChooser(format: String, run: (Boolean) -> Unit) {
+        AlertDialog.Builder(requireContext())
+            .setTitle("$format — Share or Download?")
+            .setItems(arrayOf("📤 Share", "⬇️ Download to Downloads")) { _, which ->
+                run(which == 0)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private suspend fun fetchExportRows(): Triple<List<SupabaseClaimsReader.ClaimRow>, String, String>? {
+        val rows = currentFiltered()
+        if (rows.isEmpty() || branchId.isBlank()) return null
+        val ids = rows.map { it.id }.toSet()
+        val iso = exportIsoFormat
+        val hasRange = advancedFilter.dateFromMillis != 0L && advancedFilter.dateToMillis != 0L
+        val fromIso = if (hasRange) iso.format(java.util.Date(advancedFilter.dateFromMillis)) else "1970-01-01"
+        val toIso = if (hasRange) iso.format(java.util.Date(advancedFilter.dateToMillis)) else "2999-12-31"
+        val all = SupabaseClaimsReader.fetchClaimsForReport(branchId, shiftIsoDays(fromIso, -1), shiftIsoDays(toIso, 1))
+        val matched = all.filter { it.id in ids }
+        if (matched.isEmpty()) return null
+        val labelFrom = if (hasRange) fromIso else matched.minOf { it.placedDate.ifBlank { fromIso } }
+        val labelTo = if (hasRange) toIso else matched.maxOf { it.placedDate.ifBlank { toIso } }
+        return Triple(matched, labelFrom, labelTo)
+    }
+
+    private fun exportPdf(target: PdfTarget) {
+        toast("Generating PDF…")
+        lifecycleScope.launch {
+            runCatching {
+                val (claims, fromIso, toIso) = fetchExportRows()
+                    ?: throw IllegalStateException("No matching rows found")
+                val branchRegion = claims.first().branchRegion
+                val branchName = claims.first().branchName.ifBlank { "Branch" }
+                val pettyCashLimit = claims.first().branchPettyCashLimit
+                val categoryGroups = runCatching { SupabaseClaimsReader.fetchClaimCategories() }
+                    .getOrDefault(emptyList()).associate { it.name to it.group }
+                val poc = runCatching { SupabaseClaimsReader.fetchPocForBranch(branchId) }.getOrNull()
+                val firstAgent = claims.first()
+                val ctx = requireContext()
+                val exportsDir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
+                val outFile = java.io.File(exportsDir, "pending_settlement_${System.currentTimeMillis()}.pdf")
+                PettyCashTopSheetPdfWriter.generate(
+                    outFile = outFile,
+                    claims = claims,
+                    branchName = branchName,
+                    branchRegion = branchRegion,
+                    pettyCashLimit = pettyCashLimit,
+                    pocName = poc?.name?.takeIf { it.isNotBlank() } ?: firstAgent.agentName,
+                    pocEmployeeId = poc?.employeeId?.takeIf { it.isNotBlank() } ?: firstAgent.agentEmployeeId,
+                    pocDesignation = poc?.designation?.takeIf { it.isNotBlank() } ?: firstAgent.agentDesignation,
+                    pocContact = poc?.phone?.takeIf { it.isNotBlank() } ?: firstAgent.agentPhone,
+                    fromDateIso = fromIso,
+                    toDateIso = toIso,
+                    categoryGroups = categoryGroups,
+                )
+                outFile to claims.size
+            }.onSuccess { (file, count) ->
+                when (target) {
+                    PdfTarget.VIEW -> viewPdf(file)
+                    PdfTarget.SHARE -> shareFile(file, "application/pdf", "Share PDF")
+                    PdfTarget.DOWNLOAD -> saveToDownloads(file, "pending_settlement_${System.currentTimeMillis()}.pdf", "application/pdf", "✅ PDF saved to Downloads ($count rows)")
+                }
+            }.onFailure { toast(it.message ?: "PDF export failed") }
+        }
+    }
+
+    private fun exportExcel(share: Boolean) {
+        toast("Generating Excel…")
+        lifecycleScope.launch {
+            runCatching {
+                val (claims, fromIso, toIso) = fetchExportRows()
+                    ?: throw IllegalStateException("No matching rows found")
+                val ctx = requireContext()
+                val exportsDir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
+                val file = java.io.File(exportsDir, "pending_settlement_${fromIso}_${toIso}_${System.currentTimeMillis()}.xlsx")
+                val headers = listOf("Date", "From", "To", "Vehicle", "Invoice", "Agent ID", "Agent Name", "Type", "Consignment/Merchant", "LOT ID", "Requested", "Approved", "Settled", "Status")
+                val data = claims.map { c ->
+                    listOf<Any>(
+                        sheetDate(c.placedDate), areaDisplay(c.fromArea), areaDisplay(c.toArea), c.vehicle,
+                        c.claimCode, c.agentEmployeeId, c.agentName.ifBlank { c.agentSystemId },
+                        c.category, c.cidOrMerchant, c.storeId,
+                        c.requestedAmount, c.approvedAmount, c.settledAmount, c.status,
+                    )
+                }
+                val widths = listOf(11, 20, 20, 12, 20, 12, 24, 24, 22, 12, 11, 11, 11, 16)
+                CashExportWriter.writeXlsx(file, "Pending $fromIso", headers, data, widths)
+                file to claims.size
+            }.onSuccess { (file, count) ->
+                if (share) shareFile(file, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Share Excel")
+                else saveToDownloads(file, file.name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "✅ Excel saved to Downloads ($count rows)")
+            }.onFailure { toast("Excel export failed: ${it.message}") }
+        }
+    }
+
+    private fun exportCsv(share: Boolean) {
+        toast("Generating CSV…")
+        lifecycleScope.launch {
+            runCatching {
+                val (claims, fromIso, toIso) = fetchExportRows()
+                    ?: throw IllegalStateException("No matching rows found")
+                val ctx = requireContext()
+                val exportsDir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
+                val file = java.io.File(exportsDir, "pending_settlement_${fromIso}_${toIso}_${System.currentTimeMillis()}.csv")
+                val headers = listOf("Date", "From", "To", "Vehicle", "Invoice", "Agent ID", "Agent Name", "Type", "Consignment/Merchant", "LOT ID", "Requested", "Approved", "Settled", "Status")
+                val sb = StringBuilder()
+                sb.appendLine(headers.joinToString(",") { csvCell(it) })
+                claims.forEach { c ->
+                    val cells = listOf(
+                        sheetDate(c.placedDate), areaDisplay(c.fromArea), areaDisplay(c.toArea), c.vehicle,
+                        c.claimCode, c.agentEmployeeId, c.agentName.ifBlank { c.agentSystemId },
+                        c.category, c.cidOrMerchant, c.storeId,
+                        c.requestedAmount.toString(), c.approvedAmount.toString(), c.settledAmount.toString(), c.status,
+                    )
+                    sb.appendLine(cells.joinToString(",") { csvCell(it) })
+                }
+                file.writeText(sb.toString(), Charsets.UTF_8)
+                file to claims.size
+            }.onSuccess { (file, count) ->
+                if (share) shareFile(file, "text/csv", "Share CSV")
+                else saveToDownloads(file, file.name, "text/csv", "✅ CSV saved to Downloads ($count rows)")
+            }.onFailure { toast("CSV export failed: ${it.message}") }
+        }
+    }
+
+    private fun csvCell(value: String): String {
+        val needsQuotes = value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
+        return if (needsQuotes) "\"${value.replace("\"", "\"\"")}\"" else value
+    }
+
+    private fun sheetDate(iso: String): String {
+        val p = iso.split("-")
+        if (p.size != 3) return iso
+        val mon = mapOf("01" to "Jan", "02" to "Feb", "03" to "Mar", "04" to "Apr", "05" to "May", "06" to "Jun", "07" to "Jul", "08" to "Aug", "09" to "Sep", "10" to "Oct", "11" to "Nov", "12" to "Dec")[p[1]] ?: return iso
+        return "${p[2]}-$mon-${p[0].takeLast(2)}"
+    }
+
+    private fun areaDisplay(value: String): String =
+        if (value.trim().equals("OFFICE", ignoreCase = true)) "Office" else value
+
+    private fun viewPdf(file: java.io.File) {
+        val uri = androidx.core.content.FileProvider.getUriForFile(requireContext(), "${requireContext().packageName}.fileprovider", file)
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/pdf")
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { startActivity(intent) }
+            .onFailure { toast("No PDF viewer installed — use Download instead") }
+    }
+
+    private fun shareFile(file: java.io.File, mime: String, title: String) {
+        val ctx = requireContext()
+        val uri = runCatching {
+            androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+        }.getOrNull() ?: return toast("Could not create file")
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { startActivity(android.content.Intent.createChooser(intent, title)) }
+            .onFailure { toast("Share failed: ${it.message}") }
+    }
+
+    private fun saveToDownloads(file: java.io.File, displayName: String, mimeType: String, doneNote: String? = null) {
+        val ctx = requireContext()
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                ctx, android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingDownload = { saveToDownloads(file, displayName, mimeType, doneNote) }
+            storagePermissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            return
+        }
+        runCatching {
+            val resolver = ctx.contentResolver
+            val uri: android.net.Uri? =
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, displayName)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE, mimeType)
+                        put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                    }
+                    resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                } else {
+                    @Suppress("DEPRECATION")
+                    val outFile = java.io.File(
+                        android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                        displayName,
+                    )
+                    android.net.Uri.fromFile(outFile)
+                }
+            if (uri == null) throw IllegalStateException("Could not create file")
+            resolver.openOutputStream(uri)?.use { out -> file.inputStream().use { input -> input.copyTo(out) } }
+                ?: throw IllegalStateException("Could not write file")
+            uri
+        }.onSuccess {
+            toast(doneNote ?: "✅ Saved to Downloads")
+        }.onFailure { toast("Download failed: ${it.message}") }
+    }
+
+    private fun toast(s: String) = Toast.makeText(requireContext(), s, Toast.LENGTH_LONG).show()
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
