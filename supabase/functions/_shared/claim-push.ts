@@ -39,7 +39,58 @@ export async function sendClaimPush(args: {
   event: ClaimPushEvent
   amount?: number
 }) {
-  const base = { claim_id: args.claimId, claim_code: args.claimCode }
+  const copy = EVENT_TEXT[args.event]
+  const amountSuffix = args.amount && args.amount > 0 ? ` (৳${args.amount})` : ''
+  return deliverClaimPush({
+    requesterSystemId: args.requesterSystemId,
+    title: `${copy.title} — ${args.claimCode || args.claimId}`,
+    body: `${copy.body}${amountSuffix}`,
+    data: {
+      claim_id: args.claimId, claim_code: args.claimCode, branch_id: args.branchId,
+    },
+    logTag: `claim=${args.claimId} event=${args.event}`,
+  })
+}
+
+/** Bulk-import settled push: one notification per agent per batch (a 40-row
+ *  batch must not buzz 40 times). A single-claim batch reads exactly like a
+ *  normal settle; multi-claim batches summarize with the total, and tap opens
+ *  the batch's latest claim (type='claim' needs a concrete target — the app
+ *  needs no change). Best-effort like sendClaimPush. */
+export async function sendBulkSettledPush(args: {
+  branchId: string
+  requesterSystemId: string
+  claims: Array<{ id: string; code: string; amount: number }>
+}) {
+  if (args.claims.length === 0) return { matched_devices: 0, accepted: 0, reason: 'empty_batch' }
+  if (args.claims.length === 1) {
+    const c = args.claims[0]
+    return sendClaimPush({
+      claimId: c.id, claimCode: c.code, branchId: args.branchId,
+      requesterSystemId: args.requesterSystemId, event: 'settled', amount: c.amount,
+    })
+  }
+  const total = args.claims.reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0)
+  const latest = args.claims[args.claims.length - 1]
+  return deliverClaimPush({
+    requesterSystemId: args.requesterSystemId,
+    title: `💰 ${args.claims.length} claims settled — ${latest.code}`,
+    body: `৳${total.toLocaleString('en-US')} across ${args.claims.length} requests — tap to view`,
+    data: {
+      claim_id: latest.id, claim_code: latest.code, branch_id: args.branchId,
+    },
+    logTag: `bulk batch=${args.claims.length} agent=${args.requesterSystemId}`,
+  })
+}
+
+async function deliverClaimPush(args: {
+  requesterSystemId: string
+  title: string
+  body: string
+  data: Record<string, string>
+  logTag: string
+}) {
+  const base = { requester: args.requesterSystemId }
   const serviceAccountJson = Deno.env.get('FCM_SERVICE_ACCOUNT_JSON')
   if (!serviceAccountJson) {
     console.error(`claim_push skipped: reason=fcm_service_account_missing`, base)
@@ -57,10 +108,6 @@ export async function sendClaimPush(args: {
       return { matched_devices: 0, accepted: 0, reason: 'no_matching_device_token' }
     }
     const accessToken = await googleAccessToken('https://www.googleapis.com/auth/firebase.messaging')
-    const copy = EVENT_TEXT[args.event]
-    const amountSuffix = args.amount && args.amount > 0 ? ` (৳${args.amount})` : ''
-    const title = `${copy.title} — ${args.claimCode || args.claimId}`
-    const body = `${copy.body}${amountSuffix}`
     const projectId = serviceAccount.project_id || firebaseProjectId
     const outcomes = await Promise.all(devices.map(async ({ token }) => {
       const response = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId!)}/messages:send`, {
@@ -70,8 +117,8 @@ export async function sendClaimPush(args: {
           token,
           // Data-only — see remarks.ts for why no `notification` block.
           data: {
-            type: 'claim', title, body,
-            claim_id: args.claimId, claim_code: args.claimCode, branch_id: args.branchId,
+            type: 'claim', title: args.title, body: args.body,
+            ...args.data,
             scope: 'claim',
           },
           android: { priority: 'high' },
@@ -97,11 +144,11 @@ export async function sendClaimPush(args: {
     }))
     const accepted = outcomes.filter(Boolean).length
     const reason = accepted === matchedDevices ? 'accepted_by_fcm' : 'fcm_rejected_some_devices'
-    console.info(`claim_push result: claim=${args.claimId} event=${args.event} matched=${matchedDevices} accepted=${accepted} reason=${reason}`)
+    console.info(`claim_push result: ${args.logTag} matched=${matchedDevices} accepted=${accepted} reason=${reason}`)
     return { matched_devices: matchedDevices, accepted, reason }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error(`claim_push failed: claim=${args.claimId} reason=${message}`)
+    console.error(`claim_push failed: ${args.logTag} reason=${message}`)
     return { matched_devices: 0, accepted: 0, reason: message.slice(0, 120) }
   }
 }

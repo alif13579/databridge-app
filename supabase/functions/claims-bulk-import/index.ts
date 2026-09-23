@@ -24,6 +24,7 @@ import { admin } from '../_shared/supabase.ts'
 import { errLog, guardRequest, reply, unhandled } from '../_shared/http.ts'
 import { firebaseIdentity, firebaseProfile } from '../_shared/firebase-auth.ts'
 import { requireUsersRow } from '../_shared/users.ts'
+import { sendBulkSettledPush } from '../_shared/claim-push.ts'
 
 Deno.serve(async (request) => {
   const guard = guardRequest(request)
@@ -85,6 +86,7 @@ Deno.serve(async (request) => {
     let inserted = 0
     let duplicates = 0
     const failed: Array<{ index: number; code: string; error: string }> = []
+    const pushedByAgent = new Map<string, Array<{ id: string; code: string; amount: number }>>()
     for (let i = 0; i < rows.length; i++) {
       const r = (rows[i] ?? {}) as Record<string, unknown>
       const g = (k: string) => str(r[k]).trim()
@@ -140,9 +142,20 @@ Deno.serve(async (request) => {
         })
         if (error) { fail(error.message.slice(0, 200)); continue }
         inserted++
+        // Per-agent push ledger: the requester (agent) learns their claims
+        // settled — the uploader is Accounts, so without this nobody tells them.
+        const pushed = pushedByAgent.get(sysId) ?? []
+        pushed.push({ id, code, amount: settled as number })
+        pushedByAgent.set(sysId, pushed)
       } catch (e) {
         fail(e instanceof Error ? e.message.slice(0, 200) : 'Insert failed')
       }
+    }
+    // One summary push per agent (never to the uploader themselves, and never
+    // failing the batch — sendBulkSettledPush is best-effort).
+    for (const [sysId, claims] of pushedByAgent) {
+      if (!sysId || sysId === callerSystemId) continue
+      await sendBulkSettledPush({ branchId, requesterSystemId: sysId, claims })
     }
     return reply({ ok: true, inserted, duplicates, failed })
   } catch (e) {
