@@ -35,7 +35,8 @@ import kotlin.math.min
  * whole filter, all pages) + role-gated bulk next-status update, and real
  * client-side pagination (5 per page — the ViewModel loads the whole
  * branch's request list in one read, there's no server-side cursor to page
- * against yet).
+ * against yet). The ⬇ Export chip downloads PDF / Excel / CSV of the
+ * current filter (all pages, joined to full ClaimRows by id).
  */
 class PettyCashAllRequestsFragment : Fragment() {
 
@@ -125,6 +126,7 @@ class PettyCashAllRequestsFragment : Fragment() {
         }
         view.findViewById<View>(R.id.tvPcAllReqAgent).setOnClickListener { showAgentPicker() }
         view.findViewById<View>(R.id.tvPcAllReqDate).setOnClickListener { openDateFilter() }
+        view.findViewById<View>(R.id.tvPcAllReqExport).setOnClickListener { exportChooser() }
         view.findViewById<View>(R.id.tvPcAllReqSelectMode).setOnClickListener {
             selectMode = !selectMode
             if (!selectMode) selectedIds.clear()
@@ -933,4 +935,243 @@ class PettyCashAllRequestsFragment : Fragment() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    // ── Export (PDF / Excel / CSV of the CURRENT filter) ────────────────────
+    // Exports exactly the rows the list is showing across all pages
+    // (filteredRequests — tab + agents + advanced date/status/category), not
+    // just the visible page. Rows are re-fetched as full ClaimRows (joined by
+    // claim id) so the PDF/Excel carry the same branch/employee embeds as the
+    // report screen — no re-filtering, no drift.
+
+    private var pendingDownload: (() -> Unit)? = null
+    private val storagePermissionLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) pendingDownload?.invoke()
+        else toast("Storage permission denied — cannot save to Downloads (Share still works)")
+        pendingDownload = null
+    }
+
+    private val exportIsoFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+
+    private fun exportChooser() {
+        val rows = filteredRequests()
+        if (rows.isEmpty()) return toast("Nothing to export — the current filter is empty")
+        AlertDialog.Builder(requireContext())
+            .setTitle("Export Current Filter (${rows.size} rows)")
+            .setItems(arrayOf("📄 PDF", "📊 Excel (.xlsx)", "📝 CSV")) { _, which ->
+                when (which) {
+                    0 -> exportTargetChooser("PDF") { share -> exportPdf(share) }
+                    1 -> exportTargetChooser("Excel") { share -> exportExcel(share) }
+                    else -> exportTargetChooser("CSV") { share -> exportCsv(share) }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun exportTargetChooser(format: String, run: (Boolean) -> Unit) {
+        AlertDialog.Builder(requireContext())
+            .setTitle("$format — Share or Download?")
+            .setItems(arrayOf("📤 Share", "⬇️ Download to Downloads")) { _, which ->
+                run(which == 0)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Full ClaimRows for the current filter, joined by claim id so the
+     *  export matches the on-screen rows exactly. Returns null on failure. */
+    private suspend fun fetchExportRows(): Triple<List<SupabaseClaimsReader.ClaimRow>, String, String>? {
+        val rows = filteredRequests()
+        if (rows.isEmpty() || branchId.isBlank()) return null
+        val ids = rows.map { it.id }.toSet()
+        val iso = exportIsoFormat
+        val hasRange = advancedFilter.dateFromMillis != 0L && advancedFilter.dateToMillis != 0L
+        val fromIso = if (hasRange) iso.format(java.util.Date(advancedFilter.dateFromMillis)) else "1970-01-01"
+        val toIso = if (hasRange) iso.format(java.util.Date(advancedFilter.dateToMillis)) else "2999-12-31"
+        val all = SupabaseClaimsReader.fetchClaimsForReport(branchId, fromIso, toIso)
+        val matched = all.filter { it.id in ids }
+        if (matched.isEmpty()) return null
+        val labelFrom = if (hasRange) fromIso else matched.minOf { it.placedDate.ifBlank { fromIso } }
+        val labelTo = if (hasRange) toIso else matched.maxOf { it.placedDate.ifBlank { toIso } }
+        return Triple(matched, labelFrom, labelTo)
+    }
+
+    private fun exportPdf(share: Boolean) {
+        toast("Generating PDF…")
+        lifecycleScope.launch {
+            runCatching {
+                val (claims, fromIso, toIso) = fetchExportRows()
+                    ?: throw IllegalStateException("No matching rows found")
+                val branchRegion = claims.first().branchRegion
+                val branchName = claims.first().branchName.ifBlank { "Branch" }
+                val pettyCashLimit = claims.first().branchPettyCashLimit
+                val categoryGroups = runCatching { SupabaseClaimsReader.fetchClaimCategories() }
+                    .getOrDefault(emptyList()).associate { it.name to it.group }
+                val poc = runCatching { SupabaseClaimsReader.fetchPocForBranch(branchId) }.getOrNull()
+                val firstAgent = claims.first()
+                val ctx = requireContext()
+                val exportsDir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
+                val outFile = java.io.File(exportsDir, "all_requests_${System.currentTimeMillis()}.pdf")
+                PettyCashTopSheetPdfWriter.generate(
+                    outFile = outFile,
+                    claims = claims,
+                    branchName = branchName,
+                    branchRegion = branchRegion,
+                    pettyCashLimit = pettyCashLimit,
+                    pocName = poc?.name?.takeIf { it.isNotBlank() } ?: firstAgent.agentName,
+                    pocEmployeeId = poc?.employeeId?.takeIf { it.isNotBlank() } ?: firstAgent.agentEmployeeId,
+                    pocDesignation = poc?.designation?.takeIf { it.isNotBlank() } ?: firstAgent.agentDesignation,
+                    pocContact = poc?.phone?.takeIf { it.isNotBlank() } ?: firstAgent.agentPhone,
+                    fromDateIso = fromIso,
+                    toDateIso = toIso,
+                    categoryGroups = categoryGroups,
+                )
+                outFile to claims.size
+            }.onSuccess { (file, count) ->
+                if (share) sharePdf(file)
+                else saveToDownloads(file, "all_requests_${System.currentTimeMillis()}.pdf", "application/pdf", "✅ PDF saved to Downloads ($count rows)")
+            }.onFailure { toast(it.message ?: "PDF export failed") }
+        }
+    }
+
+    private fun exportExcel(share: Boolean) {
+        toast("Generating Excel…")
+        lifecycleScope.launch {
+            runCatching {
+                val (claims, fromIso, toIso) = fetchExportRows()
+                    ?: throw IllegalStateException("No matching rows found")
+                val ctx = requireContext()
+                val exportsDir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
+                val file = java.io.File(exportsDir, "all_requests_${fromIso}_${toIso}_${System.currentTimeMillis()}.xlsx")
+                // Same sheet columns as the report screen (Invoice = claim code).
+                val headers = listOf("Date", "From", "To", "Vehicle", "Invoice", "Agent ID", "Agent Name", "Type", "Consignment/Merchant", "LOT ID", "Requested", "Approved", "Settled", "Status")
+                val data = claims.map { c ->
+                    listOf<Any>(
+                        sheetDate(c.placedDate), areaDisplay(c.fromArea), areaDisplay(c.toArea), c.vehicle,
+                        c.claimCode, c.agentEmployeeId, c.agentName.ifBlank { c.agentSystemId },
+                        c.category, c.cidOrMerchant, c.storeId,
+                        c.requestedAmount, c.approvedAmount, c.settledAmount, c.status,
+                    )
+                }
+                val widths = listOf(11, 20, 20, 12, 20, 12, 24, 24, 22, 12, 11, 11, 11, 16)
+                CashExportWriter.writeXlsx(file, "All Requests $fromIso", headers, data, widths)
+                file to claims.size
+            }.onSuccess { (file, count) ->
+                if (share) shareFile(file, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Share Excel")
+                else saveToDownloads(file, file.name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "✅ Excel saved to Downloads ($count rows)")
+            }.onFailure { toast("Excel export failed: ${it.message}") }
+        }
+    }
+
+    private fun exportCsv(share: Boolean) {
+        toast("Generating CSV…")
+        lifecycleScope.launch {
+            runCatching {
+                val (claims, fromIso, toIso) = fetchExportRows()
+                    ?: throw IllegalStateException("No matching rows found")
+                val ctx = requireContext()
+                val exportsDir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
+                val file = java.io.File(exportsDir, "all_requests_${fromIso}_${toIso}_${System.currentTimeMillis()}.csv")
+                val headers = listOf("Date", "From", "To", "Vehicle", "Invoice", "Agent ID", "Agent Name", "Type", "Consignment/Merchant", "LOT ID", "Requested", "Approved", "Settled", "Status")
+                val sb = StringBuilder()
+                sb.appendLine(headers.joinToString(",") { csvCell(it) })
+                claims.forEach { c ->
+                    val cells = listOf(
+                        sheetDate(c.placedDate), areaDisplay(c.fromArea), areaDisplay(c.toArea), c.vehicle,
+                        c.claimCode, c.agentEmployeeId, c.agentName.ifBlank { c.agentSystemId },
+                        c.category, c.cidOrMerchant, c.storeId,
+                        c.requestedAmount.toString(), c.approvedAmount.toString(), c.settledAmount.toString(), c.status,
+                    )
+                    sb.appendLine(cells.joinToString(",") { csvCell(it) })
+                }
+                file.writeText(sb.toString(), Charsets.UTF_8)
+                file to claims.size
+            }.onSuccess { (file, count) ->
+                if (share) shareFile(file, "text/csv", "Share CSV")
+                else saveToDownloads(file, file.name, "text/csv", "✅ CSV saved to Downloads ($count rows)")
+            }.onFailure { toast("CSV export failed: ${it.message}") }
+        }
+    }
+
+    private fun csvCell(value: String): String {
+        val needsQuotes = value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
+        return if (needsQuotes) "\"${value.replace("\"", "\"\"")}\"" else value
+    }
+
+    /** Sheet date "26-Aug-26" from yyyy-MM-dd; "OFFICE" sentinel → "Office". */
+    private fun sheetDate(iso: String): String {
+        val p = iso.split("-")
+        if (p.size != 3) return iso
+        val mon = mapOf("01" to "Jan", "02" to "Feb", "03" to "Mar", "04" to "Apr", "05" to "May", "06" to "Jun", "07" to "Jul", "08" to "Aug", "09" to "Sep", "10" to "Oct", "11" to "Nov", "12" to "Dec")[p[1]] ?: return iso
+        return "${p[2]}-$mon-${p[0].takeLast(2)}"
+    }
+
+    private fun areaDisplay(value: String): String =
+        if (value.trim().equals("OFFICE", ignoreCase = true)) "Office" else value
+
+    private fun sharePdf(file: java.io.File) {
+        val uri = androidx.core.content.FileProvider.getUriForFile(requireContext(), "${requireContext().packageName}.fileprovider", file)
+        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/pdf")
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { startActivity(intent) }
+            .onFailure { toast("No PDF viewer installed — use Download instead") }
+    }
+
+    private fun shareFile(file: java.io.File, mime: String, title: String) {
+        val ctx = requireContext()
+        val uri = runCatching {
+            androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+        }.getOrNull() ?: return toast("Could not create file")
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = mime
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { startActivity(android.content.Intent.createChooser(intent, title)) }
+            .onFailure { toast("Share failed: ${it.message}") }
+    }
+
+    private fun saveToDownloads(file: java.io.File, displayName: String, mimeType: String, doneNote: String? = null) {
+        val ctx = requireContext()
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                ctx, android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingDownload = { saveToDownloads(file, displayName, mimeType, doneNote) }
+            storagePermissionLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            return
+        }
+        runCatching {
+            val resolver = ctx.contentResolver
+            val uri: android.net.Uri? =
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    val values = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, displayName)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE, mimeType)
+                        put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
+                    }
+                    resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                } else {
+                    @Suppress("DEPRECATION")
+                    val outFile = java.io.File(
+                        android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS),
+                        displayName,
+                    )
+                    android.net.Uri.fromFile(outFile)
+                }
+            if (uri == null) throw IllegalStateException("Could not create file")
+            resolver.openOutputStream(uri)?.use { out -> file.inputStream().use { input -> input.copyTo(out) } }
+                ?: throw IllegalStateException("Could not write file")
+            uri
+        }.onSuccess {
+            toast(doneNote ?: "✅ Saved to Downloads")
+        }.onFailure { toast("Download failed: ${it.message}") }
+    }
+
+    private fun toast(s: String) = Toast.makeText(requireContext(), s, Toast.LENGTH_LONG).show()
 }

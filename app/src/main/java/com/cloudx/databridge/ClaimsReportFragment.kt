@@ -390,16 +390,18 @@ private var lastPdf: File? = null
         val exportsDir = File(ctx.cacheDir, "exports").apply { mkdirs() }
         val file = File(exportsDir, "claims_report_${lastFromIso}_${lastToIso}_${System.currentTimeMillis()}.xlsx")
         runCatching {
-            val headers = listOf("Date", "Claim Code", "Employee", "Emp ID", "Category", "Purpose", "From", "To", "Vehicle", "Requested", "Settled", "Status")
+            // Same column order as the shared claims Excel (Date … Status),
+            // Invoice = claim code (there is no separate invoice number).
+            val headers = listOf("Date", "From", "To", "Vehicle", "Invoice", "Agent ID", "Agent Name", "Type", "Consignment/Merchant", "LOT ID", "Requested", "Approved", "Settled", "Status")
             val rows = lastClaims.map { c ->
                 listOf<Any>(
-                    c.placedDate, c.claimCode,
-                    c.agentName.ifBlank { c.agentSystemId }, c.agentEmployeeId,
-                    c.category, c.purpose, c.fromArea, c.toArea, c.vehicle,
-                    c.requestedAmount, c.settledAmount, c.status,
+                    sheetDate(c.placedDate), areaDisplay(c.fromArea), areaDisplay(c.toArea), c.vehicle,
+                    c.claimCode, c.agentEmployeeId, c.agentName.ifBlank { c.agentSystemId },
+                    c.category, c.cidOrMerchant, c.storeId,
+                    c.requestedAmount, c.approvedAmount, c.settledAmount, c.status,
                 )
             }
-            val widths = listOf(12, 14, 20, 12, 18, 30, 14, 14, 12, 12, 12, 12)
+            val widths = listOf(11, 20, 20, 12, 20, 12, 24, 24, 22, 12, 11, 11, 11, 16)
             CashExportWriter.writeXlsx(file, "Claims $lastFromIso", headers, rows, widths)
             file
         }.onSuccess {
@@ -429,15 +431,15 @@ private var lastPdf: File? = null
         val exportsDir = File(ctx.cacheDir, "exports").apply { mkdirs() }
         val file = File(exportsDir, "claims_report_${lastFromIso}_${lastToIso}_${System.currentTimeMillis()}.csv")
         runCatching {
-            val headers = listOf("Date", "Claim Code", "Employee", "Emp ID", "Category", "Purpose", "From", "To", "Vehicle", "Requested", "Settled", "Status")
+            val headers = listOf("Date", "From", "To", "Vehicle", "Invoice", "Agent ID", "Agent Name", "Type", "Consignment/Merchant", "LOT ID", "Requested", "Approved", "Settled", "Status")
             val sb = StringBuilder()
             sb.appendLine(headers.joinToString(",") { csvCell(it) })
             lastClaims.forEach { c ->
                 val cells = listOf(
-                    c.placedDate, c.claimCode,
-                    c.agentName.ifBlank { c.agentSystemId }, c.agentEmployeeId,
-                    c.category, c.purpose, c.fromArea, c.toArea, c.vehicle,
-                    c.requestedAmount.toString(), c.settledAmount.toString(), c.status,
+                    sheetDate(c.placedDate), areaDisplay(c.fromArea), areaDisplay(c.toArea), c.vehicle,
+                    c.claimCode, c.agentEmployeeId, c.agentName.ifBlank { c.agentSystemId },
+                    c.category, c.cidOrMerchant, c.storeId,
+                    c.requestedAmount.toString(), c.approvedAmount.toString(), c.settledAmount.toString(), c.status,
                 )
                 sb.appendLine(cells.joinToString(",") { csvCell(it) })
             }
@@ -465,6 +467,17 @@ private var lastPdf: File? = null
         val needsQuotes = value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }
         return if (needsQuotes) "\"${value.replace("\"", "\"\"")}\"" else value
     }
+
+    /** Sheet date "26-Aug-26" from yyyy-MM-dd; "OFFICE" sentinel → "Office". */
+    private fun sheetDate(iso: String): String {
+        val p = iso.split("-")
+        if (p.size != 3) return iso
+        val mon = mapOf("01" to "Jan", "02" to "Feb", "03" to "Mar", "04" to "Apr", "05" to "May", "06" to "Jun", "07" to "Jul", "08" to "Aug", "09" to "Sep", "10" to "Oct", "11" to "Nov", "12" to "Dec")[p[1]] ?: return iso
+        return "${p[2]}-$mon-${p[0].takeLast(2)}"
+    }
+
+    private fun areaDisplay(value: String): String =
+        if (value.trim().equals("OFFICE", ignoreCase = true)) "Office" else value
 
     /** Copies a cache-dir export into the public Downloads folder (same MediaStore
      *  flow CashLedgerListFragment uses — no storage permission needed on Q+). */

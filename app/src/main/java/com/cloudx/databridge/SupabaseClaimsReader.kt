@@ -32,6 +32,7 @@ object SupabaseClaimsReader {
         val purpose: String get() = raw.optStr("purpose")
         val settledAmount: Double get() = raw.optDouble("settled_amount", 0.0)
         val requestedAmount: Double get() = raw.optDouble("requested_amount", 0.0)
+        val approvedAmount: Double get() = raw.optDouble("approved_amount", 0.0)
         val vehicle: String get() = raw.optStr("vehicle")
         val fromArea: String get() = raw.optStr("from_area")
         val toArea: String get() = raw.optStr("to_area")
