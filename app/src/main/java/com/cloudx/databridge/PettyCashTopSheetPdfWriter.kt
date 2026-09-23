@@ -17,10 +17,12 @@ import java.util.Locale
  *   Page 1 — Top Sheet (branch/POC summary + 3-line category-group totals)
  *   Page 2 — Petty Cash Expense Summary (fixed A/B/C rows like the sample
  *            PDF — only the A-section amounts come from the data)
- *   Page 3 — Agent Acknowledgement (one row per agent, tall empty
- *            signature cells for signing on paper)
+ *   Page 3 — Agent Acknowledgement (one row per operation-expense agent,
+ *            tall empty signature cells for signing on paper)
  *   Then — Conveyance Vouchers in one continuous flow (no per-agent page
  *          break, no huge gaps), each agent headed by its SL block.
+ *   Last — Unsettled Bills (only when the range has unsettled claims):
+ *          one row per pending claim, stamped UNSETTLED.
  *
  * Long tables flow onto continuation pages with the table header repeated —
  * nothing is ever drawn past the page edge. Text never truncates with "…":
@@ -219,9 +221,9 @@ private val legacyConveyanceTypes = setOf(
             pocName, pocEmployeeId, pocDesignation, pocContact, fromDateIso, toDateIso,
         )
 
-        // ── Page 3: Agent Acknowledgement ────────────────────────────────────
+        // ── Page 3: Agent Acknowledgement (operation-expense agents only) ──
         ctx.nextPage()
-        drawAgentAcknowledgementPage(ctx, settled, toDateIso, pocName, pocEmployeeId, pocDesignation)
+        drawAgentAcknowledgementPage(ctx, aRows, toDateIso, pocName, pocEmployeeId, pocDesignation)
 
         // ── Conveyance Vouchers — continuous flow like the sample PDF: agents
         // follow one another with no forced page break (no huge gaps); a
@@ -243,6 +245,18 @@ private val legacyConveyanceTypes = setOf(
             voucherCanvas = drawn.first
             voucherY = drawn.second
             voucherSl += 1
+        }
+
+        // ── Unsettled Bills — every in-range claim still awaiting money
+        // (pending/approved/…; rejected/cancelled are dead, never listed),
+        // one row each, stamped UNSETTLED. Skipped when there are none. ──
+        val unsettled = claims.filter {
+            val s = it.status.trim().lowercase()
+            s != "settled" && s != "rejected" && s != "cancelled" && s != "cancel"
+        }.sortedBy { it.placedDate }
+        if (unsettled.isNotEmpty()) {
+            ctx.nextPage()
+            drawUnsettledPage(ctx, unsettled)
         }
 
         ctx.finish()
@@ -273,14 +287,15 @@ private val legacyConveyanceTypes = setOf(
         canvas.drawText("Top Sheet For Petty Cash Expense", margin + contentWidth / 2, y + 14f, titlePaint)
         y += 20f
 
-        // Hub name row.
-        y = drawTwoColLabelRow(canvas, y, "Hub Name:", branchName, labelPaint, valuePaint, strokeBorder)
-        // Month/date row — business month from the range end (26 Aug–25 Sep == September).
+        // Hub / month / date rows — each its own label:value block.
+        y = drawTwoColLabelRow(canvas, y, "Hub Name", branchName, labelPaint, valuePaint, strokeBorder)
+        // Business month from the range end (26 Aug–25 Sep == September).
         val monthLabel = businessMonthLabel(toDateIso, "MMMM yyyy")
+        y = drawTwoColLabelRow(canvas, y, "Month Name", monthLabel, labelPaint, valuePaint, strokeBorder)
         y = drawTwoColLabelRow(
-            canvas, y, "Month Name: $monthLabel",
-            "Date: ${dateDisplayFormat.format(dateIsoFormat.parse(toDateIso) ?: java.util.Date())}",
-            labelPaint, valuePaint, strokeBorder, isTwoLabels = true,
+            canvas, y, "Date",
+            dateDisplayFormat.format(dateIsoFormat.parse(toDateIso) ?: java.util.Date()),
+            labelPaint, valuePaint, strokeBorder,
         )
 
         // POC details block.
@@ -303,10 +318,10 @@ private val legacyConveyanceTypes = setOf(
 
         val cashInHand = (pettyCashLimit - totalCost).coerceAtLeast(0.0)
         val overExpenditure = (totalCost - pettyCashLimit).coerceAtLeast(0.0)
-        y = drawTwoColLabelRow(canvas, y, "Total Cost", moneyFormat.format(totalCost), labelPaint, valuePaint, strokeBorder, boldValue = true)
-        y = drawTwoColLabelRow(canvas, y, "Petty cash limit", moneyFormat.format(pettyCashLimit), labelPaint, valuePaint, strokeBorder, boldValue = true)
-        y = drawTwoColLabelRow(canvas, y, "Cash in hand", moneyFormat.format(cashInHand), labelPaint, valuePaint, strokeBorder, boldValue = true)
-        y = drawTwoColLabelRow(canvas, y, "Over expenditure", moneyFormat.format(overExpenditure), labelPaint, valuePaint, strokeBorder, boldValue = true)
+        y = drawTwoColLabelRow(canvas, y, "Total Cost", moneyFormat.format(totalCost), labelPaint, valuePaint, strokeBorder, boldValue = true, alignRightValue = true)
+        y = drawTwoColLabelRow(canvas, y, "Petty cash limit", moneyFormat.format(pettyCashLimit), labelPaint, valuePaint, strokeBorder, boldValue = true, alignRightValue = true)
+        y = drawTwoColLabelRow(canvas, y, "Cash in hand", moneyFormat.format(cashInHand), labelPaint, valuePaint, strokeBorder, boldValue = true, alignRightValue = true)
+        y = drawTwoColLabelRow(canvas, y, "Over expenditure", moneyFormat.format(overExpenditure), labelPaint, valuePaint, strokeBorder, boldValue = true, alignRightValue = true)
         y += 40f
 
         // Acknowledgement boxes.
@@ -381,23 +396,26 @@ private val legacyConveyanceTypes = setOf(
     ) {
         var canvas = ctx.canvas
         var y = margin
-        val titlePaint = textPaint(darkColor, 12f, bold = true)
+        val titlePaint = textPaint(darkColor, 12f, bold = true).apply { textAlign = Paint.Align.CENTER }
         val labelPaint = textPaint(darkColor, 8.5f, bold = true)
         val valuePaint = textPaint(darkColor, 8.5f)
         val strokeBorder = strokePaint(borderColor, 0.6f)
 
-        canvas.drawText("Petty Cash Expense Summery", margin, y + 10f, titlePaint)
+        canvas.drawText("Petty Cash Expense Summery", margin + contentWidth / 2, y + 10f, titlePaint)
         y += 16f
         val monthLabel = businessMonthLabel(toDateIso, "MMMM yyyy")
-        y = drawTwoColLabelRow(canvas, y, "Hub Name: $branchName", "", labelPaint, valuePaint, strokeBorder)
+        y = drawTwoColLabelRow(canvas, y, "Hub Name", branchName, labelPaint, valuePaint, strokeBorder)
+        y = drawTwoColLabelRow(canvas, y, "Month Name", monthLabel, labelPaint, valuePaint, strokeBorder)
         y = drawTwoColLabelRow(
-            canvas, y, "Month Name: $monthLabel",
-            "Date: ${dateDisplayFormat.format(dateIsoFormat.parse(toDateIso) ?: java.util.Date())}",
-            labelPaint, valuePaint, strokeBorder, isTwoLabels = true,
+            canvas, y, "Date",
+            dateDisplayFormat.format(dateIsoFormat.parse(toDateIso) ?: java.util.Date()),
+            labelPaint, valuePaint, strokeBorder,
         )
-        y = drawTwoColLabelRow(canvas, y, "Responsible Name: $pocName", "", labelPaint, valuePaint, strokeBorder)
-        y = drawTwoColLabelRow(canvas, y, "EID: $pocEmployeeId", "Designation: $pocDesignation", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
-        y = drawTwoColLabelRow(canvas, y, "Contact Number: $pocContact", "Region Name: $branchRegion", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
+        y = drawTwoColLabelRow(canvas, y, "Responsible Name", pocName, labelPaint, valuePaint, strokeBorder)
+        y = drawTwoColLabelRow(canvas, y, "EID", pocEmployeeId, labelPaint, valuePaint, strokeBorder)
+        y = drawTwoColLabelRow(canvas, y, "Designation", pocDesignation, labelPaint, valuePaint, strokeBorder)
+        y = drawTwoColLabelRow(canvas, y, "Contact Number", pocContact, labelPaint, valuePaint, strokeBorder)
+        y = drawTwoColLabelRow(canvas, y, "Region Name", branchRegion, labelPaint, valuePaint, strokeBorder)
         y += 10f
 
         val rowHeightSmall = 12f
@@ -414,6 +432,7 @@ private val legacyConveyanceTypes = setOf(
         }
         val operationSectionTotal = aAmounts.sum()
         y = drawSummaryTotalRow(canvas, y, "Total Operation Expense", operationSectionTotal, strokeBorder)
+        y += 8f
 
         // B. Office Maintenance Cost — office-group rows by category.
         y = drawSummaryGroupHeader(canvas, y, "B. Office Maintaince Cost", "Amount", strokeBorder, headerFillColor)
@@ -426,6 +445,7 @@ private val legacyConveyanceTypes = setOf(
         }
         val officeSectionTotal = bAmounts.sum()
         y = drawSummaryTotalRow(canvas, y, "Total Office Maintaince Cost", officeSectionTotal, strokeBorder)
+        y += 8f
 
         // C. Utilities Expense — utilities-group rows by category (Internet
         // Bill -> C.1, etc.).
@@ -486,9 +506,9 @@ private val legacyConveyanceTypes = setOf(
         canvas.drawText("Agent Acknowledgement ($monthYearLabel)", margin + contentWidth / 2, y + 12f, titlePaint)
         y += 18f
 
-        // Group settled claims per agent — Amount and Total Succeeded summed
-        // across every settled claim (not only conveyance ones), per the
-        // reference PDF's "Amount"/quantity columns. Grouped by system id
+        // Operation-expense agents only: utilities/office claims (e.g. an
+        // Internet Bill filed by non-agent staff) never appear here — the
+        // caller passes the conveyance+operation rows. Grouped by system id
         // (stable key), displayed by employee ID (FDA 1958).
         data class AgentSummary(val systemId: String, val empId: String, val name: String, val phone: String, val amount: Double, val delivered: Int)
         val bySystemId = settled.groupBy { it.agentSystemId }
@@ -542,8 +562,13 @@ private val legacyConveyanceTypes = setOf(
             listOf("", "", "Total =", moneyFormat.format(totalAmount), totalDelivered.toString(), "", ""),
             headers.map { it.second }, strokeBorder, alignRight = setOf(3, 4), bold = true,
         )
-        y += 14f
+        // Breathing room before and after the in-words line.
+        y += 12f
+        if (y + 14f > pageHeight - margin) {
+            ctx.nextPage(); canvas = ctx.canvas; y = margin
+        }
         canvas.drawText(amountInWords(totalAmount), margin, y, textPaint(darkColor, 8.5f, bold = true))
+        y += 14f
     }
 
     // ── Conveyance Vouchers (continuous flow) ──────────────────────────────
@@ -554,34 +579,46 @@ private val legacyConveyanceTypes = setOf(
     private val voucherHeaders = listOf("Date" to 0.11f, "From" to 0.13f, "Destination" to 0.13f, "Description" to 0.14f, "Vehicle" to 0.09f, "Amount" to 0.09f, "Attempted" to 0.10f, "Succeeded" to 0.09f, "CID / Merchant" to 0.12f)
 
     /** One renderable voucher line: a lone claim, or a LOT-ID group whose
-     *  shared cells merge (one row per consignment). Consecutive same-LOT
-     *  rows group together, preserving expense-date order. */
+     *  shared cells merge into one block (one row per consignment). All of
+     *  an agent's same-LOT rows group together wherever they sit in
+     *  date order — the block renders at its earliest row's position. */
     private sealed interface VoucherItem {
         data class Single(val claim: SupabaseClaimsReader.ClaimRow) : VoucherItem
         data class LotGroup(val claims: List<SupabaseClaimsReader.ClaimRow>) : VoucherItem
     }
 
+    private fun lotIdOf(c: SupabaseClaimsReader.ClaimRow): String =
+        if (c.category == "LOT Delivery") c.storeId.trim() else ""
+
     private fun partitionVoucherItems(agentClaims: List<SupabaseClaimsReader.ClaimRow>): List<VoucherItem> {
-        val items = mutableListOf<VoucherItem>()
-        var pending = mutableListOf<SupabaseClaimsReader.ClaimRow>()
-        fun flush() {
-            if (pending.isEmpty()) return
-            items.add(if (pending.size == 1) VoucherItem.Single(pending[0])
-            else VoucherItem.LotGroup(pending.toList()))
-            pending = mutableListOf()
-        }
+        // Collect every LOT-ID group across the whole agent (date-ordered
+        // inside), then interleave with singles by earliest date — so a LOT
+        // batch always renders as ONE merged block even when other claims
+        // sit between its rows.
+        val byLot = linkedMapOf<String, MutableList<SupabaseClaimsReader.ClaimRow>>()
         agentClaims.forEach { c ->
-            val lotId = if (c.category == "LOT Delivery") c.storeId.trim() else ""
-            if (lotId.isNotEmpty() && pending.isNotEmpty() && pending[0].storeId.trim() == lotId) {
-                pending.add(c)
+            val lotId = lotIdOf(c)
+            if (lotId.isNotEmpty()) byLot.getOrPut(lotId) { mutableListOf() }.add(c)
+        }
+        data class Slot(val date: String, val item: VoucherItem)
+        val slots = mutableListOf<Slot>()
+        agentClaims.forEach { c ->
+            val lotId = lotIdOf(c)
+            if (lotId.isEmpty()) {
+                slots.add(Slot(c.placedDate, VoucherItem.Single(c)))
             } else {
-                flush()
-                if (lotId.isNotEmpty()) pending.add(c)
-                else items.add(VoucherItem.Single(c))
+                val group = byLot.remove(lotId) ?: return@forEach
+                val ordered = group.sortedBy { it.placedDate }
+                slots.add(
+                    Slot(
+                        ordered.minOf { it.placedDate },
+                        if (ordered.size == 1) VoucherItem.Single(ordered[0])
+                        else VoucherItem.LotGroup(ordered),
+                    )
+                )
             }
         }
-        flush()
-        return items
+        return slots.sortedBy { it.date }.map { it.item }
     }
 
     private fun voucherDateLabel(claim: SupabaseClaimsReader.ClaimRow): String =
@@ -735,16 +772,77 @@ private val legacyConveyanceTypes = setOf(
         }
         val gTotal = agentClaims.sumOf { it.settledAmount }
         val totalDelivered = agentClaims.sumOf { it.deliveredQuantity }
-        // Keep G/Total + In-word together on one page.
-        if (y + 13f + 16f > pageHeight - margin) {
+        // Keep G/Total + In-word together on one page, with breathing room
+        // above, between, and below.
+        if (y + 10f + 13f + 12f + 16f + 14f > pageHeight - margin) {
             ctx.nextPage(); canvas = ctx.canvas; y = margin
         }
-        y += 4f
+        y += 10f
         canvas.drawText("G/Total = ${moneyFormat.format(gTotal)}   Total Succeeded = $totalDelivered", margin, y + 9f, textPaint(darkColor, 8.5f, bold = true))
+        y += 12f
+        if (y + 16f + 14f > pageHeight - margin) {
+            ctx.nextPage(); canvas = ctx.canvas; y = margin
+        }
         y += 16f
         canvas.drawText("In word: ${amountInWords(gTotal)}", margin, y, textPaint(darkColor, 8.5f))
-        y += 8f
+        y += 14f
         return canvas to y
+    }
+
+    // ── Unsettled Bills page ─────────────────────────────────────────────────
+    // One row per not-yet-settled claim in range (pending/approved/...),
+    // stamped UNSETTLED so it can never be mistaken for an expense page.
+
+    private val unsettledHeaders = listOf(
+        "Date" to 0.11f, "Agent" to 0.20f, "Category" to 0.20f,
+        "CID / Merchant" to 0.20f, "Requested" to 0.14f, "Status" to 0.15f,
+    )
+
+    private fun drawUnsettledPage(
+        ctx: PageCtx,
+        unsettled: List<SupabaseClaimsReader.ClaimRow>,
+    ) {
+        var canvas = ctx.canvas
+        var y = margin
+        val titlePaint = textPaint(darkColor, 12f, bold = true).apply { textAlign = Paint.Align.CENTER }
+        val stampPaint = textPaint(Color.parseColor("#B91C1C"), 16f, bold = true).apply { textAlign = Paint.Align.CENTER }
+        val strokeBorder = strokePaint(borderColor, 0.6f)
+
+        canvas.drawText("Unsettled Bills", margin + contentWidth / 2, y + 12f, titlePaint)
+        y += 18f
+        // Stamp box.
+        val stampH = 26f
+        canvas.drawRect(margin, y, margin + contentWidth, y + stampH, strokePaint(Color.parseColor("#B91C1C"), 1f))
+        canvas.drawText("UNSETTLED", margin + contentWidth / 2, y + 18f, stampPaint)
+        y += stampH + 10f
+
+        y = drawTableHeaderRow(canvas, y, unsettledHeaders, strokeBorder, headerFillColor)
+        val weights = unsettledHeaders.map { it.second }
+        unsettled.forEach { row ->
+            if (y + 14f > pageHeight - margin - 30f) {
+                ctx.nextPage(); canvas = ctx.canvas; y = margin
+                y = drawTableHeaderRow(canvas, y, unsettledHeaders, strokeBorder, headerFillColor)
+            }
+            y = drawDataRow(
+                canvas, y,
+                listOf(
+                    voucherDateLabel(row),
+                    row.agentName.ifBlank { displayAgentId(row) },
+                    row.category,
+                    row.cidOrMerchant,
+                    moneyFormat.format(row.requestedAmount),
+                    row.status,
+                ),
+                weights, strokeBorder, alignRight = setOf(4),
+            )
+        }
+        val totalRequested = unsettled.sumOf { it.requestedAmount }
+        y += 10f
+        if (y + 14f > pageHeight - margin) {
+            ctx.nextPage(); canvas = ctx.canvas; y = margin
+        }
+        y = drawSummaryTotalRow(canvas, y, "Total Unsettled (requested)", totalRequested, strokeBorder)
+        y += 14f
     }
 
     // ── Shared drawing helpers ───────────────────────────────────────────────
@@ -786,7 +884,7 @@ private val legacyConveyanceTypes = setOf(
     private fun drawTwoColLabelRow(
         canvas: Canvas, y: Float, label: String, value: String,
         labelPaint: Paint, valuePaint: Paint, strokeBorder: Paint,
-        isTwoLabels: Boolean = false, boldValue: Boolean = false,
+        isTwoLabels: Boolean = false, boldValue: Boolean = false, alignRightValue: Boolean = false,
     ): Float {
         val rowHeight = 16f
         canvas.drawRect(margin, y, margin + contentWidth, y + rowHeight, strokeBorder)
@@ -798,7 +896,16 @@ private val legacyConveyanceTypes = setOf(
             val labelWidth = contentWidth * 0.35f
             canvas.drawText(label, margin + 4f, y + rowHeight - 5f, labelPaint)
             canvas.drawLine(margin + labelWidth, y, margin + labelWidth, y + rowHeight, strokeBorder)
-            canvas.drawText(value, margin + labelWidth + 4f, y + rowHeight - 5f, if (boldValue) textPaint(darkColor, 8.5f, bold = true) else valuePaint)
+            val paint = if (boldValue) textPaint(darkColor, 8.5f, bold = true) else valuePaint
+            if (alignRightValue) {
+                val prevAlign = paint.textAlign
+                paint.textAlign = Paint.Align.RIGHT
+                fitTextSize(paint, 8.5f, value, contentWidth - labelWidth - 8f)
+                canvas.drawText(value, margin + contentWidth - 4f, y + rowHeight - 5f, paint)
+                paint.textAlign = prevAlign
+            } else {
+                canvas.drawText(value, margin + labelWidth + 4f, y + rowHeight - 5f, paint)
+            }
         }
         return y + rowHeight
     }

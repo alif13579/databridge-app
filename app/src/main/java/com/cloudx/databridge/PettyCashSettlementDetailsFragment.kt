@@ -125,12 +125,12 @@ class PettyCashSettlementDetailsFragment : Fragment() {
 
     private fun formatDateTime(millis: Long): String {
         if (millis == 0L) return "—"
-        return SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
+        return BdTime.format("dd MMM, hh:mm a", millis)
     }
 
     private fun formatDate(millis: Long): String {
         if (millis == 0L) return "—"
-        return SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(millis))
+        return BdTime.format("dd MMM yyyy", millis)
     }
 
     /**

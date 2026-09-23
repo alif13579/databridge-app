@@ -298,7 +298,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
 
     private fun formatDateTime(millis: Long): String {
         if (millis == 0L) return "—"
-        return SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
+        return BdTime.format("dd MMM, hh:mm a", millis)
     }
 
     /** Status-appropriate amount for totals: the stage figure, not requested. */
@@ -556,7 +556,7 @@ class PettyCashPendingSettlementFragment : Fragment() {
     }
 
     private fun shortDate(millis: Long): String =
-        java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault()).format(java.util.Date(millis))
+        BdTime.format("dd MMM", millis)
 
     /** Toolbar range readout next to the calendar + the one-tap ✕ undo.
      *  Always visible so the active scope is never a mystery. */
@@ -834,15 +834,25 @@ class PettyCashPendingSettlementFragment : Fragment() {
             selectedIds.addAll(eligible.map { it.id })
         }
         renderList()
-    }    /** Status-appropriate secondary line — what to show instead of a hardcoded "POC Approved:" for every card. */
+    }    /** Expense date for display — requestedDate, falling back to submission time. */
+    private fun expenseDate(item: PettyCashRequest): Long =
+        if (item.requestedDate != 0L) item.requestedDate else item.createdAt
+
+    private fun formatDate(millis: Long): String {
+        if (millis == 0L) return "—"
+        return BdTime.format("dd MMM yyyy", millis)
+    }
+
+    /** Status-appropriate secondary line — what to show instead of a hardcoded "POC Approved:" for every card.
+     *  Leads with the expense date (submit can come later); submitted time kept alongside. */
     private fun statusInfoLine(item: PettyCashRequest): Pair<String, String> = when (item.status) {
-        PC_STATUS_PENDING -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.requesterName}"
+        PC_STATUS_PENDING -> "Expense: ${formatDate(expenseDate(item))} · Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.requesterName}"
         PC_STATUS_ACKNOWLEDGED -> "Authorised: ${formatDateTime(item.verifiedAt)}" to "By: ${item.verifiedByName.ifBlank { "—" }}"
         PC_STATUS_APPROVED -> "Approved: ${formatDateTime(item.approvedAt)}" to "By: ${item.approvedByName.ifBlank { "—" }}"
         PC_STATUS_SETTLE_IN_PROCESS -> "Settle in Process: ${formatDateTime(item.settleInProcessAt)}" to "By: ${item.settleInProcessByName.ifBlank { "—" }}"
         PC_STATUS_SETTLED -> "Settled: ${formatDateTime(item.settledAt)}" to "By: ${item.settledByName.ifBlank { "—" }}"
         PC_STATUS_REJECTED -> "Rejected: ${formatDateTime(item.rejectedAt)}" to "By: ${item.rejectedByName.ifBlank { "—" }}"
-        else -> "Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.requesterName}"
+        else -> "Expense: ${formatDate(expenseDate(item))} · Submitted: ${formatDateTime(item.createdAt)}" to "By: ${item.requesterName}"
     }
 
     private fun renderList() {

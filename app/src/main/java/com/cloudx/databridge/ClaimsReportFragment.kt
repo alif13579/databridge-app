@@ -25,8 +25,8 @@ import java.util.*
  * CashExportWriter) — one search, both files downloadable.
  */
 class ClaimsReportFragment : Fragment() {
-    private val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-    private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    private val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).apply { timeZone = BdTime.ZONE }
+    private val isoDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = BdTime.ZONE }
 
     // Single-select branch (see the discussion that settled on this over
     // multi-select: pick freely from the full branch list, but only one
@@ -269,14 +269,17 @@ private var lastPdf: File? = null
             runCatching {
                 val fromIso = isoDateFormat.format(Date(from))
                 val toIso = isoDateFormat.format(Date(to))
+                // Server date-only bounds are UTC midnights — a Dhaka day
+                // starts 6h earlier, so fetch ±1 day wide and keep exactly
+                // the Dhaka-local days (same basis as every other screen).
                 val claims = SupabaseClaimsReader.fetchClaimsForReport(
                     branchId = selectedBranchId,
-                    fromDateIso = fromIso,
-                    toDateIso = toIso,
+                    fromDateIso = shiftIsoDays(fromIso, -1),
+                    toDateIso = shiftIsoDays(toIso, 1),
                     agentSystemIds = selectedEmployeeSystemIds.toList(),
                     categories = selectedCategories.toList(),
                     statuses = selectedStatuses.toList(),
-                )
+                ).filter { it.dhakaDate() in fromIso..toIso }
                 if (claims.isEmpty()) throw IllegalStateException("No claims found for the selected filters")
                 val branchRegion = claims.first().branchRegion
                 val pettyCashLimit = claims.first().branchPettyCashLimit
@@ -537,6 +540,12 @@ private var lastPdf: File? = null
         v.findViewById<TextView>(R.id.btnClaimsTo).text = dateFormat.format(Date(to))
     }
 
+    /** Whole-day shift of a yyyy-MM-dd string (for widening server bounds). */
+    private fun shiftIsoDays(iso: String, days: Int): String {
+        val millis = runCatching { isoDateFormat.parse(iso)?.time }.getOrNull() ?: return iso
+        return isoDateFormat.format(Date(millis + days * 86_400_000L))
+    }
+
     private fun pickDate(initial: Long, done: (Long) -> Unit) { MaterialDatePicker.Builder.datePicker().setSelection(initial).build().also { it.addOnPositiveButtonClickListener { utc -> done(localDay(utc)) }; it.show(parentFragmentManager, "claims_date") } }
     /** Converts the picker's UTC-midnight millis to local-midnight millis for the
      *  same calendar day. NOTE: the UTC fields must be read off the UTC calendar
@@ -544,26 +553,20 @@ private var lastPdf: File? = null
      *  local calendar (which is "now") and every pick would silently become today. */
     private fun localDay(utc: Long): Long {
         val utcCal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = utc }
-        return Calendar.getInstance().apply {
+        return BdTime.cal().apply {
             set(utcCal.get(Calendar.YEAR), utcCal.get(Calendar.MONTH), utcCal.get(Calendar.DAY_OF_MONTH), 0, 0, 0)
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
     }
 
-    private fun startOfMonth(): Long = Calendar.getInstance().apply {
+    private fun startOfMonth(): Long = BdTime.cal().apply {
         set(Calendar.DAY_OF_MONTH, 1); set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
         set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
     }.timeInMillis
 
-    private fun startOfDay(t: Long): Long = Calendar.getInstance().apply {
-        timeInMillis = t; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
+    private fun startOfDay(t: Long): Long = BdTime.startOfDay(t)
 
-    private fun endOfDay(t: Long): Long = Calendar.getInstance().apply {
-        timeInMillis = t; set(Calendar.HOUR_OF_DAY, 23); set(Calendar.MINUTE, 59)
-        set(Calendar.SECOND, 59); set(Calendar.MILLISECOND, 999)
-    }.timeInMillis
+    private fun endOfDay(t: Long): Long = BdTime.endOfDay(t)
     private fun endOfToday() = endOfDay(System.currentTimeMillis())
     private fun toast(s: String) = Toast.makeText(requireContext(), s, Toast.LENGTH_LONG).show()
 

@@ -137,7 +137,7 @@ class PettyCashMyRequestsFragment : Fragment() {
     }
 
     private fun setClaimsRangeToThisMonth() {
-        val cal = java.util.Calendar.getInstance()
+        val cal = BdTime.cal()
         cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
         startOfDay(cal)
         claimsRangeStart = cal.timeInMillis
@@ -176,7 +176,7 @@ class PettyCashMyRequestsFragment : Fragment() {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Select date range")
             .setItems(options) { _, which ->
-                val cal = java.util.Calendar.getInstance()
+                val cal = BdTime.cal()
                 when (which) {
                     0 -> setClaimsRangeToThisMonth()
                     1 -> {
@@ -218,16 +218,16 @@ class PettyCashMyRequestsFragment : Fragment() {
     }
 
     private fun showCustomClaimsRangePicker() {
-        val startCal = java.util.Calendar.getInstance().apply {
+        val startCal = BdTime.cal().apply {
             if (claimsRangeStart > 0L) timeInMillis = claimsRangeStart
         }
         android.app.DatePickerDialog(requireContext(), { _, y, m, d ->
-            val from = java.util.Calendar.getInstance().apply {
+            val from = BdTime.cal().apply {
                 set(y, m, d); startOfDay(this)
             }
-            val endCal = java.util.Calendar.getInstance()
+            val endCal = BdTime.cal()
             android.app.DatePickerDialog(requireContext(), { _, y2, m2, d2 ->
-                val to = java.util.Calendar.getInstance().apply {
+                val to = BdTime.cal().apply {
                     set(y2, m2, d2); startOfDay(this)
                     add(java.util.Calendar.DAY_OF_YEAR, 1) // inclusive end date
                 }
@@ -237,7 +237,7 @@ class PettyCashMyRequestsFragment : Fragment() {
                 }
                 claimsRangeStart = from.timeInMillis
                 claimsRangeEnd = to.timeInMillis
-                val fmt = SimpleDateFormat("dd MMM", Locale.ENGLISH)
+                val fmt = SimpleDateFormat("dd MMM", Locale.ENGLISH).apply { timeZone = BdTime.ZONE }
                 claimsRangeLabel = "${fmt.format(from.time)} - ${fmt.format(Date(to.timeInMillis - 86_400_000))}"
                 refreshMyClaimsSummaryIfLoaded()
             }, endCal.get(java.util.Calendar.YEAR), endCal.get(java.util.Calendar.MONTH), endCal.get(java.util.Calendar.DAY_OF_MONTH)).show()
@@ -298,7 +298,7 @@ class PettyCashMyRequestsFragment : Fragment() {
 
     private fun formatDate(millis: Long): String {
         if (millis == 0L) return "—"
-        return SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
+        return BdTime.format("dd MMM, hh:mm a", millis)
     }
 
     private fun render(state: PettyCashState) {

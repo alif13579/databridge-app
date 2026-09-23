@@ -171,7 +171,7 @@ class PettyCashAllRequestsFragment : Fragment() {
 
     private fun formatDate(millis: Long): String {
         if (millis == 0L) return "—"
-        return SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(millis))
+        return BdTime.format("dd MMM, hh:mm a", millis)
     }
 
     private fun render(state: PettyCashState) {
@@ -339,24 +339,24 @@ class PettyCashAllRequestsFragment : Fragment() {
      *  otherwise 1st→month-end. Labels like "September 2026". */
     private fun showMonthDialog(business: Boolean) {
         val months = (0..11).map { back ->
-            val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.MONTH, -back) }
+            val cal = BdTime.cal().apply { add(java.util.Calendar.MONTH, -back) }
             val year = cal.get(java.util.Calendar.YEAR)
             val month = cal.get(java.util.Calendar.MONTH) // 0-based
-            val label = java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.US).format(cal.time)
+            val label = java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.US).apply { timeZone = BdTime.ZONE }.format(cal.time)
             val (from, to) = if (business) {
-                val f = java.util.Calendar.getInstance().apply {
+                val f = BdTime.cal().apply {
                     set(year, month, 26, 0, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
                     add(java.util.Calendar.MONTH, -1)
                 }.timeInMillis
-                val t = java.util.Calendar.getInstance().apply {
+                val t = BdTime.cal().apply {
                     set(year, month, 25, 23, 59, 59); set(java.util.Calendar.MILLISECOND, 999)
                 }.timeInMillis
                 f to t
             } else {
-                val f = java.util.Calendar.getInstance().apply {
+                val f = BdTime.cal().apply {
                     set(year, month, 1, 0, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
                 }.timeInMillis
-                val t = java.util.Calendar.getInstance().apply {
+                val t = BdTime.cal().apply {
                     set(year, month, getActualMaximum(java.util.Calendar.DAY_OF_MONTH), 23, 59, 59)
                     set(java.util.Calendar.MILLISECOND, 999)
                 }.timeInMillis
@@ -377,8 +377,7 @@ class PettyCashAllRequestsFragment : Fragment() {
             .show()
     }
 
-    private fun shortDate(millis: Long): String =
-        java.text.SimpleDateFormat("dd MMM", java.util.Locale.getDefault()).format(java.util.Date(millis))
+    private fun shortDate(millis: Long): String = BdTime.format("dd MMM", millis)
 
     private fun updateDateChip() {
         val root = view ?: return
@@ -1005,7 +1004,13 @@ class PettyCashAllRequestsFragment : Fragment() {
         pendingDownload = null
     }
 
-    private val exportIsoFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    private val exportIsoFormat = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { timeZone = BdTime.ZONE }
+
+    /** Whole-day shift of a yyyy-MM-dd string (for widening server bounds). */
+    private fun shiftIsoDays(iso: String, days: Int): String {
+        val millis = runCatching { exportIsoFormat.parse(iso)?.time }.getOrNull() ?: return iso
+        return exportIsoFormat.format(java.util.Date(millis + days * 86_400_000L))
+    }
 
     private fun exportChooser() {
         val rows = filteredRequests()
@@ -1043,7 +1048,9 @@ class PettyCashAllRequestsFragment : Fragment() {
         val hasRange = advancedFilter.dateFromMillis != 0L && advancedFilter.dateToMillis != 0L
         val fromIso = if (hasRange) iso.format(java.util.Date(advancedFilter.dateFromMillis)) else "1970-01-01"
         val toIso = if (hasRange) iso.format(java.util.Date(advancedFilter.dateToMillis)) else "2999-12-31"
-        val all = SupabaseClaimsReader.fetchClaimsForReport(branchId, fromIso, toIso)
+        // ±1 day wide (server bounds are UTC midnights); the id-join below
+        // keeps the export exactly on the on-screen Dhaka-local filter.
+        val all = SupabaseClaimsReader.fetchClaimsForReport(branchId, shiftIsoDays(fromIso, -1), shiftIsoDays(toIso, 1))
         val matched = all.filter { it.id in ids }
         if (matched.isEmpty()) return null
         val labelFrom = if (hasRange) fromIso else matched.minOf { it.placedDate.ifBlank { fromIso } }

@@ -370,7 +370,7 @@ class PettyCashBulkImportFragment : Fragment() {
         if (s.isEmpty()) return null
         s.toDoubleOrNull()?.let { serial ->
             if (serial > 20000 && serial < 80000) {
-                val base = Calendar.getInstance().apply { set(1899, Calendar.DECEMBER, 30, 12, 0, 0); set(Calendar.MILLISECOND, 0) }
+                val base = BdTime.cal().apply { set(1899, Calendar.DECEMBER, 30, 12, 0, 0); set(Calendar.MILLISECOND, 0) }
                 base.add(Calendar.DAY_OF_YEAR, serial.toInt())
                 return base.timeInMillis
             }
@@ -392,7 +392,7 @@ class PettyCashBulkImportFragment : Fragment() {
     }
 
     private fun calAtNoon(year: Int, month0: Int, day: Int): Long =
-        Calendar.getInstance().apply {
+        BdTime.cal().apply {
             set(year, month0, day, 12, 0, 0); set(Calendar.MILLISECOND, 0)
         }.timeInMillis
 

@@ -97,7 +97,7 @@ class PettyCashFilterFragment : Fragment() {
 
     private fun formatDate(millis: Long): String {
         if (millis == 0L) return "Any"
-        val cal = Calendar.getInstance().apply { timeInMillis = millis }
+        val cal = BdTime.cal().apply { timeInMillis = millis }
         val day = cal.get(Calendar.DAY_OF_MONTH)
         val month = cal.get(Calendar.MONTH) + 1
         val year = cal.get(Calendar.YEAR)
@@ -111,11 +111,11 @@ class PettyCashFilterFragment : Fragment() {
 
     private fun pickDate(isFrom: Boolean) {
         val base = if (isFrom) dateFromMillis else dateToMillis
-        val cal = Calendar.getInstance().apply { if (base != 0L) timeInMillis = base }
+        val cal = BdTime.cal().apply { if (base != 0L) timeInMillis = base }
         DatePickerDialog(
             requireContext(),
             { _, year, month, day ->
-                val pickedDay = Calendar.getInstance().apply {
+                val pickedDay = BdTime.cal().apply {
                     set(year, month, day)
                 }.timeInMillis
                 if (isFrom) {
@@ -130,15 +130,9 @@ class PettyCashFilterFragment : Fragment() {
         ).show()
     }
 
-    private fun startOfDay(t: Long): Long = Calendar.getInstance().apply {
-        timeInMillis = t; set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
+    private fun startOfDay(t: Long): Long = BdTime.startOfDay(t)
 
-    private fun endOfDay(t: Long): Long = Calendar.getInstance().apply {
-        timeInMillis = t; set(Calendar.HOUR_OF_DAY, 23); set(Calendar.MINUTE, 59)
-        set(Calendar.SECOND, 59); set(Calendar.MILLISECOND, 999)
-    }.timeInMillis
+    private fun endOfDay(t: Long): Long = BdTime.endOfDay(t)
 
     private fun buildStatusCheckboxes(root: View) {
         val container = root.findViewById<android.widget.LinearLayout>(R.id.layoutPcFilterStatusOptions)

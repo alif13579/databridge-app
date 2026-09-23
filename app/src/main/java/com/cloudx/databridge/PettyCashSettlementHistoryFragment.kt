@@ -104,7 +104,7 @@ class PettyCashSettlementHistoryFragment : Fragment() {
 
     private fun formatDateTime(millis: Long): String {
         if (millis == 0L) return "—"
-        return SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(millis))
+        return BdTime.format("dd MMM yyyy, hh:mm a", millis)
     }
 
     private fun render(state: PettyCashState) {
@@ -192,16 +192,16 @@ class PettyCashSettlementHistoryFragment : Fragment() {
 
     private fun isToday(millis: Long): Boolean {
         if (millis == 0L) return false
-        val now = Calendar.getInstance()
-        val then = Calendar.getInstance().apply { timeInMillis = millis }
+        val now = BdTime.cal()
+        val then = BdTime.cal().apply { timeInMillis = millis }
         return now.get(Calendar.DAY_OF_YEAR) == then.get(Calendar.DAY_OF_YEAR) &&
             now.get(Calendar.YEAR) == then.get(Calendar.YEAR)
     }
 
     private fun isThisMonth(millis: Long): Boolean {
         if (millis == 0L) return false
-        val now = Calendar.getInstance()
-        val then = Calendar.getInstance().apply { timeInMillis = millis }
+        val now = BdTime.cal()
+        val then = BdTime.cal().apply { timeInMillis = millis }
         return now.get(Calendar.MONTH) == then.get(Calendar.MONTH) &&
             now.get(Calendar.YEAR) == then.get(Calendar.YEAR)
     }
@@ -264,7 +264,7 @@ class PettyCashSettlementHistoryFragment : Fragment() {
     }
 
     private fun shortDate(millis: Long): String =
-        SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(millis))
+        BdTime.format("dd MMM", millis)
 
     /** Toolbar range readout + one-tap ✕ undo. */
     private fun updateRangeLabel() {
@@ -291,10 +291,10 @@ class PettyCashSettlementHistoryFragment : Fragment() {
     /** From/To dialog (default today–today on fresh open) + Apply/Cancel/Clear. */
     private fun showDateRangeDialog() {
         val ctx = requireContext()
-        var fromDay = Calendar.getInstance().apply {
+        var fromDay = BdTime.cal().apply {
             if (dateFromMillis != 0L) timeInMillis = dateFromMillis
         }
-        var toDay = Calendar.getInstance().apply {
+        var toDay = BdTime.cal().apply {
             if (dateToMillis != 0L) timeInMillis = dateToMillis
         }
         if (dateFromMillis == 0L) startOfDayLocal(fromDay)
@@ -383,7 +383,7 @@ class PettyCashSettlementHistoryFragment : Fragment() {
         fun pickDay(isFrom: Boolean) {
             val base = if (isFrom) fromDay else toDay
             android.app.DatePickerDialog(ctx, { _, y, m, d ->
-                val picked = Calendar.getInstance().apply { set(y, m, d) }
+                val picked = BdTime.cal().apply { set(y, m, d) }
                 if (isFrom) {
                     fromDay = picked
                     startOfDayLocal(fromDay)
@@ -423,26 +423,26 @@ class PettyCashSettlementHistoryFragment : Fragment() {
 
     /** Normal calendar month: 1st → today. */
     private fun monthRange(): Pair<Calendar, Calendar> {
-        val from = Calendar.getInstance().apply {
+        val from = BdTime.cal().apply {
             set(Calendar.DAY_OF_MONTH, 1)
             startOfDayLocal(this)
         }
-        val to = Calendar.getInstance().apply { endOfDayLocal(this) }
+        val to = BdTime.cal().apply { endOfDayLocal(this) }
         return from to to
     }
 
     /** Business-month bill cycle (26th–25th). offset 0 = running cycle
      *  containing today, -1 = previous cycle. */
     private fun billCycleRange(offset: Int): Pair<Calendar, Calendar> {
-        val today = Calendar.getInstance()
+        val today = BdTime.cal()
         val thisCycleStartThisMonth = today.get(Calendar.DAY_OF_MONTH) >= 26
-        val from = Calendar.getInstance().apply {
+        val from = BdTime.cal().apply {
             set(Calendar.DAY_OF_MONTH, 26)
             if (!thisCycleStartThisMonth) add(Calendar.MONTH, -1)
             add(Calendar.MONTH, offset)
             startOfDayLocal(this)
         }
-        val to = Calendar.getInstance().apply {
+        val to = BdTime.cal().apply {
             timeInMillis = from.timeInMillis
             add(Calendar.MONTH, 1)
             set(Calendar.DAY_OF_MONTH, 25)

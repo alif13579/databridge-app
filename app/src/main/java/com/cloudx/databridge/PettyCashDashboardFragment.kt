@@ -421,7 +421,7 @@ class PettyCashDashboardFragment : Fragment() {
         val approvedWaitingCount = state.requests.count { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
         val settledThisMonthCount = state.requests.count { req ->
             if (req.status != PC_STATUS_SETTLED || req.settledAt == 0L) return@count false
-            val cal = java.util.Calendar.getInstance()
+            val cal = BdTime.cal()
             val nowMonth = cal.get(java.util.Calendar.MONTH)
             val nowYear = cal.get(java.util.Calendar.YEAR)
             cal.timeInMillis = req.settledAt
@@ -469,7 +469,7 @@ class PettyCashDashboardFragment : Fragment() {
     }
 
     private fun setClaimsRangeToThisMonth() {
-        val cal = java.util.Calendar.getInstance()
+        val cal = BdTime.cal()
         cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
         startOfDay(cal)
         claimsRangeStart = cal.timeInMillis
@@ -514,7 +514,7 @@ class PettyCashDashboardFragment : Fragment() {
         android.app.AlertDialog.Builder(requireContext())
             .setTitle("Select date range")
             .setItems(options) { _, which ->
-                val cal = java.util.Calendar.getInstance()
+                val cal = BdTime.cal()
                 when (which) {
                     0 -> setClaimsRangeToThisMonth()
                     1 -> {
@@ -556,16 +556,16 @@ class PettyCashDashboardFragment : Fragment() {
     }
 
     private fun showCustomClaimsRangePicker() {
-        val startCal = java.util.Calendar.getInstance().apply {
+        val startCal = BdTime.cal().apply {
             if (claimsRangeStart > 0L) timeInMillis = claimsRangeStart
         }
         android.app.DatePickerDialog(requireContext(), { _, y, m, d ->
-            val from = java.util.Calendar.getInstance().apply {
+            val from = BdTime.cal().apply {
                 set(y, m, d); startOfDay(this)
             }
-            val endCal = java.util.Calendar.getInstance()
+            val endCal = BdTime.cal()
             android.app.DatePickerDialog(requireContext(), { _, y2, m2, d2 ->
-                val to = java.util.Calendar.getInstance().apply {
+                val to = BdTime.cal().apply {
                     set(y2, m2, d2); startOfDay(this)
                     add(java.util.Calendar.DAY_OF_YEAR, 1) // inclusive end date
                 }
@@ -575,7 +575,7 @@ class PettyCashDashboardFragment : Fragment() {
                 }
                 claimsRangeStart = from.timeInMillis
                 claimsRangeEnd = to.timeInMillis
-                val fmt = java.text.SimpleDateFormat("dd MMM", Locale.ENGLISH)
+                val fmt = java.text.SimpleDateFormat("dd MMM", Locale.ENGLISH).apply { timeZone = BdTime.ZONE }
                 claimsRangeLabel = "${fmt.format(from.time)} - ${fmt.format(java.util.Date(to.timeInMillis - 86_400_000))}"
                 refreshClaimsSummaryIfLoaded()
             }, endCal.get(java.util.Calendar.YEAR), endCal.get(java.util.Calendar.MONTH), endCal.get(java.util.Calendar.DAY_OF_MONTH)).show()
