@@ -306,8 +306,11 @@ private val legacyConveyanceTypes = setOf(
         drawAgentAcknowledgementPage(ctx, aRows, toDateIso, pocName, pocEmployeeId, pocDesignation)
 
         // ── Conveyance Vouchers — continuous flow like the sample PDF: blocks
-        // follow one another with no forced page break (no huge gaps); a
-        // table that outgrows the page continues with its header repeated.
+        // follow one another with no forced page break (no huge gaps). Every
+        // block is ATOMIC — it never splits or squeezes across pages; a block
+        // that doesn't fit moves whole to the next page, and leftover gaps
+        // are backfilled with the first later block that fits. Only a block
+        // taller than a full page splits (unavoidable), with headers repeated.
         // Agent-wise: one block per agent, ordered by first appearance in the
         // settled list (matches the Acknowledgement page's SL order).
         // Category-wise: one block per conveyance category holding every
@@ -316,19 +319,19 @@ private val legacyConveyanceTypes = setOf(
         if (conveyanceClaims.isNotEmpty()) {
             ctx.nextPage()
             ctx.footerEnabled = true
-            var voucherSl = 1
-            var voucherCanvas = ctx.canvas
-            var voucherY = margin
             // One measured grid for the whole report (same columns line up
             // across blocks); category-wise measures the Agent column.
-            val (vWidths, vXs) = voucherGrid(
-                conveyanceClaims, agentColumn = voucherGrouping == VoucherGrouping.CATEGORY_WISE,
-            )
-            // Breathing room between consecutive voucher blocks (skipped when a
-            // block ends flush at the page bottom — the page break itself is the
-            // separator there).
-            fun gapAfter(y: Float): Float =
-                if (y + voucherGap <= pageHeight - margin) y + voucherGap else y
+            val agentColumn = voucherGrouping == VoucherGrouping.CATEGORY_WISE
+            val (vWidths, vXs) = voucherGrid(conveyanceClaims, agentColumn = agentColumn)
+            // Jobs in original order (agents by first appearance, categories
+            // by first appearance) with their exact heights precomputed.
+            data class Job(val job: VoucherJob, val items: List<VoucherItem>, val height: Float)
+            val scopeLot = voucherGrouping == VoucherGrouping.CATEGORY_WISE
+            fun jobOf(job: VoucherJob, claims: List<SupabaseClaimsReader.ClaimRow>): Job {
+                val items = partitionVoucherItems(claims, scopeLotByAgent = scopeLot)
+                return Job(job, items, voucherHeadBlockH + voucherItemsHeight(items) + voucherTailBlockH)
+            }
+            val pending = mutableListOf<Job>()
             when (voucherGrouping) {
                 VoucherGrouping.AGENT_WISE -> {
                     val agentOrder = LinkedHashSet<String>()
@@ -336,11 +339,8 @@ private val legacyConveyanceTypes = setOf(
                     agentOrder.forEach { agentSystemId ->
                         val agentClaims = conveyanceClaims.filter { it.agentSystemId == agentSystemId }
                             .sortedBy { it.placedDate }
-                        if (agentClaims.isEmpty()) return@forEach
-                        val drawn = drawConveyanceVoucherAgent(ctx, voucherCanvas, voucherY, vWidths, vXs, agentClaims, voucherSl)
-                        voucherCanvas = drawn.first
-                        voucherY = gapAfter(drawn.second)
-                        voucherSl += 1
+                        if (agentClaims.isNotEmpty())
+                            pending.add(jobOf(VoucherJob.Agent(agentClaims), agentClaims))
                     }
                 }
                 VoucherGrouping.CATEGORY_WISE -> {
@@ -350,12 +350,65 @@ private val legacyConveyanceTypes = setOf(
                         val catClaims = conveyanceClaims
                             .filter { it.category.ifBlank { "Other" } == category }
                             .sortedBy { it.placedDate }
-                        if (catClaims.isEmpty()) return@forEach
-                        val drawn = drawConveyanceVoucherCategory(ctx, voucherCanvas, voucherY, vWidths, vXs, category, catClaims, voucherSl)
-                        voucherCanvas = drawn.first
-                        voucherY = gapAfter(drawn.second)
-                        voucherSl += 1
+                        if (catClaims.isNotEmpty())
+                            pending.add(jobOf(VoucherJob.Category(category, catClaims), catClaims))
                     }
+                }
+            }
+            // Breathing room between consecutive voucher blocks (skipped when a
+            // block ends flush at the page bottom — the page break itself is the
+            // separator there).
+            fun gapAfter(y: Float): Float =
+                if (y + voucherGap <= pageHeight - margin) y + voucherGap else y
+            // Atomic packing: a voucher NEVER splits across pages — it moves
+            // whole to the next page when it doesn't fit. Leftover gaps are
+            // backfilled with the first later voucher that fits (original
+            // order otherwise). Only a voucher taller than a full page splits
+            // (unavoidable), with its column headers repeated.
+            val freshCapacity = pageHeight - margin - margin
+            var voucherSl = 1
+            var voucherCanvas = ctx.canvas
+            var voucherY = margin
+            while (pending.isNotEmpty()) {
+                val remaining = pageHeight - margin - voucherY
+                val idx = pending.indexOfFirst { it.height <= remaining }
+                if (idx >= 0) {
+                    val (job, items, _) = pending.removeAt(idx)
+                    val drawn = when (job) {
+                        is VoucherJob.Agent -> drawConveyanceVoucherAgent(
+                            ctx, voucherCanvas, voucherY, vWidths, vXs, job.claims, items, voucherSl,
+                        )
+                        is VoucherJob.Category -> drawConveyanceVoucherCategory(
+                            ctx, voucherCanvas, voucherY, vWidths, vXs, job.category, job.claims, items, voucherSl,
+                        )
+                    }
+                    voucherCanvas = drawn.first
+                    voucherY = gapAfter(drawn.second)
+                    voucherSl += 1
+                    continue
+                }
+                val head = pending.first()
+                if (head.height > freshCapacity) {
+                    // Taller than a page: draw with mid-block splits on a
+                    // fresh page (the only case a voucher ever breaks).
+                    if (voucherY > margin) {
+                        ctx.nextPage(); voucherCanvas = ctx.canvas; voucherY = margin
+                    }
+                    pending.removeFirst()
+                    val (job, items, _) = head
+                    val drawn = when (job) {
+                        is VoucherJob.Agent -> drawConveyanceVoucherAgent(
+                            ctx, voucherCanvas, voucherY, vWidths, vXs, job.claims, items, voucherSl,
+                        )
+                        is VoucherJob.Category -> drawConveyanceVoucherCategory(
+                            ctx, voucherCanvas, voucherY, vWidths, vXs, job.category, job.claims, items, voucherSl,
+                        )
+                    }
+                    voucherCanvas = drawn.first
+                    voucherY = gapAfter(drawn.second)
+                    voucherSl += 1
+                } else {
+                    ctx.nextPage(); voucherCanvas = ctx.canvas; voucherY = margin
                 }
             }
         }
@@ -704,6 +757,21 @@ private val legacyConveyanceTypes = setOf(
         "Delivered" to 0.100f, "CID / Merchant" to 0.161f,
     )
     private val voucherGridColor = Color.parseColor("#1F2937")
+
+    /** One voucher block waiting for layout — agent-wise holds one agent's
+     *  claims, category-wise one category's (every agent together). */
+    private sealed interface VoucherJob {
+        data class Agent(val claims: List<SupabaseClaimsReader.ClaimRow>) : VoucherJob
+        data class Category(val category: String, val claims: List<SupabaseClaimsReader.ClaimRow>) : VoucherJob
+    }
+
+    private fun voucherItemsHeight(items: List<VoucherItem>): Float =
+        items.sumOf {
+            when (it) {
+                is VoucherItem.Single -> voucherRowH.toDouble()
+                is VoucherItem.LotGroup -> (voucherRowH * it.claims.size).toDouble()
+            }
+        }.toFloat()
     private val voucherTitleH = 20f
     private val voucherSlH = 13f
     private val voucherAgentH = 14f
@@ -712,6 +780,8 @@ private val legacyConveyanceTypes = setOf(
     private val voucherGTotalH = 15f
     private val voucherInWordH = 17f
     private val voucherGap = 12f
+    private val voucherHeadBlockH = voucherTitleH + voucherSlH + voucherAgentH * 2 + voucherHeadH
+    private val voucherTailBlockH = voucherRowH * 2 + voucherGTotalH + voucherInWordH
 
     /** One renderable voucher line: a lone claim, or a LOT-ID group whose
      *  shared cells merge into one block (one row per consignment). All of
@@ -1014,13 +1084,13 @@ private val legacyConveyanceTypes = setOf(
         widths: List<Float>,
         xs: List<Float>,
         agentClaims: List<SupabaseClaimsReader.ClaimRow>,
+        items: List<VoucherItem>,
         sl: Int,
     ): Pair<Canvas, Float> {
         var canvas = startCanvas
         var y = startY
         val grid = strokePaint(voucherGridColor, 0.7f)
         val first = agentClaims.first()
-        val items = partitionVoucherItems(agentClaims)
         val gTotal = agentClaims.sumOf { it.settledAmount }
         val totalDelivered = agentClaims.sumOf { it.deliveredQuantity }
 
@@ -1135,6 +1205,7 @@ private val legacyConveyanceTypes = setOf(
         xs: List<Float>,
         category: String,
         catClaims: List<SupabaseClaimsReader.ClaimRow>,
+        items: List<VoucherItem>,
         sl: Int,
     ): Pair<Canvas, Float> {
         var canvas = startCanvas
@@ -1144,7 +1215,6 @@ private val legacyConveyanceTypes = setOf(
             .distinct().sorted()
         val gTotal = catClaims.sumOf { it.settledAmount }
         val totalDelivered = catClaims.sumOf { it.deliveredQuantity }
-        val items = partitionVoucherItems(catClaims, scopeLotByAgent = true)
 
         fun itemHeight(item: VoucherItem): Float = when (item) {
             is VoucherItem.Single -> voucherRowH
