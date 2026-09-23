@@ -186,16 +186,27 @@ private val legacyConveyanceTypes = setOf(
             "Inter Change Commission",
             "Others Exp…",
         )
-        val aAmounts = (1..9).map { i -> settled.filter { bucketOf(it) == i }.sumOf { it.settledAmount } }
+        // Split settled rows by catalog group so each lands in its own
+        // summary section: conveyance/operation -> A, office -> B,
+        // utilities -> C. Previously everything fell into A (utilities like
+        // Internet Bill showed under A.9 Others, B/C hardcoded 0).
+        val aRows = settled.filter { groupOf(it.category) in setOf("conveyance", "operation") }
+        val bRows = settled.filter { groupOf(it.category) == "office" }
+        val cRows = settled.filter { groupOf(it.category) == "utilities" }
+        val aAmounts = (1..9).map { i -> aRows.filter { bucketOf(it) == i }.sumOf { it.settledAmount } }
+        val bAmounts = (1..bLabels.size).map { i -> bRows.filter { bBucketOf(it) == i }.sumOf { it.settledAmount } }
+        val cAmounts = (1..cLabels.size).map { i -> cRows.filter { cBucketOf(it) == i }.sumOf { it.settledAmount } }
         val pdf = PdfDocument()
         val ctx = PageCtx(pdf)
 
         // ── Page 1: Top Sheet ──────────────────────────────────────────────
-        // Same buckets as page 2 (B/C are hardcoded 0 like the sample), so
-        // both pages always agree: Operation == A total.
+        // Same buckets as page 2, so both pages always agree:
+        // Total == A + B + C == settled grand total.
         val operationTotal = aAmounts.sum()
+        val officeTotal = bAmounts.sum()
+        val utilitiesTotal = cAmounts.sum()
         drawTopSheetPage(
-            ctx.canvas, operationTotal, 0.0, 0.0,
+            ctx.canvas, operationTotal, officeTotal, utilitiesTotal,
             branchName, branchRegion, pettyCashLimit,
             pocName, pocEmployeeId, pocDesignation, pocContact, fromDateIso, toDateIso,
         )
@@ -203,7 +214,7 @@ private val legacyConveyanceTypes = setOf(
         // ── Page 2: Petty Cash Expense Summary ──────────────────────────────
         ctx.nextPage()
         drawExpenseSummaryPage(
-            ctx, aLabels, aAmounts,
+            ctx, aLabels, aAmounts, bAmounts, cAmounts,
             branchName, branchRegion,
             pocName, pocEmployeeId, pocDesignation, pocContact, fromDateIso, toDateIso,
         )
@@ -310,9 +321,9 @@ private val legacyConveyanceTypes = setOf(
     }
 
     // ── Page 2: Petty Cash Expense Summary ──────────────────────────────────
-    // Fixed A/B/C rows exactly like the sample PDF — only the amounts come
-    // from the data (A.1..A.9 via bucketOf). B/C stay 0 like the sample;
-    // office-marked rows live in A.9 Others, never in B/C.
+    // Fixed A/B/C rows exactly like the sample PDF — amounts come from the
+    // data (A via bucketOf, B/C via b/cBucketOf on the office/utilities
+    // groups). Office-marked Pickup rows stay in A.9 Others, never in B/C.
 
     private val bLabels = listOf(
         "Print And Photocopy Cost",
@@ -335,10 +346,35 @@ private val legacyConveyanceTypes = setOf(
         "Others Exp…",
     )
 
+    /** Normalizes category/label for B/C matching — tolerant to the sample
+     *  PDF's "Gurad" typo vs the catalog's "Guard", casing and extra spaces. */
+    private fun normSummaryLabel(s: String): String =
+        s.trim().lowercase().replace("gurad", "guard").replace("\\s+".toRegex(), " ")
+
+    /** 1-based B row for an office-group claim; unknown names fall to Others. */
+    private fun bBucketOf(row: SupabaseClaimsReader.ClaimRow): Int {
+        val want = normSummaryLabel(row.category)
+        bLabels.forEachIndexed { i, label ->
+            if (normSummaryLabel(label) == want) return i + 1
+        }
+        return bLabels.size
+    }
+
+    /** 1-based C row for a utilities-group claim; unknown names fall to Others. */
+    private fun cBucketOf(row: SupabaseClaimsReader.ClaimRow): Int {
+        val want = normSummaryLabel(row.category)
+        cLabels.forEachIndexed { i, label ->
+            if (normSummaryLabel(label) == want) return i + 1
+        }
+        return cLabels.size
+    }
+
     private fun drawExpenseSummaryPage(
         ctx: PageCtx,
         aLabels: List<String>,
         aAmounts: List<Double>,
+        bAmounts: List<Double>,
+        cAmounts: List<Double>,
         branchName: String, branchRegion: String,
         pocName: String, pocEmployeeId: String, pocDesignation: String, pocContact: String,
         fromDateIso: String, toDateIso: String,
@@ -379,30 +415,33 @@ private val legacyConveyanceTypes = setOf(
         val operationSectionTotal = aAmounts.sum()
         y = drawSummaryTotalRow(canvas, y, "Total Operation Expense", operationSectionTotal, strokeBorder)
 
-        // B. Office Maintenance Cost — fixed rows, 0 like the sample.
+        // B. Office Maintenance Cost — office-group rows by category.
         y = drawSummaryGroupHeader(canvas, y, "B. Office Maintaince Cost", "Amount", strokeBorder, headerFillColor)
         bLabels.forEachIndexed { i, label ->
             if (y + rowHeightSmall > pageHeight - margin) {
                 ctx.nextPage(); canvas = ctx.canvas; y = margin
                 y = drawSummaryGroupHeader(canvas, y, "B. Office Maintaince Cost (contd.)", "Amount", strokeBorder, headerFillColor)
             }
-            y = drawSummaryLineRow(canvas, y, i + 1, label, 0.0, rowHeightSmall, strokeBorder)
+            y = drawSummaryLineRow(canvas, y, i + 1, label, bAmounts.getOrElse(i) { 0.0 }, rowHeightSmall, strokeBorder)
         }
-        y = drawSummaryTotalRow(canvas, y, "Total Office Maintaince Cost", 0.0, strokeBorder)
+        val officeSectionTotal = bAmounts.sum()
+        y = drawSummaryTotalRow(canvas, y, "Total Office Maintaince Cost", officeSectionTotal, strokeBorder)
 
-        // C. Utilities Expense — fixed rows, 0 like the sample.
+        // C. Utilities Expense — utilities-group rows by category (Internet
+        // Bill -> C.1, etc.).
         y = drawSummaryGroupHeader(canvas, y, "C. Utilities Expense", "Amount", strokeBorder, headerFillColor)
         cLabels.forEachIndexed { i, label ->
             if (y + rowHeightSmall > pageHeight - margin) {
                 ctx.nextPage(); canvas = ctx.canvas; y = margin
                 y = drawSummaryGroupHeader(canvas, y, "C. Utilities Expense (contd.)", "Amount", strokeBorder, headerFillColor)
             }
-            y = drawSummaryLineRow(canvas, y, i + 1, label, 0.0, rowHeightSmall, strokeBorder)
+            y = drawSummaryLineRow(canvas, y, i + 1, label, cAmounts.getOrElse(i) { 0.0 }, rowHeightSmall, strokeBorder)
         }
-        y = drawSummaryTotalRow(canvas, y, "Total Utilities Expense", 0.0, strokeBorder)
+        val utilitiesSectionTotal = cAmounts.sum()
+        y = drawSummaryTotalRow(canvas, y, "Total Utilities Expense", utilitiesSectionTotal, strokeBorder)
 
         y += 8f
-        val grandTotal = operationSectionTotal
+        val grandTotal = operationSectionTotal + officeSectionTotal + utilitiesSectionTotal
         // Keep grand total + sign-off together: break before them if tight.
         if (y + 14f + 20f + 34f > pageHeight - margin) {
             ctx.nextPage(); canvas = ctx.canvas; y = margin
