@@ -22,6 +22,9 @@ verify_jwt = false
 [functions.claims]
 verify_jwt = false
 
+[functions.claims-bulk-import]
+verify_jwt = false
+
 [functions.petty-cash]
 verify_jwt = false
 

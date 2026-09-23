@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#F1F5F9">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="12dp"
+        android:background="#FFFFFF">
+
+        <ImageButton
+            android:id="@+id/btnPcBulkBack"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:src="@android:drawable/ic_menu_revert"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Back" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Bulk Import Claims"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:textColor="#0F172A"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Accounts-only: settle many claims at once from an Excel (.xlsx) or CSV file — direct settled, no approve flow. Wallet updates automatically.\n\nMust columns — Date*, Agent ID*, Type*, Consignment/Merchant*, Approved*, Settled* (Requested optional, must equal Approved if present; From/To/Vehicle must for Pickup/Bulk/LOT/Inter-Change/Parcel). Invoice/Status ignored.\n\n* = must. Every row is validated live after picking — one bad row locks Submit until the sheet is fixed. Submit date + claim code follow the sheet's Date, not today."
+                android:textSize="13sp"
+                android:textColor="#475569" />
+
+            <Button
+                android:id="@+id/btnPcBulkPick"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="📂 Pick Excel / CSV file"
+                android:textAllCaps="false" />
+
+            <Button
+                android:id="@+id/btnPcBulkSample"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="⬇ Download sample file"
+                android:textAllCaps="false" />
+
+            <TextView
+                android:id="@+id/tvPcBulkFile"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="No file picked"
+                android:textSize="13sp"
+                android:textColor="#64748B" />
+
+            <TextView
+                android:id="@+id/tvPcBulkPreview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:textSize="13sp"
+                android:textColor="#0F172A" />
+
+            <ProgressBar
+                android:id="@+id/pbPcBulkProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvPcBulkStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textSize="13sp"
+                android:textColor="#0F766E" />
+
+            <Button
+                android:id="@+id/btnPcBulkSubmit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="Submit valid rows"
+                android:textAllCaps="false"
+                android:enabled="false" />
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

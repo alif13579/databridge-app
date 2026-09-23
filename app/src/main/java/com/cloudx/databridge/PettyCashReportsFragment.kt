@@ -82,6 +82,11 @@ class PettyCashReportsFragment : Fragment() {
                         showMigrateConfirm()
                     }
                 }
+                if (state is PettyCashState.Success && state.roles.isAccounts && menu.findViewWithTag<View>("bulk_import") == null) {
+                    addMenuRow(menu, "\uD83D\uDCE5", "Bulk Import", "Submit many claims at once from Excel/CSV", tag = "bulk_import") {
+                        open(PettyCashBulkImportFragment.newInstance(branchId))
+                    }
+                }
             }
             viewModel.load(branchId)
         }

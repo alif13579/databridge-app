@@ -315,13 +315,66 @@ class PettyCashAllRequestsFragment : Fragment() {
         return byTab.filter { it.requesterUid.ifBlank { "unknown" } in selectedAgentUids }
     }
 
-    /** Date filter entry — opens the shared advanced filter (date range
-     *  is what this chip is for; status/category there also apply). */
+    /** Date filter entry — 3 options: custom range (advanced screen),
+     *  business month (prev-26th → 25th) or plain calendar month. Month picks
+     *  apply immediately, keeping any status/category/agent picks. */
     private fun openDateFilter() {
-        parentFragmentManager.beginTransaction()
-            .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
-            .addToBackStack(null)
-            .commitAllowingStateLoss()
+        AlertDialog.Builder(requireContext())
+            .setTitle("Select Date")
+            .setItems(arrayOf("Select date range", "Select business month", "Select any month")) { _, which ->
+                when (which) {
+                    0 -> parentFragmentManager.beginTransaction()
+                        .replace(R.id.container, PettyCashFilterFragment.newInstance(branchId))
+                        .addToBackStack(null)
+                        .commitAllowingStateLoss()
+                    1 -> showMonthDialog(business = true)
+                    else -> showMonthDialog(business = false)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Month picker (current + 11 back): business = 26th(prev)→25th,
+     *  otherwise 1st→month-end. Labels like "September 2026". */
+    private fun showMonthDialog(business: Boolean) {
+        val months = (0..11).map { back ->
+            val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.MONTH, -back) }
+            val year = cal.get(java.util.Calendar.YEAR)
+            val month = cal.get(java.util.Calendar.MONTH) // 0-based
+            val label = java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.US).format(cal.time)
+            val (from, to) = if (business) {
+                val f = java.util.Calendar.getInstance().apply {
+                    set(year, month, 26, 0, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
+                    add(java.util.Calendar.MONTH, -1)
+                }.timeInMillis
+                val t = java.util.Calendar.getInstance().apply {
+                    set(year, month, 25, 23, 59, 59); set(java.util.Calendar.MILLISECOND, 999)
+                }.timeInMillis
+                f to t
+            } else {
+                val f = java.util.Calendar.getInstance().apply {
+                    set(year, month, 1, 0, 0, 0); set(java.util.Calendar.MILLISECOND, 0)
+                }.timeInMillis
+                val t = java.util.Calendar.getInstance().apply {
+                    set(year, month, getActualMaximum(java.util.Calendar.DAY_OF_MONTH), 23, 59, 59)
+                    set(java.util.Calendar.MILLISECOND, 999)
+                }.timeInMillis
+                f to t
+            }
+            Triple(label, from, to)
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(if (business) "Select business month" else "Select month")
+            .setItems(months.map { it.first }.toTypedArray()) { _, which ->
+                val (_, from, to) = months[which]
+                advancedFilter = advancedFilter.copy(dateFromMillis = from, dateToMillis = to)
+                currentPage = 1
+                selectedIds.retainAll(filteredRequests().filter { isBulkEligible(it) }.map { it.id }.toSet())
+                view?.let { renderList(it) }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun shortDate(millis: Long): String =
