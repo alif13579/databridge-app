@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Spinner
@@ -126,6 +127,23 @@ class PettyCashAllRequestsFragment : Fragment() {
         }
         view.findViewById<View>(R.id.tvPcAllReqAgent).setOnClickListener { showAgentPicker() }
         view.findViewById<View>(R.id.tvPcAllReqDate).setOnClickListener { openDateFilter() }
+        view.findViewById<View>(R.id.tvPcAllReqFilters).setOnClickListener { openDrawer() }
+        view.findViewById<View>(R.id.btnPcDrawerApply).setOnClickListener { closeDrawer() }
+        view.findViewById<View>(R.id.tvPcDrawerReset).setOnClickListener {
+            advancedFilter = PettyCashFilterState()
+            selectedAgentUids.clear()
+            applyDrawerChange()
+        }
+        view.findViewById<View>(R.id.btnPcDrawerRange).setOnClickListener {
+            closeDrawer()
+            openDateFilter()
+        }
+        view.findViewById<View>(R.id.btnPcDrawerBizMonth).setOnClickListener { showMonthDialog(business = true) }
+        view.findViewById<View>(R.id.btnPcDrawerMonth).setOnClickListener { showMonthDialog(business = false) }
+        view.findViewById<View>(R.id.btnPcDrawerClearDate).setOnClickListener {
+            advancedFilter = advancedFilter.copy(dateFromMillis = 0L, dateToMillis = 0L)
+            applyDrawerChange()
+        }
         view.findViewById<View>(R.id.tvPcAllReqExport).setOnClickListener { exportChooser() }
         view.findViewById<View>(R.id.tvPcAllReqSelectMode).setOnClickListener {
             selectMode = !selectMode
@@ -228,6 +246,17 @@ class PettyCashAllRequestsFragment : Fragment() {
 
     private fun buildTabs() {
         layoutTabs.removeAllViews()
+        // Dynamic counts: each tab counts the slicer base (other filters),
+        // so picking a category/date/agent immediately reshapes every tab.
+        val base = tabBase()
+        val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        val countOf: (String) -> Int = { key ->
+            when (key) {
+                FILTER_ALL -> base.size
+                FILTER_MINE -> base.count { it.requesterUid == myUid }
+                else -> base.count { statusDisplay(it).bucket == key }
+            }
+        }
         val tabs = listOf(
             Pair(FILTER_ALL, "All"),
             Pair(FILTER_MINE, "My Requests"),
@@ -237,7 +266,7 @@ class PettyCashAllRequestsFragment : Fragment() {
         )
         tabs.forEach { (key, label) ->
             val tab = layoutInflater.inflate(R.layout.item_petty_cash_filter_tab, layoutTabs, false) as TextView
-            tab.text = label
+            tab.text = "$label (${countOf(key)})"
             tab.setOnClickListener {
                 selectedFilter = key
                 currentPage = 1
@@ -284,6 +313,18 @@ class PettyCashAllRequestsFragment : Fragment() {
         FILTER_APPROVED -> "Approved"
         FILTER_SETTLED -> "Settled"
         else -> "All"
+    }
+
+    /** Excel-slicer base for the status tabs: every OTHER filter (agents +
+     *  advanced minus its status checkboxes) applied, so tab counts react to
+     *  category/date/agent picks. The tab itself is applied on top by callers. */
+    private fun tabBase(): List<PettyCashRequest> {
+        val all = latestState?.requests.orEmpty()
+        val noStatus = if (advancedFilter.statuses.isEmpty()) advancedFilter
+        else advancedFilter.copy(statuses = emptySet())
+        val scoped = if (noStatus.isActive) all.filter { noStatus.matches(it) } else all
+        if (selectedAgentUids.isEmpty()) return scoped
+        return scoped.filter { it.requesterUid.ifBlank { "unknown" } in selectedAgentUids }
     }
 
     /** Tab (+ advanced search) applied, agent filter NOT applied — the working
@@ -372,6 +413,7 @@ class PettyCashAllRequestsFragment : Fragment() {
                 currentPage = 1
                 selectedIds.retainAll(filteredRequests().filter { isBulkEligible(it) }.map { it.id }.toSet())
                 view?.let { renderList(it) }
+                refreshDrawer()
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -421,6 +463,173 @@ class PettyCashAllRequestsFragment : Fragment() {
         val total = filtered.sumOf { stageAmount(it) }
         root.findViewById<TextView>(R.id.tvPcAllReqSummary).text =
             if (filtered.isEmpty()) "No requests" else "${filtered.size} requests · Total ${pettyCashTaka(total)}"
+        // Filters button badge: how many dimensions are narrowed.
+        var dims = 0
+        if (advancedFilter.dateFromMillis != 0L || advancedFilter.dateToMillis != 0L) dims++
+        if (advancedFilter.statuses.isNotEmpty()) dims++
+        if (advancedFilter.category.isNotBlank() && advancedFilter.category != "All Categories") dims++
+        if (selectedAgentUids.isNotEmpty()) dims++
+        root.findViewById<TextView>(R.id.tvPcAllReqFilters)?.text =
+            if (dims == 0) "☰ Filters" else "☰ Filters ($dims)"
+    }
+
+    // ── Left filter drawer (e-commerce style): Date, Status, Category,
+    // Agents — all live, all cascading like Excel slicers. ────────────────
+
+    private val drawerStatusGroups = listOf(
+        "Pending" to setOf(PC_STATUS_PENDING, PC_STATUS_ACKNOWLEDGED),
+        "Approved / Settle in Process" to setOf(PC_STATUS_APPROVED, PC_STATUS_SETTLE_IN_PROCESS),
+        "Settled" to setOf(PC_STATUS_SETTLED),
+        "Rejected" to setOf(PC_STATUS_REJECTED),
+    )
+    private val allDrawerStatuses: Set<String> = drawerStatusGroups.flatMap { it.second }.toSet()
+
+    private fun drawer(): androidx.drawerlayout.widget.DrawerLayout? =
+        view?.findViewById(R.id.drawerPcAllReq)
+
+    private fun openDrawer() {
+        refreshDrawer()
+        drawer()?.openDrawer(androidx.core.view.GravityCompat.START)
+    }
+
+    private fun closeDrawer() {
+        drawer()?.closeDrawer(androidx.core.view.GravityCompat.START)
+    }
+
+    /** Re-render list + drawer after any drawer pick (live apply). */
+    private fun applyDrawerChange() {
+        currentPage = 1
+        selectedIds.retainAll(filteredRequests().filter { isBulkEligible(it) }.map { it.id }.toSet())
+        view?.let { renderList(it) }
+        refreshDrawer()
+    }
+
+    /** Tab + agents + advanced-minus-statuses: status counts react to everything else. */
+    private fun drawerBaseNoStatus(): List<PettyCashRequest> {
+        val all = latestState?.requests.orEmpty()
+        val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        val byTab = when (selectedFilter) {
+            FILTER_MINE -> all.filter { it.requesterUid == myUid }
+            FILTER_PENDING, FILTER_APPROVED, FILTER_SETTLED -> all.filter { statusDisplay(it).bucket == selectedFilter }
+            else -> all
+        }
+        val noStatus = advancedFilter.copy(statuses = emptySet())
+        val scoped = if (noStatus.isActive) byTab.filter { noStatus.matches(it) } else byTab
+        if (selectedAgentUids.isEmpty()) return scoped
+        return scoped.filter { it.requesterUid.ifBlank { "unknown" } in selectedAgentUids }
+    }
+
+    /** Tab + agents + advanced-minus-category: category counts react to everything else. */
+    private fun drawerCategoryBase(): List<PettyCashRequest> {
+        val all = latestState?.requests.orEmpty()
+        val myUid = FirebaseAuth.getInstance().currentUser?.uid.orEmpty()
+        val byTab = when (selectedFilter) {
+            FILTER_MINE -> all.filter { it.requesterUid == myUid }
+            FILTER_PENDING, FILTER_APPROVED, FILTER_SETTLED -> all.filter { statusDisplay(it).bucket == selectedFilter }
+            else -> all
+        }
+        val noCat = advancedFilter.copy(category = "All Categories", workerCategory = "All Categories")
+        val scoped = if (noCat.isActive) byTab.filter { noCat.matches(it) } else byTab
+        if (selectedAgentUids.isEmpty()) return scoped
+        return scoped.filter { it.requesterUid.ifBlank { "unknown" } in selectedAgentUids }
+    }
+
+    private fun dateStateText(): String = when {
+        advancedFilter.dateFromMillis != 0L && advancedFilter.dateToMillis != 0L ->
+            "${shortDate(advancedFilter.dateFromMillis)} – ${shortDate(advancedFilter.dateToMillis)}"
+        advancedFilter.dateFromMillis != 0L -> "From ${shortDate(advancedFilter.dateFromMillis)}"
+        advancedFilter.dateToMillis != 0L -> "Until ${shortDate(advancedFilter.dateToMillis)}"
+        else -> "Any date"
+    }
+
+    private fun drawerCheckRow(label: String, checked: Boolean, onTap: () -> Unit): View {
+        val ctx = requireContext()
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        val cb = android.widget.CheckBox(ctx).apply { isChecked = checked }
+        val tv = TextView(ctx).apply {
+            text = label
+            textSize = 14f
+            setTextColor(Color.parseColor("#0F172A"))
+            setPadding(dp(8), 0, 0, 0)
+        }
+        row.addView(cb)
+        row.addView(tv)
+        val toggle = {
+            onTap()
+            Unit
+        }
+        row.setOnClickListener { toggle() }
+        cb.setOnClickListener { toggle() }
+        return row
+    }
+
+    private fun refreshDrawer() {
+        val root = view ?: return
+        val ctx = requireContext()
+        root.findViewById<TextView>(R.id.tvPcDrawerDateState)?.text = dateStateText()
+
+        // Status (dynamic counts from every other filter).
+        val statusBox = root.findViewById<LinearLayout>(R.id.layoutPcDrawerStatus) ?: return
+        statusBox.removeAllViews()
+        val effective = advancedFilter.statuses.ifEmpty { allDrawerStatuses }
+        val statusBase = drawerBaseNoStatus()
+        drawerStatusGroups.forEach { (label, set) ->
+            val count = statusBase.count { it.status in set }
+            val checked = set.all { it in effective }
+            statusBox.addView(drawerCheckRow("$label ($count)", checked) {
+                val next = effective.toMutableSet()
+                if (checked) next.removeAll(set) else next.addAll(set)
+                advancedFilter = advancedFilter.copy(statuses = if (next == allDrawerStatuses) emptySet() else next)
+                applyDrawerChange()
+            })
+        }
+
+        // Category (dynamic list + counts from every other filter).
+        val catBox = root.findViewById<LinearLayout>(R.id.layoutPcDrawerCategory) ?: return
+        catBox.removeAllViews()
+        val catBase = drawerCategoryBase()
+        val catCounts = catBase.groupingBy { it.category.ifBlank { "Other" } }.eachCount()
+            .toList().sortedByDescending { it.second }
+        val currentCat = advancedFilter.category.takeIf { it.isNotBlank() } ?: "All Categories"
+        catBox.addView(drawerCheckRow("All Categories (${catBase.size})", currentCat == "All Categories") {
+            advancedFilter = advancedFilter.copy(category = "All Categories")
+            applyDrawerChange()
+        })
+        catCounts.forEach { (cat, count) ->
+            if (cat == "All Categories") return@forEach
+            catBox.addView(drawerCheckRow("$cat ($count)", currentCat == cat) {
+                advancedFilter = advancedFilter.copy(
+                    category = if (currentCat == cat) "All Categories" else cat
+                )
+                applyDrawerChange()
+            })
+        }
+
+        // Agents (dynamic list + counts; same scope as the old picker).
+        val agentBox = root.findViewById<LinearLayout>(R.id.layoutPcDrawerAgents) ?: return
+        agentBox.removeAllViews()
+        val options = agentOptions()
+        if (options.isEmpty()) {
+            agentBox.addView(TextView(ctx).apply {
+                text = "No agents in current filter"
+                textSize = 13f
+                setTextColor(Color.parseColor("#94A3B8"))
+            })
+        }
+        options.forEach { opt ->
+            agentBox.addView(drawerCheckRow("${opt.second} (${opt.third})", opt.first in selectedAgentUids) {
+                if (opt.first in selectedAgentUids) selectedAgentUids.remove(opt.first)
+                else selectedAgentUids.add(opt.first)
+                applyDrawerChange()
+            })
+        }
+
+        root.findViewById<Button>(R.id.btnPcDrawerApply)?.text =
+            "Show ${filteredRequests().size} results"
     }
 
     /** Multi-select agent picker scoped to the current tab (counts are
@@ -545,6 +754,7 @@ class PettyCashAllRequestsFragment : Fragment() {
 
     private fun renderList(root: View) {
         val filtered = filteredRequests()
+        buildTabs()
         updateAgentRow()
         updateDateChip()
         updateSummary(filtered)

@@ -576,7 +576,16 @@ private val legacyConveyanceTypes = setOf(
     // returns the canvas + y to continue from (may be a fresh page after a
     // mid-table break). Callers keep flowing — no per-agent page breaks.
 
-    private val voucherHeaders = listOf("Date" to 0.11f, "From" to 0.13f, "Destination" to 0.13f, "Description" to 0.14f, "Vehicle" to 0.09f, "Amount" to 0.09f, "Attempted" to 0.10f, "Succeeded" to 0.09f, "CID / Merchant" to 0.12f)
+    // Sample voucher columns (x-positions measured off the reference PDF):
+    // Date | From | To | Description | Vehicle | Amount | Attempt quantity |
+    // Delivered | CID / Merchant — borderless, small bold headers.
+    private val voucherHeaders = listOf(
+        "Date" to 0.10f, "From" to 0.11f, "To" to 0.08f, "Description" to 0.11f,
+        "Vehicle" to 0.10f, "Amount" to 0.10f, "Attempt quantity" to 0.12f,
+        "Delivered" to 0.11f, "CID / Merchant" to 0.17f,
+    )
+    private val voucherRowH = 11f
+    private val voucherHeadH = 13f
 
     /** One renderable voucher line: a lone claim, or a LOT-ID group whose
      *  shared cells merge into one block (one row per consignment). All of
@@ -625,51 +634,72 @@ private val legacyConveyanceTypes = setOf(
         runCatching { dateDisplayFormat.format(dateIsoFormat.parse(claim.placedDate) ?: java.util.Date()) }
             .getOrDefault(claim.placedDate)
 
+    /** Borderless sample-style column headers (small bold sans). */
+    private fun drawVoucherHeaderRow(canvas: Canvas, y: Float): Float {
+        var x = margin
+        val weights = voucherHeaders.map { it.second }
+        val widths = weights.map { it * contentWidth }
+        voucherHeaders.forEachIndexed { i, (label, _) ->
+            val w = widths[i]
+            val right = i in 5..7
+            val paint = textPaint(darkColor, 6f, bold = true, sans = true).apply {
+                if (right) textAlign = Paint.Align.RIGHT
+            }
+            fitTextSize(paint, 6f, label, w - 4f)
+            if (right) canvas.drawText(label, x + w - 2f, y + voucherHeadH - 3f, paint)
+            else canvas.drawText(label, x + 2f, y + voucherHeadH - 3f, paint)
+            x += w
+        }
+        return y + voucherHeadH
+    }
+
     private fun drawVoucherRow(
         canvas: Canvas, y: Float,
-        claim: SupabaseClaimsReader.ClaimRow, strokeBorder: Paint,
-    ): Float = drawDataRow(
-        canvas, y,
-        listOf(
+        claim: SupabaseClaimsReader.ClaimRow,
+    ): Float {
+        var x = margin
+        val widths = voucherHeaders.map { it.second * contentWidth }
+        val left = textPaint(darkColor, 6.6f, sans = true)
+        val right = textPaint(darkColor, 6.6f, sans = true).apply { textAlign = Paint.Align.RIGHT }
+        val values = listOf(
             voucherDateLabel(claim), areaLabel(claim.fromArea), areaLabel(claim.toArea), claim.category, claim.vehicle,
             moneyFormat.format(claim.settledAmount), claim.attemptQuantity.toString(),
             claim.deliveredQuantity.toString(), claim.cidOrMerchant,
-        ),
-        voucherHeaders.map { it.second }, strokeBorder, alignRight = setOf(5, 6, 7),
-    )
+        )
+        values.forEachIndexed { i, text ->
+            val w = widths[i]
+            if (i in 5..7) {
+                fitTextSize(right, 6.6f, text, w - 4f)
+                canvas.drawText(text, x + w - 2f, y + voucherRowH - 2.5f, right)
+            } else {
+                fitTextSize(left, 6.6f, text, w - 4f)
+                canvas.drawText(text, x + 2f, y + voucherRowH - 2.5f, left)
+            }
+            x += w
+        }
+        return y + voucherRowH
+    }
 
-    /** Merged LOT block: Date/From/Destination/Description/Vehicle/Amount
-     *  (SUM)/Attempted (SUM)/Succeeded (SUM) drawn ONCE across the block
-     *  height — never repeated per row — while every consignment keeps its
-     *  own CID row. Shared values come from the first row (a LOT batch is
-     *  one trip: same date/route/vehicle by construction). */
+    /** Merged LOT block, sample-style: NO lines at all — the shared values
+     *  (Date/From/To/Description/Vehicle/Amount-SUM/Attempted-SUM/Delivered-
+     *  SUM) appear ONCE, vertically centered, while every consignment keeps
+     *  its own CID row. Shared values come from the first row (a LOT batch
+     *  is one trip: same date/route/vehicle by construction). */
     private fun drawLotBlock(
         canvas: Canvas, y: Float,
-        group: List<SupabaseClaimsReader.ClaimRow>, strokeBorder: Paint,
+        group: List<SupabaseClaimsReader.ClaimRow>,
     ): Float {
-        val rowH = 14f
-        val blockH = rowH * group.size
-        val weights = voucherHeaders.map { it.second }
-        val widths = weights.map { it * contentWidth }
+        val blockH = voucherRowH * group.size
+        val widths = voucherHeaders.map { it.second * contentWidth }
         val first = group.first()
 
-        // Grid: outer border, full-height vertical dividers, per-row horizontals.
+        // Merged cells (cols 0..7), vertically centered.
         var x = margin
         val xs = mutableListOf(margin)
         widths.forEach { w -> x += w; xs.add(x) }
-        canvas.drawRect(margin, y, margin + contentWidth, y + blockH, strokeBorder)
-        xs.drop(1).dropLast(1).forEach { vx ->
-            canvas.drawLine(vx, y, vx, y + blockH, strokeBorder)
-        }
-        for (i in 1 until group.size) {
-            val hy = y + rowH * i
-            canvas.drawLine(margin, hy, margin + contentWidth, hy, strokeBorder)
-        }
-
-        // Merged cells (cols 0..7), vertically centered.
         val midY = y + blockH / 2f + 2.5f
-        val leftPaint = textPaint(darkColor, 7.5f)
-        val rightPaint = textPaint(darkColor, 7.5f).apply { textAlign = Paint.Align.RIGHT }
+        val leftPaint = textPaint(darkColor, 6.6f, sans = true)
+        val rightPaint = textPaint(darkColor, 6.6f, sans = true).apply { textAlign = Paint.Align.RIGHT }
         val merged = listOf(
             voucherDateLabel(first) to false,
             areaLabel(first.fromArea) to false,
@@ -683,18 +713,18 @@ private val legacyConveyanceTypes = setOf(
         merged.forEachIndexed { i, (text, right) ->
             val w = widths[i]
             if (right) {
-                fitTextSize(rightPaint, 7.5f, text, w - 6f)
-                canvas.drawText(text, xs[i] + w - 3f, midY, rightPaint)
+                fitTextSize(rightPaint, 6.6f, text, w - 4f)
+                canvas.drawText(text, xs[i] + w - 2f, midY, rightPaint)
             } else {
-                fitTextSize(leftPaint, 7.5f, text, w - 6f)
-                canvas.drawText(text, xs[i] + 3f, midY, leftPaint)
+                fitTextSize(leftPaint, 6.6f, text, w - 4f)
+                canvas.drawText(text, xs[i] + 2f, midY, leftPaint)
             }
         }
         // Per-row CID cells.
-        val cidPaint = textPaint(darkColor, 7.5f)
+        val cidPaint = textPaint(darkColor, 6.6f, sans = true)
         group.forEachIndexed { i, claim ->
-            fitTextSize(cidPaint, 7.5f, claim.cidOrMerchant, widths[8] - 6f)
-            canvas.drawText(claim.cidOrMerchant, xs[8] + 3f, y + rowH * i + rowH - 4f, cidPaint)
+            fitTextSize(cidPaint, 6.6f, claim.cidOrMerchant, widths[8] - 4f)
+            canvas.drawText(claim.cidOrMerchant, xs[8] + 2f, y + voucherRowH * i + voucherRowH - 2.5f, cidPaint)
         }
         return y + blockH
     }
@@ -708,63 +738,68 @@ private val legacyConveyanceTypes = setOf(
     ): Pair<Canvas, Float> {
         var canvas = startCanvas
         var y = startY
-        val titlePaint = textPaint(darkColor, 12f, bold = true)
-        val labelPaint = textPaint(darkColor, 8.5f, bold = true)
-        val valuePaint = textPaint(darkColor, 8.5f)
-        val strokeBorder = strokePaint(borderColor, 0.6f)
+        val titlePaint = textPaint(darkColor, 11f, bold = true, sans = true)
+        val labelPaint = textPaint(darkColor, 7.5f, bold = true, sans = true)
+        val valuePaint = textPaint(darkColor, 7.5f, sans = true)
+        val smallBold = textPaint(darkColor, 7f, bold = true, sans = true)
         val first = agentClaims.first()
         val agentName = first.agentName
 
         // Keep at least the agent header + column header + first row together.
-        if (y + 16f + 14f + 16f + 14f > pageHeight - margin) {
+        if (y + 14f + 12f + 26f + voucherHeadH + voucherRowH > pageHeight - margin) {
             ctx.nextPage(); canvas = ctx.canvas; y = margin
         }
+        // Sample-style agent header: title, SL, then two label/value rows
+        // (labels bold, values normal), no boxes.
         canvas.drawText("Conveyance Voucher", margin, y + 10f, titlePaint)
-        y += 16f
-        canvas.drawText("SL : $sl", margin, y + 9f, valuePaint)
-        y += 14f
-        y = drawTwoColLabelRow(canvas, y, "Agent ID ${displayAgentId(first)}", "Agent Name $agentName", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
-        y = drawTwoColLabelRow(canvas, y, "Designation: ${first.agentDesignation.ifBlank { "Delivery Agent" }}", "Department: Fulfillment", labelPaint, valuePaint, strokeBorder, isTwoLabels = true)
-        y += 8f
+        y += 15f
+        canvas.drawText("SL : $sl", margin, y + 8f, smallBold)
+        y += 12f
+        y = drawVoucherAgentLine(canvas, y, "Agent ID", displayAgentId(first), "Agent Name", agentName, labelPaint, valuePaint)
+        y = drawVoucherAgentLine(
+            canvas, y, "Designation", first.agentDesignation.ifBlank { "Delivery Agent" },
+            "Department", "Fulfillment", labelPaint, valuePaint,
+        )
+        y += 5f
 
-        y = drawTableHeaderRow(canvas, y, voucherHeaders, strokeBorder, headerFillColor)
+        y = drawVoucherHeaderRow(canvas, y)
         // Rows: LOT claims sharing a LOT ID (store_id) render as one merged
-        // block (shared cells spanned once, one row per consignment); the
-        // rest render as normal single rows — all in expense-date order.
+        // block (shared values once, one row per consignment); the rest
+        // render as normal single rows — all in expense-date order.
         val items = partitionVoucherItems(agentClaims)
         items.forEach { item ->
             when (item) {
                 is VoucherItem.Single -> {
-                    if (y + 14f > pageHeight - margin - 46f) {
+                    if (y + voucherRowH > pageHeight - margin - 46f) {
                         ctx.nextPage(); canvas = ctx.canvas; y = margin
-                        canvas.drawText("$agentName (contd.)", margin, y + 9f, valuePaint)
-                        y += 13f
-                        y = drawTableHeaderRow(canvas, y, voucherHeaders, strokeBorder, headerFillColor)
+                        canvas.drawText("$agentName (contd.)", margin, y + 8f, valuePaint)
+                        y += 12f
+                        y = drawVoucherHeaderRow(canvas, y)
                     }
-                    y = drawVoucherRow(canvas, y, item.claim, strokeBorder)
+                    y = drawVoucherRow(canvas, y, item.claim)
                 }
                 is VoucherItem.LotGroup -> {
-                    val blockH = 14f * item.claims.size
+                    val blockH = voucherRowH * item.claims.size
                     val freshPageH = pageHeight - margin - 46f - margin
                     if (y + blockH > pageHeight - margin - 46f && blockH <= freshPageH) {
                         ctx.nextPage(); canvas = ctx.canvas; y = margin
-                        canvas.drawText("$agentName (contd.)", margin, y + 9f, valuePaint)
-                        y += 13f
-                        y = drawTableHeaderRow(canvas, y, voucherHeaders, strokeBorder, headerFillColor)
+                        canvas.drawText("$agentName (contd.)", margin, y + 8f, valuePaint)
+                        y += 12f
+                        y = drawVoucherHeaderRow(canvas, y)
                     }
                     if (blockH <= freshPageH) {
-                        y = drawLotBlock(canvas, y, item.claims, strokeBorder)
+                        y = drawLotBlock(canvas, y, item.claims)
                     } else {
                         // Oversized group (taller than a page): fall back to
                         // plain rows so no data is ever lost.
                         item.claims.forEach { claim ->
-                            if (y + 14f > pageHeight - margin - 46f) {
+                            if (y + voucherRowH > pageHeight - margin - 46f) {
                                 ctx.nextPage(); canvas = ctx.canvas; y = margin
-                                canvas.drawText("$agentName (contd.)", margin, y + 9f, valuePaint)
-                                y += 13f
-                                y = drawTableHeaderRow(canvas, y, voucherHeaders, strokeBorder, headerFillColor)
+                                canvas.drawText("$agentName (contd.)", margin, y + 8f, valuePaint)
+                                y += 12f
+                                y = drawVoucherHeaderRow(canvas, y)
                             }
-                            y = drawVoucherRow(canvas, y, claim, strokeBorder)
+                            y = drawVoucherRow(canvas, y, claim)
                         }
                     }
                 }
@@ -778,15 +813,33 @@ private val legacyConveyanceTypes = setOf(
             ctx.nextPage(); canvas = ctx.canvas; y = margin
         }
         y += 10f
-        canvas.drawText("G/Total = ${moneyFormat.format(gTotal)}   Total Succeeded = $totalDelivered", margin, y + 9f, textPaint(darkColor, 8.5f, bold = true))
+        canvas.drawText("G/Total = ${moneyFormat.format(gTotal)}   Total Delivered = $totalDelivered", margin, y + 9f, textPaint(darkColor, 8f, bold = true, sans = true))
         y += 12f
         if (y + 16f + 14f > pageHeight - margin) {
             ctx.nextPage(); canvas = ctx.canvas; y = margin
         }
         y += 16f
-        canvas.drawText("In word: ${amountInWords(gTotal)}", margin, y, textPaint(darkColor, 8.5f))
+        canvas.drawText("In word: ${amountInWords(gTotal)}", margin, y, textPaint(darkColor, 8f, sans = true))
         y += 14f
         return canvas to y
+    }
+
+    /** One sample-style agent header line: two bold labels + normal values. */
+    private fun drawVoucherAgentLine(
+        canvas: Canvas, y: Float, label1: String, value1: String, label2: String, value2: String,
+        labelPaint: Paint, valuePaint: Paint,
+    ): Float {
+        val rowH = 11f
+        val half = contentWidth / 2f
+        canvas.drawText(label1, margin, y + 8f, labelPaint)
+        val w1 = labelPaint.measureText("$label1 ")
+        fitTextSize(valuePaint, 7.5f, value1, half - w1 - 8f)
+        canvas.drawText(value1, margin + w1 + 2f, y + 8f, valuePaint)
+        canvas.drawText(label2, margin + half, y + 8f, labelPaint)
+        val w2 = labelPaint.measureText("$label2 ")
+        fitTextSize(valuePaint, 7.5f, value2, half - w2 - 8f)
+        canvas.drawText(value2, margin + half + w2 + 2f, y + 8f, valuePaint)
+        return y + rowH
     }
 
     // ── Unsettled Bills page ─────────────────────────────────────────────────
@@ -848,12 +901,16 @@ private val legacyConveyanceTypes = setOf(
     // ── Shared drawing helpers ───────────────────────────────────────────────
 
     // Corporate report look (matches the reference Pathao PDF): serif family
-    // throughout — the default sans looked "robotic" next to it.
-    private fun textPaint(colorInt: Int, size: Float, bold: Boolean = false, italic: Boolean = false): Paint =
+    // on the summary pages — the default sans looked "robotic" next to it.
+    // Voucher tables follow the sample voucher exactly: plain sans
+    // (Arial-like), borderless rows, small bold headers (sans = true).
+    private fun textPaint(colorInt: Int, size: Float, bold: Boolean = false, italic: Boolean = false, sans: Boolean = false): Paint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = colorInt
             textSize = size
             typeface = when {
+                sans && bold -> Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                sans -> Typeface.DEFAULT
                 bold -> Typeface.create(Typeface.SERIF, Typeface.BOLD)
                 italic -> Typeface.create(Typeface.SERIF, Typeface.ITALIC)
                 else -> Typeface.SERIF

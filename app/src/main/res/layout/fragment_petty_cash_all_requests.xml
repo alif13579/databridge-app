@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout
+<androidx.drawerlayout.widget.DrawerLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawerPcAllReq"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#F1F5F9">
@@ -72,6 +73,18 @@
             android:paddingBottom="8dp">
 
             <TextView
+                android:id="@+id/tvPcAllReqFilters"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:gravity="center_vertical"
+                android:text="☰ Filters"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A"
+                android:background="@drawable/bg_pc_tab_inactive"
+                android:paddingHorizontal="12dp" />
+
+            <TextView
                 android:id="@+id/tvPcAllReqAgent"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
@@ -81,7 +94,8 @@
                 android:textStyle="bold"
                 android:textColor="#6D28D9"
                 android:background="@drawable/bg_pc_tab_inactive"
-                android:paddingHorizontal="12dp" />
+                android:paddingHorizontal="12dp"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/tvPcAllReqDate"
@@ -94,7 +108,8 @@
                 android:textColor="#0F766E"
                 android:background="@drawable/bg_pc_tab_inactive"
                 android:paddingHorizontal="12dp"
-                android:layout_marginStart="8dp" />
+                android:layout_marginStart="8dp"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/tvPcAllReqExport"
@@ -283,4 +298,171 @@
                     android:paddingHorizontal="18dp" />
         </LinearLayout>
     </LinearLayout>
-</FrameLayout>
+
+    <!-- Left filter drawer (e-commerce style): Date, Status, Category, Agents -->
+    <LinearLayout
+        android:id="@+id/layoutPcAllReqDrawer"
+        android:layout_width="300dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:orientation="vertical"
+        android:background="#FFFFFF">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="Filters"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#0F172A" />
+
+            <TextView
+                android:id="@+id/tvPcDrawerReset"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Reset"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:textColor="#B91C1C"
+                android:padding="8dp" />
+        </LinearLayout>
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="16dp"
+                android:paddingBottom="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Date"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F172A"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="4dp" />
+
+                <TextView
+                    android:id="@+id/tvPcDrawerDateState"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Any date"
+                    android:textSize="13sp"
+                    android:textColor="#0F766E"
+                    android:paddingBottom="6dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/btnPcDrawerRange"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Range"
+                        android:textAllCaps="false"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/btnPcDrawerBizMonth"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Biz month"
+                        android:textAllCaps="false"
+                        android:textSize="12sp" />
+
+                    <Button
+                        android:id="@+id/btnPcDrawerMonth"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Month"
+                        android:textAllCaps="false"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btnPcDrawerClearDate"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Clear date"
+                    android:textAllCaps="false"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Status"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F172A"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="4dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcDrawerStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Category"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F172A"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="4dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcDrawerCategory"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Agents"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="#0F172A"
+                    android:paddingTop="12dp"
+                    android:paddingBottom="4dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcDrawerAgents"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </LinearLayout>
+        </ScrollView>
+
+        <Button
+            android:id="@+id/btnPcDrawerApply"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="16dp"
+            android:text="Show results"
+            android:textAllCaps="false" />
+    </LinearLayout>
+</androidx.drawerlayout.widget.DrawerLayout>
