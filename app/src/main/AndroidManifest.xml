@@ -141,6 +141,14 @@
             android:foregroundServiceType="dataSync"
             tools:targetApi="29" />
 
+        <!-- Config Sheets-tab sync (Sheet → Firebase): survives background/tab switch -->
+        <service
+            android:name=".ConfigSheetSyncService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            tools:targetApi="29" />
+
         <!-- Call recorder: keeps MIC recording alive while the dialer is
               foreground (manual save only). foregroundServiceType="microphone"
               is API 30+; older devices ignore it at parse time. -->
