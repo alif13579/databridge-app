@@ -1,9 +1,12 @@
 package com.cloudx.databridge
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import java.io.File
@@ -156,7 +159,29 @@ private val legacyConveyanceTypes = setOf(
         val toDateIso: String,
         val categoryGroups: Map<String, String>,
         val voucherGrouping: VoucherGrouping,
+        val companyLogo: Bitmap? = null,
     )
+
+    /** Centered Pathao logo when available, else the legacy text header.
+     *  Returns the new y (top of next block). Logo aspect is ~2.96:1
+     *  (888x300) — drawn [logoH] tall, width scaled, centered. */
+    private fun drawCompanyHeader(
+        canvas: Canvas,
+        y: Float,
+        titlePaint: Paint,
+        logo: Bitmap?,
+        logoH: Float = 26f,
+    ): Float {
+        if (logo == null || logo.isRecycled) {
+            canvas.drawText("Pathao Limited", margin + contentWidth / 2, y + 14f, titlePaint)
+            return y + 18f
+        }
+        val aspect = logo.width.toFloat() / logo.height.toFloat().coerceAtLeast(1f)
+        val logoW = logoH * aspect
+        val left = margin + (contentWidth - logoW) / 2f
+        canvas.drawBitmap(logo, null, RectF(left, y, left + logoW, y + logoH), null)
+        return y + logoH + 4f
+    }
 
     /**
      * Builds the full report PDF for one branch over [fromDateIso, toDateIso]
@@ -188,10 +213,19 @@ private val legacyConveyanceTypes = setOf(
         appContext: Context? = null,
     ) {
         appContext?.let(PdfFonts::init)
+        // Decode once, reuse for both passes so page counts stay identical.
+        // Missing resource / null context falls back to the text header.
+        val companyLogo: Bitmap? = runCatching {
+            val ctx = appContext ?: return@runCatching null
+            val resId = ctx.resources.getIdentifier("pathao_logo", "drawable", ctx.packageName)
+                .takeIf { it != 0 } ?: return@runCatching null
+            BitmapFactory.decodeResource(ctx.resources, resId)
+        }.getOrNull()
         val input = ReportInput(
             claims, branchName, branchRegion, pettyCashLimit,
             pocName, pocEmployeeId, pocDesignation, pocContact,
             fromDateIso, toDateIso, categoryGroups, voucherGrouping,
+            companyLogo,
         )
         // Two passes so conveyance footers can read "Page X of Y": pass 1
         // counts pages (throwaway document), pass 2 draws the real file.
@@ -291,6 +325,7 @@ private val legacyConveyanceTypes = setOf(
             ctx.canvas, operationTotal, officeTotal, utilitiesTotal,
             branchName, branchRegion, pettyCashLimit,
             pocName, pocEmployeeId, pocDesignation, pocContact, fromDateIso, toDateIso,
+            input.companyLogo,
         )
 
         // ── Page 2: Petty Cash Expense Summary ──────────────────────────────
@@ -303,7 +338,7 @@ private val legacyConveyanceTypes = setOf(
 
         // ── Page 3: Agent Acknowledgement (operation-expense agents only) ──
         ctx.nextPage()
-        drawAgentAcknowledgementPage(ctx, aRows, toDateIso, pocName, pocEmployeeId, pocDesignation)
+        drawAgentAcknowledgementPage(ctx, aRows, toDateIso, pocName, pocEmployeeId, pocDesignation, input.companyLogo)
 
         // ── Conveyance Vouchers — continuous flow like the sample PDF: blocks
         // follow one another with no forced page break (no huge gaps). Every
@@ -438,6 +473,7 @@ private val legacyConveyanceTypes = setOf(
         branchName: String, branchRegion: String, pettyCashLimit: Double,
         pocName: String, pocEmployeeId: String, pocDesignation: String, pocContact: String,
         fromDateIso: String, toDateIso: String,
+        companyLogo: Bitmap? = null,
     ) {
         var y = margin
         val titlePaint = textPaint(darkColor, 13f, bold = true).apply { textAlign = Paint.Align.CENTER }
@@ -445,9 +481,8 @@ private val legacyConveyanceTypes = setOf(
         val valuePaint = textPaint(darkColor, 9f)
         val strokeBorder = strokePaint(borderColor, 0.6f)
 
-        // Header block: company name + report title.
-        canvas.drawText("Pathao Limited", margin + contentWidth / 2, y + 14f, titlePaint)
-        y += 18f
+        // Header block: company logo (or name) + report title.
+        y = drawCompanyHeader(canvas, y, titlePaint, companyLogo)
         canvas.drawRect(margin, y, margin + contentWidth, y + 20f, fillPaint(lightFillColor))
         canvas.drawRect(margin, y, margin + contentWidth, y + 20f, strokeBorder)
         canvas.drawText("Top Sheet For Petty Cash Expense", margin + contentWidth / 2, y + 14f, titlePaint)
@@ -658,6 +693,7 @@ private val legacyConveyanceTypes = setOf(
         pocName: String,
         pocEmployeeId: String,
         pocDesignation: String,
+        companyLogo: Bitmap? = null,
     ) {
         var canvas = ctx.canvas
         var y = margin
@@ -667,8 +703,7 @@ private val legacyConveyanceTypes = setOf(
         val strokeBorder = strokePaint(borderColor, 0.6f)
         val monthYearLabel = businessMonthLabel(toDateIso, "MMMM-yy")
 
-        canvas.drawText("Pathao Limited", margin + contentWidth / 2, y + 12f, titlePaint)
-        y += 16f
+        y = drawCompanyHeader(canvas, y, titlePaint, companyLogo, logoH = 24f)
         canvas.drawText("Agent Acknowledgement ($monthYearLabel)", margin + contentWidth / 2, y + 12f, titlePaint)
         y += 18f
 
@@ -779,9 +814,9 @@ private val legacyConveyanceTypes = setOf(
     private val voucherRowH = 12f
     private val voucherGTotalH = 15f
     private val voucherInWordH = 17f
-    private val voucherGap = 12f
+    private val voucherGap = 24f
     private val voucherHeadBlockH = voucherTitleH + voucherSlH + voucherAgentH * 2 + voucherHeadH
-    private val voucherTailBlockH = voucherRowH * 2 + voucherGTotalH + voucherInWordH
+    private val voucherTailBlockH = voucherGTotalH + voucherInWordH
 
     /** One renderable voucher line: a lone claim, or a LOT-ID group whose
      *  shared cells merge into one block (one row per consignment). All of
@@ -1141,15 +1176,13 @@ private val legacyConveyanceTypes = setOf(
                     }
             }
         }
-        // Sample-style tail: 2 blank spacer rows, then G/Total + In-word —
-        // kept together on one page.
-        val tailH = voucherRowH * 2 + voucherGTotalH + voucherInWordH
+        // Tail: G/Total + In-word directly after the last data row (no
+        // blank spacer rows) — kept together on one page.
+        val tailH = voucherGTotalH + voucherInWordH
         if (y + tailH > pageHeight - margin) {
             ctx.nextPage(); canvas = ctx.canvas; y = margin
             y = drawVoucherColHeader(canvas, y, widths, xs, grid)
         }
-        y = drawVoucherBlankRow(canvas, xs, grid, y)
-        y = drawVoucherBlankRow(canvas, xs, grid, y)
         y = drawVoucherGTotalRow(canvas, y, xs, grid, gTotal, totalDelivered)
         y = drawVoucherInWordRow(canvas, y, xs, grid, gTotal)
         return canvas to y
@@ -1256,13 +1289,11 @@ private val legacyConveyanceTypes = setOf(
                     }
             }
         }
-        val tailH = voucherRowH * 2 + voucherGTotalH + voucherInWordH
+        val tailH = voucherGTotalH + voucherInWordH
         if (y + tailH > pageHeight - margin) {
             ctx.nextPage(); canvas = ctx.canvas; y = margin
             y = drawVoucherColHeader(canvas, y, widths, xs, grid, agentColumn = true)
         }
-        y = drawVoucherBlankRow(canvas, xs, grid, y)
-        y = drawVoucherBlankRow(canvas, xs, grid, y)
         y = drawVoucherGTotalRow(canvas, y, xs, grid, gTotal, totalDelivered)
         y = drawVoucherInWordRow(canvas, y, xs, grid, gTotal)
         return canvas to y
