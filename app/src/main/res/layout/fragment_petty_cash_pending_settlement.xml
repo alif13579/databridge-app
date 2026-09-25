@@ -57,7 +57,8 @@
                     android:textSize="12sp"
                     android:textStyle="bold"
                     android:textColor="#0F766E"
-                    android:paddingHorizontal="6dp" />
+                    android:paddingHorizontal="6dp"
+                    android:visibility="gone" />
 
                 <TextView
                     android:id="@+id/tvPcPendingRangeClear"
@@ -354,7 +355,12 @@
                         android:id="@+id/btnPcPendingDrawerRange"
                         android:layout_width="0dp"
                         android:layout_weight="1"
-                        android:layout_height="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="6dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingHorizontal="4dp"
+                        android:paddingVertical="0dp"
                         android:text="Range"
                         android:textAllCaps="false"
                         android:textSize="12sp" />
@@ -363,7 +369,12 @@
                         android:id="@+id/btnPcPendingDrawerBill"
                         android:layout_width="0dp"
                         android:layout_weight="1"
-                        android:layout_height="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="6dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingHorizontal="4dp"
+                        android:paddingVertical="0dp"
                         android:text="Bill cycle"
                         android:textAllCaps="false"
                         android:textSize="12sp" />
@@ -372,7 +383,11 @@
                         android:id="@+id/btnPcPendingDrawerMonth"
                         android:layout_width="0dp"
                         android:layout_weight="1"
-                        android:layout_height="wrap_content"
+                        android:layout_height="36dp"
+                        android:minWidth="0dp"
+                        android:minHeight="0dp"
+                        android:paddingHorizontal="4dp"
+                        android:paddingVertical="0dp"
                         android:text="Month"
                         android:textAllCaps="false"
                         android:textSize="12sp" />

@@ -583,15 +583,18 @@ class PettyCashPendingSettlementFragment : Fragment() {
         BdTime.format("dd MMM", millis)
 
     /** Toolbar range readout + the one-tap ✕ undo.
-     *  Always visible so the active scope is never a mystery. */
+     *  Hidden when unfiltered (drawer already shows "Any date") so the
+     *  redundant outer "All Time" doesn't crowd the toolbar. */
     private fun updateRangeLabel() {
         val root = view ?: return
         val hasRange = advancedFilter.dateFromMillis != 0L || advancedFilter.dateToMillis != 0L
-        root.findViewById<TextView>(R.id.tvPcPendingRange).text = if (hasRange) {
+        val tvRange = root.findViewById<TextView>(R.id.tvPcPendingRange)
+        tvRange.isVisible = hasRange
+        if (hasRange) {
             val from = if (advancedFilter.dateFromMillis != 0L) shortDate(advancedFilter.dateFromMillis) else "…"
             val to = if (advancedFilter.dateToMillis != 0L) shortDate(advancedFilter.dateToMillis) else "…"
-            "$from–$to"
-        } else "All Time"
+            tvRange.text = "$from–$to"
+        }
         root.findViewById<View>(R.id.tvPcPendingRangeClear).isVisible = hasRange
     }
 

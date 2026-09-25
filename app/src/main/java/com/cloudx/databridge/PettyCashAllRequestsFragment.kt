@@ -429,8 +429,12 @@ class PettyCashAllRequestsFragment : Fragment() {
         if (advancedFilter.statuses.isNotEmpty()) dims++
         if (advancedFilter.category.isNotBlank() && advancedFilter.category != "All Categories") dims++
         if (selectedAgentUids.isNotEmpty()) dims++
-        root.findViewById<TextView>(R.id.tvPcAllReqFilters)?.text =
-            if (dims == 0) "☰ Filters" else "☰ Filters ($dims)"
+        root.findViewById<TextView>(R.id.tvPcAllReqFilters)?.apply {
+            text = if (dims == 0) "☰ Filters" else "☰ Filters ($dims)"
+            // My Requests tab: hide the row-level pill left of Select —
+            // the toolbar's modern filter icon already opens the same drawer.
+            isVisible = selectedFilter != FILTER_MINE
+        }
     }
 
     // ── Left filter drawer (e-commerce style): Date, Status, Category,
