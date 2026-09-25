@@ -60,6 +60,9 @@ class PettyCashBulkImportFragment : Fragment() {
         val storeId: String,
         val approved: Double,
         val settled: Double,
+        val attempted: Int,
+        val succeeded: Int,
+        val pickupCount: Int,
     )
 
     private var validRows: List<ImportRow> = emptyList()
@@ -280,6 +283,8 @@ class PettyCashBulkImportFragment : Fragment() {
                     val cReq = col("requested")
                     val cAppr = col("approved")
                     val cSet = col("settled")
+                    val cAttempt = col("attempt", "attempted", "attemptedqty", "attemptqty", "attemptquantity")
+                    val cSuccess = col("success", "succeeded", "succeededqty", "successqty", "delivered", "deliveredqty", "deliveredquantity")
                     require(cDate >= 0 && cCat >= 0 && cAppr >= 0 && cSet >= 0) { "Need Date, Type, Approved and Settled columns" }
                     require(cEmpId >= 0) { "Need Agent ID column" }
                     require(cCid >= 0) { "Need Consignment/Merchant column" }
@@ -319,6 +324,24 @@ class PettyCashBulkImportFragment : Fragment() {
                             if (groupOf[cat.lowercase()] == "conveyance" && (from.isBlank() || to.isBlank() || vehicle.isBlank())) {
                                 throw IllegalArgumentException("From/To/Vehicle required for $cat")
                             }
+                            // Quantities mirror the request form: Pickup carries the
+                            // pickup count, other conveyance is exactly 1 attempt /
+                            // 1 success per claim, non-conveyance carries none.
+                            // Sheet may override with Attempt/Success columns.
+                            val isPickup = cat.equals(PC_CATEGORY_PICKUP, ignoreCase = true)
+                            val isConveyance = groupOf[cat.lowercase()] == "conveyance"
+                            fun parseQty(raw: String, what: String): Int? {
+                                if (raw.isBlank()) return null
+                                return raw.toIntOrNull()?.takeIf { it >= 0 }
+                                    ?: throw IllegalArgumentException("bad $what '$raw'")
+                            }
+                            val attempted = parseQty(if (cAttempt >= 0) cell(cAttempt) else "", "attempt")
+                                ?: if (isConveyance) 1 else 0
+                            val succeeded = parseQty(if (cSuccess >= 0) cell(cSuccess) else "", "success")
+                                ?: if (isConveyance) attempted else 0
+                            if (succeeded > attempted) {
+                                throw IllegalArgumentException("success ($succeeded) exceeds attempt ($attempted)")
+                            }
                             valid.add(
                                 ImportRow(
                                     lineNo = line, dateMillis = millis, dateIso = isoDate(millis),
@@ -328,6 +351,8 @@ class PettyCashBulkImportFragment : Fragment() {
                                     cidOrMerchant = cid,
                                     storeId = if (cStore >= 0) cell(cStore) else "",
                                     approved = appr, settled = stl,
+                                    attempted = attempted, succeeded = succeeded,
+                                    pickupCount = if (isPickup) attempted else 0,
                                 )
                             )
                         } catch (e: Exception) {
@@ -464,6 +489,9 @@ class PettyCashBulkImportFragment : Fragment() {
                                 .put("requested_amount", row.approved)
                                 .put("approved_amount", row.approved)
                                 .put("settled_amount", row.settled)
+                                .put("attempted_qty", row.attempted)
+                                .put("succeeded_qty", row.succeeded)
+                                .put("pickup_count", row.pickupCount)
                                 .put("requested_at", row.dateIso)
                                 .put("client_submit_id", "$batch-$i")
                         )
@@ -546,13 +574,13 @@ class PettyCashBulkImportFragment : Fragment() {
                     val ctx = requireContext()
                     val dir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
                     val file = java.io.File(dir, "bulk_import_sample.xlsx")
-                    val headers = listOf("Date", "From", "To", "Vehicle", "Invoice", "Agent ID", "Agent Name", "Type", "Consignment/Merchant", "LOT ID", "Requested", "Approved", "Settled", "Status")
+                    val headers = listOf("Date", "From", "To", "Vehicle", "Invoice", "Agent ID", "Agent Name", "Type", "Consignment/Merchant", "LOT ID", "Requested", "Approved", "Settled", "Attempt", "Success", "Status")
                     val rows = listOf(
-                        listOf<Any>("25-Sep-26", "Kanchpur-Gongapur", "Office", "Auto", "", "S 35580", "Abdul Mannan Bepari", "Pickup", "Aureli BD", "", 150, 150, 150, ""),
-                        listOf<Any>("25-Sep-26", "Office", "Kewdhala", "Auto", "", "FDA 9317", "Amir Hosen", "Bulk Delivery", "DW250926ABC123", "", 15, 15, 15, ""),
-                        listOf<Any>("25-Sep-26", "", "", "", "", "M 1703", "Alif Mia", "Internet Bill", "September'26", "", 1000, 1000, 1000, ""),
+                        listOf<Any>("25-Sep-26", "Kanchpur-Gongapur", "Office", "Auto", "", "S 35580", "Abdul Mannan Bepari", "Pickup", "Aureli BD", "", 150, 150, 150, 1, 1, ""),
+                        listOf<Any>("25-Sep-26", "Office", "Kewdhala", "Auto", "", "FDA 9317", "Amir Hosen", "Bulk Delivery", "DW250926ABC123", "", 15, 15, 15, 1, 1, ""),
+                        listOf<Any>("25-Sep-26", "", "", "", "", "M 1703", "Alif Mia", "Internet Bill", "September'26", "", 1000, 1000, 1000, 0, 0, ""),
                     )
-                    val widths = listOf(11, 20, 20, 12, 20, 12, 24, 24, 22, 12, 11, 11, 11, 16)
+                    val widths = listOf(11, 20, 20, 12, 20, 12, 24, 24, 22, 12, 11, 11, 11, 11, 11, 16)
                     CashExportWriter.writeXlsx(file, "Sample", headers, rows, widths)
                     file
                 }

@@ -39,6 +39,14 @@ Deno.serve(async (request) => {
 
     const str = (v: unknown) => typeof v === 'string' ? v : ''
     const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : NaN
+    // Whole-number quantity: undefined = absent (category default applies),
+    // NaN = present but invalid (whole number >= 0 required).
+    const qint = (v: unknown): number | undefined => {
+      if (v === null || v === undefined || v === '') return undefined
+      const n = typeof v === 'number' ? v : Number(String(v).trim())
+      if (!Number.isFinite(n) || Math.trunc(n) !== n || n < 0) return NaN
+      return n
+    }
     const branchId = str(body.branch_id).trim()
     const batch = str(body.batch).trim() || `bulk-${Date.now()}`
     const rows: unknown[] = Array.isArray(body.rows) ? body.rows : []
@@ -107,6 +115,22 @@ Deno.serve(async (request) => {
         const group = catGroup.get(category.toLowerCase())
         if (!group) { fail(`Unknown/inactive category '${category}'`); continue }
         if (group === 'conveyance' && (!g('from_area') || !g('to_area'))) { fail(`From/To required for ${category}`); continue }
+        // Quantities mirror the request form: Pickup carries the pickup
+        // count, other conveyance is exactly 1 attempt / 1 success per
+        // claim, non-conveyance carries none. Sheet may override via
+        // attempted_qty / succeeded_qty / pickup_count.
+        const isPickupCat = category.toLowerCase() === 'pickup'
+        const attRaw = qint(r['attempted_qty'])
+        const sucRaw = qint(r['succeeded_qty'])
+        const pickRaw = qint(r['pickup_count'])
+        if (attRaw !== undefined && Number.isNaN(attRaw)) { fail('attempted_qty must be a whole number >= 0'); continue }
+        if (sucRaw !== undefined && Number.isNaN(sucRaw)) { fail('succeeded_qty must be a whole number >= 0'); continue }
+        if (pickRaw !== undefined && Number.isNaN(pickRaw)) { fail('pickup_count must be a whole number >= 0'); continue }
+        const isConv = group === 'conveyance'
+        const attempted = (attRaw === undefined ? (isConv ? 1 : 0) : attRaw) as number
+        const succeeded = (sucRaw === undefined ? (isConv ? attempted : 0) : sucRaw) as number
+        if (succeeded > attempted) { fail(`succeeded (${succeeded}) exceeds attempted (${attempted})`); continue }
+        const pickupCount = (pickRaw === undefined ? (isPickupCat ? attempted : 0) : pickRaw) as number
 
         const { data: agent } = await admin.from('users')
           .select('system_id,firebase_id,role,branch_ids').eq('system_id', sysId).maybeSingle()
@@ -125,9 +149,9 @@ Deno.serve(async (request) => {
           id, claim_code: code, branch_id: branchId, requester_system_id: sysId,
           client_submit_id: submitKey,
           category, purpose: g('purpose'), consignment_id: g('consignment_id'),
-          store_id: g('store_id'), store_name: g('store_name'), pickup_count: 0,
+          store_id: g('store_id'), store_name: g('store_name'), pickup_count: pickupCount,
           vehicle: g('vehicle'), from_area: g('from_area'), to_area: g('to_area'),
-          attempted_qty: 0, succeeded_qty: 0, cid_or_merchant: g('cid_or_merchant'),
+          attempted_qty: attempted, succeeded_qty: succeeded, cid_or_merchant: g('cid_or_merchant'),
           requested_amount: requested, approved_amount: approved, settled_amount: settled,
           payment_method: 'Cash', transaction_id: `${batch}-${i}`,
           status: 'settled', attachments: [],
