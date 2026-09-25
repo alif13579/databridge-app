@@ -159,28 +159,48 @@ private val legacyConveyanceTypes = setOf(
         val toDateIso: String,
         val categoryGroups: Map<String, String>,
         val voucherGrouping: VoucherGrouping,
-        val companyLogo: Bitmap? = null,
+        val topSheetLogo: Bitmap? = null,
+        val ackLogo: Bitmap? = null,
     )
 
-    /** Centered Pathao logo when available, else the legacy text header.
-     *  Returns the new y (top of next block). Logo aspect is ~2.96:1
-     *  (888x300) — drawn [logoH] tall, width scaled, centered. */
+    /** Centered logo when available, else the legacy "Pathao Limited" text.
+     *  Returns the new y (top of next block). The bitmap is aspect-scaled to
+     *  [logoH] tall and centered — same spot the sample PDF's header text sat. */
     private fun drawCompanyHeader(
         canvas: Canvas,
         y: Float,
         titlePaint: Paint,
         logo: Bitmap?,
-        logoH: Float = 26f,
+        logoH: Float = 30f,
     ): Float {
         if (logo == null || logo.isRecycled) {
             canvas.drawText("Pathao Limited", margin + contentWidth / 2, y + 14f, titlePaint)
             return y + 18f
         }
         val aspect = logo.width.toFloat() / logo.height.toFloat().coerceAtLeast(1f)
-        val logoW = logoH * aspect
-        val left = margin + (contentWidth - logoW) / 2f
-        canvas.drawBitmap(logo, null, RectF(left, y, left + logoW, y + logoH), null)
-        return y + logoH + 4f
+        // Never wider than 60% of the page — keeps the header modest like the
+        // sample PDF instead of a full-bleed banner.
+        val maxW = contentWidth * 0.6f
+        var w = logoH * aspect
+        var h = logoH
+        if (w > maxW) {
+            w = maxW
+            h = w / aspect
+        }
+        val left = margin + (contentWidth - w) / 2f
+        canvas.drawBitmap(logo, null, RectF(left, y, left + w, y + h), null)
+        return y + h + 4f
+    }
+
+    private fun decodeLogo(ctx: Context, vararg names: String): Bitmap? {
+        names.forEach { name ->
+            val id = ctx.resources.getIdentifier(name, "drawable", ctx.packageName)
+            if (id != 0) {
+                runCatching { BitmapFactory.decodeResource(ctx.resources, id) }
+                    .getOrNull()?.let { return it }
+            }
+        }
+        return null
     }
 
     /**
@@ -214,18 +234,16 @@ private val legacyConveyanceTypes = setOf(
     ) {
         appContext?.let(PdfFonts::init)
         // Decode once, reuse for both passes so page counts stay identical.
-        // Missing resource / null context falls back to the text header.
-        val companyLogo: Bitmap? = runCatching {
-            val ctx = appContext ?: return@runCatching null
-            val resId = ctx.resources.getIdentifier("pathao_logo", "drawable", ctx.packageName)
-                .takeIf { it != 0 } ?: return@runCatching null
-            BitmapFactory.decodeResource(ctx.resources, resId)
-        }.getOrNull()
+        // Top Sheet -> pettycash_logo_top (cropped topsheet.webp, 908x320),
+        // Ack -> pettycash_logo_ack (agent acknowledge.png, 500x250),
+        // either falls back to pathao_logo, then to the text header.
+        val topSheetLogo: Bitmap? = appContext?.let { decodeLogo(it, "pettycash_logo_top", "pathao_logo") }
+        val ackLogo: Bitmap? = appContext?.let { decodeLogo(it, "pettycash_logo_ack", "pathao_logo") }
         val input = ReportInput(
             claims, branchName, branchRegion, pettyCashLimit,
             pocName, pocEmployeeId, pocDesignation, pocContact,
             fromDateIso, toDateIso, categoryGroups, voucherGrouping,
-            companyLogo,
+            topSheetLogo, ackLogo,
         )
         // Two passes so conveyance footers can read "Page X of Y": pass 1
         // counts pages (throwaway document), pass 2 draws the real file.
@@ -325,7 +343,7 @@ private val legacyConveyanceTypes = setOf(
             ctx.canvas, operationTotal, officeTotal, utilitiesTotal,
             branchName, branchRegion, pettyCashLimit,
             pocName, pocEmployeeId, pocDesignation, pocContact, fromDateIso, toDateIso,
-            input.companyLogo,
+            input.topSheetLogo,
         )
 
         // ── Page 2: Petty Cash Expense Summary ──────────────────────────────
@@ -338,7 +356,7 @@ private val legacyConveyanceTypes = setOf(
 
         // ── Page 3: Agent Acknowledgement (operation-expense agents only) ──
         ctx.nextPage()
-        drawAgentAcknowledgementPage(ctx, aRows, toDateIso, pocName, pocEmployeeId, pocDesignation, input.companyLogo)
+        drawAgentAcknowledgementPage(ctx, aRows, toDateIso, pocName, pocEmployeeId, pocDesignation, input.ackLogo)
 
         // ── Conveyance Vouchers — continuous flow like the sample PDF: blocks
         // follow one another with no forced page break (no huge gaps). Every
@@ -703,7 +721,7 @@ private val legacyConveyanceTypes = setOf(
         val strokeBorder = strokePaint(borderColor, 0.6f)
         val monthYearLabel = businessMonthLabel(toDateIso, "MMMM-yy")
 
-        y = drawCompanyHeader(canvas, y, titlePaint, companyLogo, logoH = 24f)
+        y = drawCompanyHeader(canvas, y, titlePaint, companyLogo, logoH = 28f)
         canvas.drawText("Agent Acknowledgement ($monthYearLabel)", margin + contentWidth / 2, y + 12f, titlePaint)
         y += 18f
 
