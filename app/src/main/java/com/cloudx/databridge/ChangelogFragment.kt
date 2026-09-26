@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "6.10.147",
+                releasedDate = "26 Sep 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Petty Cash: Accounts can correct the requested amount before settling (Amount row tap, or inside the settle form)"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "6.10.146",
                 releasedDate = "26 Sep 2026",
                 entries = listOf(

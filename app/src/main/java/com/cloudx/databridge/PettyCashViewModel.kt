@@ -344,6 +344,19 @@ class PettyCashViewModel : ViewModel() {
         claims.update(requestId, mapOf("requestedAt" to requestedDate), onSupabaseResult)
     }
 
+    // ── Correct the requested amount ──────────────────────────────────────────
+    // Accounts fixing a requester's wrong ask before money moves (approved /
+    // settle_in_process — never settled). Same-status edit, so the server's
+    // staff-overwrite rule applies (branch limit re-checked there); role
+    // gating lives in the UI (Accounts-only affordance) + server.
+    suspend fun updateRequestedAmount(requestId: String, amount: Double, onSupabaseResult: (Boolean) -> Unit = {}): Result<Unit> = runCatching {
+        require(amount > 0) { "Enter a valid amount" }
+        val existing = claims.get(requestId)?.asPettyCashRequest() ?: throw IllegalStateException("Request not found")
+        if (existing.status == PC_STATUS_SETTLED) throw IllegalStateException("Settled requests cannot be edited")
+
+        claims.update(requestId, mapOf("requestedAmount" to amount), onSupabaseResult)
+    }
+
     // ── Staff (formerly "Team Aligned"): acknowledge a request (1st approval) ──
     // Both the display label AND the field/variable names are now "Staff"
     // (staff_uid, staff_role, isStaff, verifiedByUid, verifiedByName, verifiedAt) --

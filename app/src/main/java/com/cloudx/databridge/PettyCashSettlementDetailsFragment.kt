@@ -39,8 +39,11 @@ import java.util.Locale
  *                                           lets Cash POC approve less than asked)
  *   APPROVED            + isAccounts    -> "Mark Settle in Process" (confirm dialog)
  *   SETTLE_IN_PROCESS   + isAccounts    -> "Mark as Settled" (inline settlement form:
- *                                           Payment Method, Settle Amount, Settlement
+ *                                           Payment Method, correctable Requested
+ *                                           Amount, Settle Amount, Settlement
  *                                           Date, Transaction ID/Ref)
+ *   (Accounts may also tap the Amount row to correct the requested amount
+ *   at APPROVED / SETTLE_IN_PROCESS — never once settled.)
  *   REJECTED            + owner       -> "Resubmit Request" (back to pending)
  *   anything else                       -> no primary action, read-only
  *
@@ -247,7 +250,21 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         root.findViewById<TextView>(R.id.tvPcDetailWorkerRole).text = request.requesterRole
 
         bindRow(root, R.id.rowPcCategory, "Category", request.category)
+        // Accounts may correct the requested amount while the money hasn't
+        // moved yet (approved / settle_in_process) — tap opens a small
+        // editor; settled rows stay frozen financial history.
+        val canAccountsEditAmount = roles.isAccounts &&
+            (request.status == PC_STATUS_APPROVED || request.status == PC_STATUS_SETTLE_IN_PROCESS)
+        val amountRow = root.findViewById<View>(R.id.rowPcAmount)
         bindRow(root, R.id.rowPcAmount, "Amount", taka(request.amount))
+        if (canAccountsEditAmount) {
+            amountRow.findViewById<TextView>(R.id.tvDetailRowValue).text = "${taka(request.amount)} ✎"
+            amountRow.isClickable = true
+            amountRow.setOnClickListener { showRequestedAmountDialog(request) }
+        } else {
+            amountRow.isClickable = false
+            amountRow.setOnClickListener(null)
+        }
         bindRow(root, R.id.rowPcRequestedOn, "Requested On", formatDate(if (request.requestedDate != 0L) request.requestedDate else request.createdAt))
 
         // Reviewer-only date correction while the request is still pending:
@@ -528,6 +545,10 @@ class PettyCashSettlementDetailsFragment : Fragment() {
                 requireContext(), android.R.layout.simple_spinner_dropdown_item, arrayOf("Cash", "Bank")
             )
         }
+        val etRequestedAmount = root.findViewById<android.widget.EditText>(R.id.etPcSettleRequestedAmount)
+        if (etRequestedAmount.text.isNullOrBlank()) {
+            etRequestedAmount.setText(formatAmountForInput(request.amount))
+        }
         val etSettleAmount = root.findViewById<android.widget.EditText>(R.id.etPcSettleAmount)
         val defaultAmount = request.approvedAmount.takeIf { it > 0 } ?: request.amount
         if (etSettleAmount.text.isNullOrBlank()) {
@@ -537,7 +558,73 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         bindRow(root, R.id.rowPcSettleDate, "Settlement Date", formatDate(System.currentTimeMillis()))
     }
 
+    /** Small Accounts-only editor for the requested amount (approved /
+     *  settle_in_process — never settled). Same dialog from the Amount row
+     *  tap and reused before the settle write below. */
+    private fun showRequestedAmountDialog(request: PettyCashRequest) {
+        if (!isAdded) return
+        val input = android.widget.EditText(requireContext()).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(formatAmountForInput(request.amount))
+            setSelection(text.length)
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+        }
+        val dialog = android.app.AlertDialog.Builder(requireContext())
+            .setTitle("Edit requested amount?")
+            .setMessage("Current: ${taka(request.amount)}\nApproved/Settled figures already recorded stay as they are.")
+            .setView(input)
+            .setPositiveButton("Save", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.show()
+        dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val typed = input.text?.toString()?.trim()?.toDoubleOrNull()
+            if (typed == null || typed <= 0) {
+                Toast.makeText(requireContext(), "Enter a valid amount", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (typed == request.amount) {
+                dialog.dismiss()
+                return@setOnClickListener
+            }
+            dialog.dismiss()
+            runAction { onSupa -> viewModel.updateRequestedAmount(requestIdFor(requestCode), typed, onSupabaseResult = onSupa) }
+        }
+    }
+
     private fun submitSettle(root: View, request: PettyCashRequest, force: Boolean = false) {
+        // Requested-amount correction inline: if Accounts changed it in the
+        // settle form, save that first (same-status edit), then settle with
+        // the typed settle amount below.
+        val typedRequested = root.findViewById<android.widget.EditText>(R.id.etPcSettleRequestedAmount)
+            .text?.toString()?.trim()?.toDoubleOrNull()
+        if (typedRequested != null && typedRequested > 0 && typedRequested != request.amount) {
+            showActionLoading("Updating amount…")
+            lifecycleScope.launch {
+                try {
+                    val upd = viewModel.updateRequestedAmount(requestIdFor(requestCode), typedRequested,
+                        onSupabaseResult = { ok ->
+                            activity?.runOnUiThread {
+                                if (isAdded) Toast.makeText(requireContext(),
+                                    if (ok) "✓ Requested amount updated" else "⚠ Amount update failed", Toast.LENGTH_SHORT).show()
+                            }
+                        })
+                    if (upd.isSuccess) {
+                        submitSettle(root, request.copy(amount = typedRequested), force)
+                    } else {
+                        val friendly = UserErrorText.forSaveFailure(upd.exceptionOrNull())
+                        if (isAdded) {
+                            Toast.makeText(requireContext(), friendly, Toast.LENGTH_LONG).show()
+                            SupabaseErrorDialog.show(requireContext(), friendly,
+                                upd.exceptionOrNull()?.message ?: "Amount update failed")
+                        }
+                    }
+                } finally {
+                    hideActionLoading()
+                }
+            }
+            return
+        }
         val spinner = root.findViewById<android.widget.Spinner>(R.id.spinnerPcSettlePaymentMethod)
         val paymentMethod = spinner.selectedItem?.toString() ?: "Cash"
         val typedTrxId = root.findViewById<android.widget.EditText>(R.id.etPcSettleTrxId).text?.toString()?.trim().orEmpty()
