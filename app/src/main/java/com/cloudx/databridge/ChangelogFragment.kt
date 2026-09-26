@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "6.10.145",
+                releasedDate = "26 Sep 2026",
+                entries = listOf(
+                    ChangelogEntry("improvement", "Config Sheets sync: live per-row progress counter back during bulk sync, run-index count labeled as parcel entries"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "6.10.144",
                 releasedDate = "26 Sep 2026",
                 entries = listOf(

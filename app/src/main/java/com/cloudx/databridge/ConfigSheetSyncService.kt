@@ -801,12 +801,13 @@ class ConfigSheetSyncService : Service() {
                 }
             }
             processed++
-            if (processed % 50 == 0 || processed == works.size) {
-                updateProgressNotif(
-                    "Syncing Firebase…", processed, works.size, inserted, updated, skipped
-                )
-                postProgress(processed, works.size, inserted, updated, skipped)
-            }
+            // Old-style running counter: report EVERY row like before the
+            // bulk refactor (notification itself throttles to 1.5s in
+            // updateProgressNotif; the UI mirror is cheap text).
+            updateProgressNotif(
+                "Syncing Firebase…", processed, works.size, inserted, updated, skipped
+            )
+            postProgress(processed, works.size, inserted, updated, skipped)
         }
         flushWrites()
 
@@ -869,7 +870,7 @@ class ConfigSheetSyncService : Service() {
             "Updated  : $updated\n" +
             "Skipped  : $skipped\n" +
             "Total    : ${dataRows.size}" +
-            (if (runIndexCount > 0) "\nRun index: $runIndexCount" else "") +
+            (if (runIndexCount > 0) "\nRun index: $runIndexCount parcel entries" else "") +
             driftText + issuesText + failuresText + branchlessText + duplicatesText
         val ok = writeFailures.isEmpty()
         return SyncResult(ok, summary, inserted, updated, skipped, runIndexCount)
