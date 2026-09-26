@@ -19,7 +19,7 @@ import org.json.JSONObject
  * (claims.branch_id is a real FK). Run from Reports → "Sync directory",
  * re-run after any Firebase directory edit. Idempotent.
  *
- * Same no-client-content posture as FirebaseClaimsMigrator.backfillUsers:
+ * Same no-client-content posture as the other Supabase writers:
  * the app sends only the action trigger; every row comes from the Edge
  * Function's own server-side Firebase read, so a caller can only copy the
  * truthful directory, never inject rows.

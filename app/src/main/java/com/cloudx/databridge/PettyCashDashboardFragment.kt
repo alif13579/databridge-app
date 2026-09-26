@@ -169,6 +169,12 @@ class PettyCashDashboardFragment : Fragment() {
                 .addToBackStack(null)
                 .commitAllowingStateLoss()
         }
+        view.findViewById<View>(R.id.btnPcDashboardDeposit).setOnClickListener {
+            parentFragmentManager.beginTransaction()
+                .replace(R.id.container, PettyCashDepositFundFragment.newInstance(branchId))
+                .addToBackStack(null)
+                .commitAllowingStateLoss()
+        }
 
         swipeRefresh.setOnRefreshListener { viewModel.load(branchId) }
 
@@ -352,8 +358,12 @@ class PettyCashDashboardFragment : Fragment() {
         // Wallet shortcut lives in the toolbar, but only Accounts may open it
         // (the summary screen itself re-gates, this just hides the dead end).
         root.findViewById<View>(R.id.btnPcDashboardWallet)?.isVisible = state.roles.isAccounts
-
-        wireQuickActions(root, state.roles)
+        // Deposit Fund is Accounts-only — it moves money into the wallet, not
+        // something Team Aligned or Cash POC should trigger. Gated on the
+        // currently *viewed* role, not just whether the user holds the
+        // Accounts role anywhere.
+        root.findViewById<View>(R.id.btnPcDashboardDeposit)?.isVisible =
+            state.roles.isAccounts && selectedView == RoleView.ACCOUNTS
     }
 
     /** Horizontal role-switcher chips — only shown when the user holds more than one petty-cash role. */
@@ -706,63 +716,6 @@ class PettyCashDashboardFragment : Fragment() {
         statRoot.isClickable = true
         statRoot.isFocusable = true
         statRoot.setOnClickListener { onClick() }
-    }
-
-    private fun wireQuickActions(root: View, roles: PettyCashUserRoles) {
-        val actionDeposit = root.findViewById<View>(R.id.actionPcDepositFund)
-        val actionRequests = root.findViewById<View>(R.id.actionPcPendingSettlement)
-        val actionAllRequests = root.findViewById<View>(R.id.actionPcAllRequests)
-        val actionReports = root.findViewById<View>(R.id.actionPcReports)
-
-        // Deposit Fund is Accounts-only — it moves money into the wallet, not
-        // something Team Aligned or Cash POC should be able to trigger. Gated
-        // on the currently *viewed* role, not just whether the user holds the
-        // Accounts role anywhere — someone with both roles shouldn't see this
-        // while looking at their POC dashboard.
-        actionDeposit.isVisible = roles.isAccounts && selectedView == RoleView.ACCOUNTS
-        // Requests/All Requests are useful to any approver (Team Aligned,
-        // Cash POC, or Accounts) for triaging what's in the pipeline —
-        // gated to "any approver role" rather than a single specific one.
-        actionRequests.isVisible = roles.isAnyApprover
-        actionAllRequests.isVisible = roles.isAnyApprover
-        // Financial reports are for the people who make/settle financial
-        // decisions. Staff can verify requests but does not get the branch
-        // financial export entry point.
-        actionReports.isVisible = roles.isAccounts || roles.isCashPoc
-
-        bindQuickAction(actionDeposit, "\uD83D\uDCB0", "Deposit\nFund") {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashDepositFundFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
-        bindQuickAction(actionRequests, "\uD83D\uDCCB", "Requests\n(by status)") {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashPendingSettlementFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
-        bindQuickAction(actionAllRequests, "\uD83D\uDC65", "All\nRequests") {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashAllRequestsFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
-        bindQuickAction(actionReports, "\uD83D\uDCCA", "Reports") {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, ClaimsReportFragment.newInstance())
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
-    }
-
-    private fun bindQuickAction(root: View, icon: String, label: String, onClick: () -> Unit) {
-        val tvIcon = root.findViewById<TextView>(R.id.tvQuickActionIcon)
-        val tvLabel = root.findViewById<TextView>(R.id.tvQuickActionLabel)
-        tvIcon.text = icon
-        tvIcon.background = roundedDrawable("#F1F5F9", dp(12))
-        tvLabel.text = label
-        root.setOnClickListener { onClick() }
     }
 
     private fun roundedDrawable(hexColor: String, radiusPx: Int): GradientDrawable {

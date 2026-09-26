@@ -113,13 +113,16 @@
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:contentDescription="Reports" />
 
-                    <ImageButton
-                        android:id="@+id/btnPcDashboardNotif"
+                    <TextView
+                        android:id="@+id/btnPcDashboardDeposit"
                         android:layout_width="36dp"
                         android:layout_height="36dp"
-                        android:src="@android:drawable/ic_popup_reminder"
+                        android:gravity="center"
+                        android:text="💵"
+                        android:textSize="19sp"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Notifications" />
+                        android:contentDescription="Deposit Fund"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <!-- Role switcher — only shown when the signed-in user holds more
@@ -480,31 +483,6 @@
                             </LinearLayout>
                         </LinearLayout>
                     </androidx.cardview.widget.CardView>
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="QUICK ACTIONS"
-                        android:textSize="11sp"
-                        android:textStyle="bold"
-                        android:textColor="#64748B"
-                        android:letterSpacing="0.05"
-                        android:layout_marginTop="18dp"
-                        android:layout_marginStart="16dp" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginTop="8dp"
-                        android:layout_marginHorizontal="12dp"
-                        android:weightSum="4">
-
-                        <include layout="@layout/item_petty_cash_quick_action" android:id="@+id/actionPcDepositFund" />
-                        <include layout="@layout/item_petty_cash_quick_action" android:id="@+id/actionPcPendingSettlement" />
-                        <include layout="@layout/item_petty_cash_quick_action" android:id="@+id/actionPcAllRequests" />
-                        <include layout="@layout/item_petty_cash_quick_action" android:id="@+id/actionPcReports" />
-                    </LinearLayout>
-
                     <!-- Settlement Queue -->
                     <LinearLayout
                         android:layout_width="match_parent"

@@ -37,6 +37,15 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "6.10.143",
+                releasedDate = "26 Sep 2026",
+                entries = listOf(
+                    ChangelogEntry("improvement", "PDF reports now use Roboto font"),
+                    ChangelogEntry("improvement", "Petty Cash Dashboard: Deposit moved to toolbar, Quick Actions removed, dead notification icon removed"),
+                    ChangelogEntry("improvement", "Petty Cash Reports: Migrate Firebase Claims option removed"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "5.22.96",
                 releasedDate = "18 Aug 2026",
                 entries = listOf(

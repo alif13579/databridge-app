@@ -721,7 +721,7 @@ private val legacyConveyanceTypes = setOf(
         val strokeBorder = strokePaint(borderColor, 0.6f)
         val monthYearLabel = businessMonthLabel(toDateIso, "MMMM-yy")
 
-        y = drawCompanyHeader(canvas, y, titlePaint, companyLogo, logoH = 28f)
+        y = drawCompanyHeader(canvas, y, titlePaint, companyLogo, logoH = 44f)
         canvas.drawText("Agent Acknowledgement ($monthYearLabel)", margin + contentWidth / 2, y + 12f, titlePaint)
         y += 18f
 
@@ -1375,8 +1375,8 @@ private val legacyConveyanceTypes = setOf(
 
     // ── Shared drawing helpers ───────────────────────────────────────────────
 
-    // Every word in the report is Liberation Sans (bundled, SIL OFL) — the
-    // Arial-metric look of the reference PDFs, identical on every device.
+    // Every word in the report is Roboto (bundled, Apache 2.0) — identical
+    // on every device.
     // Falls back to the system sans only when the bundled fonts haven't been
     // initialised (generate() always inits when it receives a Context).
     private fun textPaint(colorInt: Int, size: Float, bold: Boolean = false, italic: Boolean = false, sans: Boolean = true): Paint =

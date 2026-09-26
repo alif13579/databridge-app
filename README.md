@@ -46,9 +46,6 @@ Firebase project: `databridgebd` (RTDB `https://databridgebd-default-rtdb.asia-s
 ### Petty Cash report (Top Sheet PDF)
 `ClaimsReportFragment`: single branch + employee/category/status filters + date range (filters `requested_at`) → `SupabaseClaimsReader.fetchClaimsForReport` → `PettyCashTopSheetPdfWriter` generates the 4-section PDF (Top Sheet, Expense Summary, Agent Acknowledgement, per-agent Conveyance Vouchers). Category sections come from the DB (distinct values + catalog groups), conveyance types appear verbatim as saved, voucher headers read `Attempted` / `Succeeded` (neutral for pickup + delivery). The branch's real POC header resolves via `branches.petty_cash_poc_uid → public.users`.
 
-### Firebase → Supabase claims drain
-Old Firebase claims are drained from **Petty Cash → Reports → Migrate Firebase Claims** (Accounts only): each claim is copied field-wise, read back, and compared on all 53 `ClaimInfo` fields — the Firebase original (claim node + index entries) is deleted **only on a 100% match**. Mismatches/errors stay in Firebase and are listed. Actor `users` rows are backfilled from Firebase first (`backfill_user`), so names resolve. Re-running drains the remainder to zero. Code: `FirebaseClaimsMigrator.kt`.
-
 ### Remarks (Call Center ↔ Worker)
 - Save path: fragments → `SupabaseRemarkValidationWriter.write()` → Edge Function `write` action (derives author from the verified token, upserts `users`, inserts `validations`, triggers push). CC picker options come from `validation_remarks` (source `CC`/`WORKER`); selecting one fills its admin-written `instruction_text` into the note box (`×` clears it); the box content saves as the note.
 - Live paths, in order: Supabase Realtime WebSocket → FCM data-message fallback → 1-minute badge poll. FCM carries only the consignment ID; the body is always re-fetched (RLS-protected).
@@ -111,7 +108,7 @@ Supabase has no passwords here: every REST/Realtime/Function call carries the **
 ## Repo map (where to look)
 
 - `app/src/main/java/com/cloudx/databridge/` — all app code (~150 files)
-  - Petty Cash: `PettyCashViewModel`, `ClaimsRepository`, `SupabaseClaimsWriter/Reader`, `SupabasePettyCashWriter/Reader`, `PettyCash*Fragment`, `ClaimsReportFragment`, `PettyCashTopSheetPdfWriter`, `FirebaseClaimsMigrator`, `FirebaseClaimsIndexMigration`
+  - Petty Cash: `PettyCashViewModel`, `ClaimsRepository`, `SupabaseClaimsWriter/Reader`, `SupabasePettyCashWriter/Reader`, `PettyCash*Fragment`, `ClaimsReportFragment`, `PettyCashTopSheetPdfWriter`
   - Remarks/push: `SupabaseRemarkValidationWriter`, `SupabaseClientManager`, `SupabaseRealtimeManager`, `DataBridgeMessagingService`, `AppNotificationManager`, `CallCenterFragment`, `WorkerSpaceFragment`
   - Platform: `DataBridgeApplication`, `MainActivity`, `AuthManager`, `RbacManager`, `AttachmentUploader`, `FirebasePaths`
 - `supabase/functions/` — Edge Function source (deployed separately, see setup)

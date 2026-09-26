@@ -4,13 +4,13 @@ import android.content.Context
 import android.graphics.Typeface
 
 /**
- * Bundled Liberation Sans (SIL OFL, metrically identical to Arial) for every
- * app-generated PDF, so reports render the same on all devices instead of
- * whatever the system default serif/sans happens to be.
+ * Bundled Roboto (Apache 2.0) for every app-generated PDF, so reports render
+ * the same on all devices instead of whatever the system default
+ * serif/sans happens to be.
  *
  * Call [init] once with any Context before drawing (both PDF writers do this
  * themselves when they receive one). Until then [of] returns null and callers
- * fall back to the system sans.
+ * fall back to the system sans (which is Roboto on Android anyway).
  */
 object PdfFonts {
     @Volatile private var regularFace: Typeface? = null
@@ -26,15 +26,22 @@ object PdfFonts {
             val assets = context.applicationContext.assets
             fun load(name: String): Typeface? =
                 runCatching { Typeface.createFromAsset(assets, "fonts/$name") }.getOrNull()
-            regularFace = load("LiberationSans-Regular.ttf")
-            boldFace = load("LiberationSans-Bold.ttf")
-            italicFace = load("LiberationSans-Italic.ttf")
-            boldItalicFace = load("LiberationSans-BoldItalic.ttf")
+            // Roboto first; Liberation Sans kept as fallback for older installs
+            // that may still reference it.
+            regularFace = load("Roboto-Regular.ttf") ?: load("LiberationSans-Regular.ttf")
+            boldFace = load("Roboto-Bold.ttf") ?: load("LiberationSans-Bold.ttf")
+            italicFace = load("Roboto-Italic.ttf") ?: load("LiberationSans-Italic.ttf")
+            boldItalicFace = load("Roboto-BoldItalic.ttf") ?: load("LiberationSans-BoldItalic.ttf")
+            // Last resort: system Roboto (sans-serif IS Roboto on Android).
+            if (regularFace == null) regularFace = Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL)
+            if (boldFace == null) boldFace = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            if (italicFace == null) italicFace = Typeface.create(Typeface.SANS_SERIF, Typeface.ITALIC)
+            if (boldItalicFace == null) boldItalicFace = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD_ITALIC)
             ready = true
         }
     }
 
-    /** Liberation Sans for the wanted style, or null when not loaded yet. */
+    /** Roboto for the wanted style, or null when not loaded yet. */
     fun of(bold: Boolean = false, italic: Boolean = false): Typeface? = when {
         bold && italic -> boldItalicFace ?: boldFace ?: italicFace ?: regularFace
         bold -> boldFace ?: regularFace

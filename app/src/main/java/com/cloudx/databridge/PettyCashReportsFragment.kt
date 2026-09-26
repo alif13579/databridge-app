@@ -56,8 +56,6 @@ class PettyCashReportsFragment : Fragment() {
         // Deposit History is an Accounts-only action, so only show it once we
         // know this user actually holds that role for this branch — avoid a
         // flash of a row that then has to disappear, wait for state instead.
-        // Same gating for the Firebase→Supabase claims drain below: it
-        // deletes Firebase data, so only Accounts may run it.
         //
         // "Sync directory" is deliberately NOT gated on load success: an empty
         // public.branches is exactly what makes load() fail with
@@ -77,11 +75,6 @@ class PettyCashReportsFragment : Fragment() {
                         open(PettyCashDepositHistoryFragment.newInstance(branchId))
                     }
                 }
-                if (state is PettyCashState.Success && state.roles.isAccounts && menu.findViewWithTag<View>("firebase_claims_migrate") == null) {
-                    addMenuRow(menu, "\uD83D\uDD04", "Migrate Firebase Claims", "Copy verified claims to Supabase, remove from Firebase", tag = "firebase_claims_migrate") {
-                        showMigrateConfirm()
-                    }
-                }
                 if (state is PettyCashState.Success && state.roles.isAccounts && menu.findViewWithTag<View>("bulk_import") == null) {
                     addMenuRow(menu, "\uD83D\uDCE5", "Bulk Import", "Submit many claims at once from Excel/CSV", tag = "bulk_import") {
                         open(PettyCashBulkImportFragment.newInstance(branchId))
@@ -90,86 +83,6 @@ class PettyCashReportsFragment : Fragment() {
             }
             viewModel.load(branchId)
         }
-    }
-
-    /** One-way drain: Firebase claims → Supabase, deleting each Firebase
-     *  original only after its Supabase copy reads back field-for-field
-     *  identical (see FirebaseClaimsMigrator). Anything unmatched stays in
-     *  Firebase and is reported — re-running drains the rest, so Firebase
-     *  trends to zero over successive runs. Covers ALL branches. */
-    private fun showMigrateConfirm() {
-        AlertDialog.Builder(requireContext())
-            .setTitle("Migrate Firebase claims?")
-            .setMessage(
-                "Reads every claim request still in Firebase, saves each one " +
-                    "field-wise to Supabase, reads it back, and deletes the " +
-                    "Firebase original ONLY on a 100% field match.\n\n" +
-                    "Claims that fail or differ stay in Firebase and are listed " +
-                    "afterwards — nothing is deleted blindly. Safe to re-run; " +
-                    "covers all branches and can take a while."
-            )
-            .setPositiveButton("Start Migration") { _, _ -> runMigration() }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun runMigration() {
-        val progressDialog = AlertDialog.Builder(requireContext())
-            .setTitle("Migrating claims…")
-            .setMessage("Starting…")
-            .setCancelable(false)
-            .create()
-            .also { it.show() }
-        lifecycleScope.launch {
-            val result = runCatching {
-                FirebaseClaimsMigrator.migrateAll { done, total ->
-                    activity?.runOnUiThread {
-                        if (progressDialog.isShowing) progressDialog.setMessage("Checked $done of $total…")
-                    }
-                }
-            }
-            runCatching { progressDialog.dismiss() }
-            result
-                .onSuccess { showMigrationResult(it) }
-                .onFailure {
-                    Toast.makeText(requireContext(), it.message ?: "Migration failed", Toast.LENGTH_LONG).show()
-                }
-        }
-    }
-
-    private fun showMigrationResult(result: FirebaseClaimsMigrator.MigrateResult) {
-        val body = buildString {
-            append("Firebase claims found: ${result.totalFirebase}\n")
-            append("Users ensured in Supabase: ${result.usersEnsured}")
-            if (result.userErrors.isNotEmpty()) append(" (${result.userErrors.size} failed)")
-            append("\nCopied to Supabase: ${result.copied}\n")
-            append("Verified 100% match: ${result.verified}\n")
-            append("Deleted from Firebase: ${result.deleted}")
-            if (result.userErrors.isNotEmpty()) {
-                append("\n\nUser backfill failures: ${result.userErrors.size}")
-                result.userErrors.take(8).forEach { append("\n• $it") }
-                if (result.userErrors.size > 8) append("\n…and ${result.userErrors.size - 8} more")
-            }
-            if (result.mismatched.isNotEmpty()) {
-                append("\n\nKept in Firebase (differ on read-back): ${result.mismatched.size}")
-                result.mismatched.take(8).forEach { append("\n• ${it.claimId}: ${it.fields.joinToString(", ")}") }
-                if (result.mismatched.size > 8) append("\n…and ${result.mismatched.size - 8} more")
-                append("\n\nUsual cause: the actor's Firebase profile itself is missing data (no system_id) — fix the profile in Firebase, then re-run.")
-            }
-            if (result.errors.isNotEmpty()) {
-                append("\n\nErrors: ${result.errors.size}")
-                result.errors.take(8).forEach { append("\n• $it") }
-                if (result.errors.size > 8) append("\n…and ${result.errors.size - 8} more")
-            }
-            if (result.mismatched.isEmpty() && result.errors.isEmpty() && result.totalFirebase == 0) {
-                append("\n\nFirebase holds no claims — drain complete.")
-            }
-        }
-        AlertDialog.Builder(requireContext())
-            .setTitle("Migration result")
-            .setMessage(body)
-            .setPositiveButton("OK", null)
-            .show()
     }
 
     /** Copies the Firebase branch/store/area directories into Supabase (see
