@@ -37,6 +37,14 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "6.10.144",
+                releasedDate = "26 Sep 2026",
+                entries = listOf(
+                    ChangelogEntry("improvement", "Petty Cash Reports: Sync directory option removed"),
+                    ChangelogEntry("improvement", "Conveyance Voucher (A4 PDF): every voucher now sizes its own columns from its content with airier padding"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "6.10.143",
                 releasedDate = "26 Sep 2026",
                 entries = listOf(

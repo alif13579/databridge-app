@@ -372,10 +372,12 @@ private val legacyConveyanceTypes = setOf(
         if (conveyanceClaims.isNotEmpty()) {
             ctx.nextPage()
             ctx.footerEnabled = true
-            // One measured grid for the whole report (same columns line up
-            // across blocks); category-wise measures the Agent column.
+            // Each voucher block measures its OWN grid from just its own
+            // claims — a column only takes what its content needs (e.g. a
+            // narrow Delivered column stays narrow), so every block's text
+            // gets breathing room instead of one global compromise.
+            // Category-wise blocks measure the Agent column.
             val agentColumn = voucherGrouping == VoucherGrouping.CATEGORY_WISE
-            val (vWidths, vXs) = voucherGrid(conveyanceClaims, agentColumn = agentColumn)
             // Jobs in original order (agents by first appearance, categories
             // by first appearance) with their exact heights precomputed.
             data class Job(val job: VoucherJob, val items: List<VoucherItem>, val height: Float)
@@ -427,6 +429,11 @@ private val legacyConveyanceTypes = setOf(
                 val idx = pending.indexOfFirst { it.height <= remaining }
                 if (idx >= 0) {
                     val (job, items, _) = pending.removeAt(idx)
+                    val jobClaims = when (job) {
+                        is VoucherJob.Agent -> job.claims
+                        is VoucherJob.Category -> job.claims
+                    }
+                    val (vWidths, vXs) = voucherGrid(jobClaims, agentColumn = agentColumn)
                     val drawn = when (job) {
                         is VoucherJob.Agent -> drawConveyanceVoucherAgent(
                             ctx, voucherCanvas, voucherY, vWidths, vXs, job.claims, items, voucherSl,
@@ -449,6 +456,11 @@ private val legacyConveyanceTypes = setOf(
                     }
                     pending.removeFirst()
                     val (job, items, _) = head
+                    val jobClaims = when (job) {
+                        is VoucherJob.Agent -> job.claims
+                        is VoucherJob.Category -> job.claims
+                    }
+                    val (vWidths, vXs) = voucherGrid(jobClaims, agentColumn = agentColumn)
                     val drawn = when (job) {
                         is VoucherJob.Agent -> drawConveyanceVoucherAgent(
                             ctx, voucherCanvas, voucherY, vWidths, vXs, job.claims, items, voucherSl,
@@ -801,7 +813,8 @@ private val legacyConveyanceTypes = setOf(
     //   title row (full span) → SL row (full span) → Agent ID row →
     //   Designation row → 9 column headers → one row per claim →
     //   2 blank spacer rows → G/Total row → In-word row.
-    // Sample column widths measured off the reference PDF:
+    // Column order (widths are measured per block in voucherGrid — the
+    // fractions below are kept only as labels, not used for layout):
     // Date | From | To | Description | Vehicle | Amount | Attempt quantity |
     // Delivered | CID / Merchant — all headers/data centered, dark hairlines.
     private val voucherHeaders = listOf(
@@ -891,11 +904,12 @@ private val legacyConveyanceTypes = setOf(
             .getOrDefault(claim.placedDate)
 
     /** Column pixel boundaries for the 9-column voucher grid — widths are
-     *  measured from the actual content (headers + every row of [claims]),
-     *  so a short-CID report doesn't waste half the page on CID while
-     *  squeezing the rest. Each column gets padding, a minimum (headers must
-     *  fit) and a maximum cap (one long merchant can't eat the table);
-     *  the result is normalized to exactly fill the content width. */
+     *  measured from just this block's own content (headers + every row of
+     *  [claims]), so each column only takes what it needs (a narrow
+     *  Delivered column stays narrow) and the text gets breathing room.
+     *  Each column gets generous padding, a minimum floor and a maximum
+     *  cap (one long merchant can't eat the table); the result is
+     *  normalized to exactly fill the A4 content width. */
     private fun voucherGrid(
         claims: List<SupabaseClaimsReader.ClaimRow>,
         agentColumn: Boolean,
@@ -918,7 +932,7 @@ private val legacyConveyanceTypes = setOf(
                 maxW[i] = maxOf(maxW[i], dataPaint.measureText(s.ifBlank { "-" }))
             }
         }
-        val pad = 8f
+        val pad = 12f
         val minW = floatArrayOf(46f, 40f, 32f, 50f, 36f, 36f, 52f, 42f, 62f)
         val capW = floatArrayOf(78f, 92f, 72f, 118f, 72f, 66f, 86f, 86f, 176f)
         val natural = maxW.mapIndexed { i, m -> (m + pad).coerceIn(minW[i], capW[i]) }

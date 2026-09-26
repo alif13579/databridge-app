@@ -1,17 +1,13 @@
 package com.cloudx.databridge
 
-import android.app.AlertDialog
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.launch
 
 /**
  * Petty Cash — Reports.
@@ -56,18 +52,6 @@ class PettyCashReportsFragment : Fragment() {
         // Deposit History is an Accounts-only action, so only show it once we
         // know this user actually holds that role for this branch — avoid a
         // flash of a row that then has to disappear, wait for state instead.
-        //
-        // "Sync directory" is deliberately NOT gated on load success: an empty
-        // public.branches is exactly what makes load() fail with
-        // "Branch not found", so the repair must be reachable from the error
-        // state too. The action itself is safe for anyone to run (idempotent
-        // upsert; row content comes from the server-side Firebase read, never
-        // client input — see FirebaseDirectorySync).
-        if (branchId.isNotBlank() && menu.findViewWithTag<View>("directory_sync") == null) {
-            addMenuRow(menu, "\uD83C\uDFE2", "Sync directory", "Copy branches & stores from Firebase to Supabase", tag = "directory_sync") {
-                showDirectorySyncConfirm()
-            }
-        }
         if (branchId.isNotBlank()) {
             viewModel.state.observe(viewLifecycleOwner) { state ->
                 if (state is PettyCashState.Success && state.roles.isAccounts && menu.findViewWithTag<View>("deposit_history") == null) {
@@ -82,79 +66,6 @@ class PettyCashReportsFragment : Fragment() {
                 }
             }
             viewModel.load(branchId)
-        }
-    }
-
-    /** Copies the Firebase branch/store/area directories into Supabase (see
-     *  FirebaseDirectorySync). Needed once when the tables are empty — that
-     *  emptiness is what shows as "Branch not found" / "No stores available" /
-     *  "No areas configured" — and again after any Firebase directory edit.
-     *  Areas copy into EVERY branch (Firebase areas are courier-wide); curate
-     *  per branch afterwards in Config → Areas. */
-    private fun showDirectorySyncConfirm() {
-        AlertDialog.Builder(requireContext())
-            .setTitle("Sync directory?")
-            .setMessage(
-                "Reads every branch (branches/), store (courier/stores/) and area " +
-                    "(courier/areas/) from Firebase and copies them into Supabase.\n\n" +
-                    "Safe to re-run any time; existing rows are updated, " +
-                    "nothing is deleted."
-            )
-            .setPositiveButton("Start Sync") { _, _ -> runDirectorySync() }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun runDirectorySync() {
-        val progressDialog = AlertDialog.Builder(requireContext())
-            .setTitle("Syncing directory…")
-            .setMessage("Copying branches…")
-            .setCancelable(false)
-            .create()
-            .also { it.show() }
-        lifecycleScope.launch {
-            val result = runCatching {
-                val branches = FirebaseDirectorySync.syncBranches()
-                activity?.runOnUiThread {
-                    if (progressDialog.isShowing) progressDialog.setMessage("Branches done — copying stores…")
-                }
-                val stores = FirebaseDirectorySync.syncStores()
-                activity?.runOnUiThread {
-                    if (progressDialog.isShowing) progressDialog.setMessage("Stores done — copying areas…")
-                }
-                val areas = FirebaseDirectorySync.syncAreas()
-                Triple(branches, stores, areas)
-            }
-            runCatching { progressDialog.dismiss() }
-            result
-                .onSuccess { (branches, stores, areas) ->
-                    val body = buildString {
-                        append("Branches synced: ${branches.synced}")
-                        if (branches.failed.isNotEmpty()) {
-                            append("\nBranch failures: ${branches.failed.size}")
-                            branches.failed.take(5).forEach { append("\n• $it") }
-                        }
-                        append("\nStores synced: ${stores.synced}")
-                        if (stores.failed.isNotEmpty()) {
-                            append("\nStore failures: ${stores.failed.size}")
-                            stores.failed.take(5).forEach { append("\n• $it") }
-                        }
-                        append("\nAreas synced: ${areas.synced}")
-                        if (areas.failed.isNotEmpty()) {
-                            append("\nArea failures: ${areas.failed.size}")
-                            areas.failed.take(5).forEach { append("\n• $it") }
-                        }
-                        append("\n\nGo back and reopen Petty Cash to reload.")
-                    }
-                    AlertDialog.Builder(requireContext())
-                        .setTitle("Directory sync result")
-                        .setMessage(body)
-                        .setPositiveButton("OK", null)
-                        .show()
-                }
-                .onFailure {
-                    Toast.makeText(requireContext(), it.message ?: "Sync failed", Toast.LENGTH_LONG).show()
-                }
         }
     }
 
