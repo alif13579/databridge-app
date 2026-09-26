@@ -658,9 +658,11 @@ class ConfigSheetSyncService : Service() {
             }
         }
         fun queueRunIndex(runTypeName: String, runId: String, status: String, cids: List<String>) {
+            // Actual run count: ONE per run (a run holds many parcels, but the
+            // count answers "how many runs indexed", not parcel paths).
+            if (cids.isNotEmpty()) runIndexCount++
             cids.forEach { cid ->
                 runIndexUpdates["courier/runs_by_consignmentId/$cid/$runTypeName/$runId"] = status
-                runIndexCount++
                 val phone = consignmentPhoneCache[cid].orEmpty()
                 if (phone.isNotBlank()) {
                     runIndexUpdates["courier/consignments_by_phone/$phone/$cid"] = "$runTypeName/$runId"
@@ -870,7 +872,7 @@ class ConfigSheetSyncService : Service() {
             "Updated  : $updated\n" +
             "Skipped  : $skipped\n" +
             "Total    : ${dataRows.size}" +
-            (if (runIndexCount > 0) "\nRun index: $runIndexCount parcel entries" else "") +
+            (if (runIndexCount > 0) "\nRun index: $runIndexCount" else "") +
             driftText + issuesText + failuresText + branchlessText + duplicatesText
         val ok = writeFailures.isEmpty()
         return SyncResult(ok, summary, inserted, updated, skipped, runIndexCount)
