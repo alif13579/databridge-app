@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "6.11.0",
+                releasedDate = "27 Sep 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Release build — latest stable up to now in one installable package"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "6.10.148",
                 releasedDate = "27 Sep 2026",
                 entries = listOf(
