@@ -19,6 +19,7 @@ import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -296,6 +297,7 @@ class PettyCashSettlementDetailsFragment : Fragment() {
             }
             else -> rowExtra.isVisible = false
         }
+        renderConsignmentInfo(root, request.consignmentId)
 
         val rowPickupCount = root.findViewById<View>(R.id.rowPcPickupCount)
         if (request.pickupCount > 0) {
@@ -352,6 +354,56 @@ class PettyCashSettlementDetailsFragment : Fragment() {
         val row = root.findViewById<View>(includeId)
         row.findViewById<TextView>(R.id.tvDetailRowLabel).text = label
         row.findViewById<TextView>(R.id.tvDetailRowValue).text = value
+    }
+
+    /** Last consignment IDs this card fetched for — avoids refetching the same
+     *  parcel on every state re-render (renderRequest runs on each load). */
+    private var consignmentInfoKey: String = ""
+
+    /** Live parcel lookup for the claim's consignment ID(s) so approvers can
+     *  see WHO/WHERE the parcel is (recipient name · phone, address, status).
+     *  LOT claims carry comma-joined IDs — each is fetched and shown on its
+     *  own block. Missing IDs render an explicit not-found line, never blank. */
+    private fun renderConsignmentInfo(root: View, consignmentId: String) {
+        val card = root.findViewById<View>(R.id.cardPcConsignmentInfo) ?: return
+        val tv = root.findViewById<TextView>(R.id.tvPcConsignmentInfo) ?: return
+        val ids = consignmentId.split(",").map { it.trim() }.filter { it.isNotBlank() }
+        if (ids.isEmpty()) {
+            card.isVisible = false
+            consignmentInfoKey = ""
+            return
+        }
+        val key = ids.joinToString(",")
+        card.isVisible = true
+        if (key == consignmentInfoKey) return // already showing this claim's info
+        consignmentInfoKey = key
+        tv.text = "Loading parcel info…"
+        val db = com.google.firebase.database.FirebaseDatabase.getInstance().reference
+        lifecycleScope.launch {
+            val lines = mutableListOf<String>()
+            for (id in ids.take(20)) {
+                val text = try {
+                    val snap = db.child("courier/consignments/$id").get().await()
+                    @Suppress("UNCHECKED_CAST")
+                    val cons = snap?.value as? Map<*, *>
+                    if (cons == null) {
+                        "⚠ $id — not found"
+                    } else {
+                        val name = (cons["recipientName"] as? String).orEmpty().ifBlank { "—" }
+                        val phone = (cons["recipientPhone"] as? String).orEmpty().ifBlank { "—" }
+                        val address = (cons["recipientAddress"] as? String).orEmpty().ifBlank { "—" }
+                        val status = (cons["status"] as? String).orEmpty().ifBlank { "—" }
+                        "$id\n$name · $phone\n$address\nStatus: $status"
+                    }
+                } catch (_: Exception) {
+                    "⚠ $id — lookup failed"
+                }
+                lines.add(text)
+            }
+            if (ids.size > 20) lines.add("…+${ids.size - 20} more")
+            if (!isAdded) return@launch
+            view?.findViewById<TextView>(R.id.tvPcConsignmentInfo)?.text = lines.joinToString("\n\n")
+        }
     }
 
     private fun nameWithComment(name: String, comment: String): String =

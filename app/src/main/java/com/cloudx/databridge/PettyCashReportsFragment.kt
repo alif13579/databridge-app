@@ -49,9 +49,8 @@ class PettyCashReportsFragment : Fragment() {
             open(PettyCashSettlementHistoryFragment.newInstance(branchId))
         }
 
-        // Deposit History is an Accounts-only action, so only show it once we
-        // know this user actually holds that role for this branch — avoid a
-        // flash of a row that then has to disappear, wait for state instead.
+        // Roles-only: this menu only needs to know isAccounts to show the
+        // Deposit/Bulk rows — no claims scan (see loadRolesOnly).
         if (branchId.isNotBlank()) {
             viewModel.state.observe(viewLifecycleOwner) { state ->
                 if (state is PettyCashState.Success && state.roles.isAccounts && menu.findViewWithTag<View>("deposit_history") == null) {
@@ -65,7 +64,7 @@ class PettyCashReportsFragment : Fragment() {
                     }
                 }
             }
-            viewModel.load(branchId)
+            viewModel.loadRolesOnly(branchId)
         }
     }
 

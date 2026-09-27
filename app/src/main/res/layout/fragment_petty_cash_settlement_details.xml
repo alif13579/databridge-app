@@ -183,6 +183,41 @@
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 
+                <!-- Consignment info (fetched live by consignment ID) -->
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/cardPcConsignmentInfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="1dp"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="12dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Consignment Info"
+                            android:textSize="11sp"
+                            android:textStyle="bold"
+                            android:textColor="#64748B" />
+
+                        <TextView
+                            android:id="@+id/tvPcConsignmentInfo"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:textSize="13sp"
+                            android:textColor="#334155"
+                            android:lineSpacingExtra="3dp" />
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+
                 <!-- Purpose -->
                 <TextView
                     android:layout_width="wrap_content"

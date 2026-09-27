@@ -107,6 +107,77 @@ class PettyCashViewModel : ViewModel() {
 
     private var branchId: String = ""
 
+    // ── Light loads ──────────────────────────────────────────────────────────
+    // Reports menu / Deposit History / Bulk Import used to call full load(),
+    // which scans ALL claims for the branch (claims.search all-time) + deposits
+    // + balance + branch. Those screens only need roles (Reports, Bulk) or
+    // roles + deposits (Deposit History), so opening them from Reports paid
+    // the full claims-scan cost twice (Reports once to show the rows, then the
+    // target screen again). These skip the heavy claims scan; branch row is
+    // cached 60s so Reports -> Deposit/Bulk back-to-back is instant.
+
+    companion object {
+        private var cachedBranchId: String = ""
+        private var cachedBranch: Branch? = null
+        private var cachedBranchAt: Long = 0L
+        private const val BRANCH_CACHE_MS = 60_000L
+    }
+
+    private suspend fun cachedBranch(branchId: String): Branch {
+        val now = System.currentTimeMillis()
+        val hit = cachedBranch
+        if (branchId == cachedBranchId && hit != null && now - cachedBranchAt < BRANCH_CACHE_MS) return hit
+        val fresh = SupabasePettyCashReader.fetchBranch(branchId)
+        cachedBranchId = branchId
+        cachedBranch = fresh
+        cachedBranchAt = now
+        return fresh
+    }
+
+    /** Roles only — Reports menu + Bulk Import gate. No claims/deposits/balance read. */
+    fun loadRolesOnly(branchId: String) {
+        this.branchId = branchId
+        _state.value = PettyCashState.Loading
+        viewModelScope.launch {
+            try {
+                val branch = withContext(Dispatchers.IO) { cachedBranch(branchId) }
+                _state.value = PettyCashState.Success(
+                    requests = emptyList(),
+                    deposits = emptyList(),
+                    walletBalance = 0.0,
+                    roles = resolveRoles(branch)
+                )
+            } catch (e: Exception) {
+                _state.value = PettyCashState.Error(e.message ?: "Failed to load petty cash data")
+            }
+        }
+    }
+
+    /** Roles + deposits — Deposit History. Skips the all-time claims scan + balance read. */
+    fun loadDeposits(branchId: String) {
+        this.branchId = branchId
+        _state.value = PettyCashState.Loading
+        viewModelScope.launch {
+            try {
+                val (branch, deposits) = withContext(Dispatchers.IO) {
+                    coroutineScope {
+                        val b = async { cachedBranch(branchId) }
+                        val d = async { SupabasePettyCashReader.fetchDeposits(branchId) }
+                        b.await() to d.await().sortedByDescending { it.timestamp }
+                    }
+                }
+                _state.value = PettyCashState.Success(
+                    requests = emptyList(),
+                    deposits = deposits,
+                    walletBalance = 0.0,
+                    roles = resolveRoles(branch)
+                )
+            } catch (e: Exception) {
+                _state.value = PettyCashState.Error(e.message ?: "Failed to load petty cash data")
+            }
+        }
+    }
+
     // ── Load ─────────────────────────────────────────────────────────────────
 
     fun load(branchId: String) {
@@ -146,6 +217,9 @@ class PettyCashViewModel : ViewModel() {
                 val walletBalance = loaded.walletBalance
 
                 val branch = loaded.branch
+                cachedBranchId = branchId
+                cachedBranch = branch
+                cachedBranchAt = System.currentTimeMillis()
                 val roles = resolveRoles(branch)
 
                 _state.value = PettyCashState.Success(requests, deposits, walletBalance, roles)

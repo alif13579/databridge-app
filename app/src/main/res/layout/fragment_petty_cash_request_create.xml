@@ -55,46 +55,10 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
-                <!-- Category -->
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Category"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:textColor="#334155" />
-
-                <LinearLayout
-                    android:id="@+id/layoutPcRequestCategory"
-                    android:layout_width="match_parent"
-                    android:layout_height="52dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginTop="6dp"
-                    android:background="@drawable/bg_pc_input"
-                    android:paddingHorizontal="14dp"
-                    android:clickable="true"
-                    android:focusable="true">
-
-                    <TextView
-                        android:id="@+id/tvPcRequestCategorySelected"
-                        android:layout_width="0dp"
-                        android:layout_weight="1"
-                        android:layout_height="wrap_content"
-                        android:text="Select Category"
-                        android:textSize="14sp"
-                        android:textColor="#94A3B8" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="▼"
-                        android:textSize="11sp"
-                        android:textColor="#94A3B8" />
-                </LinearLayout>
-
-                <!-- On behalf of — staff only: file a conveyance request for a
-                     branch agent. Hidden for requesters (always self). -->
+                <!-- Request for — FIRST step (staff only): pick Self (expenses)
+                     or a branch agent (conveyance on their behalf). Category
+                     options below follow this pick. Hidden for requesters
+                     (always self) and in edit mode. -->
                 <LinearLayout
                     android:id="@+id/groupPcRequestOnBehalf"
                     android:layout_width="match_parent"
@@ -108,8 +72,7 @@
                         android:text="Request for"
                         android:textSize="12sp"
                         android:textStyle="bold"
-                        android:textColor="#334155"
-                        android:layout_marginTop="16dp" />
+                        android:textColor="#334155" />
 
                     <LinearLayout
                         android:id="@+id/layoutPcRequestOnBehalf"
@@ -139,6 +102,45 @@
                             android:textSize="11sp"
                             android:textColor="#94A3B8" />
                     </LinearLayout>
+                </LinearLayout>
+
+                <!-- Category — follows Request for above -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Category"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:textColor="#334155"
+                    android:layout_marginTop="16dp" />
+
+                <LinearLayout
+                    android:id="@+id/layoutPcRequestCategory"
+                    android:layout_width="match_parent"
+                    android:layout_height="52dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_pc_input"
+                    android:paddingHorizontal="14dp"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <TextView
+                        android:id="@+id/tvPcRequestCategorySelected"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="wrap_content"
+                        android:text="Select Category"
+                        android:textSize="14sp"
+                        android:textColor="#94A3B8" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="▼"
+                        android:textSize="11sp"
+                        android:textColor="#94A3B8" />
                 </LinearLayout>
 
                 <!-- Consignment ID — Bulk Delivery (single) / LOT Delivery (multi-add list) -->

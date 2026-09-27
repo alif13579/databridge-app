@@ -24,7 +24,7 @@ import java.util.Locale
  *
  * Wired to PettyCashViewModel. Shows a different summary per petty-cash
  * role instead of always rendering the Accounts view:
- *   - Accounts:     Available Balance / Total Fund hero, Settlement Queue
+ *   - Accounts:     Available Balance hero, Settlement Queue
  *                    (requests in PC_STATUS_APPROVED or
  *                    PC_STATUS_SETTLE_IN_PROCESS, ready to settle).
  *   - Cash POC:      "POC Summary" hero (Total Requests + Pending/Approved/
@@ -55,8 +55,6 @@ class PettyCashDashboardFragment : Fragment() {
     private lateinit var tvSummaryRoleLabel: TextView
     private lateinit var tvSummaryTotalRequests: TextView
     private lateinit var tvAvailableBalance: TextView
-    private lateinit var cardTotalFund: View
-    private lateinit var tvTotalFund: TextView
     private lateinit var tvClaimsDateRange: TextView
     private lateinit var tvClaimsApproved: TextView
     private lateinit var tvClaimsRequested: TextView
@@ -130,8 +128,6 @@ class PettyCashDashboardFragment : Fragment() {
         tvSummaryRoleLabel = view.findViewById(R.id.tvPcSummaryRoleLabel)
         tvSummaryTotalRequests = view.findViewById(R.id.tvPcSummaryTotalRequests)
         tvAvailableBalance = view.findViewById(R.id.tvPcAvailableBalance)
-        cardTotalFund   = view.findViewById(R.id.cardPcTotalFund)
-        tvTotalFund     = view.findViewById(R.id.tvPcTotalFund)
         tvClaimsDateRange = view.findViewById(R.id.tvPcClaimsDateRange)
         tvClaimsApproved  = view.findViewById(R.id.tvPcClaimsApproved)
         tvClaimsRequested = view.findViewById(R.id.tvPcClaimsRequested)
@@ -179,13 +175,6 @@ class PettyCashDashboardFragment : Fragment() {
         swipeRefresh.setOnRefreshListener { viewModel.load(branchId) }
 
         setupBranchSwitcher()
-
-        view.findViewById<View>(R.id.cardPcTotalFund).setOnClickListener {
-            parentFragmentManager.beginTransaction()
-                .replace(R.id.container, PettyCashWalletSummaryFragment.newInstance(branchId))
-                .addToBackStack(null)
-                .commitAllowingStateLoss()
-        }
 
         viewModel.state.observe(viewLifecycleOwner) { state -> render(state) }
         if (branchId.isBlank()) {
@@ -416,16 +405,14 @@ class PettyCashDashboardFragment : Fragment() {
         tvDashboardSubtitle.text = "Hi $greetingRole, welcome back"
     }
 
-    // ── Accounts summary: Available Balance / Total Fund / Settlement Queue ────
+    // ── Accounts summary: Available Balance / Settlement Queue ────
 
     private fun renderAccountsSummary(root: View, state: PettyCashState.Success) {
         tvDashboardTitle.text = "Accounts"
         cardAvailableBalanceHero.isVisible = true
         cardSummaryHero.isVisible = false
-        cardTotalFund.isVisible = true
 
         tvAvailableBalance.text = taka(state.walletBalance)
-        tvTotalFund.text = taka(state.totalFund)
 
         val pendingCount = state.requests.count { it.status == PC_STATUS_PENDING || it.status == PC_STATUS_ACKNOWLEDGED }
         val approvedWaitingCount = state.requests.count { it.status == PC_STATUS_APPROVED || it.status == PC_STATUS_SETTLE_IN_PROCESS }
@@ -598,7 +585,6 @@ class PettyCashDashboardFragment : Fragment() {
         tvDashboardTitle.text = roleLabel(roleView)
         cardAvailableBalanceHero.isVisible = false
         cardSummaryHero.isVisible = true
-        cardTotalFund.isVisible = false
 
         // What "awaiting your action" means differs by stage: Team Aligned acts
         // on freshly-submitted (PENDING) requests, Cash POC acts on requests

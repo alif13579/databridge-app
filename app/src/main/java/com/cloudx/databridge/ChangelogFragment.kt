@@ -37,6 +37,16 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "6.10.148",
+                releasedDate = "27 Sep 2026",
+                entries = listOf(
+                    ChangelogEntry("improvement", "Petty Cash Dashboard: modern wallet icon on Available Balance, Total Fund card removed"),
+                    ChangelogEntry("improvement", "Petty Cash Reports: Deposit History and Bulk Import open instantly (no more full claims scan)"),
+                    ChangelogEntry("improvement", "New Request: Request-for is now the first step, category list follows it"),
+                    ChangelogEntry("feature", "Claim details: live consignment info (recipient, address, status) with not-found state"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "6.10.147",
                 releasedDate = "26 Sep 2026",
                 entries = listOf(

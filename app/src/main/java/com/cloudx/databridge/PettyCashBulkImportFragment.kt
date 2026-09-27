@@ -97,7 +97,8 @@ class PettyCashBulkImportFragment : Fragment() {
                 }
             }
         }
-        viewModel.load(branchId)
+        // Roles-only gate — no claims scan (see loadRolesOnly).
+        viewModel.loadRolesOnly(branchId)
     }
 
     // ── File loading + parsing ─────────────────────────────────────────────

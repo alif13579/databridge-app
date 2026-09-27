@@ -89,7 +89,8 @@ class PettyCashDepositHistoryFragment : Fragment() {
         if (branchId.isBlank()) {
             render(PettyCashState.Error("No branch selected"))
         } else {
-            viewModel.load(branchId)
+            // Deposits + roles only — no all-time claims scan (see loadDeposits).
+            viewModel.loadDeposits(branchId)
         }
     }
 
@@ -120,7 +121,7 @@ class PettyCashDepositHistoryFragment : Fragment() {
                 layoutError.isVisible = true
                 root.findViewById<TextView>(R.id.tvPcDepHistError).text = state.message
                 root.findViewById<View>(R.id.btnPcDepHistRetry).setOnClickListener {
-                    if (branchId.isNotBlank()) viewModel.load(branchId)
+                    if (branchId.isNotBlank()) viewModel.loadDeposits(branchId)
                 }
             }
             is PettyCashState.Success -> {
