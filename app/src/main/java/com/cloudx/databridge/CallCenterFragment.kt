@@ -5186,10 +5186,15 @@ class CallCenterFragment : Fragment() {
     }
 
     /** True when a sheet-fetch failure means "this Google account cannot open
-     *  the sheet" (HTTP 403 family) rather than an empty/missing sheet. */
+     *  the sheet" (HTTP 403 family, or 404 when the file isn't shared with
+     *  the new account at all — Sheets returns 404 instead of 403 to avoid
+     *  leaking file existence) rather than an empty/missing sheet. */
     private fun isSheetAccessDenied(text: String?): Boolean {
         if (text.isNullOrBlank()) return false
         return text.contains("403") ||
+            text.contains("404") ||
+            text.contains("not found", ignoreCase = true) ||
+            text.contains("requested entity was not found", ignoreCase = true) ||
             text.contains("insufficient authentication", ignoreCase = true) ||
             text.contains("access denied", ignoreCase = true) ||
             text.contains("access_denied", ignoreCase = true)
@@ -5225,8 +5230,9 @@ class CallCenterFragment : Fragment() {
         val connected = (activity as? MainActivity)?.getConnectedSheetEmail().orEmpty().trim()
         val who = if (connected.isNotBlank()) "Connected as $connected — this account" else "The connected Google account"
         tvCcaLiveErrorMsg.text = "No access to the sheet\n\n" +
-            "$who cannot open this sheet. " +
-            "Open the ⋮ menu to switch to a Google account that has access."
+            "$who cannot open this sheet (404/403). " +
+            "Share the sheet with this Gmail as Editor, then retry — " +
+            "or open the ⋮ menu to switch back to an account that has access."
         layoutCcaLiveError.visibility = View.VISIBLE
     }
 
