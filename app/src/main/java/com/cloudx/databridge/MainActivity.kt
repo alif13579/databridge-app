@@ -358,7 +358,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                             Toast.LENGTH_LONG).show()
                     }
                 }
-                .setNegativeButton("Pore", null)
+                .setNegativeButton("Later", null)
                 .show()
         }
     }
