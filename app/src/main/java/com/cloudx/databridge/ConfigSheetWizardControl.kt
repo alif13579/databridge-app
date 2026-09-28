@@ -37,6 +37,15 @@ internal fun ConfigSheetFragment.renderSyncTab(conn: SheetConn) {
     updateSyncGearState(conn.autoSync)
     tvSyncIntervalLabel?.text = "Every ${conn.syncIntervalMin} min"
     tvLastSynced?.text = "Last sync: never"
+    // Stale-sync safety: a "Sync started / Syncing" overlay from a previous
+    // run must never greet the user — the service is done, so hide it.
+    // (Other overlays like "Run index rebuild…" are untouched.)
+    if (!ConfigSheetSyncService.isRunning &&
+        sheetBusyOverlay?.visibility == View.VISIBLE &&
+        tvSheetBusy?.text?.toString()?.startsWith("Sync") == true) {
+        syncOverlayUp = false
+        setBusy(false)
+    }
 }
 
 internal fun ConfigSheetFragment.updateSyncGearState(enabled: Boolean) {

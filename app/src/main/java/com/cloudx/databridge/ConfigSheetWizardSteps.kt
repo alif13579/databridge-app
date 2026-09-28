@@ -489,10 +489,14 @@ internal fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
         return
     }
     // Mirror hooks BEFORE start (start only enqueues; the service runs after).
+    // The overlay is fade-only: it shows the start message briefly, then goes
+    // away — progress + summary live in the notification, so a stuck overlay
+    // can never block the tab (background-safe by design).
+    syncOverlayUp = true
     ConfigSheetSyncService.onProgress = { done, total, ins, upd, skip ->
         try {
             activity?.runOnUiThread {
-                if (!isAdded) return@runOnUiThread
+                if (!isAdded || !syncOverlayUp) return@runOnUiThread
                 setBusy(
                     true,
                     "Syncing Firebase (background-safe)\n\n" +
@@ -507,6 +511,7 @@ internal fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
         try {
             activity?.runOnUiThread {
                 if (!isAdded) return@runOnUiThread
+                syncOverlayUp = false
                 setBusy(false)
                 try {
                     android.app.AlertDialog.Builder(requireContext())
@@ -524,11 +529,24 @@ internal fun ConfigSheetFragment.syncSheetToFirebase(conn: SheetConn) {
     if (!ConfigSheetSyncService.start(ctx, conn.branchId, conn.connectionId)) {
         ConfigSheetSyncService.onProgress = null
         ConfigSheetSyncService.onFinish = null
+        syncOverlayUp = false
         toast("⚠ Sync start failed — already running")
         return
     }
     setBusy(true, "Sync started…\n\nBackground-এ গেলেও চলবে — শেষ হলে notification + summary আসবে।")
     toast("🔄 Sync started — background-এ গেলেও চলবে")
+    // Fade the overlay out after a few seconds — the service keeps running
+    // (notification shows live progress + final summary).
+    try {
+        sheetBusyOverlay?.postDelayed({
+            try {
+                if (isAdded && syncOverlayUp) {
+                    syncOverlayUp = false
+                    setBusy(false)
+                }
+            } catch (_: Exception) { }
+        }, 3500)
+    } catch (_: Exception) { }
 }
 
 /**

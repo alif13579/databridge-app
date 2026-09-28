@@ -106,6 +106,9 @@ class ConfigSheetFragment : Fragment() {
     internal var btnBranchAction: Button? = null
     internal var sheetBusyOverlay: View? = null
     internal var tvSheetBusy: TextView? = null
+    /** True while the Sheets sync start overlay is up (fade-only — cleared a few
+     *  seconds after start and on finish, so it can never get stuck). */
+    internal var syncOverlayUp: Boolean = false
     // Branch sections
     internal var sectionConnected:          LinearLayout? = null
     internal var containerConnectedBranches: LinearLayout? = null
