@@ -466,16 +466,8 @@ class CallCenterFragment : Fragment() {
         layoutCcaLiveError = view.findViewById(R.id.layoutCcaLiveError)
         tvCcaLiveErrorMsg = view.findViewById(R.id.twCcaLiveErrorMsg)
         spinnerCcRunType = view.findViewById(R.id.spinnerCcRunType)
-        // ⇪ Sync lives inside the ⋮ popup only (no duplicate header button).
-        // ☎️ Sheet binding socket (admin-only: Config access). Binds library
-        // columns to remark fields for mirror + bulk sync.
-        view.findViewById<TextView>(R.id.btnCcaSheetBinding)?.let { socket ->
-            socket.visibility =
-                if (RbacManager.hasPermission("nav_config")) View.VISIBLE else View.GONE
-            socket.setOnClickListener {
-                CcSheetBindingDialog.show(requireContext(), viewLifecycleOwner.lifecycleScope)
-            }
-        }
+        // ⋮ popup holds everything (Mode + Google account + Sync + socket).
+        // No outer socket button — header stays compact, no space pressure.
         scrollLiveMissing = view.findViewById(R.id.scrollCcaLiveMissing)
         layoutLiveMissing = view.findViewById(R.id.layoutCcaLiveMissing)
         view.findViewById<TextView>(R.id.btnCcaSourceMenu).setOnClickListener { showSourceMenu(it) }
@@ -4752,6 +4744,22 @@ class CallCenterFragment : Fragment() {
             }
         }
         box.addView(btnSync)
+        // ☎️ Sheet binding socket — admin-only, lives inside ⋮ only.
+        // Never on the header, so normal agents never see it.
+        if (RbacManager.current.roleId.trim().lowercase() == "admin") {
+            val btnSocket = TextView(ctx).apply {
+                text = "🔌 Sheet binding"
+                textSize = 13f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setTextColor(ctx.getColor(R.color.theme_accent))
+                setPadding(0, pad / 2, 0, pad / 3)
+                setOnClickListener {
+                    ccMenuDialog?.dismiss()
+                    CcSheetBindingDialog.show(ctx, viewLifecycleOwner.lifecycleScope)
+                }
+            }
+            box.addView(btnSocket)
+        }
         refreshCcMenuProfile()
         var initializing = true
         spMode.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {

@@ -166,47 +166,25 @@
                             android:paddingStart="6dp"
                             android:paddingEnd="6dp"
                             android:spinnerMode="dropdown" />
-
-                        <!-- Source dropdown + Sync share one thin row: no extra header height -->
-                        <LinearLayout
-                            android:layout_width="164dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:orientation="horizontal"
-                            android:gravity="center_vertical">
-
-                            <TextView
-                                android:id="@+id/btnCcaSourceMenu"
-                                android:layout_width="26dp"
-                                android:layout_height="26dp"
-                                android:layout_marginEnd="4dp"
-                                android:background="@drawable/bg_search_bar"
-                                android:text="⋮"
-                                android:textSize="14sp"
-                                android:textStyle="bold"
-                                android:gravity="center"
-                                android:textColor="@color/theme_text_secondary"
-                                android:clickable="true"
-                                android:focusable="true" />
-
-                            <!-- ⇪ Sync lives inside the ⋮ popup (single entry, no duplicate) -->
-
-                            <TextView
-                                android:id="@+id/btnCcaSheetBinding"
-                                android:layout_width="0dp"
-                                android:layout_height="26dp"
-                                android:layout_weight="1"
-                                android:layout_marginStart="4dp"
-                                android:text="🔌"
-                                android:textSize="13sp"
-                                android:gravity="center"
-                                android:background="@drawable/bg_filter_chip_inactive"
-                                android:textColor="@color/theme_text_secondary"
-                                android:clickable="true"
-                                android:focusable="true"
-                                android:visibility="gone" />
-                        </LinearLayout>
                     </LinearLayout>
+
+                    <!-- ⋮ lives top-right beside collapse arrow: no extra header
+                         row, no width pressure on Validation Queue / spinner.
+                         Socket (🔌) lives inside this popup, admin-only. -->
+                    <TextView
+                        android:id="@+id/btnCcaSourceMenu"
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:layout_marginStart="4dp"
+                        android:layout_gravity="top"
+                        android:text="⋮"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:textColor="@color/theme_text_secondary"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackgroundBorderless" />
 
                     <TextView
                         android:id="@+id/tvCcaCollapseArrow"
