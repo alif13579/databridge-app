@@ -37,6 +37,22 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "6.11.1",
+                releasedDate = "28 Sep 2026",
+                entries = listOf(
+                    ChangelogEntry("improvement", "Call Center header: socket moved inside the ⋮ menu (admin-only); ⋮, collapse and run box share one compact right column"),
+                    ChangelogEntry("improvement", "Call Center header: agent phone now shows below the agent name"),
+                    ChangelogEntry("improvement", "Sheet connect popup: Pore renamed to Later"),
+                    ChangelogEntry("improvement", "Sheets sync: run index shows runs + parcels and stays visible even at 0; same-day consignments auto-move from the old run to the new run"),
+                    ChangelogEntry("improvement", "Sheets sync start message fades out — progress and summary arrive via notification"),
+                    ChangelogEntry("improvement", "Sync to Sheet: From/To default to today with a cleaner dialog"),
+                    ChangelogEntry("fix", "Live sheet 404 treated as no-access with a share-with-this-Gmail hint"),
+                    ChangelogEntry("fix", "Remark save double-tap no longer writes duplicate rows"),
+                    ChangelogEntry("improvement", "View Orders: fast ID/phone prefix search; recents save only on explicit Search"),
+                    ChangelogEntry("improvement", "Push eye-check now shows the real server reason with fix hints (clock vs login account)"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "6.11.0",
                 releasedDate = "27 Sep 2026",
                 entries = listOf(
