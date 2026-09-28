@@ -159,12 +159,17 @@
 
                         <Spinner
                             android:id="@+id/spinnerCcRunType"
-                            android:layout_width="90dp"
+                            android:layout_width="wrap_content"
                             android:layout_height="26dp"
+                            android:minWidth="64dp"
+                            android:maxWidth="150dp"
                             android:layout_marginTop="4dp"
                             android:background="@drawable/bg_search_bar"
                             android:paddingStart="6dp"
                             android:paddingEnd="6dp"
+                            android:gravity="end|center_vertical"
+                            android:textAlignment="viewEnd"
+                            android:ellipsize="end"
                             android:spinnerMode="dropdown" />
                     </LinearLayout>
 

@@ -2493,7 +2493,23 @@ class CallCenterFragment : Fragment() {
         if (!::spinnerCcRunType.isInitialized) return
         val ctx = context ?: return
         val labels = ccRunTypeOptions.map { it.label }
-        val adapter = ArrayAdapter(ctx, android.R.layout.simple_spinner_item, labels)
+        // Compact + right-aligned (matches the Validation Queue column's end
+        // gravity): selected text and dropdown rows hug the right edge instead
+        // of the default large left-aligned spinner rows.
+        val adapter = object : ArrayAdapter<String>(ctx, android.R.layout.simple_spinner_item, labels) {
+            private fun tune(tv: TextView): TextView = tv.apply {
+                gravity = android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
+                textAlignment = View.TEXT_ALIGNMENT_VIEW_END
+                textSize = 11f
+                setPadding(6, 2, 6, 2)
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                maxLines = 1
+            }
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
+                tune(super.getView(position, convertView, parent) as TextView)
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View =
+                tune(super.getDropDownView(position, convertView, parent) as TextView)
+        }
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerCcRunType.adapter = adapter
         spinnerCcRunType.setSelection(ccRunTypeOptions.indexOfFirst { it.key == ccSelectedRunType }.coerceAtLeast(0))
