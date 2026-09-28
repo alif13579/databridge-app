@@ -4288,25 +4288,23 @@ class CallCenterFragment : Fragment() {
         java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
     private var syncToDate: java.time.LocalDate =
         java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
-    private var tvSyncRange: TextView? = null
+    private var tvSyncFrom: TextView? = null
+    private var tvSyncTo: TextView? = null
     private var tvSyncProgress: TextView? = null
 
     private fun startBulkSheetSync() {
         showSyncSheetDialog()
     }
 
-    private fun syncRangeLabel(): String =
-        if (syncFromDate == syncToDate) syncFromDate.toString()
-        else {
-            var n = 0
-            var d = syncFromDate
-            while (!d.isAfter(syncToDate) && n < 100) { n++; d = d.plusDays(1) }
-            "${syncFromDate} → ${syncToDate} ($n days)"
-        }
-
     private fun showSyncSheetDialog() {
         if (!isAdded) return
         val ctx = requireContext()
+        // FROM + TO always default to today; user can tap either box to change.
+        if (!SheetSyncService.isRunning) {
+            val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
+            syncFromDate = today
+            syncToDate = today
+        }
         val pad = (ctx.resources.displayMetrics.density * 16).toInt()
         fun label(t: String) = TextView(ctx).apply {
             text = t
@@ -4319,58 +4317,25 @@ class CallCenterFragment : Fragment() {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, pad / 2)
         }
-        box.addView(label("DATE RANGE (Dhaka)"))
-        val tvRange = TextView(ctx).apply {
-            text = syncRangeLabel()
+        fun dateBox(initial: java.time.LocalDate, onPick: () -> Unit) = TextView(ctx).apply {
+            text = initial.toString()
             textSize = 15f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setTextColor(ctx.getColor(R.color.theme_text_primary))
-            setPadding(0, 4, 0, 4)
-        }
-        box.addView(tvRange)
-        tvSyncRange = tvRange
-        // App clock (Dhaka) + device zone — timezone match verify korar jonno.
-        box.addView(TextView(ctx).apply {
-            val dhakaNow = RemarkSheetMirror.dhakaNowLabel()
-            val deviceZone = try { java.util.TimeZone.getDefault().id } catch (_: Exception) { "?" }
-            val deviceNow = try {
-                java.text.SimpleDateFormat("dd MMM yyyy, hh:mm:ss a", java.util.Locale.ENGLISH)
-                    .apply { timeZone = java.util.TimeZone.getDefault() }
-                    .format(java.util.Date())
-            } catch (_: Exception) { "" }
-            text = "🕒 App: $dhakaNow\n📱 Phone: $deviceNow ($deviceZone)"
-            textSize = 11.5f
-            setTextColor(ctx.getColor(R.color.theme_text_secondary))
-            setPadding(0, 4, 0, 2)
-        })
-        val quickRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        fun quickBtn(t: String, onTap: () -> Unit) = TextView(ctx).apply {
-            text = t
-            textSize = 12f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            gravity = android.view.Gravity.CENTER
-            setTextColor(ctx.getColor(android.R.color.white))
-            setBackgroundResource(R.drawable.bg_filter_chip_active)
+            setBackgroundResource(R.drawable.bg_search_bar)
             setPadding(pad / 2, pad / 3, pad / 2, pad / 3)
-            layoutParams = LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                if (t != "Today") leftMargin = pad / 3
-            }
-            setOnClickListener { onTap() }
+            setOnClickListener { onPick() }
         }
-        val dhakaToday = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Dhaka"))
-        quickRow.addView(quickBtn("Today") {
-            syncFromDate = dhakaToday
-            syncToDate = dhakaToday
-            tvSyncRange?.text = syncRangeLabel()
-        })
-        quickRow.addView(quickBtn("Last 7 days") {
-            syncToDate = dhakaToday
-            syncFromDate = dhakaToday.minusDays(6)
-            tvSyncRange?.text = syncRangeLabel()
-        })
-        box.addView(quickRow)
-        tvRange.setOnClickListener { pickSyncDateRange() }
+        // FROM — today by default, tap to change.
+        box.addView(label("FROM"))
+        val tvFrom = dateBox(syncFromDate) { pickSyncSingleDate(true) }
+        box.addView(tvFrom)
+        tvSyncFrom = tvFrom
+        // TO — today by default, tap to change.
+        box.addView(label("TO"))
+        val tvTo = dateBox(syncToDate) { pickSyncSingleDate(false) }
+        box.addView(tvTo)
+        tvSyncTo = tvTo
         val tvProgress = TextView(ctx).apply {
             textSize = 12f
             setTextColor(ctx.getColor(R.color.theme_text_secondary))
@@ -4379,12 +4344,6 @@ class CallCenterFragment : Fragment() {
         }
         box.addView(tvProgress)
         tvSyncProgress = tvProgress
-        box.addView(TextView(ctx).apply {
-            text = "Minimizing keeps the sync running in the background — the total summary arrives as a notification."
-            textSize = 11f
-            setTextColor(ctx.getColor(R.color.theme_text_secondary))
-            setPadding(0, pad / 2, 0, 0)
-        })
         syncDialog?.dismiss()
         val dialog = android.app.AlertDialog.Builder(ctx)
             .setTitle("⇪ Sync to Sheet")
@@ -4427,26 +4386,29 @@ class CallCenterFragment : Fragment() {
         } catch (_: Exception) { }
     }
 
-    private fun pickSyncDateRange() {
+    private fun pickSyncSingleDate(isFrom: Boolean) {
         if (!isAdded) return
-        val toMs = { day: java.time.LocalDate ->
-            day.atStartOfDay(java.time.ZoneId.of("Asia/Dhaka")).toInstant().toEpochMilli()
-        }
-        val picker = com.google.android.material.datepicker.MaterialDatePicker.Builder.dateRangePicker()
-            .setTitleText("Select sync date range")
-            .setSelection(androidx.core.util.Pair(toMs(syncFromDate), toMs(syncToDate)))
+        val current = if (isFrom) syncFromDate else syncToDate
+        val sel = current.atStartOfDay(java.time.ZoneId.of("Asia/Dhaka")).toInstant().toEpochMilli()
+        val picker = com.google.android.material.datepicker.MaterialDatePicker.Builder.datePicker()
+            .setTitleText(if (isFrom) "Select from date" else "Select to date")
+            .setSelection(sel)
             .build()
-        picker.addOnPositiveButtonClickListener { selection ->
-            // UTC-midnight instants → Dhaka days (same pin as Scanner dates).
-            val from = java.time.Instant.ofEpochMilli(DhakaTime.dayStartMillis(selection.first))
+        picker.addOnPositiveButtonClickListener { millis ->
+            // UTC-midnight instant → Dhaka day (same pin as Scanner dates).
+            val picked = java.time.Instant.ofEpochMilli(DhakaTime.dayStartMillis(millis))
                 .atZone(java.time.ZoneId.of("Asia/Dhaka")).toLocalDate()
-            val to = java.time.Instant.ofEpochMilli(DhakaTime.dayEndMillis(selection.second))
-                .atZone(java.time.ZoneId.of("Asia/Dhaka")).toLocalDate()
-            syncFromDate = from
-            syncToDate = to
-            tvSyncRange?.text = syncRangeLabel()
+            if (isFrom) {
+                syncFromDate = picked
+                if (syncToDate.isBefore(syncFromDate)) syncToDate = syncFromDate
+            } else {
+                syncToDate = picked
+                if (syncFromDate.isAfter(syncToDate)) syncFromDate = syncToDate
+            }
+            tvSyncFrom?.text = syncFromDate.toString()
+            tvSyncTo?.text = syncToDate.toString()
         }
-        picker.show(parentFragmentManager, "sync_sheet_range_picker")
+        picker.show(parentFragmentManager, "sync_sheet_single_picker")
     }
 
     private fun startSheetSyncNow() {
