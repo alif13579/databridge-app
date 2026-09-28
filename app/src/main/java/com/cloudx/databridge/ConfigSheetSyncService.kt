@@ -591,11 +591,16 @@ class ConfigSheetSyncService : Service() {
         var skipped = preSkipped
         val duplicateRuns = mutableMapOf<String, MutableList<Pair<String, String>>>()
         val syncInsertedRuns = mutableMapOf<String, MutableList<Triple<String, String, String>>>()
-        val runIndexUpdates = mutableMapOf<String, Any>()
+        val runIndexUpdates = mutableMapOf<String, Any?>()
         var runIndexCount = 0
         var runIndexParcels = 0
+        // Same-day moves planned during the loop (old run triple per entry),
+        // applied after the loop so batch order can never resurrect them.
+        val movedOld = mutableListOf<Triple<String, String, String>>()
+        val movedKeys = mutableSetOf<String>()
+        val movedEntries = mutableListOf<String>()
 
-        val pendingWrites = mutableMapOf<String, Any>()
+        val pendingWrites = mutableMapOf<String, Any?>()
         val pendingRows = mutableListOf<String>()
         suspend fun flushWrites() {
             if (pendingWrites.isEmpty()) {
@@ -651,7 +656,9 @@ class ConfigSheetSyncService : Service() {
                         val rid = ridNode.key ?: return@forEach
                         if (rt == runTypeName && rid == runId) return@forEach
                         val o = parseRunDateAgent(rid) ?: return@forEach
-                        if (o.first == my.first && !o.second.equals(effAgent, ignoreCase = true)) {
+                        // Planned same-day moves are applied, not warned.
+                        if (o.first == my.first && !o.second.equals(effAgent, ignoreCase = true) &&
+                            "$cid|$rt|$rid" !in movedKeys) {
                             recordDupe(cid, o.second, rid)
                         }
                     }
@@ -675,6 +682,34 @@ class ConfigSheetSyncService : Service() {
                 }
             }
         }
+        // Same-day move planner: a consignment already indexed under another
+        // run with the SAME date leaves that old run and joins this one.
+        // Only planned here (from the pre-sync index snapshot); applied ONCE
+        // after the loop so batch order can never resurrect it. Cross-date
+        // carryover is normal and never touched. Same-sync sheet doubles
+        // (two rows claiming one cid) keep warn-only via collectDuplicates.
+        fun planConsignmentMove(runTypeName: String, runId: String, agentSys: String, cids: List<String>) {
+            val my = parseRunDateAgent(runId) ?: return
+            val effAgent = agentSys.ifBlank { my.second }
+            if (effAgent.isBlank()) return
+            cids.forEach { cid ->
+                val snap = dupeIndexCache[cid] ?: return@forEach
+                snap.children.forEach { rtNode ->
+                    val rt = rtNode.key ?: return@forEach
+                    rtNode.children.forEach { ridNode ->
+                        val rid = ridNode.key ?: return@forEach
+                        if (rt == runTypeName && rid == runId) return@forEach
+                        val o = parseRunDateAgent(rid) ?: return@forEach
+                        if (o.first != my.first) return@forEach
+                        if (movedKeys.add("$cid|$rt|$rid")) {
+                            movedOld.add(Triple(cid, rt, rid))
+                        }
+                        val entry = "$cid: $rt/$rid → $runTypeName/$runId"
+                        if (entry !in movedEntries) movedEntries.add(entry)
+                    }
+                }
+            }
+        }
 
         var processed = 0
         for (w in works) {
@@ -685,7 +720,7 @@ class ConfigSheetSyncService : Service() {
                 continue
             }
             val existSnap = existSnaps[conId]
-            val multiUpdate = mutableMapOf<String, Any>()
+            val multiUpdate = mutableMapOf<String, Any?>()
 
             if (existSnap == null || !existSnap.exists()) {
                 // INSERT
@@ -702,6 +737,7 @@ class ConfigSheetSyncService : Service() {
                     multiUpdate["courier/runs_by_agentSystemId/${w.userSystemId}/$runType/$conId"] = status
                     if (w.runCids.isNotEmpty() && status.isNotBlank()) {
                         queueRunIndex(runType, conId, status, w.runCids)
+                        planConsignmentMove(runType, conId, w.userSystemId, w.runCids)
                         collectDuplicates(runType, conId, w.userSystemId, w.runCids)
                     }
                     val agentBranchIds = agentBranchCache[w.userSystemId].orEmpty()
@@ -793,6 +829,7 @@ class ConfigSheetSyncService : Service() {
                         }
                         if (updCids.isNotEmpty()) {
                             queueRunIndex(runType, conId, updStatus, updCids)
+                            planConsignmentMove(runType, conId, w.userSystemId, updCids)
                             collectDuplicates(runType, conId, w.userSystemId, updCids)
                         }
                     }
@@ -805,7 +842,18 @@ class ConfigSheetSyncService : Service() {
                 multiUpdate.forEach { (k, v) -> pendingWrites[k] = v }
                 pendingRows.add(conId)
                 if (pendingRows.size >= FLUSH_ROW_EVERY || pendingWrites.size >= FLUSH_PATH_EVERY) {
-                    flushWrites()
+        // Apply planned same-day moves AFTER all rows: delete each moved
+        // consignment from its old run node + drop its stale index pointer
+        // (the new pointer was already queued by queueRunIndex). Null values
+        // in updateChildren batches act as deletes.
+        if (movedOld.isNotEmpty()) {
+            updateProgressNotif("Moving parcels to new runs…", works.size, works.size, inserted, updated, skipped)
+            movedOld.forEach { (cid, rt, rid) ->
+                pendingWrites["courier/run_routes/$rt/$rid/consignments/$cid"] = null
+                runIndexUpdates["courier/runs_by_consignmentId/$cid/$rt/$rid"] = null
+            }
+        }
+        flushWrites()
                 }
             }
             processed++
@@ -874,12 +922,21 @@ class ConfigSheetSyncService : Service() {
                 driftNotes.take(10).joinToString("\n") +
                 if (driftNotes.size > 10) "\n…${driftNotes.size - 10} more" else ""
         } else ""
+        val movedText = if (movedEntries.isNotEmpty()) {
+            val shown = movedEntries.take(10).joinToString("\n") { "• $it" }
+            val more = if (movedEntries.size > 10) "\n…${movedEntries.size - 10} more" else ""
+            "\n\n🔀 Moved to this run from old same-day run (${movedEntries.size}):\n$shown$more"
+        } else ""
+        // Run-route syncs always show the index count — 0 when no run was
+        // created/indexed this sync, so "no run" reads as 0, never hidden.
+        val runIndexText = if (runType != null)
+            "\nRun index: $runIndexCount runs ($runIndexParcels parcels)" else ""
         val summary = "Inserted : $inserted\n" +
             "Updated  : $updated\n" +
             "Skipped  : $skipped\n" +
             "Total    : ${dataRows.size}" +
-            (if (runIndexCount > 0) "\nRun index: $runIndexCount runs ($runIndexParcels parcels)" else "") +
-            driftText + issuesText + failuresText + branchlessText + duplicatesText
+            runIndexText +
+            driftText + issuesText + failuresText + branchlessText + duplicatesText + movedText
         val ok = writeFailures.isEmpty()
         return SyncResult(ok, summary, inserted, updated, skipped, runIndexCount, runIndexParcels)
     }
