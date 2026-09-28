@@ -122,14 +122,14 @@ class ViewOrdersFragment : Fragment() {
             renderRecentSearches()
         }
 
-        tvSearchBtn.setOnClickListener { runSearch() }
+        tvSearchBtn.setOnClickListener { runSearch(saveRecent = true) }
         tvClear.setOnClickListener {
             etSearch.setText("")
             clearResults()
         }
         etSearch.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                runSearch()
+                runSearch(saveRecent = true)
                 true
             } else false
         }
@@ -139,6 +139,8 @@ class ViewOrdersFragment : Fragment() {
             override fun afterTextChanged(s: Editable?) {
                 tvClear.visibility = if (s.isNullOrEmpty()) View.GONE else View.VISIBLE
                 // Google-like live search: debounce, minimum 3 characters.
+                // Live keystrokes never touch recents — only an explicit
+                // Search tap (button / keyboard / recent chip) saves.
                 debounceJob?.cancel()
                 val q = s?.toString()?.trim().orEmpty()
                 if (q.length < 3) {
@@ -147,7 +149,7 @@ class ViewOrdersFragment : Fragment() {
                 }
                 debounceJob = viewLifecycleOwner.lifecycleScope.launch {
                     delay(600)
-                    if (isAdded) runSearch()
+                    if (isAdded) runSearch(saveRecent = false)
                 }
             }
         })
@@ -214,7 +216,7 @@ class ViewOrdersFragment : Fragment() {
                 setOnClickListener {
                     etSearch.setText(q)
                     etSearch.setSelection(q.length)
-                    runSearch()
+                    runSearch(saveRecent = true)
                 }
             }
             val tvQuery = TextView(ctx).apply {
@@ -281,14 +283,14 @@ class ViewOrdersFragment : Fragment() {
         }
     }
 
-    private fun runSearch() {
+    private fun runSearch(saveRecent: Boolean = false) {
         val query = etSearch.text?.toString()?.trim().orEmpty()
         if (query.length < 3) {
             tvEmpty.visibility = View.VISIBLE
             tvEmpty.text = "Type at least 3 characters of the phone number or consignment ID."
             return
         }
-        addRecentSearch(query)
+        if (saveRecent) addRecentSearch(query)
         searchJob?.cancel()
         val generation = ++searchGeneration
         tvEmpty.visibility = View.GONE
@@ -313,40 +315,97 @@ class ViewOrdersFragment : Fragment() {
     }
 
     /**
-     * One Firebase scan of courier/consignments filtered client-side by
-     * consignment ID substring or phone digits (any format), then enriched
-     * with each parcel's latest Supabase remark for the card badge.
-     * Capped at 50 cards so a short query can't flood the list.
+     * Consignment-ID prefix + phone prefix go server-side first (no full
+     * download — the old full-node scan timed out on big datasets, so ID
+     * search returned nothing). Contains-style fallback scan runs only when
+     * prefix found little. Capped at 50 cards.
      */
     private suspend fun searchParcels(query: String): List<ViewOrderParcel> {
         return try {
             val db = com.google.firebase.database.FirebaseDatabase.getInstance()
             val q = query.lowercase()
+            val qUpper = query.uppercase()
             val qDigits = q.filter { it.isDigit() }
-
-            val snap = withTimeoutOrNull(25_000) {
-                db.reference.child("courier/consignments").get().await()
-            } ?: return emptyList()
 
             data class Hit(val id: String, val rank: Int, val snap: com.google.firebase.database.DataSnapshot)
             val hits = mutableListOf<Hit>()
-            for (child in snap.children) {
-                val cId = child.key ?: continue
-                val phone = child.child("recipientPhone").getValue(String::class.java).orEmpty()
-                val phoneDigits = phone.filter { it.isDigit() }
-                val idLower = cId.lowercase()
-                val rank = when {
-                    idLower == q -> 0
-                    idLower.startsWith(q) -> 1
-                    idLower.contains(q) -> 2
-                    qDigits.length >= 3 && phoneDigits == qDigits -> 3
-                    qDigits.length >= 3 && phoneDigits.endsWith(qDigits) -> 4
-                    phone.contains(query) -> 5
-                    qDigits.length >= 3 && phoneDigits.contains(qDigits) -> 6
-                    else -> continue
+            val seen = mutableSetOf<String>()
+
+            // 1) Consignment-ID prefix (keys are uppercase IDs) — server-side.
+            try {
+                val keySnap = withTimeoutOrNull(15_000) {
+                    db.reference.child("courier/consignments")
+                        .orderByKey().startAt(qUpper).endAt(qUpper + "\uf8ff")
+                        .limitToFirst(50).get().await()
                 }
-                hits.add(Hit(cId, rank, child))
-                if (hits.size >= 400) break
+                keySnap?.children?.forEach { child ->
+                    val cId = child.key ?: return@forEach
+                    if (!seen.add(cId)) return@forEach
+                    val idLower = cId.lowercase()
+                    val rank = when {
+                        idLower == q -> 0
+                        idLower.startsWith(q) -> 1
+                        else -> 2
+                    }
+                    hits.add(Hit(cId, rank, child))
+                }
+            } catch (_: Exception) { }
+
+            // 2) Phone prefix (stored normalized 8801…) — server-side.
+            if (qDigits.length >= 10 && hits.size < 50) {
+                val normPrefix = ConfigSheetParseUtil.normalizePhone(qDigits)
+                if (normPrefix.isNotBlank()) {
+                    try {
+                        val phSnap = withTimeoutOrNull(15_000) {
+                            db.reference.child("courier/consignments")
+                                .orderByChild("recipientPhone")
+                                .startAt(normPrefix).endAt(normPrefix + "\uf8ff")
+                                .limitToFirst(50).get().await()
+                        }
+                        phSnap?.children?.forEach { child ->
+                            val cId = child.key ?: return@forEach
+                            if (!seen.add(cId)) return@forEach
+                            val phone = child.child("recipientPhone").getValue(String::class.java).orEmpty()
+                            val phoneDigits = phone.filter { it.isDigit() }
+                            val rank = when {
+                                phoneDigits == qDigits -> 3
+                                phoneDigits.endsWith(qDigits) -> 4
+                                phone.contains(query) -> 5
+                                else -> 6
+                            }
+                            hits.add(Hit(cId, rank, child))
+                        }
+                    } catch (_: Exception) { }
+                }
+            }
+
+            // 3) Contains-style fallback full scan — only when prefix found little.
+            if (hits.size < 10) {
+                try {
+                    val snap = withTimeoutOrNull(25_000) {
+                        db.reference.child("courier/consignments").get().await()
+                    }
+                    snap?.children?.forEach { child ->
+                        val cId = child.key ?: return@forEach
+                        if (cId in seen) return@forEach
+                        val phone = child.child("recipientPhone").getValue(String::class.java).orEmpty()
+                        val phoneDigits = phone.filter { it.isDigit() }
+                        val idLower = cId.lowercase()
+                        val rank = when {
+                            idLower == q -> 0
+                            idLower.startsWith(q) -> 1
+                            idLower.contains(q) -> 2
+                            qDigits.length >= 3 && phoneDigits == qDigits -> 3
+                            qDigits.length >= 3 && phoneDigits.endsWith(qDigits) -> 4
+                            phone.contains(query) -> 5
+                            qDigits.length >= 3 && phoneDigits.contains(qDigits) -> 6
+                            else -> return@forEach
+                        }
+                        if (!seen.add(cId)) return@forEach
+                        hits.add(Hit(cId, rank, child))
+                        if (hits.size >= 400) return@forEach
+                    }
+                } catch (_: Exception) { }
             }
             val top = hits.sortedWith(compareBy({ it.rank }, { it.id })).take(50)
             if (top.isEmpty()) return emptyList()
