@@ -165,6 +165,7 @@ class ConfigSheetSyncService : Service() {
         val updated: Int,
         val skipped: Int,
         val runIndexCount: Int,
+        val runIndexParcels: Int = 0,
     )
 
     private data class RowWork(
@@ -592,6 +593,7 @@ class ConfigSheetSyncService : Service() {
         val syncInsertedRuns = mutableMapOf<String, MutableList<Triple<String, String, String>>>()
         val runIndexUpdates = mutableMapOf<String, Any>()
         var runIndexCount = 0
+        var runIndexParcels = 0
 
         val pendingWrites = mutableMapOf<String, Any>()
         val pendingRows = mutableListOf<String>()
@@ -658,9 +660,13 @@ class ConfigSheetSyncService : Service() {
             }
         }
         fun queueRunIndex(runTypeName: String, runId: String, status: String, cids: List<String>) {
-            // Actual run count: ONE per run (a run holds many parcels, but the
-            // count answers "how many runs indexed", not parcel paths).
-            if (cids.isNotEmpty()) runIndexCount++
+            // Run count = ONE per run (how many runs entered the route).
+            // Parcel count = total consignment paths indexed.
+            // Summary shows both so the two never get confused.
+            if (cids.isNotEmpty()) {
+                runIndexCount++
+                runIndexParcels += cids.size
+            }
             cids.forEach { cid ->
                 runIndexUpdates["courier/runs_by_consignmentId/$cid/$runTypeName/$runId"] = status
                 val phone = consignmentPhoneCache[cid].orEmpty()
@@ -872,10 +878,10 @@ class ConfigSheetSyncService : Service() {
             "Updated  : $updated\n" +
             "Skipped  : $skipped\n" +
             "Total    : ${dataRows.size}" +
-            (if (runIndexCount > 0) "\nRun index: $runIndexCount" else "") +
+            (if (runIndexCount > 0) "\nRun index: $runIndexCount runs ($runIndexParcels parcels)" else "") +
             driftText + issuesText + failuresText + branchlessText + duplicatesText
         val ok = writeFailures.isEmpty()
-        return SyncResult(ok, summary, inserted, updated, skipped, runIndexCount)
+        return SyncResult(ok, summary, inserted, updated, skipped, runIndexCount, runIndexParcels)
     }
 
     private suspend fun loadConn(db: FirebaseDatabase, branchId: String, connectionId: String): SheetConn? {
@@ -1027,7 +1033,7 @@ class ConfigSheetSyncService : Service() {
                 .setContentText(
                     "Inserted ${result.inserted} · Updated ${result.updated} · " +
                         "Skipped ${result.skipped}" +
-                        if (result.runIndexCount > 0) " · Index ${result.runIndexCount}" else ""
+                        if (result.runIndexCount > 0) " · Index ${result.runIndexCount} runs" else ""
                 )
                 .setStyle(NotificationCompat.BigTextStyle().bigText(result.summary))
                 .setSmallIcon(android.R.drawable.stat_sys_upload_done)
