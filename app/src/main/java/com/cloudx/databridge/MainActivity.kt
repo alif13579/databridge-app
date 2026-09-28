@@ -1017,8 +1017,12 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
     private fun friendlyPushRegisterError(raw: String): String {
         val lower = raw.lowercase()
         return when {
+            "token verification" in lower || "invalid firebase subject" in lower || "missing firebase id token" in lower ->
+                "Login token rejected — automatic date/time ON koro, logout kore abar login koro"
             "system_id" in lower ->
-                "No system_id — admin has not onboarded (employee edit)"
+                "No system_id — purono phone-er same Google account-e login? na hole admin onboard (employee edit)"
+            "unable to resolve" in lower ->
+                "Account profile pacche na — same login account kina dekho"
             "not signed in" in lower ->
                 "Not signed in — please log in again"
             "no fcm token" in lower ->

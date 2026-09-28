@@ -350,7 +350,14 @@ object SupabaseRemarkValidationWriter {
                             val text = it.body?.string().orEmpty()
                             val result = try {
                                 if (!it.isSuccessful) {
-                                    PushTokenStatus.Err(JSONObject(text).optString("error").ifBlank { "HTTP ${it.code}" })
+                                    // Server sends {error, reason} — reason holds the
+                                    // actual cause (token/clock vs profile/account).
+                                    // Dropping it left the drawer with a bare
+                                    // "Unauthorized", undiagnosable on-device.
+                                    val body = runCatching { JSONObject(text) }.getOrNull()
+                                    val err = body?.optString("error").orEmpty().ifBlank { "HTTP ${it.code}" }
+                                    val reason = body?.optString("reason").orEmpty().trim()
+                                    PushTokenStatus.Err(if (reason.isNotBlank()) "$err — $reason" else err)
                                 } else {
                                     val body = JSONObject(text)
                                     PushTokenStatus.Known(
@@ -454,7 +461,12 @@ object SupabaseRemarkValidationWriter {
                             val text = it.body?.string().orEmpty()
                             val result = try {
                                 if (!it.isSuccessful) {
-                                    PushRegisterResult.Err(JSONObject(text).optString("error").ifBlank { "HTTP ${it.code}" })
+                                    // Same as the eye-check above: keep the
+                                    // server reason, it names the real cause.
+                                    val body = runCatching { JSONObject(text) }.getOrNull()
+                                    val err = body?.optString("error").orEmpty().ifBlank { "HTTP ${it.code}" }
+                                    val reason = body?.optString("reason").orEmpty().trim()
+                                    PushRegisterResult.Err(if (reason.isNotBlank()) "$err — $reason" else err)
                                 } else {
                                     val body = JSONObject(text)
                                     if (body.optBoolean("ok", false)) PushRegisterResult.Ok
