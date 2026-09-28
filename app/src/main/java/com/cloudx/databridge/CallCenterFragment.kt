@@ -3980,8 +3980,15 @@ class CallCenterFragment : Fragment() {
         refreshSchedRow()
 
         btnSave.setOnClickListener {
+            // Double-tap guard: saveCcRemarkForItems is async — second tap would
+            // queue a duplicate validations row (seen as same-second pairs in DB).
+            if (!btnSave.isEnabled) return@setOnClickListener
+            btnSave.isEnabled = false
             val noteText = etRemarks.text?.toString()?.trim() ?: ""
-            if (selectedStatus.isBlank() && noteText.isBlank() && !scheduleTouched) return@setOnClickListener
+            if (selectedStatus.isBlank() && noteText.isBlank() && !scheduleTouched) {
+                btnSave.isEnabled = true
+                return@setOnClickListener
+            }
             // 📅 Schedule-only (no remark, no note): just write/clear the date
             // on this parcel — no Supabase remark row, no same-phone fan-out.
             if (selectedStatus.isBlank() && noteText.isBlank()) {
@@ -4019,6 +4026,7 @@ class CallCenterFragment : Fragment() {
                 // customer. Dismiss the remarks sheet first so both dialogs don't stack.
                 dialog.dismiss()
                 val total = samePhoneParcels.size + 1
+                var confirmFired = false
                 android.app.AlertDialog.Builder(requireContext())
                     .setTitle("Same customer — $total parcels")
                     .setMessage(
@@ -4028,6 +4036,8 @@ class CallCenterFragment : Fragment() {
                         "• No — saves only on ${item.id}"
                     )
                     .setPositiveButton("Yes, all") { _, _ ->
+                        if (confirmFired) return@setPositiveButton
+                        confirmFired = true
                         saveCcRemarkForItems(
                             items = listOf(item) + samePhoneParcels,
                             selectedStatus = selectedStatus,
@@ -4042,6 +4052,8 @@ class CallCenterFragment : Fragment() {
                         )
                     }
                     .setNegativeButton("No, only this one") { _, _ ->
+                        if (confirmFired) return@setNegativeButton
+                        confirmFired = true
                         saveCcRemarkForItems(
                             items = listOf(item),
                             selectedStatus = selectedStatus,

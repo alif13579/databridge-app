@@ -996,6 +996,7 @@ class WorkerSpaceFragment : Fragment() {
                     // don't stack awkwardly on top of each other.
                     dialog.dismiss()
                     val total = samePhoneParcels.size + 1
+                    var confirmFired = false
                     android.app.AlertDialog.Builder(requireContext())
                         .setTitle("Same customer — $total parcels")
                         .setMessage(
@@ -1005,6 +1006,8 @@ class WorkerSpaceFragment : Fragment() {
                             "• No — saves only on ${item.id}"
                         )
                         .setPositiveButton("Yes, all") { _, _ ->
+                            if (confirmFired) return@setPositiveButton
+                            confirmFired = true
                             saveRemarkForItems(
                                 items = listOf(item) + samePhoneParcels,
                                 statusKey = statusKey,
@@ -1015,6 +1018,8 @@ class WorkerSpaceFragment : Fragment() {
                             )
                         }
                         .setNegativeButton("No, only this one") { _, _ ->
+                            if (confirmFired) return@setNegativeButton
+                            confirmFired = true
                             saveRemarkForItems(
                                 items = listOf(item),
                                 statusKey = statusKey,
