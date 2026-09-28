@@ -44,8 +44,7 @@
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:orientation="vertical">
 
             <TextView
                 android:id="@+id/tvGroupWorkerName"
@@ -63,7 +62,7 @@
                 android:text="01712345678"
                 android:textSize="11sp"
                 android:textColor="@color/theme_text_secondary"
-                android:layout_marginStart="6dp"
+                android:layout_marginTop="1dp"
                 android:visibility="gone" />
         </LinearLayout>
 
