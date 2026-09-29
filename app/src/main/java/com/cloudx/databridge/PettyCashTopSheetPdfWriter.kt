@@ -387,28 +387,38 @@ private val legacyConveyanceTypes = setOf(
                 return Job(job, items, voucherHeadBlockH + voucherItemsHeight(items) + voucherTailBlockH)
             }
             val pending = mutableListOf<Job>()
-            when (voucherGrouping) {
-                VoucherGrouping.AGENT_WISE -> {
-                    val agentOrder = LinkedHashSet<String>()
-                    settled.forEach { agentOrder.add(it.agentSystemId) }
-                    agentOrder.forEach { agentSystemId ->
-                        val agentClaims = conveyanceClaims.filter { it.agentSystemId == agentSystemId }
-                            .sortedBy { it.placedDate }
-                        if (agentClaims.isNotEmpty())
-                            pending.add(jobOf(VoucherJob.Agent(agentClaims), agentClaims))
+            // Interchange claims leave the normal flow: same grouping as
+            // everything else, but rendered last on fresh A4 page(s).
+            fun isInterchangeClaim(row: SupabaseClaimsReader.ClaimRow): Boolean =
+                row.category in setOf("Inter Change", "Inter Change Commission")
+            val normalClaims = conveyanceClaims.filter { !isInterchangeClaim(it) }
+            val interchangeClaims = conveyanceClaims.filter { isInterchangeClaim(it) }
+            fun buildPending(source: List<SupabaseClaimsReader.ClaimRow>): MutableList<Job> {
+                val out = mutableListOf<Job>()
+                when (voucherGrouping) {
+                    VoucherGrouping.AGENT_WISE -> {
+                        val agentOrder = LinkedHashSet<String>()
+                        source.forEach { agentOrder.add(it.agentSystemId) }
+                        agentOrder.forEach { agentSystemId ->
+                            val agentClaims = source.filter { it.agentSystemId == agentSystemId }
+                                .sortedBy { it.placedDate }
+                            if (agentClaims.isNotEmpty())
+                                out.add(jobOf(VoucherJob.Agent(agentClaims), agentClaims))
+                        }
+                    }
+                    VoucherGrouping.CATEGORY_WISE -> {
+                        val categoryOrder = LinkedHashSet<String>()
+                        source.forEach { categoryOrder.add(it.category.ifBlank { "Other" }) }
+                        categoryOrder.forEach { category ->
+                            val catClaims = source
+                                .filter { it.category.ifBlank { "Other" } == category }
+                                .sortedBy { it.placedDate }
+                            if (catClaims.isNotEmpty())
+                                out.add(jobOf(VoucherJob.Category(category, catClaims), catClaims))
+                        }
                     }
                 }
-                VoucherGrouping.CATEGORY_WISE -> {
-                    val categoryOrder = LinkedHashSet<String>()
-                    conveyanceClaims.forEach { categoryOrder.add(it.category.ifBlank { "Other" }) }
-                    categoryOrder.forEach { category ->
-                        val catClaims = conveyanceClaims
-                            .filter { it.category.ifBlank { "Other" } == category }
-                            .sortedBy { it.placedDate }
-                        if (catClaims.isNotEmpty())
-                            pending.add(jobOf(VoucherJob.Category(category, catClaims), catClaims))
-                    }
-                }
+                return out
             }
             // Breathing room between consecutive voucher blocks (skipped when a
             // block ends flush at the page bottom — the page break itself is the
@@ -424,7 +434,8 @@ private val legacyConveyanceTypes = setOf(
             var voucherSl = 1
             var voucherCanvas = ctx.canvas
             var voucherY = margin
-            while (pending.isNotEmpty()) {
+            fun drawPending(pending: MutableList<Job>) {
+                while (pending.isNotEmpty()) {
                 val remaining = pageHeight - margin - voucherY
                 val idx = pending.indexOfFirst { it.height <= remaining }
                 if (idx >= 0) {
@@ -475,6 +486,13 @@ private val legacyConveyanceTypes = setOf(
                 } else {
                     ctx.nextPage(); voucherCanvas = ctx.canvas; voucherY = margin
                 }
+                }
+            }
+            // Normal vouchers first, then Interchange on fresh page(s) at the end.
+            drawPending(buildPending(normalClaims))
+            if (interchangeClaims.isNotEmpty()) {
+                ctx.nextPage(); voucherCanvas = ctx.canvas; voucherY = margin
+                drawPending(buildPending(interchangeClaims))
             }
         }
 
