@@ -2045,7 +2045,7 @@ class CallCenterFragment : Fragment() {
     private fun showCcSortByDropdown() {
         val ctx = context ?: return
         val options = arrayOf(
-            "👥 Agents (agent blocks)",
+            "👥 Agents",
             "🔁 Attempt (flat, most attempted first)",
             "🕐 Aging (flat, oldest first)",
             "🧠 Smart (flat, attempt + aging)"
