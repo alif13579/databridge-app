@@ -37,6 +37,15 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "6.11.5",
+                releasedDate = "2 Oct 2026",
+                entries = listOf(
+                    ChangelogEntry("fix", "Parcel View remark saves now show instantly (local echo + server reconcile)"),
+                    ChangelogEntry("feature", "Parcel View timeline shows day-wise Assigned-to history like the journey log"),
+                    ChangelogEntry("improvement", "Sort dropdown Auto renamed to Agents"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "6.11.4",
                 releasedDate = "2 Oct 2026",
                 entries = listOf(
