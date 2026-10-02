@@ -37,6 +37,16 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "6.11.4",
+                releasedDate = "2 Oct 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Call Center stat cards now show unique counts and tap-to-filter (Request/Served/Rejected)"),
+                    ChangelogEntry("feature", "Call Center list gets a draggable scrollbar thumb for fast scrolling"),
+                    ChangelogEntry("improvement", "Parcel card cleanup — agent name only, consignment ID and phone on separate rows"),
+                    ChangelogEntry("improvement", "Sort dropdown Auto renamed to Agents"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "6.11.3",
                 releasedDate = "2 Oct 2026",
                 entries = listOf(
