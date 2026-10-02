@@ -210,15 +210,41 @@
                 android:gravity="center_vertical"
                 android:layout_marginTop="2dp">
 
-                <TextView
-                    android:id="@+id/tvAgtMeta"
+                <!-- ID + phone copy separately on tap-and-hold -->
+                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="DB-2201 · 01885580909"
-                    android:textSize="11sp"
-                    android:textColor="@color/theme_accent"
-                    android:textStyle="bold" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/tvAgtId"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="DB-2201"
+                        android:textSize="11sp"
+                        android:textColor="@color/theme_accent"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=" · "
+                        android:textSize="11sp"
+                        android:textColor="@color/theme_accent"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvAgtPhone"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="01885580909"
+                        android:textSize="11sp"
+                        android:textColor="@color/theme_accent"
+                        android:textStyle="bold" />
+
+                </LinearLayout>
 
                 <!-- Same-number parcel counter (1/2, 2/2) — visible only when this
                      phone number has >1 parcel. Tap shows the agents holding them. -->

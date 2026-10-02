@@ -73,14 +73,38 @@
         android:gravity="center_vertical"
         android:layout_marginTop="4dp">
 
-        <TextView
-            android:id="@+id/tvVoMeta"
+        <!-- ID + phone copy separately on tap-and-hold -->
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="ID · phone"
-            android:textSize="12sp"
-            android:textColor="@color/theme_text_secondary" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/tvVoId"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ID"
+                android:textSize="12sp"
+                android:textColor="@color/theme_text_secondary" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=" · "
+                android:textSize="12sp"
+                android:textColor="@color/theme_text_secondary" />
+
+            <TextView
+                android:id="@+id/tvVoPhone"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="phone"
+                android:textSize="12sp"
+                android:textColor="@color/theme_text_secondary" />
+
+        </LinearLayout>
 
         <!-- Same-number parcel counter (1/2, 2/2) — visible only when this
              phone number has >1 parcel. Tap shows the related parcels. -->

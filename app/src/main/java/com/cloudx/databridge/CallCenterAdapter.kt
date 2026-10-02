@@ -292,7 +292,8 @@ class CallCenterAdapter(
         private val tvCustomer: TextView = view.findViewById(R.id.tvAgtCustomer)
         private val tvCopy: TextView = view.findViewById(R.id.tvAgtCopy)
 
-        private val tvMeta: TextView = view.findViewById(R.id.tvAgtMeta)
+        private val tvMeta: TextView = view.findViewById(R.id.tvAgtId)
+        private val tvPhone: TextView = view.findViewById(R.id.tvAgtPhone)
         private val tvPhoneCount: TextView = view.findViewById(R.id.tvAgtPhoneCount)
         private val tvAddress: TextView = view.findViewById(R.id.tvAgtAddress)
         private val tvCod: TextView = view.findViewById(R.id.tvAgtCod)
@@ -354,7 +355,11 @@ class CallCenterAdapter(
             } else {
                 tvCallCount.visibility = View.GONE
             }
-            tvMeta.text = "${item.id} · ${item.phone}"
+            tvMeta.text = item.id
+            tvPhone.text = item.phone
+            // Tap-and-hold copies just the ID / just the number.
+            WorkerParcelAdapter.bindCopyOnHold(tvMeta, item.id)
+            WorkerParcelAdapter.bindCopyOnHold(tvPhone, item.phone)
             // Same-number counter (1/2, 2/2) — only when this phone has >1 parcel.
             // Tap shows which agents hold those parcels.
             if (phoneTotal > 1) {

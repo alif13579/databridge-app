@@ -180,7 +180,9 @@ class WorkerParcelAdapter(
         val tvCopy: TextView = view.findViewById(R.id.tvParcelCopy)
         val dragHandle: TextView = view.findViewById(R.id.tvDragHandle)
 
-        val tvMeta: TextView = view.findViewById(R.id.tvParcelMeta)
+        val tvMeta: TextView = view.findViewById(R.id.tvParcelId)
+        val tvPhone: TextView = view.findViewById(R.id.tvParcelPhone)
+        val tvTime: TextView = view.findViewById(R.id.tvParcelTime)
         val tvAddress: TextView = view.findViewById(R.id.tvParcelAddress)
         val tvCod: TextView = view.findViewById(R.id.tvParcelCod)
         val tvAge: TextView = view.findViewById(R.id.tvParcelAge)
@@ -268,9 +270,13 @@ class WorkerParcelAdapter(
 
         holder.tvCustomer.text = item.customer
 
-        holder.tvMeta.text = buildString {
-            append(item.id); append(" · "); append(item.phone); append(" · "); append(item.time)
-        }
+        holder.tvMeta.text = item.id
+        holder.tvPhone.text = item.phone
+        holder.tvTime.text = if (item.time.isBlank()) "" else " · ${item.time}"
+        holder.tvTime.visibility = if (item.time.isBlank()) android.view.View.GONE else android.view.View.VISIBLE
+        // Tap-and-hold copies just the ID / just the number.
+        bindCopyOnHold(holder.tvMeta, item.id)
+        bindCopyOnHold(holder.tvPhone, item.phone)
 
         holder.tvAddress.text = "\uD83D\uDCCD ${item.address}"
         holder.tvCod.text = "৳${item.cod}"
@@ -752,6 +758,18 @@ class WorkerParcelAdapter(
                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("Parcel details", text))
                 Toast.makeText(context, "📋 Copied — paste anywhere", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        /** Tap-and-hold on a card field (consignment ID / phone) copies just
+         *  that value. Consumes the hold so the card's own long-press
+         *  (journey log) doesn't fire. */
+        fun bindCopyOnHold(view: android.widget.TextView, value: String) {
+            view.setOnLongClickListener {
+                val v = value.trim()
+                if (v.isBlank()) return@setOnLongClickListener true
+                copyParcelText(view.context, v)
+                true
             }
         }
 

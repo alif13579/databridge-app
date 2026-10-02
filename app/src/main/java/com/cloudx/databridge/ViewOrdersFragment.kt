@@ -814,7 +814,8 @@ class ViewOrdersFragment : Fragment() {
             val tvCopy: TextView = v.findViewById(R.id.tvVoCopy)
             val tvStatus: TextView = v.findViewById(R.id.tvVoStatus)
             val tvRecordings: TextView = v.findViewById(R.id.tvVoRecordings)
-            val tvMeta: TextView = v.findViewById(R.id.tvVoMeta)
+            val tvMeta: TextView = v.findViewById(R.id.tvVoId)
+            val tvPhone: TextView = v.findViewById(R.id.tvVoPhone)
             val tvPhoneCount: TextView = v.findViewById(R.id.tvVoPhoneCount)
             val tvRelated: TextView = v.findViewById(R.id.tvVoRelated)
             val tvAddress: TextView = v.findViewById(R.id.tvVoAddress)
@@ -836,7 +837,11 @@ class ViewOrdersFragment : Fragment() {
             val item = getItem(position)
             val ctx = holder.itemView.context
             holder.tvCustomer.text = item.customer.ifBlank { item.id }
-            holder.tvMeta.text = "${item.id} · ${item.phone}"
+            holder.tvMeta.text = item.id
+            holder.tvPhone.text = item.phone
+            // Tap-and-hold copies just the ID / just the number.
+            WorkerParcelAdapter.bindCopyOnHold(holder.tvMeta, item.id)
+            WorkerParcelAdapter.bindCopyOnHold(holder.tvPhone, item.phone)
             holder.tvAddress.text = item.address
             holder.tvAddress.visibility = if (item.address.isBlank()) View.GONE else View.VISIBLE
             holder.tvCod.text = "COD: ৳${item.cod}"
