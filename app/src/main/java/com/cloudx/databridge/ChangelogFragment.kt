@@ -37,6 +37,19 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "6.11.3",
+                releasedDate = "2 Oct 2026",
+                entries = listOf(
+                    ChangelogEntry("feature", "Call Center sort: Auto (agent blocks) + flat Attempt/Aging/Smart with agent name on each card"),
+                    ChangelogEntry("improvement", "Parcel View rearranged — info block on top (Created/Updated/Status+Phone, address/hub), Journey Log below; remark saves refresh instantly"),
+                    ChangelogEntry("feature", "Journey Log (Call Center, Worker, View Orders): customer number + dial button in the header"),
+                    ChangelogEntry("fix", "View Orders Journey Log now resolves remark author names (no more raw IDs)"),
+                    ChangelogEntry("improvement", "Employee search by system ID + active/inactive dot; Reports To removed; run index counts distinct runs"),
+                    ChangelogEntry("improvement", "Sheets sync overlay no longer auto-hides — Minimise runs it in the background"),
+                    ChangelogEntry("improvement", "Parcel cards: tap-and-hold consignment ID/phone copies that value"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "6.11.2",
                 releasedDate = "2 Oct 2026",
                 entries = listOf(
