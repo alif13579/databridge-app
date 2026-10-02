@@ -119,6 +119,9 @@ class ParcelDetailFragment : Fragment() {
     private var timelineRows: MutableList<org.json.JSONObject> = mutableListOf()
     /** Manual call recordings for this parcel (own table — merged into the timeline). */
     private var recordingRows: List<org.json.JSONObject> = emptyList()
+    /** Run-route "Assigned to" entries (same source as the Call Center/Worker
+     *  journey dialogs) — merged date-wise with the remarks below. */
+    private var assignHistory: List<HistoryEntry> = emptyList()
 
     // Cache: uid → display name (resolved lazily from Firebase via UserNameResolver)
     private val uidNameCache = mutableMapOf<String, String>()
@@ -427,9 +430,22 @@ class ParcelDetailFragment : Fragment() {
 
                     Toast.makeText(requireContext(), "✅ Remark saved", Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
-                    // Realtime alone can be delayed/filtered — refetch now so the
-                    // new remark shows immediately without waiting for the socket.
-                    refreshTimelineAfterSave()
+                    // Optimistic row first (never invisible even if the server
+                    // read lags or RLS hides our own row), then reconcile with
+                    // the server list — refresh drops the local row when the
+                    // real one arrives.
+                    val saveStartMs = System.currentTimeMillis()
+                    val optimistic = buildOptimisticRow(
+                        status = selectedStatus,
+                        remarksEn = selectedRemarkTextEn.ifBlank { noteText },
+                        remarksBn = selectedRemarkText.takeIf { it.isNotBlank() && it != selectedRemarkTextEn } ?: "",
+                        note = noteText,
+                        source = source,
+                        assignedAgentSystemId = assignedAgentSystemId,
+                        branchId = branchId,
+                        saveStartMs = saveStartMs
+                    )
+                    refreshTimelineAfterSave(saveStartMs, optimistic)
                 } else {
                     btnSave.isEnabled = true
                     btnSave.text = saveOrigText
@@ -546,6 +562,10 @@ class ParcelDetailFragment : Fragment() {
                 SupabaseCallRecordings.fetchForConsignment(parcelId, "ParcelDetailFragment")
             }
             try {
+                loadAssignments()
+            } catch (_: Exception) {
+            }
+            try {
                 renderTimeline()
             } catch (e: Exception) {
                 FirebaseErrorLogger.log(
@@ -575,9 +595,39 @@ class ParcelDetailFragment : Fragment() {
         }
     }
 
+    /** Local echo of the just-saved remark — same shape as a fetchHistory row
+     *  so renderTimeline() shows it instantly. Replaced by the real server row
+     *  on the next refetch/realtime event (see refreshTimelineAfterSave). */
+    private suspend fun buildOptimisticRow(
+        status: String, remarksEn: String, remarksBn: String, note: String,
+        source: String, assignedAgentSystemId: String, branchId: String,
+        saveStartMs: Long
+    ): org.json.JSONObject {
+        val ownSystemId = if (scope == "worker") {
+            ownWorkerSystemId
+        } else {
+            runCatching { withContext(Dispatchers.IO) { JourneyRecordingUi.resolveOwnSystemId() } }
+                .getOrNull().orEmpty()
+        }
+        return org.json.JSONObject()
+            .put("id", "local_$saveStartMs")
+            .put("consignment", parcelId)
+            .put("branch_id", branchId)
+            .put("assigned_to_system_id", assignedAgentSystemId)
+            .put("author_system_id", ownSystemId)
+            .put("source", source)
+            .put("remarks_status", status)
+            .put("remarks", remarksEn)
+            .put("note", note)
+            .put("created_at", java.time.Instant.ofEpochMilli(saveStartMs).toString())
+            .apply { if (remarksBn.isNotBlank()) put("remarks_bn", remarksBn) }
+    }
+
     /** Explicit refetch after own save — Realtime can lag or drop (filter/RLS/
-     *  socket), so don't wait for it. Replaces timelineRows and re-renders. */
-    private fun refreshTimelineAfterSave() {
+     *  socket), so don't wait for it. When the server list still misses our
+     *  just-saved row, keep the [optimistic] local echo so the remark is never
+     *  invisible. */
+    private fun refreshTimelineAfterSave(saveStartMs: Long, optimistic: org.json.JSONObject?) {
         viewLifecycleOwner.lifecycleScope.launch {
             val rows = withContext(Dispatchers.IO) {
                 val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
@@ -588,6 +638,22 @@ class ParcelDetailFragment : Fragment() {
             }
             if (!isAdded || view == null) return@launch
             timelineRows = rows.toMutableList()
+            try {
+                loadAssignments()
+            } catch (_: Exception) {
+            }
+            if (optimistic != null) {
+                val optStatus = optimistic.optString("remarks_status")
+                val optRemarks = optimistic.optString("remarks")
+                val optNote = optimistic.optString("note")
+                val serverHasIt = timelineRows.any { r ->
+                    r.optString("remarks_status") == optStatus &&
+                        r.optString("remarks") == optRemarks &&
+                        r.optString("note") == optNote &&
+                        SupabaseRemarkValidationWriter.parseCreatedAtMillis(r.optString("created_at")) >= saveStartMs - 60_000L
+                }
+                if (!serverHasIt) timelineRows.add(optimistic)
+            }
             try {
                 renderTimeline()
             } catch (e: Exception) {
@@ -604,6 +670,29 @@ class ParcelDetailFragment : Fragment() {
         }
     }
 
+    /** Run-route assignments → "Assigned to {agent}" entries, same Firebase
+     *  index → run node path the Call Center/Worker journey dialogs use.
+     *  Names resolve Supabase-first via the shared uidNameCache. */
+    private suspend fun loadAssignments() {
+        val assignments = withContext(Dispatchers.IO) {
+            RunAssignmentHistory.fetch(parcelId)
+        }
+        if (assignments.isEmpty()) {
+            assignHistory = emptyList()
+            return
+        }
+        withContext(Dispatchers.IO) {
+            assignments.map { it.agentSystemId }.distinct()
+                .filter { !uidNameCache.containsKey(it) }
+                .forEach { sysId ->
+                    runCatching { UserNameResolver.resolveNameBySystemId(sysId) }.getOrNull()
+                        ?.takeIf { it.isNotBlank() }?.let { uidNameCache[sysId] = it }
+                }
+        }
+        assignHistory = RunAssignmentHistory.toHistoryEntries(assignments) { sysId ->
+            uidNameCache[sysId].orEmpty().ifBlank { sysId }
+        }
+    }
     /** Kept alive independently of the fragment's other listeners — a new INSERT just
      *  appends to timelineRows and re-renders, same incremental approach CallCenterFragment/
      *  WorkerSpaceFragment's Realtime handlers use (see refreshOneCcParcelFromSupabase). */
@@ -618,8 +707,19 @@ class ParcelDetailFragment : Fragment() {
                 if (!isAdded || view == null) return@launch
                 // Dedup vs explicit refreshTimelineAfterSave() above — same row can
                 // arrive via both refetch and socket; skip when id already shown.
+                // A local echo (id "local_…") is replaced by its real server row
+                // when the same status/remarks/note arrives.
                 val newId = row.optString("id").trim()
                 if (newId.isNotBlank() && timelineRows.any { it.optString("id") == newId }) return@launch
+                if (newId.isNotBlank() && !newId.startsWith("local_")) {
+                    val replaced = timelineRows.indexOfFirst { old ->
+                        old.optString("id").startsWith("local_") &&
+                            old.optString("remarks_status") == row.optString("remarks_status") &&
+                            old.optString("remarks") == row.optString("remarks") &&
+                            old.optString("note") == row.optString("note")
+                    }
+                    if (replaced >= 0) timelineRows.removeAt(replaced)
+                }
                 val source = row.optStr("source").trim()
                 row.optStr("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
                     SupabaseClientManager.resolveRemarkBnCached("ParcelDetailFragment", source, en)?.let { bn ->
@@ -790,8 +890,21 @@ class ParcelDetailFragment : Fragment() {
                 recordingR2Key = rec.r2Key, recordingDurationSec = rec.durationSec
             )
         }
+        // Assigned-to rows slot date-wise among the remarks (same as the
+        // Call Center/Worker tap-and-hold journey log); recordings stay appended.
+        val assignEntries = assignHistory.map { h ->
+            Entry(
+                status = h.action,
+                remark = h.remark,
+                timeStr = h.time,
+                author = h.author,
+                role = h.authorRole,
+                photoUrl = "",
+                createdAt = h.createdAt
+            )
+        }
         // Oldest first → timeline reads top-to-bottom; recordings merged in below.
-        val entries = (remarkEntries + recEntries).sortedBy { it.createdAt }
+        val entries = (remarkEntries + assignEntries).sortedBy { it.createdAt } + recEntries.sortedBy { it.createdAt }
 
         // Always lead with the parcel's actual creation — matches the long-press
         // Journey Log dialog, which never shows an empty timeline for a parcel
