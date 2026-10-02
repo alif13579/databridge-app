@@ -342,6 +342,17 @@
                     android:layout_marginStart="8dp"
                     android:includeFontPadding="false" />
             </LinearLayout>
+            <TextView
+                    android:id="@+id/tvAgtAgent"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="👤 Rakib · 📞 01700000000"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_text_secondary"
+                    android:layout_marginTop="2dp"
+                    android:includeFontPadding="false"
+                    android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 

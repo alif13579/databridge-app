@@ -83,7 +83,7 @@ class CallCenterFragment : Fragment() {
     private lateinit var tvAutoCallStatusTimer: TextView
     private lateinit var tvAutoCallStatusInfo: TextView
     private lateinit var tvSortByDropdown: TextView
-    private var sortMode: String = "attempt" // "attempt" (default) or "aging" — same options as Worker Fragment
+    private var sortMode: String = "auto" // "auto" (agent blocks) | "attempt" | "aging" | "smart" (flat)
 
     // Auto Call (sequential dialer) state
     private var autoCallGapSeconds = 8
@@ -424,7 +424,9 @@ class CallCenterFragment : Fragment() {
         selectedBranchIds.addAll(prefs.getStringSet("cc_filter_branch_ids", emptySet()) ?: emptySet())
         selectedAgentFilters.clear()
         selectedAgentFilters.addAll(prefs.getStringSet("cc_filter_agent_names", emptySet()) ?: emptySet())
-        sortMode = prefs.getString("cc_sort_mode", "attempt") ?: "attempt"
+        sortMode = prefs.getString("cc_sort_mode", "auto") ?: "auto"
+        // Migrate legacy values (old attempt/aging were grouped; flat is new behavior).
+        if (sortMode != "auto" && sortMode != "attempt" && sortMode != "aging" && sortMode != "smart") sortMode = "auto"
         ccDataSource = prefs.getString("cc_data_source", "request")
             ?.takeIf { it == "live" || it == "mix" } ?: "request"
     }
@@ -1218,6 +1220,7 @@ class CallCenterFragment : Fragment() {
             }
         )
         adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()
+        adapter.showAgentOnCard = sortMode != "auto"
         rvParcelList.layoutManager = LinearLayoutManager(requireContext())
         rvParcelList.adapter = adapter
         // RecyclerView itself is match_parent (fixed size) — only the cards vary.
@@ -2011,13 +2014,23 @@ class CallCenterFragment : Fragment() {
     }
 
     private fun updateCcSortByLabel() {
-        tvSortByDropdown.text = if (sortMode == "aging") "🕐 Aging ▾" else "🔁 Attempt ▾"
+        tvSortByDropdown.text = when (sortMode) {
+            "attempt" -> "🔁 Attempt ▾"
+            "aging" -> "🕐 Aging ▾"
+            "smart" -> "🧠 Smart ▾"
+            else -> "⚡ Auto ▾"
+        }
     }
 
     private fun showCcSortByDropdown() {
         val ctx = context ?: return
-        val options = arrayOf("🔁 Attempt (most attempted first)", "🕐 Aging (oldest first)")
-        val keys = arrayOf("attempt", "aging")
+        val options = arrayOf(
+            "⚡ Auto (agent blocks)",
+            "🔁 Attempt (flat, most attempted first)",
+            "🕐 Aging (flat, oldest first)",
+            "🧠 Smart (flat, attempt + aging)"
+        )
+        val keys = arrayOf("auto", "attempt", "aging", "smart")
         val currentIndex = keys.indexOf(sortMode).coerceAtLeast(0)
         android.app.AlertDialog.Builder(ctx)
             .setTitle("Sort by")
@@ -2025,6 +2038,7 @@ class CallCenterFragment : Fragment() {
                 sortMode = keys[which]
                 updateCcSortByLabel()
                 adapter.sortMode = sortMode
+                adapter.showAgentOnCard = sortMode != "auto"
                 saveFilterPreferences()
                 // applyFilters() re-applies search/status filtering AND calls
                 // adapter.submitParcels() at the end — calling submitParcels() directly

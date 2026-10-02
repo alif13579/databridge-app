@@ -43,9 +43,12 @@ class CallCenterAdapter(
 
     private fun String.normalizedPhone(): String = filter { it.isDigit() }.takeLast(10)
     var statusLang: String = "bn"
-    /** "attempt" (default, most-attempted first) or "aging" (oldest first) — same options as
-     *  Worker Fragment's Sort By dropdown. Read by submitParcels() each call. */
-    var sortMode: String = "attempt"
+    /** "auto" (agent blocks, attempt within block) | "attempt" (flat, most attempted first)
+     *  | "aging" (flat, oldest first) | "smart" (flat, attempt+aging score).
+     *  Flat modes hide agent headers and show the agent line on each card. */
+    var sortMode: String = "auto"
+    /** True in flat modes (attempt/aging/smart) — card shows 👤 agent line. */
+    var showAgentOnCard: Boolean = false
 
     // consignmentId -> glow color (null/absent = no glow). Set by the fragment as the
     // Auto Call sequence progresses (queued/calling/done) or a card is manually dialed.
@@ -114,26 +117,39 @@ class CallCenterAdapter(
     fun submitParcels(items: List<CallCenterParcelItem>, onCommitted: (() -> Unit)? = null) {
         // NOTE: submitParcels() rebuilds rows from [items] — callers must pass the
         // fragment's full parcel list, not currentList rows (see toggleExpanded).
-        val map = linkedMapOf<String, MutableList<CallCenterParcelItem>>()
-        items.forEach { parcel ->
-            map.getOrPut(parcel.worker) { mutableListOf() }.add(parcel)
-        }
         val rows = mutableListOf<Row>()
-        for ((worker, rawParcels) in map) {
-            // Same-phone parcels stay adjacent, ordered per the active sort mode —
-            // applied per worker so each agent's own section is sorted independently.
+        if (sortMode == "attempt" || sortMode == "aging" || sortMode == "smart") {
+            // Flat modes: no agent headers — highest priority parcels first
+            // across all agents. Same-phone parcels stay adjacent globally.
             val parcels = when (sortMode) {
-                "aging" -> sortByGroupAge(rawParcels)
-                else    -> sortByAttempt(rawParcels)
+                "aging" -> sortByGroupAge(items)
+                "smart" -> sortBySmart(items)
+                else    -> sortByAttempt(items)
             }
-            val group = WorkerGroup(worker, parcels.firstOrNull()?.branch ?: "", parcels, parcels.firstOrNull()?.workerPhotoUrl ?: "", parcels.firstOrNull()?.workerPhone ?: "")
-            rows.add(Row.HeaderRow(group))
             parcels.forEach { parcel ->
                 rows.add(Row.CardRow(
                     parcel,
                     isExpanded = parcel.id == expandedItemId,
                     isConflicted = parcel.phone.normalizedPhone() in conflictedPhones
                 ))
+            }
+        } else {
+            val map = linkedMapOf<String, MutableList<CallCenterParcelItem>>()
+            items.forEach { parcel ->
+                map.getOrPut(parcel.worker) { mutableListOf() }.add(parcel)
+            }
+            for ((worker, rawParcels) in map) {
+                // Auto: agent blocks (ekhon jemon), each block sorted by attempt.
+                val parcels = sortByAttempt(rawParcels)
+                val group = WorkerGroup(worker, parcels.firstOrNull()?.branch ?: "", parcels, parcels.firstOrNull()?.workerPhotoUrl ?: "", parcels.firstOrNull()?.workerPhone ?: "")
+                rows.add(Row.HeaderRow(group))
+                parcels.forEach { parcel ->
+                    rows.add(Row.CardRow(
+                        parcel,
+                        isExpanded = parcel.id == expandedItemId,
+                        isConflicted = parcel.phone.normalizedPhone() in conflictedPhones
+                    ))
+                }
             }
         }
         // Same-number counter (1/2, 2/2) in display order. Blank phones never group.
@@ -214,6 +230,7 @@ class CallCenterAdapter(
                 phoneMates = row.phoneMates,
                 statusLang = statusLang,
                 glowColor = callStates[row.parcel.id],
+                showAgent = showAgentOnCard,
                 onToggleExpand = { toggleExpanded(row.parcel.id) },
                 onCall = onCall,
                 onBtCall = onBtCall,
@@ -322,6 +339,7 @@ class CallCenterAdapter(
         private val btnSetRemarks: TextView = view.findViewById(R.id.btnAgtSetRemarks)
         private val btnWhatsapp: TextView = view.findViewById(R.id.btnAgtWhatsapp)
         private val tvCallCount: TextView = view.findViewById(R.id.tvAgtCallCount)
+        private val tvAgent: TextView? = view.findViewById(R.id.tvAgtAgent)
 
         fun bind(
             item: CallCenterParcelItem,
@@ -332,6 +350,7 @@ class CallCenterAdapter(
             phoneMates: List<CallCenterParcelItem> = emptyList(),
             statusLang: String,
             glowColor: Int?,
+            showAgent: Boolean = false,
             onToggleExpand: () -> Unit,
             onCall: (CallCenterParcelItem) -> Unit,
             onBtCall: (CallCenterParcelItem) -> Unit,
@@ -374,6 +393,16 @@ class CallCenterAdapter(
             }
             tvAddress.text = "📍 ${item.address}"
             tvCod.text = "৳${item.cod}"
+            // Flat modes (attempt/aging/smart): no agent header, so show agent on card.
+            if (showAgent && item.worker.isNotBlank()) {
+                val agentPhone = item.workerPhone.trim()
+                tvAgent?.text = if (agentPhone.isNotBlank()) "👤 ${item.worker} · 📞 $agentPhone" else "👤 ${item.worker}"
+                tvAgent?.visibility = View.VISIBLE
+                tvAgent?.setOnClickListener { onWhatsappToAgent(item) }
+            } else {
+                tvAgent?.visibility = View.GONE
+                tvAgent?.setOnClickListener(null)
+            }
             tvSplitWarning.visibility = if (isConflicted) View.VISIBLE else View.GONE
             if (isConflicted) {
                 tvSplitWarning.setOnClickListener {
@@ -628,6 +657,29 @@ class CallCenterAdapter(
                 )
                 .flatMap { group ->
                     group.sortedWith(compareByDescending<CallCenterParcelItem> { it.attemptCount }.thenBy { effectiveAge(it) })
+                }
+        }
+
+        /**
+         * Smart: attempt + aging combined — 1 attempt ≈ 48h aging.
+         * Same-phone parcels stay adjacent; the group with the highest member
+         * score leads. Surfaces both old-untouched (5d A0) and fresh-retry (1d A9).
+         */
+        fun sortBySmart(parcels: List<CallCenterParcelItem>): List<CallCenterParcelItem> {
+            val now = System.currentTimeMillis()
+            fun score(p: CallCenterParcelItem): Long {
+                val ageHours = if (p.createdAt <= 0L) 0L else ((now - p.createdAt).coerceAtLeast(0L) / 3_600_000L)
+                return p.attemptCount * 48L + ageHours
+            }
+            fun effectiveAge(p: CallCenterParcelItem): Long = if (p.createdAt <= 0L) Long.MAX_VALUE else p.createdAt
+            val groups = parcels.groupBy { p -> p.phone.filter { c -> c.isDigit() }.takeLast(10) }
+            return groups.values
+                .sortedWith(
+                    compareByDescending<List<CallCenterParcelItem>> { group -> group.maxOf { p -> score(p) } }
+                        .thenBy { group -> group.minOf { p -> effectiveAge(p) } }
+                )
+                .flatMap { group ->
+                    group.sortedWith(compareByDescending<CallCenterParcelItem> { score(it) }.thenBy { effectiveAge(it) })
                 }
         }
     }
