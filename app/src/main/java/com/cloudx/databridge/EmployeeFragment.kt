@@ -533,9 +533,11 @@ class EmployeeFragment : Fragment() {
             (filterDesignation.isEmpty() || user.designation.equals(filterDesignation, ignoreCase = true)) &&
             (filterBranch.isEmpty() || user.branchIds.contains(filterBranch)) &&
             (q.isEmpty() || user.name.contains(q, ignoreCase = true)
-                         || user.email.contains(q, ignoreCase = true)
-                         || user.branchName.contains(q, ignoreCase = true)
-                         || user.uid.contains(q, ignoreCase = true))
+                          || user.email.contains(q, ignoreCase = true)
+                          || user.branchName.contains(q, ignoreCase = true)
+                          || user.systemId.contains(q, ignoreCase = true)
+                          || user.employeeId.contains(q, ignoreCase = true)
+                          || user.uid.contains(q, ignoreCase = true))
         }
         adapter.submitList(filtered)
         rvUsers.visibility = if (filtered.isEmpty()) View.GONE else View.VISIBLE
@@ -1051,6 +1053,7 @@ class EmployeeFragment : Fragment() {
             val ivAvatar   : ImageView = v.findViewById(R.id.ivUserAvatar)
             val tvInitials : TextView  = v.findViewById(R.id.tvUserInitials)
             val tvName     : TextView  = v.findViewById(R.id.tvUserName)
+            val viewStatusDot: View    = v.findViewById(R.id.viewUserStatusDot)
             val tvRole     : TextView  = v.findViewById(R.id.tvUserRoleBadge)
             val tvBranch   : TextView  = v.findViewById(R.id.tvUserBranch)
             val tvEmail    : TextView  = v.findViewById(R.id.tvUserEmail)
@@ -1078,6 +1081,14 @@ class EmployeeFragment : Fragment() {
             }
             h.tvInitials.text = user.name.split(" ").mapNotNull { it.firstOrNull()?.toString() }.take(2).joinToString("")
             h.tvName.text     = user.name
+            // Active/inactive status dot — green/red so the state reads at a glance.
+            val dotColor = when {
+                user.status.equals("active", ignoreCase = true) -> "#22C55E"
+                user.status.equals("inactive", ignoreCase = true) -> "#EF4444"
+                else -> "#9CA3AF"
+            }
+            h.viewStatusDot.backgroundTintList =
+                android.content.res.ColorStateList.valueOf(Color.parseColor(dotColor))
             h.tvEmail.text    = user.email
             h.tvBranch.text   = if (user.branchName.isNotBlank()) "📍 ${user.branchName}" else ""
 

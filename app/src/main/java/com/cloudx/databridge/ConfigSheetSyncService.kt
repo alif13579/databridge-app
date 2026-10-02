@@ -594,6 +594,12 @@ class ConfigSheetSyncService : Service() {
         val runIndexUpdates = mutableMapOf<String, Any?>()
         var runIndexCount = 0
         var runIndexParcels = 0
+        // Distinct counting: the same run id can arrive via several sheet rows
+        // (e.g. one row per parcel), so run count = distinct (runType, runId)
+        // and parcel count = distinct (runType, runId, cid) — 3 run ids with
+        // 30 parcels reads as "3 runs (30 parcels)", never 30 runs.
+        val runIndexSeenRuns = mutableSetOf<String>()
+        val runIndexSeenParcels = mutableSetOf<String>()
         // Same-day moves planned during the loop (old run triple per entry),
         // applied after the loop so batch order can never resurrect them.
         val movedOld = mutableListOf<Triple<String, String, String>>()
@@ -667,14 +673,16 @@ class ConfigSheetSyncService : Service() {
             }
         }
         fun queueRunIndex(runTypeName: String, runId: String, status: String, cids: List<String>) {
-            // Run count = ONE per run (how many runs entered the route).
-            // Parcel count = total consignment paths indexed.
+            // Run count = ONE per distinct run (how many runs entered the route).
+            // Parcel count = distinct consignment paths indexed.
             // Summary shows both so the two never get confused.
-            if (cids.isNotEmpty()) {
+            if (cids.isNotEmpty() && runIndexSeenRuns.add("$runTypeName/$runId")) {
                 runIndexCount++
-                runIndexParcels += cids.size
             }
             cids.forEach { cid ->
+                if (runIndexSeenParcels.add("$runTypeName/$runId/$cid")) {
+                    runIndexParcels++
+                }
                 runIndexUpdates["courier/runs_by_consignmentId/$cid/$runTypeName/$runId"] = status
                 val phone = consignmentPhoneCache[cid].orEmpty()
                 if (phone.isNotBlank()) {
@@ -735,7 +743,10 @@ class ConfigSheetSyncService : Service() {
                 if (runType != null && w.userSystemId.isNotBlank()) {
                     val status = w.fieldMap["status"]?.toString() ?: ""
                     multiUpdate["courier/runs_by_agentSystemId/${w.userSystemId}/$runType/$conId"] = status
-                    if (w.runCids.isNotEmpty() && status.isNotBlank()) {
+                    // Index even with a blank status: the run node above still
+                    // gains these consignments, so membership is real and the
+                    // run must count (blank value matches runs_by_agentSystemId).
+                    if (w.runCids.isNotEmpty()) {
                         queueRunIndex(runType, conId, status, w.runCids)
                         planConsignmentMove(runType, conId, w.userSystemId, w.runCids)
                         collectDuplicates(runType, conId, w.userSystemId, w.runCids)
@@ -813,25 +824,25 @@ class ConfigSheetSyncService : Service() {
                     val updStatus = (changedFields["status"] as? String)
                         ?: w.fieldMap["status"]?.toString()
                         ?: existSnap.child("status").getValue(String::class.java) ?: ""
-                    if (updStatus.isNotBlank()) {
-                        var updCids = w.objectWrites.keys.mapNotNull { k ->
-                            if (k.substringBefore("/") == "consignments") {
-                                k.substringAfter("/").takeIf { it.isNotBlank() }
-                            } else null
+                    var updCids = w.objectWrites.keys.mapNotNull { k ->
+                        if (k.substringBefore("/") == "consignments") {
+                            k.substringAfter("/").takeIf { it.isNotBlank() }
+                        } else null
+                    }
+                    if (updCids.isEmpty() && branchBackfilled) {
+                        updCids = try {
+                            db.reference.child("$basePath/$conId/consignments").get().await()
+                                .children.mapNotNull { it.key?.takeIf { id -> id.isNotBlank() } }
+                        } catch (_: Exception) {
+                            emptyList()
                         }
-                        if (updCids.isEmpty() && branchBackfilled) {
-                            updCids = try {
-                                db.reference.child("$basePath/$conId/consignments").get().await()
-                                    .children.mapNotNull { it.key?.takeIf { id -> id.isNotBlank() } }
-                            } catch (_: Exception) {
-                                emptyList()
-                            }
-                        }
-                        if (updCids.isNotEmpty()) {
-                            queueRunIndex(runType, conId, updStatus, updCids)
-                            planConsignmentMove(runType, conId, w.userSystemId, updCids)
-                            collectDuplicates(runType, conId, w.userSystemId, updCids)
-                        }
+                    }
+                    // Same blank-status rule as the insert path above: membership
+                    // changed, so the run counts even when no status came along.
+                    if (updCids.isNotEmpty()) {
+                        queueRunIndex(runType, conId, updStatus, updCids)
+                        planConsignmentMove(runType, conId, w.userSystemId, updCids)
+                        collectDuplicates(runType, conId, w.userSystemId, updCids)
                     }
                 }
 

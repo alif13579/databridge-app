@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
  * (profile + system-id index). Throws on any Supabase failure, in which case
  * the caller must not touch Firebase at all.
  *
- * Firebase-only extras (salary model, reports_to chain, branch employee
+ * Firebase-only extras (salary model, branch employee
  * indexes, email) have no Supabase columns yet, so the caller still writes
  * those to Firebase directly after this succeeds.
  */
