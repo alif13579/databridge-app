@@ -106,9 +106,13 @@ class ConfigSheetFragment : Fragment() {
     internal var btnBranchAction: Button? = null
     internal var sheetBusyOverlay: View? = null
     internal var tvSheetBusy: TextView? = null
-    /** True while the Sheets sync start overlay is up (fade-only — cleared a few
-     *  seconds after start and on finish, so it can never get stuck). */
+    internal var btnSheetBusyMinimise: TextView? = null
+    /** True while the Sheets sync progress overlay is up. It stays up for the
+     *  whole sync now (no auto-hide) — Minimise hides it while the service
+     *  keeps running, and tapping Sync re-opens it. */
     internal var syncOverlayUp: Boolean = false
+    /** Latest sync progress text — used to re-open the overlay after minimise. */
+    internal var lastSyncProgressText: String = ""
     // Branch sections
     internal var sectionConnected:          LinearLayout? = null
     internal var containerConnectedBranches: LinearLayout? = null
@@ -381,6 +385,10 @@ class ConfigSheetFragment : Fragment() {
         btnBranchAction = view.findViewById(R.id.btnBranchAction)
         sheetBusyOverlay = view.findViewById(R.id.sheetBusyOverlay)
         tvSheetBusy = view.findViewById(R.id.tvSheetBusy)
+        btnSheetBusyMinimise = view.findViewById(R.id.btnSheetBusyMinimise)
+        // Minimise: hide the overlay, the sync service keeps running
+        // (notification shows live progress + final summary).
+        btnSheetBusyMinimise?.setOnClickListener { minimiseSyncOverlay() }
         sectionConnected           = view.findViewById(R.id.sectionConnected)
         containerConnectedBranches = view.findViewById(R.id.containerConnectedBranches)
         sectionUnconnected         = view.findViewById(R.id.sectionUnconnected)
@@ -640,8 +648,17 @@ class ConfigSheetFragment : Fragment() {
         catch (_: Exception) {}
     }
 
-    internal fun setBusy(show: Boolean, text: String = "Loading...") {
+    internal fun setBusy(show: Boolean, text: String = "Loading...", minimise: Boolean = false) {
         tvSheetBusy?.text = text
+        btnSheetBusyMinimise?.visibility = if (show && minimise) View.VISIBLE else View.GONE
         sheetBusyOverlay?.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    /** Hides the sync progress overlay; the service keeps running. Tapping
+     *  Sync while it runs re-opens the overlay (see syncSheetToFirebase). */
+    internal fun minimiseSyncOverlay() {
+        syncOverlayUp = false
+        setBusy(false)
+        toast("🔄 Sync background-এ চলছে — শেষ হলে notification আসবে")
     }
 }
