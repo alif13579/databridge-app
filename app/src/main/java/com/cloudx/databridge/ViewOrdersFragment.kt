@@ -539,19 +539,27 @@ class ViewOrdersFragment : Fragment() {
                             // Run-route assignments (who held the parcel which day) —
                             // same Firebase index -> run node path CC/Worker journeys use.
                             val assignments = RunAssignmentHistory.fetch(item.id)
-                            val assignNames = assignments.map { it.agentSystemId }.distinct()
-                                .associateWith { sysId ->
-                                    runCatching { UserNameResolver.resolveNameBySystemId(sysId) }
-                                        .getOrNull().orEmpty()
-                                }
+                            // Remark authors also need name resolution — fetchValidations()
+                            // returns no `author` embed, so without this map ViewOrders
+                            // falls back to raw system_id (e.g. "1703") while CC shows
+                            // the real name via its systemIdToName map.
+                            val authorIds = fetched.mapNotNull {
+                                it.optString("author_system_id").trim()
+                                    .takeIf { id -> id.isNotBlank() }
+                            }.distinct()
+                            val allIds = (authorIds + assignments.map { it.agentSystemId }).distinct()
+                            val nameMap = allIds.associateWith { sysId ->
+                                runCatching { UserNameResolver.resolveNameBySystemId(sysId) }
+                                    .getOrNull().orEmpty()
+                            }
                             val assignHistory = RunAssignmentHistory.toHistoryEntries(assignments) { sysId ->
-                                assignNames[sysId].orEmpty().ifBlank { sysId }
+                                nameMap[sysId].orEmpty().ifBlank { sysId }
                             }
                             Triple(
                                 fetched,
                                 SupabaseCallRecordings.fetchForConsignment(item.id, "ViewOrdersFragment"),
                                 assignHistory
-                            )
+                            ) to nameMap
                         }
                     }
                 }.getOrNull()
@@ -563,12 +571,13 @@ class ViewOrdersFragment : Fragment() {
                     )
                     return@launch
                 }
-                val (rows, recRows, assignHistory) = rowsAndRec
+                val (triple, nameMap) = rowsAndRec
+                val (rows, recRows, assignHistory) = triple
                 renderJourneyDialog(
                     item, isLoading = false,
                     // Assigned-to rows slot date-wise among the remarks; recordings
                     // stay appended as before.
-                    entries = (buildJourneyEntries(rows) + assignHistory).sortedBy { it.createdAt } +
+                    entries = (buildJourneyEntries(rows, nameMap) + assignHistory).sortedBy { it.createdAt } +
                         JourneyLogUi.recordingsToHistory(SupabaseCallRecordings.toRecordings(recRows)),
                     existing = dialog to dialogView
                 )
@@ -577,7 +586,10 @@ class ViewOrdersFragment : Fragment() {
         load()
     }
 
-    private fun buildJourneyEntries(rows: List<org.json.JSONObject>): List<HistoryEntry> {
+    private fun buildJourneyEntries(
+        rows: List<org.json.JSONObject>,
+        nameMap: Map<String, String> = emptyMap()
+    ): List<HistoryEntry> {
         return rows.mapNotNull { r ->
             val status = r.optString("remarks_status").trim()
             val noteRaw = r.optString("note").trim()
@@ -593,6 +605,7 @@ class ViewOrdersFragment : Fragment() {
             val fromWorker = r.optString("source").trim().equals("WORKER", ignoreCase = true)
             val authorUser = r.optJSONObject("author")
             val authorName = authorUser?.optString("name")?.trim().orEmpty()
+                .ifBlank { nameMap[authorSystemId].orEmpty() }
                 .ifBlank { authorSystemId }
             HistoryEntry(
                 action = status.ifBlank { "NOTE" }.uppercase(),
@@ -601,7 +614,8 @@ class ViewOrdersFragment : Fragment() {
                 author = authorLabel(authorName, fromWorker),
                 authorRole = if (fromWorker) "agent" else "cc",
                 authorPhotoUrl = authorUser?.optString("photo_url")?.trim().orEmpty(),
-                createdAt = createdAt
+                createdAt = createdAt,
+                authorSystemId = authorSystemId
             )
         }.sortedBy { it.createdAt }
     }
@@ -640,6 +654,17 @@ class ViewOrdersFragment : Fragment() {
 
         tvTitle.text = "Journey Log"
         tvSub.text = "${item.id} · ${item.customer}"
+        // Customer number + dial (parcel card long-press had no number to call).
+        val tvHistoryPhone = view.findViewById<TextView>(R.id.twHistoryPhone)
+        val btnHistoryDial = view.findViewById<TextView>(R.id.btnHistoryDial)
+        tvHistoryPhone?.text = if (item.phone.isNotBlank()) "📞 ${item.phone}" else "📞 —"
+        val doDial = {
+            if (item.phone.isNotBlank() && isAdded) {
+                AutoDialHelper.dial(this@ViewOrdersFragment, item.phone)
+            }
+        }
+        btnHistoryDial?.setOnClickListener { doDial() }
+        tvHistoryPhone?.setOnClickListener { doDial() }
 
         val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.effectiveStatus, "en")
         tvOvStatus.text = cfg.label

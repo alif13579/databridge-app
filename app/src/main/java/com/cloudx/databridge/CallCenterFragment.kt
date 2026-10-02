@@ -1435,6 +1435,21 @@ class CallCenterFragment : Fragment() {
 
         tvTitle.text = "Journey Log"
         tvSub.text = "${item.id} · ${item.customer}"
+        // Customer number + dial (parcel card long-press had no number to call).
+        val tvHistoryPhone = view.findViewById<TextView>(R.id.twHistoryPhone)
+        val btnHistoryDial = view.findViewById<TextView>(R.id.btnHistoryDial)
+        tvHistoryPhone?.text = if (item.phone.isNotBlank()) "📞 ${item.phone}" else "📞 —"
+        val doDial = {
+            if (item.phone.isNotBlank() && isAdded) {
+                AutoDialHelper.dial(this@CallCenterFragment, item.phone)
+                CallAttemptStore.beginDial(
+                    item.id, item.phone,
+                    CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_CC
+                )
+            }
+        }
+        btnHistoryDial?.setOnClickListener { doDial() }
+        tvHistoryPhone?.setOnClickListener { doDial() }
 
         // Overview — effective badge (as the card shows) + actual consignment
         // status, so the real delivery state is never hidden behind the

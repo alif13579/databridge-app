@@ -1418,6 +1418,21 @@ class WorkerSpaceFragment : Fragment() {
 
         tvTitle.text = "Action History"
         tvSub.text = "${item.id} · ${item.customer}"
+        // Customer number + dial (parcel card long-press had no number to call).
+        val tvHistoryPhone = view.findViewById<TextView>(R.id.twHistoryPhone)
+        val btnHistoryDial = view.findViewById<TextView>(R.id.btnHistoryDial)
+        tvHistoryPhone?.text = if (item.phone.isNotBlank()) "📞 ${item.phone}" else "📞 —"
+        val doDial = {
+            if (item.phone.isNotBlank() && isAdded) {
+                AutoDialHelper.dial(this@WorkerSpaceFragment, item.phone)
+                CallAttemptStore.beginDial(
+                    item.id, item.phone,
+                    CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_WORKER
+                )
+            }
+        }
+        btnHistoryDial?.setOnClickListener { doDial() }
+        tvHistoryPhone?.setOnClickListener { doDial() }
 
         // Overview — effective badge (as the card shows) + actual consignment status.
         val cfg = WorkerParcelAdapter.getStatusConfig(requireContext(), item.effectiveStatus, workerStatusLang)

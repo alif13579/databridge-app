@@ -47,6 +47,37 @@
                 android:textColor="@color/theme_text_secondary"
                 android:layout_marginTop="2dp"
                 android:includeFontPadding="false" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="6dp">
+
+                <TextView
+                    android:id="@+id/twHistoryPhone"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📞 01700000000"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/theme_accent"
+                    android:includeFontPadding="false" />
+
+                <TextView
+                    android:id="@+id/btnHistoryDial"
+                    android:layout_width="44dp"
+                    android:layout_height="36dp"
+                    android:text="📞"
+                    android:textSize="16sp"
+                    android:gravity="center"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:includeFontPadding="false" />
+            </LinearLayout>
         </LinearLayout>
 
         <TextView

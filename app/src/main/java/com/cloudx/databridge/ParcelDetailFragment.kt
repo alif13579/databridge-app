@@ -79,14 +79,12 @@ class ParcelDetailFragment : Fragment() {
 
     // Views
     private lateinit var tvParcelId:     TextView
-    private lateinit var tvStatus:       TextView
     private lateinit var tvCod:          TextView
     private lateinit var tvCustomer:     TextView
     private lateinit var tvMeta:         TextView
     private lateinit var tvAgeAttempt:   TextView
     private lateinit var tvAddress:      TextView
     private lateinit var tvHub:          TextView
-    private lateinit var tvDates:        TextView
     private lateinit var tvRemarksCount: TextView
     private lateinit var tvEmpty:        TextView
     private lateinit var layoutTimeline: LinearLayout
@@ -94,7 +92,6 @@ class ParcelDetailFragment : Fragment() {
     private lateinit var tvOverviewStatus:    TextView
     private lateinit var tvOverviewCreatedAt: TextView
     private lateinit var tvOverviewUpdatedAt: TextView
-    private lateinit var tvOverviewAge:       TextView
 
     // Fetched from courier/consignments/{id} — cached so tap-to-call and the
     // Overview age counter both have the values without re-reading Firebase.
@@ -139,14 +136,12 @@ class ParcelDetailFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         tvParcelId     = view.findViewById(R.id.tvPdParcelId)
-        tvStatus       = view.findViewById(R.id.tvPdStatus)
         tvCod          = view.findViewById(R.id.tvPdCod)
         tvCustomer     = view.findViewById(R.id.tvPdCustomer)
         tvMeta         = view.findViewById(R.id.tvPdMeta)
         tvAgeAttempt   = view.findViewById(R.id.tvPdAgeAttempt)
         tvAddress      = view.findViewById(R.id.tvPdAddress)
         tvHub          = view.findViewById(R.id.tvPdHub)
-        tvDates        = view.findViewById(R.id.tvPdDates)
         tvRemarksCount = view.findViewById(R.id.tvPdRemarksCount)
         tvEmpty        = view.findViewById(R.id.tvPdRemarksEmpty)
         layoutTimeline = view.findViewById(R.id.layoutPdTimeline)
@@ -154,7 +149,6 @@ class ParcelDetailFragment : Fragment() {
         tvOverviewStatus    = view.findViewById(R.id.tvPdOverviewStatus)
         tvOverviewCreatedAt = view.findViewById(R.id.tvPdOverviewCreatedAt)
         tvOverviewUpdatedAt = view.findViewById(R.id.tvPdOverviewUpdatedAt)
-        tvOverviewAge       = view.findViewById(R.id.tvPdOverviewAge)
 
         tvParcelId.text = parcelId
         view.findViewById<View>(R.id.btnPdBack).setOnClickListener {
@@ -433,6 +427,9 @@ class ParcelDetailFragment : Fragment() {
 
                     Toast.makeText(requireContext(), "✅ Remark saved", Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
+                    // Realtime alone can be delayed/filtered — refetch now so the
+                    // new remark shows immediately without waiting for the socket.
+                    refreshTimelineAfterSave()
                 } else {
                     btnSave.isEnabled = true
                     btnSave.text = saveOrigText
@@ -474,13 +471,9 @@ class ParcelDetailFragment : Fragment() {
                         val attempt      = readAttempt(snap)
 
                         val cfg = WorkerParcelAdapter.getStatusConfig(ctx, status, lang)
-                        tvStatus.text = cfg.label
-                        tvStatus.setTextColor(cfg.color)
-                        tvStatus.setBackgroundColor(cfg.bg)
-
                         tvCod.text      = "৳$cod"
                         tvCustomer.text = customer
-                        tvMeta.text     = "$parcelId · $phone"
+                        tvMeta.text     = phone
                         tvAddress.text  = "📍 $address"
                         tvHub.text      = "🏢 $hub"
 
@@ -490,25 +483,18 @@ class ParcelDetailFragment : Fragment() {
                         currentAttemptCount = attempt
 
                         // Same compact "2d · A3" badge + urgency color/bold the parcel card
-                        // shows (WorkerParcelAdapter.formatAgeCompact/ageColorFor) — this page
-                        // only had the verbose Created/Updated/Age trio further down before.
+                        // shows (WorkerParcelAdapter.formatAgeCompact/ageColorFor).
                         val (ageColor, ageBold) = WorkerParcelAdapter.ageColorFor(createdAt)
                         tvAgeAttempt.text = "🕐 ${WorkerParcelAdapter.formatAgeCompact(createdAt)}  ·  A$attempt"
                         tvAgeAttempt.setTextColor(ageColor)
                         tvAgeAttempt.setTypeface(null, if (ageBold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
 
-                        // Overview card — same fields shown in the long-press Journey Log dialog.
+                        // Row3 status badge + Row1/Row2 dates in Parcel Info block.
                         tvOverviewStatus.text = cfg.label
                         tvOverviewStatus.setTextColor(cfg.color)
+                        tvOverviewStatus.setBackgroundColor(cfg.bg)
                         tvOverviewCreatedAt.text = JourneyLogUi.formatEpochFull(createdAt)
                         tvOverviewUpdatedAt.text = JourneyLogUi.formatEpochFull(updatedAt)
-                        tvOverviewAge.text = formatAge(createdAt, updatedAt)
-                        tvOverviewAge.setTextColor(ageColor)
-
-                        val sdf = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-                        val createdStr = if (createdAt > 0) sdf.format(Date(createdAt)) else "—"
-                        val updatedStr = if (updatedAt > 0 && updatedAt != createdAt) "  ·  Updated ${sdf.format(Date(updatedAt))}" else ""
-                        tvDates.text = "Created: $createdStr$updatedStr"
                     } catch (e: Exception) {
                         FirebaseErrorLogger.log(
                             screen = "ParcelDetailFragment",
@@ -589,6 +575,35 @@ class ParcelDetailFragment : Fragment() {
         }
     }
 
+    /** Explicit refetch after own save — Realtime can lag or drop (filter/RLS/
+     *  socket), so don't wait for it. Replaces timelineRows and re-renders. */
+    private fun refreshTimelineAfterSave() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val rows = withContext(Dispatchers.IO) {
+                val deferred = kotlinx.coroutines.CompletableDeferred<List<org.json.JSONObject>>()
+                SupabaseRemarkValidationWriter.fetchHistory(parcelId, "ParcelDetailFragment") { fetched ->
+                    deferred.complete(fetched)
+                }
+                deferred.await()
+            }
+            if (!isAdded || view == null) return@launch
+            timelineRows = rows.toMutableList()
+            try {
+                renderTimeline()
+            } catch (e: Exception) {
+                FirebaseErrorLogger.log(
+                    screen = "ParcelDetailFragment", action = "renderTimeline_refreshAfterSave",
+                    errorMessage = e.stackTraceToString(),
+                    extra = mapOf("parcelId" to parcelId, "scope" to scope)
+                )
+            }
+            try {
+                resolveAgentPhoneIfNeeded()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     /** Kept alive independently of the fragment's other listeners — a new INSERT just
      *  appends to timelineRows and re-renders, same incremental approach CallCenterFragment/
      *  WorkerSpaceFragment's Realtime handlers use (see refreshOneCcParcelFromSupabase). */
@@ -601,6 +616,10 @@ class ParcelDetailFragment : Fragment() {
         ) { row ->
             viewLifecycleOwner.lifecycleScope.launch {
                 if (!isAdded || view == null) return@launch
+                // Dedup vs explicit refreshTimelineAfterSave() above — same row can
+                // arrive via both refetch and socket; skip when id already shown.
+                val newId = row.optString("id").trim()
+                if (newId.isNotBlank() && timelineRows.any { it.optString("id") == newId }) return@launch
                 val source = row.optStr("source").trim()
                 row.optStr("remarks").trim().takeIf { it.isNotBlank() && source.isNotBlank() }?.let { en ->
                     SupabaseClientManager.resolveRemarkBnCached("ParcelDetailFragment", source, en)?.let { bn ->
