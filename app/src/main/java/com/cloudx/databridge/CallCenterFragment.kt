@@ -83,7 +83,7 @@ class CallCenterFragment : Fragment() {
     private lateinit var tvAutoCallStatusTimer: TextView
     private lateinit var tvAutoCallStatusInfo: TextView
     private lateinit var tvSortByDropdown: TextView
-    private var sortMode: String = "auto" // "auto" (agent blocks) | "attempt" | "aging" | "smart" (flat)
+    private var sortMode: String = "auto" // "auto" (Agents: agent blocks) | "attempt" | "aging" | "smart" (flat)
 
     // Auto Call (sequential dialer) state
     private var autoCallGapSeconds = 8
@@ -1236,6 +1236,11 @@ class CallCenterFragment : Fragment() {
         )
         adapter.sortMode = sortMode // reflect the preference restored in loadFilterPreferences()
         adapter.showAgentOnCard = sortMode != "auto"
+        // Draggable scrollbar (modern smooth drag-to-scroll thumb on the list edge).
+        try {
+            (view?.findViewById(R.id.viewCcaScrollbar) as? DraggableScrollbarView)?.attachTo(rvParcelList)
+        } catch (_: Exception) {
+        }
         rvParcelList.layoutManager = LinearLayoutManager(requireContext())
         rvParcelList.adapter = adapter
         // RecyclerView itself is match_parent (fixed size) — only the cards vary.
@@ -2033,14 +2038,14 @@ class CallCenterFragment : Fragment() {
             "attempt" -> "🔁 Attempt ▾"
             "aging" -> "🕐 Aging ▾"
             "smart" -> "🧠 Smart ▾"
-            else -> "⚡ Auto ▾"
+            else -> "👥 Agents ▾"
         }
     }
 
     private fun showCcSortByDropdown() {
         val ctx = context ?: return
         val options = arrayOf(
-            "⚡ Auto (agent blocks)",
+            "👥 Agents (agent blocks)",
             "🔁 Attempt (flat, most attempted first)",
             "🕐 Aging (flat, oldest first)",
             "🧠 Smart (flat, attempt + aging)"

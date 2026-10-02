@@ -394,9 +394,9 @@ class CallCenterAdapter(
             tvAddress.text = "📍 ${item.address}"
             tvCod.text = "৳${item.cod}"
             // Flat modes (attempt/aging/smart): no agent header, so show agent on card.
+            // Name only (no agent number) — tap opens WhatsApp to the agent.
             if (showAgent && item.worker.isNotBlank()) {
-                val agentPhone = item.workerPhone.trim()
-                tvAgent?.text = if (agentPhone.isNotBlank()) "👤 ${item.worker} · 📞 $agentPhone" else "👤 ${item.worker}"
+                tvAgent?.text = "👤 ${item.worker}"
                 tvAgent?.visibility = View.VISIBLE
                 tvAgent?.setOnClickListener { onWhatsappToAgent(item) }
             } else {
