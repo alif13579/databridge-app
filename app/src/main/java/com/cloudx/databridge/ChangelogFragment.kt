@@ -37,6 +37,16 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "6.11.2",
+                releasedDate = "2 Oct 2026",
+                entries = listOf(
+                    ChangelogEntry("improvement", "Petty Cash: claim code now uses the requested (expense) date instead of the submission date"),
+                    ChangelogEntry("feature", "Journey Log (Call Center, Worker, View Orders): run-route rows show which agent held the parcel each day"),
+                    ChangelogEntry("feature", "View Orders: same-number related parcels appear below direct hits with a 1/2 counter and details dialog"),
+                    ChangelogEntry("improvement", "View Orders: copy/share button on every parcel card"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "6.11.1",
                 releasedDate = "28 Sep 2026",
                 entries = listOf(
