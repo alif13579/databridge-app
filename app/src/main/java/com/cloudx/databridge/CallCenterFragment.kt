@@ -224,6 +224,13 @@ class CallCenterFragment : Fragment() {
     private lateinit var layoutCollapsibleSection: LinearLayout
     private var isHeaderExpanded = false // starts collapsed to save screen space
     private var statusFilter = "all"
+    // Stat-card filter: "all" | "request" | "served" | "rejected" — tapping a stat
+    // card filters the parcel list to that bucket (tap again = back to all).
+    private var statFilter = "all"
+    private var statCardTotal: View? = null
+    private var statCardRequest: View? = null
+    private var statCardServed: View? = null
+    private var statCardRejected: View? = null
     private val selectedBranchIds = mutableSetOf<String>()
     private val branchIdToName = java.util.concurrent.ConcurrentHashMap<String, String>()
     private var branches = listOf<String>()
@@ -448,6 +455,14 @@ class CallCenterFragment : Fragment() {
         tvStatConfirmed = view.findViewById(R.id.twCcaStatConfirmedValue)
         tvStatPending = view.findViewById(R.id.twCcaStatPendingValue)
         tvStatRejected = view.findViewById(R.id.twCcaStatRejectedValue)
+        statCardTotal = view.findViewById(R.id.layoutCcaStatTotal)
+        statCardRequest = view.findViewById(R.id.layoutCcaStatConfirmed)
+        statCardServed = view.findViewById(R.id.layoutCcaStatPending)
+        statCardRejected = view.findViewById(R.id.layoutCcaStatRejected)
+        statCardTotal?.setOnClickListener { selectStatFilter("all") }
+        statCardRequest?.setOnClickListener { selectStatFilter("request") }
+        statCardServed?.setOnClickListener { selectStatFilter("served") }
+        statCardRejected?.setOnClickListener { selectStatFilter("rejected") }
         tvModeDropdown = view.findViewById(R.id.tvCcaModeDropdown)
         tvBranchDropdown = view.findViewById(R.id.tvCcaBranchDropdown)
         tvAgentDropdown = view.findViewById(R.id.tvCcaAgentDropdown)
@@ -2298,6 +2313,46 @@ class CallCenterFragment : Fragment() {
             } else {
                 chip.setBackgroundResource(R.drawable.bg_filter_chip_inactive)
                 chip.setTextColor(ctx.getColor(R.color.theme_text_secondary))
+            }
+        }
+    }
+
+    /** Stat-card tap: same card again = back to all, else filter to that bucket. */
+    private fun selectStatFilter(key: String) {
+        statFilter = if (statFilter == key || key == "all") "all" else key
+        if (key == "all") statFilter = "all"
+        updateStatCardSelection()
+        applyFilters()
+    }
+
+    /** Highlights the active stat card (accent border), others stay default. */
+    private fun updateStatCardSelection() {
+        val density = try { resources.displayMetrics.density } catch (_: Exception) { 1f }
+        val cards = mapOf(
+            "all" to statCardTotal,
+            "request" to statCardRequest,
+            "served" to statCardServed,
+            "rejected" to statCardRejected
+        )
+        for ((key, card) in cards) {
+            val v = card ?: continue
+            if (key == statFilter) {
+                try {
+                    val accent = requireContext().getColor(R.color.theme_accent)
+                    v.background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                        cornerRadius = 10f * density
+                        setColor(requireContext().getColor(R.color.theme_bg_inner))
+                        setStroke((2f * density).toInt(), accent)
+                    }
+                } catch (_: Exception) {
+                    v.setBackgroundResource(R.drawable.bg_filter_chip_active)
+                }
+            } else {
+                try {
+                    v.setBackgroundResource(R.drawable.bg_stat_card)
+                } catch (_: Exception) {
+                }
             }
         }
     }
@@ -5625,30 +5680,32 @@ class CallCenterFragment : Fragment() {
         }
 
         // Update stats — same mode+branch+agent scope as the chips (not the raw,
-        // unfiltered allParcels), so these numbers stay consistent with what's
-        // actually visible below rather than always showing the global totals.
-        //
-        // "confirmed"/"pending" here used to be literal string comparisons
-        // against effectiveStatus, always 0 in practice: statuses in this app are
-        // admin-configured (config/statusMeta), not a fixed set, so a hardcoded literal
-        // essentially never matches real data -- the exact bug StatusMetaCache.kt
-        // documents already having been fixed once for validationRequest itself
-        // ("VERIFY_REQUEST" vs a hardcoded "verify_req"). Those two now read
-        // validationRequest directly (Total Request) and whether a remark exists at all
-        // (Total Served) instead of guessing at another literal status key.
-        // "rejected" below is case-insensitive so REJECTED/Rejected still count.
+        // unfiltered allParcels), UNIQUE by consignment id so a double verify on
+        // the same parcel counts once, not twice.
+        // Buckets: Total = unique consignments; Request = unique verify-requested;
+        // Served = unique validated (hold_verified/return_verified); Rejected =
+        // unique rejected effective status. Tapping a card filters the list below
+        // to that bucket (statFilter), tap again = back to all.
         val scoped = scopedParcels()
-        val total = scoped.size
-        val confirmed = scoped.count { it.validationRequest }
-        val pending = scoped.count { it.remarks.isNotBlank() }
-        val rejected = scoped.count { StatusMetaCache.sameStatus(it.effectiveStatus, "rejected") }
-        val validationCount = scoped.count { it.validationRequest }
+        val byId = scoped.groupBy { it.id }
+        val total = byId.size
+        val requestIds = byId.filterValues { rows -> rows.any { it.validationRequest } }.keys
+        val servedIds = byId.filterValues { rows -> rows.any { HoldClassCache.isValidated(it.remarkStatus) } }.keys
+        val rejectedIds = byId.filterValues { rows -> rows.any { StatusMetaCache.sameStatus(it.effectiveStatus, "rejected") } }.keys
+
+        filtered = when (statFilter) {
+            "request" -> filtered.filter { it.id in requestIds }
+            "served" -> filtered.filter { it.id in servedIds }
+            "rejected" -> filtered.filter { it.id in rejectedIds }
+            else -> filtered
+        }
 
         tvStatTotal.text = total.toString()
-        tvStatConfirmed.text = confirmed.toString()
-        tvStatPending.text = pending.toString()
-        tvStatRejected.text = rejected.toString()
-        tvValidationCount.text = "$validationCount pending"
+        tvStatConfirmed.text = requestIds.size.toString()
+        tvStatPending.text = servedIds.size.toString()
+        tvStatRejected.text = rejectedIds.size.toString()
+        tvValidationCount.text = "${requestIds.size} pending"
+        updateStatCardSelection()
 
         // Render list — DiffUtil computes the minimal set of changes, so the
         // RecyclerView only rebinds/animates rows that actually changed.
