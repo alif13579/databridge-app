@@ -20,11 +20,14 @@ class ClaimsRepository {
         }
         val claim = info.copy(
             claimId = id,
-            // The date here is the submission timestamp, not requestedAt: a
-            // requester may submit an expense for an earlier day, while the
-            // claim code should make it obvious when this claim was placed.
+            // The date here is the requested (expense) date, not the submission
+            // timestamp: a requester may submit an expense for an earlier day,
+            // and the claim code should reflect when the expense happened.
             // Example: CLM-20260819-a1B2c.
-            claimCode = info.claimCode.ifBlank { "CLM-${java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date(timestamp))}-${id.takeLast(5)}" },
+            claimCode = info.claimCode.ifBlank {
+                val effectiveRequestedAt = info.requestedAt.takeIf { it > 0 } ?: timestamp
+                "CLM-${java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(java.util.Date(effectiveRequestedAt))}-${id.takeLast(5)}"
+            },
             createdAt = timestamp,
             updatedAt = timestamp,
             requestedAt = info.requestedAt.takeIf { it > 0 } ?: timestamp
@@ -74,7 +77,13 @@ class ClaimsRepository {
         // claim first (applyUpdates), then the whole row is saved. updatedAt
         // is always refreshed to "now" after, regardless of whether the
         // caller's map included it.
-        val updated = applyUpdates(old, updates).copy(updatedAt = System.currentTimeMillis())
+        // Keep claim_code in sync with the requested (expense) date: if
+        // requestedAt changed, refresh only the date prefix, preserving the
+        // unique suffix so existing references stay stable.
+        var updated = applyUpdates(old, updates).copy(updatedAt = System.currentTimeMillis())
+        if (updates.containsKey("requestedAt") && updated.requestedAt != old.requestedAt) {
+            updated = updated.copy(claimCode = withRequestedDate(updated.claimCode, updated.claimId, updated.requestedAt))
+        }
         val reply = SupabaseClaimsWriter.saveWithReply(updated)
         onSupabaseResult(true)
         return updated to reply
@@ -167,6 +176,17 @@ class ClaimsRepository {
         fun claimId(timestamp: Long): String {
             require(timestamp in 1_000_000_000_000L..9_999_999_999_999L) { "Claim timestamp must be 13 digits" }
             return "claim_$timestamp"
+        }
+
+        /** Rebuilds a CLM-YYYYMMDD-xxxxx code with a new requested date,
+         *  preserving the unique suffix (or the claim id's suffix for
+         *  malformed legacy codes). */
+        fun withRequestedDate(claimCode: String, claimId: String, requestedAt: Long): String {
+            val datePart = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US)
+                .format(java.util.Date(requestedAt))
+            val suffix = claimCode.substringAfterLast("-", "")
+                .takeIf { it.isNotBlank() } ?: claimId.takeLast(5)
+            return "CLM-$datePart-$suffix"
         }
     }
 }

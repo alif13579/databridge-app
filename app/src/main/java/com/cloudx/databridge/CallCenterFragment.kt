@@ -1308,10 +1308,19 @@ class CallCenterFragment : Fragment() {
                             // Firebase profile object used by the old history response. Ensure the
                             // existing system-id -> Firebase profile cache is ready before rendering.
                             ensureAgentNameMap()
+                            // Run-route assignments (who held the parcel which day) — same
+                            // Firebase index -> run node path the lookup uses, merged
+                            // date-wise into the timeline below.
+                            val assignments = RunAssignmentHistory.fetch(item.id)
+                            val assignHistory = RunAssignmentHistory.toHistoryEntries(assignments) { sysId ->
+                                val n = systemIdToName[sysId].orEmpty().ifBlank { sysId }
+                                val e = systemIdToEmployeeId[sysId].orEmpty()
+                                if (e.isBlank()) n else "$n ($e)"
+                            }
                             // Manual call recordings live in their own table — merged
                             // into the same timeline below (see JourneyRecordingUi).
                             val recRows = SupabaseCallRecordings.fetchForConsignment(item.id, "CallCenterFragment")
-                            fetched to recRows
+                            Triple(fetched, recRows, assignHistory)
                         }
                     }
                 }.getOrNull()
@@ -1332,7 +1341,7 @@ class CallCenterFragment : Fragment() {
                     )
                     return@launch
                 }
-                val (rows, recRows) = rowsAndRec
+                val (rows, recRows, assignHistory) = rowsAndRec
                 val recHistory = JourneyLogUi.recordingsToHistory(
                     SupabaseCallRecordings.toRecordings(
                         recRows,
@@ -1341,7 +1350,9 @@ class CallCenterFragment : Fragment() {
                     )
                 )
                 renderActionHistoryDialog(
-                    item.copy(history = buildHistoryEntries(item, rows) + recHistory),
+                    // Assigned-to rows slot date-wise among the remarks; recordings
+                    // stay appended as before.
+                    item.copy(history = (buildHistoryEntries(item, rows) + assignHistory).sortedBy { it.createdAt } + recHistory),
                     isLoading = false,
                     existing = dialog to dialogView,
                     onRecordSaved = { load() }

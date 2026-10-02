@@ -23,6 +23,8 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -44,6 +46,8 @@ data class ViewOrderParcel(
     val updatedAt: Long = 0L,
     /** Manual call recordings / audio evidence on this parcel's journey (proof lookup). */
     val recordingCount: Int = 0,
+    /** True when this card came from the same-number lookup, not the direct query. */
+    val isRelated: Boolean = false,
 ) {
     /** Same rule as CallCenterParcelItem.effectiveStatus (see
      *  StatusMetaCache.isRemarkIgnoredInActual). */
@@ -318,7 +322,8 @@ class ViewOrdersFragment : Fragment() {
      * Consignment-ID prefix + phone prefix go server-side first (no full
      * download — the old full-node scan timed out on big datasets, so ID
      * search returned nothing). Contains-style fallback scan runs only when
-     * prefix found little. Capped at 50 cards.
+     * prefix found little. Capped at 50 direct hits, plus up to 15 related
+     * (same-number via consignments_by_phone) shown below.
      */
     private suspend fun searchParcels(query: String): List<ViewOrderParcel> {
         return try {
@@ -410,8 +415,52 @@ class ViewOrdersFragment : Fragment() {
             val top = hits.sortedWith(compareBy({ it.rank }, { it.id })).take(50)
             if (top.isEmpty()) return emptyList()
 
+            // 3b) Related by number: same-phone parcels the query didn't match
+            // (e.g. searched by consignment ID but the number has more parcels).
+            // consignments_by_phone/{norm} keys are consignment IDs — the same
+            // index the incoming-call lookup uses. Shown below the direct hits.
+            val relatedSnaps = linkedMapOf<String, com.google.firebase.database.DataSnapshot>()
+            try {
+                val normPhones = top.mapNotNull { hit ->
+                    hit.snap.child("recipientPhone").getValue(String::class.java)
+                        ?.let { ConfigSheetParseUtil.normalizePhone(it) }
+                        ?.takeIf { it.isNotBlank() }
+                }.distinct().take(5)
+                val wantedCids = mutableSetOf<String>()
+                for (norm in normPhones) {
+                    val idx = withTimeoutOrNull(10_000) {
+                        db.reference.child("courier/consignments_by_phone/$norm").get().await()
+                    } ?: continue
+                    idx.children.forEach { cidNode ->
+                        val cid = cidNode.key?.trim().orEmpty()
+                        if (cid.isBlank() || cid in seen) return@forEach
+                        wantedCids.add(cid)
+                        if (wantedCids.size >= 15) return@forEach
+                    }
+                    if (wantedCids.size >= 15) break
+                }
+                if (wantedCids.isNotEmpty()) {
+                    coroutineScope {
+                        wantedCids.map { cid ->
+                            async {
+                                val cSnap = withTimeoutOrNull(10_000) {
+                                    db.reference.child("courier/consignments/$cid").get().await()
+                                }
+                                if (cSnap != null && cSnap.exists()) cid to cSnap else null
+                            }
+                        }.awaitAll().filterNotNull()
+                    }.forEach { (cid, cSnap) ->
+                        if (seen.add(cid)) relatedSnaps[cid] = cSnap
+                    }
+                }
+            } catch (_: Exception) { }
+
+            // Direct hits first, related (same number) below.
+            val ordered = top.map { Triple(it.id, it.snap, false) } +
+                relatedSnaps.map { (cid, snap) -> Triple(cid, snap, true) }
+
             // Latest Supabase remark per parcel for the card badge/status.
-            val ids = top.map { it.id }
+            val ids = ordered.map { it.first }
             val latestById = try {
                 val deferred = CompletableDeferred<List<org.json.JSONObject>>()
                 SupabaseRemarkValidationWriter.fetchNewRemarksSince(ids, 0L, "ViewOrdersFragment") { rows ->
@@ -424,8 +473,7 @@ class ViewOrdersFragment : Fragment() {
                 emptyMap()
             }
 
-            top.map { hit ->
-                val s = hit.snap
+            ordered.map { (cid, s, related) ->
                 val name = s.child("recipientName").getValue(String::class.java).orEmpty()
                 val phone = s.child("recipientPhone").getValue(String::class.java).orEmpty()
                 val address = s.child("recipientAddress").getValue(String::class.java).orEmpty()
@@ -435,7 +483,7 @@ class ViewOrdersFragment : Fragment() {
                 val status = s.child("status").getValue(String::class.java).orEmpty()
                 val createdAt = s.child("createdAt").getValue(Long::class.java) ?: 0L
                 val updatedAt = s.child("updatedAt").getValue(Long::class.java) ?: 0L
-                val latest = latestById[hit.id]
+                val latest = latestById[cid]
                 val remarkStatus = latest?.optString("remarks_status")?.trim().orEmpty()
                 val remarkText = latest?.optString("remarks_bn")?.trim()
                     ?.ifBlank { latest.optString("remarks").trim() }
@@ -448,10 +496,11 @@ class ViewOrdersFragment : Fragment() {
                 val remarksAt = latest?.optString("created_at")
                     ?.let { SupabaseRemarkValidationWriter.parseCreatedAtMillis(it) } ?: 0L
                 ViewOrderParcel(
-                    id = hit.id, customer = name, phone = phone, address = address,
+                    id = cid, customer = name, phone = phone, address = address,
                     cod = cod, status = status, remarkStatus = remarkStatus,
                     remarks = remarks, remarksAt = remarksAt,
-                    createdAt = createdAt, updatedAt = updatedAt
+                    createdAt = createdAt, updatedAt = updatedAt,
+                    isRelated = related
                 )
             }.let { parcels ->
                 // Recording badges: one batched count query for all cards.
@@ -485,8 +534,23 @@ class ViewOrdersFragment : Fragment() {
                             SupabaseRemarkValidationWriter.fetchHistory(item.id, "ViewOrdersFragment") { fetched ->
                                 deferred.complete(fetched)
                             }
-                            deferred.await() to
-                                SupabaseCallRecordings.fetchForConsignment(item.id, "ViewOrdersFragment")
+                            val fetched = deferred.await()
+                            // Run-route assignments (who held the parcel which day) —
+                            // same Firebase index -> run node path CC/Worker journeys use.
+                            val assignments = RunAssignmentHistory.fetch(item.id)
+                            val assignNames = assignments.map { it.agentSystemId }.distinct()
+                                .associateWith { sysId ->
+                                    runCatching { UserNameResolver.resolveNameBySystemId(sysId) }
+                                        .getOrNull().orEmpty()
+                                }
+                            val assignHistory = RunAssignmentHistory.toHistoryEntries(assignments) { sysId ->
+                                assignNames[sysId].orEmpty().ifBlank { sysId }
+                            }
+                            Triple(
+                                fetched,
+                                SupabaseCallRecordings.fetchForConsignment(item.id, "ViewOrdersFragment"),
+                                assignHistory
+                            )
                         }
                     }
                 }.getOrNull()
@@ -498,10 +562,12 @@ class ViewOrdersFragment : Fragment() {
                     )
                     return@launch
                 }
-                val (rows, recRows) = rowsAndRec
+                val (rows, recRows, assignHistory) = rowsAndRec
                 renderJourneyDialog(
                     item, isLoading = false,
-                    entries = buildJourneyEntries(rows) +
+                    // Assigned-to rows slot date-wise among the remarks; recordings
+                    // stay appended as before.
+                    entries = (buildJourneyEntries(rows) + assignHistory).sortedBy { it.createdAt } +
                         JourneyLogUi.recordingsToHistory(SupabaseCallRecordings.toRecordings(recRows)),
                     existing = dialog to dialogView
                 )
@@ -744,9 +810,12 @@ class ViewOrdersFragment : Fragment() {
 
         class Holder(v: View) : RecyclerView.ViewHolder(v) {
             val tvCustomer: TextView = v.findViewById(R.id.tvVoCustomer)
+            val tvCopy: TextView = v.findViewById(R.id.tvVoCopy)
             val tvStatus: TextView = v.findViewById(R.id.tvVoStatus)
             val tvRecordings: TextView = v.findViewById(R.id.tvVoRecordings)
             val tvMeta: TextView = v.findViewById(R.id.tvVoMeta)
+            val tvPhoneCount: TextView = v.findViewById(R.id.tvVoPhoneCount)
+            val tvRelated: TextView = v.findViewById(R.id.tvVoRelated)
             val tvAddress: TextView = v.findViewById(R.id.tvVoAddress)
             val tvCod: TextView = v.findViewById(R.id.tvVoCod)
             val btnCall: TextView = v.findViewById(R.id.btnVoCall)
@@ -775,6 +844,36 @@ class ViewOrdersFragment : Fragment() {
             holder.tvStatus.text = cfg.label
             holder.tvStatus.setTextColor(cfg.color)
             holder.tvStatus.backgroundTintList = android.content.res.ColorStateList.valueOf(cfg.bg)
+
+            // 📋 Copy parcel details — tap copies (paste to anyone), long-press shares
+            // (same as the Call Center / Worker cards).
+            val shareText = WorkerParcelAdapter.buildParcelShareText(
+                customer = item.customer,
+                id = item.id,
+                phone = item.phone,
+                address = item.address,
+                cod = item.cod,
+                statusLabel = cfg.label,
+                remarks = item.remarks,
+            )
+            holder.tvCopy.setOnClickListener { WorkerParcelAdapter.copyParcelText(ctx, shareText) }
+            holder.tvCopy.setOnLongClickListener { WorkerParcelAdapter.shareParcelText(ctx, shareText); true }
+
+            // Same-number counter (1/2, 2/2) — only when this phone has >1 parcel
+            // in the results. Tap lists the related parcels.
+            val mates = matesOf(item)
+            if (mates.size > 1) {
+                val sorted = mates.sortedBy { it.id }
+                holder.tvPhoneCount.text = "${sorted.indexOfFirst { it.id == item.id } + 1}/${mates.size}"
+                holder.tvPhoneCount.visibility = View.VISIBLE
+                holder.tvPhoneCount.setOnClickListener {
+                    showPhoneMatesDialog(ctx, item.phone, mates, item.id)
+                }
+            } else {
+                holder.tvPhoneCount.visibility = View.GONE
+                holder.tvPhoneCount.setOnClickListener(null)
+            }
+            holder.tvRelated.visibility = if (item.isRelated) View.VISIBLE else View.GONE
 
             // Proof lookup: recording evidence lives on the journey — badge
             // shows the count, tap jumps straight into the Journey Log.
@@ -821,6 +920,56 @@ class ViewOrdersFragment : Fragment() {
                 onToggleExpand()
             }
             holder.itemView.setOnLongClickListener { onLongPress(item); true }
+        }
+
+        /** Same-phone grouping key as Call Center's sortByGroupAge (last 10 digits). */
+        private fun phoneKey(phone: String): String =
+            phone.filter { it.isDigit() }.takeLast(10)
+
+        /** All result cards sharing [item]'s number (itself included). */
+        private fun matesOf(item: ViewOrderParcel): List<ViewOrderParcel> {
+            val key = phoneKey(item.phone)
+            if (key.isBlank()) return listOf(item)
+            return currentList.filter { phoneKey(it.phone) == key }
+        }
+
+        private fun showPhoneMatesDialog(
+            ctx: android.content.Context,
+            phone: String,
+            mates: List<ViewOrderParcel>,
+            currentId: String,
+        ) {
+            if (mates.isEmpty()) return
+            val sorted = mates.sortedBy { it.id }
+            val lines = sorted.map { m ->
+                val st = WorkerParcelAdapter.getStatusConfig(ctx, m.effectiveStatus, "en").label
+                val mark = if (m.id == currentId) "● " else "○ "
+                "$mark${m.id} — $st"
+            }
+            val box = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                val pad = (ctx.resources.displayMetrics.density * 16).toInt()
+                setPadding(pad, pad / 2, pad, pad / 2)
+            }
+            box.addView(TextView(ctx).apply {
+                text = "📞 $phone · ${mates.size} parcels"
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, 0, 0, 8)
+            })
+            lines.forEach { line ->
+                box.addView(TextView(ctx).apply {
+                    text = line
+                    textSize = 13f
+                    setPadding(0, 6, 0, 6)
+                })
+            }
+            val scroll = android.widget.ScrollView(ctx).apply { addView(box) }
+            android.app.AlertDialog.Builder(ctx)
+                .setTitle("Same number parcels")
+                .setView(scroll)
+                .setPositiveButton("OK", null)
+                .show()
         }
     }
 }

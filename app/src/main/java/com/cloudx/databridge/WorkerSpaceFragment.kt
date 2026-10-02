@@ -1345,10 +1345,16 @@ class WorkerSpaceFragment : Fragment() {
                             // Supabase validation rows contain author_system_id, not a nested Firebase
                             // profile object — resolve it against users_by_systemId the same way
                             // CallCenterFragment.buildHistoryEntries() does, instead of showing the raw id.
-                            val authorIds = fetched.mapNotNull { it.optStr("author_system_id")?.trim()?.takeIf { id -> id.isNotBlank() } }.distinct()
+                            // Run-route assignments (who held the parcel which day) come from
+                            // Firebase too — resolved with the same name/photo maps below.
+                            val assignments = RunAssignmentHistory.fetch(item.id)
+                            val authorIds = (fetched.mapNotNull { it.optStr("author_system_id")?.trim()?.takeIf { id -> id.isNotBlank() } } + assignments.map { it.agentSystemId }).distinct()
                             val (names, photos) = resolveSystemIdNamesAndPhotos(authorIds)
+                            val assignHistory = RunAssignmentHistory.toHistoryEntries(assignments) { sysId ->
+                                names[sysId].orEmpty().ifBlank { sysId }
+                            }
                             val recRows = SupabaseCallRecordings.fetchForConsignment(item.id, "WorkerSpaceFragment")
-                            Triple(fetched, names, photos) to recRows
+                            Triple(fetched, names, photos) to (recRows to assignHistory)
                         }
                     }
                 }.getOrNull()
@@ -1361,8 +1367,9 @@ class WorkerSpaceFragment : Fragment() {
                     )
                     return@launch
                 }
-                val (triple, recRows) = result
+                val (triple, recAndAssign) = result
                 val (rows, nameMap, photoMap) = triple
+                val (recRows, assignHistory) = recAndAssign
                 val recHistory = JourneyLogUi.recordingsToHistory(
                     SupabaseCallRecordings.toRecordings(
                         recRows,
@@ -1371,7 +1378,9 @@ class WorkerSpaceFragment : Fragment() {
                     )
                 )
                 renderActionHistoryDialog(
-                    item.copy(history = buildHistoryEntries(item.id, rows, nameMap, photoMap) + recHistory),
+                    // Assigned-to rows slot date-wise among the remarks; recordings
+                    // stay appended as before.
+                    item.copy(history = (buildHistoryEntries(item.id, rows, nameMap, photoMap) + assignHistory).sortedBy { it.createdAt } + recHistory),
                     isLoading = false,
                     existing = dialog to dialogView,
                     onRecordSaved = { load() }
