@@ -3873,7 +3873,9 @@ class CallCenterFragment : Fragment() {
         val optionViews         = mutableListOf<android.view.View>()
 
         // Enabled once a remark option is picked OR the note has text OR the
-        // schedule was picked/cleared — a schedule alone must still be saveable.
+        // schedule was picked/cleared. Note alone still lights Save up, but
+        // the tap handler below refuses it (remark option is required) — so
+        // the agent gets a clear message instead of a dead button.
         btnSave.isEnabled = false
         btnSave.alpha     = 0.5f
 
@@ -4012,26 +4014,32 @@ class CallCenterFragment : Fragment() {
             if (!btnSave.isEnabled) return@setOnClickListener
             btnSave.isEnabled = false
             val noteText = etRemarks.text?.toString()?.trim() ?: ""
-            if (selectedStatus.isBlank() && noteText.isBlank() && !scheduleTouched) {
+            // Remark option is required — a note alone is never saved (same rule
+            // as the worker sheet). Schedule-only (no remark, no note) still
+            // writes/clears just the date.
+            if (selectedStatus.isBlank()) {
                 btnSave.isEnabled = true
-                return@setOnClickListener
-            }
-            // 📅 Schedule-only (no remark, no note): just write/clear the date
-            // on this parcel — no Supabase remark row, no same-phone fan-out.
-            if (selectedStatus.isBlank() && noteText.isBlank()) {
-                writeParcelSchedule(item.id, pendingScheduled)
-                val clean = ScheduledLock.normalize(pendingScheduled)
-                allParcels = allParcels.map {
-                    if (it.id == item.id) it.copy(scheduledDate = clean) else it
+                if (scheduleTouched && noteText.isBlank()) {
+                    writeParcelSchedule(item.id, pendingScheduled)
+                    val clean = ScheduledLock.normalize(pendingScheduled)
+                    allParcels = allParcels.map {
+                        if (it.id == item.id) it.copy(scheduledDate = clean) else it
+                    }
+                    setupFilterTabs()
+                    applyFilters()
+                    android.widget.Toast.makeText(
+                        requireContext(),
+                        if (clean.isBlank()) "Scheduled date cleared" else "Scheduled — $clean",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    dialog.dismiss()
+                    return@setOnClickListener
                 }
-                setupFilterTabs()
-                applyFilters()
                 android.widget.Toast.makeText(
                     requireContext(),
-                    if (clean.isBlank()) "Scheduled date cleared" else "Scheduled — $clean",
+                    "Select a remark option — note alone is not saved",
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
-                dialog.dismiss()
                 return@setOnClickListener
             }
             // Sheet feedback = category of the picked option (blank stays blank).

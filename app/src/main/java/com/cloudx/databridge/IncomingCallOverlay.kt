@@ -52,6 +52,11 @@ object IncomingCallOverlay {
     private var autoDismissRunnable: Runnable? = null
     private var autoMinimizeRunnable: Runnable? = null
     private var remarkLoadJob: Job? = null
+    // Save runs on its own job: dismissInternal() cancels remarkLoadJob (loading),
+    // but an in-flight SAVE must survive a mid-save dismiss (e.g. the call-end
+    // fade firing right after the tap) — cancelling it silently drops a remark
+    // the agent already tapped Save on.
+    private var overlaySaveJob: Job? = null
     private val overlayScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private const val AUTO_DISMISS_MS = 30_000L
     // Refresh well inside EngagedStateManager's 5-minute staleness window so
@@ -769,6 +774,10 @@ object IncomingCallOverlay {
             } else selfSystemId
             if (agentId.isBlank()) {
                 tvAgentMissing.isVisible = true
+                // No safe save target — hide the remark section so its Save
+                // button (listener attached only on the resolved path below)
+                // can never dead-tap.
+                view.findViewById<View>(R.id.llOverlayRemarkSection).isVisible = false
                 // No run + no validations row: offer a one-tap jump into search
                 // with this number pre-filled — no manual typing. Force flag
                 // bypasses the lookup toggle (explicit tap), permission still
@@ -796,14 +805,13 @@ object IncomingCallOverlay {
                 cancelCallEndFade() // saving — never fade out mid-save
                 val chosen = overlaySelectedOption
                 val noteText = etNote.text?.toString()?.trim().orEmpty()
-                // CC and worker alike: option pick OR note text suffices (same as
-                // CallCenterFragment's sheet) — never strand the saver.
-                if (chosen == null && noteText.isBlank()) {
+                // CC and worker alike: a typed note alone suffices only for the
+                // worker path — CC requires a remark option (same rule as
+                // CallCenterFragment's sheet). Never strand the saver.
+                if (chosen == null && (noteText.isBlank() || isCc)) {
                     Toast.makeText(context, "Select a remark", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-                // CC note-only save (no predefined option picked) mirrors
-                // CallCenterFragment's sheet, which enables Save on note alone.
                 saveFromOverlay(context, view, match, source, isCc, chosen = chosen, noteText = noteText,
                     agentId = agentId, selfSystemId = selfSystemId, rawPhone = rawPhone,
                     todayAssignees = todayAssignees)
@@ -972,8 +980,8 @@ object IncomingCallOverlay {
             btnCancel.isEnabled = true
             btnSave.text = saveLabel
         }
-        remarkLoadJob?.cancel()
-        remarkLoadJob = overlayScope.launch {
+        overlaySaveJob?.cancel()
+        overlaySaveJob = overlayScope.launch {
             var okCount = 0
             var failCount = 0
             consignmentIds.forEach { cid ->
@@ -1023,7 +1031,9 @@ object IncomingCallOverlay {
                             consignmentId = cid,
                             status = chosen?.targetStatus.orEmpty(),
                             remarksText = chosen?.englishLabel.orEmpty(),
-                            noteText = "",
+                            // Worker note rides along (a note-only save lands as a
+                            // visible NOTE row) — never silently dropped.
+                            noteText = noteText,
                             source = "WORKER",
                             screen = "IncomingCallOverlay",
                             remarksBnText = chosen?.let {
@@ -1035,7 +1045,18 @@ object IncomingCallOverlay {
                 }
                 if (ok) okCount++ else failCount++
             }
-            if (overlayView !== view) return@launch
+            // Dismissed mid-save (e.g. the call-end fade fired right after the
+            // tap) — the save above still ran to completion on its own job, so
+            // report the outcome as a toast instead of touching a dead view.
+            if (overlayView !== view) {
+                Toast.makeText(
+                    context,
+                    if (failCount == 0) "✓ Remark saved"
+                    else "⚠ Save failed — check network and retry",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@launch
+            }
             if (failCount == 0) {
                 tvConfirmation.text = if (consignmentIds.size > 1)
                     "✓ Remark saved on ${consignmentIds.size} parcels"
