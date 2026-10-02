@@ -37,6 +37,13 @@ class ChangelogFragment : Fragment() {
         /** Newest version first. Add a new entry here per release — nothing else to update. */
         private val HARDCODED_CHANGELOG = listOf(
             ChangelogVersion(
+                versionName = "7.0.0",
+                releasedDate = "2 Oct 2026",
+                entries = listOf(
+                    ChangelogEntry("improvement", "Connect is now Google-only — QR scan and manual extension-ID input removed (app + extension)"),
+                ),
+            ),
+            ChangelogVersion(
                 versionName = "6.11.5",
                 releasedDate = "2 Oct 2026",
                 entries = listOf(

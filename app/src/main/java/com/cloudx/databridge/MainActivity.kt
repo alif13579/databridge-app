@@ -1426,10 +1426,8 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                     try { prefs.clearExtensionId() } catch (e: Exception) { Log.e("SessionMonitor", "clearExtensionId failed: $e") }
                     if (!extId.isNullOrEmpty()) {
                         try {
-                            // Migrate whenever a uid exists — see ConnectFragment.disconnectExtension()
-                            // for the full rationale (container/ write needs a uid, not a "permanent"
-                            // connection type; a scan-connected session can still carry a real
-                            // user_id). No uid at all (true guest) = nowhere in container/ to write it.
+                            // Migrate whenever a uid exists (container/ write needs a uid).
+                            // No uid at all (true guest) = nowhere in container/ to write it.
                             val uid = firebaseDb.reference.child("sessions/$extId/meta/user_id").get().await().getValue(String::class.java)
                             if (!uid.isNullOrEmpty()) {
                                 val repo = CallRepository(CallDatabase.getDatabase(this@MainActivity).callDao())
@@ -1451,12 +1449,10 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         refreshConnectionDot()
     }
 
-    /** Green when EITHER channel is live: a QR/manually-paired browser extension
-     *  session (isExtensionConnected, set by updateConnectionStatus above) or a
-     *  signed-in Google account — a Google-linked extension can still exchange data
-     *  via the container/{uid} tree without this specific session being paired.
-     *  Also called from refreshAuthUi() so a sign-in/sign-out alone (no session
-     *  change) updates the dot too. */
+    /** Green when connected: an active extension link (isExtensionConnected) or a
+     *  signed-in Google account — Google links exchange data via the
+     *  container/{uid} tree. Also called from refreshAuthUi() so a
+     *  sign-in/sign-out alone updates the dot too. */
     private fun refreshConnectionDot() {
         statusDot.setBackgroundResource(
             if (isExtensionConnected || AuthManager.isLoggedIn()) R.drawable.circle_green else R.drawable.circle_red
