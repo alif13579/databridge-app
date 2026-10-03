@@ -187,8 +187,19 @@ object RemarkSheetMirror {
             val rawWant = lookupValue(kind, ctx)
             if (rawWant.isBlank()) return cell.trim().isBlank()
             val want = tryParseDate(rawWant) ?: return false
-            if (tryParseDate(cell.trim()) == want) return true
-            return want in slashCandidates(cell.trim())
+            val cellT = cell.trim()
+            if (tryParseDate(cellT) == want) return true
+            // Time-suffixed cells ("02-Oct-26 14:30", ISO datetimes) — the
+            // sync path already accepts these; the mirror must too, else live
+            // saves on such rows log mirror_skipped forever.
+            val firstTok = cellT.split(Regex("\\s+")).firstOrNull().orEmpty()
+            if (firstTok.isNotEmpty() && firstTok != cellT) {
+                if (tryParseDate(firstTok) == want) return true
+                if (want in slashCandidates(firstTok)) return true
+            }
+            val tPart = cellT.substringBefore("T")
+            if (tPart.isNotEmpty() && tPart != cellT && tryParseDate(tPart) == want) return true
+            return want in slashCandidates(cellT)
         }
         return cell.trim() == lookupValue(kind, ctx).trim()
     }

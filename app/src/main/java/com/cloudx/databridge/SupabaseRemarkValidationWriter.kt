@@ -458,19 +458,27 @@ object SupabaseRemarkValidationWriter {
         if (token.isBlank() || maxAttempts < 1) return
         GlobalScope.launch(Dispatchers.IO) {
             var attempt = 0
-            var ok = false
-            while (!ok && attempt < maxAttempts) {
+            var lastErr = ""
+            while (attempt < maxAttempts) {
                 if (attempt > 0) delay(if (attempt == 1) 30_000L else 300_000L)
                 attempt++
-                ok = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
-                    registerPushToken(token) { done ->
-                        if (cont.isActive) cont.resume(done, null)
+                when (val r = registerPushTokenDetailed(token)) {
+                    is PushRegisterResult.Ok -> {
+                        lastErr = ""
+                        break
+                    }
+                    is PushRegisterResult.Err -> {
+                        lastErr = r.message
+                        // No system_id (guest / not yet onboarded) can never
+                        // succeed — retrying just spams 3× 401s. Stop quietly;
+                        // the next login re-attempts after admin onboards.
+                        if (r.message.contains("no system_id", ignoreCase = true)) break
                     }
                 }
             }
-            if (!ok) {
+            if (lastErr.isNotBlank() && !lastErr.contains("no system_id", ignoreCase = true)) {
                 log("PushNotifications", "push_token_register_gave_up",
-                    "Registration still failing after $attempt attempt(s)", "")
+                    "Registration still failing after $attempt attempt(s): $lastErr", "")
             }
         }
     }

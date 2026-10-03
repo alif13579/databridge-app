@@ -32,6 +32,15 @@ object FirebaseErrorLogger {
         errorMessage: String,
         extra: Map<String, Any?> = emptyMap()
     ) {
+        // Noise filter: coroutine cancellations (screen closed / scope torn down
+        // mid-load) are normal lifecycle events, not errors — logging them
+        // buries real failures (they were ~20% of all error_logs).
+        if (errorMessage.contains("was cancelled", ignoreCase = true) ||
+            errorMessage.contains("CancellationException")
+        ) {
+            Log.d(TAG, "⏭ Cancellation not logged: $screen/$action")
+            return
+        }
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: "unknown"
         val ref = FirebaseDatabase.getInstance().reference.child("error_logs/$uid").push()
         val entry = mutableMapOf<String, Any?>(
