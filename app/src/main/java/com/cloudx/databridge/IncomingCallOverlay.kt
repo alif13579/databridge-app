@@ -107,10 +107,46 @@ object IncomingCallOverlay {
         mainHandler.post {
             if (overlayView == null) return@post
             callEndRunnable?.let { mainHandler.removeCallbacks(it) }
-            val runnable = Runnable { fadeOutAndDismiss() }
+            // Typing/picking a remark when the call ends must not yank the
+            // composer away — postpone the fade while it's open.
+            val runnable = object : Runnable {
+                override fun run() {
+                    if (isRemarkOpen()) {
+                        mainHandler.postDelayed(this, CALL_END_GRACE_MS)
+                    } else {
+                        fadeOutAndDismiss()
+                    }
+                }
+            }
             callEndRunnable = runnable
             mainHandler.postDelayed(runnable, CALL_END_GRACE_MS)
         }
+    }
+
+    /** True while the remark composer is on screen (picking / typing / saving). */
+    private fun isRemarkOpen(): Boolean {
+        return try {
+            overlayView?.findViewById<View>(R.id.llOverlayRemarkSection)?.isVisible == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Restart the 30s inactivity auto-dismiss from now — remark taps, note
+     *  keystrokes and drags all count as activity. Never shortens an existing
+     *  timer while the composer is open (the runnable itself postpones). */
+    private fun pokeAutoDismiss() {
+        val view = overlayView ?: return
+        autoDismissRunnable?.let { mainHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            if (isRemarkOpen()) {
+                pokeAutoDismiss()
+            } else {
+                dismissInternal()
+            }
+        }
+        autoDismissRunnable = runnable
+        mainHandler.postDelayed(runnable, AUTO_DISMISS_MS)
     }
 
     /** Agent touched the card — keep it up, cancel the post-call fade. */
@@ -339,7 +375,13 @@ object IncomingCallOverlay {
             // Hold engaged on the matched parcel while the popup lives so the
             // assigned worker sees someone is working it (cleared on dismiss).
             if (match != null) markOverlayEngaged(listOf(match.consignmentId))
-            val dismissRunnable = Runnable { dismissInternal() }
+            val dismissRunnable = Runnable {
+                if (isRemarkOpen()) {
+                    pokeAutoDismiss()
+                } else {
+                    dismissInternal()
+                }
+            }
             autoDismissRunnable = dismissRunnable
             mainHandler.postDelayed(dismissRunnable, AUTO_DISMISS_MS)
             scheduleAutoMinimize(context, view, wm, params, llExpanded, llMinimized)
@@ -361,7 +403,17 @@ object IncomingCallOverlay {
     ) {
         autoMinimizeRunnable?.let { mainHandler.removeCallbacks(it) }
         if (llMinimized.isVisible) return // already minimized, nothing to schedule
-        val runnable = Runnable { minimize(context, view, wm, params, llExpanded, llMinimized) }
+        // Never collapse mid-compose — postpone while the remark section is up.
+        val runnable = object : Runnable {
+            override fun run() {
+                if (overlayView !== view) return
+                if (isRemarkOpen()) {
+                    mainHandler.postDelayed(this, AUTO_MINIMIZE_MS)
+                } else {
+                    minimize(context, view, wm, params, llExpanded, llMinimized)
+                }
+            }
+        }
         autoMinimizeRunnable = runnable
         mainHandler.postDelayed(runnable, AUTO_MINIMIZE_MS)
     }
@@ -395,6 +447,7 @@ object IncomingCallOverlay {
                     isDragging = false
                     cancelAutoMinimize() // reading/interacting with it — don't collapse mid-touch
                     cancelCallEndFade() // interacting — don't fade out mid-touch
+                    pokeAutoDismiss() // any touch = activity — restart the 30s clock
                     false // let a plain tap still reach a button underneath
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -440,6 +493,7 @@ object IncomingCallOverlay {
     ) {
         view.findViewById<View>(R.id.btnOverlayMinimize).setOnClickListener {
             cancelCallEndFade()
+            pokeAutoDismiss()
             minimize(context, view, wm, params, llExpanded, llMinimized)
         }
         llMinimized.setOnClickListener {
@@ -727,6 +781,7 @@ object IncomingCallOverlay {
             btnSetRemarks.isVisible = false
             llRemarkSection.isVisible = true
             cancelAutoMinimize() // reading/picking — don't collapse mid-interaction
+            pokeAutoDismiss() // composing — 30s clock restarts, runnable postpones anyway
             loadRemarkSection(context, view, match, rawPhone, source, source == "CC")
         }
         view.findViewById<TextView>(R.id.btnOverlayRemarkCancel).setOnClickListener {
@@ -736,6 +791,7 @@ object IncomingCallOverlay {
             view.findViewById<View>(R.id.btnOverlayAgentMissingSearch).isVisible = false
             btnSetRemarks.isVisible = true
             resetOverlayBody(view)
+            pokeAutoDismiss()
         }
     }
 
@@ -803,6 +859,7 @@ object IncomingCallOverlay {
 
             btnSave.setOnClickListener {
                 cancelCallEndFade() // saving — never fade out mid-save
+                pokeAutoDismiss() // save may take seconds on slow network
                 val chosen = overlaySelectedOption
                 val noteText = etNote.text?.toString()?.trim().orEmpty()
                 // CC and worker alike: a typed note alone suffices only for the
@@ -889,7 +946,18 @@ object IncomingCallOverlay {
                 // the note box (blank clears) — CallCenterFragment parity.
                 if (isCc) etNote.setText(overlaySelectedOption?.instructionText.orEmpty())
                 refreshStyles()
+                pokeAutoDismiss() // picking = activity
             }
+            // Typing the note is activity too — keystrokes alone must hold
+            // the popup (no tap happens while the keyboard is up).
+            etNote.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    cancelCallEndFade()
+                    pokeAutoDismiss()
+                }
+            })
             chipContainer.addView(row)
             rowViews.add(OptRow(row, tvLabel, tvTag))
         }
@@ -932,12 +1000,14 @@ object IncomingCallOverlay {
         clampOverlayBody(view)
         view.findViewById<View>(R.id.btnOverlayFanoutYes).setOnClickListener {
             cancelCallEndFade() // saving — never fade out mid-save
+            pokeAutoDismiss()
             llFanout.isVisible = false
             doOverlaySave(context, view, listOf(match.consignmentId) + siblings, match, source, isCc,
                 chosen, noteText, agentId, selfSystemId, todayAssignees)
         }
         view.findViewById<View>(R.id.btnOverlayFanoutNo).setOnClickListener {
             cancelCallEndFade() // saving — never fade out mid-save
+            pokeAutoDismiss()
             llFanout.isVisible = false
             doOverlaySave(context, view, listOf(match.consignmentId), match, source, isCc,
                 chosen, noteText, agentId, selfSystemId, todayAssignees)
@@ -1076,6 +1146,8 @@ object IncomingCallOverlay {
                 restoreSaveButton()
                 // Failed — bring the section back exactly as it was (picks + note
                 // are still in the views) so the agent can retry; hide the saving line.
+                // Fresh 30s clock so the retry window isn't cut short.
+                pokeAutoDismiss()
                 tvConfirmation.isVisible = false
                 llRemarkSection.isVisible = true
                 clampOverlayBody(view)
