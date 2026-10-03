@@ -98,19 +98,9 @@ object FirebasePaths {
     // Aligned / Petty Cash POC / Accounts) lives on Branch.kt fields instead
     // (staff_uid, petty_cash_poc_uid, accountant_uid), same as manager_uid.
 
-    /* ── Claims (Petty Cash requests) ────────────────────────────────
-     * Claim data is deliberately stored once at claims/{claimId}/info.  The
-     * two lookup trees only contain {claimId}: true, so reporting can use a
-     * server-side orderByKey()/startAt()/endAt() range without duplicating a
-     * complete claim document. */
-    fun claims() = "claims"
-    fun claim(claimId: String) = "claims/$claimId"
-    fun claimInfo(claimId: String) = "claims/$claimId/info"
-    fun claimsByBranch(branchId: String) = "claims/indexes/claims_by_branchId/$branchId"
-    // Keyed by the digits-only system_id instead of the HR employee_id (which
-    // can contain spaces, unsafe as a key). The old claims_by_employeeId index
-    // is gone — nothing reads or writes it anymore.
-    fun claimsBySystemId(systemId: String) = "claims/indexes/claims_by_systemId/$systemId"
+    // Claims (Petty Cash requests): REMOVED — claims now live only in
+    // Supabase (public.claims). The Firebase node + its rules were deleted,
+    // so the claims path helpers were dead code.
 
     /* ── Leave Management ─────────────────────────────────────────────
      * Flow: Requester -> any Incharge (branch) acknowledges -> any Shift

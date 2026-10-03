@@ -2094,6 +2094,33 @@ class CallCenterFragment : Fragment() {
                                     SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optStr("created_at"))
                                 }
                                 if (latest != null) refreshOneCcParcelFromSupabase(consignmentId, latest)
+                                // Re-mirror the newest REMAINING CC row so the
+                                // sheet drops the deleted values (same as edit).
+                                val latestCc = rows
+                                    .filter { it.optStr("source").trim().equals("CC", ignoreCase = true) }
+                                    .maxByOrNull {
+                                        SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optStr("created_at"))
+                                    }
+                                if (latestCc != null) {
+                                    val st = latestCc.optStr("remarks_status").trim()
+                                    val en = latestCc.optStr("remarks").trim()
+                                    val feedback = ccRemarkOptions.firstOrNull {
+                                        it.statusKey == st && it.englishLabel == en
+                                    }?.category.orEmpty()
+                                    val validatorName = latestCc.optJSONObject("author")
+                                        ?.optStr("name")?.trim().orEmpty()
+                                        .ifBlank {
+                                            runCatching { UserNameResolver.resolveOwnValidatorName() }.getOrNull().orEmpty()
+                                        }
+                                    val branchId = allParcels.firstOrNull { it.id == consignmentId }
+                                        ?.branchIds?.firstOrNull().orEmpty()
+                                    if (branchId.isNotBlank()) {
+                                        val appCtx = requireContext().applicationContext
+                                        RemarkSheetMirror.mirror(appCtx, branchId, consignmentId, feedback,
+                                            validatorName,
+                                            onAuthNeeded = { (activity as? MainActivity)?.promptSheetAuthOnce() })
+                                    }
+                                }
                             }
                             onDone()
                         }
