@@ -9,21 +9,33 @@
     "scanned": {
       ".read": "auth != null",
       ".write": true,
-      ".indexOn": ["scan_at", "status", "branch_id"],
+      ".indexOn": [
+        "scan_at",
+        "status",
+        "branch_id"
+      ],
       "self_assigned": {
         "$uid": {
-          ".indexOn": ["scan_at", "status", "branch_id"]
+          ".indexOn": [
+            "scan_at",
+            "status",
+            "branch_id"
+          ]
         }
       },
       "barcode_scans": {
-        ".indexOn": ["lastScannedAt"]
+        ".indexOn": [
+          "lastScannedAt"
+        ]
       }
     },
     "scan_sheet_retry": {
       ".read": "auth != null",
       ".write": "auth != null",
       "$branchId": {
-        ".indexOn": ["created_at"]
+        ".indexOn": [
+          "created_at"
+        ]
       }
     },
     "users_by_systemId": {
@@ -37,7 +49,9 @@
       "$uid": {
         ".write": "auth != null && (auth.uid == $uid || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'supervisor' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'stuff')",
         "run-routes": {
-          ".indexOn": ["created_at"]
+          ".indexOn": [
+            "created_at"
+          ]
         }
       }
     },
@@ -62,7 +76,9 @@
           "$entryId": {
             ".validate": "newData.hasChildren(['parcelDelivery','documentDelivery','parcelAssigned','documentAssigned','parcelCommission','documentCommission','createdAt','model']) && newData.child('createdAt').isNumber() && newData.child('createdAt').val() > 0"
           },
-          ".indexOn": ["createdAt"]
+          ".indexOn": [
+            "createdAt"
+          ]
         }
       }
     },
@@ -103,22 +119,6 @@
         }
       }
     },
-    "claims": {
-      ".read": "auth != null",
-      "$claimId": {
-        "info": {
-          ".write": "auth != null && ((!data.exists() && newData.child('claimId').val() === $claimId && newData.child('workerUid').val() === auth.uid && newData.child('status').val() === 'pending' && root.child('roles').child(((root.child('users').child(auth.uid).child('profile/company_info/role_id').val() !== null && root.child('users').child(auth.uid).child('profile/company_info/role_id').val() !== '') ? root.child('users').child(auth.uid).child('profile/company_info/role_id').val() : root.child('users').child(auth.uid).child('profile/company_info/role').val())).child('permissions/petty_cash_requester').val() === true) || (data.exists() && newData.child('claimId').val() === data.child('claimId').val() && newData.child('branchId').val() === data.child('branchId').val() && newData.child('employeeId').val() === data.child('employeeId').val() && ((data.child('status').val() === 'pending' && newData.child('workerUid').val() === auth.uid && (newData.child('status').val() === 'pending' || newData.child('status').val() === 'cancelled')) || (data.child('status').val() === 'pending' && newData.child('status').val() === 'verified' && (root.child('branches').child(data.child('branchId').val()).child('staff_uid').val() === auth.uid || (root.child('branches').child(data.child('branchId').val()).child('staff_uid').val() === '' && root.child('branches').child(data.child('branchId').val()).child('staff_role').val() === ((root.child('users').child(auth.uid).child('profile/company_info/role_id').val() !== null && root.child('users').child(auth.uid).child('profile/company_info/role_id').val() !== '') ? root.child('users').child(auth.uid).child('profile/company_info/role_id').val() : root.child('users').child(auth.uid).child('profile/company_info/role').val())))) || (data.child('status').val() === 'verified' && newData.child('status').val() === 'approved' && root.child('branches').child(data.child('branchId').val()).child('petty_cash_poc_uid').val() === auth.uid) || ((data.child('status').val() === 'approved' && newData.child('status').val() === 'ready_to_settle') || (data.child('status').val() === 'ready_to_settle' && newData.child('status').val() === 'settled')) && (root.child('branches').child(data.child('branchId').val()).child('accountant_uid').val() === auth.uid || (root.child('branches').child(data.child('branchId').val()).child('accountant_uid').val() === '' && root.child('branches').child(data.child('branchId').val()).child('accountant_role').val() === ((root.child('users').child(auth.uid).child('profile/company_info/role_id').val() !== null && root.child('users').child(auth.uid).child('profile/company_info/role_id').val() !== '') ? root.child('users').child(auth.uid).child('profile/company_info/role_id').val() : root.child('users').child(auth.uid).child('profile/company_info/role').val())))) || ((data.child('status').val() === 'pending' || data.child('status').val() === 'verified') && newData.child('status').val() === 'rejected')))"
-        }
-      },
-      "indexes": {
-        "claims_by_branchId": {
-          "$branchId": { "$claimId": { ".write": "auth != null && ((!data.exists() && newData.val() === true) || (data.exists() && !newData.exists()))" } }
-        },
-        "claims_by_employeeId": {
-          "$employeeId": { "$claimId": { ".write": "auth != null && ((!data.exists() && newData.val() === true) || (data.exists() && !newData.exists()))" } }
-        }
-      }
-    },
     "leave_management": {
       "$branchId": {
         ".read": "auth != null",
@@ -135,7 +135,10 @@
         "$uid": {
           ".read": "auth != null && (auth.uid == $uid || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'supervisor')",
           ".write": "auth != null && (auth.uid == $uid || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'admin' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'manager' || root.child('users').child(auth.uid).child('profile').child('company_info').child('role_id').val() == 'supervisor')",
-          ".indexOn": ["scan_at", "status"],
+          ".indexOn": [
+            "scan_at",
+            "status"
+          ],
           "$scanKey": {
             ".validate": "!newData.exists() || (newData.hasChildren(['scan_text','scan_at','status','user_id']) && newData.child('scan_text').isString() && newData.child('scan_text').val().length > 0 && newData.child('scan_at').isNumber() && newData.child('scan_at').val() > 0 && newData.child('status').isString() && newData.child('user_id').val() == $uid && (!newData.child('manual').exists() || newData.child('manual').isBoolean()))"
           }
@@ -144,7 +147,10 @@
       "$runId": {
         ".read": "auth != null && $runId != 'scanned'",
         ".write": "auth != null && $runId != 'scanned'",
-        ".indexOn": ["created_at", "status"]
+        ".indexOn": [
+          "created_at",
+          "status"
+        ]
       }
     },
     "salaries": {
@@ -161,7 +167,9 @@
           }
         },
         "providers": {
-          "$providerName": { ".validate": "newData.isBoolean()" }
+          "$providerName": {
+            ".validate": "newData.isBoolean()"
+          }
         },
         "ledger": {
           "$providerName": {
@@ -191,7 +199,10 @@
           "$rid": {
             ".read": "auth != null && $cid == 'container_' + auth.uid",
             ".write": "auth != null && $cid == 'container_' + auth.uid",
-            ".indexOn": ["type", "received_at"],
+            ".indexOn": [
+              "type",
+              "received_at"
+            ],
             "actions": {
               ".read": "auth != null && $cid == 'container_' + auth.uid",
               ".write": "auth != null && $cid == 'container_' + auth.uid"
@@ -205,11 +216,18 @@
         ".read": true,
         ".write": true,
         "meta": {
-          ".indexOn": ["status", "type", "updated_at"]
+          ".indexOn": [
+            "status",
+            "type",
+            "updated_at"
+          ]
         },
         "records": {
           "$rid": {
-            ".indexOn": ["type", "received_at"]
+            ".indexOn": [
+              "type",
+              "received_at"
+            ]
           }
         }
       }
@@ -237,9 +255,18 @@
       "consignments": {
         ".read": "auth != null",
         ".write": "auth != null",
-        ".indexOn": ["status", "recipientPhone", "deliveryHub", "scheduled_date"],
+        ".indexOn": [
+          "status",
+          "recipientPhone",
+          "deliveryHub",
+          "scheduled_date"
+        ],
         "$consignmentId": {
-          ".indexOn": ["status", "recipientPhone", "deliveryHub"]
+          ".indexOn": [
+            "status",
+            "recipientPhone",
+            "deliveryHub"
+          ]
         }
       },
       "consignments_by_phone": {
@@ -251,7 +278,11 @@
         ".write": "auth != null",
         "delivery_run": {
           "$runId": {
-            ".indexOn": ["agentId", "status", "createdAt"]
+            ".indexOn": [
+              "agentId",
+              "status",
+              "createdAt"
+            ]
           }
         }
       },
@@ -277,7 +308,9 @@
         ".read": "auth != null",
         ".write": "auth != null",
         "$consignmentId": {
-          ".indexOn": ["createdAt"]
+          ".indexOn": [
+            "createdAt"
+          ]
         }
       },
       "users_by_consignment": {
