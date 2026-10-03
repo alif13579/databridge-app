@@ -1461,6 +1461,7 @@ class WorkerSpaceFragment : Fragment() {
                     consignmentId = item.id,
                     branchId = item.branchIds.firstOrNull().orEmpty(),
                     authorSystemId = "", source = "WORKER",
+                    onUploaded = { onRecordSaved?.invoke() },
                 )
             }
         }

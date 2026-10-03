@@ -1468,6 +1468,7 @@ class CallCenterFragment : Fragment() {
                     consignmentId = item.id,
                     branchId = item.branchIds.firstOrNull().orEmpty(),
                     authorSystemId = "", source = "CC",
+                    onUploaded = { onRecordSaved?.invoke() },
                 )
             }
         }
