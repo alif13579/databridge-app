@@ -108,25 +108,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         // Not fatal to decline — manual call recording just won't be available.
         nextPermissionStep()
     }
-    private val locationLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        // Not fatal to decline — live tracking just stays off for this device.
-        // Granted → (re)start sharing now (worker role-gated inside).
-        if (granted) {
-            try {
-                LiveLocationTracker.onPermissionGranted(this@MainActivity)
-            } catch (_: Exception) {}
-        }
-        nextPermissionStep()
-    }
-    private val locationStandaloneLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            // One-time ask for existing installs only — never touches the chain.
-            if (granted) {
-                try {
-                    LiveLocationTracker.onPermissionGranted(this@MainActivity)
-                } catch (_: Exception) {}
-            }
-        }
+
     private val notificationLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         // Not fatal to decline — new-remark alerts just won't show in the system tray;
         // the in-app bell still works either way. Only advance the first-launch chain
@@ -412,7 +394,6 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             initApp(savedInstanceState == null)
             handleNotificationIntent(intent)
             maybeRequestNotificationPermission()
-            maybeRequestLocationPermission()
             // Sideload self-update: silent GitHub Releases check (max once/24h,
             // dialog only when a newer APK is published).
             AppUpdateManager.silentCheck(this)
@@ -485,14 +466,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         notificationLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
     }
 
-    /** Same one-time ask for location on existing installs. */
-    private fun maybeRequestLocationPermission() {
-        if (appPrefs.hasAskedLocationPermission()) return
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
-            == android.content.pm.PackageManager.PERMISSION_GRANTED) return
-        appPrefs.setAskedLocationPermission(true)
-        locationStandaloneLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
-    }
+
 
     override fun onBackPressed() {
         if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
@@ -1303,9 +1277,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                  else callLogLauncher.launch(android.Manifest.permission.READ_CALL_LOG)
             5 -> if (isGranted(android.Manifest.permission.RECORD_AUDIO)) nextPermissionStep()
                  else micLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-            6 -> if (isGranted(android.Manifest.permission.ACCESS_FINE_LOCATION)) nextPermissionStep()
-                 else locationLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
-            7 -> requestNotificationPermission()
+            // NOTE: location prompt intentionally off — tracking stays dormant
+            // until the permission is granted manually (Settings).
+            6 -> requestNotificationPermission()
             else -> {
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)
@@ -1361,11 +1335,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                         Uri.fromParts("package", packageName, null)
                     )
                 )
-                permissionStep = 8
+                permissionStep = 7
                 appPrefs.setPermissionsSetupComplete(true)
             }
             .setNegativeButton("Continue Anyway") { _, _ ->
-                permissionStep = 8
+                permissionStep = 7
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)
             }
