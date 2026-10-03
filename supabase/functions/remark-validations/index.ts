@@ -1,9 +1,11 @@
-// remark-validations — compat slug, byte-identical to validations/index.ts
-// (the canonical slug). Kept deployed so old APKs/extension builds keep
-// working — edit BOTH files together until this slug is retired.
-// Call Center / Worker REMARK flows only.
-// Actions: write, edit, sync_run_status, report, admin_list_remarks,
+// validations — Call Center / Worker REMARK flows only.
+// Actions: write, edit, delete, sync_run_status, report, admin_list_remarks,
 // admin_upsert_remark, admin_delete_remark, admin_migrate_status_remarks.
+//
+// NOTE: this is the canonical slug (renamed from remark-validations).
+// supabase/functions/remark-validations/index.ts is a byte-identical compat
+// copy kept deployed so old APKs/extension builds keep working — edit BOTH
+// files together until the old slug is retired.
 //
 // Every other domain moved to its own function (see supabase/functions/):
 // user-sync (profile/push-token/backfill_user), directory (branches/stores),
@@ -211,6 +213,54 @@ Deno.serve(async (request) => {
         author_system_id: row.author_system_id,
         remarks_status: typeof patch.remarks_status === 'string' ? patch.remarks_status : row.remarks_status,
         remarks: typeof patch.remarks === 'string' ? patch.remarks : row.remarks,
+        source: row.source,
+      }, identity)
+      return reply({ ok: true, push })
+    }
+
+    if (action === 'delete') {
+      // CC agents can delete their OWN remark within 5 minutes of saving it —
+      // same guards as edit (own-row + CC-only + window, all server-side).
+      // Pushes the removal so the agent app never shows the deleted remark.
+      const id = typeof body.id === 'string' ? body.id.trim() : ''
+      if (!id) {
+        return reply({ error: 'Row id required' }, 400)
+      }
+      const authorProfile = await firebaseProfile(identity)
+      const { data: row, error: fetchError } = await admin.from('validations')
+        .select('id,consignment,branch_id,assigned_to_system_id,author_system_id,source,remarks_status,remarks,created_at')
+        .eq('id', id)
+        .single()
+      if (fetchError || !row) {
+        errLog('delete', 'row_not_found', { id })
+        return reply({ error: 'Remark not found' }, 404)
+      }
+      if (row.source !== 'CC') {
+        errLog('delete', 'not_cc_row', { id })
+        return reply({ error: 'Only Call Center remarks can be deleted' }, 403)
+      }
+      if (row.author_system_id !== authorProfile.systemId) {
+        errLog('delete', 'not_own_row', { id })
+        return reply({ error: 'You can only delete your own remarks' }, 403)
+      }
+      const ageMs = Date.now() - new Date(row.created_at).getTime()
+      if (!Number.isFinite(ageMs) || ageMs > 5 * 60 * 1000) {
+        errLog('delete', 'window_expired', { id })
+        return reply({ error: 'Delete window over — remarks lock 5 minutes after saving', code: 'EDIT_EXPIRED' }, 403)
+      }
+      const { error: deleteError } = await admin.from('validations').delete().eq('id', id)
+      if (deleteError) {
+        errLog('delete', 'db_delete_failed', { id, pg_code: deleteError.code, pg_message: deleteError.message })
+        throw deleteError
+      }
+      // Same recipients as edit, marked removed so the agent app drops it.
+      const push = await sendRemarkPush({
+        consignment: row.consignment,
+        branch_id: row.branch_id,
+        assigned_to_system_id: row.assigned_to_system_id,
+        author_system_id: row.author_system_id,
+        remarks_status: row.remarks_status,
+        remarks: `🗑 Removed: ${row.remarks || ''}`.trim(),
         source: row.source,
       }, identity)
       return reply({ ok: true, push })

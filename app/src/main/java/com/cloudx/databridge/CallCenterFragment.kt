@@ -1654,9 +1654,9 @@ class CallCenterFragment : Fragment() {
                     onDeleted = { onRecordSaved?.invoke() }
                 )
 
-                // ✎ Edit — own CC remarks only, within 5 min of saving. The server
-                // re-checks all three (own row + CC-only + window), so a stale chip
-                // can never force a late edit through.
+                // ✎ Edit / 🗑 Delete — own CC remarks only, within 5 min of saving.
+                // The server re-checks all three (own row + CC-only + window), so a
+                // stale chip can never force a late edit/delete through.
                 if (entry.authorRole == "cc" &&
                     entry.validationId.isNotBlank() &&
                     entry.authorSystemId.isNotBlank() &&
@@ -1685,6 +1685,31 @@ class CallCenterFragment : Fragment() {
                             }
                         }
                         metaRow.addView(editChip)
+                        val deleteChip = TextView(requireContext()).apply {
+                            text = "🗑 Delete"
+                            textSize = 10f
+                            setTypeface(null, android.graphics.Typeface.BOLD)
+                            setTextColor(android.graphics.Color.parseColor("#DC2626"))
+                            setPadding(
+                                (8f * resources.displayMetrics.density).toInt(), 0,
+                                (4f * resources.displayMetrics.density).toInt(), 0
+                            )
+                            setOnClickListener {
+                                android.app.AlertDialog.Builder(requireContext())
+                                    .setTitle("Delete remark?")
+                                    .setMessage("\"${entry.remark.take(120)}\"\n\nThis cannot be undone. The agent app will be notified.")
+                                    .setPositiveButton("Delete") { _, _ ->
+                                        deleteCcRemark(
+                                            entry = entry,
+                                            consignmentId = item.id,
+                                            onDone = { onRecordSaved?.invoke() }
+                                        )
+                                    }
+                                    .setNegativeButton("Cancel", null)
+                                    .show()
+                            }
+                        }
+                        metaRow.addView(deleteChip)
                     }
                 }
 
@@ -1986,6 +2011,73 @@ class CallCenterFragment : Fragment() {
 
         dialog.setContentView(view)
         dialog.show()
+    }
+
+    /**
+     * Deletes one own CC remark from the journey log (5-min window, server-enforced;
+     * the server pushes the removal to the agent app). On success the card
+     * refreshes from the actual latest remaining row (or clears when none remain)
+     * and [onDone] reloads the journey so the timeline + chips update.
+     * Sheet mirror is intentionally skipped here — the next bulk sync / remark
+     * save overwrites the row with the then-latest values (latest-wins).
+     */
+    private fun deleteCcRemark(
+        entry: HistoryEntry,
+        consignmentId: String,
+        onDone: () -> Unit
+    ) {
+        if (!isAdded) return
+        android.widget.Toast.makeText(requireContext(), "Deleting…", android.widget.Toast.LENGTH_SHORT).show()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                SupabaseRemarkValidationWriter.deleteAwait(
+                    validationId = entry.validationId,
+                    screen = "CallCenterFragment"
+                )
+            }
+            if (!isAdded) return@launch
+            when (result) {
+                is SupabaseRemarkValidationWriter.EditResult.Ok -> {
+                    android.widget.Toast.makeText(
+                        requireContext(), "Deleted — agent notified", android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                    // Card ← actual latest remaining row (blank when none left).
+                    SupabaseRemarkValidationWriter.fetchHistory(consignmentId, "CallCenterFragment") { rows ->
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            if (!isAdded) return@launch
+                            if (rows.isEmpty()) {
+                                allParcels = allParcels.map {
+                                    if (it.id == consignmentId) it.copy(
+                                        remarks = "", remarkStatus = "",
+                                        validationRequest = false, validationNote = "",
+                                        remarksAt = 0L
+                                    ) else it
+                                }
+                                setupFilterTabs()
+                                applyFilters()
+                            } else {
+                                val latest = rows.maxByOrNull {
+                                    SupabaseRemarkValidationWriter.parseCreatedAtMillis(it.optStr("created_at"))
+                                }
+                                if (latest != null) refreshOneCcParcelFromSupabase(consignmentId, latest)
+                            }
+                            onDone()
+                        }
+                    }
+                }
+                is SupabaseRemarkValidationWriter.EditResult.Expired -> {
+                    android.widget.Toast.makeText(
+                        requireContext(),
+                        "5 min over — can't delete this remark anymore",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                    onDone()
+                }
+                is SupabaseRemarkValidationWriter.EditResult.Err -> {
+                    android.widget.Toast.makeText(requireContext(), result.message, android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }
     }
 
     private fun updateModeDropdownLabel() {

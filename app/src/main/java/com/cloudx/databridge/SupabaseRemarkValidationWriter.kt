@@ -231,6 +231,64 @@ object SupabaseRemarkValidationWriter {
             }
         }
 
+    /**
+     * Suspend delete of one validations row the caller authored. Server enforces
+     * own-row + CC-only + 5-minute window (same as edit) and pushes the removal
+     * to the agent app; reuses [EditResult] (Expired = window over).
+     */
+    suspend fun deleteAwait(validationId: String,
+                           screen: String = "JourneyDelete"): EditResult =
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            if (validationId.isBlank()) {
+                if (cont.isActive) cont.resumeWith(Result.success(EditResult.Err("Missing remark id")))
+                return@suspendCancellableCoroutine
+            }
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user == null) {
+                if (cont.isActive) cont.resumeWith(Result.success(EditResult.Err("Not signed in")))
+                return@suspendCancellableCoroutine
+            }
+            user.getIdToken(false).addOnCompleteListener { tokenTask ->
+                val token = tokenTask.result?.token
+                if (!tokenTask.isSuccessful || token.isNullOrBlank()) {
+                    if (cont.isActive) cont.resumeWith(Result.success(
+                        EditResult.Err(tokenTask.exception?.message ?: "No Firebase ID token")))
+                    return@addOnCompleteListener
+                }
+                val payload = JSONObject().put("action", "delete").put("id", validationId)
+                val request = Request.Builder().url("${SupabaseConfig.PROJECT_URL}/functions/v1/validations")
+                    .addHeader("apikey", SupabaseConfig.PUBLISHABLE_KEY).addHeader("Authorization", "Bearer $token")
+                    .addHeader("Content-Type", "application/json").post(payload.toString().toRequestBody(jsonMediaType)).build()
+                client.newCall(request).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        log(screen, "supabase_validation_delete_network_error", e.message ?: "Network error", validationId)
+                        if (cont.isActive) cont.resumeWith(Result.success(EditResult.Err(e.message ?: "Network error")))
+                    }
+                    override fun onResponse(call: Call, response: okhttp3.Response) {
+                        response.use {
+                            val text = it.body?.string().orEmpty()
+                            val result = try {
+                                val body = if (text.isBlank()) JSONObject() else JSONObject(text)
+                                when {
+                                    it.isSuccessful && body.optBoolean("ok", false) -> EditResult.Ok
+                                    body.optString("code") == "EDIT_EXPIRED" ||
+                                        text.contains("EDIT_EXPIRED") -> EditResult.Expired
+                                    else -> EditResult.Err(
+                                        body.optString("error").ifBlank { "Couldn't delete (HTTP ${it.code})" })
+                                }
+                            } catch (_: Exception) {
+                                EditResult.Err("Couldn't delete (HTTP ${it.code})")
+                            }
+                            if (!it.isSuccessful && result is EditResult.Err) {
+                                log(screen, "supabase_validation_delete_http_error", "HTTP ${it.code}: ${text.take(300)}", validationId)
+                            }
+                            if (cont.isActive) cont.resumeWith(Result.success(result))
+                        }
+                    }
+                })
+            }
+        }
+
     // ── Admin remark-option config (ConfigRemarksFragment) ──────────────────────
     // Distinct from write() above: these manage validation_remarks rows as the
     // OPTIONS themselves (what shows in the CC/Worker remark picker), gated
