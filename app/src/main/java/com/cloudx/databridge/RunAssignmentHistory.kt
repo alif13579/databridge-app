@@ -29,7 +29,8 @@ object RunAssignmentHistory {
         val runType: String,
         val runId: String,
         val agentSystemId: String,
-        /** Dhaka millis when the parcel landed on this run (run created_at, else runId date at noon). */
+        /** Dhaka millis when the parcel landed on this run (run created_at —
+         *  millis, ISO-datetime or date-only — else runId day-start). */
         val assignedAt: Long,
     )
 
@@ -100,14 +101,47 @@ object RunAssignmentHistory {
         when (val raw = runSnap.child("created_at").value) {
             is Long -> if (raw > 0L) return raw
             is Number -> if (raw.toLong() > 0L) return raw.toLong()
-            is String -> raw.trim().toLongOrNull()?.takeIf { it > 0L }?.let { return it }
+            // created_at is often a DATE-ONLY string (not millis) — parse it
+            // to that Dhaka day's start (assignment is always staffed before
+            // any same-day remark, so day-start keeps the timeline order).
+            is String -> {
+                val s = raw.trim()
+                s.toLongOrNull()?.takeIf { it > 0L }?.let { return it }
+                parseDateOnlyMillis(s)?.let { return it }
+            }
             else -> {}
         }
         return runIdDayMillis(runId)
     }
 
-    /** `run_yyyyMMdd_...` → that Dhaka day at noon (noon, not midnight, so the
-     *  millis can never spill into a neighbouring day in any zone). */
+    /** Parses date-only (or ISO-datetime) strings to Dhaka millis. Day-granular
+     *  inputs resolve to that day's start (00:00) — assignment always precedes
+     *  same-day remarks. Null when unparseable. */
+    private fun parseDateOnlyMillis(raw: String): Long? {
+        val s = raw.trim()
+        if (s.isEmpty()) return null
+        if ('T' in s) {
+            return runCatching { java.time.Instant.parse(s).toEpochMilli() }.getOrNull()?.takeIf { it > 0L }
+                ?: runCatching { java.time.OffsetDateTime.parse(s).toInstant().toEpochMilli() }.getOrNull()?.takeIf { it > 0L }
+        }
+        Regex("""^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})""").find(s)?.let { m ->
+            return dayStartOf(m.groupValues[1].toInt(), m.groupValues[2].toInt(), m.groupValues[3].toInt())
+        }
+        Regex("""^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})""").find(s)?.let { m ->
+            return dayStartOf(m.groupValues[3].toInt(), m.groupValues[2].toInt(), m.groupValues[1].toInt())
+        }
+        return null
+    }
+
+    private fun dayStartOf(y: Int, m: Int, d: Int): Long? {
+        return runCatching {
+            java.time.LocalDate.of(y, m, d).atStartOfDay(DhakaTime.ZONE).toInstant().toEpochMilli()
+        }.getOrNull()?.takeIf { it > 0L }
+    }
+
+    /** `run_yyyyMMdd_...` → that Dhaka day at 00:00 (day-start, not noon:
+     *  runs are staffed in the morning, so assignment always lands before any
+     *  same-day remark in the timeline). */
     fun runIdDayMillis(runId: String): Long {
         val date = runId.split("_").getOrNull(1)?.trim().orEmpty()
         if (date.length != 8 || !date.all { it.isDigit() }) return 0L
@@ -115,10 +149,7 @@ object RunAssignmentHistory {
             val y = date.substring(0, 4).toInt()
             val m = date.substring(4, 6).toInt()
             val d = date.substring(6, 8).toInt()
-            DhakaTime.calendar().apply {
-                set(y, m - 1, d, 12, 0, 0)
-                set(Calendar.MILLISECOND, 0)
-            }.timeInMillis
+            java.time.LocalDate.of(y, m, d).atStartOfDay(DhakaTime.ZONE).toInstant().toEpochMilli()
         }.getOrDefault(0L)
     }
 }
