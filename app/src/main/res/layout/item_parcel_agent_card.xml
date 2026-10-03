@@ -5,6 +5,18 @@
     android:layout_height="wrap_content"
     android:layout_marginBottom="8dp">
 
+    <!-- Recording dot — top-left while this parcel's call records (RecDot pulse) -->
+    <View
+        android:id="@+id/viewRecDot"
+        android:layout_width="10dp"
+        android:layout_height="10dp"
+        android:layout_gravity="top|start"
+        android:layout_marginTop="12dp"
+        android:layout_marginStart="10dp"
+        android:background="@drawable/circle_red"
+        android:elevation="3dp"
+        android:visibility="gone" />
+
     <!-- Age badge — fixed to top-right corner regardless of card height -->
     <TextView
         android:id="@+id/tvAgtAge"

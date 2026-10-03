@@ -203,8 +203,21 @@ class WorkerSpaceFragment : Fragment() {
         }
     }
 
+    /** Recording-dot refresh (CallRecordingStore start/stop → rebind dot cards). */
+    private val recDotListener: () -> Unit = {
+        try {
+            if (isAdded) {
+                try { rvParcelList.post { if (isAdded) adapter.refreshRecDot() } }
+                catch (_: Exception) { }
+            }
+        } catch (_: Exception) { }
+    }
+
     override fun onResume() {
         super.onResume()
+        // Recording may have started/stopped while in the dialer — sync dots.
+        CallRecordingStore.addListener(recDotListener)
+        try { if (::adapter.isInitialized) adapter.refreshRecDot() } catch (_: Exception) { }
         // Popup finder handoff for the tab-switch path (the already-on-tab
         // case is applied directly by MainActivity, mirroring CallCenter).
         (activity as? MainActivity)?.pendingWorkerSearchPhone?.takeIf { it.isNotBlank() }?.let {
@@ -238,6 +251,7 @@ class WorkerSpaceFragment : Fragment() {
         searchJob?.cancel()
         searchJob = null
         AppNotificationManager.removeRemarkListener(remarkNotificationListener)
+        CallRecordingStore.removeListener(recDotListener)
         RemarkPushChainLog.log("RemarkPushChain", "WorkerSpaceFragment: remarkListener UNREGISTERED (onDestroyView)")
         detachRunsListener()
         detachEngagedAtListeners()

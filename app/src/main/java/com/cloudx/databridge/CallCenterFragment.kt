@@ -307,8 +307,21 @@ class CallCenterFragment : Fragment() {
         }
     }
 
+    /** Recording-dot refresh (CallRecordingStore start/stop → rebind dot cards). */
+    private val recDotListener: () -> Unit = {
+        try {
+            if (isAdded) {
+                try { rvParcelList.post { if (isAdded) adapter.refreshRecDot() } }
+                catch (_: Exception) { }
+            }
+        } catch (_: Exception) { }
+    }
+
     override fun onResume() {
         super.onResume()
+        // Recording may have started/stopped while in the dialer — sync dots.
+        CallRecordingStore.addListener(recDotListener)
+        try { if (::adapter.isInitialized) adapter.refreshRecDot() } catch (_: Exception) { }
         // Require an intervening onPause so this doesn't fire from the same resumed
         // state the dial happened in (e.g. an OEM call overlay that never backgrounds us).
         if (resumeSignal != null && hasPausedSincePendingDial) {
@@ -368,6 +381,7 @@ class CallCenterFragment : Fragment() {
         ccRealtimeJobs.values.forEach { it.cancel() }
         ccRealtimeJobs.clear()
         AppNotificationManager.removeRemarkListener(remarkNotificationListener)
+        CallRecordingStore.removeListener(recDotListener)
         super.onDestroyView()
         stopAutoCall()
         detachRunsListener()

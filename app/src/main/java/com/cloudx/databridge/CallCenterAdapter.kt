@@ -64,7 +64,23 @@ class CallCenterAdapter(
 
     override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
         super.onViewRecycled(holder)
-        if (holder is CardHolder) holder.stopCallingLoop()
+        if (holder is CardHolder) {
+            holder.stopCallingLoop()
+            holder.stopRecDot()
+        }
+    }
+
+    /** Last consignment id showing the recording dot (for targeted refresh). */
+    private var recDotCid: String? = null
+
+    /** Rebinds just the cards whose recording dot changed (start/stop). */
+    fun refreshRecDot() {
+        val cur = if (CallRecordingStore.recording) CallRecordingStore.consignmentId else null
+        if (cur == recDotCid) return
+        val old = recDotCid
+        recDotCid = cur
+        old?.let { refreshItem(it) }
+        cur?.let { refreshItem(it) }
     }
 
     // Worker group headers
@@ -318,8 +334,13 @@ class CallCenterAdapter(
         private val tvScheduledLock: TextView = view.findViewById(R.id.tvAgtScheduledLock)
         private val tvCalling: TextView = view.findViewById(R.id.tvAgtCalling)
 
+        private val viewRecDot: View = view.findViewById(R.id.viewRecDot)
+
         /** Stops the 📞 dots loop when this card is recycled (bind restarts it). */
         fun stopCallingLoop() = CallingDots.stop(tvCalling)
+
+        /** Stops the recording-dot pulse when this card is recycled. */
+        fun stopRecDot() = RecDot.hide(viewRecDot)
         private val remarksBox: View = view.findViewById(R.id.layoutAgtRemarksBox)
         private val tvRemarks: TextView = view.findViewById(R.id.tvAgtRemarks)
         private val tvRemarksTime: TextView = view.findViewById(R.id.tvAgtRemarksTime)
@@ -492,6 +513,10 @@ class CallCenterAdapter(
                 CallingDots.stop(tvCalling)
                 tvCalling.visibility = View.GONE
             }
+
+            // Recording dot — pulses while this parcel's call records.
+            if (CallRecordingStore.recording && CallRecordingStore.consignmentId == item.id) RecDot.show(viewRecDot)
+            else RecDot.hide(viewRecDot)
 
             // Engaged ring (ambient "someone's on this" glow) + avatars (exactly who) — both
             // shown together, not one replacing the other. Same freshness check drives both.

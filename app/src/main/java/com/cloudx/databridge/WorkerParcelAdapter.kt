@@ -189,6 +189,7 @@ class WorkerParcelAdapter(
         val tvStatusBadge: TextView = view.findViewById(R.id.tvParcelStatusBadge)
         val tvScheduledLock: TextView = view.findViewById(R.id.tvParcelScheduledLock)
         val tvCalling: TextView = view.findViewById(R.id.tvParcelCalling)
+        val viewRecDot: View = view.findViewById(R.id.viewRecDot)
         val remarksBox: View = view.findViewById(R.id.layoutParcelRemarksBox)
         val tvRemarks: TextView = view.findViewById(R.id.tvParcelRemarks)
         val tvRemarksTime: TextView = view.findViewById(R.id.tvParcelRemarksTime)
@@ -223,6 +224,25 @@ class WorkerParcelAdapter(
     override fun onViewRecycled(holder: Holder) {
         super.onViewRecycled(holder)
         CallingDots.stop(holder.tvCalling)
+        RecDot.hide(holder.viewRecDot)
+    }
+
+    /** Last consignment id showing the recording dot (for targeted refresh). */
+    private var recDotCid: String? = null
+
+    /** Rebinds just the cards whose recording dot changed (start/stop). */
+    fun refreshRecDot() {
+        val cur = if (CallRecordingStore.recording) CallRecordingStore.consignmentId else null
+        if (cur == recDotCid) return
+        val old = recDotCid
+        recDotCid = cur
+        old?.let { posOf(it)?.let { p -> notifyItemChanged(p) } }
+        cur?.let { posOf(it)?.let { p -> notifyItemChanged(p) } }
+    }
+
+    private fun posOf(consignmentId: String): Int? {
+        val i = currentList.indexOfFirst { it.id == consignmentId }
+        return if (i >= 0) i else null
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
@@ -260,6 +280,10 @@ class WorkerParcelAdapter(
         holder.tvAge.setTextColor(ageColor)
         holder.tvAge.setTypeface(null, if (ageBold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         holder.tvAge.textSize = if (ageBold) 11f else 10f
+
+        // Recording dot — pulses while this parcel's call records.
+        if (CallRecordingStore.recording && CallRecordingStore.consignmentId == item.id) RecDot.show(holder.viewRecDot)
+        else RecDot.hide(holder.viewRecDot)
 
         // Stripe: show on all cards in a group, tighten margin between grouped cards
         holder.viewGroupStripe.visibility = if (inGroup) View.VISIBLE else View.GONE

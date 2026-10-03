@@ -348,6 +348,7 @@ object CallRecordingStore {
         this.consignmentId = consignmentId
         this.filePath = filePath
         this.startMs = startMs
+        notifyChanged()
     }
 
     fun onPaused(paused: Boolean) {
@@ -360,5 +361,20 @@ object CallRecordingStore {
         consignmentId = ""
         filePath = ""
         startMs = 0L
+        notifyChanged()
+    }
+
+    /** Parcel-card red dots refresh through these (recording start/stop). */
+    private val listeners = mutableSetOf<() -> Unit>()
+    fun addListener(l: () -> Unit) {
+        listeners += l
+    }
+
+    fun removeListener(l: () -> Unit) {
+        listeners -= l
+    }
+
+    private fun notifyChanged() {
+        listeners.toList().forEach { runCatching { it() } }
     }
 }
