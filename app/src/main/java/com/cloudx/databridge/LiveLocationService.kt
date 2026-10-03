@@ -77,9 +77,15 @@ class LiveLocationService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private fun identityPrefs() =
+        getSharedPreferences("live_location", Context.MODE_PRIVATE)
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                try {
+                    identityPrefs().edit().clear().apply()
+                } catch (_: Exception) {}
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -93,11 +99,32 @@ class LiveLocationService : Service() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
+                try {
+                    identityPrefs().edit()
+                        .putString(EXTRA_SYSTEM_ID, systemId)
+                        .putString(EXTRA_NAME, agentName)
+                        .putString(EXTRA_BRANCH, branchId)
+                        .apply()
+                } catch (_: Exception) {}
                 startForegroundWithType()
                 beginUpdates()
                 return START_STICKY
             }
         }
+        // Process-death restart (null intent): resume with the saved identity
+        // so tracking survives without waiting for the next login.
+        val saved = identityPrefs().getString(EXTRA_SYSTEM_ID, null).orEmpty()
+        if (saved.isNotBlank() && hasLocationPermission() &&
+            FirebaseAuth.getInstance().currentUser != null
+        ) {
+            systemId = saved
+            agentName = identityPrefs().getString(EXTRA_NAME, null).orEmpty()
+            branchId = identityPrefs().getString(EXTRA_BRANCH, null).orEmpty()
+            startForegroundWithType()
+            beginUpdates()
+            return START_STICKY
+        }
+        stopSelf()
         return START_NOT_STICKY
     }
 
@@ -144,6 +171,8 @@ class LiveLocationService : Service() {
     }
 
     private fun beginUpdates() {
+        // Already running (repeat START, e.g. resume re-check) — don't double-register.
+        if (callback != null) return
         val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, INTERVAL_MS)
             .setMinUpdateIntervalMillis(FASTEST_MS)
             .setMinUpdateDistanceMeters(DISPLACEMENT_M)
@@ -205,7 +234,13 @@ object LiveLocationTracker {
     /** Roles whose devices share live location. */
     private val TRACKED_ROLES = setOf("worker", "agent", "rider", "delivery_agent")
 
-    fun startIfEligible(context: Context) {
+    /** onResume re-checks (admin may grant while installed) — throttled. */
+    @Volatile private var lastAttemptMs: Long = 0L
+    private const val RETRY_MS = 5 * 60 * 1000L
+
+    fun startIfEligible(context: Context, force: Boolean = false) {
+        if (!force && System.currentTimeMillis() - lastAttemptMs < RETRY_MS) return
+        lastAttemptMs = System.currentTimeMillis()
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 val appCtx = context.applicationContext

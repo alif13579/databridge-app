@@ -533,6 +533,13 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         if (appPrefs.isPermissionsSetupComplete()) {
             refreshAuthUi()
         }
+        // Admin-granted location (MDM) can land while installed — re-check
+        // throttled inside (worker role-gated, no prompt of our own).
+        try {
+            if (FirebaseAuth.getInstance().currentUser != null) {
+                LiveLocationTracker.startIfEligible(this)
+            }
+        } catch (_: Exception) {}
         // Overlay-settings return: the only onResume-driven advance (guarded by
         // the flag, never by step number — backgrounding mid-chain must not
         // re-launch anything). Granted → continue; denied → finish without it.
