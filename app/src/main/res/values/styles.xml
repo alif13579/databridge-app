@@ -19,4 +19,9 @@
         <item name="android:windowExitAnimation">@anim/pc_slide_out_right</item>
     </style>
 
+    <!-- iPhone-style selected tab pill (BottomNavigationView active indicator). -->
+    <style name="BottomNavPill">
+        <item name="android:background">@drawable/bottom_nav_pill</item>
+    </style>
+
 </resources>

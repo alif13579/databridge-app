@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- iPhone-style frosted-glass bar (light theme): translucent white, hairline
+     border + top highlight. True backdrop-blur isn't available to views, so
+     translucency + elevation shadow is the standard approximation. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="28dp" />
+            <solid android:color="#DCFFFFFF" />
+            <stroke
+                android:width="1dp"
+                android:color="#14000000" />
+        </shape>
+    </item>
+    <item
+        android:left="1dp"
+        android:top="1dp"
+        android:right="1dp"
+        android:bottom="1dp">
+        <shape android:shape="rectangle">
+            <corners android:radius="27dp" />
+            <solid android:color="#00FFFFFF" />
+            <stroke
+                android:width="1dp"
+                android:color="#4DFFFFFF" />
+        </shape>
+    </item>
+</layer-list>
