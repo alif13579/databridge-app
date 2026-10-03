@@ -108,6 +108,25 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         // Not fatal to decline — manual call recording just won't be available.
         nextPermissionStep()
     }
+    private val locationLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        // Not fatal to decline — live tracking just stays off for this device.
+        // Granted → (re)start sharing now (worker role-gated inside).
+        if (granted) {
+            try {
+                LiveLocationTracker.onPermissionGranted(this@MainActivity)
+            } catch (_: Exception) {}
+        }
+        nextPermissionStep()
+    }
+    private val locationStandaloneLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            // One-time ask for existing installs only — never touches the chain.
+            if (granted) {
+                try {
+                    LiveLocationTracker.onPermissionGranted(this@MainActivity)
+                } catch (_: Exception) {}
+            }
+        }
     private val notificationLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         // Not fatal to decline — new-remark alerts just won't show in the system tray;
         // the in-app bell still works either way. Only advance the first-launch chain
@@ -393,6 +412,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             initApp(savedInstanceState == null)
             handleNotificationIntent(intent)
             maybeRequestNotificationPermission()
+            maybeRequestLocationPermission()
             // Sideload self-update: silent GitHub Releases check (max once/24h,
             // dialog only when a newer APK is published).
             AppUpdateManager.silentCheck(this)
@@ -463,6 +483,15 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
             == android.content.pm.PackageManager.PERMISSION_GRANTED) return
         appPrefs.setAskedNotificationPermission(true)
         notificationLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    /** Same one-time ask for location on existing installs. */
+    private fun maybeRequestLocationPermission() {
+        if (appPrefs.hasAskedLocationPermission()) return
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
+            == android.content.pm.PackageManager.PERMISSION_GRANTED) return
+        appPrefs.setAskedLocationPermission(true)
+        locationStandaloneLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
     override fun onBackPressed() {
@@ -702,6 +731,7 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                         loadFragment(CheckInFragment.newInstance(branchId, RbacManager.current.branchName))
                     }
                 }
+                R.id.nav_live_tracking -> loadFragment(LiveTrackingFragment.newInstance())
                 R.id.nav_reconciliation -> loadFragment(ReconciliationFragment())
                 R.id.nav_follow_up -> loadFragment(FollowUpFragment())
                 R.id.nav_recording_cleanup -> loadFragment(RecordingCleanupFragment())
@@ -1122,6 +1152,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
         menu.findItem(R.id.nav_checkin)?.apply {
             isVisible = RbacManager.hasPermission("nav_checkin")
         }
+        menu.findItem(R.id.nav_live_tracking)?.apply {
+            isVisible = RbacManager.hasPermission("nav_live_tracking")
+        }
         menu.findItem(R.id.nav_reconciliation)?.apply {
             isVisible = RbacManager.hasPermission("nav_reconciliation")
         }
@@ -1270,7 +1303,9 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                  else callLogLauncher.launch(android.Manifest.permission.READ_CALL_LOG)
             5 -> if (isGranted(android.Manifest.permission.RECORD_AUDIO)) nextPermissionStep()
                  else micLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-            6 -> requestNotificationPermission()
+            6 -> if (isGranted(android.Manifest.permission.ACCESS_FINE_LOCATION)) nextPermissionStep()
+                 else locationLauncher.launch(android.Manifest.permission.ACCESS_FINE_LOCATION)
+            7 -> requestNotificationPermission()
             else -> {
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)
@@ -1326,11 +1361,11 @@ class MainActivity : AppCompatActivity(), AuthUiHost {
                         Uri.fromParts("package", packageName, null)
                     )
                 )
-                permissionStep = 6
+                permissionStep = 8
                 appPrefs.setPermissionsSetupComplete(true)
             }
             .setNegativeButton("Continue Anyway") { _, _ ->
-                permissionStep = 6
+                permissionStep = 8
                 appPrefs.setPermissionsSetupComplete(true)
                 initApp(isFirstLaunch = false)
             }

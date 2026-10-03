@@ -56,6 +56,10 @@ class DataBridgeApplication : Application() {
             FirebaseAuth.getInstance().addAuthStateListener { firebaseAuth ->
                 if (firebaseAuth.currentUser == null) return@addAuthStateListener
                 fetchAndRegisterPushToken(attempt = 0)
+                // Worker role → share live location (role + permission gated inside).
+                try {
+                    LiveLocationTracker.startIfEligible(this@DataBridgeApplication)
+                } catch (_: Exception) {}
             }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Firebase init failed: ${e.message}")

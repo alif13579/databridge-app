@@ -110,6 +110,11 @@
             android:title="Check In"
             android:visible="false" />
         <item
+            android:id="@+id/nav_live_tracking"
+            android:icon="@android:drawable/ic_menu_mapmode"
+            android:title="Live Tracking"
+            android:visible="false" />
+        <item
             android:id="@+id/nav_reconciliation"
             android:icon="@android:drawable/ic_menu_agenda"
             android:title="Reconciliation"

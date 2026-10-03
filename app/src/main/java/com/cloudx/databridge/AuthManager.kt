@@ -55,6 +55,8 @@ object AuthManager {
                     ).await()
                 } catch (_: Exception) {}
             }
+            // Logout → stop live-location sharing first (no more points after this).
+            try { LiveLocationTracker.stop(context) } catch (_: Exception) {}
             // Logout → clear every engaged_at entry this device marked (any source).
             // Runs BEFORE auth.signOut() while rules still allow our writes; leftovers
             // would otherwise sit under other agents' parcels forever (display-hidden

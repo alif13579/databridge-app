@@ -47,6 +47,14 @@
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"
         android:minSdkVersion="30" />
+    <!-- Live agent tracking (worker role): foreground-only, no background
+         permission needed. Requested in the onboarding chain (MainActivity)
+         but optional: declining only disables live tracking. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE_LOCATION"
+        android:minSdkVersion="34" />
     <uses-feature
         android:name="android.hardware.telephony"
         android:required="false" />
@@ -148,6 +156,16 @@
             android:exported="false"
             android:foregroundServiceType="microphone"
             tools:targetApi="30" />
+
+        <!-- Live agent tracking: FusedLocation while logged in (worker role).
+              foregroundServiceType="location" is API 29+; older devices ignore
+              it at parse time. Foreground-only: no background permission. -->
+        <service
+            android:name=".LiveLocationService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            tools:targetApi="29" />
 
         <!-- Receives high-priority FCM data messages even while no screen is open. -->
         <service

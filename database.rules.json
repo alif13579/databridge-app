@@ -230,6 +230,10 @@
     },
     "courier": {
       ".read": "auth != null",
+      "live_locations": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      },
       "consignments": {
         ".read": "auth != null",
         ".write": "auth != null",

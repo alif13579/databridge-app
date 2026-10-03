@@ -40,6 +40,7 @@ class AppPreferences(private val context: Context) {
         // 🔹 Simple Flag Key (SharedPreferences - not in DataStore)
         private const val KEY_PERMS_SETUP_DONE = "perms_setup_done"
         private const val KEY_ASKED_NOTIF_PERM = "asked_notif_perm"
+        private const val KEY_ASKED_LOCATION_PERM = "asked_location_perm"
     }
 
     // ══════════════════════════════
@@ -72,6 +73,15 @@ class AppPreferences(private val context: Context) {
 
     fun setAskedNotificationPermission(asked: Boolean) {
         simplePrefs.edit().putBoolean(KEY_ASKED_NOTIF_PERM, asked).apply()
+    }
+
+    /** Same one-time-ask pattern for location (existing installs predate it). */
+    fun hasAskedLocationPermission(): Boolean {
+        return simplePrefs.getBoolean(KEY_ASKED_LOCATION_PERM, false)
+    }
+
+    fun setAskedLocationPermission(asked: Boolean) {
+        simplePrefs.edit().putBoolean(KEY_ASKED_LOCATION_PERM, asked).apply()
     }
 
     // ══════════════════════════════

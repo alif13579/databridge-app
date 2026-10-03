@@ -40,8 +40,8 @@ android {
         applicationId = "com.cloudx.databridge"
         minSdk = 23
         targetSdk = 34
-      versionCode = 500
-      versionName = "7.0.0"
+        versionCode = 501
+        versionName = "7.1.0"
         multiDexEnabled = true                                         // ✅ Large app support
         vectorDrawables.useSupportLibrary = true       // ✅ Vector drawable on API 21+
         buildConfigField("String", "SUPABASE_URL", "\"${escapedBuildConfigValue(publicBuildConfigValue("SUPABASE_URL"))}\"")
@@ -106,6 +106,9 @@ dependencies {
 
     // ✅ Google Sign-In (Play Services Auth) — used for Sheets/Drive OAuth account picker
     implementation("com.google.android.gms:play-services-auth:21.0.0")
+
+    // ✅ Live agent tracking — FusedLocation for LiveLocationService
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 
     // ✅ OkHttp — Google Drive + Sheets REST API calls (ConfigSheetFragment)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
