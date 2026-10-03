@@ -527,6 +527,13 @@ class WorkerSpaceFragment : Fragment() {
             onCall = { item ->
                 AutoDialHelper.dial(this, item.phone) // ✅ auto-dial / dialpad / SIM chooser
                 CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_WORKER)
+                // Auto call-record + auto-upload on call end (no review step).
+                JourneyRecordingUi.startAutoCallRecording(
+                    this, viewLifecycleOwner.lifecycleScope,
+                    consignmentId = item.id,
+                    branchId = item.branchIds.firstOrNull().orEmpty(),
+                    authorSystemId = "", source = "WORKER",
+                )
                 try {
                     ActiveCallEngagement.startOutgoing(
                         requireContext().applicationContext, item.phone,
@@ -570,6 +577,12 @@ class WorkerSpaceFragment : Fragment() {
                     adapter.currentList.getOrNull(position)?.let { item ->
                         AutoDialHelper.dial(this, item.phone)
                         CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_WORKER)
+                        JourneyRecordingUi.startAutoCallRecording(
+                            this, viewLifecycleOwner.lifecycleScope,
+                            consignmentId = item.id,
+                            branchId = item.branchIds.firstOrNull().orEmpty(),
+                            authorSystemId = "", source = "WORKER",
+                        )
                         try {
                             ActiveCallEngagement.startOutgoing(
                                 requireContext().applicationContext, item.phone,
@@ -1428,6 +1441,12 @@ class WorkerSpaceFragment : Fragment() {
                 CallAttemptStore.beginDial(
                     item.id, item.phone,
                     CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_WORKER
+                )
+                JourneyRecordingUi.startAutoCallRecording(
+                    this@WorkerSpaceFragment, viewLifecycleOwner.lifecycleScope,
+                    consignmentId = item.id,
+                    branchId = item.branchIds.firstOrNull().orEmpty(),
+                    authorSystemId = "", source = "WORKER",
                 )
             }
         }

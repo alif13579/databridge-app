@@ -1114,6 +1114,13 @@ class CallCenterFragment : Fragment() {
                 // Call-track: pending dial resolved on resume (talk duration proves
                 // true dial vs instant-cut fake for the supervisor report).
                 CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_CC)
+                // Auto call-record + auto-upload on call end (no review step).
+                JourneyRecordingUi.startAutoCallRecording(
+                    this@CallCenterFragment, viewLifecycleOwner.lifecycleScope,
+                    consignmentId = item.id,
+                    branchId = item.branchIds.firstOrNull().orEmpty(),
+                    authorSystemId = "", source = "CC",
+                )
                 // Live presence: same-phone group shows engaged (calling) to other
                 // agents/workers while this call runs — survives dialer background.
                 try {
@@ -1223,6 +1230,12 @@ class CallCenterFragment : Fragment() {
                     adapter.parcelAt(position)?.let { item ->
                         AutoDialHelper.dial(this@CallCenterFragment, item.phone)
                         CallAttemptStore.beginDial(item.id, item.phone, CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_CC)
+                        JourneyRecordingUi.startAutoCallRecording(
+                            this@CallCenterFragment, viewLifecycleOwner.lifecycleScope,
+                            consignmentId = item.id,
+                            branchId = item.branchIds.firstOrNull().orEmpty(),
+                            authorSystemId = "", source = "CC",
+                        )
                         try {
                             ActiveCallEngagement.startOutgoing(
                                 requireContext().applicationContext, item.phone,
@@ -1435,6 +1448,12 @@ class CallCenterFragment : Fragment() {
                 CallAttemptStore.beginDial(
                     item.id, item.phone,
                     CallAttemptStore.KIND_MANUAL, CallAttemptStore.ROLE_CC
+                )
+                JourneyRecordingUi.startAutoCallRecording(
+                    this@CallCenterFragment, viewLifecycleOwner.lifecycleScope,
+                    consignmentId = item.id,
+                    branchId = item.branchIds.firstOrNull().orEmpty(),
+                    authorSystemId = "", source = "CC",
                 )
             }
         }

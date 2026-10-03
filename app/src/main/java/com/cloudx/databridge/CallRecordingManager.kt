@@ -10,15 +10,15 @@ import java.io.File
  *
  * Two-tier strategy (user asked: jekhane both-side hoy sekhane both-side,
  * jekhane hoyna sekhane loudspeaker diye holeo):
- *  - Android 9 and below (API <= 28): try VOICE_CALL first — on many OEMs
- *    (esp. Samsung) this captures BOTH sides without speaker. Needs no extra
- *    permission to *try*; where the HAL refuses it throws and we fall through
- *    to mic-side sources. Android 10+ blocks it for non-system apps
- *    (CAPTURE_AUDIO_OUTPUT, system-only), so it is skipped there to save time.
- *  - Everywhere else: mic-side sources (MIC → VOICE_COMMUNICATION →
- *    VOICE_RECOGNITION → CAMCORDER) + AUTO-SPEAKER assist — the manager turns
- *    speakerphone on while recording so the other side bleeds into the mic.
- *    Restored on stop. Without speaker only your side is audible (OS limit).
+ *  - VOICE_CALL first on EVERY Android version — the attempt is cheap where
+ *    the HAL refuses it, and on restriction-free devices (many Android 9-,
+ *    plus permissive 10+ OEM builds) it captures BOTH sides cleanly with no
+ *    speaker. No extra permission is needed to *try* it.
+ *  - Then mic-side sources (MIC → VOICE_COMMUNICATION → VOICE_RECOGNITION →
+ *    CAMCORDER) + AUTO-SPEAKER assist — the manager turns speakerphone on
+ *    while recording so the other side bleeds into the mic. Restored on stop.
+ *    Without speaker only your side is audible (OS limit).
+ *  The last working source is remembered per device and tried first.
  *
  * Recommended flow stays: 🎙 Record FIRST, then dial — mid-call starts often
  * find the mic held by telephony. Files stay app-private until the agent
@@ -32,6 +32,8 @@ object CallRecordingManager {
 
     const val MIME_TYPE = "audio/mp4"
     const val FILE_EXT = "m4a"
+    private const val PREFS_NAME = "call_recording"
+    private const val KEY_LAST_SOURCE = "last_source"
     private const val MAX_DURATION_MS = 10 * 60 * 1000
     private const val MAX_FILE_BYTES = 10L * 1024 * 1024
 
@@ -90,8 +92,13 @@ object CallRecordingManager {
      * recording (caller should stop first) or when setup fails on every
      * source (typical cause: an active call holding the mic).
      *
-     * Source order: Android 9- tries VOICE_CALL (both sides) first, then
-     * mic-side fallbacks; Android 10+ goes straight to mic-side + auto-speaker.
+     * Source order: VOICE_CALL (both sides) is ALWAYS tried first on every
+     * API level — the prepare attempt is cheap when the HAL refuses it, and
+     * on restriction-free devices (many Android 9-, plus permissive
+     * 10+ OEM builds) it captures both sides cleanly with no speaker needed.
+     * Then mic-side fallbacks + auto-speaker. The last working source is
+     * remembered per device and tried first next time (faster start, fewer
+     * failed prepares).
      */
     @Synchronized
     fun start(context: Context, consignmentId: String): Boolean {
@@ -99,20 +106,20 @@ object CallRecordingManager {
         val appCtx = context.applicationContext
         val inCall = isCallActive(appCtx)
         val file = File(dir(appCtx), "${safe(consignmentId)}_${System.currentTimeMillis()}.$FILE_EXT")
-        val sources = mutableListOf<Pair<Int, String>>()
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-            // Android 9 and below: many OEMs still allow both-side capture here.
-            sources += MediaRecorder.AudioSource.VOICE_CALL to "VOICE_CALL"
-        }
-        // Mic-side fallbacks (mid-call the telephony stack often holds MIC
-        // exclusively — on some HALs one of the alternates still wins).
-        // VOICE_CALL deliberately absent on 10+: system-only, always throws.
-        sources += listOf(
+        val prefs = appCtx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val preferred = prefs.getString(KEY_LAST_SOURCE, null)
+        val chain = mutableListOf(
+            // Both-side where the device allows it (see class doc).
+            MediaRecorder.AudioSource.VOICE_CALL to "VOICE_CALL",
+            // Mic-side fallbacks (mid-call the telephony stack often holds MIC
+            // exclusively — on some HALs one of the alternates still wins).
             MediaRecorder.AudioSource.MIC to "MIC",
             MediaRecorder.AudioSource.VOICE_COMMUNICATION to "VOICE_COMMUNICATION",
             MediaRecorder.AudioSource.VOICE_RECOGNITION to "VOICE_RECOGNITION",
             MediaRecorder.AudioSource.CAMCORDER to "CAMCORDER",
         )
+        val sources = (preferred?.let { want -> chain.filter { it.second == want } } ?: emptyList()) +
+            chain.filter { it.second != preferred }
         var lastError = ""
         for ((source, name) in sources) {
             var rec: MediaRecorder? = null
@@ -153,6 +160,9 @@ object CallRecordingManager {
                     didAutoSpeaker = enableSpeakerAssist(appCtx)
                 }
                 CallRecordingStore.onStarted(consignmentId, file.absolutePath, startMs)
+                try {
+                    prefs.edit().putString(KEY_LAST_SOURCE, name).apply()
+                } catch (_: Exception) {}
                 FirebaseErrorLogger.log("CallRecording", "start_ok",
                     "source=$name bothSide=${name == "VOICE_CALL"} speaker=$didAutoSpeaker inCall=$inCall",
                     mapOf("source" to name))

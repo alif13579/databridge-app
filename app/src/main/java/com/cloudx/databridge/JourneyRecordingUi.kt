@@ -387,6 +387,118 @@ object JourneyRecordingUi {
             .show()
     }
 
+    // ── Auto call recording (Call-button press → record → auto-upload) ──
+
+    private const val AUTO_CALL_END_TIMEOUT_MS = 2 * 60 * 60 * 1000L
+    private const val AUTO_DIAL_GRACE_MS = 3 * 60 * 1000L
+
+    /**
+     * Starts recording right after a parcel-card Call press and uploads it
+     * when the call ends — no review dialog (the agent asked for it).
+     *
+     * Guards (all silent except noted, dial itself is never blocked):
+     *  - another/an Uncertain recording already running → skip (don't disturb)
+     *  - RECORD_AUDIO not granted → skip (dial continues; onboarding asks it)
+     *  - start fails (mid-call mic held) → one warning toast, call continues
+     *  - call never starts (dial cancelled, ≤3 min no telephony) → recording
+     *    kept on device for later 🎙 review, never silently discarded
+     *  - 2h+ call / phone-state permission missing → recording stays on,
+     *    agent stops from 🎙/notification and uploads via review as usual
+     *  - <2s captures are discarded as junk (instant-cut calls)
+     */
+    fun startAutoCallRecording(
+        fragment: Fragment,
+        scope: LifecycleCoroutineScope,
+        consignmentId: String,
+        branchId: String,
+        authorSystemId: String,
+        source: String,
+        onUploaded: () -> Unit = {},
+    ) {
+        val appCtx = try {
+            fragment.requireContext().applicationContext
+        } catch (_: Exception) {
+            return
+        }
+        scope.launch {
+            if (CallRecordingStore.recording) return@launch // manual/other auto running
+            if (!hasAudioPermission(fragment)) return@launch // dial-only
+            CallRecordService.start(appCtx, consignmentId)
+            delay(800)
+            if (!CallRecordingStore.recording || CallRecordingStore.consignmentId != consignmentId) {
+                try {
+                    Toast.makeText(appCtx, "⚠ Auto-record couldn't start (mic busy) — call continues", Toast.LENGTH_LONG).show()
+                } catch (_: Exception) {}
+                return@launch
+            }
+            try {
+                Toast.makeText(appCtx, "⏺ Auto-recording… call শেষে auto-upload হবে", Toast.LENGTH_LONG).show()
+            } catch (_: Exception) {}
+            // Silence check while the call is up (blocked-mic warning only).
+            if (CallRecordingManager.isCallActive(appCtx)) {
+                var heard = false
+                for (i in 0 until 4) {
+                    delay(1000)
+                    if (!CallRecordingStore.recording || CallRecordingStore.consignmentId != consignmentId) return@launch
+                    if (CallRecordingManager.maxAmplitude() > 0) { heard = true; break }
+                }
+                if (!heard && CallRecordingStore.recording) {
+                    try {
+                        Toast.makeText(
+                            appCtx,
+                            "⚠ Mic blocked মনে হচ্ছে — speakerphone ON করে দেখুন",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    } catch (_: Exception) {}
+                }
+            }
+            // Watch for the real call end (telephony, not screen focus).
+            val startMs = System.currentTimeMillis()
+            var inCallSeen = CallRecordingManager.isCallActive(appCtx)
+            var ended = false
+            while (System.currentTimeMillis() - startMs < AUTO_CALL_END_TIMEOUT_MS) {
+                if (!CallRecordingStore.recording || CallRecordingStore.consignmentId != consignmentId) return@launch // stopped externally
+                if (CallRecordingManager.isCallActive(appCtx)) inCallSeen = true
+                try {
+                    if (CallStateWatcher.awaitCallEnd(appCtx, 20_000)) { ended = true; break }
+                } catch (_: Exception) {}
+                if (!inCallSeen && System.currentTimeMillis() - startMs > AUTO_DIAL_GRACE_MS) break // dial never went through
+            }
+            if (!CallRecordingStore.recording || CallRecordingStore.consignmentId != consignmentId) return@launch
+            if (!ended && !inCallSeen) {
+                // Dial cancelled / failed — keep the file for 🎙 review, don't trash it.
+                CallRecordService.stop(appCtx)
+                try {
+                    Toast.makeText(appCtx, "Call হয়নি — recording রাখা আছে, 🎙 থেকে review করুন", Toast.LENGTH_LONG).show()
+                } catch (_: Exception) {}
+                return@launch
+            }
+            if (!ended) {
+                try {
+                    Toast.makeText(appCtx, "Recording চলছে — শেষে 🎙 থেকে stop করে upload করুন", Toast.LENGTH_LONG).show()
+                } catch (_: Exception) {}
+                return@launch
+            }
+            // Call ended → stop + upload, no review step (as asked).
+            CallRecordService.stop(appCtx)
+            delay(900)
+            val file = CallRecordingManager.pendingFile(appCtx, consignmentId)
+            if (file == null) {
+                try { Toast.makeText(appCtx, "No audio captured", Toast.LENGTH_SHORT).show() } catch (_: Exception) {}
+                return@launch
+            }
+            if (audioDurationSec(file) < 2) {
+                CallRecordingManager.discard(file)
+                try { Toast.makeText(appCtx, "Too short — recording discarded", Toast.LENGTH_SHORT).show() } catch (_: Exception) {}
+                return@launch
+            }
+            try {
+                val ok = performUpload(fragment, file, consignmentId, branchId, authorSystemId, source)
+                if (ok) { try { onUploaded() } catch (_: Exception) {} }
+            } catch (_: Exception) {}
+        }
+    }
+
     // ── Control dialog (pause / resume / stop) ─────────────────────────
 
     private fun controlTitle(consignmentId: String): String {
